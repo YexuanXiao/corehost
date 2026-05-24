@@ -1,0 +1,12 @@
+[submodule "third_parties/cstring_view"]
+	path = third_parties/cstring_view
+	url = https://github.com/bemanproject/cstring_view.git
+[submodule "third_parties/utf_view"]
+	path = third_parties/utf_view
+	url = https://github.com/bemanproject/utf_view.git
+[submodule "third_parties/deque"]
+	path = third_parties/deque
+	url = https://github.com/YexuanXiao/deque.git
+[submodule "third_parties/libunicode"]
+	path = third_parties/libunicode
+	url = https://github.com/contour-terminal/libunicode.git

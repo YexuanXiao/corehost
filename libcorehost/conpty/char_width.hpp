@@ -1,0 +1,223 @@
+// ── conpty/char_width.hpp ──────────────────────────
+// 字符宽度计算 (char32_t 版本，支持 grapheme cluster)
+//
+// 三种文本测量模式:
+//   console   — 简化 CJK/全角判断 (char32_t 范围)
+//   wcswidth  — libunicode::width(char32_t) (wcwidth 等效)
+//   graphemes — libunicode::grapheme_cluster_width() (含 emoji VS16/VS15)
+//
+// 与 conpty/char_width.hpp 的区别:
+//   - 输入为 char32_t 而非 wchar_t
+//   - graphemes 模式在段级别计算总宽度（不是逐码点）
+//   - CJK 范围扩展至完整 Unicode 区域
+#pragma once
+#include <cstdint>
+#include <string_view>
+#include <array>
+#include "../third_parties/libunicode/src/libunicode/width.h"
+#include "../third_parties/libunicode/src/libunicode/grapheme_segmenter.h"
+#include "../third_parties/libunicode/src/libunicode/codepoint_properties.h"
+#include "text_measurement_mode.hpp"
+
+namespace conpty
+{
+
+// ── console 模式: 简化 CJK/全角判断 ──────────────────
+// 对标原始 conhost 中的 IsGlyphFullWidth 逻辑
+// 注意: 控制字符与 tab 由调用方处理
+inline int char_width_console(char32_t cp) noexcept
+{
+    // 控制字符（含 DEL）
+    if (cp < 0x20)
+        return 0;
+    if (cp == 0x7F)
+        return 0;
+    // 软连字符 (SHY)
+    if (cp == 0x00AD)
+        return 0;
+
+    // ── 零宽字符 ──
+    // ZWJ (U+200D), ZWNJ (U+200C), ZWSP (U+200B), BOM (U+FEFF)
+    if (cp == 0x200B || cp == 0x200C || cp == 0x200D || cp == 0xFEFF)
+        return 0;
+    // 组合字符 (Combining Marks)
+    if (cp >= 0x0300 && cp <= 0x036F)
+        return 0; // Combining Diacritical Marks
+    if (cp >= 0x1AB0 && cp <= 0x1AFF)
+        return 0;
+    if (cp >= 0x1DC0 && cp <= 0x1DFF)
+        return 0;
+    if (cp >= 0x20D0 && cp <= 0x20FF)
+        return 0;
+    if (cp >= 0xFE20 && cp <= 0xFE2F)
+        return 0;
+    if (cp >= 0xFE00 && cp <= 0xFE0F)
+        return 0; // Variation Selectors
+    if (cp >= 0xE0100 && cp <= 0xE01EF)
+        return 0;
+
+    // ── 宽字符范围（双列） ──
+    // CJK 统一表意文字 (U+4E00–U+9FFF)
+    if (cp >= 0x4E00 && cp <= 0x9FFF)
+        return 2;
+    // CJK 扩展 A (U+3400–U+4DBF)
+    if (cp >= 0x3400 && cp <= 0x4DBF)
+        return 2;
+    // CJK 扩展 B–G (U+20000–U+3134F)
+    if (cp >= 0x20000 && cp <= 0x3134F)
+        return 2;
+    // CJK 兼容表意文字 (U+F900–U+FAFF)
+    if (cp >= 0xF900 && cp <= 0xFAFF)
+        return 2;
+    // CJK 兼容补充 (U+2F800–U+2FA1F)
+    if (cp >= 0x2F800 && cp <= 0x2FA1F)
+        return 2;
+    // 全角形式 (U+FF01–U+FF60, U+FFE0–U+FFE6)
+    if (cp >= 0xFF01 && cp <= 0xFF60)
+        return 2;
+    if (cp >= 0xFFE0 && cp <= 0xFFE6)
+        return 2;
+    // 日文平假名 (U+3040–U+309F)
+    if (cp >= 0x3040 && cp <= 0x309F)
+        return 2;
+    // 日文片假名 (U+30A0–U+30FF)
+    if (cp >= 0x30A0 && cp <= 0x30FF)
+        return 2;
+    // 日文片假名扩展 (U+31F0–U+31FF)
+    if (cp >= 0x31F0 && cp <= 0x31FF)
+        return 2;
+    // 韩文音节 (U+AC00–U+D7AF)
+    if (cp >= 0xAC00 && cp <= 0xD7AF)
+        return 2;
+    // 韩文兼容字母 (U+3130–U+318F)
+    if (cp >= 0x3130 && cp <= 0x318F)
+        return 2;
+    // 中文标点 (U+3000–U+303F)
+    if (cp >= 0x3000 && cp <= 0x303F)
+        return 2;
+    // 中日韩符号和标点 (U+3200–U+33FF)
+    if (cp >= 0x3200 && cp <= 0x33FF)
+        return 2;
+    // 半角/全角形式补充
+    if (cp >= 0x2E80 && cp <= 0x2FDF)
+        return 2; // CJK 部首补充
+    if (cp >= 0x31C0 && cp <= 0x31EF)
+        return 2; // CJK 笔画
+    // 表情符号/emoji 范围（宽字符）
+    if (cp >= 0x1F000 && cp <= 0x1FFFF)
+        return 2; // Emoticons, Symbols, etc.
+    if (cp >= 0x2600 && cp <= 0x27BF && cp != 0x263A && cp != 0x263B)
+        return 2; // Misc Symbols (部分)
+
+    // ── 框线字符（单列） ──
+    if (cp >= 0x2500 && cp <= 0x257F)
+        return 1;
+
+    return 1;
+}
+
+// ── wcswidth 模式: libunicode::width ─────────────────
+inline int char_width_wcswidth(char32_t cp, bool ambiguous_is_wide = false) noexcept
+{
+    if (cp < 0x20)
+        return 0;
+    if (cp == 0x7F)
+        return 0;
+    // ambiguous_is_wide: 对标原始 conhost --ambiguousIsWide
+    // libunicode::width() 将 EAW=Ambiguous 永远计为 1
+    // 需要额外查询 EAW 属性来判断
+    if (ambiguous_is_wide)
+    {
+        auto props = unicode::codepoint_properties::get(cp);
+        if (props.east_asian_width == unicode::East_Asian_Width::Ambiguous)
+            return 2;
+    }
+    return static_cast<int>(unicode::width(cp));
+}
+
+// ── graphemes 模式: 段级别总宽度 ─────────────────────
+
+inline int char_width_unicode(char32_t cp, bool ambiguous_is_wide = false) noexcept
+{
+    if (ambiguous_is_wide)
+    {
+        auto props = unicode::codepoint_properties::get(cp);
+        if (props.east_asian_width == unicode::East_Asian_Width::Ambiguous)
+            return 2;
+    }
+    return static_cast<int>(unicode::width(cp));
+}
+
+// 单 grapheme cluster 的宽度 (调用方负责分段)
+inline int grapheme_cluster_width_u32(std::u32string_view cluster, bool ambiguous_is_wide = false) noexcept
+{
+    if (cluster.empty())
+        return 0;
+    int width = 0;
+    for (char32_t cp : cluster)
+    {
+        int w = char_width_unicode(cp, ambiguous_is_wide);
+        // 对标原始 CodepointWidthDetector::_graphemeNext:
+        // VS16 会把 emoji presentation 强制为宽字符，最终 cluster 宽度再 clamp 到 2。
+        if (cp == 0xFE0F)
+            w = 2;
+        width += w;
+    }
+    return width > 2 ? 2 : width;
+}
+
+// char32_t 文本段的总宽度
+// 使用 grapheme_segmenter 分段，然后逐 cluster 调用 grapheme_cluster_width
+inline int grapheme_text_width(std::u32string_view text, bool ambiguous_is_wide = false) noexcept
+{
+    if (text.empty())
+        return 0;
+    int total = 0;
+    for (auto seg = unicode::grapheme_segmenter{text}; seg; ++seg)
+        total += grapheme_cluster_width_u32(*seg, ambiguous_is_wide);
+    return total;
+}
+
+// ── 统一入口 ─────────────────────────────────────────
+
+// 单码点宽度（非 graphemes 模式）
+inline int char_width_for_mode(char32_t cp, text_measurement_mode mode, bool ambiguous_is_wide = false) noexcept
+{
+    switch (mode)
+    {
+    case text_measurement_mode::wcswidth:
+        return char_width_wcswidth(cp, ambiguous_is_wide);
+    case text_measurement_mode::graphemes:
+        // graphemes 模式: 单码点用 width() 作为近似
+        return char_width_unicode(cp, ambiguous_is_wide);
+    case text_measurement_mode::console:
+    default:
+        return char_width_console(cp);
+    }
+}
+
+// 文本段总宽度 (graphemes 模式使用 grapheme 分段)
+inline int text_width_for_mode(std::u32string_view text, text_measurement_mode mode,
+                               bool ambiguous_is_wide = false) noexcept
+{
+    switch (mode)
+    {
+    case text_measurement_mode::graphemes:
+        return grapheme_text_width(text, ambiguous_is_wide);
+    case text_measurement_mode::wcswidth: {
+        int total = 0;
+        for (char32_t cp : text)
+            total += char_width_wcswidth(cp, ambiguous_is_wide);
+        return total;
+    }
+    case text_measurement_mode::console:
+    default: {
+        int total = 0;
+        for (char32_t cp : text)
+            total += char_width_console(cp);
+        return total;
+    }
+    }
+}
+
+} // namespace conpty
