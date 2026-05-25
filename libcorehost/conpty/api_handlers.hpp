@@ -310,22 +310,6 @@ inline bool api_deprecated_l1(miniio::io_msg &msg, console_state &, screen_buffe
 // L2 API helpers
 // ════════════════════════════════════════════════════════
 
-// 计算对客户端公开的有效格式化宽度。
-// WT 的字符网格列数（如 120）对应纯 ASCII 文本的最大可容纳列数，
-// 但 ConPTY 模式下 clients（如 PowerShell）按此宽度预格式化的输出
-// 可能因终端字体/渲染差异在 WT 中溢出到下一行。
-// 对每个需要跨行预格式化的 client，预留 1 列安全边界。
-// 原始 OpenConsole 的策略等价：defterm/headless 路径传入的 --width
-// 由 ControlCore::Initialize 通过像素宽度计算，自然减小了约 1 列。
-inline SHORT effective_formatting_width(SHORT physical_width, const console_state &state) noexcept
-{
-    if (state.text_measurement == text_measurement_mode::graphemes && state.ambiguous_is_wide)
-    {
-        return physical_width > 1 ? physical_width - 1 : physical_width;
-    }
-    return physical_width;
-}
-
 // ════════════════════════════════════════════════════════
 // L2 API handlers
 // ════════════════════════════════════════════════════════
@@ -366,8 +350,8 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
     bool is_fullscreen_space =
         (r->ElementType != CONSOLE_ATTRIBUTE && r->WriteCoord.X == 0 && r->WriteCoord.Y == 0 &&
          static_cast<wchar_t>(r->Element) == L' ' &&
-         orig_length >= static_cast<ULONG>(effective_formatting_width(state.screen_buffer_size.X, state) *
-                                           state.screen_buffer_size.Y));
+         orig_length >= static_cast<ULONG>(state.screen_buffer_size.X) *
+                             static_cast<ULONG>(state.screen_buffer_size.Y));
 
     if (bridge && bridge->vt_out.valid())
     {
@@ -505,15 +489,12 @@ inline bool api_get_sb_info(miniio::io_msg &msg, console_state &state, screen_bu
     if (state.cursor_position_dirty)
         state.cursor_position_dirty = false;
     r->Size = state.screen_buffer_size;
-    r->Size.X = effective_formatting_width(r->Size.X, state);
     r->CursorPosition = state.cursor.position;
     r->ScrollPosition.X = 0;
     r->ScrollPosition.Y = 0;
     r->Attributes = state.default_attributes;
     r->CurrentWindowSize = state.current_window_size;
-    r->CurrentWindowSize.X = effective_formatting_width(r->CurrentWindowSize.X, state);
     r->MaximumWindowSize = state.max_window_size;
-    r->MaximumWindowSize.X = effective_formatting_width(r->MaximumWindowSize.X, state);
     r->PopupAttributes = state.popup_attributes;
     r->FullscreenSupported = FALSE;
     std::memcpy(r->ColorTable, state.color_table, sizeof(state.color_table));

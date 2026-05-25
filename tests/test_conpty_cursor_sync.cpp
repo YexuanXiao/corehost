@@ -1789,81 +1789,6 @@ bool test_clear_full_pipeline_prompt_on_row_0()
     return true;
 }
 
-// ── BUG #3 测试: effective_formatting_width 导致 Clear 失效 ──
-// 回归背景（2026-05-24）：
-//   BUG: 引入 effective_formatting_width(-1) 后，api_fill_output 的
-//   is_fullscreen_space 检测使用 screen_buffer_size.X(120) 计算阈值，
-//   但 PowerShell 按 CSBI 返回的有效宽度(119)填充 → 3570 >= 3600 失败，
-//   ED2 清屏序列未发送。
-//   修正: is_fullscreen_space 改用 effective_formatting_width * height。
-//
-// 本测试验证:
-//   1. effective_formatting_width(120) = 119
-//   2. is_fullscreen_space 条件: origin (0,0) + space char + length >= effective_w * h
-//   3. PowerShell 按真实宽度填充 3600 仍应被检测为全屏清空
-bool test_fullscreen_space_detect_respects_effective_width()
-{
-    // ── 场景: 120x30 终端, graphemes + ambiguous ──
-    console_state state;
-    state.screen_buffer_size = {120, 30};
-    state.text_measurement = text_measurement_mode::graphemes;
-    state.ambiguous_is_wide = true;
-
-    // 验证 effective_formatting_width 返回 119
-    SHORT eff_w = effective_formatting_width(state.screen_buffer_size.X, state);
-    ASSERT_EQ(eff_w, 119);
-
-    // 计算 is_fullscreen_space 的阈值
-    ULONG fullscreen_threshold = static_cast<ULONG>(eff_w * state.screen_buffer_size.Y);
-    ASSERT_EQ(fullscreen_threshold, 3570u);
-
-    // PowerShell 按 CSBI 报告的宽度(119) × 30 = 3570 填充 → 应检测到
-    ASSERT(fullscreen_threshold >= 3570u);
-
-    // PowerShell 按真实宽度 120 × 30 = 3600 填充 → 也应检测到
-    ULONG real_fill_length = 120u * 30u; // = 3600
-    ASSERT(real_fill_length >= fullscreen_threshold);
-
-    return true;
-}
-
-// ── BUG #3 补充: 不同终端宽度下全屏检测均有效 ──
-bool test_fullscreen_detect_various_widths()
-{
-    struct TestCase
-    {
-        SHORT w;
-        SHORT h;
-        SHORT eff_w;
-        ULONG fill_len;
-        bool expect;
-    };
-    TestCase cases[] = {
-        {120, 30, 119, 3570, true},  // PS 按有效宽度填(119*30)
-        {120, 30, 119, 3600, true},  // PS 按真实宽度填(120*30)
-        {80, 25, 79, 1975, true},    // PS 按有效宽度填(79*25)
-        {80, 25, 79, 2000, true},    // PS 按真实宽度填(80*25)
-        {120, 30, 119, 3569, false}, // 小 1 格不应触发
-        {40, 10, 39, 390, true},     // PS 按真实宽度填(40*10)
-        {40, 10, 39, 389, false},    // 小 1 格不应触发
-    };
-
-    for (auto &tc : cases)
-    {
-        console_state state;
-        state.screen_buffer_size = {tc.w, tc.h};
-        state.text_measurement = text_measurement_mode::graphemes;
-        state.ambiguous_is_wide = true;
-
-        SHORT eff_w = effective_formatting_width(tc.w, state);
-        ASSERT_EQ(eff_w, tc.eff_w);
-
-        ULONG threshold = static_cast<ULONG>(eff_w * tc.h);
-        bool detected = tc.fill_len >= threshold;
-        ASSERT_EQ(detected, tc.expect);
-    }
-    return true;
-}
 // 回归：批量 echo 优化后 echo 追加到 _vt_buf，但遗漏 vt_flush 导致字符滞留。
 // 本测试验证每次 test_feed_raw_bytes 后 _vt_buf 已被排空。
 bool test_echo_flushed_after_each_batch()
@@ -1884,32 +1809,6 @@ bool test_echo_flushed_after_each_batch()
     bridge.test_feed_raw_bytes(enter.data(), static_cast<DWORD>(enter.size()));
     ASSERT(bridge.test_line_found() == true);
     ASSERT(bridge.test_vt_buf_len() == 0);
-    return true;
-}
-
-// ── BUG #4 回归: api_get_sb_info 必须保留 effective_formatting_width ──
-// 回归背景（2026-05-24）：
-//   BUG: 修复"如果包括路径，"空行问题时，误将 api_get_sb_info 中的
-//   effective_formatting_width(-1) 移除，导致 CSBI 返回 120 而非 119。
-//   WT 渲染器像素偏大，PowerShell 按 120 排版 → 文本溢出到下一行，
-//   破坏 WT 兼容性。
-//   修复: CSBI 保留 effective_formatting_width，仅移除 api_write_console
-//   中的初始/最终 CUP。
-bool test_csbi_preserves_effective_width_for_wt_compat()
-{
-    console_state state;
-    state.screen_buffer_size = {120, 30};
-    state.current_window_size = {120, 30};
-    state.max_window_size = {120, 40};
-    state.text_measurement = text_measurement_mode::graphemes;
-    state.ambiguous_is_wide = true;
-
-    // 验证 effective_formatting_width 仍在 -1
-    ASSERT_EQ(effective_formatting_width(120, state), 119);
-    ASSERT_EQ(effective_formatting_width(80, state), 79);
-
-    // CSBI 返回的 Size.X / Win.X / Max.X 应为 119（通过 effective_formatting_width）
-    // 此逻辑在 api_get_sb_info 中，仅验证函数本身不退化
     return true;
 }
 
@@ -2057,12 +1956,7 @@ int main()
     std::wcout << L"\nEcho Flush Regression :\n";
     RUN_TEST(test_echo_flushed_after_each_batch, L"Echo flushed each batch");
 
-    std::wcout << L"\nEffective Width + Fullscreen Clear Regression :\n";
-    RUN_TEST(test_fullscreen_space_detect_respects_effective_width, L"Fullscreen space respects effective width");
-    RUN_TEST(test_fullscreen_detect_various_widths, L"Fullscreen detect various widths");
-
-    std::wcout << L"\nCSBI & WriteConsole CUP Regression :\n";
-    RUN_TEST(test_csbi_preserves_effective_width_for_wt_compat, L"CSBI preserves effective width");
+    std::wcout << L"\nWriteConsole CUP Regression :\n";
     RUN_TEST(test_write_console_does_not_emit_final_cup, L"WriteConsole no final CUP");
 
     std::wcout << L"\nTotal: " << (tests_passed + tests_failed) << L" | Passed: " << tests_passed << L" | Failed: "

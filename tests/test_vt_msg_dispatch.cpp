@@ -846,40 +846,6 @@ bool test_ps_error_msg_width_diag()
 }
 
 // ==================================================================
-// effective_formatting_width 回归测试
-// 回归背景（2026-05-24）：
-//   BUG: effective_formatting_width(-1) 导致 PowerShell clear 失效。
-//   根因: api_fill_output 的 is_fullscreen_space 使用 state.screen_buffer_size.X(120)
-//   而非 effective_formatting_width(119) 计算阈值 → 3600≥3600 vs 3570≥3600 的误判。
-//   修正: is_fullscreen_space 使用 effective_formatting_width * height 作为阈值。
-// ==================================================================
-bool test_effective_width_reduces_by_one()
-{
-    // 标准模式下 direct_passthrough -> physical_width - 1
-    console_state state;
-    state.text_measurement = text_measurement_mode::graphemes;
-    state.ambiguous_is_wide = true;
-    ASSERT_EQ(effective_formatting_width(120, state), 119);
-    ASSERT_EQ(effective_formatting_width(80, state), 79);
-    // 极小值不下溢
-    ASSERT_EQ(effective_formatting_width(1, state), 1);
-    ASSERT_EQ(effective_formatting_width(2, state), 1);
-    ASSERT_EQ(effective_formatting_width(0, state), 0);
-    return true;
-}
-
-bool test_effective_width_preserves_console_mode()
-{
-    // console 模式不受影响 — 没有 ambiguous_is_wide → 不减
-    console_state state;
-    state.text_measurement = text_measurement_mode::console;
-    state.ambiguous_is_wide = false;
-    ASSERT_EQ(effective_formatting_width(120, state), 120);
-    ASSERT_EQ(effective_formatting_width(80, state), 80);
-    return true;
-}
-
-// ==================================================================
 // api_write_console CUP 移除回归测试
 // 回归背景（2026-05-24）：
 //   BUG: PowerShell "wrong_command" 错误消息 "如果包括路径，" 后多余空行。
@@ -1080,10 +1046,6 @@ int main()
 
     std::wcout << L"\n=== PS error msg width diagnostics ===\n";
     RUN_TEST(test_ps_error_msg_width_diag, L"PS error msg width diagnostic");
-
-    std::wcout << L"\neffective_formatting_width Regression Tests:\n";
-    RUN_TEST(test_effective_width_reduces_by_one, L"Effective width reduces by 1");
-    RUN_TEST(test_effective_width_preserves_console_mode, L"Console mode unaffected");
 
     std::wcout << L"\napi_write_console CUP Removal Regression Tests:\n";
     RUN_TEST(test_text_newline_after_cjk_wrap_does_not_double_advance, L"CJK wrap+\\n single Y advance");
