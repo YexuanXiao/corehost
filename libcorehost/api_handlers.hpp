@@ -176,16 +176,6 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
 
         if (!u32s.empty())
         {
-            // ── 钳制光标到屏幕缓冲区范围内（防止 text 溢出导致越界）──
-            if (state.cursor.position.X < 0)
-                state.cursor.position.X = 0;
-            if (state.cursor.position.X >= state.screen_buffer_size.X)
-                state.cursor.position.X = state.screen_buffer_size.X - 1;
-            if (state.cursor.position.Y < 0)
-                state.cursor.position.Y = 0;
-            if (state.cursor.position.Y >= state.screen_buffer_size.Y)
-                state.cursor.position.Y = state.screen_buffer_size.Y - 1;
-
             // WriteConsole 必须使用 state.cursor.position —— cmd.exe 的
             // 文本输出（含 \r\n）依赖此位置。echo 过程中终端光标独立移动，
             // 但 CUP 会把终端光标拉回到 state 位置，保证后续 \r\n 正确换行。
