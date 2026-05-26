@@ -103,12 +103,10 @@ namespace defterm
     if (!msg.WindowVisible)
         return false;
 
-    // STARTF_USESHOWWINDOW 且 ShowWindow 为隐藏/最小化 -> 进程明确不想显示窗口。
+    // STARTF_USESHOWWINDOW 且 ShowWindow 为隐藏 -> 进程明确不想显示窗口。
     if (msg.StartupFlags & STARTF_USESHOWWINDOW)
     {
-        int show = msg.ShowWindow;
-        if (show == SW_HIDE || show == SW_SHOWMINIMIZED || show == SW_MINIMIZE || show == SW_SHOWMINNOACTIVE ||
-            show == SW_FORCEMINIMIZE)
+        if (msg.ShowWindow== SW_HIDE)
             return false;
     }
 

@@ -34,12 +34,8 @@ namespace comserver
 // 终端移交子流程
 // ============================================================================
 
-win32::wcstring_view read_connect_title(win32::handle_view server, PCCONSOLE_PORTABLE_ATTACH_MSG msg,
-                                        CONSOLE_SERVER_MSG &data)
+win32::wcstring_view read_connect_title(CONSOLE_SERVER_MSG &data)
 {
-    auto connect_msg = miniio::make_connect_msg(msg);
-    miniio::read_input(server, connect_msg, 0, &data, sizeof(data));
-
     if (data.TitleLength > sizeof(data.Title) - sizeof(WCHAR) || (data.TitleLength % sizeof(WCHAR)) != 0)
         return {};
 
@@ -57,7 +53,8 @@ win32::wcstring_view read_connect_title(win32::handle_view server, PCCONSOLE_POR
 //   second (wt_out) : WT 可写端，供 corehost 读取
 miniio::io_handles negotiate_terminal_pty(REFCLSID terminal_clsid, win32::handle_view signal_write,
                                           win32::handle_view ref_handle, win32::handle_view server_process,
-                                          win32::handle_view client_process, win32::wcstring_view startup_title)
+                                          win32::handle_view client_process, win32::wcstring_view startup_title,
+                                          WORD show_window)
 {
     LOG("negotiate_terminal_pty: clsid=%08X-%04X-%04X...", terminal_clsid.Data1, terminal_clsid.Data2,
         terminal_clsid.Data3);
@@ -70,11 +67,12 @@ miniio::io_handles negotiate_terminal_pty(REFCLSID terminal_clsid, win32::handle
                                   .dwXCountChars = 120,
                                   .dwYCountChars = 30,
                                   .dwFlags = STARTF_USECOUNTCHARS,
-                                  .wShowWindow = SW_SHOWDEFAULT};
+                                  .wShowWindow = show_window};
 
     win32::handle wt_in, wt_out;
-    LOG("negotiate_terminal_pty: EstablishPtyHandoff(title=%ls signal=%p ref=%p server=%p client=%p)",
-        startup_title.c_str(), signal_write.get(), ref_handle.get(), server_process.get(), client_process.get());
+    LOG("negotiate_terminal_pty: EstablishPtyHandoff(title=%ls showWindow=%u signal=%p ref=%p server=%p client=%p)",
+        startup_title.c_str(), show_window, signal_write.get(), ref_handle.get(), server_process.get(),
+        client_process.get());
 
     auto hr = terminal->EstablishPtyHandoff(wt_in.put(), wt_out.put(), signal_write.get(), ref_handle.get(),
                                             server_process.get(), client_process.get(), &startup);
@@ -111,9 +109,12 @@ void terminal_handoff(REFCLSID terminal_clsid, PCCONSOLE_PORTABLE_ATTACH_MSG msg
 
     // 2. 与 Windows Terminal 协商 PTY 句柄
     CONSOLE_SERVER_MSG data{};
-    auto startup_title = read_connect_title(dup_server, msg, data);
-    auto [wt_in, wt_out] =
-        negotiate_terminal_pty(terminal_clsid, signal_write, ref_handle, server_h.view(), client, startup_title);
+
+    auto connect_msg = miniio::make_connect_msg(msg);
+    miniio::read_input(dup_server, connect_msg, 0, &data, sizeof(data));
+    WORD show_window = (data.StartupFlags & STARTF_USESHOWWINDOW) ? data.ShowWindow : SW_SHOWDEFAULT;
+    auto [wt_in, wt_out] = negotiate_terminal_pty(terminal_clsid, signal_write, ref_handle, server_h.view(), client,
+                                                  read_connect_title(data), show_window);
 
     // 3. 建立 IO 连接（使用 dup_server，而非当前进程句柄）
     auto conn_handles = accept_io_connection(dup_server, msg);
