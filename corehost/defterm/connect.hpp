@@ -18,12 +18,27 @@
 #include "win32/event.hpp"
 #include "os/Console/condrv.h"
 #include "ntapi/condrv.hpp"
-#include "miniio/io_loop.hpp"
+#include "miniio/io_thread.hpp"
+#include "io_loop.hpp"
 #include "utility/env.hpp"
 #include "utility/log.hpp"
 
 namespace defterm
 {
+
+// 从 io_msg 提取便携连接消息（供 COM 接口使用）。
+inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const miniio::io_msg &msg)
+{
+    CONSOLE_PORTABLE_ATTACH_MSG p{};
+    p.IdLowPart = msg.descriptor.Identifier.LowPart;
+    p.IdHighPart = msg.descriptor.Identifier.HighPart;
+    p.Process = msg.descriptor.Process;
+    p.Object = msg.descriptor.Object;
+    p.Function = msg.descriptor.Function;
+    p.InputSize = msg.descriptor.InputSize;
+    p.OutputSize = msg.descriptor.OutputSize;
+    return p;
+}
 
 // 依次尝试全部候选终端
 //
@@ -104,7 +119,7 @@ namespace defterm
 
     // ── COM 移交 ──
     LOG("handle_connect: trying COM handoff");
-    if (try_handoff_all(server, ev, miniio::make_portable_attach_msg(msg), client_pid))
+    if (try_handoff_all(server, ev, make_portable_attach_msg(msg), client_pid))
     {
         LOG("handle_connect: handoff SUCCESS → exiting loop");
         return true; // 移交成功 -> 退出事件循环
@@ -122,7 +137,7 @@ namespace defterm
     return false;
 }
 
-// CONNECT 处理器（适配 miniio::run_io_loop 模板）
+// CONNECT 处理器（适配 defterm::run_io_loop 模板）
 struct connect_handler
 {
     bool initialized = false;
@@ -138,7 +153,7 @@ struct connect_handler
 
     bool on_message(miniio::io_msg &msg)
     {
-        miniio::dispatch_non_connect(server, msg, condrv_input, condrv_output);
+        dispatch_non_connect(server, msg, condrv_input, condrv_output);
         return true;
     }
 

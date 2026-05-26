@@ -7,7 +7,6 @@
 add_library(libcorehost STATIC
     conpty/conpty.cpp
     conpty/signal.cpp
-    miniio/signal.cpp
     ntapi/consolecontrol.cpp
     ntapi/consolenslmode.cpp
 )

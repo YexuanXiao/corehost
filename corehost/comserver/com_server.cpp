@@ -20,8 +20,7 @@
 #include "IConsoleHandoff.h"
 #include "ITerminalHandoff.h"
 #include "ntapi/condrv.hpp"
-#include "miniio/io_loop.hpp"
-#include "miniio/signal.hpp"
+#include "miniio/io_thread.hpp"
 #include "os/Console/conmsgl1.h"
 #include "win32/thread.hpp"
 #include "utility/log.hpp"
@@ -29,6 +28,39 @@
 
 namespace comserver
 {
+
+// ============================================================================
+// 本地 I/O 辅助函数（仅 comserver 使用）
+// ============================================================================
+
+// 从 COM 便携连接消息填充 io_msg 描述符（供 accept_connection 和 read_input 使用）。
+inline miniio::io_msg make_connect_msg(PCCONSOLE_PORTABLE_ATTACH_MSG msg)
+{
+    miniio::io_msg m{};
+    m.descriptor.Identifier.LowPart = msg->IdLowPart;
+    m.descriptor.Identifier.HighPart = msg->IdHighPart;
+    m.descriptor.Process = static_cast<decltype(m.descriptor.Process)>(msg->Process);
+    m.descriptor.Object = static_cast<decltype(m.descriptor.Object)>(msg->Object);
+    m.descriptor.Function = msg->Function;
+    m.descriptor.InputSize = msg->InputSize;
+    m.descriptor.OutputSize = msg->OutputSize;
+    return m;
+}
+
+// 读取指定 IO 的输入载荷。CONNECT 的 CONSOLE_SERVER_MSG 不一定在
+// read_io 的短包 body 中完整呈现，从驱动按 Identifier 重新取完整载荷。
+inline void read_input(win32::handle_view server, const miniio::io_msg &msg, ULONG offset, void *buffer, ULONG size)
+{
+    CD_IO_OPERATION op{};
+    op.Identifier = msg.descriptor.Identifier;
+    op.Buffer.Offset = offset;
+    op.Buffer.Data = buffer;
+    op.Buffer.Size = size;
+
+    DWORD r = 0;
+    if (!::DeviceIoControl(server.get(), miniio::IOCTL_READ_INPUT, &op, sizeof(op), nullptr, 0, &r, nullptr))
+        win32::throw_last_error();
+}
 
 // ============================================================================
 // 终端移交子流程
@@ -40,9 +72,9 @@ namespace comserver
 // 直接包含标题、ShowWindow 等 connect 输入载荷。
 CONSOLE_SERVER_MSG read_connect_message(win32::handle_view condrv_server, PCCONSOLE_PORTABLE_ATTACH_MSG attach_msg)
 {
-    auto connect_io = miniio::make_connect_msg(attach_msg);
+    auto connect_io = make_connect_msg(attach_msg);
     CONSOLE_SERVER_MSG connect_info{};
-    miniio::read_input(condrv_server, connect_io, 0, &connect_info, sizeof(connect_info));
+    read_input(condrv_server, connect_io, 0, &connect_info, sizeof(connect_info));
     return connect_info;
 }
 
@@ -113,7 +145,7 @@ void accept_condrv_connection(win32::handle_view condrv_server, PCCONSOLE_PORTAB
                               win32::handle &condrv_input, win32::handle &condrv_output)
 {
     LOG("accept_condrv_connection: calling accept_connection");
-    auto connect_io = miniio::make_connect_msg(attach_msg);
+    auto connect_io = make_connect_msg(attach_msg);
     miniio::accept_connection(condrv_server, connect_io, condrv_input, condrv_output);
     LOG("accept_condrv_connection: input=%p output=%p", condrv_input.get(), condrv_output.get());
 }

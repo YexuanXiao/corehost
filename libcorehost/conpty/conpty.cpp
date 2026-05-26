@@ -4,7 +4,7 @@
 #include "conpty.hpp"
 #include <memory>
 #include "win32/thread.hpp"
-#include "miniio/io_loop.hpp"
+#include "io_loop.hpp"
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
 #include "input_buffer.hpp"
@@ -117,7 +117,7 @@ void conpty_entry(win32::handle server, win32::handle event, win32::handle condr
 
     // ── 进入 I/O 循环 ──
     LOG("conpty::conpty_entry: entering io loop");
-    miniio::run_io_loop_no_setup(server.view(), event.view(), router);
+    conpty::run_io_loop_no_setup(server.view(), event.view(), router);
     LOG("conpty::conpty_entry: loop returned");
 }
 

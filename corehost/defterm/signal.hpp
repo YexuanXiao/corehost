@@ -1,4 +1,4 @@
-// ── miniio/signal.hpp ────────────────────────────────────
+// ── defterm/signal.hpp ────────────────────────────────────
 // Ctrl+C / Break / Close 信号管道监听
 //
 // COM 移交后, 按键事件 (Ctrl+C / Ctrl+Break / 关闭按钮) 实际发生在
@@ -18,7 +18,7 @@
 #include <windows.h>
 #include "win32/handle.hpp"
 
-namespace miniio
+namespace defterm
 {
 
 // ── 信号线程参数 ────────────────────────────────────────────
@@ -29,7 +29,7 @@ namespace miniio
 // ConDrv 断连 → read_io 返回 false → I/O 循环退出。
 struct signal_thread_params
 {
-    win32::handle pipe;  // 信号管道读端
+    win32::handle pipe; // 信号管道读端
 };
 
 // ── 信号线程过程 ────────────────────────────────────────────
@@ -38,4 +38,4 @@ struct signal_thread_params
 // param 指向 signal_thread_params，函数接管其所有权。
 DWORD WINAPI signal_thread_proc(LPVOID param);
 
-} // namespace miniio
+} // namespace defterm

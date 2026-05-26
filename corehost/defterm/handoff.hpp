@@ -27,14 +27,14 @@
 //   sw (信号管道写端) -> 转移给 WT，conhost 侧 clear() 放弃所有权
 //   our_proc (自身进程句柄) -> 转移给 WT
 //   client (WT 返回的进程句柄) -> conhost 拥有，Wait 后 clear() 关闭
-//   sr (信号管道读端) -> 转移到 miniio::signal_thread_params，线程结束时关闭
+//   sr (信号管道读端) -> 转移到 defterm::signal_thread_params，线程结束时关闭
 
 #pragma once
 #include <windows.h>
 #include <objbase.h>
 #include <memory>
 #include "com/com_ptr.hpp"
-#include "miniio/signal.hpp"
+#include "signal.hpp"
 #include "win32/handle.hpp"
 #include "win32/thread.hpp"
 #include "win32/error.hpp"
@@ -161,9 +161,9 @@ namespace defterm
     our_proc.clear();
 
     // 启动信号监听线程 (第一跳: inbox→corehost, 无需 vt_in)
-    auto tp = std::make_unique<miniio::signal_thread_params>(
-        miniio::signal_thread_params{std::move(sr)});
-    auto sig_thread = win32::basic_thread{miniio::signal_thread_proc, tp.release()};
+    auto tp = std::make_unique<defterm::signal_thread_params>(
+        defterm::signal_thread_params{std::move(sr)});
+    auto sig_thread = win32::basic_thread{defterm::signal_thread_proc, tp.release()};
 
     // 阻塞等待 WT 退出
     client.wait();

@@ -1,23 +1,16 @@
-// ── miniio/signal.cpp ────────────────────────────────────
-// 信号管道线程: 管道断开 → 关闭 vt_in → PeekNamedPipe 失败 → _vt_eof → 干净退出
+// ── defterm/signal.cpp ────────────────────────────────────
+// 信号管道线程: 管道断开 → 线程退出
 
 #include "signal.hpp"
 #include <memory>
+#include "miniio/io_thread.hpp"
 #include "ntapi/conwinuserrefs.h"
 #include "ntapi/consolecontrol.hpp"
 
-namespace miniio
+namespace defterm
 {
 
-bool read_exact(win32::handle_view p, void *b, DWORD s)
-{
-    DWORD r = 0;
-    if (!::ReadFile(p.get(), b, s, &r, nullptr))
-        return false;
-    return r == s;
-}
-
-bool skip_bytes(win32::handle_view p, DWORD n)
+static bool skip_bytes(win32::handle_view p, DWORD n)
 {
     BYTE buf[256];
     while (n)
@@ -39,7 +32,7 @@ DWORD WINAPI signal_thread_proc(LPVOID param)
     for (;;)
     {
         std::uint8_t code = 0;
-        if (!read_exact(hp.view(), &code, 1))
+        if (!miniio::read_exact(hp.view(), &code, 1))
         {
             break;
         }
@@ -48,7 +41,7 @@ DWORD WINAPI signal_thread_proc(LPVOID param)
         {
         case ConsoleNotifyConsoleApplication: {
             CONSOLENOTIFYAPPDATA d{};
-            if (!read_exact(hp.view(), &d, sizeof(d)))
+            if (!miniio::read_exact(hp.view(), &d, sizeof(d)))
                 return 1;
             if (d.dwSize > sizeof(d) && !skip_bytes(hp.view(), d.dwSize - sizeof(d)))
                 return 1;
@@ -60,7 +53,7 @@ DWORD WINAPI signal_thread_proc(LPVOID param)
             break;
         case ConsoleEndTask: {
             CONSOLEENDTASKDATA d{};
-            if (!read_exact(hp.view(), &d, sizeof(d)))
+            if (!miniio::read_exact(hp.view(), &d, sizeof(d)))
                 return 1;
             if (d.dwSize > sizeof(d) && !skip_bytes(hp.view(), d.dwSize - sizeof(d)))
                 return 1;
@@ -76,4 +69,4 @@ DWORD WINAPI signal_thread_proc(LPVOID param)
     return 0;
 }
 
-} // namespace miniio
+} // namespace defterm

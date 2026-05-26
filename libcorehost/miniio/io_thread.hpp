@@ -32,7 +32,6 @@
 #include "win32/string.hpp"
 #include "os/Console/condrv.h"
 #include "ntapi/condrv.hpp"
-#include "IConsoleHandoff.h"
 #include "utility/log.hpp"
 
 namespace miniio
@@ -85,39 +84,6 @@ inline void set_server_info(win32::handle_view server, win32::handle_view event)
     }
 }
 
-// ── read_io ────────────────────────────────────────────────
-// 对应原版 ConDrvDeviceComm::ReadIo (terminal/src/server/ConDrvDeviceComm.cpp:39-55)
-//
-//   原始: DeviceIoControl(IOCTL_CONDRV_READ_IO) → ERROR_IO_PENDING 时
-//         WaitForSingleObjectEx(server, 0, FALSE) — timeout=0 忙轮询, 不阻塞
-//         返回 S_OK, 上层 ConsoleIoThread 继续循环
-//
-// 返回 false → 客户端全部断开 (ERROR_PIPE_NOT_CONNECTED/BROKEN_PIPE/NO_DATA)
-inline bool read_io(win32::handle_view server, win32::handle_view event, CD_IO_COMPLETE *prev, io_msg &msg)
-{
-    std::memset(&msg.descriptor, 0, sizeof(msg.descriptor));
-    DWORD r = 0;
-    BOOL ok = ::DeviceIoControl(server.get(), IOCTL_READ_IO, prev, prev ? sizeof(CD_IO_COMPLETE) : 0, &msg.descriptor,
-                                sizeof(msg.descriptor) + sizeof(msg.body), &r, nullptr);
-    if (ok)
-    {
-        return true;
-    }
-
-    auto err = win32::get_last_error();
-    if (err == win32::error::io_pending)
-    {
-        ::WaitForSingleObject(event.get(), 0);
-        return true;
-    }
-    if (err == win32::error::pipe_not_connected || err == win32::error::broken_pipe || err == win32::error::no_data)
-    {
-        return false;
-    }
-    LOG("read_io: unexpected error %u", static_cast<unsigned>(err));
-    throw err;
-}
-
 inline read_io_result read_io_try(win32::handle_view server, CD_IO_COMPLETE *prev, io_msg &msg)
 {
     std::memset(&msg.descriptor, 0, sizeof(msg.descriptor));
@@ -135,26 +101,22 @@ inline read_io_result read_io_try(win32::handle_view server, CD_IO_COMPLETE *pre
     LOG("read_io_try: unexpected error %u", static_cast<unsigned>(err));
     throw err;
 }
+// ── read_exact ────────────────────────────────────────────
+// 从管道读取精确字节数。区别于 ReadFile 的"尽量读"语义，
+// 这里要求恰好 s 字节，否则返回 false（管道断开或数据不足）。
+// defterm::signal_thread_proc 和 conpty::pty_signal_thread_proc 共用。
+inline bool read_exact(win32::handle_view p, void *b, DWORD s)
+{
+    DWORD r = 0;
+    if (!::ReadFile(p.get(), b, s, &r, nullptr))
+        return false;
+    return r == s;
+}
+
 inline void complete_io(win32::handle_view server, CD_IO_COMPLETE &comp)
 {
     DWORD r = 0;
     if (!::DeviceIoControl(server.get(), IOCTL_COMPLETE_IO, &comp, sizeof(comp), nullptr, 0, &r, nullptr))
-        win32::throw_last_error();
-}
-
-// 读取指定 IO 的输入载荷。CONNECT 的 CONSOLE_SERVER_MSG 不一定在
-// read_io 的短包 body 中完整呈现，原版通过 ConDrvDeviceComm::ReadInput
-// 从驱动按 Identifier 重新取完整载荷。
-inline void read_input(win32::handle_view server, const io_msg &msg, ULONG offset, void *buffer, ULONG size)
-{
-    CD_IO_OPERATION op{};
-    op.Identifier = msg.descriptor.Identifier;
-    op.Buffer.Offset = offset;
-    op.Buffer.Data = buffer;
-    op.Buffer.Size = size;
-
-    DWORD r = 0;
-    if (!::DeviceIoControl(server.get(), IOCTL_READ_INPUT, &op, sizeof(op), nullptr, 0, &r, nullptr))
         win32::throw_last_error();
 }
 
@@ -177,34 +139,6 @@ inline CD_IO_COMPLETE &prepare_completion(io_msg &msg, LONG status = 0, ULONG_PT
     msg.complete.Write.Size = 0;
     msg.complete.Write.Offset = 0;
     return msg.complete;
-}
-
-// 从 io_msg 提取便携连接消息（供 COM 接口使用）。
-inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const io_msg &msg)
-{
-    CONSOLE_PORTABLE_ATTACH_MSG p{};
-    p.IdLowPart = msg.descriptor.Identifier.LowPart;
-    p.IdHighPart = msg.descriptor.Identifier.HighPart;
-    p.Process = msg.descriptor.Process;
-    p.Object = msg.descriptor.Object;
-    p.Function = msg.descriptor.Function;
-    p.InputSize = msg.descriptor.InputSize;
-    p.OutputSize = msg.descriptor.OutputSize;
-    return p;
-}
-
-// 从 COM 便携连接消息填充 io_msg 描述符（供 accept_connection 使用）。
-inline io_msg make_connect_msg(PCCONSOLE_PORTABLE_ATTACH_MSG msg)
-{
-    io_msg m{};
-    m.descriptor.Identifier.LowPart = msg->IdLowPart;
-    m.descriptor.Identifier.HighPart = msg->IdHighPart;
-    m.descriptor.Process = static_cast<decltype(m.descriptor.Process)>(msg->Process);
-    m.descriptor.Object = static_cast<decltype(m.descriptor.Object)>(msg->Object);
-    m.descriptor.Function = msg->Function;
-    m.descriptor.InputSize = msg->InputSize;
-    m.descriptor.OutputSize = msg->OutputSize;
-    return m;
 }
 
 // ── CONNECT 处理 ──────────────────────────────────────────
@@ -243,134 +177,5 @@ inline void accept_connection(win32::handle_view server, io_msg &msg, win32::han
 
     complete_io(server, msg.complete);
 }
-
-// ── 非 CONNECT 消息分派（mini console 模式） ─────────────
-//
-// 提供最小化控制台所需的 I/O 响应，使客户端进程能正常运行
-// 到结束而非卡死在 ReadConsole/WriteConsole。
-//
-//   DISCONNECT    — 客户端退出，释放 I/O 句柄
-//   CREATE_OBJECT — 创建 \Input / \Output 句柄
-//   CLOSE_OBJECT  — 关闭句柄，直接确认
-//   RAW_WRITE     — 丢弃数据但确认（防止客户端阻塞）
-//   RAW_READ      — 返回 0 字节 EOF
-//   USER_DEFINED  — 不支持，返回 STATUS_UNSUCCESSFUL
-//   RAW_FLUSH     — 直接确认
-inline void dispatch_non_connect(win32::handle_view server, io_msg &msg, win32::handle &input, win32::handle &output)
-{
-    switch (msg.descriptor.Function)
-    {
-    case 0:
-        break;
-    case CONSOLE_IO_CONNECT:
-        break;
-    case CONSOLE_IO_DISCONNECT:
-        input.clear();
-        output.clear();
-        prepare_completion(msg);
-        break;
-
-    case CONSOLE_IO_CREATE_OBJECT: {
-        auto *req = reinterpret_cast<CD_CREATE_OBJECT_INFORMATION *>(msg.body);
-        auto type = req->ObjectType;
-        if (type == CD_IO_OBJECT_TYPE_GENERIC)
-        {
-            if ((req->DesiredAccess & (GENERIC_READ | GENERIC_WRITE)) == GENERIC_READ)
-                type = CD_IO_OBJECT_TYPE_CURRENT_INPUT;
-            else if ((req->DesiredAccess & (GENERIC_READ | GENERIC_WRITE)) == GENERIC_WRITE)
-                type = CD_IO_OBJECT_TYPE_CURRENT_OUTPUT;
-        }
-
-        win32::handle new_handle;
-        switch (type)
-        {
-        case CD_IO_OBJECT_TYPE_CURRENT_INPUT:
-            new_handle = condrv::create_client_handle(server, L"\\Input");
-            break;
-        case CD_IO_OBJECT_TYPE_CURRENT_OUTPUT:
-        case CD_IO_OBJECT_TYPE_NEW_OUTPUT:
-            new_handle = condrv::create_client_handle(server, L"\\Output");
-            break;
-        default:
-            prepare_completion(msg, 0xC0000001 /*STATUS_UNSUCCESSFUL*/);
-            return;
-        }
-        prepare_completion(msg, 0, reinterpret_cast<ULONG_PTR>(new_handle.release()));
-        break;
-    }
-
-    case CONSOLE_IO_CLOSE_OBJECT:
-        prepare_completion(msg);
-        break;
-
-    case CONSOLE_IO_RAW_WRITE:
-        prepare_completion(msg, 0, msg.descriptor.InputSize);
-        break;
-
-    case CONSOLE_IO_RAW_READ:
-        prepare_completion(msg);
-        break;
-
-    case CONSOLE_IO_USER_DEFINED:
-        prepare_completion(msg, 0xC0000001 /*STATUS_UNSUCCESSFUL*/);
-        break;
-
-    case CONSOLE_IO_RAW_FLUSH:
-        prepare_completion(msg);
-        break;
-
-    default:
-        std::unreachable();
-    }
-}
-
-// ── passthrough_handler ──────────────────────────────────
-// 最简单的 I/O 处理器：接受所有 CONNECT，非 CONNECT 消息
-// 走 dispatch_non_connect。适用于不需要 COM 移交的
-// 纯 mini console 场景。
-//
-// defterm 不需要单独的 fallback_handler，是因为它的
-// connect_handler 在 handoff 失败时（handle_no_terminal /
-// handle_elevated_connect）已经做了 accept_connection +
-// GenerateConsoleCtrlEvent，然后返回 false 让 run_io_loop
-// 继续用 dispatch_non_connect 处理残余消息——fallback 是
-// 嵌入在正常流程中的，不需要额外 handler。
-//
-// comserver 则不同：COM 第二跳运行在 COM RPC 线程上，
-// 失败时不能"继续事件循环"（没有循环上下文），需要就地启动
-// 一个独立的 passthrough_handler 来服务 ConDrv 消息直到客户端
-// 断开。
-struct passthrough_handler
-{
-    win32::handle input;
-    win32::handle output;
-
-    bool on_connect(miniio::io_msg &msg)
-    {
-        miniio::accept_connection(server, msg, input, output);
-        return true;
-    }
-
-    bool on_message(miniio::io_msg &msg)
-    {
-        miniio::dispatch_non_connect(server, msg, input, output);
-        return true;
-    }
-
-    void on_idle()
-    {
-    } // no-op: passthrough 无需检查 PTY
-
-    bool has_pending() const
-    {
-        return false;
-    }
-    bool should_exit() const
-    {
-        return false;
-    }
-
-    win32::handle_view server;
-};
 
 } // namespace miniio

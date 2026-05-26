@@ -4,7 +4,7 @@
 // 与 conpty/message_router.hpp 相同 — 纯调度, 无文本编码。
 #pragma once
 #include <windows.h>
-#include "miniio/io_loop.hpp"
+#include "miniio/io_thread.hpp"
 #include "io_state.hpp"
 #include "pipe_bridge.hpp"
 #include "api_router.hpp"

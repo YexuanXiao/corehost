@@ -3,20 +3,13 @@
 #include "signal.hpp"
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
+#include "miniio/io_thread.hpp"
 #include "utility/log.hpp"
 #include <algorithm>
 #include <memory>
 
 namespace conpty
 {
-
-bool read_exact(win32::handle_view p, void *b, DWORD s)
-{
-    DWORD r = 0;
-    if (!::ReadFile(p.get(), b, s, &r, nullptr))
-        return false;
-    return r == s;
-}
 
 DWORD WINAPI pty_signal_thread_proc(LPVOID param)
 {
@@ -28,7 +21,7 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
     for (;;)
     {
         unsigned short sig = 0;
-        if (!read_exact(hp.view(), &sig, sizeof(sig)))
+        if (!miniio::read_exact(hp.view(), &sig, sizeof(sig)))
         {
             pp->vt_in.clear();
             if (pp->pipe_broken)
@@ -39,7 +32,7 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
         {
         case PtySignal::ShowHideWindow: {
             unsigned short show = 0;
-            if (!read_exact(hp.view(), &show, sizeof(show)))
+            if (!miniio::read_exact(hp.view(), &show, sizeof(show)))
                 return 1;
             break;
         }
@@ -50,13 +43,13 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
         case PtySignal::SetParent: {
             // 读取 HWND (8 字节, 32/64 兼容)
             ULONG_PTR hwnd = 0;
-            if (!read_exact(hp.view(), &hwnd, sizeof(hwnd)))
+            if (!miniio::read_exact(hp.view(), &hwnd, sizeof(hwnd)))
                 return 1;
             break;
         }
         case PtySignal::ResizeWindow: {
             COORD sz{0, 0};
-            if (!read_exact(hp.view(), &sz, sizeof(sz)))
+            if (!miniio::read_exact(hp.view(), &sz, sizeof(sz)))
                 return 1;
             if (state)
             {

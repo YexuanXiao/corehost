@@ -11,7 +11,7 @@
 #include "comserver/com_server.hpp"
 #include "conpty/conpty.hpp"
 #include "client/client.hpp"
-#include "miniio/io_loop.hpp"
+#include "miniio/io_thread.hpp"
 #include "win32/error.hpp"
 #include "win32/com_apartment.hpp"
 #include "utility/crtdbg.hpp"
