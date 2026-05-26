@@ -83,11 +83,18 @@ try
     // ── client 模式 ──────────────────────────────────────
     // 不是 com_server / headless / defterm → 解析为客户端命令行
     auto cmdline = args.client_command_line();
+
     // 如果命令为空，则启动 pwsh/powershell/cmd
-    auto target = cmdline.empty() ? shell::get_shell_path() : std::wstring(cmdline.data(), cmdline.size());
-    LOG("entering client_entry, cmd=%ls", target.c_str());
-    client::client_entry(target);
-    LOG("client_entry returned");
+
+    if (cmdline.empty())
+    {
+        auto shell_info = shell::get_shell();
+        client::client_entry({shell_info.name.data(), shell_info.name.size()}, std::move(shell_info.path));
+    }
+    else
+    {
+        client::client_entry({}, std::wstring(cmdline.data(), cmdline.size()));
+    }
     return 0;
 }
 catch (...)

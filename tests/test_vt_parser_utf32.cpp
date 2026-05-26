@@ -1193,8 +1193,7 @@ static std::u32string feed_and_collect_text(const std::u32string &input)
             p.reset(id);
 
             // drain 排队消息
-            if (auto d_id = p.parse(U'\0');
-                d_id != vt_message_id::continue_ && d_id != vt_message_id::continue_text)
+            if (auto d_id = p.parse(U'\0'); d_id != vt_message_id::continue_ && d_id != vt_message_id::continue_text)
             {
                 if (d_id == vt_message_id::text)
                     collected.append(p.get().text);
@@ -1203,8 +1202,7 @@ static std::u32string feed_and_collect_text(const std::u32string &input)
         }
     }
     // 排空末尾残留的 _pending_control
-    if (auto id = p.parse(U'\0');
-        id != vt_message_id::continue_ && id != vt_message_id::continue_text)
+    if (auto id = p.parse(U'\0'); id != vt_message_id::continue_ && id != vt_message_id::continue_text)
     {
         if (id == vt_message_id::text)
             collected.append(p.get().text);
@@ -1437,8 +1435,7 @@ bool test_regression_multiline_input()
         }
     }
     // drain remaining
-    if (auto id = p.parse(U'\0');
-        id != vt_message_id::continue_ && id != vt_message_id::continue_text)
+    if (auto id = p.parse(U'\0'); id != vt_message_id::continue_ && id != vt_message_id::continue_text)
     {
         if (id == vt_message_id::text)
             collected.append(p.get().text);

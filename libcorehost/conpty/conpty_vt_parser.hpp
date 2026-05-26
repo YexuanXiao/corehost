@@ -232,7 +232,6 @@ class vt_parser
         return _ground_text_start != npos && !_raw.empty();
     }
 
-
     // 释放累积文本为 text 消息并返回 text id；无残留文本时返回 continue_
     [[nodiscard]] vt_message_id flush_text()
     {

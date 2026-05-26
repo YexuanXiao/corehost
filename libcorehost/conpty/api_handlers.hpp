@@ -190,10 +190,9 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
             // 但 CUP 会把终端光标拉回到 state 位置，保证后续 \r\n 正确换行。
             COORD start_pos = state.cursor.position;
             auto preview_len = static_cast<int>(std::min<size_t>(60, u32s.size()));
-            LOG("[api_write_console] start: u32s_len=%zu sbytes=%lu start=(%d,%d) first=%.*ls",
-                u32s.size(), static_cast<unsigned long>(sbytes), static_cast<int>(start_pos.X),
-                static_cast<int>(start_pos.Y),
-                preview_len, reinterpret_cast<const wchar_t*>(u32s.data()));
+            LOG("[api_write_console] start: u32s_len=%zu sbytes=%lu start=(%d,%d) first=%.*ls", u32s.size(),
+                static_cast<unsigned long>(sbytes), static_cast<int>(start_pos.X), static_cast<int>(start_pos.Y),
+                preview_len, reinterpret_cast<const wchar_t *>(u32s.data()));
 
             // ── DEC 行绘制预处理 ──
             if (state.dec_line_drawing_mode)
@@ -212,7 +211,8 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
                 //    可能因上一次 WriteConsole 的 \r\n 处于不同位置。
                 //    非 Enter 换行路径必须先发 CUP，确保文本从正确位置开始。
                 bool need_cup = bridge && bridge->consume_enter_newline();
-                LOG("[api_write_console] need_cup=%d state_start=(%d,%d)", need_cup, state.cursor.position.X, state.cursor.position.Y);
+                LOG("[api_write_console] need_cup=%d state_start=(%d,%d)", need_cup, state.cursor.position.X,
+                    state.cursor.position.Y);
                 if (need_cup)
                 {
                     COORD nl_pos = bridge->get_enter_dest();
@@ -412,16 +412,15 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
         r->Length = 0;
     }
 
-    bool is_fullscreen_space =
-        (r->ElementType != CONSOLE_ATTRIBUTE && r->WriteCoord.X == 0 && r->WriteCoord.Y == 0 &&
-         static_cast<wchar_t>(r->Element) == L' ' &&
-         orig_length >= static_cast<ULONG>(state.screen_buffer_size.X) *
-                             static_cast<ULONG>(state.screen_buffer_size.Y));
+    bool is_fullscreen_space = (r->ElementType != CONSOLE_ATTRIBUTE && r->WriteCoord.X == 0 && r->WriteCoord.Y == 0 &&
+                                static_cast<wchar_t>(r->Element) == L' ' &&
+                                orig_length >= static_cast<ULONG>(state.screen_buffer_size.X) *
+                                                   static_cast<ULONG>(state.screen_buffer_size.Y));
 
     if (bridge && bridge->vt_out.valid())
     {
-        LOG("[api_fill_output] at=(%d,%d) len=%lu elem='%c'(%d) type=%d fullscreen=%d",
-            r->WriteCoord.X, r->WriteCoord.Y, orig_length,
+        LOG("[api_fill_output] at=(%d,%d) len=%lu elem='%c'(%d) type=%d fullscreen=%d", r->WriteCoord.X,
+            r->WriteCoord.Y, orig_length,
             (r->ElementType != CONSOLE_ATTRIBUTE && r->Element >= 32 && r->Element < 127) ? (char)r->Element : '?',
             r->Element, r->ElementType, is_fullscreen_space ? 1 : 0);
         if (is_fullscreen_space)
@@ -639,8 +638,8 @@ inline bool api_set_cursor_pos(miniio::io_msg &msg, console_state &state, screen
 
     if (bridge && bridge->vt_out.valid())
     {
-        LOG("[api_set_cursor_pos] to=(%d,%d) was=(%d,%d)",
-            new_pos.X, new_pos.Y, state.cursor.position.X, state.cursor.position.Y);
+        LOG("[api_set_cursor_pos] to=(%d,%d) was=(%d,%d)", new_pos.X, new_pos.Y, state.cursor.position.X,
+            state.cursor.position.Y);
         // 仅当光标被显式移到 (0,0) 时才清除 Enter 换行标志。
         if (new_pos.X == 0 && new_pos.Y == 0)
             bridge->reset_enter_newline();

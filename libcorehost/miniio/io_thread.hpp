@@ -40,6 +40,7 @@ namespace miniio
 
 inline constexpr DWORD IOCTL_READ_IO = CTL_CODE(FILE_DEVICE_CONSOLE, 1, METHOD_OUT_DIRECT, FILE_ANY_ACCESS);
 inline constexpr DWORD IOCTL_COMPLETE_IO = CTL_CODE(FILE_DEVICE_CONSOLE, 2, METHOD_NEITHER, FILE_ANY_ACCESS);
+inline constexpr DWORD IOCTL_READ_INPUT = CTL_CODE(FILE_DEVICE_CONSOLE, 3, METHOD_NEITHER, FILE_ANY_ACCESS);
 inline constexpr DWORD IOCTL_SET_SERVER = CTL_CODE(FILE_DEVICE_CONSOLE, 7, METHOD_NEITHER, FILE_ANY_ACCESS);
 
 enum class read_io_result : uint8_t
@@ -146,6 +147,22 @@ inline void complete_io(win32::handle_view server, CD_IO_COMPLETE &comp)
 {
     DWORD r = 0;
     if (!::DeviceIoControl(server.get(), IOCTL_COMPLETE_IO, &comp, sizeof(comp), nullptr, 0, &r, nullptr))
+        win32::throw_last_error();
+}
+
+// 读取指定 IO 的输入载荷。CONNECT 的 CONSOLE_SERVER_MSG 不一定在
+// read_io 的短包 body 中完整呈现，原版通过 ConDrvDeviceComm::ReadInput
+// 从驱动按 Identifier 重新取完整载荷。
+inline void read_input(win32::handle_view server, const io_msg &msg, ULONG offset, void *buffer, ULONG size)
+{
+    CD_IO_OPERATION op{};
+    op.Identifier = msg.descriptor.Identifier;
+    op.Buffer.Offset = offset;
+    op.Buffer.Data = buffer;
+    op.Buffer.Size = size;
+
+    DWORD r = 0;
+    if (!::DeviceIoControl(server.get(), IOCTL_READ_INPUT, &op, sizeof(op), nullptr, 0, &r, nullptr))
         win32::throw_last_error();
 }
 

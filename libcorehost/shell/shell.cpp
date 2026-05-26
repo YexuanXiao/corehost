@@ -62,10 +62,11 @@ bool file_exists(PCWSTR file_path)
     return false;
 }
 
-std::wstring get_shell_path()
+get_shell_result get_shell()
 {
     constexpr win32::wcstring_view prefix = L"\\\\?\\";
-    constexpr win32::wcstring_view package_family = L"Microsoft.PowerShell-LTS_8wekyb3d8bbwe";
+    // constexpr win32::wcstring_view package_family = L"Microsoft.PowerShell-LTS_8wekyb3d8bbwe";
+    // 直接假定存在pwsh别名，因此不需要判断是否安装了包
     constexpr win32::wcstring_view pwsh_suffix = L"\\Microsoft\\WindowsApps\\pwsh.exe";
     constexpr win32::wcstring_view powershell_suffix = L"\\WindowsPowerShell\\v1.0\\powershell.exe";
     constexpr win32::wcstring_view cmd_exe_suffix = L"\\cmd.exe";
@@ -80,7 +81,7 @@ std::wstring get_shell_path()
         pwsh_path.append(pwsh_suffix.data(), pwsh_suffix.size());
 
         if (file_exists(pwsh_path.c_str()))
-            return pwsh_path;
+            return {L"PowerShell", pwsh_path};
     }
 
     known_folder_path system_dir(FOLDERID_System);
@@ -93,14 +94,14 @@ std::wstring get_shell_path()
     powershell_path.append(system_dir.c_str(), system_dir.size());
     powershell_path.append(powershell_suffix.data(), powershell_suffix.size());
     if (file_exists(powershell_path.c_str()))
-        return powershell_path;
+        return {L"Windows PowerShell", powershell_path};
 
     std::wstring cmd_path;
     cmd_path.reserve(prefix.size() + system_dir.size() + cmd_exe_suffix.size());
     cmd_path.assign(prefix.data(), prefix.size());
     cmd_path.append(system_dir.c_str(), system_dir.size());
     cmd_path.append(cmd_exe_suffix.data(), cmd_exe_suffix.size());
-    return cmd_path;
+    return {L"cmd", cmd_path};
 }
 
 std::wstring get_system_conhost_path()

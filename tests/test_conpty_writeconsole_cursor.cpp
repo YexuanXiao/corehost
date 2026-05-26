@@ -262,7 +262,7 @@ int main()
     RUN_TEST(test_cursor_alignment_after_newline, L"Cursor alignment after newline");
     RUN_TEST(test_history_cursor_on_correct_row, L"History cursor on correct row");
     RUN_TEST(test_multiple_history_recalls, L"Multiple history recalls");
-    std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, "
-               << (tests_passed + tests_failed) << L" total." << std::endl;
+    std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, " << (tests_passed + tests_failed)
+               << L" total." << std::endl;
     return tests_failed > 0 ? 1 : 0;
 }

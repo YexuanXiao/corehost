@@ -49,7 +49,6 @@ struct pipe_bridge
     console_state *cstate = nullptr; // 用于 echo 后同步光标 + resize
     screen_buffer *sbuf = nullptr;   // 用于 resize 时更新屏幕缓冲区
 
-
     // ── ProcessList ──
     static constexpr size_t max_procs = 64;
     DWORD proc_list[max_procs]{};
@@ -208,7 +207,8 @@ struct pipe_bridge
     void sync_cursor_after_write(COORD pos)
     {
         LOG("[bridge] sync_cursor_after_write: pos=(%d,%d) was_tc=(%d,%d) was_col_start=%d was_col_end=%d enter_nl=%d",
-            pos.X, pos.Y, _term_cursor.X, _term_cursor.Y, _input_column_start, _input_column_end, _enter_pending_newline);
+            pos.X, pos.Y, _term_cursor.X, _term_cursor.Y, _input_column_start, _input_column_end,
+            _enter_pending_newline);
         term_cursor_set(pos);
         bounds_reset(pos.X);
     }
@@ -1168,10 +1168,12 @@ struct pipe_bridge
     {
         if (!vt_out.valid() || !_term_cursor_valid)
         {
-            LOG("[history] repaint_full_line: SKIP vt_valid=%d tc_valid=%d", vt_out.valid() ? 1 : 0, _term_cursor_valid ? 1 : 0);
+            LOG("[history] repaint_full_line: SKIP vt_valid=%d tc_valid=%d", vt_out.valid() ? 1 : 0,
+                _term_cursor_valid ? 1 : 0);
             return;
         }
-        LOG("[history] repaint_full_line: cup_to(%d,%d) cooked_sz=%zu", _term_cursor.Y, _input_column_start, _cooked_buf.size());
+        LOG("[history] repaint_full_line: cup_to(%d,%d) cooked_sz=%zu", _term_cursor.Y, _input_column_start,
+            _cooked_buf.size());
         cup_to(_term_cursor.Y, _input_column_start);
         vt_append_str("\x1b[K");
         for (char32_t cp : _cooked_buf)
@@ -1184,8 +1186,8 @@ struct pipe_bridge
         _cooked_buf = _history[_history_idx];
         cooked_set_pos(_cooked_buf.size());
         _input_column_end = _input_column_start + static_cast<SHORT>(_cooked_buf.size());
-        LOG("[history] load_history_line: tc=(%d,%d) col_start=%d col_end=%d cooked_sz=%zu",
-            _term_cursor.X, _term_cursor.Y, _input_column_start, _input_column_end, _cooked_buf.size());
+        LOG("[history] load_history_line: tc=(%d,%d) col_start=%d col_end=%d cooked_sz=%zu", _term_cursor.X,
+            _term_cursor.Y, _input_column_start, _input_column_end, _cooked_buf.size());
         repaint_full_line();
         LOG("[history] load_history_line: done tc=(%d,%d)", _term_cursor.X, _term_cursor.Y);
     }
@@ -1336,8 +1338,8 @@ struct pipe_bridge
     }
     void history_up()
     {
-        LOG("[history] history_up: tc=(%d,%d) col_start=%d col_end=%d history_sz=%zu idx=%zu",
-            _term_cursor.X, _term_cursor.Y, _input_column_start, _input_column_end, _history.size(), _history_idx);
+        LOG("[history] history_up: tc=(%d,%d) col_start=%d col_end=%d history_sz=%zu idx=%zu", _term_cursor.X,
+            _term_cursor.Y, _input_column_start, _input_column_end, _history.size(), _history_idx);
         if (_history.empty())
         {
             LOG("[history] history_up: empty, return");
@@ -1468,8 +1470,8 @@ struct pipe_bridge
     }
     void _edit_history_up()
     {
-        LOG("[history] _edit_history_up: tc=(%d,%d) col_start=%d col_end=%d cook_sz=%zu cook_pos=%zu",
-            _term_cursor.X, _term_cursor.Y, _input_column_start, _input_column_end, _cooked_buf.size(), _cooked_cursor);
+        LOG("[history] _edit_history_up: tc=(%d,%d) col_start=%d col_end=%d cook_sz=%zu cook_pos=%zu", _term_cursor.X,
+            _term_cursor.Y, _input_column_start, _input_column_end, _cooked_buf.size(), _cooked_cursor);
         history_up();
     }
     void _edit_history_down()
@@ -1587,7 +1589,11 @@ struct pipe_bridge
             wchar_t hb[256]{};
             DWORD hn = len < 60 ? len : 60;
             for (DWORD k = 0; k < hn; ++k)
-            { hb[k*3]=L"0123456789ABCDEF"[bytes[k]>>4]; hb[k*3+1]=L"0123456789ABCDEF"[bytes[k]&0xF]; hb[k*3+2]=L' '; }
+            {
+                hb[k * 3] = L"0123456789ABCDEF"[bytes[k] >> 4];
+                hb[k * 3 + 1] = L"0123456789ABCDEF"[bytes[k] & 0xF];
+                hb[k * 3 + 2] = L' ';
+            }
             LOG(L"[in] hex len=%lu: %ls", len, hb);
         }
         for (DWORD i = 0; i < len; ++i)
@@ -1696,15 +1702,15 @@ struct pipe_bridge
                     _line_found = true;
                     _term_cursor.X = 0;
                     _term_cursor.Y++;
-                    _enter_dest = _term_cursor;  // 锁定换行目标，不受后续 api_set_cursor_pos 污染
+                    _enter_dest = _term_cursor; // 锁定换行目标，不受后续 api_set_cursor_pos 污染
                     _enter_pending_newline = true;
                     vt_append_str("\r\n");
                     LOG("[bridge] ENTER_Win32Input done tc=(%d,%d)", _term_cursor.X, _term_cursor.Y);
                 }
                 else if (m.win32_kd)
                 {
-                    LOG("[bridge] Win32Input write_input: vk=%d uc=0x%04X cs=0x%X tc=(%d,%d)",
-                        m.win32_vk, m.win32_uc, m.win32_cs, _term_cursor.X, _term_cursor.Y);
+                    LOG("[bridge] Win32Input write_input: vk=%d uc=0x%04X cs=0x%X tc=(%d,%d)", m.win32_vk, m.win32_uc,
+                        m.win32_cs, _term_cursor.X, _term_cursor.Y);
                 }
 
                 if (!inp)
@@ -1993,12 +1999,13 @@ struct pipe_bridge
         // 非 ConsoleRead: 设置标记
         if (_pend_kind != PendingKind::ConsoleRead)
         {
-            _enter_dest = _term_cursor;  // 锁定换行目标
+            _enter_dest = _term_cursor; // 锁定换行目标
             _enter_pending_newline = true;
             LOG("[bridge] LINE_TERM enter_nl=1 dest=(%d,%d)", _enter_dest.X, _enter_dest.Y);
         }
 
-        LOG(L"[in] LINE_TERM cooked=[%.*ls]", static_cast<int>(_cooked_buf.size() < 200 ? _cooked_buf.size() : 200), _cooked_buf.data());
+        LOG(L"[in] LINE_TERM cooked=[%.*ls]", static_cast<int>(_cooked_buf.size() < 200 ? _cooked_buf.size() : 200),
+            _cooked_buf.data());
         complete_pending();
     }
 
@@ -2027,8 +2034,9 @@ struct pipe_bridge
     // ── complete_pending ──────────────────────────────
     void complete_pending()
     {
-        LOG(L"[bridge] complete_pending: kind=%d total=%lu cooked_len=%zu vt_eof=%d cooked=[%.*ls]", static_cast<int>(_pend_kind),
-            _read_total, _cooked_buf.size(), _vt_eof, static_cast<int>(_cooked_buf.size() < 200 ? _cooked_buf.size() : 200), _cooked_buf.data());
+        LOG(L"[bridge] complete_pending: kind=%d total=%lu cooked_len=%zu vt_eof=%d cooked=[%.*ls]",
+            static_cast<int>(_pend_kind), _read_total, _cooked_buf.size(), _vt_eof,
+            static_cast<int>(_cooked_buf.size() < 200 ? _cooked_buf.size() : 200), _cooked_buf.data());
         if (_pend_kind == PendingKind::None)
             return;
 
