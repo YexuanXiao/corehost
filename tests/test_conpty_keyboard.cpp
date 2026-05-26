@@ -162,7 +162,7 @@ bool test_full_pipeline_arrow_up()
     vt_parser parser;
     vt_input_engine engine;
 
-    // ESC [ A = Arrow Up (CSI ¡ú cursor_up in parser)
+    // ESC [ A = Arrow Up (CSI â†’ cursor_up in parser)
     parser.parse(0x1B);
     parser.parse(U'[');
     auto id = parser.parse(U'A');
@@ -184,7 +184,7 @@ bool test_full_pipeline_arrow_down()
     vt_parser parser;
     vt_input_engine engine;
 
-    // ESC [ B = Arrow Down (CSI ¡ú cursor_down in parser)
+    // ESC [ B = Arrow Down (CSI â†’ cursor_down in parser)
     parser.parse(0x1B);
     parser.parse(U'[');
     auto id = parser.parse(U'B');
@@ -278,13 +278,13 @@ bool test_empty_text()
     return true;
 }
 
-// ©¤©¤ Win32 Input Mode keyboard event tests ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+// â”€â”€ Win32 Input Mode keyboard event tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Format: \x1b[Vk;Sc;Uc;Kd;Cs;Rc_
-// Tests the full pipeline: raw bytes ¡ú VT parser ¡ú process_input ¡ú INPUT_RECORD
+// Tests the full pipeline: raw bytes â†’ VT parser â†’ process_input â†’ INPUT_RECORD
 
 struct test_bridge_stub
 {
-    std::u32string _raw; // Parser Íâ²¿»º³å
+    std::u32string _raw; // Parser å¤–éƒ¨ç¼“å†²
     conpty::vt_parser parser;
     std::vector<INPUT_RECORD> events;
 
@@ -440,7 +440,7 @@ bool test_win32_enter_pair()
     return true;
 }
 
-// Test plain text "A" (0x41) ¡ú emitted as continue_text (not Win32Input)
+// Test plain text "A" (0x41) â†’ emitted as continue_text (not Win32Input)
 bool test_plain_text_a()
 {
     test_bridge_stub stub;

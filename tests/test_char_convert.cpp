@@ -1,8 +1,8 @@
-// ©¤©¤ tests/test_char_convert.cpp ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
-// ±àÂë×ª»»µ¥Ôª²âÊÔ (char_convert.hpp, libunicode)
+// â”€â”€ tests/test_char_convert.cpp â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ç¼–ç è½¬æ¢å•å…ƒæµ‹è¯• (char_convert.hpp, libunicode)
 //
-// ¸²¸Ç: UTF-16?UTF-32, UTF-8?UTF-32, ANSI¡úUTF-32,
-//       utf8_stream_decoder, resize_and_overwrite ³Ö¾Ã»º³å
+// è¦†ç›–: UTF-16?UTF-32, UTF-8?UTF-32, ANSIâ†’UTF-32,
+//       utf8_stream_decoder, resize_and_overwrite æŒä¹…ç¼“å†²
 #include "test_common.hpp"
 #include "char_convert.hpp"
 #include <string>
@@ -11,13 +11,13 @@
 
 using namespace conpty;
 
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-// UTF-16 ¡ú UTF-32 (convert_utf16_to_u32)
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// UTF-16 â†’ UTF-32 (convert_utf16_to_u32)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 bool test_utf16_to_u32_bmp()
 {
-    // BMP ×Ö·û: 1:1 Ó³Éä
+    // BMP å­—ç¬¦: 1:1 æ˜ å°„
     std::u32string out;
     std::wstring ws = L"Hello World!";
     convert_utf16_to_u32(ws, out);
@@ -39,12 +39,12 @@ bool test_utf16_to_u32_empty()
 
 bool test_utf16_to_u32_surrogate()
 {
-    // ·ÇBMP×Ö·û: ´úÀí¶Ô 2¡ú1
+    // éBMPå­—ç¬¦: ä»£ç†å¯¹ 2â†’1
     // U+1F600 (??) = surrogate pair U+D83D U+DE00
     std::u32string out;
     std::wstring ws = L"a\U0001F600z";
     convert_utf16_to_u32(ws, out);
-    ASSERT(out.size() == 3); // a + ?? + z = 3 ¸ö char32_t
+    ASSERT(out.size() == 3); // a + ?? + z = 3 ä¸ª char32_t
     ASSERT(out[0] == U'a');
     ASSERT(out[1] == 0x1F600);
     ASSERT(out[2] == U'z');
@@ -53,7 +53,7 @@ bool test_utf16_to_u32_surrogate()
 
 bool test_utf16_to_u32_large()
 {
-    // ´óÊäÈë: ÑéÖ¤ resize_and_overwrite ÕıÈ·
+    // å¤§è¾“å…¥: éªŒè¯ resize_and_overwrite æ­£ç¡®
     std::u32string out;
     std::wstring ws(10000, L'X');
     convert_utf16_to_u32(ws, out);
@@ -65,7 +65,7 @@ bool test_utf16_to_u32_large()
 
 bool test_utf16_to_u32_persistent()
 {
-    // ÑéÖ¤³Ö¾Ã»º³å¸´ÓÃ: ¶à´ÎĞ´Èë²»Ó¦Ğ¹Â©»ò´íÎ»
+    // éªŒè¯æŒä¹…ç¼“å†²å¤ç”¨: å¤šæ¬¡å†™å…¥ä¸åº”æ³„æ¼æˆ–é”™ä½
     std::u32string out;
     std::wstring ws1 = L"AAA";
     std::wstring ws2 = L"BB";
@@ -77,9 +77,9 @@ bool test_utf16_to_u32_persistent()
     return true;
 }
 
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-// UTF-32 ¡ú UTF-16 (convert_u32_to_wstr)
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// UTF-32 â†’ UTF-16 (convert_u32_to_wstr)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 bool test_u32_to_wstr_bmp()
 {
@@ -93,7 +93,7 @@ bool test_u32_to_wstr_bmp()
 
 bool test_u32_to_wstr_surrogate()
 {
-    // U+1F600 ¡ú surrogate pair U+D83D U+DE00
+    // U+1F600 â†’ surrogate pair U+D83D U+DE00
     std::wstring out;
     char32_t cp = 0x1F600;
     convert_u32_to_wstr(std::u32string_view{&cp, 1}, out);
@@ -112,9 +112,9 @@ bool test_u32_to_wstr_empty()
     return true;
 }
 
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-// UTF-8 ¡ú UTF-32 (convert_utf8_to_u32)
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// UTF-8 â†’ UTF-32 (convert_utf8_to_u32)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 bool test_utf8_to_u32_ascii()
 {
@@ -128,7 +128,7 @@ bool test_utf8_to_u32_ascii()
 
 bool test_utf8_to_u32_2byte()
 {
-    // U+00E9 (¨¦) = UTF-8: 0xC3 0xA9
+    // U+00E9 (Ã©) = UTF-8: 0xC3 0xA9
     std::u32string out;
     std::string utf8 = "\xC3\xA9";
     convert_utf8_to_u32(std::string_view{utf8}, out);
@@ -139,7 +139,7 @@ bool test_utf8_to_u32_2byte()
 
 bool test_utf8_to_u32_3byte()
 {
-    // U+4E2D (ÖĞ) = UTF-8: 0xE4 0xB8 0xAD
+    // U+4E2D (ä¸­) = UTF-8: 0xE4 0xB8 0xAD
     std::u32string out;
     std::string utf8 = "\xE4\xB8\xAD";
     convert_utf8_to_u32(std::string_view{utf8}, out);
@@ -168,9 +168,9 @@ bool test_utf8_to_u32_empty()
     return true;
 }
 
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-// UTF-32 ¡ú UTF-8 (convert_u32_to_utf8)
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// UTF-32 â†’ UTF-8 (convert_u32_to_utf8)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 bool test_u32_to_utf8_ascii()
 {
@@ -184,7 +184,7 @@ bool test_u32_to_utf8_ascii()
 bool test_u32_to_utf8_multibyte()
 {
     std::string out;
-    // U+4E2D (ÖĞ) ¡ú UTF-8: E4 B8 AD
+    // U+4E2D (ä¸­) â†’ UTF-8: E4 B8 AD
     char32_t cp = 0x4E2D;
     convert_u32_to_utf8(std::u32string_view{&cp, 1}, out);
     ASSERT(out.size() == 3);
@@ -196,7 +196,7 @@ bool test_u32_to_utf8_multibyte()
 
 bool test_u32_to_utf8_4byte()
 {
-    // U+1F600 ¡ú UTF-8: F0 9F 98 80
+    // U+1F600 â†’ UTF-8: F0 9F 98 80
     std::string out;
     char32_t cp = 0x1F600;
     convert_u32_to_utf8(std::u32string_view{&cp, 1}, out);
@@ -205,14 +205,14 @@ bool test_u32_to_utf8_4byte()
     return true;
 }
 
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-// utf8_stream_decoder (Öğ×Ö½ÚÁ÷Ê½½âÂë)
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// utf8_stream_decoder (é€å­—èŠ‚æµå¼è§£ç )
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 bool test_stream_decoder_ascii()
 {
     utf8_stream_decoder dec;
-    // 'A' = 0x41£¬µ¥×Ö½Ú
+    // 'A' = 0x41ï¼Œå•å­—èŠ‚
     auto r = dec(0x41);
     ASSERT(r.has_value());
     ASSERT(*r == U'A');
@@ -222,9 +222,9 @@ bool test_stream_decoder_ascii()
 bool test_stream_decoder_2byte()
 {
     utf8_stream_decoder dec;
-    // ¨¦ = C3 A9
+    // Ã© = C3 A9
     auto r1 = dec(0xC3);
-    ASSERT(!r1.has_value()); // ĞèÒª¸ü¶à×Ö½Ú
+    ASSERT(!r1.has_value()); // éœ€è¦æ›´å¤šå­—èŠ‚
     auto r2 = dec(0xA9);
     ASSERT(r2.has_value());
     ASSERT(*r2 == 0x00E9);
@@ -234,7 +234,7 @@ bool test_stream_decoder_2byte()
 bool test_stream_decoder_3byte()
 {
     utf8_stream_decoder dec;
-    // ÖĞ = E4 B8 AD
+    // ä¸­ = E4 B8 AD
     ASSERT(!dec(0xE4).has_value());
     ASSERT(!dec(0xB8).has_value());
     auto r = dec(0xAD);
@@ -246,7 +246,7 @@ bool test_stream_decoder_3byte()
 bool test_stream_decoder_invalid_byte()
 {
     utf8_stream_decoder dec;
-    // 0xFF ÊÇ·Ç·¨µÄ UTF-8 Ê××Ö½Ú ¡ú U+FFFD
+    // 0xFF æ˜¯éæ³•çš„ UTF-8 é¦–å­—èŠ‚ â†’ U+FFFD
     auto r = dec(0xFF);
     ASSERT(r.has_value());
     ASSERT(*r == 0xFFFD);
@@ -256,25 +256,25 @@ bool test_stream_decoder_invalid_byte()
 bool test_stream_decoder_truncated()
 {
     utf8_stream_decoder dec;
-    // Ö»¸øÊ××Ö½Ú C3£¬È»ºó reset
+    // åªç»™é¦–å­—èŠ‚ C3ï¼Œç„¶å reset
     ASSERT(!dec(0xC3).has_value());
     dec.reset();
-    // reset ºó¿ÉÒÔÕı³£½âÂëĞÂ×Ö·û
+    // reset åå¯ä»¥æ­£å¸¸è§£ç æ–°å­—ç¬¦
     auto r = dec('A');
     ASSERT(r.has_value());
     ASSERT(*r == U'A');
     return true;
 }
 
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-// ANSI ¡ú UTF-32 (convert_ansi_to_u32)
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ANSI â†’ UTF-32 (convert_ansi_to_u32)
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 bool test_ansi_to_u32_ascii()
 {
     std::u32string out;
     std::wstring wbuf;
-    // ´¿ ASCII ÔÚ CP_ACP ÏÂÓ¦±£³Ö²»±ä
+    // çº¯ ASCII åœ¨ CP_ACP ä¸‹åº”ä¿æŒä¸å˜
     convert_ansi_to_u32("ABC", 3, CP_ACP, out, wbuf);
     ASSERT(out.size() == 3);
     ASSERT(out[0] == U'A');
@@ -293,7 +293,7 @@ bool test_ansi_to_u32_empty()
 
 bool test_ansi_to_u32_persistent_wbuf()
 {
-    // Í¬Ò» wbuf Á½´Î²»Í¬³¤¶ÈµÄ×ª»»
+    // åŒä¸€ wbuf ä¸¤æ¬¡ä¸åŒé•¿åº¦çš„è½¬æ¢
     std::u32string out;
     std::wstring wbuf;
     convert_ansi_to_u32("AB", 2, 0, out, wbuf);
@@ -304,9 +304,9 @@ bool test_ansi_to_u32_persistent_wbuf()
     return true;
 }
 
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-// µ¥Âëµã¸¨Öúº¯Êı
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// å•ç ç‚¹è¾…åŠ©å‡½æ•°
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 bool test_to_wchar_bmp()
 {
@@ -339,7 +339,7 @@ bool test_to_char32_surrogate_pair()
 
 bool test_to_char32_surrogate_broken()
 {
-    // Ö»ÓĞ¸ßÎ»´úÀí£¬È±ÉÙµÍÎ» ¡ú U+FFFD
+    // åªæœ‰é«˜ä½ä»£ç†ï¼Œç¼ºå°‘ä½ä½ â†’ U+FFFD
     const wchar_t src[] = {0xD83D, 0};
     const wchar_t *it = src;
     char32_t cp = to_char32_surrogate(it, src + 1);
@@ -347,33 +347,33 @@ bool test_to_char32_surrogate_broken()
     return true;
 }
 
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // Test Runner
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 int main()
 {
     std::wcout << L"=== char_convert Tests ===" << std::endl;
 
-    RUN_TEST(test_utf16_to_u32_bmp, L"UTF-16¡ú32 BMP");
-    RUN_TEST(test_utf16_to_u32_empty, L"UTF-16¡ú32 Empty");
-    RUN_TEST(test_utf16_to_u32_surrogate, L"UTF-16¡ú32 Surrogate");
-    RUN_TEST(test_utf16_to_u32_large, L"UTF-16¡ú32 Large");
-    RUN_TEST(test_utf16_to_u32_persistent, L"UTF-16¡ú32 Persistent");
+    RUN_TEST(test_utf16_to_u32_bmp, L"UTF-16â†’32 BMP");
+    RUN_TEST(test_utf16_to_u32_empty, L"UTF-16â†’32 Empty");
+    RUN_TEST(test_utf16_to_u32_surrogate, L"UTF-16â†’32 Surrogate");
+    RUN_TEST(test_utf16_to_u32_large, L"UTF-16â†’32 Large");
+    RUN_TEST(test_utf16_to_u32_persistent, L"UTF-16â†’32 Persistent");
 
-    RUN_TEST(test_u32_to_wstr_bmp, L"UTF-32¡úWSTR BMP");
-    RUN_TEST(test_u32_to_wstr_surrogate, L"UTF-32¡úWSTR Surrogate");
-    RUN_TEST(test_u32_to_wstr_empty, L"UTF-32¡úWSTR Empty");
+    RUN_TEST(test_u32_to_wstr_bmp, L"UTF-32â†’WSTR BMP");
+    RUN_TEST(test_u32_to_wstr_surrogate, L"UTF-32â†’WSTR Surrogate");
+    RUN_TEST(test_u32_to_wstr_empty, L"UTF-32â†’WSTR Empty");
 
-    RUN_TEST(test_utf8_to_u32_ascii, L"UTF-8¡ú32 ASCII");
-    RUN_TEST(test_utf8_to_u32_2byte, L"UTF-8¡ú32 2-byte");
-    RUN_TEST(test_utf8_to_u32_3byte, L"UTF-8¡ú32 3-byte");
-    RUN_TEST(test_utf8_to_u32_4byte, L"UTF-8¡ú32 4-byte");
-    RUN_TEST(test_utf8_to_u32_empty, L"UTF-8¡ú32 Empty");
+    RUN_TEST(test_utf8_to_u32_ascii, L"UTF-8â†’32 ASCII");
+    RUN_TEST(test_utf8_to_u32_2byte, L"UTF-8â†’32 2-byte");
+    RUN_TEST(test_utf8_to_u32_3byte, L"UTF-8â†’32 3-byte");
+    RUN_TEST(test_utf8_to_u32_4byte, L"UTF-8â†’32 4-byte");
+    RUN_TEST(test_utf8_to_u32_empty, L"UTF-8â†’32 Empty");
 
-    RUN_TEST(test_u32_to_utf8_ascii, L"UTF-32¡ú8 ASCII");
-    RUN_TEST(test_u32_to_utf8_multibyte, L"UTF-32¡ú8 3-byte");
-    RUN_TEST(test_u32_to_utf8_4byte, L"UTF-32¡ú8 4-byte");
+    RUN_TEST(test_u32_to_utf8_ascii, L"UTF-32â†’8 ASCII");
+    RUN_TEST(test_u32_to_utf8_multibyte, L"UTF-32â†’8 3-byte");
+    RUN_TEST(test_u32_to_utf8_4byte, L"UTF-32â†’8 4-byte");
 
     RUN_TEST(test_stream_decoder_ascii, L"Stream ASCII");
     RUN_TEST(test_stream_decoder_2byte, L"Stream 2-byte");
@@ -381,9 +381,9 @@ int main()
     RUN_TEST(test_stream_decoder_invalid_byte, L"Stream Invalid");
     RUN_TEST(test_stream_decoder_truncated, L"Stream Truncated");
 
-    RUN_TEST(test_ansi_to_u32_ascii, L"ANSI¡ú32 ASCII");
-    RUN_TEST(test_ansi_to_u32_empty, L"ANSI¡ú32 Empty");
-    RUN_TEST(test_ansi_to_u32_persistent_wbuf, L"ANSI¡ú32 Persistent");
+    RUN_TEST(test_ansi_to_u32_ascii, L"ANSIâ†’32 ASCII");
+    RUN_TEST(test_ansi_to_u32_empty, L"ANSIâ†’32 Empty");
+    RUN_TEST(test_ansi_to_u32_persistent_wbuf, L"ANSIâ†’32 Persistent");
 
     RUN_TEST(test_to_wchar_bmp, L"to_wchar BMP");
     RUN_TEST(test_to_wchar_surrogate, L"to_wchar Surrogate");

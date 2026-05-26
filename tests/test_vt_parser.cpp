@@ -1,12 +1,12 @@
-// ©¤©¤ tests/test_vt_parser.cpp ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
-// VT/CSI/OSC ½âÎöÆ÷²âÊÔ (¾É°æ, »ùÓÚ×Ö½ÚÁ÷ÊäÈë)
+// â”€â”€ tests/test_vt_parser.cpp â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// VT/CSI/OSC è§£æå™¨æµ‹è¯• (æ—§ç‰ˆ, åŸºäºå­—èŠ‚æµè¾“å…¥)
 //
-// 1. ÕıÏò²âÊÔ (positive): Ëæ»úÉú³ÉÕıÈ·µÄ vt_message -> ĞòÁĞ»¯Îª×Ö½ÚÁ÷ ->
-//    ½âÎöÆ÷½âÎö -> ÑéÖ¤Ã¿¸ö½âÎö³öµÄÏûÏ¢ÓëÔ­Ê¼ÏûÏ¢Ò»ÖÂ¡£
-// 2. ·´Ïò²âÊÔ (negative): Ëæ»úÉú³É´íÎó×Ö½ÚĞòÁĞ -> ½âÎöÆ÷½âÎö ->
-//    ÑéÖ¤ bad() ·µ»ØÔ¤ÆÚµÄ parse_bad_state¡£
+// 1. æ­£å‘æµ‹è¯• (positive): éšæœºç”Ÿæˆæ­£ç¡®çš„ vt_message -> åºåˆ—åŒ–ä¸ºå­—èŠ‚æµ ->
+//    è§£æå™¨è§£æ -> éªŒè¯æ¯ä¸ªè§£æå‡ºçš„æ¶ˆæ¯ä¸åŸå§‹æ¶ˆæ¯ä¸€è‡´ã€‚
+// 2. åå‘æµ‹è¯• (negative): éšæœºç”Ÿæˆé”™è¯¯å­—èŠ‚åºåˆ— -> è§£æå™¨è§£æ ->
+//    éªŒè¯ bad() è¿”å›é¢„æœŸçš„ parse_bad_stateã€‚
 //
-// ×¢: ĞÂ°æ UTF-32 ½âÎöÆ÷²âÊÔ¼û test_vt_parser_utf32.cpp
+// æ³¨: æ–°ç‰ˆ UTF-32 è§£æå™¨æµ‹è¯•è§ test_vt_parser_utf32.cpp
 #include "test_common.hpp"
 #include "conpty_vt_parser.hpp"
 #include "utility/crtdbg.hpp"
@@ -20,9 +20,9 @@
 using namespace conpty;
 
 // ============================================================================
-// Ëæ»úÊı¹¤¾ß
+// éšæœºæ•°å·¥å…·
 // ============================================================================
-std::mt19937 rng(42); // ¹Ì¶¨ÖÖ×Ó£¬¿ÉÖØÏÖ
+std::mt19937 rng(42); // å›ºå®šç§å­ï¼Œå¯é‡ç°
 
 short rand_short(short lo, short hi)
 {
@@ -40,10 +40,10 @@ static wchar_t rand_ascii_wchar()
 }
 
 // ============================================================================
-// 1. ÕıÏò²âÊÔ£ºÏûÏ¢Éú³É ¡ú ĞòÁĞ»¯ ¡ú ½âÎö ¡ú ÑéÖ¤
+// 1. æ­£å‘æµ‹è¯•ï¼šæ¶ˆæ¯ç”Ÿæˆ â†’ åºåˆ—åŒ– â†’ è§£æ â†’ éªŒè¯
 // ============================================================================
 
-// ©¤©¤ ĞòÁĞ»¯Êä³ö²¿¼ş ©¤©¤
+// â”€â”€ åºåˆ—åŒ–è¾“å‡ºéƒ¨ä»¶ â”€â”€
 struct raw_seq
 {
     std::vector<uint8_t> bytes;
@@ -113,22 +113,22 @@ struct raw_seq
     }
 };
 
-// ©¤©¤ Ëæ»úÏûÏ¢Éú³ÉÆ÷ ©¤©¤
+// â”€â”€ éšæœºæ¶ˆæ¯ç”Ÿæˆå™¨ â”€â”€
 struct msg_gen
 {
     vt_message msg;
 
-    // Éú³ÉÒ»¸öËæ»ú vt_message ²¢Ìî³ä msg£¬Í¬Ê±·µ»ØĞòÁĞ»¯×Ö½ÚÁ÷
+    // ç”Ÿæˆä¸€ä¸ªéšæœº vt_message å¹¶å¡«å…… msgï¼ŒåŒæ—¶è¿”å›åºåˆ—åŒ–å­—èŠ‚æµ
     raw_seq serialize()
     {
         raw_seq r;
-        msg = vt_message{}; // Çå¿Õ
+        msg = vt_message{}; // æ¸…ç©º
 
-        // Ëæ»úÑ¡ÔñÏûÏ¢ÀàĞÍ£¬¾ùÔÈ·Ö²¼
+        // éšæœºé€‰æ‹©æ¶ˆæ¯ç±»å‹ï¼Œå‡åŒ€åˆ†å¸ƒ
         int choice = std::uniform_int_distribution<int>(0, 51)(rng);
         switch (choice)
         {
-        // ©¤©¤ Simple ESC ©¤©¤
+        // â”€â”€ Simple ESC â”€â”€
         case 0:
             msg.id = vt_message_id::reverse_index;
             r.add_esc();
@@ -160,7 +160,7 @@ struct msg_gen
             r.add('>');
             break;
 
-        // ©¤©¤ Character Set ©¤©¤
+        // â”€â”€ Character Set â”€â”€
         case 6:
             msg.id = vt_message_id::designate_charset_line_drawing;
             r.add_esc();
@@ -174,7 +174,7 @@ struct msg_gen
             r.add('B');
             break;
 
-        // ©¤©¤ CSI Cursor Movement ©¤©¤
+        // â”€â”€ CSI Cursor Movement â”€â”€
         case 8:
             msg.id = vt_message_id::cursor_up;
             msg.count = rand_short(1, 99);
@@ -262,7 +262,7 @@ struct msg_gen
             r.add('u');
             break;
 
-        // ©¤©¤ Cursor Visibility / DEC Private h/l ©¤©¤
+        // â”€â”€ Cursor Visibility / DEC Private h/l â”€â”€
         case 20:
             msg.id = vt_message_id::cursor_enable_blinking;
             r.add_csi();
@@ -336,7 +336,7 @@ struct msg_gen
             r.add('l');
             break;
 
-        // ©¤©¤ Cursor Shape ©¤©¤
+        // â”€â”€ Cursor Shape â”€â”€
         case 30:
             msg.id = vt_message_id::set_cursor_shape;
             msg.cursor_shape = rand_short(0, 6);
@@ -346,7 +346,7 @@ struct msg_gen
             r.add('q');
             break;
 
-        // ©¤©¤ Scroll ©¤©¤
+        // â”€â”€ Scroll â”€â”€
         case 31:
             msg.id = vt_message_id::scroll_up;
             msg.count = rand_short(1, 99);
@@ -362,7 +362,7 @@ struct msg_gen
             r.add('T');
             break;
 
-        // ©¤©¤ Text Modification ©¤©¤
+        // â”€â”€ Text Modification â”€â”€
         case 33:
             msg.id = vt_message_id::insert_characters;
             msg.count = rand_short(1, 50);
@@ -413,11 +413,11 @@ struct msg_gen
             r.add('K');
             break;
 
-        // ©¤©¤ SGR ©¤©¤
+        // â”€â”€ SGR â”€â”€
         case 40: {
             msg.id = vt_message_id::sgr;
             r.add_csi();
-            // Ëæ»úÉú³É 1-8 ¸ö SGR ²ÎÊı
+            // éšæœºç”Ÿæˆ 1-8 ä¸ª SGR å‚æ•°
             int n_params = std::uniform_int_distribution<int>(1, 8)(rng);
             bool first = true;
             for (int i = 0; i < n_params; ++i)
@@ -499,7 +499,7 @@ struct msg_gen
         }
         break;
 
-        // ©¤©¤ OSC Window Title ©¤©¤
+        // â”€â”€ OSC Window Title â”€â”€
         case 41: {
             msg.id = vt_message_id::set_window_title;
             int len = rand_short(1, 30);
@@ -514,7 +514,7 @@ struct msg_gen
         }
         break;
 
-        // ©¤©¤ OSC Palette ©¤©¤
+        // â”€â”€ OSC Palette â”€â”€
         case 42: {
             msg.id = vt_message_id::set_palette_color;
             msg.palette_index = rand_short(0, 255);
@@ -533,7 +533,7 @@ struct msg_gen
         }
         break;
 
-        // ©¤©¤ Tabs ©¤©¤
+        // â”€â”€ Tabs â”€â”€
         case 43:
             msg.id = vt_message_id::cursor_forward_tab;
             msg.count = rand_short(1, 20);
@@ -561,7 +561,7 @@ struct msg_gen
             r.add('g');
             break;
 
-        // ©¤©¤ Scrolling Margins ©¤©¤
+        // â”€â”€ Scrolling Margins â”€â”€
         case 47:
             msg.id = vt_message_id::set_scrolling_region;
             msg.scroll_top = rand_short(1, 50);
@@ -573,7 +573,7 @@ struct msg_gen
             r.add('r');
             break;
 
-        // ©¤©¤ Query ©¤©¤
+        // â”€â”€ Query â”€â”€
         case 48:
             msg.id = vt_message_id::report_cursor_position;
             r.add_csi();
@@ -587,7 +587,7 @@ struct msg_gen
             r.add('c');
             break;
 
-        // ©¤©¤ Soft Reset ©¤©¤
+        // â”€â”€ Soft Reset â”€â”€
         case 50:
             msg.id = vt_message_id::soft_reset;
             r.add_csi();
@@ -595,7 +595,7 @@ struct msg_gen
             r.add('p');
             break;
 
-        // ©¤©¤ SS3 / CSI Input ©¤©¤
+        // â”€â”€ SS3 / CSI Input â”€â”€
         case 51: {
             // Random input key: SS3 or CSI
             if (std::uniform_int_distribution<int>(0, 1)(rng))
@@ -633,7 +633,7 @@ struct msg_gen
         return r;
     }
 
-    // ÑéÖ¤½âÎö³öµÄÏûÏ¢Óë this->msg Ò»ÖÂ
+    // éªŒè¯è§£æå‡ºçš„æ¶ˆæ¯ä¸ this->msg ä¸€è‡´
     bool verify(const vt_message &parsed) const
     {
         ASSERT(parsed.id == msg.id);
@@ -710,7 +710,7 @@ struct msg_gen
     }
 };
 
-// ©¤©¤ ÕıÏò²âÊÔ£ºµ¥ÌõËæ»úÏûÏ¢ ¡ú ĞòÁĞ»¯ ¡ú ½âÎö ¡ú ÑéÖ¤ ©¤©¤
+// â”€â”€ æ­£å‘æµ‹è¯•ï¼šå•æ¡éšæœºæ¶ˆæ¯ â†’ åºåˆ—åŒ– â†’ è§£æ â†’ éªŒè¯ â”€â”€
 bool test_positive_single()
 {
     vt_parser parser;
@@ -729,7 +729,7 @@ bool test_positive_single()
                 ASSERT(parser.bad() == parse_bad_state::ok);
                 if (!gen.verify(parser.get()))
                     return false;
-                // ½âÎöÆ÷ÄÚ²¿×´Ì¬ÔÚÃ¿´ÎÍêÕûĞòÁĞºó×Ô¶¯ÖØÖÃ£¬ÎŞĞèÊÖ¶¯ÇåÀí
+                // è§£æå™¨å†…éƒ¨çŠ¶æ€åœ¨æ¯æ¬¡å®Œæ•´åºåˆ—åè‡ªåŠ¨é‡ç½®ï¼Œæ— éœ€æ‰‹åŠ¨æ¸…ç†
             }
         }
         ASSERT(got_message);
@@ -737,13 +737,13 @@ bool test_positive_single()
     return true;
 }
 
-// ©¤©¤ ÕıÏò²âÊÔ£º¶àÌõËæ»úÏûÏ¢Æ´½ÓÎªÁ¬ĞøĞòÁĞ ¡ú ÖğÌõ½âÎöÑéÖ¤ ©¤©¤
+// â”€â”€ æ­£å‘æµ‹è¯•ï¼šå¤šæ¡éšæœºæ¶ˆæ¯æ‹¼æ¥ä¸ºè¿ç»­åºåˆ— â†’ é€æ¡è§£æéªŒè¯ â”€â”€
 bool test_positive_concatenated()
 {
     vt_parser parser;
     for (int trial = 0; trial < 200; ++trial)
     {
-        // Éú³É 2-6 ÌõËæ»úÏûÏ¢
+        // ç”Ÿæˆ 2-6 æ¡éšæœºæ¶ˆæ¯
         int msg_count = rand_short(2, 6);
         std::vector<msg_gen> gens(msg_count);
         raw_seq seq;
@@ -754,7 +754,7 @@ bool test_positive_concatenated()
             seq.bytes.insert(seq.bytes.end(), part.bytes.begin(), part.bytes.end());
         }
 
-        // Á¬Ğø½âÎö
+        // è¿ç»­è§£æ
         int parsed_idx = 0;
         for (size_t i = 0; i < seq.bytes.size(); ++i)
         {
@@ -772,7 +772,7 @@ bool test_positive_concatenated()
     return true;
 }
 
-// ©¤©¤ ÕıÏò²âÊÔ£ºÏûÏ¢ + ÎÄ±¾´©²å ©¤©¤
+// â”€â”€ æ­£å‘æµ‹è¯•ï¼šæ¶ˆæ¯ + æ–‡æœ¬ç©¿æ’ â”€â”€
 bool test_positive_with_text()
 {
     vt_parser parser;
@@ -781,7 +781,7 @@ bool test_positive_with_text()
         msg_gen gen;
         raw_seq seq = gen.serialize();
 
-        // ÔÚĞòÁĞÇ°ºóËæ»ú²åÈëÆÕÍ¨ÎÄ±¾
+        // åœ¨åºåˆ—å‰åéšæœºæ’å…¥æ™®é€šæ–‡æœ¬
         std::wstring prefix, suffix;
         int pre_len = rand_short(1, 10);
         int suf_len = rand_short(1, 10);
@@ -795,7 +795,7 @@ bool test_positive_with_text()
         full.bytes.insert(full.bytes.end(), seq.bytes.begin(), seq.bytes.end());
         full.add_wstr(suffix);
 
-        // ½âÎö
+        // è§£æ
         bool text_received = false;
         bool msg_received = false;
         for (size_t i = 0; i < full.bytes.size(); ++i)
@@ -804,7 +804,7 @@ bool test_positive_with_text()
             {
                 if (parser.get().id == vt_message_id::none)
                 {
-                    // ÎÄ±¾¿é
+                    // æ–‡æœ¬å—
                     text_received = true;
                 }
                 else
@@ -822,7 +822,7 @@ bool test_positive_with_text()
 }
 
 // ============================================================================
-// 2. ·´Ïò²âÊÔ£º´íÎó×Ö½ÚĞòÁĞ ¡ú Ô¤ÆÚ bad_state
+// 2. åå‘æµ‹è¯•ï¼šé”™è¯¯å­—èŠ‚åºåˆ— â†’ é¢„æœŸ bad_state
 // ============================================================================
 
 bool test_bad(const std::vector<uint8_t> &bytes, parse_bad_state expected)
@@ -838,8 +838,8 @@ bool test_bad(const std::vector<uint8_t> &bytes, parse_bad_state expected)
             return true;
         }
     }
-    // Ä³Ğ© bad Çé¿öÈÔÈ»»á·µ»ØÏûÏ¢£¨Èç charset_unknown_final ÔÚ parse ÖĞ·µ»Ø true ²¢Éè bad£©
-    // Èç¹ûÃ»´¥·¢Íê³ÉÔòËãÊ§°Ü
+    // æŸäº› bad æƒ…å†µä»ç„¶ä¼šè¿”å›æ¶ˆæ¯ï¼ˆå¦‚ charset_unknown_final åœ¨ parse ä¸­è¿”å› true å¹¶è®¾ badï¼‰
+    // å¦‚æœæ²¡è§¦å‘å®Œæˆåˆ™ç®—å¤±è´¥
     ASSERT(got_result);
     return true;
 }
@@ -851,22 +851,22 @@ bool test_negative_esc_unknown_final()
 
 bool test_negative_charset_unknown()
 {
-    // ESC ( ºóÃæ²»ÊÇ 0 »ò B
+    // ESC ( åé¢ä¸æ˜¯ 0 æˆ– B
     return test_bad({0x1B, '(', 'C'}, parse_bad_state::charset_unknown_final);
 }
 
 bool test_negative_csi_unknown_final()
 {
-    // CSI <params> + ²»ÔÚ 0x40-0x7E ·¶Î§µÄÖÕÌ¬ ¡ú ÔÚ parse() ÖĞ±»¶ªÆú²¢Éè bad
-    // CSI 1 & ¡ú '&' is 0x26, not final ¡ú aborts CSI
-    // Actually: CSI param reading detects '&' is below 0x40, unknown ¡ú _csi = false with bad
+    // CSI <params> + ä¸åœ¨ 0x40-0x7E èŒƒå›´çš„ç»ˆæ€ â†’ åœ¨ parse() ä¸­è¢«ä¸¢å¼ƒå¹¶è®¾ bad
+    // CSI 1 & â†’ '&' is 0x26, not final â†’ aborts CSI
+    // Actually: CSI param reading detects '&' is below 0x40, unknown â†’ _csi = false with bad
     // Let's try something that goes through: CSI + garbage byte
     vt_parser parser;
-    // CSI ĞòÁĞÖĞÍ¾³öÏÖ·Ç·¨×Ö·û ¡ú _csi ±»ÖĞÖ¹£¬Éè csi_unknown_final
+    // CSI åºåˆ—ä¸­é€”å‡ºç°éæ³•å­—ç¬¦ â†’ _csi è¢«ä¸­æ­¢ï¼Œè®¾ csi_unknown_final
     (void)parser.parse('\x1B'); // ESC
     (void)parser.parse('[');    // CSI
     (void)parser.parse('1');
-    // '<' = 0x3C ¡ú ²»ÔÚ 0x20-0x2F Ò²²»ÔÚ 0x40-0x7E ¡ú ÖĞÖ¹
+    // '<' = 0x3C â†’ ä¸åœ¨ 0x20-0x2F ä¹Ÿä¸åœ¨ 0x40-0x7E â†’ ä¸­æ­¢
     if (parser.parse('<'))
     {
         ASSERT(parser.bad() == parse_bad_state::csi_unknown_final);
@@ -879,19 +879,19 @@ bool test_negative_csi_unknown_final()
 
 bool test_negative_csi_private_cursor()
 {
-    // CSI ? n A ¡ª private marker on cursor movement is invalid
+    // CSI ? n A â€” private marker on cursor movement is invalid
     return test_bad({0x1B, '[', '?', '3', 'A'}, parse_bad_state::csi_private_cursor);
 }
 
 bool test_negative_csi_private_unknown()
 {
-    // CSI ? 99 h ¡ª unknown DECSET value
+    // CSI ? 99 h â€” unknown DECSET value
     return test_bad({0x1B, '[', '?', '9', '9', 'h'}, parse_bad_state::csi_private_unknown);
 }
 
 bool test_negative_csi_param_overflow()
 {
-    // CSI with 17+ params ¡ú param overflow
+    // CSI with 17+ params â†’ param overflow
     raw_seq seq;
     seq.add_csi();
     for (int i = 0; i < 17; ++i)
@@ -935,7 +935,7 @@ bool test_negative_decstr_missing_bang()
 
 bool test_negative_decfnk_unknown_code()
 {
-    // CSI 99 ~ ¡ú unknown DECFNK code
+    // CSI 99 ~ â†’ unknown DECFNK code
     return test_bad({0x1B, '[', '9', '9', '~'}, parse_bad_state::decfnk_unknown_code);
 }
 
@@ -1007,7 +1007,7 @@ bool test_negative_osc_palette_no_rgb()
 
 bool test_negative_multiple_garbage()
 {
-    // »ìºÏ¶àÖÖ´íÎó ¡ú Ã¿ÖÖ¶¼µÃµ½ÕıÈ· bad_state
+    // æ··åˆå¤šç§é”™è¯¯ â†’ æ¯ç§éƒ½å¾—åˆ°æ­£ç¡® bad_state
     struct
     {
         std::vector<uint8_t> bytes;
@@ -1038,7 +1038,7 @@ bool test_negative_multiple_garbage()
 }
 
 // ============================================================================
-// Èë¿Ú
+// å…¥å£
 // ============================================================================
 
 int main()

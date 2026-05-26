@@ -137,8 +137,8 @@ bool test_history_cursor_on_correct_row()
 
     // â”€â”€ Phase 3: Up key for history recall â”€â”€
     // PSReadLine reads the screen buffer, then:
-    //   1. SetCursorPos(17, 9) â€?prompt end for history text
-    //   2. WriteConsole("C:\\some\\very\\long\\path...\r\n") â€?the 48-char command + newline
+    //   1. SetCursorPos(17, 9) â€”prompt end for history text
+    //   2. WriteConsole("C:\\some\\very\\long\\path...\r\n") â€”the 48-char command + newline
     //
     // CRITICAL: The text must appear on row 9 (same as prompt), and \r\n advances
     //           cursor to row 10. NOT row 10+1=11.
@@ -161,7 +161,7 @@ bool test_history_cursor_on_correct_row()
     return true;
 }
 
-// Simpler: direct SetCursorPos â†?WriteConsole â†?verify row
+// Simpler: direct SetCursorPos â†’WriteConsole â†’verify row
 bool test_set_cursor_pos_then_write_console()
 {
     console_state st;
@@ -196,7 +196,7 @@ bool test_cursor_alignment_after_newline()
     st.screen_buffer_size = {120, 30};
     st.cursor.position = {0, 0};
 
-    // Write text that ends with \r\n â†?state cursor at (0, 1)
+    // Write text that ends with \r\n â†’state cursor at (0, 1)
     sim_wc_with_cup(st, sb, U"previous output\r\n");
     ASSERT(st.cursor.position.X == 0);
     ASSERT(st.cursor.position.Y == 1);

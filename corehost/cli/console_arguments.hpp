@@ -171,7 +171,7 @@ class console_arguments
             }
 
             // 只允许以下三个值：
-            //   "graphemes" Unicode 字簇（grapheme cluster）测量宽�?
+            //   "graphemes" Unicode 字簇（grapheme cluster）测量宽度
             //   "wcswidth" wcswidth 规则测量宽度
             //   "console" 传统 conhost 规则测量宽度
             if (token == text_measurement_arg)
@@ -191,7 +191,7 @@ class console_arguments
                 continue;
             }
 
-            // ---- 显式客户端命令行分隔�?------------------------------------
+            // ---- 显式客户端命令行分隔符------------------------------------
             if (token == client_commandline_arg)
             {
                 // 跳过 "--"
@@ -199,7 +199,7 @@ class console_arguments
                 return;
             }
 
-            // ---- 未知 token -> 隐式客户端负�?-------------------------------
+            // ---- 未知 token -> 隐式客户端负载-------------------------------
             _client_command_line = remaining;
             return;
         }

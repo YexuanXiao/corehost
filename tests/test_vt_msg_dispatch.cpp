@@ -253,7 +253,7 @@ bool test_set_sgr_from_win32_attr_wrong_command_red()
 {
     vt_message m{};
     set_sgr_from_win32_attr(m, FOREGROUND_RED | FOREGROUND_INTENSITY);
-    ASSERT(m.fg_color == 9); // bright red ¡ú SGR 91, not bright blue (94)
+    ASSERT(m.fg_color == 9); // bright red â†’ SGR 91, not bright blue (94)
     ASSERT(m.bg_color == 0);
     return true;
 }
@@ -306,26 +306,26 @@ bool test_dispatch_text_wraps_to_next_line()
     return true;
 }
 
-// ÎÄ±¾Òç³öÆÁÄ»µ×²¿ ¡ú ¹â±ê Y Ó¦±»Ç¯ÖÆ
+// æ–‡æœ¬æº¢å‡ºå±å¹•åº•éƒ¨ â†’ å…‰æ ‡ Y åº”è¢«é’³åˆ¶
 bool test_dispatch_text_overflow_clamps_y()
 {
     console_state st;
     screen_buffer sb;
     setup(st, sb);                // 80x25
-    st.cursor.position = {0, 24}; // ×îºóÒ»ĞĞ
+    st.cursor.position = {0, 24}; // æœ€åä¸€è¡Œ
 
     vt_message m{};
-    // Ğ´Èë 'A' ºó»»ĞĞµ½ Y=25£¨Ô½½ç£©
+    // å†™å…¥ 'A' åæ¢è¡Œåˆ° Y=25ï¼ˆè¶Šç•Œï¼‰
     m.text = U"A";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
-    ASSERT(st.cursor.position.Y == 24); // Ç¯ÖÆÔÚ sb_height-1
-    ASSERT(st.cursor.position.X == 0);  // LF ÖØÖÃ X=0
+    ASSERT(st.cursor.position.Y == 24); // é’³åˆ¶åœ¨ sb_height-1
+    ASSERT(st.cursor.position.X == 0);  // LF é‡ç½® X=0
 
-    // ´óÁ¿»»ĞĞÒç³ö
+    // å¤§é‡æ¢è¡Œæº¢å‡º
     for (int i = 0; i < 10; ++i)
         vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
-    ASSERT(st.cursor.position.Y == 24); // Ê¼ÖÕÇ¯ÖÆ
+    ASSERT(st.cursor.position.Y == 24); // å§‹ç»ˆé’³åˆ¶
     return true;
 }
 
@@ -481,7 +481,7 @@ bool test_dispatch_hts()
 }
 
 // ==================================================================
-// Resize window regression tests (Bug: WT resize ¡ú crash)
+// Resize window regression tests (Bug: WT resize â†’ crash)
 // ==================================================================
 bool test_dispatch_resize_sets_dimensions()
 {
@@ -545,7 +545,7 @@ bool test_dispatch_resize_noop_on_zero()
     st.screen_buffer_size = {80, 25};
 
     vt_message m{};
-    m.resize_rows = 0; // zero ¡ú invalid, should be no-op
+    m.resize_rows = 0; // zero â†’ invalid, should be no-op
     m.resize_cols = 0;
     vt_msg_apply_state(vt_message_id::resize_window, m, st, sb);
 
@@ -599,7 +599,7 @@ bool test_dispatch_cup_clamped_negative_to_zero()
     setup(st, sb);
     vt_message m{};
     m.row = -5;
-    m.col = -10; // negative ¡ú clamped to 0
+    m.col = -10; // negative â†’ clamped to 0
     vt_msg_apply_state(vt_message_id::cursor_position, m, st, sb);
     ASSERT(st.cursor.position.X == 0);
     ASSERT(st.cursor.position.Y == 0);
@@ -646,7 +646,7 @@ bool test_filter_osc_bel_terminated_removed()
     std::u32string s = U"ABC\x1b]9001;CmdNotFound;xyz\x07"
                        "DEF";
     filter_osc_sequences(s);
-    ASSERT(s == U"ABCDEF"); // OSC 9001 BEL ¡ú removed
+    ASSERT(s == U"ABCDEF"); // OSC 9001 BEL â†’ removed
     return true;
 }
 
@@ -654,7 +654,7 @@ bool test_filter_osc_st_terminated_removed()
 {
     std::u32string s = U"pre\x1b]2;title\x1b\\post";
     filter_osc_sequences(s);
-    ASSERT(s == U"prepost"); // OSC 2 ESC \ ¡ú removed
+    ASSERT(s == U"prepost"); // OSC 2 ESC \ â†’ removed
     return true;
 }
 
@@ -662,7 +662,7 @@ bool test_filter_osc_unterminated_kept()
 {
     std::u32string s = U"keep\x1b]999;no_terminator";
     filter_osc_sequences(s);
-    ASSERT(s == U"keep\x1b]999;no_terminator"); // unterminated ¡ú kept
+    ASSERT(s == U"keep\x1b]999;no_terminator"); // unterminated â†’ kept
     return true;
 }
 
@@ -694,7 +694,7 @@ bool test_filter_osc_only_osc()
 {
     std::u32string s = U"\x1b]0;title\x07";
     filter_osc_sequences(s);
-    ASSERT(s.empty()); // entire string is OSC ¡ú empty
+    ASSERT(s.empty()); // entire string is OSC â†’ empty
     return true;
 }
 
@@ -769,7 +769,7 @@ bool test_text_cr_resets_column()
     return true;
 }
 
-// CJK wide-char boundary overflow regression (wrong_command "Çë" alone on a line)
+// CJK wide-char boundary overflow regression (wrong_command "è¯·" alone on a line)
 // When a 2-wide character at the last column (e.g. col 119 in 120-col screen),
 // it must wrap to the next line BEFORE writing, matching terminal behavior.
 bool test_text_cjk_boundary_wrap_before_write()
@@ -780,14 +780,14 @@ bool test_text_cjk_boundary_wrap_before_write()
     st.cursor.position = {78, 5}; // only 2 columns left on row 5
 
     vt_message m{};
-    // ASCII 'A' (1 col) at col 78 ¡ú fits at 78
-    // CJK 'Çë' (2 cols) at col 79 ¡ú needs 79,80 ¡ú overflows ¡ú wrap to (0,6)
-    m.text = U"A\u8BF7"; // "AÇë"
+    // ASCII 'A' (1 col) at col 78 â†’ fits at 78
+    // CJK 'è¯·' (2 cols) at col 79 â†’ needs 79,80 â†’ overflows â†’ wrap to (0,6)
+    m.text = U"A\u8BF7"; // "Aè¯·"
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
 
     ASSERT(sb.at_u32({78, 5}) == U'A');     // 'A' at col 78, row 5
-    ASSERT(sb.at_u32({0, 6}) == U'\u8BF7'); // 'Çë' wrapped to col 0, row 6
-    ASSERT(st.cursor.position.X == 2);      // pos advanced by 2 after 'Çë'
+    ASSERT(sb.at_u32({0, 6}) == U'\u8BF7'); // 'è¯·' wrapped to col 0, row 6
+    ASSERT(st.cursor.position.X == 2);      // pos advanced by 2 after 'è¯·'
     ASSERT(st.cursor.position.Y == 6);      // on row 6
     return true;
 }
@@ -801,14 +801,14 @@ bool test_text_cjk_double_boundary_overflow()
     st.cursor.position = {78, 5};
 
     vt_message m{};
-    // 1st 'Õˆ'(2) at col 78 ¡ú fits (78+2=80), pos wraps to (0,6) after write
-    // 2nd 'Õˆ'(2) at col 0, row 6 ¡ú (2,6)
-    // 'A'(1) at col 2, row 6 ¡ú (3,6)
+    // 1st 'è«‹'(2) at col 78 â†’ fits (78+2=80), pos wraps to (0,6) after write
+    // 2nd 'è«‹'(2) at col 0, row 6 â†’ (2,6)
+    // 'A'(1) at col 2, row 6 â†’ (3,6)
     m.text = U"\u8BF7\u8BF7A";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
 
-    ASSERT(sb.at_u32({78, 5}) == U'\u8BF7'); // first 'Õˆ' at (78,5), fits
-    ASSERT(sb.at_u32({0, 6}) == U'\u8BF7');  // second 'Õˆ' at (0,6)
+    ASSERT(sb.at_u32({78, 5}) == U'\u8BF7'); // first 'è«‹' at (78,5), fits
+    ASSERT(sb.at_u32({0, 6}) == U'\u8BF7');  // second 'è«‹' at (0,6)
     ASSERT(sb.at_u32({2, 6}) == U'A');       // 'A' at (2,6)
     ASSERT(st.cursor.position.X == 3);
     ASSERT(st.cursor.position.Y == 6);
@@ -816,13 +816,13 @@ bool test_text_cjk_double_boundary_overflow()
 }
 
 // ==================================================================
-// PowerShell error msg width diagnostic ¡ª traces per-character width
+// PowerShell error msg width diagnostic â€” traces per-character width
 // ==================================================================
 bool test_ps_error_msg_width_diag()
 {
     // Exact text from PS zh-CN error message
-    const char32_t text[] = U"wrong_command : ÎŞ·¨½«\u201Cwrong_command\u201DÏîÊ¶±ğÎª "
-                            U"cmdlet¡¢º¯Êı¡¢½Å±¾ÎÄ¼ş»ò¿ÉÔËĞĞ³ÌĞòµÄÃû³Æ¡£Çë¼ì²éÃû³ÆµÄÆ´Ğ´£¬Èç¹û°üÀ¨Â·¾¶£¬Çë";
+    const char32_t text[] = U"wrong_command : æ— æ³•å°†\u201Cwrong_command\u201Dé¡¹è¯†åˆ«ä¸º "
+                            U"cmdletã€å‡½æ•°ã€è„šæœ¬æ–‡ä»¶æˆ–å¯è¿è¡Œç¨‹åºçš„åç§°ã€‚è¯·æ£€æŸ¥åç§°çš„æ‹¼å†™ï¼Œå¦‚æœåŒ…æ‹¬è·¯å¾„ï¼Œè¯·";
     auto sv = std::u32string_view(text, std::size(text) - 1);
 
     int w_console = 0, w_wcswidth = 0;
@@ -847,57 +847,57 @@ bool test_ps_error_msg_width_diag()
 }
 
 // ==================================================================
-// api_write_console CUP ÒÆ³ı»Ø¹é²âÊÔ
-// »Ø¹é±³¾°£¨2026-05-24£©£º
-//   BUG: PowerShell "wrong_command" ´íÎóÏûÏ¢ "Èç¹û°üÀ¨Â·¾¶£¬" ºó¶àÓà¿ÕĞĞ¡£
-//   ¸ùÒò: api_write_console ÔÚ²½Öè4·¢ËÍ×îÖÕ CUP µ½¼ÆËã³öµÄ¹â±êÎ»ÖÃ (2,7)£¬
-//   µ« WT ×ÖÌåäÖÈ¾µÄ DECAWM ×ÔÈ»ÕÛĞĞºó¹â±êÊµ¼ÊÔÚ (2,6)¡£CUP ½«¹â±êÏÂÀ­Ò»ĞĞ
-//   ¡ú ÏÂÒ»¸ö WriteConsole("\\n") ´Ó (2,7)¡ú(0,8) ²úÉú¿ÕĞĞ¡£
-//   ĞŞ¸´: ÒÆ³ı api_write_console µÄ×îÖÕ CUP£¬ÖÕ¶ËÍ¨¹ı DECAWM ×ÔÈ»×·×Ù¹â±ê£»
-//   ½ö Enter »»ĞĞÊ± (consume_enter_newline) ·¢ËÍ³õÊ¼ CUP¡£
+// api_write_console CUP ç§»é™¤å›å½’æµ‹è¯•
+// å›å½’èƒŒæ™¯ï¼ˆ2026-05-24ï¼‰ï¼š
+//   BUG: PowerShell "wrong_command" é”™è¯¯æ¶ˆæ¯ "å¦‚æœåŒ…æ‹¬è·¯å¾„ï¼Œ" åå¤šä½™ç©ºè¡Œã€‚
+//   æ ¹å› : api_write_console åœ¨æ­¥éª¤4å‘é€æœ€ç»ˆ CUP åˆ°è®¡ç®—å‡ºçš„å…‰æ ‡ä½ç½® (2,7)ï¼Œ
+//   ä½† WT å­—ä½“æ¸²æŸ“çš„ DECAWM è‡ªç„¶æŠ˜è¡Œåå…‰æ ‡å®é™…åœ¨ (2,6)ã€‚CUP å°†å…‰æ ‡ä¸‹æ‹‰ä¸€è¡Œ
+//   â†’ ä¸‹ä¸€ä¸ª WriteConsole("\\n") ä» (2,7)â†’(0,8) äº§ç”Ÿç©ºè¡Œã€‚
+//   ä¿®å¤: ç§»é™¤ api_write_console çš„æœ€ç»ˆ CUPï¼Œç»ˆç«¯é€šè¿‡ DECAWM è‡ªç„¶è¿½è¸ªå…‰æ ‡ï¼›
+//   ä»… Enter æ¢è¡Œæ—¶ (consume_enter_newline) å‘é€åˆå§‹ CUPã€‚
 //
-//   ±¾²âÊÔÑéÖ¤ vt_msg_apply_state µÄ text ´¦ÀíÆ÷ÔÚ "È«½Ç×Ö·û´¥·¢ĞĞÎ²
-//   ×Ô¶¯ÕÛĞĞ + \\n" ³¡¾°ÏÂ£¬screen_buffer µÄ state.cursor ÕıÈ··´Ó³ÖÕ¶Ë
-//   µÄÊµ¼Ê¹â±êÎ»ÖÃ£¨Y Ö»µİÔöÒ»´Î£¬²»²úÉúË«ÖØ»»ĞĞ£©¡£
+//   æœ¬æµ‹è¯•éªŒè¯ vt_msg_apply_state çš„ text å¤„ç†å™¨åœ¨ "å…¨è§’å­—ç¬¦è§¦å‘è¡Œå°¾
+//   è‡ªåŠ¨æŠ˜è¡Œ + \\n" åœºæ™¯ä¸‹ï¼Œscreen_buffer çš„ state.cursor æ­£ç¡®åæ˜ ç»ˆç«¯
+//   çš„å®é™…å…‰æ ‡ä½ç½®ï¼ˆY åªé€’å¢ä¸€æ¬¡ï¼Œä¸äº§ç”ŸåŒé‡æ¢è¡Œï¼‰ã€‚
 // ==================================================================
 
-// ³¡¾°: ÎÄ±¾ÒÔ CJK È«½Ç×Ö·û´¥·¢ĞĞÎ²×Ô¶¯ÕÛĞĞ£¬½ô¸ú \\n
+// åœºæ™¯: æ–‡æœ¬ä»¥ CJK å…¨è§’å­—ç¬¦è§¦å‘è¡Œå°¾è‡ªåŠ¨æŠ˜è¡Œï¼Œç´§è·Ÿ \\n
 bool test_text_newline_after_cjk_wrap_does_not_double_advance()
 {
     console_state st;
     screen_buffer sb;
     st.screen_buffer_size = {120, 30};
-    st.cursor.position = {0, 0}; // ´ÓĞĞÊ×¿ªÊ¼ÒÔ¾«È·¿ØÖÆ¿í¶È
+    st.cursor.position = {0, 0}; // ä»è¡Œé¦–å¼€å§‹ä»¥ç²¾ç¡®æ§åˆ¶å®½åº¦
     st.text_measurement = text_measurement_mode::graphemes;
     st.ambiguous_is_wide = true;
 
     sb = screen_buffer{{120, 30}};
 
-    // ÔÚĞĞÎ²Ğ´Ò»¸öÈ«½Ç×Ö·û£¨width=2£©Ê¹Æä¸ÕºÃÒç³ö ¡ú ´¥·¢×Ô¶¯ÕÛĞĞ
-    // ÏÈÌî³ä 118 ¸ö 'A'£¨µ¥¿í£©£¬ÔÙĞ´È«½Ç¶ººÅ U+FF0C£¨width=2£©£¬
-    // 118+2=120 Ç¡ºÃ´¥·¢ pos.X=0; pos.Y++
+    // åœ¨è¡Œå°¾å†™ä¸€ä¸ªå…¨è§’å­—ç¬¦ï¼ˆwidth=2ï¼‰ä½¿å…¶åˆšå¥½æº¢å‡º â†’ è§¦å‘è‡ªåŠ¨æŠ˜è¡Œ
+    // å…ˆå¡«å…… 118 ä¸ª 'A'ï¼ˆå•å®½ï¼‰ï¼Œå†å†™å…¨è§’é€—å· U+FF0Cï¼ˆwidth=2ï¼‰ï¼Œ
+    // 118+2=120 æ°å¥½è§¦å‘ pos.X=0; pos.Y++
     std::u32string msg(118, U'A');
-    msg += U"\uFF0C"; // È«½Ç¶ººÅ width=2, X=118+2=120 ¡ú ÕÛĞĞ
+    msg += U"\uFF0C"; // å…¨è§’é€—å· width=2, X=118+2=120 â†’ æŠ˜è¡Œ
     vt_message m{};
     m.text = msg;
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
 
-    // ¶ÏÑÔ: È«½Ç¶ººÅ´¥·¢ĞĞÎ²ÕÛĞĞ ¡ú cursor ÒÑÔÚÏÂÒ»ĞĞĞĞÊ×
+    // æ–­è¨€: å…¨è§’é€—å·è§¦å‘è¡Œå°¾æŠ˜è¡Œ â†’ cursor å·²åœ¨ä¸‹ä¸€è¡Œè¡Œé¦–
     SHORT line_after_wrap = st.cursor.position.Y;
-    ASSERT(line_after_wrap == 1);       // ´ÓĞĞ 0 ÕÛµ½ĞĞ 1
-    ASSERT_EQ(st.cursor.position.X, 0); // ÕÛĞĞºó X ¹éÁã
+    ASSERT(line_after_wrap == 1);       // ä»è¡Œ 0 æŠ˜åˆ°è¡Œ 1
+    ASSERT_EQ(st.cursor.position.X, 0); // æŠ˜è¡Œå X å½’é›¶
 
-    // ÏÖÔÚĞ´Èë \n ¡ª¡ª ²»Ó¦²úÉúË«ÖØ»»ĞĞ
+    // ç°åœ¨å†™å…¥ \n â€”â€” ä¸åº”äº§ç”ŸåŒé‡æ¢è¡Œ
     vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
 
-    // \n ÒÆ¶¯µ½ÏÂĞĞĞĞÊ×£¬Y Ö»µİÔö 1
+    // \n ç§»åŠ¨åˆ°ä¸‹è¡Œè¡Œé¦–ï¼ŒY åªé€’å¢ 1
     ASSERT_EQ(st.cursor.position.X, 0);
     ASSERT_EQ(st.cursor.position.Y, line_after_wrap + 1);
 
     return true;
 }
 
-// ³¡¾°: ÎÄ±¾×îºóÇ¡ºÃÌîÂúĞĞÎ² (pos.X == screen_w)£¬½ô¸ú \n
+// åœºæ™¯: æ–‡æœ¬æœ€åæ°å¥½å¡«æ»¡è¡Œå°¾ (pos.X == screen_w)ï¼Œç´§è·Ÿ \n
 bool test_text_newline_after_exact_fill_does_not_double_advance()
 {
     console_state st;
@@ -908,7 +908,7 @@ bool test_text_newline_after_exact_fill_does_not_double_advance()
 
     sb = screen_buffer{{120, 30}};
 
-    // Ìî³ä 120 ¸ö 'A' ¡ú Ç¡ºÃÔÚ pos.X = 120 ´¦´¥·¢ pos.X = 0; pos.Y++
+    // å¡«å…… 120 ä¸ª 'A' â†’ æ°å¥½åœ¨ pos.X = 120 å¤„è§¦å‘ pos.X = 0; pos.Y++
     std::u32string fill(120, U'A');
     vt_message m{};
     m.text = fill;
@@ -917,7 +917,7 @@ bool test_text_newline_after_exact_fill_does_not_double_advance()
     ASSERT_EQ(st.cursor.position.X, 0);
     ASSERT_EQ(st.cursor.position.Y, 1);
 
-    // ½ô¸ú \n ¡ú Y ½öÔÙµİÔö 1
+    // ç´§è·Ÿ \n â†’ Y ä»…å†é€’å¢ 1
     vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
 
     ASSERT_EQ(st.cursor.position.X, 0);
@@ -926,7 +926,7 @@ bool test_text_newline_after_exact_fill_does_not_double_advance()
     return true;
 }
 
-// ³¡¾°: ·Ç±ß½çÇé¿öÕı³£ \n
+// åœºæ™¯: éè¾¹ç•Œæƒ…å†µæ­£å¸¸ \n
 bool test_text_newline_normal_advances_one_line()
 {
     console_state st;
@@ -940,7 +940,7 @@ bool test_text_newline_normal_advances_one_line()
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     ASSERT_EQ(st.cursor.position.X, 15);
 
-    // \n ¡ú ÏÂÒ»ĞĞĞĞÊ×
+    // \n â†’ ä¸‹ä¸€è¡Œè¡Œé¦–
     vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT_EQ(st.cursor.position.X, 0);
     ASSERT_EQ(st.cursor.position.Y, 6);
@@ -948,7 +948,7 @@ bool test_text_newline_normal_advances_one_line()
     return true;
 }
 
-// ³¡¾°: \r \n Ë³ĞòÕıÈ·»»ĞĞ
+// åœºæ™¯: \r \n é¡ºåºæ­£ç¡®æ¢è¡Œ
 bool test_text_crlf_advances_one_line()
 {
     console_state st;
@@ -963,7 +963,7 @@ bool test_text_crlf_advances_one_line()
     vt_msg_apply_state(vt_message_id::carriage_return, m, st, sb);
     vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
 
-    // \r ¹éÁã X, \n µİÔö Y
+    // \r å½’é›¶ X, \n é€’å¢ Y
     ASSERT_EQ(st.cursor.position.X, 0);
     ASSERT_EQ(st.cursor.position.Y, 6);
 

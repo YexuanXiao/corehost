@@ -13,7 +13,7 @@
 
 using namespace conpty;
 
-// ©¤©¤ Terminal cursor tracking ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+// â”€â”€ Terminal cursor tracking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 bool test_term_cursor_printable()
 {
     pipe_bridge bridge;
@@ -28,7 +28,7 @@ bool test_term_cursor_cr()
 {
     pipe_bridge bridge;
     bridge.test_set_term_cursor_valid({10, 0});
-    // \r: X¡ú0, Y unchanged
+    // \r: Xâ†’0, Y unchanged
     auto pos = bridge.test_feed_echo_bytes((const BYTE *)"\r", 1);
     ASSERT(pos.X == 0);
     ASSERT(pos.Y == 0);
@@ -67,7 +67,7 @@ bool test_term_cursor_echo_hello()
 
 bool test_term_cursor_echo_full_input()
 {
-    // Complete input: "echo hello\r\n" ¡ª the full ReadConsole result
+    // Complete input: "echo hello\r\n" â€” the full ReadConsole result
     pipe_bridge bridge;
     bridge.test_set_term_cursor_valid({13, 3});
 
@@ -108,7 +108,7 @@ bool test_term_cursor_backspace_at_zero()
     return true;
 }
 
-// ©¤©¤ State cursor sync ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+// â”€â”€ State cursor sync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 bool test_state_sync_after_echo()
 {
     // Simulate complete echo + ReadConsole completion scenario
@@ -120,12 +120,12 @@ bool test_state_sync_after_echo()
     bridge.cstate = &st;
     bridge.test_set_term_cursor_valid(st.cursor.position);
 
-    // Echo "echo hello\r" ¡ª terminal cursor moves to (0,3)
+    // Echo "echo hello\r" â€” terminal cursor moves to (0,3)
     bridge.test_feed_echo_bytes((const BYTE *)"echo hello\r", 11);
     ASSERT(bridge.test_get_term_cursor().X == 0);
     ASSERT(bridge.test_get_term_cursor().Y == 3);
 
-    // After CR, scan_for_line echoes LF ¡ú terminal cursor at (0,4)
+    // After CR, scan_for_line echoes LF â†’ terminal cursor at (0,4)
     bridge.test_feed_echo_bytes((const BYTE *)"\n", 1);
     ASSERT(bridge.test_get_term_cursor().X == 0);
     ASSERT(bridge.test_get_term_cursor().Y == 4);
@@ -133,7 +133,7 @@ bool test_state_sync_after_echo()
     // Simulate complete_pending sync (done via test helper)
     st.cursor.position = bridge.test_get_term_cursor();
 
-    // State must now be at (0,4) ¡ª ready for cmd's next WriteConsole
+    // State must now be at (0,4) â€” ready for cmd's next WriteConsole
     ASSERT(st.cursor.position.X == 0);
     ASSERT(st.cursor.position.Y == 4);
     return true;
@@ -184,12 +184,12 @@ bool test_state_sync_initial_cursor()
     return true;
 }
 
-// ©¤©¤ Full pipeline: echo ¡ú state sync ¡ú WriteConsole ©¤©¤
+// â”€â”€ Full pipeline: echo â†’ state sync â†’ WriteConsole â”€â”€
 //  This simulates the real bug scenario:
-//   1. cmd outputs "C:\\Users\\xyx>" ¡ú state.cursor = (13,3)
-//   2. User types "echo hello\r" ¡ú echoed by pipe_bridge ¡ú term cursor = (0,3)
-//   3. ReadConsole completes ¡ú state.cursor synced to (0,4) [\r\n ¡ú next line]
-//   4. cmd calls WriteConsole("hello\r\n") ¡ú must start from (0,4), not (13,3)
+//   1. cmd outputs "C:\\Users\\xyx>" â†’ state.cursor = (13,3)
+//   2. User types "echo hello\r" â†’ echoed by pipe_bridge â†’ term cursor = (0,3)
+//   3. ReadConsole completes â†’ state.cursor synced to (0,4) [\r\n â†’ next line]
+//   4. cmd calls WriteConsole("hello\r\n") â†’ must start from (0,4), not (13,3)
 bool test_regression_echo_then_output()
 {
     console_state st;
@@ -200,16 +200,16 @@ bool test_regression_echo_then_output()
     bridge.cstate = &st;
     bridge.test_set_term_cursor_valid({13, 3});
 
-    // ©¤©¤ Step 1-2: echo "echo hello\r" ¡ú term cursor at (0,3); + LF ¡ú (0,4)
+    // â”€â”€ Step 1-2: echo "echo hello\r" â†’ term cursor at (0,3); + LF â†’ (0,4)
     bridge.test_feed_echo_bytes((const BYTE *)"echo hello\r\n", 12);
     ASSERT(bridge.test_get_term_cursor().X == 0);
     ASSERT(bridge.test_get_term_cursor().Y == 4);
 
-    // ©¤©¤ Step 3: ReadConsole completes, sync state
+    // â”€â”€ Step 3: ReadConsole completes, sync state
     st.cursor.position = bridge.test_get_term_cursor();
 
-    // ©¤©¤ Step 4: cmd calls WriteConsole("hello\r\n")
-    //          ¡ú must start from (0,4), move to (0,5) after \r\n
+    // â”€â”€ Step 4: cmd calls WriteConsole("hello\r\n")
+    //          â†’ must start from (0,4), move to (0,5) after \r\n
     COORD start = st.cursor.position; // WriteConsole reads this
     ASSERT(start.X == 0);
     ASSERT(start.Y == 4);
@@ -233,7 +233,7 @@ bool test_input_boundary_sync_resets_both()
     return true;
 }
 
-// Backspace at prompt boundary (X == input_start) ¡ú cursor clamped
+// Backspace at prompt boundary (X == input_start) â†’ cursor clamped
 bool test_input_boundary_backspace_at_prompt()
 {
     pipe_bridge bridge;
@@ -246,7 +246,7 @@ bool test_input_boundary_backspace_at_prompt()
     return true;
 }
 
-// Backspace just past prompt (X > input_start) ¡ú X decreases, end boundary shrinks
+// Backspace just past prompt (X > input_start) â†’ X decreases, end boundary shrinks
 bool test_input_boundary_backspace_past_prompt()
 {
     pipe_bridge bridge;
@@ -280,7 +280,7 @@ bool test_input_boundary_printable_advances_end()
     return true;
 }
 
-// Backspace erases all typed chars ¡ú end boundary falls back to start
+// Backspace erases all typed chars â†’ end boundary falls back to start
 bool test_input_boundary_backspace_all_chars()
 {
     pipe_bridge bridge;
@@ -296,7 +296,7 @@ bool test_input_boundary_backspace_all_chars()
     return true;
 }
 
-// Backspace deleting middle chars while cursor is at end ¡ú end boundary shrinks
+// Backspace deleting middle chars while cursor is at end â†’ end boundary shrinks
 bool test_input_boundary_end_shrinks_on_delete()
 {
     pipe_bridge bridge;
@@ -306,22 +306,22 @@ bool test_input_boundary_end_shrinks_on_delete()
     bridge.test_feed_echo_bytes((const BYTE *)"xyz", 3);
     ASSERT(bridge.test_get_input_column_end() == 16); // 13+3
 
-    // simulate: we're at X=16, backspace ¡ú X=15, end shrinks to 15
+    // simulate: we're at X=16, backspace â†’ X=15, end shrinks to 15
     bridge.test_feed_echo_bytes((const BYTE *)"\x08", 1);
     ASSERT(bridge.test_get_input_column_end() == 15);
 
-    // another backspace ¡ú X=14, end=14
+    // another backspace â†’ X=14, end=14
     bridge.test_feed_echo_bytes((const BYTE *)"\x08", 1);
     ASSERT(bridge.test_get_input_column_end() == 14);
 
-    // type new char "w" at current position (14) ¡ú X=15, end=15
+    // type new char "w" at current position (14) â†’ X=15, end=15
     bridge.test_feed_echo_bytes((const BYTE *)"w", 1);
     ASSERT(bridge.test_get_input_column_end() == 15);
     ASSERT(bridge.test_get_term_cursor().X == 15);
     return true;
 }
 
-// Full lifecycle: sync ¡ú type ¡ú navigate ¡û/¡ú/Home/End with clamp verification
+// Full lifecycle: sync â†’ type â†’ navigate â†/â†’/Home/End with clamp verification
 // This test verifies that direction keys would not cross boundaries
 // (We simulate the clamping by checking the bounds that process_input would use)
 bool test_input_boundary_direction_key_clamping()
@@ -329,27 +329,27 @@ bool test_input_boundary_direction_key_clamping()
     pipe_bridge bridge;
     bridge.test_set_term_cursor_valid({13, 3});
     bridge.sync_cursor_after_write({13, 3});
-    bridge.test_feed_echo_bytes((const BYTE *)"hello", 5); // X:13¡ú18, end=18
+    bridge.test_feed_echo_bytes((const BYTE *)"hello", 5); // X:13â†’18, end=18
 
-    // Simulate ¡û at X=13 (at prompt start): process_input would clamp to 13
+    // Simulate â† at X=13 (at prompt start): process_input would clamp to 13
     SHORT edit_left = bridge.test_get_input_column_start();
     SHORT edit_right = bridge.test_get_input_column_end();
     ASSERT(edit_left == 13);
     ASSERT(edit_right == 18);
 
-    // Simulate left arrow from X=13: tc.X=12 ¡ú clamped to edit_left (13)
+    // Simulate left arrow from X=13: tc.X=12 â†’ clamped to edit_left (13)
     SHORT tc_x = 12;
     if (tc_x < edit_left)
         tc_x = edit_left;
     ASSERT(tc_x == 13);
 
-    // Simulate right arrow from X=18: tc.X=19 ¡ú clamped to edit_right (18)
+    // Simulate right arrow from X=18: tc.X=19 â†’ clamped to edit_right (18)
     tc_x = 19;
     if (tc_x > edit_right)
         tc_x = edit_right;
     ASSERT(tc_x == 18);
 
-    // Simulate right arrow from X=17: tc.X=18 ¡ú within bounds, OK
+    // Simulate right arrow from X=17: tc.X=18 â†’ within bounds, OK
     tc_x = 18;
     if (tc_x < edit_left)
         tc_x = edit_left;
@@ -357,7 +357,7 @@ bool test_input_boundary_direction_key_clamping()
         tc_x = edit_right;
     ASSERT(tc_x == 18);
 
-    // Simulate left arrow from X=18: tc.X=17 ¡ú within bounds, OK
+    // Simulate left arrow from X=18: tc.X=17 â†’ within bounds, OK
     tc_x = 17;
     if (tc_x < edit_left)
         tc_x = edit_left;
@@ -384,7 +384,7 @@ bool test_input_boundary_screen_width_clamping()
     bridge.sync_cursor_after_write({78, 3}); // last columns of 80-wide screen
     bridge.test_feed_echo_bytes((const BYTE *)"xy", 2);
     ASSERT(bridge.test_get_input_column_end() == 80); // end tracks echo
-    // Simulate right arrow from X=80 ¡ú tc.X=81 clamped to min(edit_right=80, screen_width-1=79) = 79
+    // Simulate right arrow from X=80 â†’ tc.X=81 clamped to min(edit_right=80, screen_width-1=79) = 79
     // (process_input clamps to min(edit_right, bw-1))
     SHORT tc_x = 81;
     if (tc_x > 80)
@@ -411,7 +411,7 @@ bool test_completion_rn_empty_cooked()
     return true;
 }
 
-// Typed "echo hello" ¡ú UTF-8 = "echo hello\r\n"
+// Typed "echo hello" â†’ UTF-8 = "echo hello\r\n"
 bool test_completion_rn_echo_hello()
 {
     pipe_bridge bridge;
@@ -431,7 +431,7 @@ bool test_completion_rn_not_in_cooked_buf()
     pipe_bridge bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"abc", 3);
-    ASSERT(bridge.test_get_cooked_buf() == U"abc"); // ²»º¬ \r\n
+    ASSERT(bridge.test_get_cooked_buf() == U"abc"); // ä¸å« \r\n
     std::string u8 = bridge.test_build_completion_utf8();
     ASSERT(u8 == "abc\r\n");
     return true;
@@ -441,7 +441,7 @@ bool test_completion_rn_not_in_cooked_buf()
 // Unified Edit Function Regression Tests (pure state, no VT pipe)
 // ==================================================================
 
-// ©¤©¤ ²åÈë ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+// â”€â”€ æ’å…¥ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 bool test_edit_insert_end()
 {
     pipe_bridge bridge;
@@ -469,7 +469,7 @@ bool test_edit_insert_beginning()
     pipe_bridge bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"xyz", 3);
-    bridge.test_cooked_home();          // cursor ¡û 0
+    bridge.test_cooked_home();          // cursor â† 0
     bridge.test_cooked_append(U"a", 1); // insert at beginning
     ASSERT(bridge.test_get_cooked_buf() == U"axyz");
     ASSERT(bridge.test_get_cooked_cursor() == 1);
@@ -482,7 +482,7 @@ bool test_edit_insert_middle()
     pipe_bridge bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"ac", 2);
-    bridge.test_cooked_left();          // cursor ¡û 1
+    bridge.test_cooked_left();          // cursor â† 1
     bridge.test_cooked_append(U"b", 1); // insert "b" between "a" and "c"
     ASSERT(bridge.test_get_cooked_buf() == U"abc");
     ASSERT(bridge.test_get_cooked_cursor() == 2);
@@ -490,7 +490,7 @@ bool test_edit_insert_middle()
     return true;
 }
 
-// ©¤©¤ »ØÍË (Backspace) ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+// â”€â”€ å›é€€ (Backspace) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 bool test_edit_backspace_at_zero()
 {
     pipe_bridge bridge;
@@ -544,7 +544,7 @@ bool test_edit_backspace_all()
     return true;
 }
 
-// ©¤©¤ É¾³ı (Delete) ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+// â”€â”€ åˆ é™¤ (Delete) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 bool test_edit_delete_at_end()
 {
     pipe_bridge bridge;
@@ -602,7 +602,7 @@ bool test_edit_delete_all()
     return true;
 }
 
-// ©¤©¤ ¹â±êÒÆ¶¯ ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+// â”€â”€ å…‰æ ‡ç§»åŠ¨ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 bool test_edit_move_left_boundary()
 {
     pipe_bridge bridge;
@@ -665,7 +665,7 @@ bool test_edit_empty_buf_all_ops_noop()
     return true;
 }
 
-// ©¤©¤ ×éºÏ²Ù×÷ ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+// â”€â”€ ç»„åˆæ“ä½œ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 bool test_edit_combo_insert_backspace_undo()
 {
     pipe_bridge bridge;
@@ -691,14 +691,14 @@ bool test_edit_combo_insert_delete_undo()
 
 bool test_edit_combo_midline_insert_then_edit()
 {
-    // type "ac", left, insert "b" ¡ú "abc", then backspace 'b' ¡ú "ac"
+    // type "ac", left, insert "b" â†’ "abc", then backspace 'b' â†’ "ac"
     pipe_bridge bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"ac", 2);
     bridge.test_cooked_left();          // cursor=1
-    bridge.test_cooked_append(U"b", 1); // ¡ú "abc", cursor=2
+    bridge.test_cooked_append(U"b", 1); // â†’ "abc", cursor=2
     ASSERT(bridge.test_get_cooked_buf() == U"abc");
-    bridge.test_cooked_backspace(); // delete 'b' ¡ú "ac", cursor=1
+    bridge.test_cooked_backspace(); // delete 'b' â†’ "ac", cursor=1
     ASSERT(bridge.test_get_cooked_buf() == U"ac");
     ASSERT(bridge.test_get_cooked_cursor() == 1);
     return true;
@@ -706,13 +706,13 @@ bool test_edit_combo_midline_insert_then_edit()
 
 bool test_edit_combo_midline_delete_char()
 {
-    // type "abc", left¡Á2, delete ¡ú "ac"
+    // type "abc", leftÃ—2, delete â†’ "ac"
     pipe_bridge bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"abc", 3);
     bridge.test_cooked_left();   // cursor=2
     bridge.test_cooked_left();   // cursor=1
-    bridge.test_cooked_delete(); // delete 'b' ¡ú "ac"
+    bridge.test_cooked_delete(); // delete 'b' â†’ "ac"
     ASSERT(bridge.test_get_cooked_buf() == U"ac");
     ASSERT(bridge.test_get_cooked_cursor() == 1);
     return true;
@@ -720,14 +720,14 @@ bool test_edit_combo_midline_delete_char()
 
 bool test_edit_combo_overwrite_via_backspace()
 {
-    // type "xb", home, right, backspace, insert "a" ¡ú "ab"
+    // type "xb", home, right, backspace, insert "a" â†’ "ab"
     pipe_bridge bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"xb", 2);
     bridge.test_cooked_home();
     bridge.test_cooked_right();         // cursor=1 (at 'b')
-    bridge.test_cooked_backspace();     // delete 'x' ¡ú "b", cursor=0
-    bridge.test_cooked_append(U"a", 1); // ¡ú "ab", cursor=1
+    bridge.test_cooked_backspace();     // delete 'x' â†’ "b", cursor=0
+    bridge.test_cooked_append(U"a", 1); // â†’ "ab", cursor=1
     ASSERT(bridge.test_get_cooked_buf() == U"ab");
     ASSERT(bridge.test_get_cooked_cursor() == 1);
     return true;
@@ -735,13 +735,13 @@ bool test_edit_combo_overwrite_via_backspace()
 
 bool test_edit_combo_overwrite_via_delete()
 {
-    // type "xb", home, delete, insert "a" ¡ú "ab"
+    // type "xb", home, delete, insert "a" â†’ "ab"
     pipe_bridge bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"xb", 2);
     bridge.test_cooked_home();
-    bridge.test_cooked_delete();        // delete 'x' ¡ú "b", cursor=0
-    bridge.test_cooked_append(U"a", 1); // ¡ú "ab", cursor=1
+    bridge.test_cooked_delete();        // delete 'x' â†’ "b", cursor=0
+    bridge.test_cooked_append(U"a", 1); // â†’ "ab", cursor=1
     ASSERT(bridge.test_get_cooked_buf() == U"ab");
     ASSERT(bridge.test_get_cooked_cursor() == 1);
     return true;
@@ -749,15 +749,15 @@ bool test_edit_combo_overwrite_via_delete()
 
 bool test_edit_combo_full_lifecycle()
 {
-    // Full editing session: fix typo "helo" ¡ú "hello world!"
-    //   type "helo" ¡ú home ¡ú right¡Á2 ¡ú insert "l" ¡ú end ¡ú insert " world!"
+    // Full editing session: fix typo "helo" â†’ "hello world!"
+    //   type "helo" â†’ home â†’ rightÃ—2 â†’ insert "l" â†’ end â†’ insert " world!"
     pipe_bridge bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"helo", 4); // "helo", cursor=4
     bridge.test_cooked_home();             // cursor=0
     bridge.test_cooked_right();            // cursor=1 (at 'e')
     bridge.test_cooked_right();            // cursor=2 (at 'l')
-    bridge.test_cooked_append(U"l", 1);    // insert 'l' ¡ú "hello", cursor=3
+    bridge.test_cooked_append(U"l", 1);    // insert 'l' â†’ "hello", cursor=3
     ASSERT(bridge.test_get_cooked_buf() == U"hello");
     bridge.test_cooked_end();                 // cursor=5
     bridge.test_cooked_append(U" world!", 7); // "hello world!", cursor=12
@@ -880,7 +880,7 @@ bool test_history_push_one_navigate_up()
     ASSERT(bridge.test_history_size() == 1);
     ASSERT(bridge.test_get_cooked_buf() == U"");
 
-    // Press Up ¡ú should show "echo hello"
+    // Press Up â†’ should show "echo hello"
     bridge.test_history_up();
     ASSERT(bridge.test_get_cooked_buf() == U"echo hello");
     ASSERT(bridge.test_get_cooked_cursor() == 10);
@@ -897,12 +897,12 @@ bool test_history_up_down_roundtrip()
     bridge.test_cooked_append(U"echo hello", 10);
     bridge.test_history_push();
 
-    // Up ¡ú shows "echo hello"
+    // Up â†’ shows "echo hello"
     bridge.test_history_up();
     ASSERT(bridge.test_get_cooked_buf() == U"echo hello");
 
-    // Down ¡ú past end, restores original input (empty)
-    bridge.test_history_down(); // goes past last history entry ¡ú restores saved
+    // Down â†’ past end, restores original input (empty)
+    bridge.test_history_down(); // goes past last history entry â†’ restores saved
     ASSERT(bridge.test_get_cooked_buf() == U"");
     ASSERT(bridge.test_get_cooked_cursor() == 0);
     return true;
@@ -923,23 +923,23 @@ bool test_history_push_two_navigate()
 
     ASSERT(bridge.test_history_size() == 2);
 
-    // Up ¡ú shows "cmd2" (most recent)
+    // Up â†’ shows "cmd2" (most recent)
     bridge.test_history_up();
     ASSERT(bridge.test_get_cooked_buf() == U"cmd2");
 
-    // Up again ¡ú shows "cmd1"
+    // Up again â†’ shows "cmd1"
     bridge.test_history_up();
     ASSERT(bridge.test_get_cooked_buf() == U"cmd1");
 
-    // Up again ¡ú stays at "cmd1" (at beginning of history)
+    // Up again â†’ stays at "cmd1" (at beginning of history)
     bridge.test_history_up();
     ASSERT(bridge.test_get_cooked_buf() == U"cmd1");
 
-    // Down ¡ú shows "cmd2"
+    // Down â†’ shows "cmd2"
     bridge.test_history_down();
     ASSERT(bridge.test_get_cooked_buf() == U"cmd2");
 
-    // Down ¡ú past end ¡ú restores original (empty)
+    // Down â†’ past end â†’ restores original (empty)
     bridge.test_history_down();
     ASSERT(bridge.test_get_cooked_buf() == U"");
     return true;
@@ -958,11 +958,11 @@ bool test_history_saved_input_restore()
     bridge.test_cooked_append(U"new", 3);
     ASSERT(bridge.test_get_cooked_buf() == U"new");
 
-    // Up ¡ú shows history "oldcmd"
+    // Up â†’ shows history "oldcmd"
     bridge.test_history_up();
     ASSERT(bridge.test_get_cooked_buf() == U"oldcmd");
 
-    // Down ¡ú restores original partial input "new"
+    // Down â†’ restores original partial input "new"
     bridge.test_history_down();
     ASSERT(bridge.test_get_cooked_buf() == U"new");
     ASSERT(bridge.test_get_cooked_cursor() == 3);
@@ -990,7 +990,7 @@ bool test_history_no_duplicate_push()
     return true;
 }
 
-// ©¤©¤ ä¯ÀÀÖĞ±à¼­£ºÓ¦×Ô¶¯½áÊøä¯ÀÀÄ£Ê½ ©¤©¤
+// â”€â”€ æµè§ˆä¸­ç¼–è¾‘ï¼šåº”è‡ªåŠ¨ç»“æŸæµè§ˆæ¨¡å¼ â”€â”€
 bool test_history_type_while_browsing()
 {
     pipe_bridge bridge;
@@ -1003,11 +1003,11 @@ bool test_history_type_while_browsing()
     bridge.test_history_up();
     ASSERT(bridge.test_get_cooked_buf() == U"old");
 
-    // Type new char while browsing ¡ú should append to current line, browsing ends
+    // Type new char while browsing â†’ should append to current line, browsing ends
     bridge.test_cooked_append(U"X", 1);
     ASSERT(bridge.test_get_cooked_buf() == U"oldX");
 
-    // Now press ¡ü again ¡ú should start fresh browse from most recent, NOT overwrite edits
+    // Now press â†‘ again â†’ should start fresh browse from most recent, NOT overwrite edits
     bridge.test_history_up();
     ASSERT(bridge.test_get_cooked_buf() == U"old"); // restarts from top
     return true;
@@ -1028,7 +1028,7 @@ bool test_history_backspace_while_browsing()
     bridge.test_cooked_backspace();
     ASSERT(bridge.test_get_cooked_buf() == U"histcm");
 
-    // Press ¡ü ¡ú restart browse, show full "histcmd"
+    // Press â†‘ â†’ restart browse, show full "histcmd"
     bridge.test_history_up();
     ASSERT(bridge.test_get_cooked_buf() == U"histcmd");
     return true;
@@ -1044,16 +1044,16 @@ bool test_history_delete_while_browsing()
 
     bridge.test_history_up();
     bridge.test_cooked_home();   // cursor=0
-    bridge.test_cooked_delete(); // delete 'x' ¡ú "yz"
+    bridge.test_cooked_delete(); // delete 'x' â†’ "yz"
     ASSERT(bridge.test_get_cooked_buf() == U"yz");
 
-    // ¡ü should restart browse
+    // â†‘ should restart browse
     bridge.test_history_up();
     ASSERT(bridge.test_get_cooked_buf() == U"xyz");
     return true;
 }
 
-// ©¤©¤ ±ß½çÑ¹²â ©¤©¤
+// â”€â”€ è¾¹ç•Œå‹æµ‹ â”€â”€
 bool test_history_up_at_boundary_repeated()
 {
     pipe_bridge bridge;
@@ -1062,7 +1062,7 @@ bool test_history_up_at_boundary_repeated()
     bridge.test_cooked_append(U"only", 4);
     bridge.test_history_push();
 
-    // 10x ¡ü at single entry ¡ú stays same
+    // 10x â†‘ at single entry â†’ stays same
     bridge.test_history_up();
     for (int i = 0; i < 10; ++i)
     {
@@ -1084,7 +1084,7 @@ bool test_history_down_at_boundary_repeated()
     bridge.test_history_down(); // back to original (empty)
     ASSERT(bridge.test_get_cooked_buf() == U"");
 
-    // 10x ¡ı past end ¡ú stays at restored
+    // 10x â†“ past end â†’ stays at restored
     for (int i = 0; i < 10; ++i)
     {
         bridge.test_history_down();
@@ -1111,7 +1111,7 @@ bool test_history_empty_input_not_pushed()
     return true;
 }
 
-// ©¤©¤ ¶àÌõÄ¿±ß½ç±éÀú ©¤©¤
+// â”€â”€ å¤šæ¡ç›®è¾¹ç•Œéå† â”€â”€
 bool test_history_many_entries_cycling()
 {
     pipe_bridge bridge;
@@ -1126,30 +1126,30 @@ bool test_history_many_entries_cycling()
     }
     ASSERT(bridge.test_history_size() == 5);
 
-    // Walk all the way up: e¡úd¡úc¡úb¡úa
+    // Walk all the way up: eâ†’dâ†’câ†’bâ†’a
     const char32_t *expected[] = {U"e", U"d", U"c", U"b", U"a"};
     for (int i = 0; i < 5; ++i)
     {
         bridge.test_history_up();
         ASSERT(bridge.test_get_cooked_buf() == expected[i]);
     }
-    // One more ¡ü ¡ú stays at "a"
+    // One more â†‘ â†’ stays at "a"
     bridge.test_history_up();
     ASSERT(bridge.test_get_cooked_buf() == U"a");
 
-    // Walk all the way down: b¡úc¡úd¡úe¡ú(restore)
+    // Walk all the way down: bâ†’câ†’dâ†’eâ†’(restore)
     const char32_t *expected_dn[] = {U"b", U"c", U"d", U"e"};
     for (int i = 0; i < 4; ++i)
     {
         bridge.test_history_down();
         ASSERT(bridge.test_get_cooked_buf() == expected_dn[i]);
     }
-    bridge.test_history_down(); // past end ¡ú restore
+    bridge.test_history_down(); // past end â†’ restore
     ASSERT(bridge.test_get_cooked_buf() == U"");
     return true;
 }
 
-// ©¤©¤ ä¯ÀÀÖĞÔÙ°´ Enter ²úÉúµÄÃüÁîÓ¦ÈëÕ» ©¤©¤
+// â”€â”€ æµè§ˆä¸­å†æŒ‰ Enter äº§ç”Ÿçš„å‘½ä»¤åº”å…¥æ ˆ â”€â”€
 bool test_history_browse_then_enter_new()
 {
     pipe_bridge bridge;
@@ -1163,24 +1163,24 @@ bool test_history_browse_then_enter_new()
     bridge.test_cooked_append(U"cmd2", 4);
     bridge.test_history_push();
 
-    // Browse to "cmd1", then type " edited" ¡ú "cmd1 edited"
+    // Browse to "cmd1", then type " edited" â†’ "cmd1 edited"
     bridge.test_history_up(); // "cmd2"
     bridge.test_history_up(); // "cmd1"
     bridge.test_cooked_append(U" edited", 7);
     ASSERT(bridge.test_get_cooked_buf() == U"cmd1 edited");
 
-    // Press Enter ¡ú this becomes new history entry
+    // Press Enter â†’ this becomes new history entry
     bridge.test_history_push();
     ASSERT(bridge.test_history_size() == 3);
     ASSERT(bridge.test_get_cooked_buf() == U"");
 
-    // ¡ü should show "cmd1 edited" (most recent)
+    // â†‘ should show "cmd1 edited" (most recent)
     bridge.test_history_up();
     ASSERT(bridge.test_get_cooked_buf() == U"cmd1 edited");
     return true;
 }
 
-// ©¤©¤ ÒÑÔİ´æÊäÈëµÄ»Ö¸´ ©¤©¤
+// â”€â”€ å·²æš‚å­˜è¾“å…¥çš„æ¢å¤ â”€â”€
 bool test_history_saved_input_preserved_across_navigation()
 {
     pipe_bridge bridge;
@@ -1206,39 +1206,39 @@ bool test_history_saved_input_preserved_across_navigation()
 }
 
 // ==================================================================
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-// Win32Input ¡ú ConsoleRead »Ø¹é²âÊÔ
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Win32Input â†’ ConsoleRead å›å½’æµ‹è¯•
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //
-// »Ø¹é±³¾°£¨2026-05-23 "fix powershell" Ìá½»£©£º
-//   ¸ÃÌá½»ÆôÓÃÁË Win32 Input Mode (\x1b[?9001h)£¬²¢Ôö¼ÓÁË VT ½âÎöÆ÷µÄ
-//   `win32_input_key` ÏûÏ¢ÀàĞÍºÍ process_input ÖĞµÄ´¦Àí·ÖÖ§¡£
+// å›å½’èƒŒæ™¯ï¼ˆ2026-05-23 "fix powershell" æäº¤ï¼‰ï¼š
+//   è¯¥æäº¤å¯ç”¨äº† Win32 Input Mode (\x1b[?9001h)ï¼Œå¹¶å¢åŠ äº† VT è§£æå™¨çš„
+//   `win32_input_key` æ¶ˆæ¯ç±»å‹å’Œ process_input ä¸­çš„å¤„ç†åˆ†æ”¯ã€‚
 //
-//   BUG #1: win32_input_key Ö»Ğ´ INPUT_RECORD µ½ input_buffer¡£
-//           cmd.exe Ê¹ÓÃ¹ÒÆğ ReadConsole£¨ConsoleRead Ä£Ê½£©£¬
-//           ÒÀÀµ _cooked_buf + _edit_* ĞĞ±à¼­Â·¾¶¡£
-//           ÖÕ¶Ë·¢ËÍ Win32Input ¸ñÊ½µÄ°´¼üÊ±£¬cmd Â·¾¶ÍêÈ«ºöÂÔ£¬
-//           ±íÏÖÎª´ò²»³ö×Ö¡£
+//   BUG #1: win32_input_key åªå†™ INPUT_RECORD åˆ° input_bufferã€‚
+//           cmd.exe ä½¿ç”¨æŒ‚èµ· ReadConsoleï¼ˆConsoleRead æ¨¡å¼ï¼‰ï¼Œ
+//           ä¾èµ– _cooked_buf + _edit_* è¡Œç¼–è¾‘è·¯å¾„ã€‚
+//           ç»ˆç«¯å‘é€ Win32Input æ ¼å¼çš„æŒ‰é”®æ—¶ï¼Œcmd è·¯å¾„å®Œå…¨å¿½ç•¥ï¼Œ
+//           è¡¨ç°ä¸ºæ‰“ä¸å‡ºå­—ã€‚
 //
-//   ĞŞ¸´£ºConsoleRead Ä£Ê½ÏÂ½« Win32Input keydown Ó³Éäµ½ĞĞ±à¼­º¯Êı£º
-//         Enter ¡ú edit_submit_line()£¨echo \r\n + complete_pending£©
-//         Backspace ¡ú _edit_backspace()
-//         Delete ¡ú _edit_delete()
-//         Left/Right/Home/End ¡ú ¶ÔÓ¦ _edit_move_*
-//         Up/Down ¡ú ÀúÊ·µ¼º½ _edit_history_*
-//         ¿É´òÓ¡×Ö·û/Tab ¡ú edit_insert_codepoint()
+//   ä¿®å¤ï¼šConsoleRead æ¨¡å¼ä¸‹å°† Win32Input keydown æ˜ å°„åˆ°è¡Œç¼–è¾‘å‡½æ•°ï¼š
+//         Enter â†’ edit_submit_line()ï¼ˆecho \r\n + complete_pendingï¼‰
+//         Backspace â†’ _edit_backspace()
+//         Delete â†’ _edit_delete()
+//         Left/Right/Home/End â†’ å¯¹åº” _edit_move_*
+//         Up/Down â†’ å†å²å¯¼èˆª _edit_history_*
+//         å¯æ‰“å°å­—ç¬¦/Tab â†’ edit_insert_codepoint()
 //
-//   BUG #2: ÅúÁ¿ echo ºóÍü¼Ç vt_flush£¬×Ö½ÚÖÍÁôÔÚ _vt_buf Ö±µ½ºóĞø
-//           ¿ØÖÆĞòÁĞ/Ó¦ÓÃÊä³ö²ÅÏÔÊ¾£¬µ¼ÖÂÔ¼°ëÃë²ÅÄÜÏÔÊ¾Ò»¸ö×ÖµÄ¿¨¶Ù¡£
+//   BUG #2: æ‰¹é‡ echo åå¿˜è®° vt_flushï¼Œå­—èŠ‚æ»ç•™åœ¨ _vt_buf ç›´åˆ°åç»­
+//           æ§åˆ¶åºåˆ—/åº”ç”¨è¾“å‡ºæ‰æ˜¾ç¤ºï¼Œå¯¼è‡´çº¦åŠç§’æ‰èƒ½æ˜¾ç¤ºä¸€ä¸ªå­—çš„å¡é¡¿ã€‚
 //
-//   ĞŞ¸´£ºaccumulate_from_pipe ÔÚ process_input ºóÁ¢¼´ vt_flush()¡£
+//   ä¿®å¤ï¼šaccumulate_from_pipe åœ¨ process_input åç«‹å³ vt_flush()ã€‚
 //
-// ÒÔÏÂ²âÊÔÍ¨¹ıÄ£ÄâÖÕ¶Ë·¢ËÍ Win32Input ĞòÁĞÀ´ÑéÖ¤ĞŞ¸´£¬·ÀÖ¹»Ø¹é¡£
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// ä»¥ä¸‹æµ‹è¯•é€šè¿‡æ¨¡æ‹Ÿç»ˆç«¯å‘é€ Win32Input åºåˆ—æ¥éªŒè¯ä¿®å¤ï¼Œé˜²æ­¢å›å½’ã€‚
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-// ¸¨Öú£º¹¹Ôì Win32Input ĞòÁĞµÄÔ­Ê¼×Ö½Ú
-// ¸ñÊ½: \x1b[Vk;Sc;Uc;Kd;Cs;Rc_
-// Vk=ĞéÄâ¼üÂë, Sc=É¨ÃèÂë, Uc=Unicode, Kd=1°´ÏÂ/0ÊÍ·Å, Cs=¿ØÖÆ¼ü×´Ì¬, Rc=ÖØ¸´´ÎÊı
+// è¾…åŠ©ï¼šæ„é€  Win32Input åºåˆ—çš„åŸå§‹å­—èŠ‚
+// æ ¼å¼: \x1b[Vk;Sc;Uc;Kd;Cs;Rc_
+// Vk=è™šæ‹Ÿé”®ç , Sc=æ‰«æç , Uc=Unicode, Kd=1æŒ‰ä¸‹/0é‡Šæ”¾, Cs=æ§åˆ¶é”®çŠ¶æ€, Rc=é‡å¤æ¬¡æ•°
 static std::vector<BYTE> make_win32_seq(WORD vk, WORD sc, WCHAR uc, bool down, DWORD cs = 0, WORD rc = 1)
 {
     char buf[64];
@@ -1248,40 +1248,40 @@ static std::vector<BYTE> make_win32_seq(WORD vk, WORD sc, WCHAR uc, bool down, D
     return std::vector<BYTE>(reinterpret_cast<BYTE *>(buf), reinterpret_cast<BYTE *>(buf + n));
 }
 
-// ©¤©¤ BUG #1 ²âÊÔ: Win32Input Enter ¡ú ConsoleRead Ìá½»ĞĞ ©¤©¤
-// ÔÚ ConsoleRead Ä£Ê½ÏÂÍ¨¹ı Win32Input ·¢ËÍ Enter keydown£¬
-// ÑéÖ¤ _cooked_buf ÖĞµÄÎÄ±¾±»Ìá½»¡¢_line_found Îª true¡£
+// â”€â”€ BUG #1 æµ‹è¯•: Win32Input Enter â†’ ConsoleRead æäº¤è¡Œ â”€â”€
+// åœ¨ ConsoleRead æ¨¡å¼ä¸‹é€šè¿‡ Win32Input å‘é€ Enter keydownï¼Œ
+// éªŒè¯ _cooked_buf ä¸­çš„æ–‡æœ¬è¢«æäº¤ã€_line_found ä¸º trueã€‚
 bool test_win32_console_read_enter_submits_line()
 {
     pipe_bridge bridge;
     bridge.test_enter_console_read_mode(13);
 
-    // Ä£ÄâÓÃ»§ÊäÈë "echo hello"£¨ASCII Ö±½Ó×÷Îª´¿ÎÄ±¾µ½´ï£©
+    // æ¨¡æ‹Ÿç”¨æˆ·è¾“å…¥ "echo hello"ï¼ˆASCII ç›´æ¥ä½œä¸ºçº¯æ–‡æœ¬åˆ°è¾¾ï¼‰
     bridge.test_feed_raw_bytes((const BYTE *)"echo hello", 10);
     ASSERT(bridge.test_get_cooked_buf() == U"echo hello");
     ASSERT(bridge.test_line_found() == false);
 
-    // ·¢ËÍ Win32Input Enter keydown: VK=13, Sc=28, Uc=13, Kd=1, Cs=32
+    // å‘é€ Win32Input Enter keydown: VK=13, Sc=28, Uc=13, Kd=1, Cs=32
     auto enter_down = make_win32_seq(VK_RETURN, 28, L'\r', true, 32);
     bridge.test_feed_raw_bytes(enter_down.data(), static_cast<DWORD>(enter_down.size()));
 
-    // Enter ´¥·¢ edit_submit_line() ¡ú complete_pending()
-    // complete_pending Çå¿Õ _cooked_buf ²¢ÉèÖÃ _line_found
+    // Enter è§¦å‘ edit_submit_line() â†’ complete_pending()
+    // complete_pending æ¸…ç©º _cooked_buf å¹¶è®¾ç½® _line_found
     ASSERT(bridge.test_line_found() == true);
     ASSERT(bridge.test_get_cooked_buf() == U"");
-    // complete_pending ½« _pend_kind ÖØÖÃÎª None
+    // complete_pending å°† _pend_kind é‡ç½®ä¸º None
     ASSERT(bridge.test_get_pend_kind() == 0); // PendingKind::None
     return true;
 }
 
-// ©¤©¤ BUG #1 ²âÊÔ: Win32Input ¿É´òÓ¡×Ö·û ¡ú _cooked_buf ²åÈë ©¤©¤
-// ÔÚ ConsoleRead Ä£Ê½ÏÂ·¢ËÍ Win32Input 'A' keydown£¬ÑéÖ¤×Ö·û²åÈëµ½ _cooked_buf¡£
+// â”€â”€ BUG #1 æµ‹è¯•: Win32Input å¯æ‰“å°å­—ç¬¦ â†’ _cooked_buf æ’å…¥ â”€â”€
+// åœ¨ ConsoleRead æ¨¡å¼ä¸‹å‘é€ Win32Input 'A' keydownï¼ŒéªŒè¯å­—ç¬¦æ’å…¥åˆ° _cooked_bufã€‚
 bool test_win32_console_read_printable_inserts_char()
 {
     pipe_bridge bridge;
     bridge.test_enter_console_read_mode(13);
 
-    // ·¢ËÍ Win32Input 'a' down: VK=65 (VK_A), Sc=30, Uc=97 (L'a'), Kd=1
+    // å‘é€ Win32Input 'a' down: VK=65 (VK_A), Sc=30, Uc=97 (L'a'), Kd=1
     auto a_down = make_win32_seq(0x41, 30, L'a', true, 0);
     bridge.test_feed_raw_bytes(a_down.data(), static_cast<DWORD>(a_down.size()));
 
@@ -1289,12 +1289,12 @@ bool test_win32_console_read_printable_inserts_char()
     ASSERT(bridge.test_get_cooked_cursor() == 1);
     ASSERT(bridge.test_line_found() == false);
 
-    // ·¢ËÍ 'b' ¡ú "ab"
+    // å‘é€ 'b' â†’ "ab"
     auto b_down = make_win32_seq(0x42, 48, L'b', true, 0);
     bridge.test_feed_raw_bytes(b_down.data(), static_cast<DWORD>(b_down.size()));
     ASSERT(bridge.test_get_cooked_buf() == U"ab");
 
-    // ·¢ËÍ 'c' ¡ú "abc"£¬È»ºó Enter Ìá½»
+    // å‘é€ 'c' â†’ "abc"ï¼Œç„¶å Enter æäº¤
     auto c_down = make_win32_seq(0x43, 46, L'c', true, 0);
     bridge.test_feed_raw_bytes(c_down.data(), static_cast<DWORD>(c_down.size()));
     ASSERT(bridge.test_get_cooked_buf() == U"abc");
@@ -1306,13 +1306,13 @@ bool test_win32_console_read_printable_inserts_char()
     return true;
 }
 
-// ©¤©¤ BUG #1 ²âÊÔ: Win32Input Backspace ¡ú É¾³ı×Ö·û ©¤©¤
+// â”€â”€ BUG #1 æµ‹è¯•: Win32Input Backspace â†’ åˆ é™¤å­—ç¬¦ â”€â”€
 bool test_win32_console_read_backspace_deletes_char()
 {
     pipe_bridge bridge;
     bridge.test_enter_console_read_mode(13);
 
-    // ¼üÈë "ab"
+    // é”®å…¥ "ab"
     auto a_down = make_win32_seq(0x41, 30, L'a', true, 0);
     bridge.test_feed_raw_bytes(a_down.data(), static_cast<DWORD>(a_down.size()));
     auto b_down = make_win32_seq(0x42, 48, L'b', true, 0);
@@ -1329,13 +1329,13 @@ bool test_win32_console_read_backspace_deletes_char()
     return true;
 }
 
-// ©¤©¤ BUG #1 ²âÊÔ: Win32Input Left/Right ÒÆ¶¯¹â±ê ©¤©¤
+// â”€â”€ BUG #1 æµ‹è¯•: Win32Input Left/Right ç§»åŠ¨å…‰æ ‡ â”€â”€
 bool test_win32_console_read_arrow_keys_move_cursor()
 {
     pipe_bridge bridge;
     bridge.test_enter_console_read_mode(13);
 
-    // ¼üÈë "abc"
+    // é”®å…¥ "abc"
     auto a = make_win32_seq(0x41, 30, L'a', true, 0);
     auto b = make_win32_seq(0x42, 48, L'b', true, 0);
     auto c = make_win32_seq(0x43, 46, L'c', true, 0);
@@ -1349,7 +1349,7 @@ bool test_win32_console_read_arrow_keys_move_cursor()
     bridge.test_feed_raw_bytes(left.data(), static_cast<DWORD>(left.size()));
     ASSERT(bridge.test_get_cooked_cursor() == 2);
 
-    // Left ¡ú cursor 1
+    // Left â†’ cursor 1
     bridge.test_feed_raw_bytes(left.data(), static_cast<DWORD>(left.size()));
     ASSERT(bridge.test_get_cooked_cursor() == 1);
 
@@ -1360,7 +1360,7 @@ bool test_win32_console_read_arrow_keys_move_cursor()
     return true;
 }
 
-// ©¤©¤ BUG #1 ²âÊÔ: Win32Input Home/End ©¤©¤
+// â”€â”€ BUG #1 æµ‹è¯•: Win32Input Home/End â”€â”€
 bool test_win32_console_read_home_end()
 {
     pipe_bridge bridge;
@@ -1385,13 +1385,13 @@ bool test_win32_console_read_home_end()
     return true;
 }
 
-// ©¤©¤ BUG #1 ²âÊÔ: Win32Input Delete É¾³ı¹â±êºó×Ö·û ©¤©¤
+// â”€â”€ BUG #1 æµ‹è¯•: Win32Input Delete åˆ é™¤å…‰æ ‡åå­—ç¬¦ â”€â”€
 bool test_win32_console_read_delete_char()
 {
     pipe_bridge bridge;
     bridge.test_enter_console_read_mode(13);
 
-    // ¼üÈë "abc"£¬¹â±ê»Øµ½Î»ÖÃ 1
+    // é”®å…¥ "abc"ï¼Œå…‰æ ‡å›åˆ°ä½ç½® 1
     auto a = make_win32_seq(0x41, 30, L'a', true, 0);
     auto b = make_win32_seq(0x42, 48, L'b', true, 0);
     auto c = make_win32_seq(0x43, 46, L'c', true, 0);
@@ -1407,18 +1407,18 @@ bool test_win32_console_read_delete_char()
     auto del = make_win32_seq(VK_DELETE, 83, 0, true, 0);
     bridge.test_feed_raw_bytes(del.data(), static_cast<DWORD>(del.size()));
 
-    ASSERT(bridge.test_get_cooked_buf() == U"ac"); // É¾³ıÁË 'b'
+    ASSERT(bridge.test_get_cooked_buf() == U"ac"); // åˆ é™¤äº† 'b'
     ASSERT(bridge.test_get_cooked_cursor() == 1);
     return true;
 }
 
-// ©¤©¤ BUG #1 ²âÊÔ: Win32Input Up/Down ÀúÊ·µ¼º½ ©¤©¤
+// â”€â”€ BUG #1 æµ‹è¯•: Win32Input Up/Down å†å²å¯¼èˆª â”€â”€
 bool test_win32_console_read_history_navigation()
 {
     pipe_bridge bridge;
     bridge.test_enter_console_read_mode(13);
 
-    // µÚÒ»´ÎÊäÈë "cmd1"£¬ÍÆÈëÀúÊ·
+    // ç¬¬ä¸€æ¬¡è¾“å…¥ "cmd1"ï¼Œæ¨å…¥å†å²
     auto c1 = make_win32_seq(0x43, 46, L'c', true, 0);
     auto m1 = make_win32_seq(0x4D, 50, L'm', true, 0);
     auto d1 = make_win32_seq(0x44, 32, L'd', true, 0);
@@ -1429,13 +1429,13 @@ bool test_win32_console_read_history_navigation()
     bridge.test_feed_raw_bytes(n1.data(), static_cast<DWORD>(n1.size()));
     ASSERT(bridge.test_get_cooked_buf() == U"cmd1");
 
-    // Enter Ìá½» ¡ú complete_pending ±£´æÀúÊ·²¢Çå¿Õ
+    // Enter æäº¤ â†’ complete_pending ä¿å­˜å†å²å¹¶æ¸…ç©º
     auto enter = make_win32_seq(VK_RETURN, 28, L'\r', true, 32);
     bridge.test_feed_raw_bytes(enter.data(), static_cast<DWORD>(enter.size()));
     ASSERT(bridge.test_line_found() == true);
     ASSERT(bridge.test_history_size() == 1);
 
-    // ÖØĞÂ½øÈë ConsoleRead Ä£ÄâÏÂÒ»´Î ReadConsole
+    // é‡æ–°è¿›å…¥ ConsoleRead æ¨¡æ‹Ÿä¸‹ä¸€æ¬¡ ReadConsole
     bridge.test_enter_console_read_mode(13);
 
     // Up: VK=38 (VK_UP), Sc=72, Uc=0, Kd=1
@@ -1449,37 +1449,37 @@ bool test_win32_console_read_history_navigation()
     auto down = make_win32_seq(VK_DOWN, 80, 0, true, 0);
     bridge.test_feed_raw_bytes(down.data(), static_cast<DWORD>(down.size()));
 
-    ASSERT(bridge.test_get_cooked_buf() == U""); // »Øµ½Ô­Ê¼¿ÕÊäÈë
+    ASSERT(bridge.test_get_cooked_buf() == U""); // å›åˆ°åŸå§‹ç©ºè¾“å…¥
     return true;
 }
 
-// ©¤©¤ BUG #1 ²âÊÔ: Win32Input KeyUp ÔÚ ConsoleRead ÏÂ±»ºöÂÔ ©¤©¤
-// keydown ¸ºÔğĞĞ±à¼­£¬keyup ±ØĞë±»ºöÂÔ£¨·ñÔò¿Õ°×/Ë«ÖØ²Ù×÷£©
+// â”€â”€ BUG #1 æµ‹è¯•: Win32Input KeyUp åœ¨ ConsoleRead ä¸‹è¢«å¿½ç•¥ â”€â”€
+// keydown è´Ÿè´£è¡Œç¼–è¾‘ï¼Œkeyup å¿…é¡»è¢«å¿½ç•¥ï¼ˆå¦åˆ™ç©ºç™½/åŒé‡æ“ä½œï¼‰
 bool test_win32_console_read_keyup_ignored()
 {
     pipe_bridge bridge;
     bridge.test_enter_console_read_mode(13);
 
-    // ¼üÈë "x"
+    // é”®å…¥ "x"
     auto x_down = make_win32_seq(0x58, 45, L'x', true, 0);
     bridge.test_feed_raw_bytes(x_down.data(), static_cast<DWORD>(x_down.size()));
     ASSERT(bridge.test_get_cooked_buf() == U"x");
 
-    // ·¢ËÍ 'x' keyup: Í¬Ò»¸ö VK/Uc µ« Kd=0 ¡ú Ó¦±»ºöÂÔ
+    // å‘é€ 'x' keyup: åŒä¸€ä¸ª VK/Uc ä½† Kd=0 â†’ åº”è¢«å¿½ç•¥
     auto x_up = make_win32_seq(0x58, 45, L'x', false, 0);
     bridge.test_feed_raw_bytes(x_up.data(), static_cast<DWORD>(x_up.size()));
 
-    ASSERT(bridge.test_get_cooked_buf() == U"x"); // Î´±ä»¯
-    ASSERT(bridge.test_get_cooked_cursor() == 1); // Î´±ä»¯
+    ASSERT(bridge.test_get_cooked_buf() == U"x"); // æœªå˜åŒ–
+    ASSERT(bridge.test_get_cooked_cursor() == 1); // æœªå˜åŒ–
 
-    // Enter keydown + keyup ¡ú Ö»ÓĞ keydown ´¥·¢Íê³É
+    // Enter keydown + keyup â†’ åªæœ‰ keydown è§¦å‘å®Œæˆ
     auto enter_down = make_win32_seq(VK_RETURN, 28, L'\r', true, 32);
     bridge.test_feed_raw_bytes(enter_down.data(), static_cast<DWORD>(enter_down.size()));
     ASSERT(bridge.test_line_found() == true);
     return true;
 }
 
-// ©¤©¤ BUG #1 ²âÊÔ: Win32Input Tab ²åÈëÖÆ±í·û ©¤©¤
+// â”€â”€ BUG #1 æµ‹è¯•: Win32Input Tab æ’å…¥åˆ¶è¡¨ç¬¦ â”€â”€
 bool test_win32_console_read_tab_inserts_tab()
 {
     pipe_bridge bridge;
@@ -1498,54 +1498,54 @@ bool test_win32_console_read_tab_inserts_tab()
 }
 
 // ==================================================================
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-// Enter »»ĞĞ±êÖ¾»Ø¹é²âÊÔ£¨ĞŞ¸´ "echo hellohello" BUG£©
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Enter æ¢è¡Œæ ‡å¿—å›å½’æµ‹è¯•ï¼ˆä¿®å¤ "echo hellohello" BUGï¼‰
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //
-// »Ø¹é±³¾°£¨2026-05-23£©£º
-//   PowerShell ÏÂ PSReadLine Öğ×ÖäÖÈ¾ "echo hello" Ê±Í¨¹ı WriteConsole
-//   ÍÆ½ø state.cursor ´Ó (17,5) ¡ú (27,5)¡£Enter ºó state.cursor Í£ÔÚ
-//   ÊäÈëĞĞÄ©Î²¶ø·ÇÏÂÒ»ĞĞĞĞÊ× (0,6)¡£ÏÂÒ»Ìõ WriteConsole("hello") ´Ó¾É
-//   ¹â±êÎ»ÖÃ¿ªÊ¼ ¡ú "hello" µş¼ÓÔÚ "echo hello" ºóÃæ ¡ú "echo hellohello"¡£
+// å›å½’èƒŒæ™¯ï¼ˆ2026-05-23ï¼‰ï¼š
+//   PowerShell ä¸‹ PSReadLine é€å­—æ¸²æŸ“ "echo hello" æ—¶é€šè¿‡ WriteConsole
+//   æ¨è¿› state.cursor ä» (17,5) â†’ (27,5)ã€‚Enter å state.cursor åœåœ¨
+//   è¾“å…¥è¡Œæœ«å°¾è€Œéä¸‹ä¸€è¡Œè¡Œé¦– (0,6)ã€‚ä¸‹ä¸€æ¡ WriteConsole("hello") ä»æ—§
+//   å…‰æ ‡ä½ç½®å¼€å§‹ â†’ "hello" å åŠ åœ¨ "echo hello" åé¢ â†’ "echo hellohello"ã€‚
 //
-// ĞŞ¸´: process_input µÄ Enter ´¦ÀíÉèÖÃ _enter_pending_newline ±êÖ¾£¬
-//   api_write_console Êä³öÎÄ±¾Ç° consume_enter_newline() ¼ì²â±êÖ¾ ¡ú
-//   ÏÈ·¢ CUP µ½ _term_cursor£¨ÏÂÒ»ĞĞĞĞÊ×£©ÔÙĞ´ÎÄ±¾¡£
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// ä¿®å¤: process_input çš„ Enter å¤„ç†è®¾ç½® _enter_pending_newline æ ‡å¿—ï¼Œ
+//   api_write_console è¾“å‡ºæ–‡æœ¬å‰ consume_enter_newline() æ£€æµ‹æ ‡å¿— â†’
+//   å…ˆå‘ CUP åˆ° _term_cursorï¼ˆä¸‹ä¸€è¡Œè¡Œé¦–ï¼‰å†å†™æ–‡æœ¬ã€‚
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-// ©¤©¤ 1. \r ÔÚ·Ç ConsoleRead Ä£Ê½ÏÂÉèÖÃ»»ĞĞ±êÖ¾ ©¤©¤
-// Ä£ÄâÖÕ¶Ë·¢ËÍ´¿ÎÄ±¾ "echo hello\r"£¨PSReadLine äÖÈ¾ + Enter ¼ü£©¡£
-// ×¢Òâ: process_input ÖĞ \r µÄ keydown ±» input_enter() ËÍÈë input_buffer£¬
-//   µ« process_input ÈÔÈ»¼ì²âµ½ b=='\r' ²¢´¦Àí¹â±ê¡£´Ë´¦½ö²âÊÔ±êÖ¾¡£
+// â”€â”€ 1. \r åœ¨é ConsoleRead æ¨¡å¼ä¸‹è®¾ç½®æ¢è¡Œæ ‡å¿— â”€â”€
+// æ¨¡æ‹Ÿç»ˆç«¯å‘é€çº¯æ–‡æœ¬ "echo hello\r"ï¼ˆPSReadLine æ¸²æŸ“ + Enter é”®ï¼‰ã€‚
+// æ³¨æ„: process_input ä¸­ \r çš„ keydown è¢« input_enter() é€å…¥ input_bufferï¼Œ
+//   ä½† process_input ä»ç„¶æ£€æµ‹åˆ° b=='\r' å¹¶å¤„ç†å…‰æ ‡ã€‚æ­¤å¤„ä»…æµ‹è¯•æ ‡å¿—ã€‚
 bool test_enter_newline_flag_set_on_cr()
 {
     pipe_bridge bridge;
-    bridge.test_set_term_cursor_valid({17, 5}); // ÌáÊ¾·ûÄ©Î²
-    bridge.sync_cursor_after_write({17, 5});    // ÖØÖÃÊäÈë±ß½ç
+    bridge.test_set_term_cursor_valid({17, 5}); // æç¤ºç¬¦æœ«å°¾
+    bridge.sync_cursor_after_write({17, 5});    // é‡ç½®è¾“å…¥è¾¹ç•Œ
 
-    // Ä£Äâ PSReadLine Öğ×Ö WriteConsole ÍÆ½ø state.cursor£¨Êµ¼ÊÓÉ api_write_console Çı¶¯£©
-    // ´Ë´¦ÊÖ¶¯ÍÆ½ø _term_cursor À´Ä£Äâ "echo hello"£¨10 ×Ö·û£©
+    // æ¨¡æ‹Ÿ PSReadLine é€å­— WriteConsole æ¨è¿› state.cursorï¼ˆå®é™…ç”± api_write_console é©±åŠ¨ï¼‰
+    // æ­¤å¤„æ‰‹åŠ¨æ¨è¿› _term_cursor æ¥æ¨¡æ‹Ÿ "echo hello"ï¼ˆ10 å­—ç¬¦ï¼‰
     bridge.test_feed_echo_bytes((const BYTE *)"echo hello", 10);
     ASSERT(bridge.test_get_term_cursor().X == 27); // 17+10
     ASSERT(bridge.test_get_term_cursor().Y == 5);
 
-    // ±êÖ¾³õÊ¼Îª false
+    // æ ‡å¿—åˆå§‹ä¸º false
     ASSERT(bridge.test_get_enter_newline_flag() == false);
 
-    // process_input ½ÓÊÕ \r£¨Enter ¼ü raw byte£©£¬¼ì²âºóÓ¦ÉèÖÃ±êÖ¾
+    // process_input æ¥æ”¶ \rï¼ˆEnter é”® raw byteï¼‰ï¼Œæ£€æµ‹ååº”è®¾ç½®æ ‡å¿—
     bridge.test_feed_raw_bytes((const BYTE *)"\r", 1);
 
-    // ©¤©¤ ÑéÖ¤: _enter_pending_newline ±»ÖÃÎ» ©¤©¤
+    // â”€â”€ éªŒè¯: _enter_pending_newline è¢«ç½®ä½ â”€â”€
     ASSERT(bridge.test_get_enter_newline_flag() == true);
 
-    // ©¤©¤ ÑéÖ¤: _term_cursor ÒÑÍÆ½øµ½ÏÂÒ»ĞĞĞĞÊ× ©¤©¤
+    // â”€â”€ éªŒè¯: _term_cursor å·²æ¨è¿›åˆ°ä¸‹ä¸€è¡Œè¡Œé¦– â”€â”€
     ASSERT(bridge.test_get_term_cursor().X == 0);
-    ASSERT(bridge.test_get_term_cursor().Y == 6); // Y ÍÆ½øÁË 1
+    ASSERT(bridge.test_get_term_cursor().Y == 6); // Y æ¨è¿›äº† 1
     return true;
 }
 
-// ©¤©¤ 2. consume_enter_newline() ÏûºÄ±êÖ¾²¢·µ»Ø true ©¤©¤
-// api_write_console ÔÚÊä³ö "hello" ÎÄ±¾Ç°µ÷ÓÃ´Ë·½·¨¡£
+// â”€â”€ 2. consume_enter_newline() æ¶ˆè€—æ ‡å¿—å¹¶è¿”å› true â”€â”€
+// api_write_console åœ¨è¾“å‡º "hello" æ–‡æœ¬å‰è°ƒç”¨æ­¤æ–¹æ³•ã€‚
 bool test_enter_newline_consume_flag()
 {
     pipe_bridge bridge;
@@ -1559,24 +1559,24 @@ bool test_enter_newline_consume_flag()
     ASSERT(saved_tc.X == 0);
     ASSERT(saved_tc.Y == 6);
 
-    // consume_enter_newline() ½öÔÚ flag Îª true Ê±·µ»Ø true£¬²¢Çå³ı±êÖ¾
+    // consume_enter_newline() ä»…åœ¨ flag ä¸º true æ—¶è¿”å› trueï¼Œå¹¶æ¸…é™¤æ ‡å¿—
     bool consumed = bridge.consume_enter_newline();
     ASSERT(consumed == true);
     ASSERT(bridge.test_get_enter_newline_flag() == false);
 
-    // µÚ¶ş´Îµ÷ÓÃÓ¦·µ»Ø false£¨±êÖ¾ÒÑÇå³ı£©
+    // ç¬¬äºŒæ¬¡è°ƒç”¨åº”è¿”å› falseï¼ˆæ ‡å¿—å·²æ¸…é™¤ï¼‰
     consumed = bridge.consume_enter_newline();
     ASSERT(consumed == false);
     return true;
 }
 
-// ©¤©¤ 3. ÎŞ Enter Ê± consume_enter_newline() ·µ»Ø false ©¤©¤
+// â”€â”€ 3. æ—  Enter æ—¶ consume_enter_newline() è¿”å› false â”€â”€
 bool test_enter_newline_no_flag_when_no_cr()
 {
     pipe_bridge bridge;
     bridge.test_set_term_cursor_valid({17, 5});
 
-    // Ö»ÓĞ´òÓ¡×Ö·û£¬Ã»ÓĞ Enter
+    // åªæœ‰æ‰“å°å­—ç¬¦ï¼Œæ²¡æœ‰ Enter
     bridge.test_feed_raw_bytes((const BYTE *)"abc", 3);
     ASSERT(bridge.test_get_enter_newline_flag() == false);
 
@@ -1585,16 +1585,16 @@ bool test_enter_newline_no_flag_when_no_cr()
     return true;
 }
 
-// ©¤©¤ 4. Win32Input Enter ÔÚ·Ç ConsoleRead Ä£Ê½ÏÂÉèÖÃ»»ĞĞ±êÖ¾ ©¤©¤
-// ÖÕ¶ËÍ¨¹ı Win32Input ¸ñÊ½·¢ËÍ Enter Ê±²»»á²úÉú \r ×Ö½Ú ¡ú ²»ÄÜ×ß
-// ÏÂ·½ b=='\r' ¼ì²â ¡ú ±ØĞëÔÚ win32_input_key ·ÖÖ§ÖĞ¶ÀÁ¢ÉèÖÃ±êÖ¾¡£
+// â”€â”€ 4. Win32Input Enter åœ¨é ConsoleRead æ¨¡å¼ä¸‹è®¾ç½®æ¢è¡Œæ ‡å¿— â”€â”€
+// ç»ˆç«¯é€šè¿‡ Win32Input æ ¼å¼å‘é€ Enter æ—¶ä¸ä¼šäº§ç”Ÿ \r å­—èŠ‚ â†’ ä¸èƒ½èµ°
+// ä¸‹æ–¹ b=='\r' æ£€æµ‹ â†’ å¿…é¡»åœ¨ win32_input_key åˆ†æ”¯ä¸­ç‹¬ç«‹è®¾ç½®æ ‡å¿—ã€‚
 bool test_enter_newline_flag_set_on_win32_enter()
 {
     pipe_bridge bridge;
     bridge.test_set_term_cursor_valid({17, 5});
     bridge.sync_cursor_after_write({17, 5});
 
-    // Ä£Äâ "echo hello" ÒÑÍ¨¹ı Win32Input Öğ×ÖäÖÈ¾Íê±Ï
+    // æ¨¡æ‹Ÿ "echo hello" å·²é€šè¿‡ Win32Input é€å­—æ¸²æŸ“å®Œæ¯•
     bridge.test_feed_echo_bytes((const BYTE *)"echo hello", 10);
 
     // Win32Input Enter keydown: VK_RETURN, Sc=28, Uc='\r', Kd=1
@@ -1605,157 +1605,157 @@ bool test_enter_newline_flag_set_on_win32_enter()
     ASSERT(bridge.test_get_term_cursor().X == 0);
     ASSERT(bridge.test_get_term_cursor().Y == 6);
 
-    // consume ºó±êÖ¾Çå³ı
+    // consume åæ ‡å¿—æ¸…é™¤
     ASSERT(bridge.consume_enter_newline() == true);
     ASSERT(bridge.test_get_enter_newline_flag() == false);
     return true;
 }
 
-// ©¤©¤ 5. ÍêÕû³¡¾°: Enter ¡ú consume ¡ú ¹â±ê¶¨Î»µ½ÏÂÒ»ĞĞĞĞÊ× ©¤©¤
-// Ä£ÄâÕæÊµ PowerShell Á÷³Ì: ÌáÊ¾·û ¡ú ¼üÈë echo hello ¡ú Enter ¡ú
-// PowerShell WriteConsole("hello\r\n") Ê±ÏÈ consume ¡ú CUP ¡ú ÔÙĞ´ÎÄ±¾¡£
+// â”€â”€ 5. å®Œæ•´åœºæ™¯: Enter â†’ consume â†’ å…‰æ ‡å®šä½åˆ°ä¸‹ä¸€è¡Œè¡Œé¦– â”€â”€
+// æ¨¡æ‹ŸçœŸå® PowerShell æµç¨‹: æç¤ºç¬¦ â†’ é”®å…¥ echo hello â†’ Enter â†’
+// PowerShell WriteConsole("hello\r\n") æ—¶å…ˆ consume â†’ CUP â†’ å†å†™æ–‡æœ¬ã€‚
 bool test_enter_newline_full_scenario()
 {
     pipe_bridge bridge;
 
-    // ©¤©¤ ³õÊ¼»¯: ÌáÊ¾·û WriteConsole Íê³É£¬¹â±êÔÚ (17,5) ©¤©¤
+    // â”€â”€ åˆå§‹åŒ–: æç¤ºç¬¦ WriteConsole å®Œæˆï¼Œå…‰æ ‡åœ¨ (17,5) â”€â”€
     bridge.test_set_term_cursor_valid({17, 5});
     bridge.sync_cursor_after_write({17, 5});
 
-    // ©¤©¤ PSReadLine Öğ×ÖäÖÈ¾ "echo hello" ¡ú ÖÕ¶Ë¹â±êÍÆ½øµ½ (27,5) ©¤©¤
+    // â”€â”€ PSReadLine é€å­—æ¸²æŸ“ "echo hello" â†’ ç»ˆç«¯å…‰æ ‡æ¨è¿›åˆ° (27,5) â”€â”€
     bridge.test_feed_echo_bytes((const BYTE *)"echo hello", 10);
 
-    // ©¤©¤ ÓÃ»§°´ Enter ¡ú process_input ½ÓÊÕ \r ¡ú ÉèÖÃ±êÖ¾ + term_cursor ©¤©¤
+    // â”€â”€ ç”¨æˆ·æŒ‰ Enter â†’ process_input æ¥æ”¶ \r â†’ è®¾ç½®æ ‡å¿— + term_cursor â”€â”€
     bridge.test_feed_raw_bytes((const BYTE *)"\r", 1);
     ASSERT(bridge.test_get_enter_newline_flag() == true);
 
-    // _term_cursor ÏÖÔÚÊÇ (0,6) ¡ª ÏÂÒ»ĞĞĞĞÊ×
+    // _term_cursor ç°åœ¨æ˜¯ (0,6) â€” ä¸‹ä¸€è¡Œè¡Œé¦–
     COORD nl = bridge.test_get_term_cursor();
     ASSERT(nl.X == 0);
     ASSERT(nl.Y == 6);
 
-    // ©¤©¤ PowerShell µ÷ÓÃ WriteConsole("hello\r\n") ©¤©¤
-    // api_write_console Ó¦ÏÈ consume_enter_newline() ¡ú ·¢ CUP µ½ (0,6)
-    // ´Ë´¦Ä£Äâ consume + ÊÖ¶¯µ÷Õû¹â±ê
+    // â”€â”€ PowerShell è°ƒç”¨ WriteConsole("hello\r\n") â”€â”€
+    // api_write_console åº”å…ˆ consume_enter_newline() â†’ å‘ CUP åˆ° (0,6)
+    // æ­¤å¤„æ¨¡æ‹Ÿ consume + æ‰‹åŠ¨è°ƒæ•´å…‰æ ‡
     ASSERT(bridge.consume_enter_newline() == true);
 
-    // "hello" 5 ¸ö×Ö·û´Ó (0,6) ¿ªÊ¼Ğ´ ¡ú ¹â±êµ½ (5,6)
+    // "hello" 5 ä¸ªå­—ç¬¦ä» (0,6) å¼€å§‹å†™ â†’ å…‰æ ‡åˆ° (5,6)
     bridge.test_feed_echo_bytes((const BYTE *)"hello", 5);
     ASSERT(bridge.test_get_term_cursor().X == 5);
     ASSERT(bridge.test_get_term_cursor().Y == 6);
 
-    // "\r\n" ¡ú ¹â±êµ½ (0,7)
+    // "\r\n" â†’ å…‰æ ‡åˆ° (0,7)
     bridge.test_feed_echo_bytes((const BYTE *)"\r\n", 2);
     ASSERT(bridge.test_get_term_cursor().X == 0);
     ASSERT(bridge.test_get_term_cursor().Y == 7);
 
-    // ±êÖ¾ÒÑ±» consume ¡ú ²»»áÔÙ´¥·¢
+    // æ ‡å¿—å·²è¢« consume â†’ ä¸ä¼šå†è§¦å‘
     ASSERT(bridge.test_get_enter_newline_flag() == false);
     return true;
 }
 
-// ©¤©¤ 6. ConsoleRead Ä£Ê½ÏÂ CR ²»ÉèÖÃ»»ĞĞ±êÖ¾ ©¤©¤
-// ConsoleRead Â·¾¶ÓĞ×Ô¼ºµÄĞĞ±à¼­Âß¼­£¨_edit_* / complete_pending£©£¬
-// ²»Ó¦¸ÉÉæ _enter_pending_newline¡£
+// â”€â”€ 6. ConsoleRead æ¨¡å¼ä¸‹ CR ä¸è®¾ç½®æ¢è¡Œæ ‡å¿— â”€â”€
+// ConsoleRead è·¯å¾„æœ‰è‡ªå·±çš„è¡Œç¼–è¾‘é€»è¾‘ï¼ˆ_edit_* / complete_pendingï¼‰ï¼Œ
+// ä¸åº”å¹²æ¶‰ _enter_pending_newlineã€‚
 bool test_enter_newline_not_set_in_console_read()
 {
     pipe_bridge bridge;
     bridge.test_enter_console_read_mode(13);
 
-    // ¼üÈë "abc" + Enter
+    // é”®å…¥ "abc" + Enter
     bridge.test_feed_raw_bytes((const BYTE *)"abc\r", 4);
 
-    // ConsoleRead Ä£Ê½ÏÂ Complete_pending ´¦ÀíÁË Enter£¬µ«²»Ó¦ÉèÖÃ±êÖ¾
+    // ConsoleRead æ¨¡å¼ä¸‹ Complete_pending å¤„ç†äº† Enterï¼Œä½†ä¸åº”è®¾ç½®æ ‡å¿—
     ASSERT(bridge.test_get_enter_newline_flag() == false);
     return true;
 }
 
 // ==================================================================
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-// Clear ÆÁÄ» + Enter »»ĞĞ¹²´æ »Ø¹é²âÊÔ
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// Clear å±å¹• + Enter æ¢è¡Œå…±å­˜ å›å½’æµ‹è¯•
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 //
-// »Ø¹é±³¾°£¨2026-05-23£©£º
-//   BUG A: clear ºóĞÂ prompt ±»Ğ´µ½¾ÉĞĞ£¨(0,6) ¶ø·Ç (0,0)£©¡£
-//     ¸ùÒò: Enter ÉèÖÃµÄ _enter_pending_newline ±êÖ¾ÔÚ clear µÄ
-//     api_set_cursor_pos(0,0) ÖĞ±»Ã¤Çå£¬µ¼ÖÂºóĞø WriteConsole Ã¤À­¡£
-//     ĞŞÕı: reset_enter_newline() ½öµ±¹â±êÒÆµ½ (0,0) Ê±²ÅÖ´ĞĞ£¬
-//     PSReadLine Öğ×ÖäÖÈ¾µÄÁĞ¼¶ÒÆ¶¯²»»á´¥·¢¡£
+// å›å½’èƒŒæ™¯ï¼ˆ2026-05-23ï¼‰ï¼š
+//   BUG A: clear åæ–° prompt è¢«å†™åˆ°æ—§è¡Œï¼ˆ(0,6) è€Œé (0,0)ï¼‰ã€‚
+//     æ ¹å› : Enter è®¾ç½®çš„ _enter_pending_newline æ ‡å¿—åœ¨ clear çš„
+//     api_set_cursor_pos(0,0) ä¸­è¢«ç›²æ¸…ï¼Œå¯¼è‡´åç»­ WriteConsole ç›²æ‹‰ã€‚
+//     ä¿®æ­£: reset_enter_newline() ä»…å½“å…‰æ ‡ç§»åˆ° (0,0) æ—¶æ‰æ‰§è¡Œï¼Œ
+//     PSReadLine é€å­—æ¸²æŸ“çš„åˆ—çº§ç§»åŠ¨ä¸ä¼šè§¦å‘ã€‚
 //
-//   BUG B: screen_buffer::fill_char Ö»Ìî³äµ¥ĞĞ (120 ¸ñ) ²¢ËõĞ´ÁË
-//     r->Length£¬µ¼ÖÂ is_fullscreen_space ÅĞ¾İ 120 >= 3600 Ê§°Ü£¬
-//     ED2 ÇåÆÁĞòÁĞ´ÓÎ´·¢ËÍ¡£
-//     ĞŞÕı: api_fill_output Ê¹ÓÃ orig_length£¨sb write Ç°µÄÖµ£©ÅĞ¶Ï¡£
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+//   BUG B: screen_buffer::fill_char åªå¡«å……å•è¡Œ (120 æ ¼) å¹¶ç¼©å†™äº†
+//     r->Lengthï¼Œå¯¼è‡´ is_fullscreen_space åˆ¤æ® 120 >= 3600 å¤±è´¥ï¼Œ
+//     ED2 æ¸…å±åºåˆ—ä»æœªå‘é€ã€‚
+//     ä¿®æ­£: api_fill_output ä½¿ç”¨ orig_lengthï¼ˆsb write å‰çš„å€¼ï¼‰åˆ¤æ–­ã€‚
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-// ©¤©¤ 1. Clear-Host ³¡¾°: Enter ¡ú SetCursorPos(0,0) ¡ú ÏÂÒ»Ìõ WriteConsole ÔÚ (0,0) ©¤©¤
-// Ä£Äâ PSReadLine Clear-Host µÄÍêÕûµ÷ÓÃÁ´: SetConsoleCursorPosition(0,0) +
-// FillConsoleOutput + WriteConsole(prompt)£¬ÑéÖ¤ prompt ÔÚµÚÒ»ĞĞ¶ø·Ç¾ÉĞĞ¡£
+// â”€â”€ 1. Clear-Host åœºæ™¯: Enter â†’ SetCursorPos(0,0) â†’ ä¸‹ä¸€æ¡ WriteConsole åœ¨ (0,0) â”€â”€
+// æ¨¡æ‹Ÿ PSReadLine Clear-Host çš„å®Œæ•´è°ƒç”¨é“¾: SetConsoleCursorPosition(0,0) +
+// FillConsoleOutput + WriteConsole(prompt)ï¼ŒéªŒè¯ prompt åœ¨ç¬¬ä¸€è¡Œè€Œéæ—§è¡Œã€‚
 bool test_clear_reset_newline_only_at_origin()
 {
     pipe_bridge bridge;
 
-    // prompt ÔÚ (17,5) ĞĞ
+    // prompt åœ¨ (17,5) è¡Œ
     bridge.test_set_term_cursor_valid({17, 5});
     bridge.sync_cursor_after_write({17, 5});
 
-    // Öğ×ÖäÖÈ¾ "clear" (5 chars) ¡ú cursor µ½ (22,5)
+    // é€å­—æ¸²æŸ“ "clear" (5 chars) â†’ cursor åˆ° (22,5)
     bridge.test_feed_echo_bytes((const BYTE *)"clear", 5);
     ASSERT(bridge.test_get_term_cursor().X == 22);
 
-    // Enter ¡ú flag ÖÃÎ»£¬_term_cursor = (0,6)
+    // Enter â†’ flag ç½®ä½ï¼Œ_term_cursor = (0,6)
     bridge.test_feed_raw_bytes((const BYTE *)"\r", 1);
     ASSERT(bridge.test_get_enter_newline_flag() == true);
     ASSERT(bridge.test_get_term_cursor().X == 0);
     ASSERT(bridge.test_get_term_cursor().Y == 6);
 
-    // ©¤©¤ Clear-Host: api_set_cursor_pos(0,0) ¡ª ½ö´Ë×ø±êÓ¦ reset flag ©¤©¤
-    // ÊÖ¶¯Ä£Äâ api_set_cursor_pos ÖĞµÄ reset Âß¼­£º×ø±êÎª (0,0) ¡ú ÖØÖÃ
+    // â”€â”€ Clear-Host: api_set_cursor_pos(0,0) â€” ä»…æ­¤åæ ‡åº” reset flag â”€â”€
+    // æ‰‹åŠ¨æ¨¡æ‹Ÿ api_set_cursor_pos ä¸­çš„ reset é€»è¾‘ï¼šåæ ‡ä¸º (0,0) â†’ é‡ç½®
     bridge.reset_enter_newline(); // api_set_cursor_pos(0,0) would call this
     ASSERT(bridge.test_get_enter_newline_flag() == false);
 
-    // ©¤©¤ ÏÂÒ»Ìõ WriteConsole(prompt) ²»Ó¦ÔÙ×ß enter_newline Â·¾¶ ©¤©¤
+    // â”€â”€ ä¸‹ä¸€æ¡ WriteConsole(prompt) ä¸åº”å†èµ° enter_newline è·¯å¾„ â”€â”€
     ASSERT(bridge.consume_enter_newline() == false);
 
-    // Ä£Äâ WriteConsole(prompt) ÔÚÇåÆÁºóµÄ (0,0) Êä³ö ¡ú ¹â±êµ½ (16,0)
+    // æ¨¡æ‹Ÿ WriteConsole(prompt) åœ¨æ¸…å±åçš„ (0,0) è¾“å‡º â†’ å…‰æ ‡åˆ° (16,0)
     bridge.test_set_term_cursor_valid({0, 0});
     bridge.sync_cursor_after_write({0, 0});
     bridge.test_feed_echo_bytes((const BYTE *)"PS C:\\Users\\xyx>", 16);
     ASSERT(bridge.test_get_term_cursor().X == 16);
-    ASSERT(bridge.test_get_term_cursor().Y == 0); // ÌáÊ¾·ûÔÚµÚÒ»ĞĞ£¡
+    ASSERT(bridge.test_get_term_cursor().Y == 0); // æç¤ºç¬¦åœ¨ç¬¬ä¸€è¡Œï¼
     return true;
 }
 
-// ©¤©¤ 2. PSReadLine Öğ×ÖäÖÈ¾µÄÁĞ¼¶ SetCursorPos ²»Çå³ı Enter ±êÖ¾ ©¤©¤
-// PSReadLine Ã¿äÖÈ¾Ò»¸ö×Ö·û¶¼µ÷ÓÃ SetConsoleCursorPosition(x,5) ÖØ¶¨Î»µ½ÊäÈëĞĞ£¬
-// µ«×ø±ê·Ç (0,0) ¡ú reset_enter_newline() ²»Ó¦´¥·¢ ¡ú flag ±£Áô¡£
-// ÑéÖ¤ "echo hello" + Enter ºó flag ÈÔÎª true£¬Õı³£»»ĞĞÂ·¾¶²»ÊÜÓ°Ïì¡£
+// â”€â”€ 2. PSReadLine é€å­—æ¸²æŸ“çš„åˆ—çº§ SetCursorPos ä¸æ¸…é™¤ Enter æ ‡å¿— â”€â”€
+// PSReadLine æ¯æ¸²æŸ“ä¸€ä¸ªå­—ç¬¦éƒ½è°ƒç”¨ SetConsoleCursorPosition(x,5) é‡å®šä½åˆ°è¾“å…¥è¡Œï¼Œ
+// ä½†åæ ‡é (0,0) â†’ reset_enter_newline() ä¸åº”è§¦å‘ â†’ flag ä¿ç•™ã€‚
+// éªŒè¯ "echo hello" + Enter å flag ä»ä¸º trueï¼Œæ­£å¸¸æ¢è¡Œè·¯å¾„ä¸å—å½±å“ã€‚
 bool test_psreadline_setcursorpos_does_not_reset_newline()
 {
     pipe_bridge bridge;
 
-    // prompt ÔÚ (17,5)
+    // prompt åœ¨ (17,5)
     bridge.test_set_term_cursor_valid({17, 5});
     bridge.sync_cursor_after_write({17, 5});
 
-    // Öğ×ÖäÖÈ¾ "echo" (4 chars) + " " (1 char) + "hello" (5 chars) = 10
+    // é€å­—æ¸²æŸ“ "echo" (4 chars) + " " (1 char) + "hello" (5 chars) = 10
     bridge.test_feed_echo_bytes((const BYTE *)"echo hello", 10);
     ASSERT(bridge.test_get_term_cursor().X == 27); // 17+10
 
-    // PSReadLine Ã¿´Î WriteConsole ºó»á SetConsoleCursorPosition(17,5) ÖØ¶¨Î»
-    // ¡ú ×ø±ê²»Îª (0,0) ¡ú flag ²»Ó¦±»Çå³ı
-    bridge.test_set_enter_newline_flag(true); // Ä£Äâ Enter ÒÑÉèÖÃ
-    // Ä£Äâ api_set_cursor_pos(17,5) µÄÊØÎÀ: if (x==0 && y==0) reset; ·ñÔòÌø¹ı
-    // ×ø±ê (17,5) ¡Ù (0,0) ¡ú flag ±£³Ö
+    // PSReadLine æ¯æ¬¡ WriteConsole åä¼š SetConsoleCursorPosition(17,5) é‡å®šä½
+    // â†’ åæ ‡ä¸ä¸º (0,0) â†’ flag ä¸åº”è¢«æ¸…é™¤
+    bridge.test_set_enter_newline_flag(true); // æ¨¡æ‹Ÿ Enter å·²è®¾ç½®
+    // æ¨¡æ‹Ÿ api_set_cursor_pos(17,5) çš„å®ˆå«: if (x==0 && y==0) reset; å¦åˆ™è·³è¿‡
+    // åæ ‡ (17,5) â‰  (0,0) â†’ flag ä¿æŒ
     ASSERT(bridge.test_get_enter_newline_flag() == true);
 
-    // ÏÂÒ»¸ö WriteConsole(prompt) Ê± consume Ó¦³É¹¦
+    // ä¸‹ä¸€ä¸ª WriteConsole(prompt) æ—¶ consume åº”æˆåŠŸ
     ASSERT(bridge.consume_enter_newline() == true);
     ASSERT(bridge.test_get_enter_newline_flag() == false);
     return true;
 }
 
-// ©¤©¤ 3. ÍêÕû Clear-Host ³¡¾° ¡ª º¬ FillConsoleOutput ÇåÆÁºó prompt Î»ÖÃ ©¤©¤
+// â”€â”€ 3. å®Œæ•´ Clear-Host åœºæ™¯ â€” å« FillConsoleOutput æ¸…å±å prompt ä½ç½® â”€â”€
 bool test_clear_full_pipeline_prompt_on_row_0()
 {
     pipe_bridge bridge;
@@ -1769,17 +1769,17 @@ bool test_clear_full_pipeline_prompt_on_row_0()
     bridge.test_feed_raw_bytes((const BYTE *)"\r", 1);
     ASSERT(bridge.test_get_enter_newline_flag() == true);
 
-    // Step 3: Clear-Host ¡ª SetConsoleCursorPosition(0,0)
-    bridge.reset_enter_newline(); // ¡ú flag cleared because target is origin
+    // Step 3: Clear-Host â€” SetConsoleCursorPosition(0,0)
+    bridge.reset_enter_newline(); // â†’ flag cleared because target is origin
     ASSERT(bridge.test_get_enter_newline_flag() == false);
 
-    // Step 4: FillConsoleOutput(space, 120*30) ¡ú terminal cleared to (0,0)
-    // Step 5: FillConsoleOutput(attr, 120*30) ¡ú no VT output per shim
+    // Step 4: FillConsoleOutput(space, 120*30) â†’ terminal cleared to (0,0)
+    // Step 5: FillConsoleOutput(attr, 120*30) â†’ no VT output per shim
     // Terminal cursor is now at (0,0)
     bridge.test_set_term_cursor_valid({0, 0});
     bridge.sync_cursor_after_write({0, 0});
 
-    // Step 6: WriteConsole(prompt "PS C:\...>") ¡ª 16 chars
+    // Step 6: WriteConsole(prompt "PS C:\...>") â€” 16 chars
     // consume_enter_newline should return false (flag already cleared in Step 3)
     ASSERT(bridge.consume_enter_newline() == false);
     bridge.test_feed_echo_bytes((const BYTE *)"PS C:\\Users\\xyx>", 16);
@@ -1789,17 +1789,17 @@ bool test_clear_full_pipeline_prompt_on_row_0()
     return true;
 }
 
-// »Ø¹é£ºÅúÁ¿ echo ÓÅ»¯ºó echo ×·¼Óµ½ _vt_buf£¬µ«ÒÅÂ© vt_flush µ¼ÖÂ×Ö·ûÖÍÁô¡£
-// ±¾²âÊÔÑéÖ¤Ã¿´Î test_feed_raw_bytes ºó _vt_buf ÒÑ±»ÅÅ¿Õ¡£
+// å›å½’ï¼šæ‰¹é‡ echo ä¼˜åŒ–å echo è¿½åŠ åˆ° _vt_bufï¼Œä½†é—æ¼ vt_flush å¯¼è‡´å­—ç¬¦æ»ç•™ã€‚
+// æœ¬æµ‹è¯•éªŒè¯æ¯æ¬¡ test_feed_raw_bytes å _vt_buf å·²è¢«æ’ç©ºã€‚
 bool test_echo_flushed_after_each_batch()
 {
     pipe_bridge bridge;
     bridge.test_enter_console_read_mode(13);
 
-    // ·¢ËÍ¿É´òÓ¡×Ö·û ¡ú echo ×·¼Óµ½ _vt_buf ¡ú test_feed_raw_bytes ÄÚµ÷ vt_flush
+    // å‘é€å¯æ‰“å°å­—ç¬¦ â†’ echo è¿½åŠ åˆ° _vt_buf â†’ test_feed_raw_bytes å†…è°ƒ vt_flush
     auto a = make_win32_seq(0x41, 30, L'a', true, 0);
     bridge.test_feed_raw_bytes(a.data(), static_cast<DWORD>(a.size()));
-    ASSERT(bridge.test_vt_buf_len() == 0); // Åú´Î½áÊøÊ±ÒÑ flush
+    ASSERT(bridge.test_vt_buf_len() == 0); // æ‰¹æ¬¡ç»“æŸæ—¶å·² flush
 
     auto b = make_win32_seq(0x42, 48, L'b', true, 0);
     bridge.test_feed_raw_bytes(b.data(), static_cast<DWORD>(b.size()));
@@ -1812,26 +1812,26 @@ bool test_echo_flushed_after_each_batch()
     return true;
 }
 
-// ©¤©¤ BUG #4 »Ø¹é: api_write_console ²»ÔÙ·¢ËÍ×îÖÕ CUP ©¤©¤
-//   BUG: ÒÆ³ı×îÖÕ CUP ºó£¬ÖÕ¶ËÍ¨¹ı DECAWM ×ÔÈ»×·×Ù¹â±ê¡£
-//   ²âÊÔ: Í¨¹ı vt_flush_diag / _vt_buf ÑéÖ¤ WriteConsole ·¢ËÍµÄ VT ĞòÁĞ
-//   ²»°üº¬Á½´Î CUP£¨³õÊ¼+×îÖÕ£©£¬½ö Enter »»ĞĞÊ±ÓĞÒ»´Î¡£
+// â”€â”€ BUG #4 å›å½’: api_write_console ä¸å†å‘é€æœ€ç»ˆ CUP â”€â”€
+//   BUG: ç§»é™¤æœ€ç»ˆ CUP åï¼Œç»ˆç«¯é€šè¿‡ DECAWM è‡ªç„¶è¿½è¸ªå…‰æ ‡ã€‚
+//   æµ‹è¯•: é€šè¿‡ vt_flush_diag / _vt_buf éªŒè¯ WriteConsole å‘é€çš„ VT åºåˆ—
+//   ä¸åŒ…å«ä¸¤æ¬¡ CUPï¼ˆåˆå§‹+æœ€ç»ˆï¼‰ï¼Œä»… Enter æ¢è¡Œæ—¶æœ‰ä¸€æ¬¡ã€‚
 //
-//   ×¢Òâ: ´Ë²âÊÔÒÀÀµ pipe_bridge µÄ vt_flush_diag Õï¶Ï½Ó¿ÚºÍ test_*
-//   ¸¨Öú·½·¨¡£Í¨¹ı¼ì²é _vt_buf Êµ¼Ê×Ö½ÚÀ´È·ÈÏ CUP Î´·¢ËÍ¡£
+//   æ³¨æ„: æ­¤æµ‹è¯•ä¾èµ– pipe_bridge çš„ vt_flush_diag è¯Šæ–­æ¥å£å’Œ test_*
+//   è¾…åŠ©æ–¹æ³•ã€‚é€šè¿‡æ£€æŸ¥ _vt_buf å®é™…å­—èŠ‚æ¥ç¡®è®¤ CUP æœªå‘é€ã€‚
 bool test_write_console_does_not_emit_final_cup()
 {
-    // ´Ë²âÊÔ½öÎÄµµ»¯»Ø¹é±£»¤³¡¾°£¬Êµ¼Ê CUP ÉÚ±øÓÉ E2E ²âÊÔ¸²¸Ç¡£
-    // pipe_bridge ÔÚ²âÊÔÄ£Ê½ÏÂ¿É¼ì²é _vt_buf ÄÚÈİµ«ĞèÒªÇÅÁº±©Â¶¡£
-    // ºËĞÄ¶ÏÑÔ: api_write_console µÄ "vt_flush_diag" µ÷ÓÃÒÑÒÆ³ı£¬
-    // ²»ÔÙÓĞ¶îÍâµÄ CSI n;m H ĞòÁĞ¡£
+    // æ­¤æµ‹è¯•ä»…æ–‡æ¡£åŒ–å›å½’ä¿æŠ¤åœºæ™¯ï¼Œå®é™… CUP å“¨å…µç”± E2E æµ‹è¯•è¦†ç›–ã€‚
+    // pipe_bridge åœ¨æµ‹è¯•æ¨¡å¼ä¸‹å¯æ£€æŸ¥ _vt_buf å†…å®¹ä½†éœ€è¦æ¡¥æ¢æš´éœ²ã€‚
+    // æ ¸å¿ƒæ–­è¨€: api_write_console çš„ "vt_flush_diag" è°ƒç”¨å·²ç§»é™¤ï¼Œ
+    // ä¸å†æœ‰é¢å¤–çš„ CSI n;m H åºåˆ—ã€‚
     return true;
 }
 
 // ==================================================================
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-// Èë¿Ú
-// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// å…¥å£
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 int main()
 {
     std::wcout.sync_with_stdio(false);
@@ -1929,7 +1929,7 @@ int main()
     RUN_TEST(test_history_browse_then_enter_new, L"Browse then enter new cmd");
     RUN_TEST(test_history_saved_input_preserved_across_navigation, L"Saved input preserved");
 
-    std::wcout << L"\nWin32Input ¡ú ConsoleRead Regression (cmd shell) :\n";
+    std::wcout << L"\nWin32Input â†’ ConsoleRead Regression (cmd shell) :\n";
     RUN_TEST(test_win32_console_read_enter_submits_line, L"Enter submits line");
     RUN_TEST(test_win32_console_read_printable_inserts_char, L"Printable inserts char");
     RUN_TEST(test_win32_console_read_backspace_deletes_char, L"Backspace deletes char");
@@ -1945,7 +1945,7 @@ int main()
     RUN_TEST(test_enter_newline_consume_flag, L"Consume clears flag");
     RUN_TEST(test_enter_newline_no_flag_when_no_cr, L"No flag without CR");
     RUN_TEST(test_enter_newline_flag_set_on_win32_enter, L"Flag set on Win32 Enter");
-    RUN_TEST(test_enter_newline_full_scenario, L"Full scenario CR¡úconsume¡útext");
+    RUN_TEST(test_enter_newline_full_scenario, L"Full scenario CRâ†’consumeâ†’text");
     RUN_TEST(test_enter_newline_not_set_in_console_read, L"No flag in ConsoleRead");
 
     std::wcout << L"\nClear + Enter Coexistence Regression :\n";
