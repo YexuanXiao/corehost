@@ -1,61 +1,78 @@
-// manual_common.hpp — 手动测试公共工具
-// 每个测试程序都是独立的 .exe, 输出解释文字 + 3 秒延迟观察
+// manual_common.hpp — shared helpers for small manual console checks.
 #pragma once
 #include <windows.h>
 #include <cstdio>
 #include <cwchar>
 
-// ── 输出宽字符串 ──
+inline HANDLE out_handle()
+{
+    return ::GetStdHandle(STD_OUTPUT_HANDLE);
+}
+
+inline HANDLE in_handle()
+{
+    return ::GetStdHandle(STD_INPUT_HANDLE);
+}
+
 inline void wprint(const wchar_t *fmt, ...)
 {
-    wchar_t buf[4096];
+    wchar_t buffer[4096]{};
     va_list args;
     va_start(args, fmt);
-    int n = _vsnwprintf_s(buf, _TRUNCATE, fmt, args);
+    const int count = _vsnwprintf_s(buffer, _TRUNCATE, fmt, args);
     va_end(args);
-    if (n > 0)
+
+    if (count > 0)
     {
-        DWORD w;
-        WriteConsoleW(GetStdHandle(STD_OUTPUT_HANDLE), buf, static_cast<DWORD>(n), &w, nullptr);
+        DWORD written = 0;
+        ::WriteConsoleW(out_handle(), buffer, static_cast<DWORD>(count), &written, nullptr);
     }
 }
 
-// ── VT 序列 ──
 inline void vt(const wchar_t *seq)
 {
     wprint(L"%s", seq);
 }
 
-// ── 分隔线 ──
-inline void sep()
+inline void enable_vt()
 {
-    wprint(L"\n\x1b[1;37m──────────────────────────────────────────────────\x1b[0m\n");
+    DWORD mode = 0;
+    if (::GetConsoleMode(out_handle(), &mode))
+    {
+        mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+        mode |= DISABLE_NEWLINE_AUTO_RETURN;
+        ::SetConsoleMode(out_handle(), mode);
+    }
 }
 
-// ── 测试标题 ──
-inline void title(const wchar_t *name, const wchar_t *desc)
+inline void clear_screen()
 {
-    vt(L"\x1b[2J\x1b[H"); // 清屏
-    wprint(L"\x1b[1;36m══════════════════════════════════════════\x1b[0m\n");
-    wprint(L"\x1b[1;33m  %s\x1b[0m\n", name);
-    wprint(L"\x1b[1;36m══════════════════════════════════════════\x1b[0m\n\n");
-    wprint(L"  \x1b[1;37m说明:\x1b[0m %s\n\n", desc);
-    sep();
+    vt(L"\x1b[2J\x1b[H");
 }
 
-// ── 3 秒观察 ──
-inline void wait3s(const wchar_t *hint)
+inline void section(const wchar_t *name, const wchar_t *what)
 {
-    wprint(L"\n  \x1b[1;33m>>> %s — 3 秒后自动退出...\x1b[0m\n", hint);
-    Sleep(3000);
+    clear_screen();
+    wprint(L"\x1b[1;36m%s\x1b[0m\n", name);
+    wprint(L"%s\n", what);
+    wprint(L"\x1b[37m------------------------------------------------------------\x1b[0m\n");
 }
 
-// ── 获取输出句柄 + 启用 VT ──
-inline HANDLE init_console()
+inline void check_line(const wchar_t *label, const wchar_t *expected)
 {
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-    DWORD mode;
-    GetConsoleMode(hOut, &mode);
-    SetConsoleMode(hOut, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN);
-    return hOut;
+    wprint(L"\n\x1b[1;33m观察:\x1b[0m %s\n", label);
+    wprint(L"\x1b[1;33m期望:\x1b[0m %s\n", expected);
+}
+
+inline void pause_briefly()
+{
+    wprint(L"\n3 秒后退出。\n");
+    ::Sleep(3000);
+}
+
+inline void init_manual_console()
+{
+    enable_vt();
+    ::SetConsoleOutputCP(CP_UTF8);
+    ::SetConsoleCP(CP_UTF8);
 }
