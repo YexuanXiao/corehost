@@ -32,6 +32,7 @@
 
 namespace conpty
 {
+using namespace std::literals;
 
 struct pipe_bridge
 {
@@ -314,7 +315,7 @@ struct pipe_bridge
 
     void vt_write_cup(SHORT row, SHORT col)
     {
-        vt_append_str("\x1b[");
+        vt_append_str("\x1b["sv);
         vt_append_int(static_cast<int>(row) + 1);
         vt_append_char(';');
         vt_append_int(static_cast<int>(col) + 1);
@@ -323,16 +324,16 @@ struct pipe_bridge
 
     void vt_write_attr(WORD attr)
     {
-        vt_append_str("\x1b[0");
+        vt_append_str("\x1b[0"sv);
         auto fg = attr & 0x0F;
         auto bg = (attr >> 4) & 0x0F;
         auto fl = (attr >> 8) & 0xFF;
         if (fl & COMMON_LVB_REVERSE_VIDEO)
-            vt_append_str(";7");
+            vt_append_str(";7"sv);
         if (fl & COMMON_LVB_UNDERSCORE)
-            vt_append_str(";4");
+            vt_append_str(";4"sv);
         if (fl & COMMON_LVB_GRID_HORIZONTAL)
-            vt_append_str(";9");
+            vt_append_str(";9"sv);
         static constexpr int fg_map[] = {30, 34, 32, 36, 31, 35, 33, 37, 90, 94, 92, 96, 91, 95, 93, 97};
         static constexpr int bg_map[] = {40, 44, 42, 46, 41, 45, 43, 47, 100, 104, 102, 106, 101, 105, 103, 107};
         vt_append_char(';');
@@ -357,41 +358,41 @@ struct pipe_bridge
 
     void vt_write_clear_screen()
     {
-        vt_append_str("\x1b[2J\x1b[H");
+        vt_append_str("\x1b[2J\x1b[H"sv);
     }
 
     void vt_write_dsr_cpr()
     {
-        vt_append_str("\x1b[6n");
+        vt_append_str("\x1b[6n"sv);
     }
 
     void vt_write_hts()
     {
-        vt_append_str("\x1bH");
+        vt_append_str("\x1bH"sv);
     }
     void vt_write_tbc(bool all = false)
     {
-        vt_append_str(all ? "\x1b[3g" : "\x1b[0g");
+        vt_append_str(all ? "\x1b[3g"sv : "\x1b[0g"sv);
     }
     void vt_write_cht(SHORT n)
     {
-        vt_append_str("\x1b[");
+        vt_append_str("\x1b["sv);
         vt_append_int(n);
         vt_append_char('I');
     }
     void vt_write_cbt(SHORT n)
     {
-        vt_append_str("\x1b[");
+        vt_append_str("\x1b["sv);
         vt_append_int(n);
         vt_append_char('Z');
     }
     void vt_enable_dec_line_drawing()
     {
-        vt_append_str("\x1b(0");
+        vt_append_str("\x1b(0"sv);
     }
     void vt_disable_dec_line_drawing()
     {
-        vt_append_str("\x1b(B");
+        vt_append_str("\x1b(B"sv);
     }
 
     // vt_write_window_title: OSC 0/2 设置终端标题
@@ -399,7 +400,7 @@ struct pipe_bridge
     {
         if (!vt_out.valid() || title.empty())
             return;
-        vt_append_str("\x1b]0;");
+        vt_append_str("\x1b]0;"sv);
         // char32_t → UTF-8 逐码点追加
         for (char32_t cp : title)
         {
@@ -425,13 +426,13 @@ struct pipe_bridge
             break;
 
         case vt_message_id::cursor_horiz_absolute:
-            vt_append_str("\x1b[");
+            vt_append_str("\x1b["sv);
             vt_append_int(msg.col);
             vt_append_char('G');
             break;
 
         case vt_message_id::cursor_vert_absolute:
-            vt_append_str("\x1b[");
+            vt_append_str("\x1b["sv);
             vt_append_int(msg.row);
             vt_append_char('d');
             break;
@@ -439,71 +440,71 @@ struct pipe_bridge
         case vt_message_id::cursor_up:
             if (msg.count > 1)
             {
-                vt_append_str("\x1b[");
+                vt_append_str("\x1b["sv);
                 vt_append_int(msg.count);
                 vt_append_char('A');
             }
             else
-                vt_append_str("\x1b[A");
+                vt_append_str("\x1b[A"sv);
             break;
 
         case vt_message_id::cursor_down:
             if (msg.count > 1)
             {
-                vt_append_str("\x1b[");
+                vt_append_str("\x1b["sv);
                 vt_append_int(msg.count);
                 vt_append_char('B');
             }
             else
-                vt_append_str("\x1b[B");
+                vt_append_str("\x1b[B"sv);
             break;
 
         case vt_message_id::cursor_forward:
             if (msg.count > 1)
             {
-                vt_append_str("\x1b[");
+                vt_append_str("\x1b["sv);
                 vt_append_int(msg.count);
                 vt_append_char('C');
             }
             else
-                vt_append_str("\x1b[C");
+                vt_append_str("\x1b[C"sv);
             break;
 
         case vt_message_id::cursor_backward:
             if (msg.count > 1)
             {
-                vt_append_str("\x1b[");
+                vt_append_str("\x1b["sv);
                 vt_append_int(msg.count);
                 vt_append_char('D');
             }
             else
-                vt_append_str("\x1b[D");
+                vt_append_str("\x1b[D"sv);
             break;
 
         case vt_message_id::cursor_next_line:
             if (msg.count > 1)
             {
-                vt_append_str("\x1b[");
+                vt_append_str("\x1b["sv);
                 vt_append_int(msg.count);
                 vt_append_char('E');
             }
             else
-                vt_append_str("\x1b[E");
+                vt_append_str("\x1b[E"sv);
             break;
 
         case vt_message_id::cursor_prev_line:
             if (msg.count > 1)
             {
-                vt_append_str("\x1b[");
+                vt_append_str("\x1b["sv);
                 vt_append_int(msg.count);
                 vt_append_char('F');
             }
             else
-                vt_append_str("\x1b[F");
+                vt_append_str("\x1b[F"sv);
             break;
 
         case vt_message_id::sgr: {
-            vt_append_str("\x1b[");
+            vt_append_str("\x1b["sv);
             if (msg.sgr_reset)
             {
                 vt_append_char('0');
@@ -591,71 +592,71 @@ struct pipe_bridge
         case vt_message_id::save_cursor:
         case vt_message_id::ansi_save_cursor:
             vt_append_str("\x1b"
-                          "7");
+                          "7"sv);
             break;
 
         case vt_message_id::restore_cursor:
         case vt_message_id::ansi_restore_cursor:
             vt_append_str("\x1b"
-                          "8");
+                          "8"sv);
             break;
 
         case vt_message_id::cursor_show:
-            vt_append_str("\x1b[?25h");
+            vt_append_str("\x1b[?25h"sv);
             break;
 
         case vt_message_id::cursor_hide:
-            vt_append_str("\x1b[?25l");
+            vt_append_str("\x1b[?25l"sv);
             break;
 
         case vt_message_id::scroll_up:
             if (msg.count > 1)
             {
-                vt_append_str("\x1b[");
+                vt_append_str("\x1b["sv);
                 vt_append_int(msg.count);
                 vt_append_char('S');
             }
             else
-                vt_append_str("\x1b[S");
+                vt_append_str("\x1b[S"sv);
             break;
 
         case vt_message_id::scroll_down:
             if (msg.count > 1)
             {
-                vt_append_str("\x1b[");
+                vt_append_str("\x1b["sv);
                 vt_append_int(msg.count);
                 vt_append_char('T');
             }
             else
-                vt_append_str("\x1b[T");
+                vt_append_str("\x1b[T"sv);
             break;
 
         case vt_message_id::insert_lines:
-            vt_append_str("\x1b[");
+            vt_append_str("\x1b["sv);
             vt_append_int(msg.count);
             vt_append_char('L');
             break;
 
         case vt_message_id::delete_lines:
-            vt_append_str("\x1b[");
+            vt_append_str("\x1b["sv);
             vt_append_int(msg.count);
             vt_append_char('M');
             break;
 
         case vt_message_id::erase_in_display:
-            vt_append_str("\x1b[");
+            vt_append_str("\x1b["sv);
             vt_append_int(msg.erase_mode);
             vt_append_char('J');
             break;
 
         case vt_message_id::erase_in_line:
-            vt_append_str("\x1b[");
+            vt_append_str("\x1b["sv);
             vt_append_int(msg.erase_mode);
             vt_append_char('K');
             break;
 
         case vt_message_id::set_scrolling_region:
-            vt_append_str("\x1b[");
+            vt_append_str("\x1b["sv);
             vt_append_int(msg.scroll_top);
             vt_append_char(';');
             vt_append_int(msg.scroll_bottom);
@@ -667,65 +668,65 @@ struct pipe_bridge
             break;
 
         case vt_message_id::set_cursor_shape:
-            vt_append_str("\x1b[");
+            vt_append_str("\x1b["sv);
             vt_append_int(msg.cursor_shape);
-            vt_append_str(" q");
+            vt_append_str(" q"sv);
             break;
 
         case vt_message_id::cursor_enable_blinking:
-            vt_append_str("\x1b[?12h");
+            vt_append_str("\x1b[?12h"sv);
             break;
 
         case vt_message_id::cursor_disable_blinking:
-            vt_append_str("\x1b[?12l");
+            vt_append_str("\x1b[?12l"sv);
             break;
 
         case vt_message_id::designate_charset_line_drawing:
-            vt_append_str("\x1b(0");
+            vt_append_str("\x1b(0"sv);
             break;
 
         case vt_message_id::designate_charset_ascii:
-            vt_append_str("\x1b(B");
+            vt_append_str("\x1b(B"sv);
             break;
 
         // ── 简单 ESC 序列 ──
         case vt_message_id::reverse_index:
-            vt_append_str("\x1bM");
+            vt_append_str("\x1bM"sv);
             break;
         case vt_message_id::horizontal_tab_set:
-            vt_append_str("\x1bH");
+            vt_append_str("\x1bH"sv);
             break;
         case vt_message_id::keypad_app_mode:
-            vt_append_str("\x1b=");
+            vt_append_str("\x1b="sv);
             break;
         case vt_message_id::keypad_numeric_mode:
-            vt_append_str("\x1b>");
+            vt_append_str("\x1b>"sv);
             break;
 
         // ── 文本修改 (count 驱动) ──
         case vt_message_id::insert_characters:
-            vt_append_str("\x1b[");
+            vt_append_str("\x1b["sv);
             vt_append_int(msg.count);
             vt_append_char('@');
             break;
         case vt_message_id::delete_characters:
-            vt_append_str("\x1b[");
+            vt_append_str("\x1b["sv);
             vt_append_int(msg.count);
             vt_append_char('P');
             break;
         case vt_message_id::erase_characters:
-            vt_append_str("\x1b[");
+            vt_append_str("\x1b["sv);
             vt_append_int(msg.count);
             vt_append_char('X');
             break;
 
         // ── OSC 4 调色板 ──
         case vt_message_id::set_palette_color: {
-            vt_append_str("\x1b]4;");
+            vt_append_str("\x1b]4;"sv);
             vt_append_int(msg.palette_index);
             vt_append_char(';');
             // rgb:RR/GG/BB 格式 (不使用 snprintf)
-            vt_append_str("rgb:");
+            vt_append_str("rgb:"sv);
             auto hex2 = [&](uint8_t v) {
                 constexpr char h[] = "0123456789abcdef";
                 vt_append_char(h[v >> 4]);
@@ -742,59 +743,59 @@ struct pipe_bridge
 
         // ── 制表符移动 ──
         case vt_message_id::cursor_forward_tab:
-            vt_append_str("\x1b[");
+            vt_append_str("\x1b["sv);
             vt_append_int(msg.count);
             vt_append_char('I');
             break;
         case vt_message_id::cursor_backward_tab:
-            vt_append_str("\x1b[");
+            vt_append_str("\x1b["sv);
             vt_append_int(msg.count);
             vt_append_char('Z');
             break;
 
         // ── 制表符清除 ──
         case vt_message_id::tab_clear_current:
-            vt_append_str("\x1b[0g");
+            vt_append_str("\x1b[0g"sv);
             break;
         case vt_message_id::tab_clear_all:
-            vt_append_str("\x1b[3g");
+            vt_append_str("\x1b[3g"sv);
             break;
 
         // ── 交替缓冲区 ──
         case vt_message_id::use_alternate_buffer:
-            vt_append_str("\x1b[?1049h");
+            vt_append_str("\x1b[?1049h"sv);
             break;
         case vt_message_id::use_main_buffer:
-            vt_append_str("\x1b[?1049l");
+            vt_append_str("\x1b[?1049l"sv);
             break;
 
         // ── 列宽切换 (DECCOLM) ──
         case vt_message_id::set_columns_132:
-            vt_append_str("\x1b[?3h");
+            vt_append_str("\x1b[?3h"sv);
             break;
         case vt_message_id::set_columns_80:
-            vt_append_str("\x1b[?3l");
+            vt_append_str("\x1b[?3l"sv);
             break;
 
         // ── 软复位 (DECSTR) 对标原始 _stream.cpp RIS: 含 Win32Input ──
         case vt_message_id::soft_reset:
-            vt_append_str("\x1b[!p\x1b[?9001h");
+            vt_append_str("\x1b[!p\x1b[?9001h"sv);
             break;
 
         // ── 查询 (发送到终端, 响应经 vt_in 返回) ──
         case vt_message_id::report_cursor_position:
-            vt_append_str("\x1b[6n");
+            vt_append_str("\x1b[6n"sv);
             break;
         case vt_message_id::device_attributes:
-            vt_append_str("\x1b[0c");
+            vt_append_str("\x1b[0c"sv);
             break;
 
         // ── 光标键模式 ──
         case vt_message_id::cursor_keys_app_mode:
-            vt_append_str("\x1b[?1h");
+            vt_append_str("\x1b[?1h"sv);
             break;
         case vt_message_id::cursor_keys_normal_mode:
-            vt_append_str("\x1b[?1l");
+            vt_append_str("\x1b[?1l"sv);
             break;
 
         // ── 无 VT 输出的消息 (键盘输入、内部标记) ──
@@ -1028,7 +1029,7 @@ struct pipe_bridge
     {
         if (!vt_out.valid())
             return;
-        vt_append_str("\r\n");
+        vt_append_str("\r\n"sv);
     }
 
     // ── state 光标 (cstate.cursor.position) ──
@@ -1164,7 +1165,7 @@ struct pipe_bridge
         LOG("[history] repaint_full_line: cup_to(%d,%d) cooked_sz=%zu", _term_cursor.Y, _input_column_start,
             _cooked_buf.size());
         cup_to(_term_cursor.Y, _input_column_start);
-        vt_append_str("\x1b[K");
+        vt_append_str("\x1b[K"sv);
         for (char32_t cp : _cooked_buf)
             vt_write_cell(cp);
         vt_flush();
@@ -1230,7 +1231,7 @@ struct pipe_bridge
     {
         if (vt_out.valid() && _term_cursor_valid)
         {
-            vt_append_str("\r\n");
+            vt_append_str("\r\n"sv);
             _term_cursor.X = 0;
             _term_cursor.Y++;
         }
@@ -1246,7 +1247,7 @@ struct pipe_bridge
         bounds_retract();
         if (!vt_out.valid() || !_term_cursor_valid)
             return;
-        vt_append_str("\x1b[D\x1b[P");
+        vt_append_str("\x1b[D\x1b[P"sv);
         vt_flush();
         term_cursor_retreat();
         if (!cooked_at_end())
@@ -1265,7 +1266,7 @@ struct pipe_bridge
         bounds_retract();
         if (!vt_out.valid())
             return;
-        vt_append_str("\x1b[P");
+        vt_append_str("\x1b[P"sv);
         vt_flush();
     }
     void edit_move_left()
@@ -1693,7 +1694,7 @@ struct pipe_bridge
                     _term_cursor.Y++;
                     _enter_dest = _term_cursor; // 锁定换行目标，不受后续 api_set_cursor_pos 污染
                     _enter_pending_newline = true;
-                    vt_append_str("\r\n");
+                    vt_append_str("\r\n"sv);
                     LOG("[bridge] ENTER_Win32Input done tc=(%d,%d)", _term_cursor.X, _term_cursor.Y);
                 }
                 else if (m.win32_kd)
@@ -1889,12 +1890,12 @@ struct pipe_bridge
                     if (vt_out.valid())
                     {
                         vt_flush();
-                        vt_append_str("\x1b[8;");
+                        vt_append_str("\x1b[8;"sv);
                         vt_append_int(new_size.Y);
                         vt_append_char(';');
                         vt_append_int(new_size.X);
-                        vt_append_str("t");
-                        vt_append_str("\x1b[2J\x1b[H");
+                        vt_append_str("t"sv);
+                        vt_append_str("\x1b[2J\x1b[H"sv);
                         WORD last_attr = 0xFFFF;
                         for (SHORT y = 0; y < new_size.Y; ++y)
                         {

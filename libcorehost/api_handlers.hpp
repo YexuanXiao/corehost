@@ -62,6 +62,11 @@ inline void set_sgr_from_win32_attr(vt_message &m, WORD attr) noexcept
         m.negative = true;
 }
 
+inline bool is_line_terminator_echo(std::u32string_view text) noexcept
+{
+    return text == U"\r"sv || text == U"\n"sv || text == U"\r\n"sv;
+}
+
 // ── completion 辅助 ──
 
 inline void ucomplete(miniio::io_msg &msg)
@@ -217,6 +222,19 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
                     bridge.vt_msg_send(vt_message_id::cursor_position, m);
                     vt_msg_apply_state(vt_message_id::cursor_position, m, state, sb);
                     start_pos = state.cursor.position;
+
+                    // Enter 已由输入桥接回显为一次换行。PowerShell/PSReadLine 随后常会
+                    // WriteConsole("\r\n") 同步自己的行状态；这条纯换行 echo 若再写给
+                    // 终端，就会产生空行。普通文本仍从 enter_dest 输出。
+                    if (is_line_terminator_echo(u32s))
+                    {
+                        bridge.vt_flush();
+                        bridge.sync_cursor_after_write(state.cursor.position);
+                        LOG("[api_write_console] swallowed enter echo newline");
+                        req->NumBytes = sbytes;
+                        ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLE_MSG));
+                        return true;
+                    }
                 }
                 else
                 {
@@ -666,7 +684,7 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
         if (full_screen_scroll && r->Fill.Char.UnicodeChar == L' ')
         {
             // cls 清屏: 发送 ED2(清屏) + CUP(1,1) 替代 IL/DL 序列
-            bridge.vt_append_str("\x1b[2J\x1b[H");
+            bridge.vt_append_str("\x1b[2J\x1b[H"sv);
             bridge.vt_flush();
             // ── 同步 state 光标和终端光标到 (0,0) ──
             state.cursor.position = {0, 0};

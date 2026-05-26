@@ -93,7 +93,7 @@ void conpty_entry(win32::handle server, win32::handle event, win32::handle condr
     // 缺失 \x1b[?9001h → 终端不会发送键盘数据 → 打字不回显。
     if (bridge.vt_out.valid())
     {
-        bridge.vt_append_str("\x1b[?9001h");
+        bridge.vt_append_str("\x1b[?9001h"sv);
         bridge.vt_flush();
         LOG("conpty::conpty_entry: sent Win32Input init sequence");
     }

@@ -42,9 +42,9 @@ struct api_router
         if (bridge.vt_out.valid())
         {
             if (alt)
-                bridge.vt_append_str("\x1b[?1049h");
+                bridge.vt_append_str("\x1b[?1049h"sv);
             else
-                bridge.vt_append_str("\x1b[?1049l");
+                bridge.vt_append_str("\x1b[?1049l"sv);
             bridge.vt_flush();
             vt_write_screen_snapshot();
         }
