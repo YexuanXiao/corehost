@@ -41,8 +41,6 @@ DWORD WINAPI signal_thread_proc(LPVOID param)
         std::uint8_t code = 0;
         if (!read_exact(hp.view(), &code, 1))
         {
-            // WT 关闭 → 关闭 vt_in → PeekNamedPipe 失败 → _vt_eof → 退出
-            pp->vt_in.clear();
             break;
         }
 

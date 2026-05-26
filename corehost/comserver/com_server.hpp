@@ -4,7 +4,6 @@
 
 #pragma once
 #include "win32/handle.hpp"
-#include "miniio/io_thread.hpp"
 #include "com/com_ptr.hpp"
 #include "ITerminalHandoff.h"
 
@@ -14,12 +13,13 @@ namespace comserver
 // ── handoff_result ────────────────────────────────────────
 struct handoff_result
 {
-    win32::handle server;       // ConDrv \Server
-    win32::handle vt_in;        // ReadFile ← WT (corehost reads terminal output)
-    win32::handle vt_out;       // WriteFile → WT (corehost writes to terminal input)
-    win32::handle event;        // InputAvailableEvent
-    win32::handle signal;       // Signal pipe read handle (for resize etc.)
-    miniio::io_handles handles; // \Input / \Output 客户端句柄 (必须保持存活)
+    win32::handle server;        // ConDrv \Server
+    win32::handle vt_in;         // ReadFile ← WT (corehost reads terminal output)
+    win32::handle vt_out;        // WriteFile → WT (corehost writes to terminal input)
+    win32::handle event;         // InputAvailableEvent
+    win32::handle signal;        // Signal pipe read handle (for resize etc.)
+    win32::handle condrv_input;  // ConDrv \Input client handle; must stay alive for the session
+    win32::handle condrv_output; // ConDrv \Output client handle; must stay alive for the session
     short width = 120;
     short height = 30;
 };

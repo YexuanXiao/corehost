@@ -151,7 +151,7 @@ namespace defterm
     // EstablishHandoff 移交：server + inputEvent + portableMsg + signalPipe + ourProc -> WT 返回 clientProc 供
     // WaitForSingleObject
     LOG("attempt_handoff: calling EstablishHandoff");
-    win32::handle client;
+    win32::event client;
     auto hr = hnd->EstablishHandoff(server_handle.get(), input_event.get(), &portable_msg, sw.get(), our_proc.get(),
                                     client.put());
     win32::throw_hresult(win32::hresult(hr));
@@ -162,13 +162,11 @@ namespace defterm
 
     // 启动信号监听线程 (第一跳: inbox→corehost, 无需 vt_in)
     auto tp = std::make_unique<miniio::signal_thread_params>(
-        miniio::signal_thread_params{std::move(sr), win32::handle{} /* no vt_in for first hop */});
+        miniio::signal_thread_params{std::move(sr)});
     auto sig_thread = win32::basic_thread{miniio::signal_thread_proc, tp.release()};
 
     // 阻塞等待 WT 退出
-    if (::WaitForSingleObject(client.get(), INFINITE) == WAIT_FAILED)
-        win32::throw_last_error();
-    client.clear();
+    client.wait();
 
     return true;
 }

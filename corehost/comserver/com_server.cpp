@@ -34,33 +34,58 @@ namespace comserver
 // 终端移交子流程
 // ============================================================================
 
-win32::wcstring_view read_connect_title(CONSOLE_SERVER_MSG &data)
+// 从便携 attach 描述符恢复一条 miniio 消息，再按原版 OpenConsole 的做法
+// 使用 IOCTL_CONDRV_READ_INPUT 读取完整的 CONSOLE_SERVER_MSG。COM 传来的
+// PCCONSOLE_PORTABLE_ATTACH_MSG 只保存 CD_IO_DESCRIPTOR 的关键字段，不能
+// 直接包含标题、ShowWindow 等 connect 输入载荷。
+CONSOLE_SERVER_MSG read_connect_message(win32::handle_view condrv_server, PCCONSOLE_PORTABLE_ATTACH_MSG attach_msg)
 {
-    if (data.TitleLength > sizeof(data.Title) - sizeof(WCHAR) || (data.TitleLength % sizeof(WCHAR)) != 0)
+    auto connect_io = miniio::make_connect_msg(attach_msg);
+    CONSOLE_SERVER_MSG connect_info{};
+    miniio::read_input(condrv_server, connect_io, 0, &connect_info, sizeof(connect_info));
+    return connect_info;
+}
+
+// CONSOLE_SERVER_MSG::TitleLength 是字节数，不是 wchar_t 数量。这里仅做
+// OpenConsole 同等的边界和 NUL 终止校验，失败时返回空标题并让调用方
+// 使用 corehost 作为兜底标题。
+win32::wcstring_view connect_title(CONSOLE_SERVER_MSG &connect_info)
+{
+    if (connect_info.TitleLength > sizeof(connect_info.Title) - sizeof(WCHAR) ||
+        (connect_info.TitleLength % sizeof(WCHAR)) != 0)
         return {};
 
-    const auto title_chars = data.TitleLength / sizeof(WCHAR);
-    if (data.Title[title_chars] != L'\0')
+    const auto title_chars = connect_info.TitleLength / sizeof(WCHAR);
+    if (connect_info.Title[title_chars] != L'\0')
         return {};
 
-    LOG("read_connect_title: title=%ls length=%lu bytes", data.Title, data.TitleLength);
-    return {data.Title, title_chars};
+    LOG("connect_title: title=%ls length=%lu bytes", connect_info.Title, connect_info.TitleLength);
+    return {connect_info.Title, title_chars};
+}
+
+// STARTUPINFO.wShowWindow 只有在 STARTF_USESHOWWINDOW 置位时有效。原版
+// OpenConsole 通过 Settings::ApplyStartupInfo 得到最终值；当前不支持
+// 快捷方式解析，因此这个轻量判断就是普通 CreateProcess 场景的等价路径。
+WORD connect_show_window(const CONSOLE_SERVER_MSG &connect_info) noexcept
+{
+    return (connect_info.StartupFlags & STARTF_USESHOWWINDOW) ? connect_info.ShowWindow : SW_SHOWDEFAULT;
 }
 
 // 实例化 Windows Terminal 的 ITerminalHandoff3 并执行 PTY 移交协商。
-// 返回 WT 输入/输出句柄对：
-//   first  (wt_in)  : WT 可读端，供 corehost 写入
-//   second (wt_out) : WT 可写端，供 corehost 读取
-miniio::io_handles negotiate_terminal_pty(REFCLSID terminal_clsid, win32::handle_view signal_write,
-                                          win32::handle_view ref_handle, win32::handle_view server_process,
-                                          win32::handle_view client_process, win32::wcstring_view startup_title,
-                                          WORD show_window)
+// 返回值沿用 miniio::io_handles 只是为了表达一对 pipe 句柄，调用方会立刻
+// 拆开写入 handoff_result；不会产生额外 DuplicateHandle 或堆分配。
+//   input  : WT 可读端，corehost 写入后映射为 vt_out
+//   output : WT 可写端，corehost 读取后映射为 vt_in
+miniio::io_handles create_terminal_pty(REFCLSID terminal_clsid, win32::handle_view signal_write,
+                                       win32::handle_view reference_handle, win32::handle_view corehost_process,
+                                       win32::handle_view client_process, win32::wcstring_view startup_title,
+                                       WORD show_window)
 {
-    LOG("negotiate_terminal_pty: clsid=%08X-%04X-%04X...", terminal_clsid.Data1, terminal_clsid.Data2,
+    LOG("create_terminal_pty: clsid=%08X-%04X-%04X...", terminal_clsid.Data1, terminal_clsid.Data2,
         terminal_clsid.Data3);
 
     auto terminal = com::create_instance<ITerminalHandoff3>(terminal_clsid, CLSCTX_LOCAL_SERVER);
-    LOG("negotiate_terminal_pty: terminal COM obj=%p", terminal.get());
+    LOG("create_terminal_pty: terminal COM obj=%p", terminal.get());
 
     com::bstring title{!startup_title.empty() ? startup_title.c_str() : L"corehost"};
     TERMINAL_STARTUP_INFO startup{.pszTitle = title.get(),
@@ -69,71 +94,80 @@ miniio::io_handles negotiate_terminal_pty(REFCLSID terminal_clsid, win32::handle
                                   .dwFlags = STARTF_USECOUNTCHARS,
                                   .wShowWindow = show_window};
 
-    win32::handle wt_in, wt_out;
-    LOG("negotiate_terminal_pty: EstablishPtyHandoff(title=%ls showWindow=%u signal=%p ref=%p server=%p client=%p)",
-        startup_title.c_str(), show_window, signal_write.get(), ref_handle.get(), server_process.get(),
+    win32::handle terminal_read_pipe, terminal_write_pipe;
+    LOG("create_terminal_pty: EstablishPtyHandoff(title=%ls showWindow=%u signal=%p ref=%p server=%p client=%p)",
+        startup_title.c_str(), show_window, signal_write.get(), reference_handle.get(), corehost_process.get(),
         client_process.get());
 
-    auto hr = terminal->EstablishPtyHandoff(wt_in.put(), wt_out.put(), signal_write.get(), ref_handle.get(),
-                                            server_process.get(), client_process.get(), &startup);
+    auto hr = terminal->EstablishPtyHandoff(terminal_read_pipe.put(), terminal_write_pipe.put(), signal_write.get(),
+                                            reference_handle.get(), corehost_process.get(), client_process.get(),
+                                            &startup);
 
-    LOG("negotiate_terminal_pty: hr=0x%08X, wt_in=%p wt_out=%p", static_cast<unsigned long>(hr), wt_in.get(),
-        wt_out.get());
+    LOG("create_terminal_pty: hr=0x%08X, terminal_read=%p terminal_write=%p", static_cast<unsigned long>(hr),
+        terminal_read_pipe.get(), terminal_write_pipe.get());
 
     win32::throw_hresult(win32::hresult(hr));
 
-    return {std::move(wt_in), std::move(wt_out)};
+    return {std::move(terminal_read_pipe), std::move(terminal_write_pipe)};
 }
 
-// 通过 miniio 接受连接，返回 IO 句柄对。
-miniio::io_handles accept_io_connection(win32::handle_view server, PCCONSOLE_PORTABLE_ATTACH_MSG msg)
+// 完成 ConDrv CONNECT 请求，取得 \Input 和 \Output 客户端句柄。两个句柄
+// 必须随 conpty 会话保持存活；如果提前关闭，客户端后续 ReadFile/WriteFile
+// 会看到管道断开。
+miniio::io_handles accept_condrv_connection(win32::handle_view condrv_server, PCCONSOLE_PORTABLE_ATTACH_MSG attach_msg)
 {
-    LOG("accept_io_connection: calling accept_connection");
-    auto conn_msg = miniio::make_connect_msg(msg);
-    auto handles = miniio::accept_connection(server, conn_msg);
-    LOG("accept_io_connection: in=%p out=%p", handles.input.get(), handles.output.get());
+    LOG("accept_condrv_connection: calling accept_connection");
+    auto connect_io = miniio::make_connect_msg(attach_msg);
+    auto handles = miniio::accept_connection(condrv_server, connect_io);
+    LOG("accept_condrv_connection: input=%p output=%p", handles.input.get(), handles.output.get());
     return handles;
 }
 
-// 执行第二跳：ITerminalHandoff3 → PTY 协商 → IO 连接 → 信号线程 → 填充 result。
-void terminal_handoff(REFCLSID terminal_clsid, PCCONSOLE_PORTABLE_ATTACH_MSG msg, win32::handle_view signal_write,
-                      win32::handle_view ref_handle, win32::handle_view dup_server, win32::handle signal_read,
-                      win32::handle_view client, handoff_result &result)
+// 执行默认终端链路的第二跳：
+//   inbox conhost -> corehost(IConsoleHandoff) -> Windows Terminal(ITerminalHandoff3)
+//
+// 此函数仍运行在 COM RPC 调用线程中，只负责把所有长期需要的句柄移动进
+// handoff_result。com_server_entry 返回后，主线程才会启动 conpty_entry。
+void complete_terminal_handoff(REFCLSID terminal_clsid, PCCONSOLE_PORTABLE_ATTACH_MSG attach_msg,
+                               win32::handle_view terminal_signal_write, win32::handle_view reference_handle,
+                               win32::handle_view condrv_server, win32::handle terminal_signal_read,
+                               win32::handle_view client_process, handoff_result &result)
 {
-    auto client_pid = static_cast<DWORD>(msg->Process);
-    LOG("perform_terminal_handoff: client_pid=%lu", client_pid);
+    auto client_pid = static_cast<DWORD>(attach_msg->Process);
+    LOG("complete_terminal_handoff: client_pid=%lu", client_pid);
 
-    // 1. 获取当前进程句柄供 WT 引用
-    auto server_h = win32::duplicate_self();
-    LOG("perform_terminal_handoff: server_h(our process)=%p", server_h.get());
+    // WT 需要持有 corehost 进程句柄来感知 PTY server 生命周期。这里复制的
+    // 是当前进程伪句柄的真实句柄，随后通过 COM 传给 WT。
+    auto corehost_process = win32::duplicate_self();
+    LOG("complete_terminal_handoff: corehost_process=%p", corehost_process.get());
 
-    // 2. 与 Windows Terminal 协商 PTY 句柄
-    CONSOLE_SERVER_MSG data{};
+    auto connect_info = read_connect_message(condrv_server, attach_msg);
+    auto startup_title = connect_title(connect_info);
+    auto show_window = connect_show_window(connect_info);
 
-    auto connect_msg = miniio::make_connect_msg(msg);
-    miniio::read_input(dup_server, connect_msg, 0, &data, sizeof(data));
-    WORD show_window = (data.StartupFlags & STARTF_USESHOWWINDOW) ? data.ShowWindow : SW_SHOWDEFAULT;
-    auto [wt_in, wt_out] = negotiate_terminal_pty(terminal_clsid, signal_write, ref_handle, server_h.view(), client,
-                                                  read_connect_title(data), show_window);
+    auto [terminal_read_pipe, terminal_write_pipe] =
+        create_terminal_pty(terminal_clsid, terminal_signal_write, reference_handle, corehost_process.view(),
+                            client_process, startup_title, show_window);
 
-    // 3. 建立 IO 连接（使用 dup_server，而非当前进程句柄）
-    auto conn_handles = accept_io_connection(dup_server, msg);
+    auto [condrv_input, condrv_output] = accept_condrv_connection(condrv_server, attach_msg);
 
-    // 4. 将 signal_read 传递给 conpty_entry（由 conpty 信号线程处理 PtySignal::ResizeWindow）
-    //    注意: miniio::signal_thread_proc 只处理 CONSOLECONTROL，不处理 PtySignal
-    result.signal = std::move(signal_read);
-    LOG("perform_terminal_handoff: signal_read=%p saved in result", result.signal.get());
+    // signal_read 是 WT 写信号管道的 corehost 读端。它不能在 RPC 返回时关闭，
+    // conpty_entry 需要用它接收 resize、close 等 PtySignal。
+    result.signal = std::move(terminal_signal_read);
+    LOG("complete_terminal_handoff: signal_read=%p saved in result", result.signal.get());
 
-    // 5. 填充结果
-    //    wt_in  : WT 可读端 → corehost 写入 → 映射为 vt_out
-    //    wt_out : WT 可写端 → corehost 读取 → 映射为 vt_in
-    LOG("perform_terminal_handoff: filling result: server=%p vt_out(W)=%p vt_in(R)=%p", dup_server.get(), wt_in.get(),
-        wt_out.get());
+    // 命名按 corehost 内部方向保存：
+    //   vt_out: corehost 写出的 VT 字节，进入 WT 的读 pipe
+    //   vt_in : WT 写回的输入/控制字节，corehost 从该 pipe 读取
+    LOG("complete_terminal_handoff: result server=%p vt_out(W)=%p vt_in(R)=%p condrv_in=%p condrv_out=%p",
+        condrv_server.get(), terminal_read_pipe.get(), terminal_write_pipe.get(), condrv_input.get(),
+        condrv_output.get());
 
-    result.vt_out = std::move(wt_in); // corehost 写 → WT 读
-    result.vt_in = std::move(wt_out); // corehost 读 ← WT 写
-    result.handles = std::move(conn_handles);
-    LOG("perform_terminal_handoff: result filled, returning");
+    result.vt_out = std::move(terminal_read_pipe);
+    result.vt_in = std::move(terminal_write_pipe);
+    result.condrv_input = std::move(condrv_input);
+    result.condrv_output = std::move(condrv_output);
+    LOG("complete_terminal_handoff: result filled, returning");
 }
 
 // ============================================================================
@@ -203,9 +237,9 @@ struct console_handoff : com::implements<console_handoff, IConsoleHandoff, IClas
         LOG("EstablishHandoff: signal pipe read=%p write=%p", signal_read.get(), signal_write.get());
 
         // --- 阶段 3: 打开目标客户端进程 ---
-        // 供 perform_terminal_handoff 与后续 fallback 共享同一进程句柄。
-        //   - perform_terminal_handoff 需要: QUERY | SET | VM_READ | SYNCHRONIZE
-        //   - fallback 等待需要: SYNCHRONIZE
+        // WT 会持有这个进程句柄来等待客户端退出，并可能需要 SET_INFORMATION
+        // 权限做 QoS 调整；这与原版 ConptyConnection::InitializeFromHandoff
+        // 对 client 句柄的需求一致。
         auto client_pid = static_cast<DWORD>(msg->Process);
         win32::handle client{::OpenProcess(
             PROCESS_QUERY_INFORMATION | PROCESS_SET_INFORMATION | PROCESS_VM_READ | SYNCHRONIZE, FALSE, client_pid)};
@@ -221,8 +255,8 @@ struct console_handoff : com::implements<console_handoff, IConsoleHandoff, IClas
 
         if (terminal_clsid != clsid::zero)
         {
-            terminal_handoff(terminal_clsid, msg, signal_write.view(), ref_handle.view(), dup_server.view(),
-                             std::move(signal_read), client.view(), result);
+            complete_terminal_handoff(terminal_clsid, msg, signal_write.view(), ref_handle.view(), dup_server.view(),
+                                      std::move(signal_read), client.view(), result);
 
             result.event = std::move(dup_event);
             result.server = std::move(dup_server);

@@ -5,14 +5,14 @@
 #pragma once
 #include <windows.h>
 #include "win32/handle.hpp"
-#include "miniio/io_thread.hpp"
 #include "text_measurement_mode.hpp"
 
 namespace conpty
 {
 
-void conpty_entry(win32::handle server, win32::handle vt_in, win32::handle vt_out, win32::handle event, short width,
-                  short height, bool inherit_cursor, text_measurement_mode text_measurement,
-                  bool ambiguous_is_wide = false, miniio::io_handles handles = {}, win32::handle signal_pipe = {});
+void conpty_entry(win32::handle server, win32::handle event, win32::handle condrv_input,
+                  win32::handle condrv_output, win32::handle vt_in, win32::handle vt_out,
+                  win32::handle signal_pipe, short width, short height, bool inherit_cursor,
+                  text_measurement_mode text_measurement, bool ambiguous_is_wide = false);
 
 } // namespace conpty

@@ -346,7 +346,7 @@ inline void dispatch_non_connect(win32::handle_view server, io_msg &msg, io_hand
 // 继续用 dispatch_non_connect 处理残余消息——fallback 是
 // 嵌入在正常流程中的，不需要额外 handler。
 //
-// comserver 则不同：terminal_handoff 运行在 COM RPC 线程上，
+// comserver 则不同：COM 第二跳运行在 COM RPC 线程上，
 // 失败时不能"继续事件循环"（没有循环上下文），需要就地启动
 // 一个独立的 passthrough_handler 来服务 ConDrv 消息直到客户端
 // 断开。

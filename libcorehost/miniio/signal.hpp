@@ -30,7 +30,6 @@ namespace miniio
 struct signal_thread_params
 {
     win32::handle pipe;  // 信号管道读端
-    win32::handle vt_in; // PTY 读端, 断开时 close 打断 PeekNamedPipe
 };
 
 // ── 信号线程过程 ────────────────────────────────────────────
