@@ -106,7 +106,7 @@ namespace defterm
     // STARTF_USESHOWWINDOW 且 ShowWindow 为隐藏 -> 进程明确不想显示窗口。
     if (msg.StartupFlags & STARTF_USESHOWWINDOW)
     {
-        if (msg.ShowWindow== SW_HIDE)
+        if (msg.ShowWindow == SW_HIDE)
             return false;
     }
 
@@ -161,8 +161,7 @@ namespace defterm
     our_proc.clear();
 
     // 启动信号监听线程 (第一跳: inbox→corehost, 无需 vt_in)
-    auto tp = std::make_unique<defterm::signal_thread_params>(
-        defterm::signal_thread_params{std::move(sr)});
+    auto tp = std::make_unique<defterm::signal_thread_params>(defterm::signal_thread_params{std::move(sr)});
     auto sig_thread = win32::basic_thread{defterm::signal_thread_proc, tp.release()};
 
     // 阻塞等待 WT 退出

@@ -40,8 +40,8 @@ try
         LOG("entering conpty_entry");
         conpty::conpty_entry(std::move(hr.server), std::move(hr.event), std::move(hr.condrv_input),
                              std::move(hr.condrv_output), std::move(hr.vt_in), std::move(hr.vt_out),
-                             std::move(hr.signal), hr.width, hr.height, false,
-                             conpty::text_measurement_mode::graphemes, true);
+                             std::move(hr.signal), hr.width, hr.height, false, conpty::text_measurement_mode::graphemes,
+                             true);
         LOG("conpty_entry returned cleanly");
         return 0;
     }
@@ -73,8 +73,7 @@ try
 
         LOG("entering conpty_entry (mode=%d ambiguous=%d)", static_cast<int>(args.text_measurement()),
             args.ambiguous_is_wide());
-        conpty::conpty_entry(std::move(server), std::move(ev), {}, {},
-                             win32::handle{::GetStdHandle(STD_INPUT_HANDLE)},
+        conpty::conpty_entry(std::move(server), std::move(ev), {}, {}, win32::handle{::GetStdHandle(STD_INPUT_HANDLE)},
                              win32::handle{::GetStdHandle(STD_OUTPUT_HANDLE)}, std::move(sig_pipe), args.width(),
                              args.height(), args.inherit_cursor(), args.text_measurement(), args.ambiguous_is_wide());
         LOG("conpty_entry returned cleanly");

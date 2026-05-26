@@ -77,8 +77,7 @@ inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const miniio::io_msg
 // 返回 true  -> 调用方退出事件循环 (移交成功，conhost 进程退出)
 // 返回 false -> 调用方继续循环 (mini console 需处理后续消息)
 [[nodiscard]] inline bool handle_connect(win32::handle_view server, win32::handle_view ev, miniio::io_msg &msg,
-                                         bool &initialized, win32::handle &condrv_input,
-                                         win32::handle &condrv_output)
+                                         bool &initialized, win32::handle &condrv_input, win32::handle &condrv_output)
 {
     DWORD client_pid = static_cast<DWORD>(msg.descriptor.Process);
     LOG("handle_connect: pid=%lu func=%lu input=%lu output=%lu initialized=%d", client_pid, msg.descriptor.Function,

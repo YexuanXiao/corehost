@@ -45,9 +45,14 @@ struct pipe_bridge
     win32::handle_view server;
 
     // ── 子系统 ──
-    input_buffer *inp = nullptr;
-    console_state *cstate = nullptr; // 用于 echo 后同步光标 + resize
-    screen_buffer *sbuf = nullptr;   // 用于 resize 时更新屏幕缓冲区
+    input_buffer &inp;
+    console_state &cstate; // 用于 echo 后同步光标 + resize
+    screen_buffer &sbuf;   // 用于 resize 时更新屏幕缓冲区
+
+    pipe_bridge(input_buffer &input, console_state &state, screen_buffer &screen) noexcept
+        : inp(input), cstate(state), sbuf(screen)
+    {
+    }
 
     // ── ProcessList ──
     static constexpr size_t max_procs = 64;
@@ -138,9 +143,9 @@ struct pipe_bridge
     {
         _vt_pipe_broken.store(true, std::memory_order_relaxed);
     }
-    std::atomic<bool> *pipe_broken_flag() noexcept
+    std::atomic<bool> &pipe_broken_flag() noexcept
     {
-        return &_vt_pipe_broken;
+        return _vt_pipe_broken;
     }
 
     // ── 持久转换缓冲区访问器 ──
@@ -1026,36 +1031,30 @@ struct pipe_bridge
         vt_append_str("\r\n");
     }
 
-    // ── state 光标 (cstate->cursor.position) ──
+    // ── state 光标 (cstate.cursor.position) ──
     void state_cursor_set(COORD c)
     {
-        if (!cstate)
-            return;
-        cstate->cursor.position = c;
+        cstate.cursor.position = c;
     }
     void state_cursor_advance()
     {
-        if (!cstate)
-            return;
-        COORD &c = cstate->cursor.position;
+        COORD &c = cstate.cursor.position;
         c.X++;
-        if (c.X >= cstate->screen_buffer_size.X)
+        if (c.X >= cstate.screen_buffer_size.X)
         {
             c.X = 0;
             c.Y++;
         }
-        if (c.Y >= cstate->screen_buffer_size.Y)
-            c.Y = cstate->screen_buffer_size.Y - 1;
+        if (c.Y >= cstate.screen_buffer_size.Y)
+            c.Y = cstate.screen_buffer_size.Y - 1;
     }
     void state_cursor_newline()
     {
-        if (!cstate)
-            return;
-        COORD &c = cstate->cursor.position;
+        COORD &c = cstate.cursor.position;
         c.X = 0;
         c.Y++;
-        if (c.Y >= cstate->screen_buffer_size.Y)
-            c.Y = cstate->screen_buffer_size.Y - 1;
+        if (c.Y >= cstate.screen_buffer_size.Y)
+            c.Y = cstate.screen_buffer_size.Y - 1;
     }
 
     // ── term 光标追踪 (_term_cursor) ──
@@ -1112,8 +1111,6 @@ struct pipe_bridge
     // ── KEY_EVENT 输出到 input_buffer ──
     void emit_key(WORD vk, WCHAR uc)
     {
-        if (!inp)
-            return;
         INPUT_RECORD r{};
         r.EventType = KEY_EVENT;
         r.Event.KeyEvent.bKeyDown = TRUE;
@@ -1122,12 +1119,10 @@ struct pipe_bridge
         r.Event.KeyEvent.wVirtualScanCode = static_cast<WORD>(::MapVirtualKeyW(vk, MAPVK_VK_TO_VSC));
         r.Event.KeyEvent.uChar.UnicodeChar = uc;
         r.Event.KeyEvent.dwControlKeyState = 0;
-        inp->write(&r, 1);
+        inp.write(&r, 1);
     }
     void emit_key_pair(WORD vk, WCHAR uc)
     {
-        if (!inp)
-            return;
         emit_key(vk, uc);
         INPUT_RECORD up{};
         up.EventType = KEY_EVENT;
@@ -1137,7 +1132,7 @@ struct pipe_bridge
         up.Event.KeyEvent.wVirtualScanCode = static_cast<WORD>(::MapVirtualKeyW(vk, MAPVK_VK_TO_VSC));
         up.Event.KeyEvent.uChar.UnicodeChar = 0;
         up.Event.KeyEvent.dwControlKeyState = 0;
-        inp->write(&up, 1);
+        inp.write(&up, 1);
     }
 
     // ════════════════════════════════════════════════════
@@ -1371,7 +1366,7 @@ struct pipe_bridge
     // ── 别名展开 ──
     void expand_alias()
     {
-        if (!cstate || _cooked_buf.empty())
+        if (_cooked_buf.empty())
             return;
         size_t we = 0;
         while (we < _cooked_buf.size() && _cooked_buf[we] != U' ')
@@ -1380,8 +1375,8 @@ struct pipe_bridge
         wk.reserve(we);
         for (size_t i = 0; i < we; ++i)
             wk.push_back(static_cast<wchar_t>(_cooked_buf[i]));
-        auto it = cstate->aliases.find(wk);
-        if (it == cstate->aliases.end())
+        auto it = cstate.aliases.find(wk);
+        if (it == cstate.aliases.end())
         {
             LOG("[bridge] alias not found");
             return;
@@ -1707,8 +1702,6 @@ struct pipe_bridge
                         m.win32_cs, _term_cursor.X, _term_cursor.Y);
                 }
 
-                if (!inp)
-                    break;
                 INPUT_RECORD ir{};
                 ir.EventType = KEY_EVENT;
                 ir.Event.KeyEvent.bKeyDown = m.win32_kd ? TRUE : FALSE;
@@ -1717,7 +1710,7 @@ struct pipe_bridge
                 ir.Event.KeyEvent.wVirtualScanCode = m.win32_sc;
                 ir.Event.KeyEvent.uChar.UnicodeChar = m.win32_uc;
                 ir.Event.KeyEvent.dwControlKeyState = m.win32_cs;
-                inp->write(&ir, 1);
+                inp.write(&ir, 1);
                 break;
             }
 
@@ -1850,16 +1843,16 @@ struct pipe_bridge
             // ── CPR 应答: 终端汇报真实光标位置 ──
             case vt_message_id::cpr_response: {
                 auto &m = _parser.get();
-                if (_pending_inherit_cursor && cstate && m.cpr_row > 0 && m.cpr_col > 0)
+                if (_pending_inherit_cursor && m.cpr_row > 0 && m.cpr_col > 0)
                 {
-                    cstate->cursor.position.X = static_cast<SHORT>(m.cpr_col - 1);
-                    cstate->cursor.position.Y = static_cast<SHORT>(m.cpr_row - 1);
-                    _term_cursor = cstate->cursor.position;
+                    cstate.cursor.position.X = static_cast<SHORT>(m.cpr_col - 1);
+                    cstate.cursor.position.Y = static_cast<SHORT>(m.cpr_row - 1);
+                    _term_cursor = cstate.cursor.position;
                     _term_cursor_valid = true;
-                    bounds_reset(cstate->cursor.position.X);
+                    bounds_reset(cstate.cursor.position.X);
                     _pending_inherit_cursor = false;
-                    LOG("[bridge] cpr_response: inherit cursor (%d,%d)", cstate->cursor.position.X,
-                        cstate->cursor.position.Y);
+                    LOG("[bridge] cpr_response: inherit cursor (%d,%d)", cstate.cursor.position.X,
+                        cstate.cursor.position.Y);
                 }
                 break;
             }
@@ -1884,14 +1877,14 @@ struct pipe_bridge
 
             case vt_message_id::resize_window: {
                 COORD new_size{msg.resize_cols, msg.resize_rows};
-                if (cstate && sbuf && new_size.X > 0 && new_size.Y > 0)
+                if (new_size.X > 0 && new_size.Y > 0)
                 {
-                    LOG("[bridge] resize_window: old=(%d,%d) new=(%d,%d)", cstate->screen_buffer_size.X,
-                        cstate->screen_buffer_size.Y, new_size.X, new_size.Y);
-                    cstate->screen_buffer_size = new_size;
-                    cstate->current_window_size = new_size;
-                    cstate->max_window_size = new_size;
-                    sbuf->resize(new_size);
+                    LOG("[bridge] resize_window: old=(%d,%d) new=(%d,%d)", cstate.screen_buffer_size.X,
+                        cstate.screen_buffer_size.Y, new_size.X, new_size.Y);
+                    cstate.screen_buffer_size = new_size;
+                    cstate.current_window_size = new_size;
+                    cstate.max_window_size = new_size;
+                    sbuf.resize(new_size);
 
                     if (vt_out.valid())
                     {
@@ -1908,17 +1901,16 @@ struct pipe_bridge
                             vt_write_cup(y, 0);
                             for (SHORT x = 0; x < new_size.X; ++x)
                             {
-                                WORD attr = sbuf->attr_at({x, y});
+                                WORD attr = sbuf.attr_at({x, y});
                                 if (attr != last_attr)
                                 {
                                     vt_write_attr(attr);
                                     last_attr = attr;
                                 }
-                                vt_write_cell(sbuf->at_u32({x, y}));
+                                vt_write_cell(sbuf.at_u32({x, y}));
                             }
                         }
-                        if (cstate)
-                            vt_write_cup(cstate->cursor.position.Y, cstate->cursor.position.X);
+                        vt_write_cup(cstate.cursor.position.Y, cstate.cursor.position.X);
                         vt_flush();
                     }
                 }
@@ -2158,9 +2150,9 @@ struct pipe_bridge
 
         // ── echo 完成后同步 state.cursor.position 到终端实际位置 ──
         // scan_for_line 已将 _term_cursor 推进到 \r\n 后的新行首
-        if (cstate && _term_cursor_valid)
+        if (_term_cursor_valid)
         {
-            cstate->cursor.position = _term_cursor;
+            cstate.cursor.position = _term_cursor;
             LOG("[bridge] complete_pending: synced state cursor to (%d,%d)", _term_cursor.X, _term_cursor.Y);
         }
 

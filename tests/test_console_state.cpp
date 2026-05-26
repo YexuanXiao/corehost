@@ -248,6 +248,19 @@ bool test_alias_empty()
 
 #include "api_handlers.hpp"
 #include "os/Console/conmsgl3.h"
+struct api_test_context
+{
+    screen_buffer sb;
+    input_buffer inp;
+    console_state state;
+    pipe_bridge bridge;
+
+    api_test_context() : bridge(inp, state, sb)
+    {
+    }
+};
+
+static api_test_context api_ctx;
 
 // 辅助: 构造模拟 ConDrv AddAlias 消息 (Unicode)
 void mock_add_alias_msg(miniio::io_msg &msg, const std::wstring &exe, const std::wstring &src, const std::wstring &tgt)
@@ -278,7 +291,7 @@ bool test_regression_add_alias_msg_layout()
     miniio::io_msg msg;
 
     mock_add_alias_msg(msg, L"cmd.exe", L"hello", L"echo hello");
-    api_l3_add_alias(msg, st, nullptr, nullptr, nullptr);
+    api_l3_add_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
     ASSERT(st.aliases.size() == 1);
     auto it = st.aliases.find(L"hello");
@@ -294,7 +307,7 @@ bool test_regression_add_alias_zero_exe()
     miniio::io_msg msg;
 
     mock_add_alias_msg(msg, L"", L"x", L"exit");
-    api_l3_add_alias(msg, st, nullptr, nullptr, nullptr);
+    api_l3_add_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
     ASSERT(st.aliases.size() == 1);
     ASSERT(st.aliases[L"x"] == L"exit");
@@ -308,11 +321,12 @@ bool test_regression_alias_expand_after_store()
     miniio::io_msg msg;
 
     mock_add_alias_msg(msg, L"cmd.exe", L"hello", L"echo hello");
-    api_l3_add_alias(msg, st, nullptr, nullptr, nullptr);
+    api_l3_add_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
     ASSERT(st.aliases.size() == 1);
 
-    pipe_bridge bridge;
-    bridge.cstate = &st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
     bridge.test_cooked_append(U"hello", 5);
     bridge.test_expand_alias();
 
@@ -327,11 +341,12 @@ bool test_regression_alias_msg_wrong_key()
     miniio::io_msg msg;
 
     mock_add_alias_msg(msg, L"cmd.exe", L"hello", L"echo hello");
-    api_l3_add_alias(msg, st, nullptr, nullptr, nullptr);
+    api_l3_add_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
     ASSERT(st.aliases.size() == 1);
 
-    pipe_bridge bridge;
-    bridge.cstate = &st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
     bridge.test_cooked_append(U"world", 5);
     bridge.test_expand_alias();
 
@@ -355,7 +370,7 @@ bool test_regression_add_alias_ansi_ignored()
     alias->ExeLength = 0;
     alias->Unicode = FALSE; // ANSI with zero lengths
 
-    api_l3_add_alias(msg, st, nullptr, nullptr, nullptr);
+    api_l3_add_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
     ASSERT(st.aliases.empty());
     return true;
 }
@@ -388,7 +403,7 @@ bool test_regression_get_alias_skips_exe()
     miniio::io_msg msg;
     mock_get_alias_msg(msg, L"cmd.exe", L"hello");
 
-    api_l3_get_alias(msg, st, nullptr, nullptr, nullptr);
+    api_l3_get_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
     auto *r = reinterpret_cast<CONSOLE_GETALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     // TargetLength 应为字节数: "echo hello" = 10 wchars × 2 = 20
@@ -411,7 +426,7 @@ bool test_regression_get_alias_missing_key()
     miniio::io_msg msg;
     mock_get_alias_msg(msg, L"cmd.exe", L"world");
 
-    api_l3_get_alias(msg, st, nullptr, nullptr, nullptr);
+    api_l3_get_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
     auto *r = reinterpret_cast<CONSOLE_GETALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     ASSERT(r->TargetLength == 0);
@@ -434,7 +449,7 @@ bool test_regression_get_aliases_buffer_length_bytes()
     auto *r = reinterpret_cast<CONSOLE_GETALIASES_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->Unicode = TRUE;
 
-    api_l3_get_aliases(msg, st, nullptr, nullptr, nullptr);
+    api_l3_get_aliases(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
     // 序列化: "ls\0dir\0cl\0cls\0" = (2+1+3+1) + (2+1+3+1) = 14 wchars
     ULONG expected_wchars = 14;
@@ -457,7 +472,7 @@ bool test_regression_get_aliases_length_ansi()
     auto *r = reinterpret_cast<CONSOLE_GETALIASESLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->Unicode = FALSE;
 
-    api_l3_get_aliases_length(msg, st, nullptr, nullptr, nullptr);
+    api_l3_get_aliases_length(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
     // "x\0exit\0" = 1 + 1 + 4 + 1 = 7 字节
     ASSERT(r->AliasesLength == 7);
@@ -474,7 +489,7 @@ bool test_regression_get_history_length_zero()
     hdr->ApiDescriptorSize = sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG);
 
     console_state st;
-    api_l3_get_history_length(msg, st, nullptr, nullptr, nullptr);
+    api_l3_get_history_length(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
     auto *r = reinterpret_cast<CONSOLE_GETCOMMANDHISTORYLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     ASSERT(r->CommandHistoryLength == 0);
@@ -491,7 +506,7 @@ bool test_regression_get_history_zero()
     hdr->ApiDescriptorSize = sizeof(CONSOLE_GETCOMMANDHISTORY_MSG);
 
     console_state st;
-    api_l3_get_history(msg, st, nullptr, nullptr, nullptr);
+    api_l3_get_history(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
     auto *r = reinterpret_cast<CONSOLE_GETCOMMANDHISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     ASSERT(r->CommandBufferLength == 0);
@@ -516,7 +531,7 @@ bool test_regression_get_title_length_bytes()
     r->Unicode = TRUE;
     r->Original = FALSE;
 
-    api_get_title(msg, st, nullptr, nullptr, nullptr);
+    api_get_title(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
     // "test" = 4 wchars × 2 = 8 字节
     ASSERT(r->TitleLength == 8);
@@ -553,7 +568,7 @@ bool test_regression_add_alias_ansi_ascii()
     miniio::io_msg msg;
 
     mock_add_alias_msg_ansi(msg, "cmd.exe", "hello", "echo hello");
-    api_l3_add_alias(msg, st, nullptr, nullptr, nullptr);
+    api_l3_add_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
     ASSERT(st.aliases.size() == 1);
     ASSERT(st.aliases[L"hello"] == L"echo hello");
@@ -584,7 +599,7 @@ bool test_regression_get_alias_ansi_output()
     data += exe_a.size();
     std::memcpy(data, src_a.data(), src_a.size());
 
-    api_l3_get_alias(msg, st, nullptr, nullptr, nullptr);
+    api_l3_get_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
     // TargetLength 应为 ANSI 字节数: "dir" = 3
     ASSERT(r->TargetLength == 3);
@@ -611,7 +626,7 @@ bool test_regression_get_aliases_ansi_output()
     auto *r = reinterpret_cast<CONSOLE_GETALIASES_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->Unicode = FALSE;
 
-    api_l3_get_aliases(msg, st, nullptr, nullptr, nullptr);
+    api_l3_get_aliases(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
     // 序列化: "x\0exit\0" = 1 + 1 + 4 + 1 = 7 字节
     ASSERT(r->AliasesBufferLength == 7);
@@ -640,7 +655,7 @@ bool test_regression_get_title_ansi_output()
     r->Unicode = FALSE;
     r->Original = FALSE;
 
-    api_get_title(msg, st, nullptr, nullptr, nullptr);
+    api_get_title(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
     // "cmd" = 3 字节
     ASSERT(r->TitleLength == 3);
@@ -657,8 +672,9 @@ bool test_alias_expand_simple_match()
     console_state st;
     st.aliases[L"hello"] = L"echo hello";
 
-    pipe_bridge bridge;
-    bridge.cstate = &st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
     bridge.test_cooked_append(U"hello", 5);
     bridge.test_expand_alias();
 
@@ -671,8 +687,9 @@ bool test_alias_expand_with_trailing_args()
     console_state st;
     st.aliases[L"gs"] = L"git status";
 
-    pipe_bridge bridge;
-    bridge.cstate = &st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
     bridge.test_cooked_append(U"gs --short", 10);
     bridge.test_expand_alias();
 
@@ -685,8 +702,9 @@ bool test_alias_expand_no_match_passthrough()
     console_state st;
     st.aliases[L"hello"] = L"echo hello";
 
-    pipe_bridge bridge;
-    bridge.cstate = &st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
     bridge.test_cooked_append(U"world", 5);
     bridge.test_expand_alias();
 
@@ -698,8 +716,9 @@ bool test_alias_expand_empty_aliases()
 {
     console_state st;
 
-    pipe_bridge bridge;
-    bridge.cstate = &st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
     bridge.test_cooked_append(U"anything", 8);
     bridge.test_expand_alias();
 
@@ -712,8 +731,9 @@ bool test_alias_expand_single_word()
     console_state st;
     st.aliases[L"x"] = L"exit";
 
-    pipe_bridge bridge;
-    bridge.cstate = &st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
     bridge.test_cooked_append(U"x", 1);
     bridge.test_expand_alias();
 

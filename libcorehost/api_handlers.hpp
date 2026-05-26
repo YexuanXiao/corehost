@@ -82,7 +82,7 @@ inline void ucomplete_sz(miniio::io_msg &msg, ULONG sz)
 // L1 API handlers
 // ════════════════════════════════════════════════════════
 
-inline bool api_get_cp(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_get_cp(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETCP_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->CodePage = r->Output ? state.output_code_page : state.input_code_page;
@@ -90,7 +90,7 @@ inline bool api_get_cp(miniio::io_msg &msg, console_state &state, screen_buffer 
     return true;
 }
 
-inline bool api_get_mode(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_get_mode(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->Mode = state.input_mode;
@@ -98,7 +98,7 @@ inline bool api_get_mode(miniio::io_msg &msg, console_state &state, screen_buffe
     return true;
 }
 
-inline bool api_set_mode(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_set_mode(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.input_mode = r->Mode;
@@ -107,17 +107,16 @@ inline bool api_set_mode(miniio::io_msg &msg, console_state &state, screen_buffe
     return true;
 }
 
-inline bool api_get_num_input(miniio::io_msg &msg, console_state &, screen_buffer *, input_buffer *inp,
-                              pipe_bridge *bridge)
+inline bool api_get_num_input(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETNUMBEROFINPUTEVENTS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    r->ReadyEvents = inp ? static_cast<DWORD>(inp->available()) : 0;
+    r->ReadyEvents = static_cast<DWORD>(inp.available());
     ucomplete_sz(msg, sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG));
     return true;
 }
 
-inline bool api_get_console_input(miniio::io_msg &msg, console_state &, screen_buffer *, input_buffer *inp,
-                                  pipe_bridge *)
+inline bool api_get_console_input(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
+                                  pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *out =
@@ -129,19 +128,16 @@ inline bool api_get_console_input(miniio::io_msg &msg, console_state &, screen_b
     if (maxc == 0)
         maxc = 1; // 至少允许 1 条
     size_t n = 0;
-    if (inp)
-    {
-        if (r->Flags & 0x0001)
-            n = inp->peek(out, maxc);
-        else
-            n = inp->read(out, maxc);
-    }
+    if (r->Flags & 0x0001)
+        n = inp.peek(out, maxc);
+    else
+        n = inp.read(out, maxc);
     r->NumRecords = static_cast<ULONG>(n);
     ucomplete_sz(msg, sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + static_cast<ULONG>(n * sizeof(INPUT_RECORD)));
     return true;
 }
 
-inline bool api_get_langid(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_get_langid(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_LANGID_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->LangId = state.lang_id;
@@ -150,8 +146,8 @@ inline bool api_get_langid(miniio::io_msg &msg, console_state &state, screen_buf
 }
 
 // ── WriteConsole: UTF-16/ANSI → char32_t → vt_message 驱动 ──
-inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_buffer *sb, input_buffer *,
-                              pipe_bridge *bridge)
+inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                              pipe_bridge &bridge)
 {
     auto *req = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     bool uni = req->Unicode != 0;
@@ -160,7 +156,7 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
 
     if (sbytes > 0)
     {
-        auto &u32s = bridge->conv_u32();
+        auto &u32s = bridge.conv_u32();
         if (uni)
         {
             auto *ws = reinterpret_cast<const wchar_t *>(sd);
@@ -170,7 +166,7 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
         else
         {
             convert_ansi_to_u32(reinterpret_cast<const char *>(sd), sbytes,
-                                state.output_code_page ? state.output_code_page : CP_ACP, u32s, bridge->conv_wstr());
+                                state.output_code_page ? state.output_code_page : CP_ACP, u32s, bridge.conv_wstr());
         }
 
         if (!u32s.empty())
@@ -202,7 +198,7 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
                         ch = console_state::dec_to_unicode(static_cast<unsigned char>(ch));
             }
 
-            if (bridge && bridge->vt_out.valid())
+            if (bridge.vt_out.valid())
             {
                 vt_message m{};
 
@@ -210,16 +206,16 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
                 //    PSReadLine 的 SetCursorPos 只更新了 state，但终端光标
                 //    可能因上一次 WriteConsole 的 \r\n 处于不同位置。
                 //    非 Enter 换行路径必须先发 CUP，确保文本从正确位置开始。
-                bool need_cup = bridge && bridge->consume_enter_newline();
+                bool need_cup = bridge.consume_enter_newline();
                 LOG("[api_write_console] need_cup=%d state_start=(%d,%d)", need_cup, state.cursor.position.X,
                     state.cursor.position.Y);
                 if (need_cup)
                 {
-                    COORD nl_pos = bridge->get_enter_dest();
+                    COORD nl_pos = bridge.get_enter_dest();
                     m.row = static_cast<short>(nl_pos.Y + 1);
                     m.col = static_cast<short>(nl_pos.X + 1);
-                    bridge->vt_msg_send(vt_message_id::cursor_position, m);
-                    vt_msg_apply_state(vt_message_id::cursor_position, m, state, *sb);
+                    bridge.vt_msg_send(vt_message_id::cursor_position, m);
+                    vt_msg_apply_state(vt_message_id::cursor_position, m, state, sb);
                     start_pos = state.cursor.position;
                 }
                 else
@@ -230,7 +226,7 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
                     // 会导致后续文本输出到错误的行。
                     m.row = static_cast<short>(start_pos.Y + 1);
                     m.col = static_cast<short>(start_pos.X + 1);
-                    bridge->vt_msg_send(vt_message_id::cursor_position, m);
+                    bridge.vt_msg_send(vt_message_id::cursor_position, m);
                 }
 
                 // 2) SGR 默认属性（确保终端以正确的默认颜色开始；若文本内嵌 SGR 序列，
@@ -238,8 +234,8 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
                 WORD attr = state.default_attributes;
                 m = vt_message{};
                 set_sgr_from_win32_attr(m, attr);
-                bridge->vt_msg_send(vt_message_id::sgr, m);
-                vt_msg_apply_state(vt_message_id::sgr, m, state, *sb);
+                bridge.vt_msg_send(vt_message_id::sgr, m);
+                vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
 
                 // 3) 文本经 vt_parser 分流 — parser 是文本分段的唯一权威。
                 //    \r\n 配对由 parser 内部处理：_pending_control 从 CR 升级为 LF，
@@ -252,9 +248,9 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
                     if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
                         continue;
                     auto &pm = write_parser.get();
-                    bridge->vt_msg_send(id, pm);
+                    bridge.vt_msg_send(id, pm);
                     if (id != vt_message_id::sgr)
-                        vt_msg_apply_state(id, pm, state, *sb);
+                        vt_msg_apply_state(id, pm, state, sb);
 
                     write_parser.reset(id);
 
@@ -263,9 +259,9 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
                         id2 != vt_message_id::continue_ && id2 != vt_message_id::continue_text)
                     {
                         auto &pm2 = write_parser.get();
-                        bridge->vt_msg_send(id2, pm2);
+                        bridge.vt_msg_send(id2, pm2);
                         if (id2 != vt_message_id::sgr)
-                            vt_msg_apply_state(id2, pm2, state, *sb);
+                            vt_msg_apply_state(id2, pm2, state, sb);
                         write_parser.reset(id2);
                     }
                 }
@@ -273,54 +269,48 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
                 if (auto id = write_parser.flush_text(); id != vt_message_id::continue_)
                 {
                     auto &pm = write_parser.get();
-                    bridge->vt_msg_send(id, pm);
-                    vt_msg_apply_state(id, pm, state, *sb);
+                    bridge.vt_msg_send(id, pm);
+                    vt_msg_apply_state(id, pm, state, sb);
                 }
                 // 排空 parser 残留的 _pending_control（如 \r 在文本末尾无后续 \n）
                 if (auto id = write_parser.parse(U'\0');
                     id != vt_message_id::continue_ && id != vt_message_id::continue_text)
                 {
                     auto &pm = write_parser.get();
-                    bridge->vt_msg_send(id, pm);
+                    bridge.vt_msg_send(id, pm);
                     if (id != vt_message_id::sgr)
-                        vt_msg_apply_state(id, pm, state, *sb);
+                        vt_msg_apply_state(id, pm, state, sb);
                     write_parser.reset(id);
                 }
 
                 // 4) 落盘并同步 bridge 内部光标追踪
-                bridge->vt_flush();
-                bridge->sync_cursor_after_write(state.cursor.position);
+                bridge.vt_flush();
+                bridge.sync_cursor_after_write(state.cursor.position);
 
                 LOG("[api_write_console] done: u32s_len=%zu sbytes=%lu end_cursor=(%d,%d) synced", u32s.size(),
                     static_cast<unsigned long>(sbytes), static_cast<int>(state.cursor.position.X),
                     static_cast<int>(state.cursor.position.Y));
             }
-            else if (sb)
+            else
             {
-                // 无 bridge: 仅更新 screen_buffer（解析 text 与 CR/LF）
+                // 无 VT 输出句柄: 仅更新 screen_buffer（解析 text 与 CR/LF）
                 vt_parser sb_parser;
                 for (char32_t ch : u32s)
                 {
                     auto id = sb_parser.parse(ch);
                     if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
                         continue;
-                    vt_msg_apply_state(id, sb_parser.get(), state, *sb);
+                    vt_msg_apply_state(id, sb_parser.get(), state, sb);
                     sb_parser.reset(id);
                 }
                 if (auto id = sb_parser.flush_text(); id != vt_message_id::continue_)
-                    vt_msg_apply_state(id, sb_parser.get(), state, *sb);
+                    vt_msg_apply_state(id, sb_parser.get(), state, sb);
                 if (auto id = sb_parser.parse(U'\0');
                     id != vt_message_id::continue_ && id != vt_message_id::continue_text)
                 {
-                    vt_msg_apply_state(id, sb_parser.get(), state, *sb);
+                    vt_msg_apply_state(id, sb_parser.get(), state, sb);
                     sb_parser.reset(id);
                 }
-            }
-            else
-            {
-                // 无 sb 也无 bridge: raw write
-                // 无 sb 也无 bridge: raw write
-                bridge->raw_write(uni, sd, sbytes);
             }
         }
     }
@@ -331,8 +321,8 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
 }
 
 // ── ReadConsole ──
-inline bool api_read_console(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                             pipe_bridge *bridge)
+inline bool api_read_console(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                             pipe_bridge &bridge)
 {
     auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     LOG("[api_read_console] unicode=%d ctrl_wakeup=%lu", req->Unicode, req->CtrlWakeupMask);
@@ -353,19 +343,10 @@ inline bool api_read_console(miniio::io_msg &msg, console_state &state, screen_b
         }
     }
 
-    if (bridge)
-        return bridge->handle_console_read(msg, proc_z, init_data, initial_bytes);
-
-    req->NumBytes = 0;
-    req->ControlKeyState = 0;
-    auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
-    miniio::prepare_completion(msg, 0, sz);
-    msg.complete.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
-    msg.complete.Write.Size = sz;
-    return true;
+    return bridge.handle_console_read(msg, proc_z, init_data, initial_bytes);
 }
 
-inline bool api_deprecated_l1(miniio::io_msg &msg, console_state &, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_deprecated_l1(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     ucomplete(msg);
     return true;
@@ -379,8 +360,8 @@ inline bool api_deprecated_l1(miniio::io_msg &msg, console_state &, screen_buffe
 // L2 API handlers
 // ════════════════════════════════════════════════════════
 
-inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_buffer *sb, input_buffer *,
-                            pipe_bridge *bridge)
+inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                            pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_FILLCONSOLEOUTPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (r->ElementType != CONSOLE_ASCII && r->ElementType != CONSOLE_REAL_UNICODE &&
@@ -390,26 +371,19 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
         return true;
     }
 
-    // 保存原始 Length — sb->fill_* 只填单行会缩小 r->Length,
+    // 保存原始 Length — sb.fill_* 只填单行会缩小 r->Length,
     // 导致 is_fullscreen_space 判据失效 (120 < 3600 → ED2 不发)
     ULONG orig_length = r->Length;
 
-    if (sb)
+    if (r->ElementType == CONSOLE_ATTRIBUTE)
     {
-        if (r->ElementType == CONSOLE_ATTRIBUTE)
-        {
-            auto res = sb->fill_attr(static_cast<WORD>(r->Element), r->WriteCoord, r->Length);
-            r->Length = res.cells_modified;
-        }
-        else
-        {
-            auto res = sb->fill_char(static_cast<char32_t>(r->Element), r->WriteCoord, r->Length);
-            r->Length = res.cells_modified;
-        }
+        auto res = sb.fill_attr(static_cast<WORD>(r->Element), r->WriteCoord, r->Length);
+        r->Length = res.cells_modified;
     }
     else
     {
-        r->Length = 0;
+        auto res = sb.fill_char(static_cast<char32_t>(r->Element), r->WriteCoord, r->Length);
+        r->Length = res.cells_modified;
     }
 
     bool is_fullscreen_space = (r->ElementType != CONSOLE_ATTRIBUTE && r->WriteCoord.X == 0 && r->WriteCoord.Y == 0 &&
@@ -417,7 +391,7 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
                                 orig_length >= static_cast<ULONG>(state.screen_buffer_size.X) *
                                                    static_cast<ULONG>(state.screen_buffer_size.Y));
 
-    if (bridge && bridge->vt_out.valid())
+    if (bridge.vt_out.valid())
     {
         LOG("[api_fill_output] at=(%d,%d) len=%lu elem='%c'(%d) type=%d fullscreen=%d", r->WriteCoord.X,
             r->WriteCoord.Y, orig_length,
@@ -429,49 +403,49 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
             // 全屏空格填充说明 shell 在执行 Clear-Host / cls，
             // 光标已由 api_set_cursor_pos(0,0) 或 shell 管理。
             // 清除 Enter 残留的换行标志，防止后续 prompt 的 CUP 覆盖清屏。
-            bridge->reset_enter_newline();
+            bridge.reset_enter_newline();
             vt_message m{};
             m.erase_mode = 2;
-            bridge->vt_msg_send(vt_message_id::erase_in_display, m);
-            vt_msg_apply_state(vt_message_id::erase_in_display, m, state, *sb);
-            bridge->vt_flush();
+            bridge.vt_msg_send(vt_message_id::erase_in_display, m);
+            vt_msg_apply_state(vt_message_id::erase_in_display, m, state, sb);
+            bridge.vt_flush();
         }
         else
         {
             // ── DECSC → CUP → (SGR|text) → DECRC ──
             vt_message msg_save{};
-            bridge->vt_msg_send(vt_message_id::save_cursor, msg_save);
-            vt_msg_apply_state(vt_message_id::save_cursor, msg_save, state, *sb);
+            bridge.vt_msg_send(vt_message_id::save_cursor, msg_save);
+            vt_msg_apply_state(vt_message_id::save_cursor, msg_save, state, sb);
 
             vt_message msg_cup{};
             msg_cup.row = static_cast<short>(r->WriteCoord.Y + 1);
             msg_cup.col = static_cast<short>(r->WriteCoord.X + 1);
-            bridge->vt_msg_send(vt_message_id::cursor_position, msg_cup);
-            vt_msg_apply_state(vt_message_id::cursor_position, msg_cup, state, *sb);
+            bridge.vt_msg_send(vt_message_id::cursor_position, msg_cup);
+            vt_msg_apply_state(vt_message_id::cursor_position, msg_cup, state, sb);
 
             if (r->ElementType == CONSOLE_ATTRIBUTE)
             {
                 WORD fill_attr = static_cast<WORD>(r->Element);
                 vt_message m_sgr{};
                 set_sgr_from_win32_attr(m_sgr, fill_attr);
-                bridge->vt_msg_send(vt_message_id::sgr, m_sgr);
-                vt_msg_apply_state(vt_message_id::sgr, m_sgr, state, *sb);
+                bridge.vt_msg_send(vt_message_id::sgr, m_sgr);
+                vt_msg_apply_state(vt_message_id::sgr, m_sgr, state, sb);
             }
             else
             {
                 // text fill — 复用 bridge 持久缓冲
-                auto &fill_text = bridge->conv_u32();
+                auto &fill_text = bridge.conv_u32();
                 fill_text.assign(static_cast<size_t>(r->Length), static_cast<char32_t>(r->Element));
                 vt_message m_text{};
                 m_text.text = fill_text;
-                bridge->vt_msg_send(vt_message_id::text, m_text);
-                vt_msg_apply_state(vt_message_id::text, m_text, state, *sb);
+                bridge.vt_msg_send(vt_message_id::text, m_text);
+                vt_msg_apply_state(vt_message_id::text, m_text, state, sb);
             }
 
             vt_message msg_restore{};
-            bridge->vt_msg_send(vt_message_id::restore_cursor, msg_restore);
-            vt_msg_apply_state(vt_message_id::restore_cursor, msg_restore, state, *sb);
-            bridge->vt_flush();
+            bridge.vt_msg_send(vt_message_id::restore_cursor, msg_restore);
+            vt_msg_apply_state(vt_message_id::restore_cursor, msg_restore, state, sb);
+            bridge.vt_flush();
         }
     }
 
@@ -479,40 +453,38 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
     return true;
 }
 
-inline bool api_ctrl_event(miniio::io_msg &msg, console_state &, screen_buffer *, input_buffer *, pipe_bridge *bridge)
+inline bool api_ctrl_event(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_CTRLEVENT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     ::GenerateConsoleCtrlEvent(r->CtrlEvent, r->ProcessGroupId);
-    if (bridge && bridge->vt_out.valid())
+    if (bridge.vt_out.valid())
     {
         if (r->CtrlEvent == CTRL_C_EVENT)
         {
-            bridge->vt_append_char('\x03');
-            bridge->vt_flush();
+            bridge.vt_append_char('\x03');
+            bridge.vt_flush();
         }
     }
     ucomplete(msg);
     return true;
 }
 
-inline bool api_set_active_sb(miniio::io_msg &msg, console_state &, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_set_active_sb(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     ucomplete(msg);
     return true;
 }
 
-inline bool api_flush_input_buf(miniio::io_msg &msg, console_state &, screen_buffer *, input_buffer *inp,
-                                pipe_bridge *bridge)
+inline bool api_flush_input_buf(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
+                                pipe_bridge &bridge)
 {
-    if (inp)
-        inp->flush();
-    if (bridge)
-        bridge->cancel_pending_read();
+    inp.flush();
+    bridge.cancel_pending_read();
     ucomplete(msg);
     return true;
 }
 
-inline bool api_set_cp(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_set_cp(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_SETCP_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (r->Output)
@@ -523,7 +495,7 @@ inline bool api_set_cp(miniio::io_msg &msg, console_state &state, screen_buffer 
     return true;
 }
 
-inline bool api_get_cursor(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_get_cursor(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETCURSORINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->CursorSize = state.cursor.size;
@@ -532,25 +504,25 @@ inline bool api_get_cursor(miniio::io_msg &msg, console_state &state, screen_buf
     return true;
 }
 
-inline bool api_set_cursor(miniio::io_msg &msg, console_state &state, screen_buffer *sb, input_buffer *,
-                           pipe_bridge *bridge)
+inline bool api_set_cursor(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                           pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_SETCURSORINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.cursor.size = r->CursorSize;
     state.cursor.visible = r->Visible != FALSE;
-    if (bridge && bridge->vt_out.valid())
+    if (bridge.vt_out.valid())
     {
         vt_message m{};
-        bridge->vt_msg_send(state.cursor.visible ? vt_message_id::cursor_show : vt_message_id::cursor_hide, m);
+        bridge.vt_msg_send(state.cursor.visible ? vt_message_id::cursor_show : vt_message_id::cursor_hide, m);
         vt_msg_apply_state(state.cursor.visible ? vt_message_id::cursor_show : vt_message_id::cursor_hide, m, state,
-                           *sb);
-        bridge->vt_flush();
+                           sb);
+        bridge.vt_flush();
     }
     ucomplete(msg);
     return true;
 }
 
-inline bool api_get_sb_info(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_get_sb_info(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_SCREENBUFFERINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     std::memset(r, 0, sizeof(*r));
@@ -571,7 +543,7 @@ inline bool api_get_sb_info(miniio::io_msg &msg, console_state &state, screen_bu
     return true;
 }
 
-inline bool api_set_sb_info(miniio::io_msg &msg, console_state &state, screen_buffer *sb, input_buffer *, pipe_bridge *)
+inline bool api_set_sb_info(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_SCREENBUFFERINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.screen_buffer_size = r->Size;
@@ -589,13 +561,12 @@ inline bool api_set_sb_info(miniio::io_msg &msg, console_state &state, screen_bu
     state.max_window_size = r->MaximumWindowSize;
     state.popup_attributes = r->PopupAttributes;
     std::memcpy(state.color_table, r->ColorTable, sizeof(state.color_table));
-    if (sb)
-        sb->resize(r->Size);
+    sb.resize(r->Size);
     ucomplete(msg);
     return true;
 }
 
-inline bool api_set_sb_size(miniio::io_msg &msg, console_state &state, screen_buffer *sb, input_buffer *, pipe_bridge *)
+inline bool api_set_sb_size(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_SETSCREENBUFFERSIZE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     COORD new_size = r->Size;
@@ -616,14 +587,13 @@ inline bool api_set_sb_size(miniio::io_msg &msg, console_state &state, screen_bu
         state.cursor.position.X = 0;
     if (state.cursor.position.Y < 0)
         state.cursor.position.Y = 0;
-    if (sb)
-        sb->resize(new_size);
+    sb.resize(new_size);
     ucomplete(msg);
     return true;
 }
 
-inline bool api_set_cursor_pos(miniio::io_msg &msg, console_state &state, screen_buffer *sb, input_buffer *,
-                               pipe_bridge *bridge)
+inline bool api_set_cursor_pos(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                               pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_SETCURSORPOSITION_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     COORD new_pos = r->CursorPosition;
@@ -636,21 +606,21 @@ inline bool api_set_cursor_pos(miniio::io_msg &msg, console_state &state, screen
     if (new_pos.Y >= state.screen_buffer_size.Y)
         new_pos.Y = state.screen_buffer_size.Y - 1;
 
-    if (bridge && bridge->vt_out.valid())
+    if (bridge.vt_out.valid())
     {
         LOG("[api_set_cursor_pos] to=(%d,%d) was=(%d,%d)", new_pos.X, new_pos.Y, state.cursor.position.X,
             state.cursor.position.Y);
         // 仅当光标被显式移到 (0,0) 时才清除 Enter 换行标志。
         if (new_pos.X == 0 && new_pos.Y == 0)
-            bridge->reset_enter_newline();
+            bridge.reset_enter_newline();
         vt_message m{};
         m.row = static_cast<short>(new_pos.Y + 1);
         m.col = static_cast<short>(new_pos.X + 1);
-        bridge->vt_msg_send(vt_message_id::cursor_position, m);
-        vt_msg_apply_state(vt_message_id::cursor_position, m, state, *sb);
-        bridge->vt_flush();
+        bridge.vt_msg_send(vt_message_id::cursor_position, m);
+        vt_msg_apply_state(vt_message_id::cursor_position, m, state, sb);
+        bridge.vt_flush();
         // sync _term_cursor — api_set_cursor_pos 直接操控光标, bridge 必须跟踪
-        bridge->sync_cursor_after_write(state.cursor.position);
+        bridge.sync_cursor_after_write(state.cursor.position);
     }
     else
     {
@@ -660,8 +630,8 @@ inline bool api_set_cursor_pos(miniio::io_msg &msg, console_state &state, screen
     return true;
 }
 
-inline bool api_largest_window(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                               pipe_bridge *)
+inline bool api_largest_window(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                               pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETLARGESTWINDOWSIZE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->Size = state.max_window_size;
@@ -669,8 +639,8 @@ inline bool api_largest_window(miniio::io_msg &msg, console_state &state, screen
     return true;
 }
 
-inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buffer *sb, input_buffer *,
-                          pipe_bridge *bridge)
+inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                          pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_SCROLLSCREENBUFFER_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto &sr = r->ScrollRectangle;
@@ -683,25 +653,24 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
         ucomplete(msg);
         return true;
     }
-    if (sb)
-        sb->scroll(r->ScrollRectangle, r->ClipRectangle, r->Clip != FALSE, r->DestinationOrigin,
-                   static_cast<char32_t>(r->Fill.Char.UnicodeChar), r->Fill.Attributes);
+    sb.scroll(r->ScrollRectangle, r->ClipRectangle, r->Clip != FALSE, r->DestinationOrigin,
+              static_cast<char32_t>(r->Fill.Char.UnicodeChar), r->Fill.Attributes);
 
-    if (bridge && bridge->vt_out.valid())
+    if (bridge.vt_out.valid())
     {
         // ── 检测全屏清屏: 滚动矩形覆盖整个 buffer 高度 → 发送 ED2 清屏而非 IL/DL ──
-        SHORT buf_height = sb ? sb->size.Y : state.screen_buffer_size.Y;
+        SHORT buf_height = sb.size.Y;
         bool full_screen_scroll = (sr.Top == 0 && sr.Bottom >= buf_height - 1);
         LOG("[api_scroll_sb] full_screen=%d buf_h=%d sr.Bottom=%d fill_char=0x%X", full_screen_scroll, buf_height,
             sr.Bottom, r->Fill.Char.UnicodeChar);
         if (full_screen_scroll && r->Fill.Char.UnicodeChar == L' ')
         {
             // cls 清屏: 发送 ED2(清屏) + CUP(1,1) 替代 IL/DL 序列
-            bridge->vt_append_str("\x1b[2J\x1b[H");
-            bridge->vt_flush();
+            bridge.vt_append_str("\x1b[2J\x1b[H");
+            bridge.vt_flush();
             // ── 同步 state 光标和终端光标到 (0,0) ──
             state.cursor.position = {0, 0};
-            bridge->sync_cursor_after_write({0, 0});
+            bridge.sync_cursor_after_write({0, 0});
             LOG("[api_scroll_sb] cls: sent ED2+H, cursor->(0,0)");
         }
         else
@@ -710,23 +679,23 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
 
             // 1) 保存光标
             vt_message m_save{};
-            bridge->vt_msg_send(vt_message_id::save_cursor, m_save);
+            bridge.vt_msg_send(vt_message_id::save_cursor, m_save);
 
             // 2) 设置滚动区域
-            SMALL_RECT cr = r->Clip ? r->ClipRectangle
-                                    : SMALL_RECT{0, 0, static_cast<SHORT>(sb ? sb->size.X - 1 : 0),
-                                                 static_cast<SHORT>(sb ? sb->size.Y - 1 : 0)};
+            SMALL_RECT cr =
+                r->Clip ? r->ClipRectangle
+                        : SMALL_RECT{0, 0, static_cast<SHORT>(sb.size.X - 1), static_cast<SHORT>(sb.size.Y - 1)};
             vt_message m_region{};
             m_region.scroll_top = static_cast<short>(cr.Top + 1);
             m_region.scroll_bottom = static_cast<short>(cr.Bottom + 1);
-            bridge->vt_msg_send(vt_message_id::set_scrolling_region, m_region);
-            vt_msg_apply_state(vt_message_id::set_scrolling_region, m_region, state, *sb);
+            bridge.vt_msg_send(vt_message_id::set_scrolling_region, m_region);
+            vt_msg_apply_state(vt_message_id::set_scrolling_region, m_region, state, sb);
 
             // 3) 光标移到底部
             vt_message m_cup{};
             m_cup.row = static_cast<short>(sr.Bottom + 1);
             m_cup.col = static_cast<short>(sr.Left + 1);
-            bridge->vt_msg_send(vt_message_id::cursor_position, m_cup);
+            bridge.vt_msg_send(vt_message_id::cursor_position, m_cup);
 
             // 4) 插入/删除行
             SHORT dy = r->DestinationOrigin.Y - sr.Top;
@@ -734,27 +703,27 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
             {
                 vt_message m_il{};
                 m_il.count = -dy;
-                bridge->vt_msg_send(vt_message_id::insert_lines, m_il);
-                vt_msg_apply_state(vt_message_id::insert_lines, m_il, state, *sb);
+                bridge.vt_msg_send(vt_message_id::insert_lines, m_il);
+                vt_msg_apply_state(vt_message_id::insert_lines, m_il, state, sb);
             }
             else if (dy > 0)
             {
                 vt_message m_dl{};
                 m_dl.count = dy;
-                bridge->vt_msg_send(vt_message_id::delete_lines, m_dl);
-                vt_msg_apply_state(vt_message_id::delete_lines, m_dl, state, *sb);
+                bridge.vt_msg_send(vt_message_id::delete_lines, m_dl);
+                vt_msg_apply_state(vt_message_id::delete_lines, m_dl, state, sb);
             }
 
             // 5) 重置滚动区域
             vt_message m_reset{};
             m_reset.scroll_top = 1;
             m_reset.scroll_bottom = 0;
-            bridge->vt_msg_send(vt_message_id::set_scrolling_region, m_reset);
+            bridge.vt_msg_send(vt_message_id::set_scrolling_region, m_reset);
 
             // 6) 恢复光标
             vt_message m_restore{};
-            bridge->vt_msg_send(vt_message_id::restore_cursor, m_restore);
-            bridge->vt_flush();
+            bridge.vt_msg_send(vt_message_id::restore_cursor, m_restore);
+            bridge.vt_flush();
         } // end else (!full_screen_scroll)
     }
 
@@ -762,26 +731,26 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
     return true;
 }
 
-inline bool api_set_text_attr(miniio::io_msg &msg, console_state &state, screen_buffer *sb, input_buffer *,
-                              pipe_bridge *bridge)
+inline bool api_set_text_attr(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                              pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_SETTEXTATTRIBUTE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.default_attributes = r->Attributes;
-    if (bridge && bridge->vt_out.valid())
+    if (bridge.vt_out.valid())
     {
         vt_message m{};
         WORD attr = r->Attributes;
         set_sgr_from_win32_attr(m, attr);
-        bridge->vt_msg_send(vt_message_id::sgr, m);
-        vt_msg_apply_state(vt_message_id::sgr, m, state, *sb);
-        bridge->vt_flush();
+        bridge.vt_msg_send(vt_message_id::sgr, m);
+        vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
+        bridge.vt_flush();
     }
     ucomplete(msg);
     return true;
 }
 
-inline bool api_set_window_info(miniio::io_msg &msg, console_state &state, screen_buffer *sb, input_buffer *,
-                                pipe_bridge *)
+inline bool api_set_window_info(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                                pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_SETWINDOWINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (r->Absolute)
@@ -801,14 +770,13 @@ inline bool api_set_window_info(miniio::io_msg &msg, console_state &state, scree
         // ConPTY 模式无滚动缓冲区: buffer size 始终与窗口大小一致
         state.screen_buffer_size = state.current_window_size;
     }
-    if (sb)
-        sb->resize(state.current_window_size);
+    sb.resize(state.current_window_size);
     ucomplete(msg);
     return true;
 }
 
-inline bool api_read_output_string(miniio::io_msg &msg, console_state &, screen_buffer *sb, input_buffer *,
-                                   pipe_bridge *)
+inline bool api_read_output_string(miniio::io_msg &msg, console_state &, screen_buffer &sb, input_buffer &,
+                                   pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_READCONSOLEOUTPUTSTRING_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     LOG("[api_read_output_string] at=(%d,%d) type=%d", r->ReadCoord.X, r->ReadCoord.Y, r->StringType);
@@ -818,35 +786,28 @@ inline bool api_read_output_string(miniio::io_msg &msg, console_state &, screen_
         ucomplete(msg);
         return true;
     }
-    if (sb)
+    if (r->StringType == CONSOLE_ATTRIBUTE)
     {
-        if (r->StringType == CONSOLE_ATTRIBUTE)
-        {
-            auto *out = reinterpret_cast<WORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                 sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
-            auto maxn = (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)) /
-                        sizeof(WORD);
-            r->NumRecords = static_cast<ULONG>(sb->read_attrs(r->ReadCoord, out, maxn));
-        }
-        else
-        {
-            auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                    sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
-            auto maxn = (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)) /
-                        sizeof(wchar_t);
-            r->NumRecords = static_cast<ULONG>(sb->read_wchars(r->ReadCoord, out, maxn));
-        }
+        auto *out = reinterpret_cast<WORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                             sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
+        auto maxn = (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)) /
+                    sizeof(WORD);
+        r->NumRecords = static_cast<ULONG>(sb.read_attrs(r->ReadCoord, out, maxn));
     }
     else
     {
-        r->NumRecords = 0;
+        auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
+        auto maxn = (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)) /
+                    sizeof(wchar_t);
+        r->NumRecords = static_cast<ULONG>(sb.read_wchars(r->ReadCoord, out, maxn));
     }
     ucomplete_sz(msg, sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
     return true;
 }
 
-inline bool api_write_console_input(miniio::io_msg &msg, console_state &, screen_buffer *, input_buffer *inp,
-                                    pipe_bridge *)
+inline bool api_write_console_input(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
+                                    pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_WRITECONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *records =
@@ -854,15 +815,15 @@ inline bool api_write_console_input(miniio::io_msg &msg, console_state &, screen
     auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEINPUT_MSG);
     auto nrec = static_cast<size_t>(ib / sizeof(INPUT_RECORD));
     size_t written = 0;
-    if (inp && nrec > 0)
-        written = inp->write(records, nrec);
+    if (nrec > 0)
+        written = inp.write(records, nrec);
     r->NumRecords = static_cast<ULONG>(written);
     ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
     return true;
 }
 
-inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, screen_buffer *sb, input_buffer *,
-                                     pipe_bridge *bridge)
+inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                                     pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     SMALL_RECT &cr = r->CharRegion;
@@ -873,53 +834,46 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
         return true;
     }
     SMALL_RECT orig = cr;
-    if (sb)
-    {
-        // CHAR_INFO → row 转换: 逐行调用 from_char_info
-        auto *data = reinterpret_cast<const CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                         sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG));
-        SHORT w = orig.Right - orig.Left + 1;
-        for (SHORT y = orig.Top; y <= orig.Bottom && y < sb->size.Y; ++y)
-            sb->row_from_ci(y, data + (y - orig.Top) * w, static_cast<uint16_t>(w), static_cast<uint16_t>(orig.Left));
-        cr = orig;
-    }
-    else
-    {
-        cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
-    }
+    // CHAR_INFO → row 转换: 逐行调用 from_char_info
+    auto *data = reinterpret_cast<const CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                     sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG));
+    SHORT w = orig.Right - orig.Left + 1;
+    for (SHORT y = orig.Top; y <= orig.Bottom && y < sb.size.Y; ++y)
+        sb.row_from_ci(y, data + (y - orig.Top) * w, static_cast<uint16_t>(w), static_cast<uint16_t>(orig.Left));
+    cr = orig;
 
     LOG("[api_write_console_output] region=(%d,%d)-(%d,%d)", orig.Left, orig.Top, orig.Right, orig.Bottom);
-    if (bridge && bridge->vt_out.valid() && sb)
+    if (bridge.vt_out.valid())
     {
         // ── DECSC → 逐行 CUP + SGR + text batch → DECRC ──
         // 将连续相同属性的 cell 打包为单个 text vt_message，统一走 vt_msg_send
         vt_message m{};
-        bridge->vt_msg_send(vt_message_id::save_cursor, m);
+        bridge.vt_msg_send(vt_message_id::save_cursor, m);
 
         for (SHORT y = orig.Top; y <= orig.Bottom; ++y)
         {
             m = vt_message{};
             m.row = static_cast<short>(y + 1);
             m.col = static_cast<short>(orig.Left + 1);
-            bridge->vt_msg_send(vt_message_id::cursor_position, m);
+            bridge.vt_msg_send(vt_message_id::cursor_position, m);
 
             for (SHORT x = orig.Left; x <= orig.Right; ++x)
             {
                 m = vt_message{};
-                set_sgr_from_win32_attr(m, sb->attr_at({x, y}));
-                bridge->vt_msg_send(vt_message_id::sgr, m);
+                set_sgr_from_win32_attr(m, sb.attr_at({x, y}));
+                bridge.vt_msg_send(vt_message_id::sgr, m);
 
-                char32_t ch = sb->at_u32({x, y});
+                char32_t ch = sb.at_u32({x, y});
                 m = vt_message{};
                 m.text = std::u32string_view{&ch, 1};
-                bridge->vt_msg_send(vt_message_id::text, m);
+                bridge.vt_msg_send(vt_message_id::text, m);
             }
         }
 
         m = vt_message{};
-        bridge->vt_msg_send(vt_message_id::restore_cursor, m);
-        bridge->vt_flush();
-        bridge->sync_cursor_after_write(state.cursor.position);
+        bridge.vt_msg_send(vt_message_id::restore_cursor, m);
+        bridge.vt_flush();
+        bridge.sync_cursor_after_write(state.cursor.position);
         LOG("[api_write_console_output] done: tc_synced=(%d,%d)", state.cursor.position.X, state.cursor.position.Y);
     }
 
@@ -927,8 +881,8 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
     return true;
 }
 
-inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, screen_buffer *sb, input_buffer *,
-                                    pipe_bridge *bridge)
+inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                                    pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (r->StringType != CONSOLE_ASCII && r->StringType != CONSOLE_REAL_UNICODE &&
@@ -939,73 +893,64 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
     }
 
     const wchar_t *chars_w = nullptr;
-    if (sb)
+    if (r->StringType == CONSOLE_ATTRIBUTE)
     {
-        if (r->StringType == CONSOLE_ATTRIBUTE)
-        {
-            auto *attrs = reinterpret_cast<const WORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                         sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
-            auto ib =
-                msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
-            r->NumRecords = static_cast<ULONG>(sb->write_attr_seq(r->WriteCoord, attrs, ib / sizeof(WORD)));
-        }
-        else
-        {
-            chars_w = reinterpret_cast<const wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                        sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
-            auto ib =
-                msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
-            auto wlen = ib / sizeof(wchar_t);
-            // convert wchar_t → char32_t for screen_buffer
-            std::array<char32_t, 256> u32buf;
-            size_t u32len = 0;
-            const wchar_t *wp = chars_w;
-            const wchar_t *wend = wp + wlen;
-            while (wp != wend && u32len < u32buf.size())
-                u32buf[u32len++] = to_char32_surrogate(wp, wend);
-            r->NumRecords = static_cast<ULONG>(sb->write_char32(r->WriteCoord, u32buf.data(), u32len));
-        }
+        auto *attrs = reinterpret_cast<const WORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                     sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+        auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
+        r->NumRecords = static_cast<ULONG>(sb.write_attr_seq(r->WriteCoord, attrs, ib / sizeof(WORD)));
     }
     else
     {
-        r->NumRecords = 0;
+        chars_w = reinterpret_cast<const wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                    sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+        auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
+        auto wlen = ib / sizeof(wchar_t);
+        // convert wchar_t → char32_t for screen_buffer
+        std::array<char32_t, 256> u32buf;
+        size_t u32len = 0;
+        const wchar_t *wp = chars_w;
+        const wchar_t *wend = wp + wlen;
+        while (wp != wend && u32len < u32buf.size())
+            u32buf[u32len++] = to_char32_surrogate(wp, wend);
+        r->NumRecords = static_cast<ULONG>(sb.write_char32(r->WriteCoord, u32buf.data(), u32len));
     }
 
-    if (bridge && bridge->vt_out.valid() && sb && r->NumRecords > 0 && chars_w)
+    if (bridge.vt_out.valid() && r->NumRecords > 0 && chars_w)
     {
         // ── WriteConsoleOutputString 不移动光标 ──
         // 终端: DECSC → CUP → text → DECRC (光标回到原位)
         // 状态: 仅更新 screen_buffer 格子，不改变 state.cursor
         vt_message m{};
-        bridge->vt_msg_send(vt_message_id::save_cursor, m);
+        bridge.vt_msg_send(vt_message_id::save_cursor, m);
 
         m = vt_message{};
         m.row = static_cast<short>(r->WriteCoord.Y + 1);
         m.col = static_cast<short>(r->WriteCoord.X + 1);
-        bridge->vt_msg_send(vt_message_id::cursor_position, m);
+        bridge.vt_msg_send(vt_message_id::cursor_position, m);
 
         m = vt_message{};
         set_sgr_from_win32_attr(m, state.default_attributes);
-        bridge->vt_msg_send(vt_message_id::sgr, m);
+        bridge.vt_msg_send(vt_message_id::sgr, m);
 
         std::u32string u32text(r->NumRecords, U'\0');
         for (ULONG i = 0; i < r->NumRecords; ++i)
             u32text[i] = to_char32(chars_w[i]);
         m = vt_message{};
         m.text = u32text;
-        bridge->vt_msg_send(vt_message_id::text, m);
+        bridge.vt_msg_send(vt_message_id::text, m);
 
         m = vt_message{};
-        bridge->vt_msg_send(vt_message_id::restore_cursor, m);
-        bridge->vt_flush();
+        bridge.vt_msg_send(vt_message_id::restore_cursor, m);
+        bridge.vt_flush();
     }
 
     ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
     return true;
 }
 
-inline bool api_read_console_output(miniio::io_msg &msg, console_state &state, screen_buffer *sb, input_buffer *,
-                                    pipe_bridge *)
+inline bool api_read_console_output(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                                    pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_READCONSOLEOUTPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     SMALL_RECT &cr = r->CharRegion;
@@ -1016,23 +961,18 @@ inline bool api_read_console_output(miniio::io_msg &msg, console_state &state, s
         ucomplete_sz(msg, sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
         return true;
     }
-    if (sb)
+    // 逐行导出 CHAR_INFO
+    SHORT w = cr.Right - cr.Left + 1;
+    for (SHORT y = cr.Top; y <= cr.Bottom && y < sb.size.Y; ++y)
     {
-        // 逐行导出 CHAR_INFO
-        SHORT w = cr.Right - cr.Left + 1;
-        for (SHORT y = cr.Top; y <= cr.Bottom && y < sb->size.Y; ++y)
-        {
-            // row_to_ci 填充整行, 仅复制 [Left..Right] 段
-            std::vector<CHAR_INFO> tmp(static_cast<size_t>(sb->size.X));
-            sb->row_to_ci(y, tmp.data());
-            auto *dst = reinterpret_cast<CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                      sizeof(CONSOLE_READCONSOLEOUTPUT_MSG)) +
-                        (y - cr.Top) * w;
-            std::memcpy(dst, tmp.data() + cr.Left, w * sizeof(CHAR_INFO));
-        }
+        // row_to_ci 填充整行, 仅复制 [Left..Right] 段
+        std::vector<CHAR_INFO> tmp(static_cast<size_t>(sb.size.X));
+        sb.row_to_ci(y, tmp.data());
+        auto *dst = reinterpret_cast<CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                  sizeof(CONSOLE_READCONSOLEOUTPUT_MSG)) +
+                    (y - cr.Top) * w;
+        std::memcpy(dst, tmp.data() + cr.Left, w * sizeof(CHAR_INFO));
     }
-    else
-        cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
     state.cursor_position_dirty = true;
     ucomplete_sz(msg, sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
     return true;
@@ -1040,7 +980,7 @@ inline bool api_read_console_output(miniio::io_msg &msg, console_state &state, s
 
 // ── GetTitle / SetTitle (char32_t ↔ wchar_t 边界) ──
 
-inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETTITLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto &src = r->Original ? state.original_title : state.title;
@@ -1069,8 +1009,8 @@ inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buff
     return true;
 }
 
-inline bool api_set_title(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                          pipe_bridge *bridge)
+inline bool api_set_title(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                          pipe_bridge &bridge)
 {
     auto *in = reinterpret_cast<const wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG));
     auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_SETTITLE_MSG);
@@ -1084,12 +1024,12 @@ inline bool api_set_title(miniio::io_msg &msg, console_state &state, screen_buff
     state.title = std::move(u32title);
 
     // VT 同步: OSC 0 设置终端标题
-    if (bridge && bridge->vt_out.valid())
+    if (bridge.vt_out.valid())
     {
         vt_message m{};
         m.title = state.title;
-        bridge->vt_msg_send(vt_message_id::set_window_title, m);
-        bridge->vt_flush();
+        bridge.vt_msg_send(vt_message_id::set_window_title, m);
+        bridge.vt_flush();
     }
 
     ucomplete(msg);
@@ -1104,8 +1044,8 @@ inline bool api_set_title(miniio::io_msg &msg, console_state &state, screen_buff
 // ════════════════════════════════════════════════════════
 
 // ── 0x01 GetMouseInfo ──
-inline bool api_l3_get_mouse_info(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                                  pipe_bridge *)
+inline bool api_l3_get_mouse_info(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                  pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETMOUSEINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->NumButtons = state.mouse_buttons;
@@ -1114,8 +1054,8 @@ inline bool api_l3_get_mouse_info(miniio::io_msg &msg, console_state &state, scr
 }
 
 // ── 0x03 GetFontSize ──
-inline bool api_l3_get_font_size(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                                 pipe_bridge *)
+inline bool api_l3_get_font_size(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                 pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETFONTSIZE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->FontSize = state.font_size; // 简化: 返回当前字体尺寸 (所有 index 相同)
@@ -1125,8 +1065,8 @@ inline bool api_l3_get_font_size(miniio::io_msg &msg, console_state &state, scre
 }
 
 // ── 0x04 GetCurrentFont ──
-inline bool api_l3_get_current_font(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                                    pipe_bridge *)
+inline bool api_l3_get_current_font(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                    pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_CURRENTFONT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->FontIndex = state.font_index;
@@ -1139,8 +1079,8 @@ inline bool api_l3_get_current_font(miniio::io_msg &msg, console_state &state, s
 }
 
 // ── 0x0D SetDisplayMode ──
-inline bool api_l3_set_display_mode(miniio::io_msg &msg, console_state &state, screen_buffer *sb, input_buffer *,
-                                    pipe_bridge *)
+inline bool api_l3_set_display_mode(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                                    pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_SETDISPLAYMODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.display_mode = r->dwFlags;
@@ -1150,16 +1090,15 @@ inline bool api_l3_set_display_mode(miniio::io_msg &msg, console_state &state, s
     {
         state.screen_buffer_size = r->ScreenBufferDimensions;
         state.current_window_size = r->ScreenBufferDimensions;
-        if (sb)
-            sb->resize(r->ScreenBufferDimensions);
+        sb.resize(r->ScreenBufferDimensions);
     }
     ucomplete_sz(msg, sizeof(CONSOLE_SETDISPLAYMODE_MSG));
     return true;
 }
 
 // ── 0x11 GetDisplayMode ──
-inline bool api_l3_get_display_mode(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                                    pipe_bridge *)
+inline bool api_l3_get_display_mode(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                    pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETDISPLAYMODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->ModeFlags = state.display_mode;
@@ -1170,7 +1109,7 @@ inline bool api_l3_get_display_mode(miniio::io_msg &msg, console_state &state, s
 // ── 0x12 AddAlias ──
 // 消息格式: CONSOLE_ADDALIAS_MSG + Exe(ExeLen bytes) + Source(SrcLen bytes) + Target(TgtLen bytes)
 // 注意: SourceLength/TargetLength/ExeLength 是字节数 (USHORT)
-inline bool api_l3_add_alias(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_l3_add_alias(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_ADDALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *db = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG);
@@ -1210,7 +1149,7 @@ inline bool api_l3_add_alias(miniio::io_msg &msg, console_state &state, screen_b
 // ── 0x13 GetAlias ──
 // 消息格式同 AddAlias: Exe(ExeLen bytes) + Source(SrcLen bytes)
 // SourceLength/TargetLength/ExeLength 均为字节数 (USHORT)
-inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *db = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIAS_MSG);
@@ -1276,8 +1215,8 @@ inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_b
 }
 
 // ── 0x14 GetAliasesLength ──
-inline bool api_l3_get_aliases_length(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                                      pipe_bridge *)
+inline bool api_l3_get_aliases_length(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                      pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETALIASESLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     ULONG total = 0;
@@ -1302,8 +1241,8 @@ inline bool api_l3_get_aliases_length(miniio::io_msg &msg, console_state &state,
 }
 
 // ── 0x15 GetAliasExesLength ──
-inline bool api_l3_get_alias_exes_length(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                                         pipe_bridge *)
+inline bool api_l3_get_alias_exes_length(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                         pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETALIASEXESLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->AliasExesLength = 0; // ConPTY 下不跟踪 exe 名称
@@ -1312,8 +1251,8 @@ inline bool api_l3_get_alias_exes_length(miniio::io_msg &msg, console_state &sta
 }
 
 // ── 0x16 GetAliases ──
-inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                               pipe_bridge *)
+inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                               pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETALIASES_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     ULONG written = 0;
@@ -1361,7 +1300,7 @@ inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen
 }
 
 // ── 0x17 GetAliasExes ──
-inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETALIASEXES_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->AliasExesBufferLength = 0;
@@ -1370,8 +1309,8 @@ inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &, screen_b
 }
 
 // ── 0x18 ExpungeCommandHistory ──
-inline bool api_l3_expunge_history(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                                   pipe_bridge *)
+inline bool api_l3_expunge_history(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                   pipe_bridge &)
 {
     state.command_history.clear();
     ucomplete(msg);
@@ -1379,8 +1318,8 @@ inline bool api_l3_expunge_history(miniio::io_msg &msg, console_state &state, sc
 }
 
 // ── 0x19 SetNumberOfCommands ──
-inline bool api_l3_set_num_commands(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                                    pipe_bridge *)
+inline bool api_l3_set_num_commands(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                    pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_SETNUMBEROFCOMMANDS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.history_num_buffers = r->NumCommands;
@@ -1390,8 +1329,8 @@ inline bool api_l3_set_num_commands(miniio::io_msg &msg, console_state &state, s
 
 // ── 0x1A GetCommandHistoryLength ──
 // ConPTY 模式下历史由 pipe_bridge 内部管理，不通过 ConDrv CommandHistory API 暴露。
-inline bool api_l3_get_history_length(miniio::io_msg &msg, console_state &, screen_buffer *, input_buffer *,
-                                      pipe_bridge *)
+inline bool api_l3_get_history_length(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
+                                      pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETCOMMANDHISTORYLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->CommandHistoryLength = 0;
@@ -1401,7 +1340,7 @@ inline bool api_l3_get_history_length(miniio::io_msg &msg, console_state &, scre
 
 // ── 0x1B GetCommandHistory ──
 // ConPTY 模式下历史由 pipe_bridge 内部管理，不通过 ConDrv CommandHistory API 暴露。
-inline bool api_l3_get_history(miniio::io_msg &msg, console_state &, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_l3_get_history(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETCOMMANDHISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->CommandBufferLength = 0;
@@ -1410,8 +1349,8 @@ inline bool api_l3_get_history(miniio::io_msg &msg, console_state &, screen_buff
 }
 
 // ── 0x1F GetConsoleWindow ──
-inline bool api_l3_get_console_window(miniio::io_msg &msg, console_state &, screen_buffer *, input_buffer *,
-                                      pipe_bridge *)
+inline bool api_l3_get_console_window(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
+                                      pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETCONSOLEWINDOW_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->hwnd = ::GetConsoleWindow(); // 返回实际 HWND (可能 NULL)
@@ -1420,8 +1359,8 @@ inline bool api_l3_get_console_window(miniio::io_msg &msg, console_state &, scre
 }
 
 // ── 0x28 GetSelectionInfo ──
-inline bool api_l3_get_selection_info(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                                      pipe_bridge *)
+inline bool api_l3_get_selection_info(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                      pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETSELECTIONINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->SelectionInfo = state.selection_info;
@@ -1432,29 +1371,25 @@ inline bool api_l3_get_selection_info(miniio::io_msg &msg, console_state &state,
 // ── 0x29 GetConsoleProcessList ──
 // 需要访问 io_state 的 process_list，但 handler 签名不含 io_state。
 // 通过 bridge.proc_list/proc_count 间接获取 (pipe_bridge 也维护副本)。
-inline bool api_l3_get_process_list(miniio::io_msg &msg, console_state &, screen_buffer *, input_buffer *,
-                                    pipe_bridge *bridge)
+inline bool api_l3_get_process_list(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
+                                    pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_GETCONSOLEPROCESSLIST_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *out =
         reinterpret_cast<DWORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
     auto maxc =
         (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG)) / sizeof(DWORD);
-    size_t count = 0;
-    if (bridge)
-    {
-        count = bridge->proc_count < maxc ? bridge->proc_count : maxc;
-        for (size_t i = 0; i < count; ++i)
-            out[i] = bridge->proc_list[bridge->proc_count - 1 - i]; // newest first
-    }
+    size_t count = bridge.proc_count < maxc ? bridge.proc_count : maxc;
+    for (size_t i = 0; i < count; ++i)
+        out[i] = bridge.proc_list[bridge.proc_count - 1 - i]; // newest first
     r->dwProcessCount = static_cast<ULONG>(count);
     ucomplete_sz(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG) + static_cast<ULONG>(count * sizeof(DWORD)));
     return true;
 }
 
 // ── 0x2A GetHistory ──
-inline bool api_l3_get_history_info(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                                    pipe_bridge *)
+inline bool api_l3_get_history_info(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                    pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_HISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->HistoryBufferSize = static_cast<ULONG>(state.history_buffer_size);
@@ -1465,8 +1400,8 @@ inline bool api_l3_get_history_info(miniio::io_msg &msg, console_state &state, s
 }
 
 // ── 0x2B SetHistory ──
-inline bool api_l3_set_history_info(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                                    pipe_bridge *)
+inline bool api_l3_set_history_info(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                    pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_HISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.history_buffer_size = r->HistoryBufferSize;
@@ -1477,8 +1412,8 @@ inline bool api_l3_set_history_info(miniio::io_msg &msg, console_state &state, s
 }
 
 // ── 0x2C SetCurrentFont ──
-inline bool api_l3_set_current_font(miniio::io_msg &msg, console_state &state, screen_buffer *, input_buffer *,
-                                    pipe_bridge *)
+inline bool api_l3_set_current_font(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                    pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_CURRENTFONT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.font_index = r->FontIndex;
@@ -1491,7 +1426,7 @@ inline bool api_l3_set_current_font(miniio::io_msg &msg, console_state &state, s
 }
 
 // ── 第二类 L3: 废弃 API (对标 ServerDeprecatedApi) ──
-inline bool api_l3_deprecated(miniio::io_msg &msg, console_state &, screen_buffer *, input_buffer *, pipe_bridge *)
+inline bool api_l3_deprecated(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     ucomplete(msg);
     return true;

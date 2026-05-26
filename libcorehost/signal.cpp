@@ -15,8 +15,6 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
 {
     auto pp = std::unique_ptr<pty_signal_thread_params>{static_cast<pty_signal_thread_params *>(param)};
     auto &hp = pp->pipe;
-    auto *state = pp->state;
-    auto *sbuf = pp->sbuf;
 
     for (;;)
     {
@@ -24,8 +22,7 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
         if (!miniio::read_exact(hp.view(), &sig, sizeof(sig)))
         {
             pp->vt_in.clear();
-            if (pp->pipe_broken)
-                pp->pipe_broken->store(true, std::memory_order_relaxed);
+            pp->pipe_broken.store(true, std::memory_order_relaxed);
             break;
         }
         switch (static_cast<PtySignal>(sig))
@@ -37,8 +34,7 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
             break;
         }
         case PtySignal::ClearBuffer:
-            if (sbuf)
-                sbuf->clear(state ? state->default_attributes : 0x07);
+            pp->sbuf.clear(pp->state.default_attributes);
             break;
         case PtySignal::SetParent: {
             // 读取 HWND (8 字节, 32/64 兼容)
@@ -51,14 +47,10 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
             COORD sz{0, 0};
             if (!miniio::read_exact(hp.view(), &sz, sizeof(sz)))
                 return 1;
-            if (state)
-            {
-                state->screen_buffer_size = sz;
-                state->current_window_size = sz;
-                state->max_window_size = sz;
-                if (sbuf)
-                    sbuf->resize(sz);
-            }
+            pp->state.screen_buffer_size = sz;
+            pp->state.current_window_size = sz;
+            pp->state.max_window_size = sz;
+            pp->sbuf.resize(sz);
             break;
         }
         default:

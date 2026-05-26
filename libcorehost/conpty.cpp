@@ -19,10 +19,9 @@
 namespace conpty
 {
 
-void conpty_entry(win32::handle server, win32::handle event, win32::handle condrv_input,
-                  win32::handle condrv_output, win32::handle vt_in, win32::handle vt_out,
-                  win32::handle signal_pipe, short width, short height, bool inherit_cursor,
-                  text_measurement_mode text_measurement, bool ambiguous_is_wide)
+void conpty_entry(win32::handle server, win32::handle event, win32::handle condrv_input, win32::handle condrv_output,
+                  win32::handle vt_in, win32::handle vt_out, win32::handle signal_pipe, short width, short height,
+                  bool inherit_cursor, text_measurement_mode text_measurement, bool ambiguous_is_wide)
 {
     LOG("conpty::conpty_entry: s=%p vi=%p vo=%p ev=%p w=%d h=%d sig=%p ambi=%d", server.get(), vt_in.get(),
         vt_out.get(), event.get(), width, height, signal_pipe.get(), ambiguous_is_wide);
@@ -57,40 +56,23 @@ void conpty_entry(win32::handle server, win32::handle event, win32::handle condr
     io.condrv_output = std::move(condrv_output);
 
     // ── Layer 2: pipe bridge ──
-    pipe_bridge bridge;
+    pipe_bridge bridge{ibuf, state, sbuf};
     bridge.vt_in = vt_in.view();
     bridge.vt_out = vt_out.view();
     bridge.server = server.view();
-    bridge.inp = &ibuf;
-    bridge.cstate = &state;
-    bridge.sbuf = &sbuf;
 
     // ── Layer 2: api router ──
-    api_router api;
-    api.state = &state;
-    api.sb = &sbuf;
-    api.sb_main = &sbuf;
-    api.sb_alt = &alt_sbuf;
-    api.inp = &ibuf;
-    api.io = &io;
-    api.bridge = &bridge;
+    api_router api{state, sbuf, alt_sbuf, ibuf, io, bridge};
 
     // ── Layer 1: message router ──
-    message_router router;
-    router.io = &io;
-    router.bridge = &bridge;
-    router.api = &api;
+    message_router router{io, bridge, api};
 
     // ── PtySignal 信号线程 ──
     win32::basic_thread sig_thread;
     if (signal_pipe.valid())
     {
-        auto tp = std::make_unique<pty_signal_thread_params>();
-        tp->pipe = std::move(signal_pipe);
-        tp->vt_in = win32::duplicate_handle(vt_in.view());
-        tp->pipe_broken = bridge.pipe_broken_flag();
-        tp->state = &state;
-        tp->sbuf = &sbuf;
+        auto tp = std::make_unique<pty_signal_thread_params>(
+            std::move(signal_pipe), win32::duplicate_handle(vt_in.view()), bridge.pipe_broken_flag(), state, sbuf);
         sig_thread = win32::basic_thread{pty_signal_thread_proc, tp.release()};
         LOG("conpty::conpty_entry: signal thread started");
     }

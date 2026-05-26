@@ -106,10 +106,10 @@ WORD connect_show_window(const CONSOLE_SERVER_MSG &connect_info) noexcept
 // 实例化 Windows Terminal 的 ITerminalHandoff3 并执行 PTY 移交协商。
 //   terminal_read_pipe  : WT 可读端，corehost 写入后映射为 vt_out
 //   terminal_write_pipe : WT 可写端，corehost 读取后映射为 vt_in
-void create_terminal_pty(REFCLSID terminal_clsid, win32::handle_view signal_write,
-                         win32::handle_view reference_handle, win32::handle_view corehost_process,
-                         win32::handle_view client_process, win32::wcstring_view startup_title, WORD show_window,
-                         win32::handle &terminal_read_pipe, win32::handle &terminal_write_pipe)
+void create_terminal_pty(REFCLSID terminal_clsid, win32::handle_view signal_write, win32::handle_view reference_handle,
+                         win32::handle_view corehost_process, win32::handle_view client_process,
+                         win32::wcstring_view startup_title, WORD show_window, win32::handle &terminal_read_pipe,
+                         win32::handle &terminal_write_pipe)
 {
     LOG("create_terminal_pty: clsid=%08X-%04X-%04X...", terminal_clsid.Data1, terminal_clsid.Data2,
         terminal_clsid.Data3);
@@ -128,9 +128,9 @@ void create_terminal_pty(REFCLSID terminal_clsid, win32::handle_view signal_writ
         startup_title.c_str(), show_window, signal_write.get(), reference_handle.get(), corehost_process.get(),
         client_process.get());
 
-    auto hr = terminal->EstablishPtyHandoff(terminal_read_pipe.put(), terminal_write_pipe.put(), signal_write.get(),
-                                            reference_handle.get(), corehost_process.get(), client_process.get(),
-                                            &startup);
+    auto hr =
+        terminal->EstablishPtyHandoff(terminal_read_pipe.put(), terminal_write_pipe.put(), signal_write.get(),
+                                      reference_handle.get(), corehost_process.get(), client_process.get(), &startup);
 
     LOG("create_terminal_pty: hr=0x%08X, terminal_read=%p terminal_write=%p", static_cast<unsigned long>(hr),
         terminal_read_pipe.get(), terminal_write_pipe.get());
