@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <cstring>
 #include <vector>
+#include "default_console_size.hpp"
 #include "screen_buffer_row.hpp"
 #include "char_convert.hpp"
 #include "char_width.hpp"
@@ -19,7 +20,7 @@ namespace conpty
 
 struct screen_buffer
 {
-    COORD size{80, 25};
+    COORD size{default_console_size};
 
     screen_buffer()
     {

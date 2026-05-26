@@ -22,6 +22,7 @@
 #include "ntapi/condrv.hpp"
 #include "miniio/io_thread.hpp"
 #include "os/Console/conmsgl1.h"
+#include "default_console_size.hpp"
 #include "win32/thread.hpp"
 #include "utility/log.hpp"
 #include "mutex"
@@ -119,8 +120,8 @@ void create_terminal_pty(REFCLSID terminal_clsid, win32::handle_view signal_writ
 
     com::bstring title{!startup_title.empty() ? startup_title.c_str() : L"corehost"};
     TERMINAL_STARTUP_INFO startup{.pszTitle = title.get(),
-                                  .dwXCountChars = 120,
-                                  .dwYCountChars = 30,
+                                  .dwXCountChars = static_cast<DWORD>(conpty::default_console_size.X),
+                                  .dwYCountChars = static_cast<DWORD>(conpty::default_console_size.Y),
                                   .dwFlags = STARTF_USECOUNTCHARS,
                                   .wShowWindow = show_window};
 

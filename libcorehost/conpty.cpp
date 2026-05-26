@@ -15,6 +15,7 @@
 #include "message_router.hpp"
 #include "signal.hpp"
 #include "utility/log.hpp"
+#include "default_console_size.hpp"
 
 namespace conpty
 {
@@ -28,8 +29,8 @@ void conpty_entry(win32::handle server, win32::handle event, win32::handle condr
 
     // ── Layer 4: 控制台状态 ──
     console_state state;
-    state.screen_buffer_size.X = width > 0 ? width : 120;
-    state.screen_buffer_size.Y = height > 0 ? height : 30;
+    state.screen_buffer_size.X = width > 0 ? width : default_console_size.X;
+    state.screen_buffer_size.Y = height > 0 ? height : default_console_size.Y;
     state.current_window_size = state.screen_buffer_size;
     state.max_window_size = state.screen_buffer_size;
     state.cursor.position = {0, 0};

@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 #include <flat_map>
+#include "default_console_size.hpp"
 #include "text_measurement_mode.hpp"
 
 namespace conpty
@@ -44,9 +45,9 @@ struct console_state
     cursor_state cursor;
 
     // ── Screen Buffer 信息 ──
-    COORD screen_buffer_size{80, 25};
-    COORD current_window_size{80, 25};
-    COORD max_window_size{80, 25};
+    COORD screen_buffer_size{default_console_size};
+    COORD current_window_size{default_console_size};
+    COORD max_window_size{default_console_size};
     WORD default_attributes = 0x07;
     WORD popup_attributes = 0x07;
     COLORREF color_table[16]{};

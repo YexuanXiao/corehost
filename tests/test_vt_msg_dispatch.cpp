@@ -15,7 +15,11 @@ using namespace conpty;
 void setup(console_state &st, screen_buffer &sb)
 {
     st = console_state{};
-    sb = screen_buffer{{80, 25}};
+    const COORD test_size{80, 25};
+    st.screen_buffer_size = test_size;
+    st.current_window_size = test_size;
+    st.max_window_size = test_size;
+    sb = screen_buffer{test_size};
 }
 
 // ==================================================================

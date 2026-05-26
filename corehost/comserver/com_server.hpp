@@ -6,6 +6,7 @@
 #include "win32/handle.hpp"
 #include "com/com_ptr.hpp"
 #include "ITerminalHandoff.h"
+#include "default_console_size.hpp"
 
 namespace comserver
 {
@@ -20,8 +21,8 @@ struct handoff_result
     win32::handle signal;        // Signal pipe read handle (for resize etc.)
     win32::handle condrv_input;  // ConDrv \Input client handle; must stay alive for the session
     win32::handle condrv_output; // ConDrv \Output client handle; must stay alive for the session
-    short width = 120;
-    short height = 30;
+    short width = conpty::default_console_size.X;
+    short height = conpty::default_console_size.Y;
 };
 
 // ── com_server_entry ──────────────────────────────────────
