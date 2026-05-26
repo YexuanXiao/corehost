@@ -85,10 +85,18 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
             state.cursor.position.X = state.screen_buffer_size.X - 1;
         break;
 
+    case vt_message_id::cursor_forward_tab:
+        state.cursor.position.X = state.next_tab_stop(state.cursor.position.X);
+        break;
+
     case vt_message_id::cursor_backward:
         state.cursor.position.X -= msg.count;
         if (state.cursor.position.X < 0)
             state.cursor.position.X = 0;
+        break;
+
+    case vt_message_id::cursor_backward_tab:
+        state.cursor.position.X = state.prev_tab_stop(state.cursor.position.X);
         break;
 
     case vt_message_id::cursor_next_line:
@@ -166,7 +174,7 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
         break;
     }
 
-    // ── 文本输出 → screen_buffer ──
+    // ── 文本输出 → screen_buffer（仅可打印字符，不含控制字符）──
     case vt_message_id::text: {
         COORD pos = state.cursor.position;
         auto mode = state.text_measurement;
@@ -177,49 +185,28 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
             if (pos.Y >= state.screen_buffer_size.Y)
                 break;
 
-            if (ch == U'\t')
+            int cw = char_width_for_mode(ch, mode, state.ambiguous_is_wide);
+            if (cw < 1)
+                cw = 1;
+
+            SHORT screen_w = state.screen_buffer_size.X;
+            if (pos.X + cw > screen_w)
             {
-                SHORT next = state.next_tab_stop(pos.X);
-                SHORT spaces = next - pos.X;
-                for (SHORT i = 0; i < spaces && pos.X < state.screen_buffer_size.X; ++i)
-                    sb.set_u32(pos, U' ', state.default_attributes);
-                pos.X = next;
-            }
-            else if (ch == U'\n')
-            {
-                // Windows 控制台语义: \n 移动到下行行首（等价 \r\n）
                 pos.X = 0;
                 pos.Y++;
+                if (pos.Y >= state.screen_buffer_size.Y)
+                {
+                    pos.Y = state.screen_buffer_size.Y - 1;
+                    break;
+                }
             }
-            else if (ch == U'\r')
+
+            sb.set_u32(pos, ch, state.default_attributes);
+            pos.X += static_cast<SHORT>(cw);
+            if (pos.X >= screen_w)
             {
                 pos.X = 0;
-            }
-            else
-            {
-                int cw = char_width_for_mode(ch, mode, state.ambiguous_is_wide);
-                if (cw < 1)
-                    cw = 1;
-
-                SHORT screen_w = state.screen_buffer_size.X;
-                if (pos.X + cw > screen_w)
-                {
-                    pos.X = 0;
-                    pos.Y++;
-                    if (pos.Y >= state.screen_buffer_size.Y)
-                    {
-                        pos.Y = state.screen_buffer_size.Y - 1;
-                        break;
-                    }
-                }
-
-                sb.set_u32(pos, ch, state.default_attributes);
-                pos.X += static_cast<SHORT>(cw);
-                if (pos.X >= screen_w)
-                {
-                    pos.X = 0;
-                    pos.Y++;
-                }
+                pos.Y++;
             }
         }
         if (pos.X >= state.screen_buffer_size.X)
@@ -233,6 +220,19 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
         state.cursor.position = pos;
         break;
     }
+
+    // ── 回车：X 归零 ──
+    case vt_message_id::carriage_return:
+        state.cursor.position.X = 0;
+        break;
+
+    // ── 换行：Windows 语义 X=0 + Y++ ──
+    case vt_message_id::line_feed:
+        state.cursor.position.X = 0;
+        state.cursor.position.Y++;
+        if (state.cursor.position.Y >= state.screen_buffer_size.Y)
+            state.cursor.position.Y = state.screen_buffer_size.Y - 1;
+        break;
 
     // ── 光标保存/恢复 ──
     case vt_message_id::save_cursor:

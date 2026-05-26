@@ -98,6 +98,8 @@ struct api_router
 
     bool dispatch_L1(miniio::io_msg &msg, DWORD api)
     {
+        if (api != 4)
+            LOG("[dispatch] L1 api=%lu", api);
         switch (api)
         {
         case 0:
@@ -128,6 +130,8 @@ struct api_router
 
     bool dispatch_L2(miniio::io_msg &msg, DWORD api)
     {
+        if (api != 7 && api != 13)
+            LOG("[dispatch] L2 api=%lu", api);
         switch (api)
         {
         case 0:
@@ -182,6 +186,8 @@ struct api_router
 
     bool dispatch_L3(miniio::io_msg &msg, DWORD api)
     {
+        if (api != 31 && api != 4)
+            LOG("[dispatch] L3 api=%lu", api);
         switch (api)
         {
         // ── 第一类: 活跃 L3 API (20 个) ──

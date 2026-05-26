@@ -1191,14 +1191,31 @@ static std::u32string feed_and_collect_text(const std::u32string &input)
             if (id == vt_message_id::text)
                 collected.append(p.get().text);
             p.reset(id);
+
+            // drain 排队消息
+            if (auto d_id = p.parse(U'\0');
+                d_id != vt_message_id::continue_ && d_id != vt_message_id::continue_text)
+            {
+                if (d_id == vt_message_id::text)
+                    collected.append(p.get().text);
+                p.reset(d_id);
+            }
         }
+    }
+    // 排空末尾残留的 _pending_control
+    if (auto id = p.parse(U'\0');
+        id != vt_message_id::continue_ && id != vt_message_id::continue_text)
+    {
+        if (id == vt_message_id::text)
+            collected.append(p.get().text);
+        p.reset(id);
     }
     return collected;
 }
 
 bool test_regression_cr_preserves_text()
 {
-    // "echo hello\r" 累积文本应为 "echo hello"，不\r
+    // \r 是专用 carriage_return，前导文本作为 text 先产出
     auto result = feed_and_collect_text(U"echo hello\r");
     ASSERT(result == U"echo hello");
     return true;
@@ -1206,56 +1223,148 @@ bool test_regression_cr_preserves_text()
 
 bool test_regression_lf_preserves_text()
 {
-    // "echo hello\n" 累积文本应为 "echo hello"，不\n
+    // \n 是专用 line_feed，前导文本作为 text 先产出
     auto result = feed_and_collect_text(U"echo hello\n");
     ASSERT(result == U"echo hello");
     return true;
 }
 
-bool test_regression_bare_cr_returns_empty_text()
+bool test_regression_bare_cr_produces_carriage_return()
 {
-    // 单独\r 应产text 消息但内容为
+    // 单独\r → carriage_return
     vt_parser p;
-    bool got_text = false;
+    bool got_cr = false;
     for (char32_t ch : U"\r")
     {
         vt_message_id id = p.parse(ch);
-        if (id == vt_message_id::text)
+        if (id == vt_message_id::carriage_return)
         {
             ASSERT(p.get().text.empty());
-            got_text = true;
+            got_cr = true;
             p.reset(id);
         }
     }
-    ASSERT(got_text);
+    ASSERT(got_cr);
     return true;
 }
 
-bool test_regression_bare_lf_returns_empty_text()
+bool test_regression_bare_lf_produces_line_feed()
 {
-    // 单独\n 应产text 消息但内容为
+    // 单独\n → line_feed
     vt_parser p;
-    bool got_text = false;
+    bool got_lf = false;
     for (char32_t ch : U"\n")
     {
         vt_message_id id = p.parse(ch);
-        if (id == vt_message_id::text)
+        if (id == vt_message_id::line_feed)
         {
             ASSERT(p.get().text.empty());
-            got_text = true;
+            got_lf = true;
             p.reset(id);
         }
     }
-    ASSERT(got_text);
+    ASSERT(got_lf);
     return true;
 }
 
 bool test_regression_crlf_full_pipeline()
 {
-    // 模拟完整cmd 输入 "echo hello\r\nprompt>"
-    // pipe_bridge UTF-8 字节读入，解码为 char32_t，喂parser
+    // text + carriage_return + line_feed: 文本段不含 \r \n
     auto result = feed_and_collect_text(U"echo hello\r\n");
     ASSERT(result == U"echo hello");
+    return true;
+}
+
+// ── 回归 BUG: reset() 清除了 _pending_control ──
+//   "echo hello" (可打印字符) + \r (CR) → reset(text) 后
+//   _pending_control 被清除，\r 被丢弃，行终止符丢失。
+//   修复: reset() 不再清除 _pending_control。
+bool test_regression_pending_control_survives_reset()
+{
+    vt_parser p;
+    char32_t input[] = {U'e', U'c', U'h', U'o', U'\r'};
+
+    // 前 4 个字符 → text 消息
+    vt_message_id id = vt_message_id::continue_;
+    for (int i = 0; i < 4; ++i)
+    {
+        id = p.parse(input[i]);
+        ASSERT(id == vt_message_id::continue_text);
+    }
+    // 第 5 个 \r → parser 先交付 text，设 _pending_control=carriage_return
+    id = p.parse(input[4]);
+    ASSERT(id == vt_message_id::text);
+    ASSERT(p.get().text == U"echo");
+    p.reset(vt_message_id::text); // reset 不应清除 _pending_control
+
+    // 下一个 parse() 应交付 carriage_return
+    id = p.parse(U' '); // dummy char 触发 _pending_control 交付
+    ASSERT(id == vt_message_id::carriage_return);
+    ASSERT(p.get().text.empty());
+    return true;
+}
+
+// ── 回归 BUG: 纯文本无控制字符终止时永远不交付 ──
+//   38 个可打印字符积累在 _raw 中，无 \r \n \t ESC 触发交付。
+//   修复: 新增 flush_text()，api_write_console 循环后调用。
+bool test_regression_flush_text_delivers_accumulated()
+{
+    vt_parser p;
+    char32_t input[] = {U'M', U'i', U'c', U'r', U'o'};
+
+    for (char32_t ch : input)
+    {
+        vt_message_id id = p.parse(ch);
+        ASSERT(id == vt_message_id::continue_text);
+    }
+
+    // 所有字符都是 continue_text，无消息交付
+    ASSERT(p.has_pending_text());
+
+    // flush_text 应释放 "Micro"
+    vt_message_id id = p.flush_text();
+    ASSERT(id == vt_message_id::text);
+    ASSERT(p.get().text == U"Micro");
+
+    // 再次 flush 无残留
+    ASSERT(!p.has_pending_text());
+    ASSERT(p.flush_text() == vt_message_id::continue_);
+    return true;
+}
+
+// ── \r\n 配对由 parser 内部处理，调用方无需额外标志 ──
+// "hello\r\n" 流程: parse('h'..'o') 累积 → parse('\r') 产 text, _pending_control=carriage_return
+// → parse('\n') 触发 _pending_control, 返回 carriage_return 并将 pending 升级为 line_feed
+// → drain: parse(U'\0') 取出 line_feed。调用方只需在每次 reset 后无条件 drain。
+bool test_regression_cr_then_nl_bridge_pairing()
+{
+    vt_parser p;
+    char32_t hello[] = {U'h', U'e', U'l', U'l', U'o'};
+    for (char32_t ch : hello)
+    {
+        vt_message_id id = p.parse(ch);
+        ASSERT(id == vt_message_id::continue_text);
+    }
+    // "\r" → parser 产 text("hello")，_pending_control=carriage_return
+    vt_message_id id = p.parse(U'\r');
+    ASSERT(id == vt_message_id::text);
+    ASSERT(p.get().text == U"hello");
+    p.reset(id);
+
+    // "\n" → _pending_control 触发, 返回 carriage_return, 升级为 line_feed
+    id = p.parse(U'\n');
+    ASSERT(id == vt_message_id::carriage_return);
+    p.reset(id);
+
+    // drain: parse(U'\0') → line_feed（_pending_control 升级后的延迟消息）
+    id = p.parse(U'\0');
+    ASSERT(id == vt_message_id::line_feed);
+    p.reset(id);
+
+    // 再次 drain: 无 pending → continue_
+    id = p.parse(U'\0');
+    ASSERT(id == vt_message_id::continue_);
+
     return true;
 }
 
@@ -1303,9 +1412,40 @@ bool test_regression_text_with_vt_then_cr()
 
 bool test_regression_multiline_input()
 {
-    // 多行输入: "line1\r\nline2\r\nline3\r\n"
-    auto result = feed_and_collect_text(U"line1\r\nline2\r\nline3\r\n");
-    ASSERT(result == U"line1line2line3");
+    // _pending_control 触发时总会消费当前字符。调用方在每次 reset 后
+    // 无条件 drain（parse(U'\0')），无 pending 时首次即返回 continue_。
+    vt_parser p;
+    std::u32string collected;
+
+    std::u32string input = U"line1\r\nline2\r\nline3\r\n";
+    for (char32_t ch : input)
+    {
+        vt_message_id id = p.parse(ch);
+        if (id == vt_message_id::continue_text || id == vt_message_id::continue_)
+            continue;
+        if (id == vt_message_id::text)
+            collected.append(p.get().text);
+        p.reset(id);
+
+        // 无条件 drain: _pending_control 最多一个排队消息
+        if (auto drain_id = p.parse(U'\0');
+            drain_id != vt_message_id::continue_ && drain_id != vt_message_id::continue_text)
+        {
+            if (drain_id == vt_message_id::text)
+                collected.append(p.get().text);
+            p.reset(drain_id);
+        }
+    }
+    // drain remaining
+    if (auto id = p.parse(U'\0');
+        id != vt_message_id::continue_ && id != vt_message_id::continue_text)
+    {
+        if (id == vt_message_id::text)
+            collected.append(p.get().text);
+        p.reset(id);
+    }
+
+    ASSERT(collected == U"line1line2line3");
     return true;
 }
 
@@ -1497,9 +1637,12 @@ int main()
     std::wcout << L"\nVT Parser Regression Tests (CR/LF text preservation)\n";
     RUN_TEST(test_regression_cr_preserves_text, L"CR preserves preceding text");
     RUN_TEST(test_regression_lf_preserves_text, L"LF preserves preceding text");
-    RUN_TEST(test_regression_bare_cr_returns_empty_text, L"Bare CR returns empty text");
-    RUN_TEST(test_regression_bare_lf_returns_empty_text, L"Bare LF returns empty text");
+    RUN_TEST(test_regression_bare_cr_produces_carriage_return, L"Bare CR produces carriage_return");
+    RUN_TEST(test_regression_bare_lf_produces_line_feed, L"Bare LF produces line_feed");
     RUN_TEST(test_regression_crlf_full_pipeline, L"CRLF full pipeline");
+    RUN_TEST(test_regression_flush_text_delivers_accumulated, L"Flush text delivers accumulated");
+    RUN_TEST(test_regression_pending_control_survives_reset, L"Pending control survives reset");
+    RUN_TEST(test_regression_cr_then_nl_bridge_pairing, L"CR then NL bridge pairing");
     RUN_TEST(test_regression_text_with_vt_then_cr, L"Text+VT+CR preserves all");
     RUN_TEST(test_regression_multiline_input, L"Multiline input");
 

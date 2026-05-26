@@ -315,15 +315,16 @@ bool test_dispatch_text_overflow_clamps_y()
     st.cursor.position = {0, 24}; // 最后一行
 
     vt_message m{};
-    // 写入含换行的文本：第一行填满后换行到 Y=25（越界），LF 不重置列号
-    m.text = U"A\n";
+    // 写入 'A' 后换行到 Y=25（越界）
+    m.text = U"A";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT(st.cursor.position.Y == 24); // 钳制在 sb_height-1
-    ASSERT(st.cursor.position.X == 0);  // LF 重置 X=0 (Windows 控制台语义)
+    ASSERT(st.cursor.position.X == 0);  // LF 重置 X=0
 
     // 大量换行溢出
-    m.text = U"\n\n\n\n\n\n\n\n\n\n"; // 10 newlines from Y=24
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    for (int i = 0; i < 10; ++i)
+        vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT(st.cursor.position.Y == 24); // 始终钳制
     return true;
 }
@@ -709,15 +710,17 @@ bool test_text_lf_resets_x()
     st.cursor.position = {5, 3}; // col 5, row 3
 
     vt_message m{};
-    m.text = U"\n"; // single LF
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
-    ASSERT(st.cursor.position.X == 0); // LF resets X=0 (Windows console behavior)
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
+    ASSERT(st.cursor.position.X == 0); // LF resets X=0
     ASSERT(st.cursor.position.Y == 4); // Y incremented
 
-    m.text = U"ab\ncd";
     st.cursor.position = {5, 4};
+    m.text = U"ab";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
-    ASSERT(st.cursor.position.X == 2); // col 0 + cd(2) = 2 (LF reset to 0)
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
+    m.text = U"cd";
+    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    ASSERT(st.cursor.position.X == 2); // LF reset to 0, cd=2
     ASSERT(st.cursor.position.Y == 5); // moved down one more row
     return true;
 }
@@ -729,25 +732,24 @@ bool test_wrong_command_multiline_indent()
     console_state st;
     screen_buffer sb;
     setup(st, sb);
-
-    // Simulate PowerShell error output: 3 WriteConsole calls, each ending with \n
-    // Line 1: 80 chars from (0,6) fills (0..79,6), wraps to (0,7), then \n → (0,8)
     st.cursor.position = {0, 6};
     vt_message m{};
-    m.text = U"line1_80_chars_ending_at_col2_row7_xxx_yyy_zzz_aaa_bbb_ccc_ddd_eee_fff_ggg_hhh_iii_jjj\n";
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
-    ASSERT(st.cursor.position.X == 0); // \n resets X
-    ASSERT(st.cursor.position.Y == 8); // 80cols wrap→Y=7, \n→Y=8
 
-    // Line 2: 15 chars from (0,8) → (15,8), then \n → (0,9)
-    m.text = U"line2_14_chars_\n";
+    m.text = U"line1_80_chars_ending_at_col2_row7_xxx_yyy_zzz_aaa_bbb_ccc_ddd_eee_fff_ggg_hhh_iii_jjj";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
+    ASSERT(st.cursor.position.X == 0);
+    ASSERT(st.cursor.position.Y == 8);
+
+    m.text = U"line2_14_chars_";
+    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT(st.cursor.position.X == 0);
     ASSERT(st.cursor.position.Y == 9);
 
-    // Line 3: 15 chars from (0,9) → (15,9), then \n → (0,10)
-    m.text = U"line3_14_chars_\n";
+    m.text = U"line3_14_chars_";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT(st.cursor.position.X == 0);
     ASSERT(st.cursor.position.Y == 10);
     return true;
@@ -761,8 +763,7 @@ bool test_text_cr_resets_column()
     st.cursor.position = {10, 2};
 
     vt_message m{};
-    m.text = U"\r"; // single CR
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    vt_msg_apply_state(vt_message_id::carriage_return, m, st, sb);
     ASSERT(st.cursor.position.X == 0); // CR resets X
     ASSERT(st.cursor.position.Y == 2); // Y unchanged
     return true;
@@ -886,19 +887,17 @@ bool test_text_newline_after_cjk_wrap_does_not_double_advance()
     ASSERT(line_after_wrap == 1);       // 从行 0 折到行 1
     ASSERT_EQ(st.cursor.position.X, 0); // 折行后 X 归零
 
-    // 现在写入 \\n —— 不应产生双重换行
-    std::u32string nl = U"\n";
-    m.text = nl;
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    // 现在写入 \n —— 不应产生双重换行
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
 
-    // \\n 移动到下行行首，Y 只递增 1
+    // \n 移动到下行行首，Y 只递增 1
     ASSERT_EQ(st.cursor.position.X, 0);
     ASSERT_EQ(st.cursor.position.Y, line_after_wrap + 1);
 
     return true;
 }
 
-// 场景: 文本最后恰好填满行尾 (pos.X == screen_w)，紧跟 \\n
+// 场景: 文本最后恰好填满行尾 (pos.X == screen_w)，紧跟 \n
 bool test_text_newline_after_exact_fill_does_not_double_advance()
 {
     console_state st;
@@ -918,10 +917,8 @@ bool test_text_newline_after_exact_fill_does_not_double_advance()
     ASSERT_EQ(st.cursor.position.X, 0);
     ASSERT_EQ(st.cursor.position.Y, 1);
 
-    // 紧跟 \\n → Y 仅再递增 1
-    std::u32string nl = U"\n";
-    m.text = nl;
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    // 紧跟 \n → Y 仅再递增 1
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
 
     ASSERT_EQ(st.cursor.position.X, 0);
     ASSERT_EQ(st.cursor.position.Y, 2);
@@ -929,7 +926,7 @@ bool test_text_newline_after_exact_fill_does_not_double_advance()
     return true;
 }
 
-// 场景: 非边界情况正常 \\n
+// 场景: 非边界情况正常 \n
 bool test_text_newline_normal_advances_one_line()
 {
     console_state st;
@@ -938,23 +935,20 @@ bool test_text_newline_normal_advances_one_line()
     st.cursor.position = {10, 5};
     sb = screen_buffer{{120, 30}};
 
-    std::u32string text = U"hello";
     vt_message m{};
-    m.text = text;
+    m.text = U"hello";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     ASSERT_EQ(st.cursor.position.X, 15);
 
-    // \\n → 下一行行首
-    std::u32string nl = U"\n";
-    m.text = nl;
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    // \n → 下一行行首
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT_EQ(st.cursor.position.X, 0);
     ASSERT_EQ(st.cursor.position.Y, 6);
 
     return true;
 }
 
-// 场景: \\r\\n 顺序正确换行
+// 场景: \r \n 顺序正确换行
 bool test_text_crlf_advances_one_line()
 {
     console_state st;
@@ -963,12 +957,13 @@ bool test_text_crlf_advances_one_line()
     st.cursor.position = {10, 5};
     sb = screen_buffer{{120, 30}};
 
-    std::u32string text = U"test\r\n";
     vt_message m{};
-    m.text = text;
+    m.text = U"test";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    vt_msg_apply_state(vt_message_id::carriage_return, m, st, sb);
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
 
-    // \\r 归零 X, \\n 递增 Y
+    // \r 归零 X, \n 递增 Y
     ASSERT_EQ(st.cursor.position.X, 0);
     ASSERT_EQ(st.cursor.position.Y, 6);
 

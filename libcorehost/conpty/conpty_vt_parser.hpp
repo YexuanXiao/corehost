@@ -48,7 +48,9 @@ enum class vt_message_id : uint16_t
 {
     continue_text = 0, // 可打印字符 → echo + 插入行缓冲
     continue_ = 1,     // 转义内部状态 → 无操作
-    text = 2,          // 普通文本消息（含非法序列原文）
+    text = 2,          // 纯可打印文本消息（不含控制字符）
+    carriage_return,   // \r
+    line_feed,         // \n
     reverse_index,
     save_cursor,
     restore_cursor,
@@ -224,9 +226,51 @@ class vt_parser
         return _should_echo;
     }
 
+    // 是否有未交付的累积文本（纯可打印字符无控制字符终止时残留）
+    [[nodiscard]] bool has_pending_text() const noexcept
+    {
+        return _ground_text_start != npos && !_raw.empty();
+    }
+
+
+    // 释放累积文本为 text 消息并返回 text id；无残留文本时返回 continue_
+    [[nodiscard]] vt_message_id flush_text()
+    {
+        if (_ground_text_start == npos || _raw.empty())
+            return vt_message_id::continue_;
+        _msg.text = {_raw.data() + _ground_text_start, _raw.size() - _ground_text_start};
+        _msg_id = vt_message_id::text;
+        _ground_text_start = npos;
+        return vt_message_id::text;
+    }
+
     // 解析单个码点，返回当前产生的消息 id，continue_ 表示尚未完成
     [[nodiscard]] vt_message_id parse(char32_t ch)
     {
+        // ── 上次因 has_text + 控制字符而延迟的消息优先交付 ──
+        if (_pending_control != vt_message_id::continue_)
+        {
+            auto id = _pending_control;
+            // \r\n 配对：将 CR 升级为 LF（\n 被吞掉但 LF 会在下一次排空时交付）
+            if (id == vt_message_id::carriage_return && ch == U'\n')
+            {
+                _pending_control = vt_message_id::line_feed;
+                _msg_id = id; // 本次交付 carriage_return
+                _msg.text = {};
+                return id;
+            }
+            _pending_control = vt_message_id::continue_;
+            _msg_id = id;
+            _msg.text = {};
+            if (id == vt_message_id::cursor_forward_tab)
+                _msg.count = 1;
+            return id;
+        }
+
+        // U'\0' 是 drain sentinel：无排队消息时立即返回 continue_，不产 char_nul
+        if (ch == U'\0')
+            return vt_message_id::continue_;
+
         // 如果上次因 text→ESC 过渡而暂存了 ESC，先还原
         if (_pending_esc)
         {
@@ -275,10 +319,11 @@ class vt_parser
                     _osc = false;
                     return _finish_seq(ok);
                 }
-                if (ch == 0x1B) // 可能是 ST 的开始
+                if (ch == 0x1B) // ST 的开始 (ESC \)
                 {
                     _osc = false;
                     _esc = true;
+                    _osc_st = true; // 标记：此 ESC 来自 OSC，期待 ST
                     return vt_message_id::continue_;
                 }
                 // 其他控制字符：OSC 被打断，序列转为文本，再处理该控制字符
@@ -288,8 +333,8 @@ class vt_parser
                 _osc_code = 0;
                 _osc_len = 0;
                 _osc_had_semi = false;
-                _handle_control(ch);
-                return _msg_id;
+                // 控制字符中断序列，文本已设，返回 text 供透传
+                return vt_message_id::text;
             }
 
             // 尚未遇到分号，解析 OSC 数字操作码
@@ -322,18 +367,19 @@ class vt_parser
             return vt_message_id::continue_;
         }
 
-        // ST 终止符检测 (ESC \)
-        if (_esc && !_csi && !_ss3)
+        // ST 终止符检测 (ESC \) — 仅当 ESC 来自 OSC 终止时触发
+        if (_osc_st)
         {
             if (ch == U'\\')
             {
+                _osc_st = false;
                 bool ok = _dispatch_osc();
                 _esc = false;
                 return _finish_seq(ok);
             }
+            // 不是 \：ESC 退化为普通序列（如 OSC 被非 ST 字符打断）
+            _osc_st = false;
         }
-
-        // ── CSI 参数模式 ──
         if (_csi)
         {
             // 控制字符中断 CSI
@@ -343,8 +389,7 @@ class vt_parser
                 _msg_id = vt_message_id::text;
                 _csi = false;
                 _reset_params();
-                _handle_control(ch);
-                return _msg_id;
+                return vt_message_id::text;
             }
             if (ch >= U'0' && ch <= U'9')
             {
@@ -391,7 +436,6 @@ class vt_parser
                 _msg.text = {_raw.data() + _seq_start, _raw.size() - _seq_start};
                 _msg_id = vt_message_id::text;
                 _ss3 = false;
-                _handle_control(ch);
                 return vt_message_id::text;
             }
             if (ch >= 0x40 && ch <= 0x7E)
@@ -415,18 +459,20 @@ class vt_parser
                 _msg.text = {_raw.data() + _seq_start, _raw.size() - _seq_start};
                 _msg_id = vt_message_id::text;
                 _esc = false;
-                _handle_control(ch);
+                _osc_st = false;
                 return vt_message_id::text;
             }
             switch (ch)
             {
             case U'[':
                 _esc = false;
+                _osc_st = false;
                 _csi = true;
                 _reset_params();
                 return vt_message_id::continue_;
             case U']':
                 _esc = false;
+                _osc_st = false; // OSC 入口，清除可能的残留 ST 标记
                 _osc = true;
                 _osc_code = 0;
                 _osc_len = 0;
@@ -434,6 +480,7 @@ class vt_parser
                 return vt_message_id::continue_;
             case U'O':
                 _esc = false;
+                _osc_st = false;
                 _ss3 = true;
                 return vt_message_id::continue_;
             case U'(':
@@ -441,6 +488,7 @@ class vt_parser
                 return vt_message_id::continue_; // 等待字符集终态
             default:
                 _esc = false;
+                _osc_st = false;
                 if (_intermediate == '(')
                 {
                     _intermediate = 0;
@@ -470,36 +518,75 @@ class vt_parser
             {
                 if (has_text)
                 {
-                    // 设 view（_raw 未动，不含 ESC 的纯文本段）
                     _msg.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
                     _raw.pop_back(); // 弹出 ESC，下次 parse 再还原
                     _pending_esc = true;
+                    _msg_id = vt_message_id::text;
+                    _ground_text_start = npos;
+                    return vt_message_id::text;
                 }
-                else
-                {
-                    _seq_start = _raw.size() - 1;
-                    _esc = true;
-                }
+                _seq_start = _raw.size() - 1;
+                _esc = true;
                 _msg_id = vt_message_id::text;
                 _ground_text_start = npos;
-                return has_text ? vt_message_id::text : vt_message_id::continue_;
+                return vt_message_id::continue_;
             }
 
-            // ── 其他控制字符 ──
+            // ── \r \n：专用消息，前导文本先交付 ──
+            if (ch == U'\r' || ch == U'\n')
+            {
+                _raw.pop_back(); // 控制字符不进入 raw
+                vt_message_id cid = (ch == U'\r') ? vt_message_id::carriage_return : vt_message_id::line_feed;
+                if (has_text)
+                {
+                    _msg.text = {_raw.data() + _ground_text_start, _raw.size() - _ground_text_start};
+                    _msg_id = vt_message_id::text;
+                    _ground_text_start = npos;
+                    _pending_control = cid;
+                    return vt_message_id::text;
+                }
+                _msg_id = cid;
+                _msg.text = {};
+                _ground_text_start = npos;
+                return cid;
+            }
+
+            // ── \\t：cursor_forward_tab；有前导文本时先交付文本，tab 延迟 ──
+            if (ch == U'\t')
+            {
+                if (has_text)
+                {
+                    _msg.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
+                    _msg_id = vt_message_id::text;
+                    _raw.pop_back(); // 去掉 \\t，下次交付
+                    _ground_text_start = npos;
+                    _pending_control = vt_message_id::cursor_forward_tab;
+                    return vt_message_id::text;
+                }
+                _raw.pop_back();
+                _msg_id = vt_message_id::cursor_forward_tab;
+                _msg.count = 1;
+                _msg.text = {};
+                _ground_text_start = npos;
+                return vt_message_id::cursor_forward_tab;
+            }
+
+            // ── 其他控制字符（BS→char_del, NUL→char_nul, SUB→char_sub, DEL→char_del）──
+            // 有前导文本时先交付文本，控制字符延迟
             if (has_text)
             {
                 _msg.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
-                _raw.pop_back();
                 _msg_id = vt_message_id::text;
+                _raw.pop_back();
                 _ground_text_start = npos;
-                _handle_control(ch); // 可能改写 _msg_id（如 BS→char_del）
-                return _msg_id;      // 返回 _handle_control 设置的最终 id
+                // 延迟交付控制字符
+                _pending_control = _classify_control(ch);
+                return vt_message_id::text;
             }
-            // 无文本，直接处理控制字符
-            _ground_text_start = npos;
             _raw.pop_back();
-            _msg.text = {}; // 确保 text view 有效（CR/LF 产生 text 消息但不设内容）
-            _handle_control(ch);
+            _ground_text_start = npos;
+            _msg_id = _classify_control(ch);
+            _msg.text = {};
             return _msg_id;
         }
 
@@ -513,9 +600,20 @@ class vt_parser
         // 根据消息类型重置受污染的数值字段
         switch (id)
         {
-        // ── 文本 / 标题：_raw 已清空 ──
+        // ── continue_text: 清除累积但未交付的单字符文本 ──
+        case vt_message_id::continue_text:
+            _raw.clear();
+            _ground_text_start = npos;
+            break;
+
+        // ── 文本 / 标题 ──
         case vt_message_id::text:
         case vt_message_id::set_window_title:
+            break;
+
+        // ── 换行/回车：无字段需重置 ──
+        case vt_message_id::carriage_return:
+        case vt_message_id::line_feed:
             break;
 
         // ── 以下序列不修改任何数值字段 ──
@@ -681,6 +779,8 @@ class vt_parser
         _ground_text_start = npos;
         _seq_start = 0;
         _esc = _csi = _osc = _ss3 = false;
+        _osc_st = false;
+        // _pending_control 必须保留—延迟交付的 CR/LF/TAB 由下次 parse() 开头消费
     }
 
   private:
@@ -701,7 +801,11 @@ class vt_parser
     bool _ss3 = false;            // 已收到 SS3 引入符 'O'
     bool _private_marker = false; // CSI 参数中的 '?' 标记
     bool _pending_esc = false;    // text→ESC 过渡：下次 parse 先 push ESC
+    bool _osc_st = false;         // ESC 来自 OSC 终止（等待 ST），非地面态裸 ESC
     bool _should_echo = false;    // 最近一次 parse() 的字符是否该回显
+
+    // ── 延迟交付：has_text+控制字符时先交付文本，控制消息下次返回 ──
+    vt_message_id _pending_control = vt_message_id::continue_;
 
     // ── CSI 参数收集 ──
     std::array<short, MAX_PARAMS> _params{}; // 参数数组
@@ -772,35 +876,28 @@ class vt_parser
         return _msg_id;
     }
 
-    // 处理 Ground 状态下遇到的控制字符（C0 和 DEL）
-    void _handle_control(char32_t ch)
+    // 处理 Ground 状态下遇到的控制字符（C0 和 DEL），返回对应的消息 id。
+    // 注意：\\r \\n \\t 和 ESC 已在调用方分流，不会进入此函数。
+    static vt_message_id _classify_control(char32_t ch)
     {
         switch (ch)
         {
         case 0x00:
-            _msg_id = vt_message_id::char_nul;
-            break;
+            return vt_message_id::char_nul;
         case 0x08:
-            _msg_id = vt_message_id::char_del;
-            break; // BS → 删除光标前字符
+            return vt_message_id::char_del; // BS
         case 0x09:
-            _msg_id = vt_message_id::cursor_forward_tab;
-            _msg.count = 1;
-            break;
+            return vt_message_id::cursor_forward_tab; // \\t (fallback)
         case 0x0A:
-            _msg_id = vt_message_id::text;
-            break; // LF: 不覆盖 _msg.text
+            return vt_message_id::line_feed;
         case 0x0D:
-            _msg_id = vt_message_id::text;
-            break; // CR: 不覆盖 _msg.text
+            return vt_message_id::carriage_return;
         case 0x1A:
-            _msg_id = vt_message_id::char_sub;
-            break;
-        case 0x1B: /* 已在调用前处理 */
-            break;
+            return vt_message_id::char_sub;
         case 0x7F:
-            _msg_id = vt_message_id::char_del;
-            break;
+            return vt_message_id::char_del; // DEL
+        default:
+            return vt_message_id::text; // 其他 C0：透明化为空 text
         }
     }
 

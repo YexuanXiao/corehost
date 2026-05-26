@@ -29,7 +29,7 @@ void dump_sb(screen_buffer &sb, int rows)
     }
 }
 
-// Simulate api_write_console: CUP→SGR→text→CUP (the real handler flow)
+// Simulate api_write_console: CUP→SGR→text (split at \\r \\n) → CUP
 void sim_write_console(console_state &st, screen_buffer &sb, std::u32string_view text)
 {
     // Step 1: CUP to start position
@@ -43,10 +43,37 @@ void sim_write_console(console_state &st, screen_buffer &sb, std::u32string_view
     m.sgr_reset = true;
     vt_msg_apply_state(vt_message_id::sgr, m, st, sb);
 
-    // Step 3: text
+    // Step 3: text — split at \\r \\n into dedicated messages
     m = vt_message{};
-    m.text = text;
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    size_t seg_start = 0;
+    for (size_t i = 0; i < text.size(); ++i)
+    {
+        if (text[i] == U'\r')
+        {
+            if (i > seg_start)
+            {
+                m.text = text.substr(seg_start, i - seg_start);
+                vt_msg_apply_state(vt_message_id::text, m, st, sb);
+            }
+            vt_msg_apply_state(vt_message_id::carriage_return, m, st, sb);
+            seg_start = i + 1;
+        }
+        else if (text[i] == U'\n')
+        {
+            if (i > seg_start)
+            {
+                m.text = text.substr(seg_start, i - seg_start);
+                vt_msg_apply_state(vt_message_id::text, m, st, sb);
+            }
+            vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
+            seg_start = i + 1;
+        }
+    }
+    if (seg_start < text.size())
+    {
+        m.text = text.substr(seg_start);
+        vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    }
 
     // Step 4: CUP to final position
     m = vt_message{};
