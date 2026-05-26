@@ -3,8 +3,7 @@
 int wmain()
 {
     init_manual_console();
-    section(L"manual_003_vt_sgr_title",
-            L"Exercises SGR colors/attributes and OSC title setting.");
+    section(L"manual_003_vt_sgr_title", L"Exercises SGR colors/attributes and OSC title setting.");
 
     vt(L"\x1b]0;manual vt sgr title\x07");
     wprint(L"Title was set with OSC 0.\n\n");

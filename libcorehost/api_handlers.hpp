@@ -203,133 +203,109 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
                         ch = console_state::dec_to_unicode(static_cast<unsigned char>(ch));
             }
 
-            if (bridge.vt_out.valid())
+            vt_message m{};
+
+            // 1) 确保终端光标与 state.cursor.position 对齐。
+            //    PSReadLine 的 SetCursorPos 只更新了 state，但终端光标
+            //    可能因上一次 WriteConsole 的 \r\n 处于不同位置。
+            //    非 Enter 换行路径必须先发 CUP，确保文本从正确位置开始。
+            bool need_cup = bridge.consume_enter_newline();
+            LOG("[api_write_console] need_cup=%d state_start=(%d,%d)", need_cup, state.cursor.position.X,
+                state.cursor.position.Y);
+            if (need_cup)
             {
-                vt_message m{};
+                COORD nl_pos = bridge.get_enter_dest();
+                m.row = static_cast<short>(nl_pos.Y + 1);
+                m.col = static_cast<short>(nl_pos.X + 1);
+                bridge.vt_msg_send(vt_message_id::cursor_position, m);
+                vt_msg_apply_state(vt_message_id::cursor_position, m, state, sb);
+                start_pos = state.cursor.position;
 
-                // 1) 确保终端光标与 state.cursor.position 对齐。
-                //    PSReadLine 的 SetCursorPos 只更新了 state，但终端光标
-                //    可能因上一次 WriteConsole 的 \r\n 处于不同位置。
-                //    非 Enter 换行路径必须先发 CUP，确保文本从正确位置开始。
-                bool need_cup = bridge.consume_enter_newline();
-                LOG("[api_write_console] need_cup=%d state_start=(%d,%d)", need_cup, state.cursor.position.X,
-                    state.cursor.position.Y);
-                if (need_cup)
+                // Enter 已由输入桥接回显为一次换行。PowerShell/PSReadLine 随后常会
+                // WriteConsole("\r\n") 同步自己的行状态；这条纯换行 echo 若再写给
+                // 终端，就会产生空行。普通文本仍从 enter_dest 输出。
+                if (is_line_terminator_echo(u32s))
                 {
-                    COORD nl_pos = bridge.get_enter_dest();
-                    m.row = static_cast<short>(nl_pos.Y + 1);
-                    m.col = static_cast<short>(nl_pos.X + 1);
-                    bridge.vt_msg_send(vt_message_id::cursor_position, m);
-                    vt_msg_apply_state(vt_message_id::cursor_position, m, state, sb);
-                    start_pos = state.cursor.position;
-
-                    // Enter 已由输入桥接回显为一次换行。PowerShell/PSReadLine 随后常会
-                    // WriteConsole("\r\n") 同步自己的行状态；这条纯换行 echo 若再写给
-                    // 终端，就会产生空行。普通文本仍从 enter_dest 输出。
-                    if (is_line_terminator_echo(u32s))
-                    {
-                        bridge.vt_flush();
-                        bridge.sync_cursor_after_write(state.cursor.position);
-                        LOG("[api_write_console] swallowed enter echo newline");
-                        req->NumBytes = sbytes;
-                        ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLE_MSG));
-                        return true;
-                    }
+                    bridge.vt_flush();
+                    bridge.sync_cursor_after_write(state.cursor.position);
+                    LOG("[api_write_console] swallowed enter echo newline");
+                    req->NumBytes = sbytes;
+                    ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLE_MSG));
+                    return true;
                 }
-                else
-                {
-                    // 始终发送 CUP 对齐终端光标与 state 位置。
-                    // 真实 conhost 的 WriteConsole 从当前光标位置输出，
-                    // 终端光标必须 = state.cursor.position，否则 \r\n
-                    // 会导致后续文本输出到错误的行。
-                    m.row = static_cast<short>(start_pos.Y + 1);
-                    m.col = static_cast<short>(start_pos.X + 1);
-                    bridge.vt_msg_send(vt_message_id::cursor_position, m);
-                }
-
-                // 2) SGR 默认属性（确保终端以正确的默认颜色开始；若文本内嵌 SGR 序列，
-                //    后续 parser 会覆盖）
-                WORD attr = state.default_attributes;
-                m = vt_message{};
-                set_sgr_from_win32_attr(m, attr);
-                bridge.vt_msg_send(vt_message_id::sgr, m);
-                vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
-
-                // 3) 文本经 vt_parser 分流 — parser 是文本分段的唯一权威。
-                //    \r\n 配对由 parser 内部处理：_pending_control 从 CR 升级为 LF，
-                //    reset 后无条件 drain 即可取出排队的 LF，不依赖额外标志。
-                filter_osc_sequences(u32s);
-                vt_parser write_parser;
-                for (char32_t ch : u32s)
-                {
-                    auto id = write_parser.parse(ch);
-                    if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
-                        continue;
-                    auto &pm = write_parser.get();
-                    bridge.vt_msg_send(id, pm);
-                    if (id != vt_message_id::sgr)
-                        vt_msg_apply_state(id, pm, state, sb);
-
-                    write_parser.reset(id);
-
-                    // _pending_control 最多一个排队消息，一次 drain 即清空
-                    if (auto id2 = write_parser.parse(U'\0');
-                        id2 != vt_message_id::continue_ && id2 != vt_message_id::continue_text)
-                    {
-                        auto &pm2 = write_parser.get();
-                        bridge.vt_msg_send(id2, pm2);
-                        if (id2 != vt_message_id::sgr)
-                            vt_msg_apply_state(id2, pm2, state, sb);
-                        write_parser.reset(id2);
-                    }
-                }
-                // 释放循环后残留的累积文本
-                if (auto id = write_parser.flush_text(); id != vt_message_id::continue_)
-                {
-                    auto &pm = write_parser.get();
-                    bridge.vt_msg_send(id, pm);
-                    vt_msg_apply_state(id, pm, state, sb);
-                }
-                // 排空 parser 残留的 _pending_control（如 \r 在文本末尾无后续 \n）
-                if (auto id = write_parser.parse(U'\0');
-                    id != vt_message_id::continue_ && id != vt_message_id::continue_text)
-                {
-                    auto &pm = write_parser.get();
-                    bridge.vt_msg_send(id, pm);
-                    if (id != vt_message_id::sgr)
-                        vt_msg_apply_state(id, pm, state, sb);
-                    write_parser.reset(id);
-                }
-
-                // 4) 落盘并同步 bridge 内部光标追踪
-                bridge.vt_flush();
-                bridge.sync_cursor_after_write(state.cursor.position);
-
-                LOG("[api_write_console] done: u32s_len=%zu sbytes=%lu end_cursor=(%d,%d) synced", u32s.size(),
-                    static_cast<unsigned long>(sbytes), static_cast<int>(state.cursor.position.X),
-                    static_cast<int>(state.cursor.position.Y));
             }
             else
             {
-                // 无 VT 输出句柄: 仅更新 screen_buffer（解析 text 与 CR/LF）
-                vt_parser sb_parser;
-                for (char32_t ch : u32s)
+                // 始终发送 CUP 对齐终端光标与 state 位置。
+                // 真实 conhost 的 WriteConsole 从当前光标位置输出，
+                // 终端光标必须 = state.cursor.position，否则 \r\n
+                // 会导致后续文本输出到错误的行。
+                m.row = static_cast<short>(start_pos.Y + 1);
+                m.col = static_cast<short>(start_pos.X + 1);
+                bridge.vt_msg_send(vt_message_id::cursor_position, m);
+            }
+
+            // 2) SGR 默认属性（确保终端以正确的默认颜色开始；若文本内嵌 SGR 序列，
+            //    后续 parser 会覆盖）
+            WORD attr = state.default_attributes;
+            m = vt_message{};
+            set_sgr_from_win32_attr(m, attr);
+            bridge.vt_msg_send(vt_message_id::sgr, m);
+            vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
+
+            // 3) 文本经 vt_parser 分流 — parser 是文本分段的唯一权威。
+            //    \r\n 配对由 parser 内部处理：_pending_control 从 CR 升级为 LF，
+            //    reset 后无条件 drain 即可取出排队的 LF，不依赖额外标志。
+            filter_osc_sequences(u32s);
+            vt_parser write_parser;
+            for (char32_t ch : u32s)
+            {
+                auto id = write_parser.parse(ch);
+                if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
+                    continue;
+                auto &pm = write_parser.get();
+                bridge.vt_msg_send(id, pm);
+                if (id != vt_message_id::sgr)
+                    vt_msg_apply_state(id, pm, state, sb);
+
+                write_parser.reset(id);
+
+                // _pending_control 最多一个排队消息，一次 drain 即清空
+                if (auto id2 = write_parser.parse(U'\0');
+                    id2 != vt_message_id::continue_ && id2 != vt_message_id::continue_text)
                 {
-                    auto id = sb_parser.parse(ch);
-                    if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
-                        continue;
-                    vt_msg_apply_state(id, sb_parser.get(), state, sb);
-                    sb_parser.reset(id);
-                }
-                if (auto id = sb_parser.flush_text(); id != vt_message_id::continue_)
-                    vt_msg_apply_state(id, sb_parser.get(), state, sb);
-                if (auto id = sb_parser.parse(U'\0');
-                    id != vt_message_id::continue_ && id != vt_message_id::continue_text)
-                {
-                    vt_msg_apply_state(id, sb_parser.get(), state, sb);
-                    sb_parser.reset(id);
+                    auto &pm2 = write_parser.get();
+                    bridge.vt_msg_send(id2, pm2);
+                    if (id2 != vt_message_id::sgr)
+                        vt_msg_apply_state(id2, pm2, state, sb);
+                    write_parser.reset(id2);
                 }
             }
+            // 释放循环后残留的累积文本
+            if (auto id = write_parser.flush_text(); id != vt_message_id::continue_)
+            {
+                auto &pm = write_parser.get();
+                bridge.vt_msg_send(id, pm);
+                vt_msg_apply_state(id, pm, state, sb);
+            }
+            // 排空 parser 残留的 _pending_control（如 \r 在文本末尾无后续 \n）
+            if (auto id = write_parser.parse(U'\0');
+                id != vt_message_id::continue_ && id != vt_message_id::continue_text)
+            {
+                auto &pm = write_parser.get();
+                bridge.vt_msg_send(id, pm);
+                if (id != vt_message_id::sgr)
+                    vt_msg_apply_state(id, pm, state, sb);
+                write_parser.reset(id);
+            }
+
+            // 4) 落盘并同步 bridge 内部光标追踪
+            bridge.vt_flush();
+            bridge.sync_cursor_after_write(state.cursor.position);
+
+            LOG("[api_write_console] done: u32s_len=%zu sbytes=%lu end_cursor=(%d,%d) synced", u32s.size(),
+                static_cast<unsigned long>(sbytes), static_cast<int>(state.cursor.position.X),
+                static_cast<int>(state.cursor.position.Y));
         }
     }
 
@@ -409,62 +385,59 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
                                 orig_length >= static_cast<ULONG>(state.screen_buffer_size.X) *
                                                    static_cast<ULONG>(state.screen_buffer_size.Y));
 
-    if (bridge.vt_out.valid())
+    LOG("[api_fill_output] at=(%d,%d) len=%lu elem='%c'(%d) type=%d fullscreen=%d", r->WriteCoord.X, r->WriteCoord.Y,
+        orig_length,
+        (r->ElementType != CONSOLE_ATTRIBUTE && r->Element >= 32 && r->Element < 127) ? (char)r->Element : '?',
+        r->Element, r->ElementType, is_fullscreen_space ? 1 : 0);
+    if (is_fullscreen_space)
     {
-        LOG("[api_fill_output] at=(%d,%d) len=%lu elem='%c'(%d) type=%d fullscreen=%d", r->WriteCoord.X,
-            r->WriteCoord.Y, orig_length,
-            (r->ElementType != CONSOLE_ATTRIBUTE && r->Element >= 32 && r->Element < 127) ? (char)r->Element : '?',
-            r->Element, r->ElementType, is_fullscreen_space ? 1 : 0);
-        if (is_fullscreen_space)
+        // ── VT 消息驱动: ED2 清屏 ──
+        // 全屏空格填充说明 shell 在执行 Clear-Host / cls，
+        // 光标已由 api_set_cursor_pos(0,0) 或 shell 管理。
+        // 清除 Enter 残留的换行标志，防止后续 prompt 的 CUP 覆盖清屏。
+        bridge.reset_enter_newline();
+        vt_message m{};
+        m.erase_mode = 2;
+        bridge.vt_msg_send(vt_message_id::erase_in_display, m);
+        vt_msg_apply_state(vt_message_id::erase_in_display, m, state, sb);
+        bridge.vt_flush();
+    }
+    else
+    {
+        // ── DECSC → CUP → (SGR|text) → DECRC ──
+        vt_message msg_save{};
+        bridge.vt_msg_send(vt_message_id::save_cursor, msg_save);
+        vt_msg_apply_state(vt_message_id::save_cursor, msg_save, state, sb);
+
+        vt_message msg_cup{};
+        msg_cup.row = static_cast<short>(r->WriteCoord.Y + 1);
+        msg_cup.col = static_cast<short>(r->WriteCoord.X + 1);
+        bridge.vt_msg_send(vt_message_id::cursor_position, msg_cup);
+        vt_msg_apply_state(vt_message_id::cursor_position, msg_cup, state, sb);
+
+        if (r->ElementType == CONSOLE_ATTRIBUTE)
         {
-            // ── VT 消息驱动: ED2 清屏 ──
-            // 全屏空格填充说明 shell 在执行 Clear-Host / cls，
-            // 光标已由 api_set_cursor_pos(0,0) 或 shell 管理。
-            // 清除 Enter 残留的换行标志，防止后续 prompt 的 CUP 覆盖清屏。
-            bridge.reset_enter_newline();
-            vt_message m{};
-            m.erase_mode = 2;
-            bridge.vt_msg_send(vt_message_id::erase_in_display, m);
-            vt_msg_apply_state(vt_message_id::erase_in_display, m, state, sb);
-            bridge.vt_flush();
+            WORD fill_attr = static_cast<WORD>(r->Element);
+            vt_message m_sgr{};
+            set_sgr_from_win32_attr(m_sgr, fill_attr);
+            bridge.vt_msg_send(vt_message_id::sgr, m_sgr);
+            vt_msg_apply_state(vt_message_id::sgr, m_sgr, state, sb);
         }
         else
         {
-            // ── DECSC → CUP → (SGR|text) → DECRC ──
-            vt_message msg_save{};
-            bridge.vt_msg_send(vt_message_id::save_cursor, msg_save);
-            vt_msg_apply_state(vt_message_id::save_cursor, msg_save, state, sb);
-
-            vt_message msg_cup{};
-            msg_cup.row = static_cast<short>(r->WriteCoord.Y + 1);
-            msg_cup.col = static_cast<short>(r->WriteCoord.X + 1);
-            bridge.vt_msg_send(vt_message_id::cursor_position, msg_cup);
-            vt_msg_apply_state(vt_message_id::cursor_position, msg_cup, state, sb);
-
-            if (r->ElementType == CONSOLE_ATTRIBUTE)
-            {
-                WORD fill_attr = static_cast<WORD>(r->Element);
-                vt_message m_sgr{};
-                set_sgr_from_win32_attr(m_sgr, fill_attr);
-                bridge.vt_msg_send(vt_message_id::sgr, m_sgr);
-                vt_msg_apply_state(vt_message_id::sgr, m_sgr, state, sb);
-            }
-            else
-            {
-                // text fill — 复用 bridge 持久缓冲
-                auto &fill_text = bridge.conv_u32();
-                fill_text.assign(static_cast<size_t>(r->Length), static_cast<char32_t>(r->Element));
-                vt_message m_text{};
-                m_text.text = fill_text;
-                bridge.vt_msg_send(vt_message_id::text, m_text);
-                vt_msg_apply_state(vt_message_id::text, m_text, state, sb);
-            }
-
-            vt_message msg_restore{};
-            bridge.vt_msg_send(vt_message_id::restore_cursor, msg_restore);
-            vt_msg_apply_state(vt_message_id::restore_cursor, msg_restore, state, sb);
-            bridge.vt_flush();
+            // text fill — 复用 bridge 持久缓冲
+            auto &fill_text = bridge.conv_u32();
+            fill_text.assign(static_cast<size_t>(r->Length), static_cast<char32_t>(r->Element));
+            vt_message m_text{};
+            m_text.text = fill_text;
+            bridge.vt_msg_send(vt_message_id::text, m_text);
+            vt_msg_apply_state(vt_message_id::text, m_text, state, sb);
         }
+
+        vt_message msg_restore{};
+        bridge.vt_msg_send(vt_message_id::restore_cursor, msg_restore);
+        vt_msg_apply_state(vt_message_id::restore_cursor, msg_restore, state, sb);
+        bridge.vt_flush();
     }
 
     ucomplete_sz(msg, sizeof(CONSOLE_FILLCONSOLEOUTPUT_MSG));
@@ -475,13 +448,10 @@ inline bool api_ctrl_event(miniio::io_msg &msg, console_state &, screen_buffer &
 {
     auto *r = reinterpret_cast<CONSOLE_CTRLEVENT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     ::GenerateConsoleCtrlEvent(r->CtrlEvent, r->ProcessGroupId);
-    if (bridge.vt_out.valid())
+    if (r->CtrlEvent == CTRL_C_EVENT)
     {
-        if (r->CtrlEvent == CTRL_C_EVENT)
-        {
-            bridge.vt_append_char('\x03');
-            bridge.vt_flush();
-        }
+        bridge.vt_append_char('\x03');
+        bridge.vt_flush();
     }
     ucomplete(msg);
     return true;
@@ -528,14 +498,10 @@ inline bool api_set_cursor(miniio::io_msg &msg, console_state &state, screen_buf
     auto *r = reinterpret_cast<CONSOLE_SETCURSORINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.cursor.size = r->CursorSize;
     state.cursor.visible = r->Visible != FALSE;
-    if (bridge.vt_out.valid())
-    {
-        vt_message m{};
-        bridge.vt_msg_send(state.cursor.visible ? vt_message_id::cursor_show : vt_message_id::cursor_hide, m);
-        vt_msg_apply_state(state.cursor.visible ? vt_message_id::cursor_show : vt_message_id::cursor_hide, m, state,
-                           sb);
-        bridge.vt_flush();
-    }
+    vt_message m{};
+    bridge.vt_msg_send(state.cursor.visible ? vt_message_id::cursor_show : vt_message_id::cursor_hide, m);
+    vt_msg_apply_state(state.cursor.visible ? vt_message_id::cursor_show : vt_message_id::cursor_hide, m, state, sb);
+    bridge.vt_flush();
     ucomplete(msg);
     return true;
 }
@@ -624,26 +590,19 @@ inline bool api_set_cursor_pos(miniio::io_msg &msg, console_state &state, screen
     if (new_pos.Y >= state.screen_buffer_size.Y)
         new_pos.Y = state.screen_buffer_size.Y - 1;
 
-    if (bridge.vt_out.valid())
-    {
-        LOG("[api_set_cursor_pos] to=(%d,%d) was=(%d,%d)", new_pos.X, new_pos.Y, state.cursor.position.X,
-            state.cursor.position.Y);
-        // 仅当光标被显式移到 (0,0) 时才清除 Enter 换行标志。
-        if (new_pos.X == 0 && new_pos.Y == 0)
-            bridge.reset_enter_newline();
-        vt_message m{};
-        m.row = static_cast<short>(new_pos.Y + 1);
-        m.col = static_cast<short>(new_pos.X + 1);
-        bridge.vt_msg_send(vt_message_id::cursor_position, m);
-        vt_msg_apply_state(vt_message_id::cursor_position, m, state, sb);
-        bridge.vt_flush();
-        // sync _term_cursor — api_set_cursor_pos 直接操控光标, bridge 必须跟踪
-        bridge.sync_cursor_after_write(state.cursor.position);
-    }
-    else
-    {
-        state.cursor.position = new_pos;
-    }
+    LOG("[api_set_cursor_pos] to=(%d,%d) was=(%d,%d)", new_pos.X, new_pos.Y, state.cursor.position.X,
+        state.cursor.position.Y);
+    // 仅当光标被显式移到 (0,0) 时才清除 Enter 换行标志。
+    if (new_pos.X == 0 && new_pos.Y == 0)
+        bridge.reset_enter_newline();
+    vt_message m{};
+    m.row = static_cast<short>(new_pos.Y + 1);
+    m.col = static_cast<short>(new_pos.X + 1);
+    bridge.vt_msg_send(vt_message_id::cursor_position, m);
+    vt_msg_apply_state(vt_message_id::cursor_position, m, state, sb);
+    bridge.vt_flush();
+    // sync _term_cursor — api_set_cursor_pos 直接操控光标, bridge 必须跟踪
+    bridge.sync_cursor_after_write(state.cursor.position);
     ucomplete(msg);
     return true;
 }
@@ -674,76 +633,73 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
     sb.scroll(r->ScrollRectangle, r->ClipRectangle, r->Clip != FALSE, r->DestinationOrigin,
               static_cast<char32_t>(r->Fill.Char.UnicodeChar), r->Fill.Attributes);
 
-    if (bridge.vt_out.valid())
+    // ── 检测全屏清屏: 滚动矩形覆盖整个 buffer 高度 → 发送 ED2 清屏而非 IL/DL ──
+    SHORT buf_height = sb.size.Y;
+    bool full_screen_scroll = (sr.Top == 0 && sr.Bottom >= buf_height - 1);
+    LOG("[api_scroll_sb] full_screen=%d buf_h=%d sr.Bottom=%d fill_char=0x%X", full_screen_scroll, buf_height,
+        sr.Bottom, r->Fill.Char.UnicodeChar);
+    if (full_screen_scroll && r->Fill.Char.UnicodeChar == L' ')
     {
-        // ── 检测全屏清屏: 滚动矩形覆盖整个 buffer 高度 → 发送 ED2 清屏而非 IL/DL ──
-        SHORT buf_height = sb.size.Y;
-        bool full_screen_scroll = (sr.Top == 0 && sr.Bottom >= buf_height - 1);
-        LOG("[api_scroll_sb] full_screen=%d buf_h=%d sr.Bottom=%d fill_char=0x%X", full_screen_scroll, buf_height,
-            sr.Bottom, r->Fill.Char.UnicodeChar);
-        if (full_screen_scroll && r->Fill.Char.UnicodeChar == L' ')
-        {
-            // cls 清屏: 发送 ED2(清屏) + CUP(1,1) 替代 IL/DL 序列
-            bridge.vt_append_str("\x1b[2J\x1b[H"sv);
-            bridge.vt_flush();
-            // ── 同步 state 光标和终端光标到 (0,0) ──
-            state.cursor.position = {0, 0};
-            bridge.sync_cursor_after_write({0, 0});
-            LOG("[api_scroll_sb] cls: sent ED2+H, cursor->(0,0)");
-        }
-        else
-        {
-            // ── VT 消息驱动: DECSC → set_scrolling_region → CUP → IL/DL → reset_region → DECRC ──
-
-            // 1) 保存光标
-            vt_message m_save{};
-            bridge.vt_msg_send(vt_message_id::save_cursor, m_save);
-
-            // 2) 设置滚动区域
-            SMALL_RECT cr =
-                r->Clip ? r->ClipRectangle
-                        : SMALL_RECT{0, 0, static_cast<SHORT>(sb.size.X - 1), static_cast<SHORT>(sb.size.Y - 1)};
-            vt_message m_region{};
-            m_region.scroll_top = static_cast<short>(cr.Top + 1);
-            m_region.scroll_bottom = static_cast<short>(cr.Bottom + 1);
-            bridge.vt_msg_send(vt_message_id::set_scrolling_region, m_region);
-            vt_msg_apply_state(vt_message_id::set_scrolling_region, m_region, state, sb);
-
-            // 3) 光标移到底部
-            vt_message m_cup{};
-            m_cup.row = static_cast<short>(sr.Bottom + 1);
-            m_cup.col = static_cast<short>(sr.Left + 1);
-            bridge.vt_msg_send(vt_message_id::cursor_position, m_cup);
-
-            // 4) 插入/删除行
-            SHORT dy = r->DestinationOrigin.Y - sr.Top;
-            if (dy < 0)
-            {
-                vt_message m_il{};
-                m_il.count = -dy;
-                bridge.vt_msg_send(vt_message_id::insert_lines, m_il);
-                vt_msg_apply_state(vt_message_id::insert_lines, m_il, state, sb);
-            }
-            else if (dy > 0)
-            {
-                vt_message m_dl{};
-                m_dl.count = dy;
-                bridge.vt_msg_send(vt_message_id::delete_lines, m_dl);
-                vt_msg_apply_state(vt_message_id::delete_lines, m_dl, state, sb);
-            }
-
-            // 5) 重置滚动区域
-            vt_message m_reset{};
-            m_reset.scroll_top = 1;
-            m_reset.scroll_bottom = 0;
-            bridge.vt_msg_send(vt_message_id::set_scrolling_region, m_reset);
-
-            // 6) 恢复光标
-            vt_message m_restore{};
-            bridge.vt_msg_send(vt_message_id::restore_cursor, m_restore);
-            bridge.vt_flush();
-        } // end else (!full_screen_scroll)
+        // cls 清屏: 发送 ED2(清屏) + CUP(1,1) 替代 IL/DL 序列
+        bridge.vt_append_str("\x1b[2J\x1b[H"sv);
+        bridge.vt_flush();
+        // ── 同步 state 光标和终端光标到 (0,0) ──
+        state.cursor.position = {0, 0};
+        bridge.sync_cursor_after_write({0, 0});
+        LOG("[api_scroll_sb] cls: sent ED2+H, cursor->(0,0)");
     }
+    else
+    {
+        // ── VT 消息驱动: DECSC → set_scrolling_region → CUP → IL/DL → reset_region → DECRC ──
+
+        // 1) 保存光标
+        vt_message m_save{};
+        bridge.vt_msg_send(vt_message_id::save_cursor, m_save);
+
+        // 2) 设置滚动区域
+        SMALL_RECT cr = r->Clip
+                            ? r->ClipRectangle
+                            : SMALL_RECT{0, 0, static_cast<SHORT>(sb.size.X - 1), static_cast<SHORT>(sb.size.Y - 1)};
+        vt_message m_region{};
+        m_region.scroll_top = static_cast<short>(cr.Top + 1);
+        m_region.scroll_bottom = static_cast<short>(cr.Bottom + 1);
+        bridge.vt_msg_send(vt_message_id::set_scrolling_region, m_region);
+        vt_msg_apply_state(vt_message_id::set_scrolling_region, m_region, state, sb);
+
+        // 3) 光标移到底部
+        vt_message m_cup{};
+        m_cup.row = static_cast<short>(sr.Bottom + 1);
+        m_cup.col = static_cast<short>(sr.Left + 1);
+        bridge.vt_msg_send(vt_message_id::cursor_position, m_cup);
+
+        // 4) 插入/删除行
+        SHORT dy = r->DestinationOrigin.Y - sr.Top;
+        if (dy < 0)
+        {
+            vt_message m_il{};
+            m_il.count = -dy;
+            bridge.vt_msg_send(vt_message_id::insert_lines, m_il);
+            vt_msg_apply_state(vt_message_id::insert_lines, m_il, state, sb);
+        }
+        else if (dy > 0)
+        {
+            vt_message m_dl{};
+            m_dl.count = dy;
+            bridge.vt_msg_send(vt_message_id::delete_lines, m_dl);
+            vt_msg_apply_state(vt_message_id::delete_lines, m_dl, state, sb);
+        }
+
+        // 5) 重置滚动区域
+        vt_message m_reset{};
+        m_reset.scroll_top = 1;
+        m_reset.scroll_bottom = 0;
+        bridge.vt_msg_send(vt_message_id::set_scrolling_region, m_reset);
+
+        // 6) 恢复光标
+        vt_message m_restore{};
+        bridge.vt_msg_send(vt_message_id::restore_cursor, m_restore);
+        bridge.vt_flush();
+    } // end else (!full_screen_scroll)
 
     ucomplete(msg);
     return true;
@@ -754,15 +710,12 @@ inline bool api_set_text_attr(miniio::io_msg &msg, console_state &state, screen_
 {
     auto *r = reinterpret_cast<CONSOLE_SETTEXTATTRIBUTE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.default_attributes = r->Attributes;
-    if (bridge.vt_out.valid())
-    {
-        vt_message m{};
-        WORD attr = r->Attributes;
-        set_sgr_from_win32_attr(m, attr);
-        bridge.vt_msg_send(vt_message_id::sgr, m);
-        vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
-        bridge.vt_flush();
-    }
+    vt_message m{};
+    WORD attr = r->Attributes;
+    set_sgr_from_win32_attr(m, attr);
+    bridge.vt_msg_send(vt_message_id::sgr, m);
+    vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
+    bridge.vt_flush();
     ucomplete(msg);
     return true;
 }
@@ -861,39 +814,36 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
     cr = orig;
 
     LOG("[api_write_console_output] region=(%d,%d)-(%d,%d)", orig.Left, orig.Top, orig.Right, orig.Bottom);
-    if (bridge.vt_out.valid())
-    {
-        // ── DECSC → 逐行 CUP + SGR + text batch → DECRC ──
-        // 将连续相同属性的 cell 打包为单个 text vt_message，统一走 vt_msg_send
-        vt_message m{};
-        bridge.vt_msg_send(vt_message_id::save_cursor, m);
+    // ── DECSC → 逐行 CUP + SGR + text batch → DECRC ──
+    // 将连续相同属性的 cell 打包为单个 text vt_message，统一走 vt_msg_send
+    vt_message m{};
+    bridge.vt_msg_send(vt_message_id::save_cursor, m);
 
-        for (SHORT y = orig.Top; y <= orig.Bottom; ++y)
+    for (SHORT y = orig.Top; y <= orig.Bottom; ++y)
+    {
+        m = vt_message{};
+        m.row = static_cast<short>(y + 1);
+        m.col = static_cast<short>(orig.Left + 1);
+        bridge.vt_msg_send(vt_message_id::cursor_position, m);
+
+        for (SHORT x = orig.Left; x <= orig.Right; ++x)
         {
             m = vt_message{};
-            m.row = static_cast<short>(y + 1);
-            m.col = static_cast<short>(orig.Left + 1);
-            bridge.vt_msg_send(vt_message_id::cursor_position, m);
+            set_sgr_from_win32_attr(m, sb.attr_at({x, y}));
+            bridge.vt_msg_send(vt_message_id::sgr, m);
 
-            for (SHORT x = orig.Left; x <= orig.Right; ++x)
-            {
-                m = vt_message{};
-                set_sgr_from_win32_attr(m, sb.attr_at({x, y}));
-                bridge.vt_msg_send(vt_message_id::sgr, m);
-
-                char32_t ch = sb.at_u32({x, y});
-                m = vt_message{};
-                m.text = std::u32string_view{&ch, 1};
-                bridge.vt_msg_send(vt_message_id::text, m);
-            }
+            char32_t ch = sb.at_u32({x, y});
+            m = vt_message{};
+            m.text = std::u32string_view{&ch, 1};
+            bridge.vt_msg_send(vt_message_id::text, m);
         }
-
-        m = vt_message{};
-        bridge.vt_msg_send(vt_message_id::restore_cursor, m);
-        bridge.vt_flush();
-        bridge.sync_cursor_after_write(state.cursor.position);
-        LOG("[api_write_console_output] done: tc_synced=(%d,%d)", state.cursor.position.X, state.cursor.position.Y);
     }
+
+    m = vt_message{};
+    bridge.vt_msg_send(vt_message_id::restore_cursor, m);
+    bridge.vt_flush();
+    bridge.sync_cursor_after_write(state.cursor.position);
+    LOG("[api_write_console_output] done: tc_synced=(%d,%d)", state.cursor.position.X, state.cursor.position.Y);
 
     ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG));
     return true;
@@ -934,7 +884,7 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
         r->NumRecords = static_cast<ULONG>(sb.write_char32(r->WriteCoord, u32buf.data(), u32len));
     }
 
-    if (bridge.vt_out.valid() && r->NumRecords > 0 && chars_w)
+    if (r->NumRecords > 0 && chars_w)
     {
         // ── WriteConsoleOutputString 不移动光标 ──
         // 终端: DECSC → CUP → text → DECRC (光标回到原位)
@@ -1042,13 +992,10 @@ inline bool api_set_title(miniio::io_msg &msg, console_state &state, screen_buff
     state.title = std::move(u32title);
 
     // VT 同步: OSC 0 设置终端标题
-    if (bridge.vt_out.valid())
-    {
-        vt_message m{};
-        m.title = state.title;
-        bridge.vt_msg_send(vt_message_id::set_window_title, m);
-        bridge.vt_flush();
-    }
+    vt_message m{};
+    m.title = state.title;
+    bridge.vt_msg_send(vt_message_id::set_window_title, m);
+    bridge.vt_flush();
 
     ucomplete(msg);
     return true;

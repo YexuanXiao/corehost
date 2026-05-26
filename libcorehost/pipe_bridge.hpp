@@ -220,7 +220,7 @@ struct pipe_bridge
     // flush: 写入管道并清空缓冲
     void vt_flush()
     {
-        if (_vt_len == 0 || !vt_out.valid())
+        if (_vt_len == 0)
             return;
         DWORD _ = 0;
         ::WriteFile(vt_out.get(), _vt_buf.data(), static_cast<DWORD>(_vt_len), &_, nullptr);
@@ -254,7 +254,7 @@ struct pipe_bridge
     // 直接写字节序列（不缓冲）
     void vt_write(const char *utf8, size_t len)
     {
-        if (!vt_out.valid() || len == 0)
+        if (len == 0)
             return;
         vt_flush();
         DWORD _ = 0;
@@ -398,7 +398,7 @@ struct pipe_bridge
     // vt_write_window_title: OSC 0/2 设置终端标题
     void vt_write_window_title(std::u32string_view title)
     {
-        if (!vt_out.valid() || title.empty())
+        if (title.empty())
             return;
         vt_append_str("\x1b]0;"sv);
         // char32_t → UTF-8 逐码点追加
@@ -1021,14 +1021,10 @@ struct pipe_bridge
     // ── 终端原始 echo (经 VT 缓冲批量写入，消除逐字节 WriteFile) ──
     void echo_byte(BYTE b)
     {
-        if (!vt_out.valid())
-            return;
         vt_append_char(static_cast<char>(b));
     }
     void echo_crlf()
     {
-        if (!vt_out.valid())
-            return;
         vt_append_str("\r\n"sv);
     }
 
@@ -1156,10 +1152,9 @@ struct pipe_bridge
     }
     void repaint_full_line()
     {
-        if (!vt_out.valid() || !_term_cursor_valid)
+        if (!_term_cursor_valid)
         {
-            LOG("[history] repaint_full_line: SKIP vt_valid=%d tc_valid=%d", vt_out.valid() ? 1 : 0,
-                _term_cursor_valid ? 1 : 0);
+            LOG("[history] repaint_full_line: SKIP tc_valid=%d", _term_cursor_valid ? 1 : 0);
             return;
         }
         LOG("[history] repaint_full_line: cup_to(%d,%d) cooked_sz=%zu", _term_cursor.Y, _input_column_start,
@@ -1189,7 +1184,7 @@ struct pipe_bridge
         history_break_browse();
         cooked_append(ch);
         bounds_extend();
-        if (!vt_out.valid() || !_term_cursor_valid)
+        if (!_term_cursor_valid)
             return;
         if (cooked_at_end())
         {
@@ -1210,7 +1205,7 @@ struct pipe_bridge
         history_break_browse();
         cooked_append(ch);
         bounds_extend();
-        if (!vt_out.valid() || !_term_cursor_valid)
+        if (!_term_cursor_valid)
             return;
         if (cooked_at_end())
         {
@@ -1229,7 +1224,7 @@ struct pipe_bridge
     }
     void edit_submit_line()
     {
-        if (vt_out.valid() && _term_cursor_valid)
+        if (_term_cursor_valid)
         {
             vt_append_str("\r\n"sv);
             _term_cursor.X = 0;
@@ -1245,7 +1240,7 @@ struct pipe_bridge
             return;
         cooked_pop_before();
         bounds_retract();
-        if (!vt_out.valid() || !_term_cursor_valid)
+        if (!_term_cursor_valid)
             return;
         vt_append_str("\x1b[D\x1b[P"sv);
         vt_flush();
@@ -1264,8 +1259,6 @@ struct pipe_bridge
             return;
         cooked_pop_at();
         bounds_retract();
-        if (!vt_out.valid())
-            return;
         vt_append_str("\x1b[P"sv);
         vt_flush();
     }
@@ -1274,7 +1267,7 @@ struct pipe_bridge
         if (_cooked_cursor > 0)
         {
             cooked_set_pos(_cooked_cursor - 1);
-            if (vt_out.valid() && _term_cursor_valid)
+            if (_term_cursor_valid)
             {
                 cup_to(_term_cursor.Y, term_cursor_col());
                 _term_cursor.X = term_cursor_col();
@@ -1286,7 +1279,7 @@ struct pipe_bridge
         if (_cooked_cursor < _cooked_buf.size())
         {
             cooked_set_pos(_cooked_cursor + 1);
-            if (vt_out.valid() && _term_cursor_valid)
+            if (_term_cursor_valid)
             {
                 cup_to(_term_cursor.Y, term_cursor_col());
                 _term_cursor.X = term_cursor_col();
@@ -1296,7 +1289,7 @@ struct pipe_bridge
     void edit_home()
     {
         cooked_set_pos(0);
-        if (vt_out.valid() && _term_cursor_valid)
+        if (_term_cursor_valid)
         {
             cup_to(_term_cursor.Y, _input_column_start);
             _term_cursor.X = _input_column_start;
@@ -1305,7 +1298,7 @@ struct pipe_bridge
     void edit_end()
     {
         cooked_set_pos(_cooked_buf.size());
-        if (vt_out.valid() && _term_cursor_valid)
+        if (_term_cursor_valid)
         {
             cup_to(_term_cursor.Y, _input_column_end);
             _term_cursor.X = _input_column_end;
@@ -1887,33 +1880,30 @@ struct pipe_bridge
                     cstate.max_window_size = new_size;
                     sbuf.resize(new_size);
 
-                    if (vt_out.valid())
+                    vt_flush();
+                    vt_append_str("\x1b[8;"sv);
+                    vt_append_int(new_size.Y);
+                    vt_append_char(';');
+                    vt_append_int(new_size.X);
+                    vt_append_str("t"sv);
+                    vt_append_str("\x1b[2J\x1b[H"sv);
+                    WORD last_attr = 0xFFFF;
+                    for (SHORT y = 0; y < new_size.Y; ++y)
                     {
-                        vt_flush();
-                        vt_append_str("\x1b[8;"sv);
-                        vt_append_int(new_size.Y);
-                        vt_append_char(';');
-                        vt_append_int(new_size.X);
-                        vt_append_str("t"sv);
-                        vt_append_str("\x1b[2J\x1b[H"sv);
-                        WORD last_attr = 0xFFFF;
-                        for (SHORT y = 0; y < new_size.Y; ++y)
+                        vt_write_cup(y, 0);
+                        for (SHORT x = 0; x < new_size.X; ++x)
                         {
-                            vt_write_cup(y, 0);
-                            for (SHORT x = 0; x < new_size.X; ++x)
+                            WORD attr = sbuf.attr_at({x, y});
+                            if (attr != last_attr)
                             {
-                                WORD attr = sbuf.attr_at({x, y});
-                                if (attr != last_attr)
-                                {
-                                    vt_write_attr(attr);
-                                    last_attr = attr;
-                                }
-                                vt_write_cell(sbuf.at_u32({x, y}));
+                                vt_write_attr(attr);
+                                last_attr = attr;
                             }
+                            vt_write_cell(sbuf.at_u32({x, y}));
                         }
-                        vt_write_cup(cstate.cursor.position.Y, cstate.cursor.position.X);
-                        vt_flush();
                     }
+                    vt_write_cup(cstate.cursor.position.Y, cstate.cursor.position.X);
+                    vt_flush();
                 }
                 break;
             }
@@ -2161,7 +2151,7 @@ struct pipe_bridge
             _cooked_buf.size(), _vt_eof);
 
         // ── 发送 CD_IO_COMPLETE 到 ConDrv（对标旧版：挂起完成必须显式发送）──
-        if (comp_ptr && server.valid())
+        if (comp_ptr)
         {
             LOG("[bridge] complete_pending: sending CD_IO_COMPLETE");
             miniio::complete_io(server, *comp_ptr);

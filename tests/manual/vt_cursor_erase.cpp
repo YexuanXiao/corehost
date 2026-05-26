@@ -9,10 +9,12 @@ int wmain()
     wprint(L"Top line remains visible.\n");
     vt(L"\x1b[6;10H");
     wprint(L"A at row 6 col 10");
-    vt(L"\x1b" L"7");
+    vt(L"\x1b"
+       L"7");
     vt(L"\x1b[8;20H");
     wprint(L"B at row 8 col 20");
-    vt(L"\x1b" L"8");
+    vt(L"\x1b"
+       L"8");
     wprint(L" + restored cursor text");
 
     vt(L"\x1b[10;1H");

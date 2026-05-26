@@ -80,7 +80,7 @@ void conpty_entry(win32::handle server, win32::handle event, win32::handle condr
 
     // ── 继承光标位置（对标原始 VtIo::StartIfNeeded + WriteDSRCPR）──
     // 终端 CPR 应答会在主 I/O 循环的 on_idle() 中统一读取并处理。
-    if (inherit_cursor && bridge.vt_out.valid())
+    if (inherit_cursor)
     {
         bridge.set_pending_inherit_cursor();
         bridge.vt_write_dsr_cpr();
@@ -91,12 +91,9 @@ void conpty_entry(win32::handle server, win32::handle event, win32::handle condr
     // ── 初始 VT 握手：通知终端进入 Win32 Input Mode ──
     // 对标原始 conhost VtIo::Start()。
     // 缺失 \x1b[?9001h → 终端不会发送键盘数据 → 打字不回显。
-    if (bridge.vt_out.valid())
-    {
-        bridge.vt_append_str("\x1b[?9001h"sv);
-        bridge.vt_flush();
-        LOG("conpty::conpty_entry: sent Win32Input init sequence");
-    }
+    bridge.vt_append_str("\x1b[?9001h"sv);
+    bridge.vt_flush();
+    LOG("conpty::conpty_entry: sent Win32Input init sequence");
 
     // ── 进入 I/O 循环 ──
     LOG("conpty::conpty_entry: entering io loop");

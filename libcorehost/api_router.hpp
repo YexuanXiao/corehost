@@ -39,22 +39,16 @@ struct api_router
 
         alt_active = alt;
 
-        if (bridge.vt_out.valid())
-        {
-            if (alt)
-                bridge.vt_append_str("\x1b[?1049h"sv);
-            else
-                bridge.vt_append_str("\x1b[?1049l"sv);
-            bridge.vt_flush();
-            vt_write_screen_snapshot();
-        }
+        if (alt)
+            bridge.vt_append_str("\x1b[?1049h"sv);
+        else
+            bridge.vt_append_str("\x1b[?1049l"sv);
+        bridge.vt_flush();
+        vt_write_screen_snapshot();
     }
 
     void vt_write_screen_snapshot()
     {
-        if (!bridge.vt_out.valid())
-            return;
-
         auto &sb = active_screen_buffer();
         bridge.vt_write_attr(state.default_attributes);
         for (SHORT y = 0; y < sb.size.Y && y < state.screen_buffer_size.Y; ++y)
