@@ -197,12 +197,6 @@ struct pipe_bridge
         return _pending_inherit_cursor;
     }
 
-    // ── 排空管道路径调用 process_input (conpty_entry inherit_cursor 使用) ──
-    void drain_vt_input(const BYTE *bytes, DWORD len)
-    {
-        process_input(bytes, len);
-    }
-
     // WriteConsole 完成后调用，同步终端光标并重置输入边界
     void sync_cursor_after_write(COORD pos)
     {

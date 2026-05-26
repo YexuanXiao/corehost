@@ -14,7 +14,8 @@ namespace conpty
 struct io_state
 {
     win32::handle_view server;
-    miniio::io_handles handles;
+    win32::handle condrv_input;
+    win32::handle condrv_output;
 
     ULONG_PTR input_id = 0;
     ULONG_PTR output_id = 0;
@@ -55,10 +56,10 @@ struct io_state
     {
         client_pid = msg.descriptor.Process;
         add_process(static_cast<DWORD>(client_pid));
-        if (!handles.input.valid())
+        if (!condrv_input.valid())
         {
             // ── 首个连接：创建客户端句柄对 + CD_CONNECTION_INFORMATION ──
-            handles = miniio::accept_connection(server, msg);
+            miniio::accept_connection(server, msg, condrv_input, condrv_output);
         }
         else
         {

@@ -30,10 +30,6 @@ struct pty_signal_thread_params
     screen_buffer *sbuf = nullptr;
 };
 
-// 同步排空信号管道中已排队的 PtySignal (在启动信号线程前调用)
-// 确保 ResizeWindow 等信号在 I/O 循环处理首个 API 调用前已生效
-void drain_pending_signals(win32::handle_view signal_pipe, console_state *state, screen_buffer *sbuf);
-
 DWORD WINAPI pty_signal_thread_proc(LPVOID param);
 
 } // namespace conpty

@@ -62,7 +62,8 @@ namespace defterm
 // 返回 true  -> 调用方退出事件循环 (移交成功，conhost 进程退出)
 // 返回 false -> 调用方继续循环 (mini console 需处理后续消息)
 [[nodiscard]] inline bool handle_connect(win32::handle_view server, win32::handle_view ev, miniio::io_msg &msg,
-                                         bool &initialized, miniio::io_handles &handles)
+                                         bool &initialized, win32::handle &condrv_input,
+                                         win32::handle &condrv_output)
 {
     DWORD client_pid = static_cast<DWORD>(msg.descriptor.Process);
     LOG("handle_connect: pid=%lu func=%lu input=%lu output=%lu initialized=%d", client_pid, msg.descriptor.Function,
@@ -77,9 +78,9 @@ namespace defterm
     if (!need_gui)
     {
         LOG("handle_connect: no GUI → %s, continuing loop",
-            handles.input.valid() ? "prepare_completion" : "accept_connection");
-        if (!handles.input.valid())
-            handles = miniio::accept_connection(server, msg);
+            condrv_input.valid() ? "prepare_completion" : "accept_connection");
+        if (!condrv_input.valid())
+            miniio::accept_connection(server, msg, condrv_input, condrv_output);
         else
             miniio::prepare_completion(msg);
         return false; // 继续事件循环
@@ -96,7 +97,7 @@ namespace defterm
     if (env::is_elevated())
     {
         env::show_elevated_message();
-        handles = miniio::accept_connection(server, msg);
+        miniio::accept_connection(server, msg, condrv_input, condrv_output);
         ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, client_pid);
         return false;
     }
@@ -116,7 +117,7 @@ namespace defterm
     // 提示用户安装 Windows Terminal，并跳转 Microsoft Store。
     // 之后发送 Ctrl+Break 终止客户端。
     env::show_not_found_message();
-    handles = miniio::accept_connection(server, msg);
+    miniio::accept_connection(server, msg, condrv_input, condrv_output);
     ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, client_pid);
     return false;
 }
@@ -125,18 +126,19 @@ namespace defterm
 struct connect_handler
 {
     bool initialized = false;
-    miniio::io_handles handles;
+    win32::handle condrv_input;
+    win32::handle condrv_output;
     win32::handle_view server;
     win32::handle_view ev;
 
     bool on_connect(miniio::io_msg &msg)
     {
-        return !handle_connect(server, ev, msg, initialized, handles);
+        return !handle_connect(server, ev, msg, initialized, condrv_input, condrv_output);
     }
 
     bool on_message(miniio::io_msg &msg)
     {
-        miniio::dispatch_non_connect(server, msg, handles);
+        miniio::dispatch_non_connect(server, msg, condrv_input, condrv_output);
         return true;
     }
 

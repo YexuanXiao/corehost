@@ -29,8 +29,8 @@ void conpty_entry(win32::handle server, win32::handle event, win32::handle condr
 
     // ── Layer 4: 控制台状态 ──
     console_state state;
-    state.screen_buffer_size.X = width > 0 ? width : 80;
-    state.screen_buffer_size.Y = height > 0 ? height : 25;
+    state.screen_buffer_size.X = width > 0 ? width : 120;
+    state.screen_buffer_size.Y = height > 0 ? height : 30;
     state.current_window_size = state.screen_buffer_size;
     state.max_window_size = state.screen_buffer_size;
     state.cursor.position = {0, 0};
@@ -53,8 +53,8 @@ void conpty_entry(win32::handle server, win32::handle event, win32::handle condr
     // ── Layer 2: I/O 状态 ──
     io_state io;
     io.set_server(server.view());
-    io.handles.input = std::move(condrv_input);
-    io.handles.output = std::move(condrv_output);
+    io.condrv_input = std::move(condrv_input);
+    io.condrv_output = std::move(condrv_output);
 
     // ── Layer 2: pipe bridge ──
     pipe_bridge bridge;
@@ -82,12 +82,6 @@ void conpty_entry(win32::handle server, win32::handle event, win32::handle condr
     router.api = &api;
 
     // ── PtySignal 信号线程 ──
-    // 先非阻塞排空信号管道中已排队的数据；未到达的后续信号交给信号线程处理。
-    if (signal_pipe.valid())
-    {
-        drain_pending_signals(signal_pipe.view(), &state, &sbuf);
-    }
-
     win32::basic_thread sig_thread;
     if (signal_pipe.valid())
     {
@@ -102,27 +96,13 @@ void conpty_entry(win32::handle server, win32::handle event, win32::handle condr
     }
 
     // ── 继承光标位置（对标原始 VtIo::StartIfNeeded + WriteDSRCPR）──
-    // 必须在清空 vt_in 之前发送，终端 CPR 应答方可进入管道。
+    // 终端 CPR 应答会在主 I/O 循环的 on_idle() 中统一读取并处理。
     if (inherit_cursor && bridge.vt_out.valid())
     {
         bridge.set_pending_inherit_cursor();
         bridge.vt_write_dsr_cpr();
         bridge.vt_flush();
         LOG("conpty::conpty_entry: inherit_cursor DSR CPR sent");
-    }
-
-    // ── 清空 vt_in 残留数据 ──
-    {
-        BYTE drain[256];
-        DWORD drained = 0;
-        while (::PeekNamedPipe(bridge.vt_in.get(), nullptr, 0, nullptr, &drained, nullptr) && drained > 0)
-        {
-            DWORD ck = 0;
-            if (!::ReadFile(bridge.vt_in.get(), drain, sizeof(drain), &ck, nullptr) || ck == 0)
-                break;
-            LOG("conpty::conpty_entry: drained %lu bytes from vt_in", ck);
-            bridge.drain_vt_input(drain, ck);
-        }
     }
 
     // ── 初始 VT 握手：通知终端进入 Win32 Input Mode ──

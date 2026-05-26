@@ -72,14 +72,12 @@ WORD connect_show_window(const CONSOLE_SERVER_MSG &connect_info) noexcept
 }
 
 // 实例化 Windows Terminal 的 ITerminalHandoff3 并执行 PTY 移交协商。
-// 返回值沿用 miniio::io_handles 只是为了表达一对 pipe 句柄，调用方会立刻
-// 拆开写入 handoff_result；不会产生额外 DuplicateHandle 或堆分配。
-//   input  : WT 可读端，corehost 写入后映射为 vt_out
-//   output : WT 可写端，corehost 读取后映射为 vt_in
-miniio::io_handles create_terminal_pty(REFCLSID terminal_clsid, win32::handle_view signal_write,
-                                       win32::handle_view reference_handle, win32::handle_view corehost_process,
-                                       win32::handle_view client_process, win32::wcstring_view startup_title,
-                                       WORD show_window)
+//   terminal_read_pipe  : WT 可读端，corehost 写入后映射为 vt_out
+//   terminal_write_pipe : WT 可写端，corehost 读取后映射为 vt_in
+void create_terminal_pty(REFCLSID terminal_clsid, win32::handle_view signal_write,
+                         win32::handle_view reference_handle, win32::handle_view corehost_process,
+                         win32::handle_view client_process, win32::wcstring_view startup_title, WORD show_window,
+                         win32::handle &terminal_read_pipe, win32::handle &terminal_write_pipe)
 {
     LOG("create_terminal_pty: clsid=%08X-%04X-%04X...", terminal_clsid.Data1, terminal_clsid.Data2,
         terminal_clsid.Data3);
@@ -94,7 +92,6 @@ miniio::io_handles create_terminal_pty(REFCLSID terminal_clsid, win32::handle_vi
                                   .dwFlags = STARTF_USECOUNTCHARS,
                                   .wShowWindow = show_window};
 
-    win32::handle terminal_read_pipe, terminal_write_pipe;
     LOG("create_terminal_pty: EstablishPtyHandoff(title=%ls showWindow=%u signal=%p ref=%p server=%p client=%p)",
         startup_title.c_str(), show_window, signal_write.get(), reference_handle.get(), corehost_process.get(),
         client_process.get());
@@ -107,20 +104,18 @@ miniio::io_handles create_terminal_pty(REFCLSID terminal_clsid, win32::handle_vi
         terminal_read_pipe.get(), terminal_write_pipe.get());
 
     win32::throw_hresult(win32::hresult(hr));
-
-    return {std::move(terminal_read_pipe), std::move(terminal_write_pipe)};
 }
 
 // 完成 ConDrv CONNECT 请求，取得 \Input 和 \Output 客户端句柄。两个句柄
 // 必须随 conpty 会话保持存活；如果提前关闭，客户端后续 ReadFile/WriteFile
 // 会看到管道断开。
-miniio::io_handles accept_condrv_connection(win32::handle_view condrv_server, PCCONSOLE_PORTABLE_ATTACH_MSG attach_msg)
+void accept_condrv_connection(win32::handle_view condrv_server, PCCONSOLE_PORTABLE_ATTACH_MSG attach_msg,
+                              win32::handle &condrv_input, win32::handle &condrv_output)
 {
     LOG("accept_condrv_connection: calling accept_connection");
     auto connect_io = miniio::make_connect_msg(attach_msg);
-    auto handles = miniio::accept_connection(condrv_server, connect_io);
-    LOG("accept_condrv_connection: input=%p output=%p", handles.input.get(), handles.output.get());
-    return handles;
+    miniio::accept_connection(condrv_server, connect_io, condrv_input, condrv_output);
+    LOG("accept_condrv_connection: input=%p output=%p", condrv_input.get(), condrv_output.get());
 }
 
 // 执行默认终端链路的第二跳：
@@ -145,11 +140,14 @@ void complete_terminal_handoff(REFCLSID terminal_clsid, PCCONSOLE_PORTABLE_ATTAC
     auto startup_title = connect_title(connect_info);
     auto show_window = connect_show_window(connect_info);
 
-    auto [terminal_read_pipe, terminal_write_pipe] =
-        create_terminal_pty(terminal_clsid, terminal_signal_write, reference_handle, corehost_process.view(),
-                            client_process, startup_title, show_window);
+    win32::handle terminal_read_pipe;
+    win32::handle terminal_write_pipe;
+    create_terminal_pty(terminal_clsid, terminal_signal_write, reference_handle, corehost_process.view(),
+                        client_process, startup_title, show_window, terminal_read_pipe, terminal_write_pipe);
 
-    auto [condrv_input, condrv_output] = accept_condrv_connection(condrv_server, attach_msg);
+    win32::handle condrv_input;
+    win32::handle condrv_output;
+    accept_condrv_connection(condrv_server, attach_msg, condrv_input, condrv_output);
 
     // signal_read 是 WT 写信号管道的 corehost 读端。它不能在 RPC 返回时关闭，
     // conpty_entry 需要用它接收 resize、close 等 PtySignal。

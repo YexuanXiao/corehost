@@ -68,14 +68,6 @@ struct io_msg
     BYTE body[4096];
 };
 
-// ── 服务端 I/O 句柄对 ───────────────────────────────────────
-// 服务端持有的客户端句柄，维持客户端 I/O 通道存活。
-struct io_handles
-{
-    win32::handle input;
-    win32::handle output;
-};
-
 // ── set_server_info ────────────────────────────────────────
 // 对应原版 ConsoleCreateIoThread 中 else 分支:
 //   CD_IO_SERVER_INFORMATION ServerInformation;
@@ -228,20 +220,20 @@ inline io_msg make_connect_msg(PCCONSOLE_PORTABLE_ATTACH_MSG msg)
 //   ULONG_PTR 只是不透明令牌。三个字段可以不互异——原版 conhost 的
 //   ProcessHandleList 也只在首次连接时创建 Process 句柄。
 //
-// accept_connection() 返回 io_handles 而非内部关闭：
+// accept_connection() 通过出参返回客户端 I/O 句柄：
 //   调用方必须保持这些句柄存活。ConDrv 在客户端 I/O 操作时
 //   通过已注册的句柄查找对应服务端。若服务端关闭句柄，客户端
 //   后续 WriteFile/ReadFile 会收到 ERROR_BROKEN_PIPE。
 
-inline io_handles accept_connection(win32::handle_view server, io_msg &msg)
+inline void accept_connection(win32::handle_view server, io_msg &msg, win32::handle &input, win32::handle &output)
 {
-    auto in_h = condrv::create_client_handle(server, L"\\Input");
-    auto out_h = condrv::create_client_handle(server, L"\\Output");
+    input = condrv::create_client_handle(server, L"\\Input");
+    output = condrv::create_client_handle(server, L"\\Output");
 
     CD_CONNECTION_INFORMATION conn{};
-    conn.Process = reinterpret_cast<ULONG_PTR>(in_h.get());
-    conn.Input = reinterpret_cast<ULONG_PTR>(in_h.get());
-    conn.Output = reinterpret_cast<ULONG_PTR>(out_h.get());
+    conn.Process = reinterpret_cast<ULONG_PTR>(input.get());
+    conn.Input = reinterpret_cast<ULONG_PTR>(input.get());
+    conn.Output = reinterpret_cast<ULONG_PTR>(output.get());
 
     prepare_completion(msg);
     msg.complete.IoStatus.Information = sizeof(CD_CONNECTION_INFORMATION);
@@ -250,8 +242,6 @@ inline io_handles accept_connection(win32::handle_view server, io_msg &msg)
     msg.complete.Write.Offset = 0;
 
     complete_io(server, msg.complete);
-
-    return {std::move(in_h), std::move(out_h)};
 }
 
 // ── 非 CONNECT 消息分派（mini console 模式） ─────────────
@@ -266,7 +256,7 @@ inline io_handles accept_connection(win32::handle_view server, io_msg &msg)
 //   RAW_READ      — 返回 0 字节 EOF
 //   USER_DEFINED  — 不支持，返回 STATUS_UNSUCCESSFUL
 //   RAW_FLUSH     — 直接确认
-inline void dispatch_non_connect(win32::handle_view server, io_msg &msg, io_handles &handles)
+inline void dispatch_non_connect(win32::handle_view server, io_msg &msg, win32::handle &input, win32::handle &output)
 {
     switch (msg.descriptor.Function)
     {
@@ -275,8 +265,8 @@ inline void dispatch_non_connect(win32::handle_view server, io_msg &msg, io_hand
     case CONSOLE_IO_CONNECT:
         break;
     case CONSOLE_IO_DISCONNECT:
-        handles.input.clear();
-        handles.output.clear();
+        input.clear();
+        output.clear();
         prepare_completion(msg);
         break;
 
@@ -352,17 +342,18 @@ inline void dispatch_non_connect(win32::handle_view server, io_msg &msg, io_hand
 // 断开。
 struct passthrough_handler
 {
-    miniio::io_handles handles;
+    win32::handle input;
+    win32::handle output;
 
     bool on_connect(miniio::io_msg &msg)
     {
-        handles = miniio::accept_connection(server, msg);
+        miniio::accept_connection(server, msg, input, output);
         return true;
     }
 
     bool on_message(miniio::io_msg &msg)
     {
-        miniio::dispatch_non_connect(server, msg, handles);
+        miniio::dispatch_non_connect(server, msg, input, output);
         return true;
     }
 
