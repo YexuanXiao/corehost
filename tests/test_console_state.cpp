@@ -1,15 +1,15 @@
-ï»¿// â”€â”€ tests/test_console_state.cpp â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// æ§åˆ¶å°çŠ¶æ€å•å…ƒæµ‹è¯• (console_state.hpp)
+// ©¤©¤ tests/test_console_state.cpp ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+// ¿ØÖÆÌ¨×´Ì¬µ¥Ôª²âÊÔ (console_state.hpp)
 //
-// è¦†ç›–: å…‰æ ‡ã€Tab åœé ä½ã€æ¨¡å¼ã€æ ‡é¢˜ã€åˆ«åã€å†å²
+// ¸²¸Ç: ¹â±ê¡¢Tab Í£¿¿Î»¡¢Ä£Ê½¡¢±êÌâ¡¢±ğÃû¡¢ÀúÊ·
 #include "test_common.hpp"
-#include "conpty/console_state.hpp"
+#include "console_state.hpp"
 
 using namespace conpty;
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// å…‰æ ‡æ“ä½œ
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// ¹â±ê²Ù×÷
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
 
 bool test_cursor_default()
 {
@@ -39,11 +39,11 @@ bool test_cursor_save_restore()
     st.decsc_cursor.attributes = 0x1F;
     st.decsc_cursor.has_state = true;
 
-    // ä¿®æ”¹å…‰æ ‡
+    // ĞŞ¸Ä¹â±ê
     st.cursor.position = {0, 0};
     st.cursor.visible = true;
 
-    // æ¢å¤
+    // »Ö¸´
     ASSERT(st.decsc_cursor.has_state);
     st.cursor.position = st.decsc_cursor.position;
     ASSERT(st.cursor.position.X == 10);
@@ -51,15 +51,15 @@ bool test_cursor_save_restore()
     return true;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// Tab åœé ä½
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// Tab Í£¿¿Î»
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
 
 bool test_tab_stops_init()
 {
     console_state st;
     st.init_tab_stops();
-    // é»˜è®¤æ¯ 8 åˆ—è®¾ç½® tabï¼Œä»åˆ— tab_width å¼€å§‹
+    // Ä¬ÈÏÃ¿ 8 ÁĞÉèÖÃ tab£¬´ÓÁĞ tab_width ¿ªÊ¼
     ASSERT(st.tab_stops[8] == true);
     ASSERT(st.tab_stops[16] == true);
     ASSERT(st.tab_stops[24] == true);
@@ -71,15 +71,15 @@ bool test_tab_set_and_clear()
     console_state st;
     st.init_tab_stops();
 
-    // åœ¨åˆ— 5 è®¾ç½® tab
+    // ÔÚÁĞ 5 ÉèÖÃ tab
     st.set_tab_stop(5);
     ASSERT(st.tab_stops[5] == true);
 
-    // æ¸…é™¤
+    // Çå³ı
     st.clear_tab_stop(5);
     ASSERT(st.tab_stops[5] == false);
 
-    // æ¸…é™¤å…¨éƒ¨
+    // Çå³ıÈ«²¿
     st.clear_all_tab_stops();
     ASSERT(st.tab_stops[8] == false);
     ASSERT(st.tab_stops[16] == false);
@@ -90,15 +90,15 @@ bool test_tab_stop_next()
 {
     console_state st;
     st.init_tab_stops();
-    // ä»åˆ— 0 å¼€å§‹æ‰¾ä¸‹ä¸€ä¸ª tab â†’ 8
+    // ´ÓÁĞ 0 ¿ªÊ¼ÕÒÏÂÒ»¸ö tab ¡ú 8
     auto nx = st.next_tab_stop(0);
     ASSERT(nx == 8);
 
-    // åœ¨åˆ— 10 æ‰¾ â†’ 16
+    // ÔÚÁĞ 10 ÕÒ ¡ú 16
     nx = st.next_tab_stop(10);
     ASSERT(nx == 16);
 
-    // è¶…å‡ºæœ€å¤§å€¼ â†’ è¿”å›é»˜è®¤æœ€å¤§åˆ—
+    // ³¬³ö×î´óÖµ ¡ú ·µ»ØÄ¬ÈÏ×î´óÁĞ
     nx = st.next_tab_stop(500);
     ASSERT(nx >= 500);
     return true;
@@ -108,19 +108,19 @@ bool test_tab_stop_prev()
 {
     console_state st;
     st.init_tab_stops();
-    // ä»åˆ— 10 æ‰¾ä¸Šä¸€ä¸ª â†’ 8
+    // ´ÓÁĞ 10 ÕÒÉÏÒ»¸ö ¡ú 8
     auto pv = st.prev_tab_stop(10);
     ASSERT(pv == 8);
 
-    // ä»åˆ— 5 æ‰¾ä¸Šä¸€ä¸ª â†’ 0
+    // ´ÓÁĞ 5 ÕÒÉÏÒ»¸ö ¡ú 0
     pv = st.prev_tab_stop(5);
     ASSERT(pv == 0);
     return true;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// æ¨¡å¼
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// Ä£Ê½
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
 
 bool test_default_mode()
 {
@@ -150,9 +150,9 @@ bool test_codepage()
     return true;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// æ ‡é¢˜
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// ±êÌâ
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
 
 bool test_title_initial()
 {
@@ -165,9 +165,9 @@ bool test_title_initial()
 bool test_title_set()
 {
     console_state st;
-    st.title = U"æµ‹è¯•æ ‡é¢˜";
-    ASSERT(st.title == U"æµ‹è¯•æ ‡é¢˜");
-    // original_title ä¸å—å½±å“
+    st.title = U"²âÊÔ±êÌâ";
+    ASSERT(st.title == U"²âÊÔ±êÌâ");
+    // original_title ²»ÊÜÓ°Ïì
     ASSERT(st.original_title.empty());
     return true;
 }
@@ -175,17 +175,17 @@ bool test_title_set()
 bool test_original_title()
 {
     console_state st;
-    // æ¨¡æ‹Ÿ SetTitle: é¦–æ¬¡è®¾ç½®æ—¶ä¿å­˜ original_title
-    st.original_title = U"åŸå§‹æ ‡é¢˜";
-    st.title = U"æ–°æ ‡é¢˜";
-    ASSERT(st.original_title == U"åŸå§‹æ ‡é¢˜");
-    ASSERT(st.title == U"æ–°æ ‡é¢˜");
+    // Ä£Äâ SetTitle: Ê×´ÎÉèÖÃÊ±±£´æ original_title
+    st.original_title = U"Ô­Ê¼±êÌâ";
+    st.title = U"ĞÂ±êÌâ";
+    ASSERT(st.original_title == U"Ô­Ê¼±êÌâ");
+    ASSERT(st.title == U"ĞÂ±êÌâ");
     return true;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// å‘½ä»¤å†å²
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// ÃüÁîÀúÊ·
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
 
 bool test_history_default()
 {
@@ -216,9 +216,9 @@ bool test_history_clear()
     return true;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// DOSKEY åˆ«å
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// DOSKEY ±ğÃû
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
 
 bool test_alias_add_and_find()
 {
@@ -229,7 +229,7 @@ bool test_alias_add_and_find()
     ASSERT(st.aliases[L"ls"] == L"dir");
     ASSERT(st.aliases[L"cl"] == L"cls");
 
-    // æŸ¥æ‰¾ä¸å­˜åœ¨çš„ key
+    // ²éÕÒ²»´æÔÚµÄ key
     ASSERT(st.aliases.find(L"nobody") == st.aliases.end());
     return true;
 }
@@ -242,14 +242,14 @@ bool test_alias_empty()
     return true;
 }
 
-// â”€â”€ AddAlias æ¶ˆæ¯æ ¼å¼å›å½’æµ‹è¯•ï¼ˆCONSOLE_ADDALIAS_MSG å¸ƒå±€ï¼‰â”€â”€
-// 2026-05-21 ä¿®å¤: SourceLength/TargetLength/ExeLength æ˜¯å­—èŠ‚æ•°ï¼Œ
-// æ¶ˆæ¯ä½“ = Exe + Source + Target ä¸‰æ®µè¿ç»­å¸ƒå±€ã€‚
+// ©¤©¤ AddAlias ÏûÏ¢¸ñÊ½»Ø¹é²âÊÔ£¨CONSOLE_ADDALIAS_MSG ²¼¾Ö£©©¤©¤
+// 2026-05-21 ĞŞ¸´: SourceLength/TargetLength/ExeLength ÊÇ×Ö½ÚÊı£¬
+// ÏûÏ¢Ìå = Exe + Source + Target Èı¶ÎÁ¬Ğø²¼¾Ö¡£
 
-#include "conpty/api_handlers.hpp"
+#include "api_handlers.hpp"
 #include "os/Console/conmsgl3.h"
 
-// è¾…åŠ©: æ„é€ æ¨¡æ‹Ÿ ConDrv AddAlias æ¶ˆæ¯ (Unicode)
+// ¸¨Öú: ¹¹ÔìÄ£Äâ ConDrv AddAlias ÏûÏ¢ (Unicode)
 void mock_add_alias_msg(miniio::io_msg &msg, const std::wstring &exe, const std::wstring &src, const std::wstring &tgt)
 {
     std::memset(&msg, 0, sizeof(msg));
@@ -271,7 +271,7 @@ void mock_add_alias_msg(miniio::io_msg &msg, const std::wstring &exe, const std:
     std::memcpy(data, tgt.data(), tgt.size() * sizeof(wchar_t));
 }
 
-// å›å½’: AddAlias æ¶ˆæ¯æ­£ç¡®è§£æ "hello" â†’ "echo hello" (å« Exe="cmd.exe")
+// »Ø¹é: AddAlias ÏûÏ¢ÕıÈ·½âÎö "hello" ¡ú "echo hello" (º¬ Exe="cmd.exe")
 bool test_regression_add_alias_msg_layout()
 {
     console_state st;
@@ -287,7 +287,7 @@ bool test_regression_add_alias_msg_layout()
     return true;
 }
 
-// å›å½’: ExeLength=0 (æ—  exe å)
+// »Ø¹é: ExeLength=0 (ÎŞ exe Ãû)
 bool test_regression_add_alias_zero_exe()
 {
     console_state st;
@@ -301,7 +301,7 @@ bool test_regression_add_alias_zero_exe()
     return true;
 }
 
-// å›å½’: ç«¯åˆ°ç«¯ â€” AddAlias å­˜å‚¨ â†’ _expand_alias æŸ¥æ‰¾
+// »Ø¹é: ¶Ëµ½¶Ë ¡ª AddAlias ´æ´¢ ¡ú _expand_alias ²éÕÒ
 bool test_regression_alias_expand_after_store()
 {
     console_state st;
@@ -320,7 +320,7 @@ bool test_regression_alias_expand_after_store()
     return true;
 }
 
-// å›å½’: ä¸åŒ¹é…æ—¶ passthrough (ç¡®ä¿æ¶ˆæ¯å¸ƒå±€é”™è¯¯ä¸ä¼šæ„å¤–åŒ¹é…)
+// »Ø¹é: ²»Æ¥ÅäÊ± passthrough (È·±£ÏûÏ¢²¼¾Ö´íÎó²»»áÒâÍâÆ¥Åä)
 bool test_regression_alias_msg_wrong_key()
 {
     console_state st;
@@ -339,7 +339,7 @@ bool test_regression_alias_msg_wrong_key()
     return true;
 }
 
-// å›å½’: ANSI æ¶ˆæ¯ (Unicode=0) åº”è¢«å¿½ç•¥
+// »Ø¹é: ANSI ÏûÏ¢ (Unicode=0) Ó¦±»ºöÂÔ
 bool test_regression_add_alias_ansi_ignored()
 {
     console_state st;
@@ -350,7 +350,7 @@ bool test_regression_add_alias_ansi_ignored()
     hdr->ApiDescriptorSize = sizeof(CONSOLE_ADDALIAS_MSG);
 
     auto *alias = reinterpret_cast<CONSOLE_ADDALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    alias->SourceLength = 0; // zero-lengthâ†’skip
+    alias->SourceLength = 0; // zero-length¡úskip
     alias->TargetLength = 0;
     alias->ExeLength = 0;
     alias->Unicode = FALSE; // ANSI with zero lengths
@@ -360,7 +360,7 @@ bool test_regression_add_alias_ansi_ignored()
     return true;
 }
 
-// â”€â”€ è¾…åŠ©: æ„é€ æ¨¡æ‹Ÿ ConDrv GetAlias æ¶ˆæ¯ â”€â”€
+// ©¤©¤ ¸¨Öú: ¹¹ÔìÄ£Äâ ConDrv GetAlias ÏûÏ¢ ©¤©¤
 void mock_get_alias_msg(miniio::io_msg &msg, const std::wstring &exe, const std::wstring &src)
 {
     std::memset(&msg, 0, sizeof(msg));
@@ -379,7 +379,7 @@ void mock_get_alias_msg(miniio::io_msg &msg, const std::wstring &exe, const std:
     std::memcpy(data, src.data(), src.size() * sizeof(wchar_t));
 }
 
-// å›å½’: GetAlias è·³è¿‡ ExeLengthï¼Œç”¨ SourceLength(å­—èŠ‚) å– key
+// »Ø¹é: GetAlias Ìø¹ı ExeLength£¬ÓÃ SourceLength(×Ö½Ú) È¡ key
 bool test_regression_get_alias_skips_exe()
 {
     console_state st;
@@ -391,10 +391,10 @@ bool test_regression_get_alias_skips_exe()
     api_l3_get_alias(msg, st, nullptr, nullptr, nullptr);
 
     auto *r = reinterpret_cast<CONSOLE_GETALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    // TargetLength åº”ä¸ºå­—èŠ‚æ•°: "echo hello" = 10 wchars Ã— 2 = 20
+    // TargetLength Ó¦Îª×Ö½ÚÊı: "echo hello" = 10 wchars ¡Á 2 = 20
     ASSERT(r->TargetLength == 20);
 
-    // éªŒè¯è¿”å›çš„ target å­—ç¬¦ä¸²è¢«å†™å›
+    // ÑéÖ¤·µ»ØµÄ target ×Ö·û´®±»Ğ´»Ø
     auto *data = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIAS_MSG);
     auto *tgt_out = reinterpret_cast<const wchar_t *>(data + r->ExeLength);
     std::wstring_view tgt_sv{tgt_out, 10};
@@ -402,7 +402,7 @@ bool test_regression_get_alias_skips_exe()
     return true;
 }
 
-// å›å½’: GetAlias ä¸å­˜åœ¨çš„ key è¿”å› TargetLength=0
+// »Ø¹é: GetAlias ²»´æÔÚµÄ key ·µ»Ø TargetLength=0
 bool test_regression_get_alias_missing_key()
 {
     console_state st;
@@ -418,7 +418,7 @@ bool test_regression_get_alias_missing_key()
     return true;
 }
 
-// å›å½’: GetAliases çš„ AliasesBufferLength åº”ä¸ºå­—èŠ‚æ•°
+// »Ø¹é: GetAliases µÄ AliasesBufferLength Ó¦Îª×Ö½ÚÊı
 bool test_regression_get_aliases_buffer_length_bytes()
 {
     console_state st;
@@ -436,13 +436,13 @@ bool test_regression_get_aliases_buffer_length_bytes()
 
     api_l3_get_aliases(msg, st, nullptr, nullptr, nullptr);
 
-    // åºåˆ—åŒ–: "ls\0dir\0cl\0cls\0" = (2+1+3+1) + (2+1+3+1) = 14 wchars
+    // ĞòÁĞ»¯: "ls\0dir\0cl\0cls\0" = (2+1+3+1) + (2+1+3+1) = 14 wchars
     ULONG expected_wchars = 14;
     ASSERT(r->AliasesBufferLength == expected_wchars * sizeof(wchar_t));
     return true;
 }
 
-// å›å½’: GetAliasesLength ANSI è¿”å›å­—èŠ‚æ•° (ä¸å« *sizeof(wchar_t))
+// »Ø¹é: GetAliasesLength ANSI ·µ»Ø×Ö½ÚÊı (²»º¬ *sizeof(wchar_t))
 bool test_regression_get_aliases_length_ansi()
 {
     console_state st;
@@ -459,12 +459,12 @@ bool test_regression_get_aliases_length_ansi()
 
     api_l3_get_aliases_length(msg, st, nullptr, nullptr, nullptr);
 
-    // "x\0exit\0" = 1 + 1 + 4 + 1 = 7 å­—èŠ‚
+    // "x\0exit\0" = 1 + 1 + 4 + 1 = 7 ×Ö½Ú
     ASSERT(r->AliasesLength == 7);
     return true;
 }
 
-// å›å½’: GetCommandHistoryLength è¿”å› 0 (ConPTY ä¸æš´éœ²å†å²)
+// »Ø¹é: GetCommandHistoryLength ·µ»Ø 0 (ConPTY ²»±©Â¶ÀúÊ·)
 bool test_regression_get_history_length_zero()
 {
     miniio::io_msg msg;
@@ -481,7 +481,7 @@ bool test_regression_get_history_length_zero()
     return true;
 }
 
-// å›å½’: GetCommandHistory è¿”å› CommandBufferLength=0 (ConPTY ä¸æš´éœ²å†å²)
+// »Ø¹é: GetCommandHistory ·µ»Ø CommandBufferLength=0 (ConPTY ²»±©Â¶ÀúÊ·)
 bool test_regression_get_history_zero()
 {
     miniio::io_msg msg;
@@ -498,7 +498,7 @@ bool test_regression_get_history_zero()
     return true;
 }
 
-// å›å½’: GetTitle çš„ TitleLength åº”ä¸ºå­—èŠ‚æ•°
+// »Ø¹é: GetTitle µÄ TitleLength Ó¦Îª×Ö½ÚÊı
 bool test_regression_get_title_length_bytes()
 {
     console_state st;
@@ -518,12 +518,12 @@ bool test_regression_get_title_length_bytes()
 
     api_get_title(msg, st, nullptr, nullptr, nullptr);
 
-    // "test" = 4 wchars Ã— 2 = 8 å­—èŠ‚
+    // "test" = 4 wchars ¡Á 2 = 8 ×Ö½Ú
     ASSERT(r->TitleLength == 8);
     return true;
 }
 
-// â”€â”€ è¾…åŠ©: æ„é€ æ¨¡æ‹Ÿ ConDrv AddAlias ANSI æ¶ˆæ¯ â”€â”€
+// ©¤©¤ ¸¨Öú: ¹¹ÔìÄ£Äâ ConDrv AddAlias ANSI ÏûÏ¢ ©¤©¤
 void mock_add_alias_msg_ansi(miniio::io_msg &msg, const std::string &exe, const std::string &src,
                              const std::string &tgt)
 {
@@ -546,7 +546,7 @@ void mock_add_alias_msg_ansi(miniio::io_msg &msg, const std::string &exe, const 
     std::memcpy(data, tgt.data(), tgt.size());
 }
 
-// å›å½’: AddAlias ANSI æ¶ˆæ¯æ­£ç¡®è§£æ (ASCII å­—ç¬¦é›†)
+// »Ø¹é: AddAlias ANSI ÏûÏ¢ÕıÈ·½âÎö (ASCII ×Ö·û¼¯)
 bool test_regression_add_alias_ansi_ascii()
 {
     console_state st;
@@ -560,7 +560,7 @@ bool test_regression_add_alias_ansi_ascii()
     return true;
 }
 
-// å›å½’: GetAlias ANSI è¿”å› target ä¸º char* å­—èŠ‚
+// »Ø¹é: GetAlias ANSI ·µ»Ø target Îª char* ×Ö½Ú
 bool test_regression_get_alias_ansi_output()
 {
     console_state st;
@@ -586,9 +586,9 @@ bool test_regression_get_alias_ansi_output()
 
     api_l3_get_alias(msg, st, nullptr, nullptr, nullptr);
 
-    // TargetLength åº”ä¸º ANSI å­—èŠ‚æ•°: "dir" = 3
+    // TargetLength Ó¦Îª ANSI ×Ö½ÚÊı: "dir" = 3
     ASSERT(r->TargetLength == 3);
-    // éªŒè¯å†™å›çš„ target å­—ç¬¦ä¸²
+    // ÑéÖ¤Ğ´»ØµÄ target ×Ö·û´®
     auto *tgt_out = reinterpret_cast<const char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                    sizeof(CONSOLE_GETALIAS_MSG) + exe_a.size());
     std::string tgt_str{tgt_out, 3};
@@ -596,7 +596,7 @@ bool test_regression_get_alias_ansi_output()
     return true;
 }
 
-// å›å½’: GetAliases ANSI è¾“å‡º char* åºåˆ—
+// »Ø¹é: GetAliases ANSI Êä³ö char* ĞòÁĞ
 bool test_regression_get_aliases_ansi_output()
 {
     console_state st;
@@ -613,7 +613,7 @@ bool test_regression_get_aliases_ansi_output()
 
     api_l3_get_aliases(msg, st, nullptr, nullptr, nullptr);
 
-    // åºåˆ—åŒ–: "x\0exit\0" = 1 + 1 + 4 + 1 = 7 å­—èŠ‚
+    // ĞòÁĞ»¯: "x\0exit\0" = 1 + 1 + 4 + 1 = 7 ×Ö½Ú
     ASSERT(r->AliasesBufferLength == 7);
     auto *out = reinterpret_cast<const char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG));
     ASSERT(out[0] == 'x' && out[1] == '\0');
@@ -622,7 +622,7 @@ bool test_regression_get_aliases_ansi_output()
     return true;
 }
 
-// å›å½’: GetTitle ANSI è¾“å‡º char*
+// »Ø¹é: GetTitle ANSI Êä³ö char*
 bool test_regression_get_title_ansi_output()
 {
     console_state st;
@@ -642,7 +642,7 @@ bool test_regression_get_title_ansi_output()
 
     api_get_title(msg, st, nullptr, nullptr, nullptr);
 
-    // "cmd" = 3 å­—èŠ‚
+    // "cmd" = 3 ×Ö½Ú
     ASSERT(r->TitleLength == 3);
     auto *out = reinterpret_cast<const char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
     std::string title_str{out, 3};
@@ -650,7 +650,7 @@ bool test_regression_get_title_ansi_output()
     return true;
 }
 
-#include "conpty/pipe_bridge.hpp"
+#include "pipe_bridge.hpp"
 
 bool test_alias_expand_simple_match()
 {
@@ -721,9 +721,9 @@ bool test_alias_expand_single_word()
     return true;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// å…¶ä»–å­—æ®µ
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+// ÆäËû×Ö¶Î
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
 
 bool test_font_info()
 {
@@ -732,7 +732,7 @@ bool test_font_info()
     ASSERT(st.font_size.X == 8);
     ASSERT(st.font_size.Y == 12);
     ASSERT(st.font_weight == 400);
-    // face_name æ˜¯ WCHAR[32]
+    // face_name ÊÇ WCHAR[32]
     ASSERT(wcscmp(st.face_name, L"Consolas") == 0);
     return true;
 }
@@ -773,25 +773,25 @@ bool test_dec_line_drawing()
 
 bool test_dec_to_unicode()
 {
-    // æµ‹è¯• DEC ç‰¹æ®Šå›¾å½¢å­—ç¬¦æ˜ å°„
-    // 'j' (0x6A) â†’ U+2518 (â”˜)
+    // ²âÊÔ DEC ÌØÊâÍ¼ĞÎ×Ö·ûÓ³Éä
+    // 'j' (0x6A) ¡ú U+2518 (©¼)
     ASSERT(console_state::dec_to_unicode(0x6A) == 0x2518);
-    // 'k' (0x6B) â†’ U+2510 (â”)
+    // 'k' (0x6B) ¡ú U+2510 (©´)
     ASSERT(console_state::dec_to_unicode(0x6B) == 0x2510);
-    // 'l' (0x6C) â†’ U+250C (â”Œ)
+    // 'l' (0x6C) ¡ú U+250C (©°)
     ASSERT(console_state::dec_to_unicode(0x6C) == 0x250C);
-    // 'm' (0x6D) â†’ U+2514 (â””)
+    // 'm' (0x6D) ¡ú U+2514 (©¸)
     ASSERT(console_state::dec_to_unicode(0x6D) == 0x2514);
-    // 'n' (0x6E) â†’ U+253C (â”¼)
+    // 'n' (0x6E) ¡ú U+253C (©à)
     ASSERT(console_state::dec_to_unicode(0x6E) == 0x253C);
-    // 'x' (0x78) â†’ U+2502 (â”‚)
+    // 'x' (0x78) ¡ú U+2502 (©¦)
     ASSERT(console_state::dec_to_unicode(0x78) == 0x2502);
     return true;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
 // Test Runner
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
 
 int main()
 {

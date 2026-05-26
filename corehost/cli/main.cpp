@@ -1,5 +1,5 @@
 // ── cli/main.cxx ────────────────────────────────────────
-// corehost 入口点
+// corehost 入口�?
 //
 
 #define WIN32_NO_STATUS
@@ -9,7 +9,7 @@
 #include "console_arguments.hpp"
 #include "defterm/defterm.hpp"
 #include "comserver/com_server.hpp"
-#include "conpty/conpty.hpp"
+#include "conpty.hpp"
 #include "client/client.hpp"
 #include "miniio/io_thread.hpp"
 #include "win32/error.hpp"
@@ -46,7 +46,7 @@ try
         return 0;
     }
 
-    // 如果第一个参数是句柄，那么开始默认终端握手
+    // 如果第一个参数是句柄，那么开始默认终端握�?
     if (auto ch = args.condrv_handle(); ch != 0)
     {
         LOG("entering defterm_entry, handle=0x%Ix", ch);
@@ -59,14 +59,14 @@ try
     {
         LOG("entering conpty (--headless) mode, server=0x%Ix", args.server_handle());
 
-        // 对标原始: ConsoleServerInitialization → ConsoleCreateIoThread
+        // 对标原始: ConsoleServerInitialization �?ConsoleCreateIoThread
         auto server = win32::handle{reinterpret_cast<HANDLE>(args.server_handle())};
         auto ev = win32::handle{::CreateEventW(nullptr, TRUE, FALSE, nullptr)};
         if (!ev.valid())
             win32::throw_last_error();
         miniio::set_server_info(server.view(), ev.view());
 
-        // 如果有 --signal <handle>, 传递给信号线程
+        // 如果�?--signal <handle>, 传递给信号线程
         win32::handle sig_pipe;
         if (auto sh = args.signal_handle(); sh != 0)
             sig_pipe = win32::handle{reinterpret_cast<HANDLE>(sh)};
@@ -82,7 +82,7 @@ try
     }
 
     // ── client 模式 ──────────────────────────────────────
-    // 不是 com_server / headless / defterm → 解析为客户端命令行
+    // 不是 com_server / headless / defterm �?解析为客户端命令�?
     auto cmdline = args.client_command_line();
 
     // 如果命令为空，则启动 pwsh/powershell/cmd

@@ -1,12 +1,12 @@
-ï»¿// === tests/test_conpty_keyboard.cpp ===
+// === tests/test_conpty_keyboard.cpp ===
 // Component-level keyboard input test.
 // Tests VT parser -> vt_message -> INPUT_RECORD pipeline.
 #include "test_common.hpp"
-#include "conpty/conpty_vt_parser.hpp"
-#include "conpty/conpty_vt_input_engine.hpp"
-#include "conpty/console_state.hpp"
-#include "conpty/screen_buffer.hpp"
-#include "conpty/vt_msg_dispatch.hpp"
+#include "conpty_vt_parser.hpp"
+#include "conpty_vt_input_engine.hpp"
+#include "console_state.hpp"
+#include "screen_buffer.hpp"
+#include "vt_msg_dispatch.hpp"
 
 using namespace conpty;
 
@@ -162,7 +162,7 @@ bool test_full_pipeline_arrow_up()
     vt_parser parser;
     vt_input_engine engine;
 
-    // ESC [ A = Arrow Up (CSI â†’ cursor_up in parser)
+    // ESC [ A = Arrow Up (CSI ¡ú cursor_up in parser)
     parser.parse(0x1B);
     parser.parse(U'[');
     auto id = parser.parse(U'A');
@@ -184,7 +184,7 @@ bool test_full_pipeline_arrow_down()
     vt_parser parser;
     vt_input_engine engine;
 
-    // ESC [ B = Arrow Down (CSI â†’ cursor_down in parser)
+    // ESC [ B = Arrow Down (CSI ¡ú cursor_down in parser)
     parser.parse(0x1B);
     parser.parse(U'[');
     auto id = parser.parse(U'B');
@@ -253,7 +253,7 @@ bool test_unicode_through_parser()
     vt_input_engine engine;
     input_collector col;
 
-    // Feed U+1F600 (ðŸ˜€)
+    // Feed U+1F600 (??)
     auto id = parser.parse(0x1F600);
 
     // The parser may return text or continue_ depending on internal state
@@ -278,13 +278,13 @@ bool test_empty_text()
     return true;
 }
 
-// â”€â”€ Win32 Input Mode keyboard event tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ©¤©¤ Win32 Input Mode keyboard event tests ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
 // Format: \x1b[Vk;Sc;Uc;Kd;Cs;Rc_
-// Tests the full pipeline: raw bytes â†’ VT parser â†’ process_input â†’ INPUT_RECORD
+// Tests the full pipeline: raw bytes ¡ú VT parser ¡ú process_input ¡ú INPUT_RECORD
 
 struct test_bridge_stub
 {
-    std::u32string _raw; // Parser å¤–éƒ¨ç¼“å†²
+    std::u32string _raw; // Parser Íâ²¿»º³å
     conpty::vt_parser parser;
     std::vector<INPUT_RECORD> events;
 
@@ -440,7 +440,7 @@ bool test_win32_enter_pair()
     return true;
 }
 
-// Test plain text "A" (0x41) â†’ emitted as continue_text (not Win32Input)
+// Test plain text "A" (0x41) ¡ú emitted as continue_text (not Win32Input)
 bool test_plain_text_a()
 {
     test_bridge_stub stub;

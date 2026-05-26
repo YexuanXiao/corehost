@@ -1,14 +1,14 @@
-ï»¿// â”€â”€ tests/test_vt_parser.cpp â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// VT/CSI/OSC è§£æå™¨æµ‹(åŸºäº char32_t çš„æ–°ç‰ˆè§£æå™¨)
+// ©¤©¤ tests/test_vt_parser.cpp ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+// VT/CSI/OSC ½âÎöÆ÷²â(»ùÓÚ char32_t µÄĞÂ°æ½âÎöÆ÷)
 //
-// ä¸æ—§ç‰ˆæµ‹è¯•çš„åŒºåˆ«
-//   æ—§ç‰ˆï¼šè¾“å…¥å­—èŠ‚æµï¼Œæœ‰ bad_stateï¼Œæ–‡æœ¬æ¶ˆid=none
-//   æ–°ç‰ˆï¼šè¾“char32_t ç ç‚¹ï¼Œæ—  bad_stateï¼Œä»»ä½•éæ³•åºåˆ—åŸæ ·è¾“å‡ºä¸º
-//         text æ¶ˆæ¯ï¼ˆid è¿”å› vt_message_id::textï¼‰
-//   å› æ­¤åå‘æµ‹è¯•æ”¹ä¸ºéªŒè¯éæ³•åºåˆ—è¢«æ— æŸåœ°è¾“å‡ºtext æ¶ˆæ¯
+// Óë¾É°æ²âÊÔµÄÇø±ğ
+//   ¾É°æ£ºÊäÈë×Ö½ÚÁ÷£¬ÓĞ bad_state£¬ÎÄ±¾Ïûid=none
+//   ĞÂ°æ£ºÊächar32_t Âëµã£¬ÎŞ bad_state£¬ÈÎºÎ·Ç·¨ĞòÁĞÔ­ÑùÊä³öÎª
+//         text ÏûÏ¢£¨id ·µ»Ø vt_message_id::text£©
+//   Òò´Ë·´Ïò²âÊÔ¸ÄÎªÑéÖ¤·Ç·¨ĞòÁĞ±»ÎŞËğµØÊä³ötext ÏûÏ¢
 //
 #include "test_common.hpp"
-#include "conpty/conpty_vt_parser.hpp"
+#include "conpty_vt_parser.hpp"
 #include "utility/crtdbg.hpp"
 
 #include <random>
@@ -21,7 +21,7 @@
 using namespace conpty;
 
 // ============================================================================
-// éšæœºæ•°å·¥å…·ï¼ˆç§å­å›ºå®šï¼Œå¯é‡ç°
+// Ëæ»úÊı¹¤¾ß£¨ÖÖ×Ó¹Ì¶¨£¬¿ÉÖØÏÖ
 // ============================================================================
 std::mt19937 rng(42);
 
@@ -35,17 +35,17 @@ uint8_t rand_u8(uint8_t lo = 0, uint8_t hi = 255)
     return static_cast<uint8_t>(std::uniform_int_distribution<int>(lo, hi)(rng));
 }
 
-// ç”Ÿæˆå¯æ‰“ASCII å­—ç¬¦ (ç ç‚¹ 0x20-0x7E)
+// Éú³É¿É´òASCII ×Ö·û (Âëµã 0x20-0x7E)
 char32_t rand_ascii()
 {
     return static_cast<char32_t>(rand_u8(0x20, 0x7E));
 }
 
 // ============================================================================
-// 1. åºåˆ—åŒ–ï¼švt_message è½¬ä¸º char32_t åºåˆ—
+// 1. ĞòÁĞ»¯£ºvt_message ×ªÎª char32_t ĞòÁĞ
 // ============================================================================
 
-// åºåˆ—çš„è½½ä½“ï¼šç›´æ¥å­˜å‚¨ char32_t ç ç‚¹
+// ĞòÁĞµÄÔØÌå£ºÖ±½Ó´æ´¢ char32_t Âëµã
 struct raw_seq
 {
     std::vector<char32_t> code_points;
@@ -93,7 +93,7 @@ struct raw_seq
         add_esc();
         add(U'\\');
     }
-    // ç›´æ¥æ·»åŠ  u32stringï¼Œç”¨äºæ ‡
+    // Ö±½ÓÌí¼Ó u32string£¬ÓÃÓÚ±ê
     void add_u32string(const std::u32string &s)
     {
         add_str(s);
@@ -104,17 +104,17 @@ struct raw_seq
     }
 };
 
-// â”€â”€ éšæœºæ¶ˆæ¯ç”Ÿæˆâ”€â”€
+// ©¤©¤ Ëæ»úÏûÏ¢Éú³É©¤©¤
 struct msg_gen
 {
-    vt_message_id msg_id = vt_message_id::continue_; // æœ¬æ¬¡ç”Ÿæˆid
-    vt_message msg;                                  // æœŸæœ›çš„å­—æ®µ
+    vt_message_id msg_id = vt_message_id::continue_; // ±¾´ÎÉú³Éid
+    vt_message msg;                                  // ÆÚÍûµÄ×Ö¶Î
 
-    // ç”¨äºæŒæœ‰ msg.title / msg.text æ‰€æŒ‡å‘çš„å­—ç¬¦ä¸²æ•°æ® (u32string_view éœ€å­˜æ´»)
+    // ÓÃÓÚ³ÖÓĞ msg.title / msg.text ËùÖ¸ÏòµÄ×Ö·û´®Êı¾İ (u32string_view Ğè´æ»î)
     std::u32string _title_storage;
     std::u32string _text_storage;
 
-    // ç”Ÿæˆéšæœºæ¶ˆæ¯å¹¶å¡«msg msg_idï¼Œè¿”å›åºåˆ—åŒ–ç ç‚¹
+    // Éú³ÉËæ»úÏûÏ¢²¢Ìîmsg msg_id£¬·µ»ØĞòÁĞ»¯Âëµã
     raw_seq serialize()
     {
         raw_seq r;
@@ -122,11 +122,11 @@ struct msg_gen
         _title_storage.clear();
         _text_storage.clear();
 
-        // éšæœºé€‰æ‹©æ¶ˆæ¯ç±»å‹ï¼ˆå…± 52 ç§ï¼Œä¸æ—§ç‰ˆä¸€è‡´ï¼‰
+        // Ëæ»úÑ¡ÔñÏûÏ¢ÀàĞÍ£¨¹² 52 ÖÖ£¬Óë¾É°æÒ»ÖÂ£©
         int choice = std::uniform_int_distribution<int>(0, 51)(rng);
         switch (choice)
         {
-        // â”€â”€ Simple ESC â”€â”€
+        // ©¤©¤ Simple ESC ©¤©¤
         case 0:
             msg_id = vt_message_id::reverse_index;
             r.add_esc();
@@ -158,7 +158,7 @@ struct msg_gen
             r.add(U'>');
             break;
 
-        // â”€â”€ Character Set â”€â”€
+        // ©¤©¤ Character Set ©¤©¤
         case 6:
             msg_id = vt_message_id::designate_charset_line_drawing;
             r.add_esc();
@@ -172,7 +172,7 @@ struct msg_gen
             r.add(U'B');
             break;
 
-        // â”€â”€ CSI Cursor Movement â”€â”€
+        // ©¤©¤ CSI Cursor Movement ©¤©¤
         case 8:
             msg_id = vt_message_id::cursor_up;
             msg.count = rand_short(1, 99);
@@ -260,7 +260,7 @@ struct msg_gen
             r.add(U'u');
             break;
 
-        // â”€â”€ DEC Private h/l â”€â”€
+        // ©¤©¤ DEC Private h/l ©¤©¤
         case 20:
             msg_id = vt_message_id::cursor_enable_blinking;
             r.add_csi();
@@ -334,7 +334,7 @@ struct msg_gen
             r.add(U'l');
             break;
 
-        // â”€â”€ Cursor Shape â”€â”€
+        // ©¤©¤ Cursor Shape ©¤©¤
         case 30:
             msg_id = vt_message_id::set_cursor_shape;
             msg.cursor_shape = rand_short(0, 6);
@@ -344,7 +344,7 @@ struct msg_gen
             r.add(U'q');
             break;
 
-        // â”€â”€ Scroll â”€â”€
+        // ©¤©¤ Scroll ©¤©¤
         case 31:
             msg_id = vt_message_id::scroll_up;
             msg.count = rand_short(1, 99);
@@ -360,7 +360,7 @@ struct msg_gen
             r.add(U'T');
             break;
 
-        // â”€â”€ Text Modification â”€â”€
+        // ©¤©¤ Text Modification ©¤©¤
         case 33:
             msg_id = vt_message_id::insert_characters;
             msg.count = rand_short(1, 50);
@@ -411,7 +411,7 @@ struct msg_gen
             r.add(U'K');
             break;
 
-        // â”€â”€ SGR â”€â”€
+        // ©¤©¤ SGR ©¤©¤
         case 40: {
             msg_id = vt_message_id::sgr;
             r.add_csi();
@@ -495,7 +495,7 @@ struct msg_gen
         }
         break;
 
-        // â”€â”€ OSC Window Title â”€â”€
+        // ©¤©¤ OSC Window Title ©¤©¤
         case 41: {
             msg_id = vt_message_id::set_window_title;
             int len = rand_short(1, 30);
@@ -511,7 +511,7 @@ struct msg_gen
         }
         break;
 
-        // â”€â”€ OSC Palette â”€â”€
+        // ©¤©¤ OSC Palette ©¤©¤
         case 42: {
             msg_id = vt_message_id::set_palette_color;
             msg.palette_index = rand_short(0, 255);
@@ -523,7 +523,7 @@ struct msg_gen
             r.add(U';');
             r.add_number(msg.palette_index);
             r.add(U';');
-            // æ„"rgb:RR/GG/BB" å­—ç¬¦
+            // ¹¹"rgb:RR/GG/BB" ×Ö·û
             char buf[32];
             snprintf(buf, sizeof(buf), "rgb:%02x/%02x/%02x", msg.palette_r, msg.palette_g, msg.palette_b);
             for (char *p = buf; *p; ++p)
@@ -532,7 +532,7 @@ struct msg_gen
         }
         break;
 
-        // â”€â”€ Tabs â”€â”€
+        // ©¤©¤ Tabs ©¤©¤
         case 43:
             msg_id = vt_message_id::cursor_forward_tab;
             msg.count = rand_short(1, 20);
@@ -560,7 +560,7 @@ struct msg_gen
             r.add(U'g');
             break;
 
-        // â”€â”€ Scrolling Margins â”€â”€
+        // ©¤©¤ Scrolling Margins ©¤©¤
         case 47:
             msg_id = vt_message_id::set_scrolling_region;
             msg.scroll_top = rand_short(1, 50);
@@ -572,7 +572,7 @@ struct msg_gen
             r.add(U'r');
             break;
 
-        // â”€â”€ Query â”€â”€
+        // ©¤©¤ Query ©¤©¤
         case 48:
             msg_id = vt_message_id::report_cursor_position;
             r.add_csi();
@@ -586,7 +586,7 @@ struct msg_gen
             r.add(U'c');
             break;
 
-        // â”€â”€ Soft Reset â”€â”€
+        // ©¤©¤ Soft Reset ©¤©¤
         case 50:
             msg_id = vt_message_id::soft_reset;
             r.add_csi();
@@ -594,7 +594,7 @@ struct msg_gen
             r.add(U'p');
             break;
 
-        // â”€â”€ SS3 / CSI Input â”€â”€
+        // ©¤©¤ SS3 / CSI Input ©¤©¤
         case 51: {
             if (std::uniform_int_distribution<int>(0, 1)(rng))
             {
@@ -631,7 +631,7 @@ struct msg_gen
         return r;
     }
 
-    // éªŒè¯è§£æå‡ºçš„æ¶ˆæ¯å’Œè¿”å›çš„ id ä¸æœŸæœ›ä¸€
+    // ÑéÖ¤½âÎö³öµÄÏûÏ¢ºÍ·µ»ØµÄ id ÓëÆÚÍûÒ»
     bool verify(vt_message_id id, const vt_message &parsed) const
     {
         ASSERT(id == msg_id);
@@ -709,10 +709,10 @@ struct msg_gen
 };
 
 // ============================================================================
-// æ­£å‘æµ‹è¯•
+// ÕıÏò²âÊÔ
 // ============================================================================
 
-// å†’çƒŸæµ‹è¯•: ç¡®ä¿æœ€åŸºæœ¬çš„åºåˆ—èƒ½è¢«è§£
+// Ã°ÑÌ²âÊÔ: È·±£×î»ù±¾µÄĞòÁĞÄÜ±»½â
 bool test_smoke()
 {
     vt_parser p;
@@ -748,7 +748,7 @@ bool test_smoke()
     return true;
 }
 
-// æµ‹è¯•å•æ¡éšæœºæ¶ˆæ¯çš„å¾€
+// ²âÊÔµ¥ÌõËæ»úÏûÏ¢µÄÍù
 bool test_positive_single()
 {
     vt_parser parser;
@@ -766,7 +766,7 @@ bool test_positive_single()
                 got_message = true;
                 if (!gen.verify(id, parser.get()))
                     return false;
-                parser.reset(id); // æ¶ˆè´¹åç²¾ç¡®æ¸…
+                parser.reset(id); // Ïû·Ñºó¾«È·Çå
             }
         }
         ASSERT(got_message);
@@ -774,7 +774,7 @@ bool test_positive_single()
     return true;
 }
 
-// æµ‹è¯•å¤šæ¡æ¶ˆæ¯æ‹¼æ¥åçš„è¿ç»­è§£æ
+// ²âÊÔ¶àÌõÏûÏ¢Æ´½ÓºóµÄÁ¬Ğø½âÎö
 bool test_positive_concatenated()
 {
     vt_parser parser;
@@ -807,7 +807,7 @@ bool test_positive_concatenated()
     return true;
 }
 
-// æµ‹è¯•æ¶ˆæ¯ä¸æ–‡æœ¬ç©¿
+// ²âÊÔÏûÏ¢ÓëÎÄ±¾´©
 bool test_positive_with_text()
 {
     vt_parser parser;
@@ -816,7 +816,7 @@ bool test_positive_with_text()
         msg_gen gen;
         raw_seq seq = gen.serialize();
 
-        // éšæœºç”Ÿæˆå‰åæ–‡æœ¬
+        // Ëæ»úÉú³ÉÇ°ºóÎÄ±¾
         std::u32string prefix, suffix;
         int pre_len = rand_short(1, 10);
         int suf_len = rand_short(1, 10);
@@ -840,7 +840,7 @@ bool test_positive_with_text()
                 if (id == vt_message_id::text)
                 {
                     text_received = true;
-                    // æ–‡æœ¬å†…å®¹å¯ä»¥æ˜¯å‰ç¼€ã€åç¼€æˆ–éæ³•åº
+                    // ÎÄ±¾ÄÚÈİ¿ÉÒÔÊÇÇ°×º¡¢ºó×º»ò·Ç·¨Ğò
                 }
                 else
                 {
@@ -857,10 +857,10 @@ bool test_positive_with_text()
 }
 
 // ============================================================================
-// åå‘æµ‹è¯•ï¼ˆéæ³•åºtext æ¶ˆæ¯ï¼Œå†…å®¹ä¸åŸè¾“å…¥ä¸€è‡´ï¼‰
+// ·´Ïò²âÊÔ£¨·Ç·¨Ğòtext ÏûÏ¢£¬ÄÚÈİÓëÔ­ÊäÈëÒ»ÖÂ£©
 // ============================================================================
 
-// è¾…åŠ©å‡½æ•°ï¼šè¾“å…¥ä¸€ç»„ç ç‚¹ï¼Œåº”å½“äº§ç”Ÿä¸€text æ¶ˆæ¯ï¼Œä¸” text å†…å®¹ç­‰äºè¾“å…¥åºåˆ—
+// ¸¨Öúº¯Êı£ºÊäÈëÒ»×éÂëµã£¬Ó¦µ±²úÉúÒ»text ÏûÏ¢£¬ÇÒ text ÄÚÈİµÈÓÚÊäÈëĞòÁĞ
 bool test_illegal_as_text(const raw_seq &seq)
 {
     vt_parser parser;
@@ -871,24 +871,24 @@ bool test_illegal_as_text(const raw_seq &seq)
         if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
         {
             ASSERT(id == vt_message_id::text);
-            // éªŒè¯ text è§†å›¾ç­‰äºåŸå§‹éæ³•åºåˆ—
+            // ÑéÖ¤ text ÊÓÍ¼µÈÓÚÔ­Ê¼·Ç·¨ĞòÁĞ
             std::u32string_view txt = parser.get().text;
             ASSERT(txt.size() == seq.code_points.size());
-            // ç”±äºåŸå§‹åºåˆ—å¯èƒ½åœ¨ä¸åŒæ—¶æœºè¾“å‡ºï¼ˆå¦‚éæ³•å­—ç¬¦å°±åœ¨å½“å‰å­—ç¬¦ï¼‰
-            // ä½†åœ¨æ­¤æµ‹è¯•ä¸­æˆ‘ä»¬æ•…æ„æ„é€ å®Œæ•´çš„éæ³•åºåˆ—ä¸€æ¬¡æ€§è¾“å‡ºï¼ˆä¸åŒ…å«æ§åˆ¶ä¸­æ–­ï¼‰
-            // æ‰€ä»¥ç›´æ¥æ¯”è¾ƒå³å¯
+            // ÓÉÓÚÔ­Ê¼ĞòÁĞ¿ÉÄÜÔÚ²»Í¬Ê±»úÊä³ö£¨Èç·Ç·¨×Ö·û¾ÍÔÚµ±Ç°×Ö·û£©
+            // µ«ÔÚ´Ë²âÊÔÖĞÎÒÃÇ¹ÊÒâ¹¹ÔìÍêÕûµÄ·Ç·¨ĞòÁĞÒ»´ÎĞÔÊä³ö£¨²»°üº¬¿ØÖÆÖĞ¶Ï£©
+            // ËùÒÔÖ±½Ó±È½Ï¼´¿É
             for (size_t j = 0; j < txt.size(); ++j)
                 ASSERT(txt[j] == seq.code_points[j]);
             produced = true;
             parser.reset(id);
-            break; // åªæœŸæœ›ä¸€æ¡æ¶ˆ
+            break; // Ö»ÆÚÍûÒ»ÌõÏû
         }
     }
     ASSERT(produced);
     return true;
 }
 
-// å„ç§å…¸å‹éæ³•åºåˆ—çš„æµ‹
+// ¸÷ÖÖµäĞÍ·Ç·¨ĞòÁĞµÄ²â
 
 bool test_illegal_esc_unknown_final()
 {
@@ -909,11 +909,11 @@ bool test_illegal_charset_unknown()
 
 bool test_illegal_csi_unknown_final()
 {
-    // CSI å‚æ•° + éæ³•ç»ˆæ€å­—
+    // CSI ²ÎÊı + ·Ç·¨ÖÕÌ¬×Ö
     raw_seq seq;
     seq.add_csi();
     seq.add(U'1');
-    seq.add(U'<'); // '<' ä¸æ˜¯åˆæ³•ä¸­é—´æˆ–ç»ˆ
+    seq.add(U'<'); // '<' ²»ÊÇºÏ·¨ÖĞ¼ä»òÖÕ
     return test_illegal_as_text(seq);
 }
 
@@ -992,10 +992,10 @@ bool test_illegal_osc_unknown_code()
     return test_illegal_as_text(seq);
 }
 
-// OSC ç¼“å†²åŒºæº¢å‡ºç°åœ¨ä¹Ÿä¸ä¸¢å¼ƒï¼Œåªæ˜¯å¿½ç•¥è¶…å‡ºéƒ¨åˆ†ï¼Ÿåœ¨æ—§ç‰ˆä¸­è®¾osc_buf_overflow é”™è¯¯
-// æ–°ç‰ˆä¸­ç”±äºæˆ‘ä»¬åœ¨è§£ææ—¶ä»ç„¶å°è¯•å†™_osc_buf å¹¶æ£€æŸ¥é•¿åº¦ï¼Œä½†éæ³•æ—¶æ•´ä¸ª OSC åºåˆ—ä¼šå˜text
-// æº¢å‡ºæ—¶æˆ‘ä»¬åœ¨ä»£ç é‡Œè®¾ç½®äº† _badï¼Œä½†æ–°ç‰ˆæ²¡æœ‰ badï¼Œè€Œæ˜¯ç»§ç»­ï¼Œç„¶dispatch å¯èƒ½å¤±è´¥ä»è€Œè¾“text
-// æ‰€ä»¥æµ‹è¯•åº”è¯¥éªŒè¯æº¢å‡ºä¹Ÿè¾“å‡º text ä¸”å†…å®¹å®Œæ•´
+// OSC »º³åÇøÒç³öÏÖÔÚÒ²²»¶ªÆú£¬Ö»ÊÇºöÂÔ³¬³ö²¿·Ö£¿ÔÚ¾É°æÖĞÉèosc_buf_overflow ´íÎó
+// ĞÂ°æÖĞÓÉÓÚÎÒÃÇÔÚ½âÎöÊ±ÈÔÈ»³¢ÊÔĞ´_osc_buf ²¢¼ì²é³¤¶È£¬µ«·Ç·¨Ê±Õû¸ö OSC ĞòÁĞ»á±ätext
+// Òç³öÊ±ÎÒÃÇÔÚ´úÂëÀïÉèÖÃÁË _bad£¬µ«ĞÂ°æÃ»ÓĞ bad£¬¶øÊÇ¼ÌĞø£¬È»dispatch ¿ÉÄÜÊ§°Ü´Ó¶øÊätext
+// ËùÒÔ²âÊÔÓ¦¸ÃÑéÖ¤Òç³öÒ²Êä³ö text ÇÒÄÚÈİÍêÕû
 bool test_illegal_osc_buf_overflow()
 {
     raw_seq seq;
@@ -1021,10 +1021,10 @@ bool test_illegal_osc_palette_no_rgb()
     return test_illegal_as_text(seq);
 }
 
-// ç»„åˆæµ‹è¯•ï¼šå¤šç§éæ³•åºåˆ—è¿ç»­è¾“å…¥ï¼Œå„è‡ªè¾“å‡º text
+// ×éºÏ²âÊÔ£º¶àÖÖ·Ç·¨ĞòÁĞÁ¬ĞøÊäÈë£¬¸÷×ÔÊä³ö text
 bool test_illegal_mixed()
 {
-    // æ„é€ å¤šä¸ªéæ³•åºåˆ—æ‹¼æ¥ï¼Œæ¯ä¸ªéƒ½åº”äº§ç”Ÿä¸€text æ¶ˆæ¯ï¼Œå†…å®¹ç­‰äºè¯¥åºåˆ—åŸæ–‡
+    // ¹¹Ôì¶à¸ö·Ç·¨ĞòÁĞÆ´½Ó£¬Ã¿¸ö¶¼Ó¦²úÉúÒ»text ÏûÏ¢£¬ÄÚÈİµÈÓÚ¸ÃĞòÁĞÔ­ÎÄ
     struct
     {
         raw_seq seq;
@@ -1174,11 +1174,11 @@ bool test_parse_resize_window_fields_reset()
 }
 
 // ============================================================================
-// å›å½’æµ‹è¯•: CR/LF ä¸è¦†ç›–ç´¯ç§¯æ–‡(fix: _handle_control ä¸å†_msg.text)
+// »Ø¹é²âÊÔ: CR/LF ²»¸²¸ÇÀÛ»ıÎÄ(fix: _handle_control ²»ÔÙ_msg.text)
 // ============================================================================
 
-// æ¨¡æ‹Ÿ pipe_bridge process_input é€»è¾‘ï¼šchar32_t å–‚å…¥ parser
-// éªŒè¯ text æ¶ˆæ¯çš„å†…å®¹æ­£ç¡®
+// Ä£Äâ pipe_bridge process_input Âß¼­£ºchar32_t Î¹Èë parser
+// ÑéÖ¤ text ÏûÏ¢µÄÄÚÈİÕıÈ·
 static std::u32string feed_and_collect_text(const std::u32string &input)
 {
     vt_parser p;
@@ -1192,7 +1192,7 @@ static std::u32string feed_and_collect_text(const std::u32string &input)
                 collected.append(p.get().text);
             p.reset(id);
 
-            // drain æ’é˜Ÿæ¶ˆæ¯
+            // drain ÅÅ¶ÓÏûÏ¢
             if (auto d_id = p.parse(U'\0'); d_id != vt_message_id::continue_ && d_id != vt_message_id::continue_text)
             {
                 if (d_id == vt_message_id::text)
@@ -1201,7 +1201,7 @@ static std::u32string feed_and_collect_text(const std::u32string &input)
             }
         }
     }
-    // æ’ç©ºæœ«å°¾æ®‹ç•™çš„ _pending_control
+    // ÅÅ¿ÕÄ©Î²²ĞÁôµÄ _pending_control
     if (auto id = p.parse(U'\0'); id != vt_message_id::continue_ && id != vt_message_id::continue_text)
     {
         if (id == vt_message_id::text)
@@ -1213,7 +1213,7 @@ static std::u32string feed_and_collect_text(const std::u32string &input)
 
 bool test_regression_cr_preserves_text()
 {
-    // \r æ˜¯ä¸“ç”¨ carriage_returnï¼Œå‰å¯¼æ–‡æœ¬ä½œä¸º text å…ˆäº§å‡º
+    // \r ÊÇ×¨ÓÃ carriage_return£¬Ç°µ¼ÎÄ±¾×÷Îª text ÏÈ²ú³ö
     auto result = feed_and_collect_text(U"echo hello\r");
     ASSERT(result == U"echo hello");
     return true;
@@ -1221,7 +1221,7 @@ bool test_regression_cr_preserves_text()
 
 bool test_regression_lf_preserves_text()
 {
-    // \n æ˜¯ä¸“ç”¨ line_feedï¼Œå‰å¯¼æ–‡æœ¬ä½œä¸º text å…ˆäº§å‡º
+    // \n ÊÇ×¨ÓÃ line_feed£¬Ç°µ¼ÎÄ±¾×÷Îª text ÏÈ²ú³ö
     auto result = feed_and_collect_text(U"echo hello\n");
     ASSERT(result == U"echo hello");
     return true;
@@ -1229,7 +1229,7 @@ bool test_regression_lf_preserves_text()
 
 bool test_regression_bare_cr_produces_carriage_return()
 {
-    // å•ç‹¬\r â†’ carriage_return
+    // µ¥¶À\r ¡ú carriage_return
     vt_parser p;
     bool got_cr = false;
     for (char32_t ch : U"\r")
@@ -1248,7 +1248,7 @@ bool test_regression_bare_cr_produces_carriage_return()
 
 bool test_regression_bare_lf_produces_line_feed()
 {
-    // å•ç‹¬\n â†’ line_feed
+    // µ¥¶À\n ¡ú line_feed
     vt_parser p;
     bool got_lf = false;
     for (char32_t ch : U"\n")
@@ -1267,44 +1267,44 @@ bool test_regression_bare_lf_produces_line_feed()
 
 bool test_regression_crlf_full_pipeline()
 {
-    // text + carriage_return + line_feed: æ–‡æœ¬æ®µä¸å« \r \n
+    // text + carriage_return + line_feed: ÎÄ±¾¶Î²»º¬ \r \n
     auto result = feed_and_collect_text(U"echo hello\r\n");
     ASSERT(result == U"echo hello");
     return true;
 }
 
-// â”€â”€ å›å½’ BUG: reset() æ¸…é™¤äº† _pending_control â”€â”€
-//   "echo hello" (å¯æ‰“å°å­—ç¬¦) + \r (CR) â†’ reset(text) å
-//   _pending_control è¢«æ¸…é™¤ï¼Œ\r è¢«ä¸¢å¼ƒï¼Œè¡Œç»ˆæ­¢ç¬¦ä¸¢å¤±ã€‚
-//   ä¿®å¤: reset() ä¸å†æ¸…é™¤ _pending_controlã€‚
+// ©¤©¤ »Ø¹é BUG: reset() Çå³ıÁË _pending_control ©¤©¤
+//   "echo hello" (¿É´òÓ¡×Ö·û) + \r (CR) ¡ú reset(text) ºó
+//   _pending_control ±»Çå³ı£¬\r ±»¶ªÆú£¬ĞĞÖÕÖ¹·û¶ªÊ§¡£
+//   ĞŞ¸´: reset() ²»ÔÙÇå³ı _pending_control¡£
 bool test_regression_pending_control_survives_reset()
 {
     vt_parser p;
     char32_t input[] = {U'e', U'c', U'h', U'o', U'\r'};
 
-    // å‰ 4 ä¸ªå­—ç¬¦ â†’ text æ¶ˆæ¯
+    // Ç° 4 ¸ö×Ö·û ¡ú text ÏûÏ¢
     vt_message_id id = vt_message_id::continue_;
     for (int i = 0; i < 4; ++i)
     {
         id = p.parse(input[i]);
         ASSERT(id == vt_message_id::continue_text);
     }
-    // ç¬¬ 5 ä¸ª \r â†’ parser å…ˆäº¤ä»˜ textï¼Œè®¾ _pending_control=carriage_return
+    // µÚ 5 ¸ö \r ¡ú parser ÏÈ½»¸¶ text£¬Éè _pending_control=carriage_return
     id = p.parse(input[4]);
     ASSERT(id == vt_message_id::text);
     ASSERT(p.get().text == U"echo");
-    p.reset(vt_message_id::text); // reset ä¸åº”æ¸…é™¤ _pending_control
+    p.reset(vt_message_id::text); // reset ²»Ó¦Çå³ı _pending_control
 
-    // ä¸‹ä¸€ä¸ª parse() åº”äº¤ä»˜ carriage_return
-    id = p.parse(U' '); // dummy char è§¦å‘ _pending_control äº¤ä»˜
+    // ÏÂÒ»¸ö parse() Ó¦½»¸¶ carriage_return
+    id = p.parse(U' '); // dummy char ´¥·¢ _pending_control ½»¸¶
     ASSERT(id == vt_message_id::carriage_return);
     ASSERT(p.get().text.empty());
     return true;
 }
 
-// â”€â”€ å›å½’ BUG: çº¯æ–‡æœ¬æ— æ§åˆ¶å­—ç¬¦ç»ˆæ­¢æ—¶æ°¸è¿œä¸äº¤ä»˜ â”€â”€
-//   38 ä¸ªå¯æ‰“å°å­—ç¬¦ç§¯ç´¯åœ¨ _raw ä¸­ï¼Œæ—  \r \n \t ESC è§¦å‘äº¤ä»˜ã€‚
-//   ä¿®å¤: æ–°å¢ flush_text()ï¼Œapi_write_console å¾ªç¯åè°ƒç”¨ã€‚
+// ©¤©¤ »Ø¹é BUG: ´¿ÎÄ±¾ÎŞ¿ØÖÆ×Ö·ûÖÕÖ¹Ê±ÓÀÔ¶²»½»¸¶ ©¤©¤
+//   38 ¸ö¿É´òÓ¡×Ö·û»ıÀÛÔÚ _raw ÖĞ£¬ÎŞ \r \n \t ESC ´¥·¢½»¸¶¡£
+//   ĞŞ¸´: ĞÂÔö flush_text()£¬api_write_console Ñ­»·ºóµ÷ÓÃ¡£
 bool test_regression_flush_text_delivers_accumulated()
 {
     vt_parser p;
@@ -1316,24 +1316,24 @@ bool test_regression_flush_text_delivers_accumulated()
         ASSERT(id == vt_message_id::continue_text);
     }
 
-    // æ‰€æœ‰å­—ç¬¦éƒ½æ˜¯ continue_textï¼Œæ— æ¶ˆæ¯äº¤ä»˜
+    // ËùÓĞ×Ö·û¶¼ÊÇ continue_text£¬ÎŞÏûÏ¢½»¸¶
     ASSERT(p.has_pending_text());
 
-    // flush_text åº”é‡Šæ”¾ "Micro"
+    // flush_text Ó¦ÊÍ·Å "Micro"
     vt_message_id id = p.flush_text();
     ASSERT(id == vt_message_id::text);
     ASSERT(p.get().text == U"Micro");
 
-    // å†æ¬¡ flush æ— æ®‹ç•™
+    // ÔÙ´Î flush ÎŞ²ĞÁô
     ASSERT(!p.has_pending_text());
     ASSERT(p.flush_text() == vt_message_id::continue_);
     return true;
 }
 
-// â”€â”€ \r\n é…å¯¹ç”± parser å†…éƒ¨å¤„ç†ï¼Œè°ƒç”¨æ–¹æ— éœ€é¢å¤–æ ‡å¿— â”€â”€
-// "hello\r\n" æµç¨‹: parse('h'..'o') ç´¯ç§¯ â†’ parse('\r') äº§ text, _pending_control=carriage_return
-// â†’ parse('\n') è§¦å‘ _pending_control, è¿”å› carriage_return å¹¶å°† pending å‡çº§ä¸º line_feed
-// â†’ drain: parse(U'\0') å–å‡º line_feedã€‚è°ƒç”¨æ–¹åªéœ€åœ¨æ¯æ¬¡ reset åæ— æ¡ä»¶ drainã€‚
+// ©¤©¤ \r\n Åä¶ÔÓÉ parser ÄÚ²¿´¦Àí£¬µ÷ÓÃ·½ÎŞĞè¶îÍâ±êÖ¾ ©¤©¤
+// "hello\r\n" Á÷³Ì: parse('h'..'o') ÀÛ»ı ¡ú parse('\r') ²ú text, _pending_control=carriage_return
+// ¡ú parse('\n') ´¥·¢ _pending_control, ·µ»Ø carriage_return ²¢½« pending Éı¼¶Îª line_feed
+// ¡ú drain: parse(U'\0') È¡³ö line_feed¡£µ÷ÓÃ·½Ö»ĞèÔÚÃ¿´Î reset ºóÎŞÌõ¼ş drain¡£
 bool test_regression_cr_then_nl_bridge_pairing()
 {
     vt_parser p;
@@ -1343,23 +1343,23 @@ bool test_regression_cr_then_nl_bridge_pairing()
         vt_message_id id = p.parse(ch);
         ASSERT(id == vt_message_id::continue_text);
     }
-    // "\r" â†’ parser äº§ text("hello")ï¼Œ_pending_control=carriage_return
+    // "\r" ¡ú parser ²ú text("hello")£¬_pending_control=carriage_return
     vt_message_id id = p.parse(U'\r');
     ASSERT(id == vt_message_id::text);
     ASSERT(p.get().text == U"hello");
     p.reset(id);
 
-    // "\n" â†’ _pending_control è§¦å‘, è¿”å› carriage_return, å‡çº§ä¸º line_feed
+    // "\n" ¡ú _pending_control ´¥·¢, ·µ»Ø carriage_return, Éı¼¶Îª line_feed
     id = p.parse(U'\n');
     ASSERT(id == vt_message_id::carriage_return);
     p.reset(id);
 
-    // drain: parse(U'\0') â†’ line_feedï¼ˆ_pending_control å‡çº§åçš„å»¶è¿Ÿæ¶ˆæ¯ï¼‰
+    // drain: parse(U'\0') ¡ú line_feed£¨_pending_control Éı¼¶ºóµÄÑÓ³ÙÏûÏ¢£©
     id = p.parse(U'\0');
     ASSERT(id == vt_message_id::line_feed);
     p.reset(id);
 
-    // å†æ¬¡ drain: æ—  pending â†’ continue_
+    // ÔÙ´Î drain: ÎŞ pending ¡ú continue_
     id = p.parse(U'\0');
     ASSERT(id == vt_message_id::continue_);
 
@@ -1368,13 +1368,13 @@ bool test_regression_cr_then_nl_bridge_pairing()
 
 bool test_regression_text_with_vt_then_cr()
 {
-    // æ··åˆåœºæ™¯: "abc\x1b[Adef\r" text1="abc", cursor_up, text2="def"
-    //  key_up remap pipe_bridge ä¸­å®Œæˆï¼Œparser äº§å‡º cursor_up
+    // »ìºÏ³¡¾°: "abc\x1b[Adef\r" text1="abc", cursor_up, text2="def"
+    //  key_up remap pipe_bridge ÖĞÍê³É£¬parser ²ú³ö cursor_up
     vt_parser p;
     std::u32string collected;
     bool got_cursor_up = false;
 
-    // æ˜¾å¼æ„é€ ç ç‚¹ï¼Œé¿å…å­—ç¬¦ä¸²å­—é¢é‡è½¬ä¹‰æ­§ä¹‰
+    // ÏÔÊ½¹¹ÔìÂëµã£¬±ÜÃâ×Ö·û´®×ÖÃæÁ¿×ªÒåÆçÒå
     std::u32string input;
     input += U'a';
     input += U'b';
@@ -1399,7 +1399,7 @@ bool test_regression_text_with_vt_then_cr()
         else
         {
             fprintf(stderr, "UNEXPECTED id=%d ch=U+%04X\n", static_cast<int>(id), static_cast<unsigned>(ch));
-            ASSERT(false); // ä¸åº”å‡ºç°å…¶ä»–æ¶ˆæ¯
+            ASSERT(false); // ²»Ó¦³öÏÖÆäËûÏûÏ¢
         }
         p.reset(id);
     }
@@ -1410,8 +1410,8 @@ bool test_regression_text_with_vt_then_cr()
 
 bool test_regression_multiline_input()
 {
-    // _pending_control è§¦å‘æ—¶æ€»ä¼šæ¶ˆè´¹å½“å‰å­—ç¬¦ã€‚è°ƒç”¨æ–¹åœ¨æ¯æ¬¡ reset å
-    // æ— æ¡ä»¶ drainï¼ˆparse(U'\0')ï¼‰ï¼Œæ—  pending æ—¶é¦–æ¬¡å³è¿”å› continue_ã€‚
+    // _pending_control ´¥·¢Ê±×Ü»áÏû·Ñµ±Ç°×Ö·û¡£µ÷ÓÃ·½ÔÚÃ¿´Î reset ºó
+    // ÎŞÌõ¼ş drain£¨parse(U'\0')£©£¬ÎŞ pending Ê±Ê×´Î¼´·µ»Ø continue_¡£
     vt_parser p;
     std::u32string collected;
 
@@ -1425,7 +1425,7 @@ bool test_regression_multiline_input()
             collected.append(p.get().text);
         p.reset(id);
 
-        // æ— æ¡ä»¶ drain: _pending_control æœ€å¤šä¸€ä¸ªæ’é˜Ÿæ¶ˆæ¯
+        // ÎŞÌõ¼ş drain: _pending_control ×î¶àÒ»¸öÅÅ¶ÓÏûÏ¢
         if (auto drain_id = p.parse(U'\0');
             drain_id != vt_message_id::continue_ && drain_id != vt_message_id::continue_text)
         {
@@ -1447,10 +1447,10 @@ bool test_regression_multiline_input()
 }
 
 // ============================================================================
-// Echo åˆ¤å®šæµ‹è¯•: should_echo_last() æ­£ç¡®
+// Echo ÅĞ¶¨²âÊÔ: should_echo_last() ÕıÈ·
 // ============================================================================
 
-// åœ°é¢æ€å¯æ‰“å°å­—ç¬¦åº”å›
+// µØÃæÌ¬¿É´òÓ¡×Ö·ûÓ¦»Ø
 bool test_echo_ground_printable()
 {
     vt_parser p;
@@ -1463,7 +1463,7 @@ bool test_echo_ground_printable()
     return true;
 }
 
-// åœ°é¢æ€å¯è§æ§åˆ¶å­—ç¬¦åº”å›æ˜¾ (\r \n \b \t)
+// µØÃæÌ¬¿É¼û¿ØÖÆ×Ö·ûÓ¦»ØÏÔ (\r \n \b \t)
 bool test_echo_ground_controls()
 {
     vt_parser p;
@@ -1482,7 +1482,7 @@ bool test_echo_ground_controls()
     return true;
 }
 
-// ESC æœ¬èº«åŠæ™®ESC åºåˆ—ä¸åº”å›æ˜¾
+// ESC ±¾Éí¼°ÆÕESC ĞòÁĞ²»Ó¦»ØÏÔ
 bool test_echo_esc_not_echoed()
 {
     vt_parser p;
@@ -1494,7 +1494,7 @@ bool test_echo_esc_not_echoed()
     return true;
 }
 
-// CSI ç›¸å¯¹å…‰æ ‡åºåˆ—ä¸åº”å›æ˜¾åŸå§‹å­—èŠ‚ï¼ˆdispatch ç”Ÿæˆé’³åˆ¶ CUP
+// CSI Ïà¶Ô¹â±êĞòÁĞ²»Ó¦»ØÏÔÔ­Ê¼×Ö½Ú£¨dispatch Éú³ÉÇ¯ÖÆ CUP
 bool test_echo_csi_cursor_not_echoed()
 {
     vt_parser p;
@@ -1516,7 +1516,7 @@ bool test_echo_csi_cursor_not_echoed()
     return true;
 }
 
-// SS3 é”®ç›˜åºåˆ—ä¸åº”å›æ˜¾åŸå§‹å­—èŠ‚ï¼ˆdispatch ç”Ÿæˆé’³åˆ¶ CUP
+// SS3 ¼üÅÌĞòÁĞ²»Ó¦»ØÏÔÔ­Ê¼×Ö½Ú£¨dispatch Éú³ÉÇ¯ÖÆ CUP
 bool test_echo_ss3_not_echoed()
 {
     vt_parser p;
@@ -1530,7 +1530,7 @@ bool test_echo_ss3_not_echoed()
     return true;
 }
 
-// textâ†’ESC è¿‡æ¸¡ï¼šESC è§¦å‘ text flush parser è¿›å…¥è½¬ä¹‰ï¼ŒCSI ä¸å›
+// text¡úESC ¹ı¶É£ºESC ´¥·¢ text flush parser ½øÈë×ªÒå£¬CSI ²»»Ø
 bool test_echo_text_esc_transition()
 {
     vt_parser p;
@@ -1552,7 +1552,7 @@ bool test_echo_text_esc_transition()
     return true;
 }
 
-// OSC æ ‡é¢˜ä¸åº”å›æ˜¾
+// OSC ±êÌâ²»Ó¦»ØÏÔ
 bool test_echo_osc_not_echoed()
 {
     vt_parser p;
@@ -1568,7 +1568,7 @@ bool test_echo_osc_not_echoed()
     return true;
 }
 
-// SGR åºåˆ—ä¸åº”å›æ˜¾
+// SGR ĞòÁĞ²»Ó¦»ØÏÔ
 bool test_echo_sgr_not_echoed()
 {
     vt_parser p;
@@ -1582,7 +1582,7 @@ bool test_echo_sgr_not_echoed()
     return true;
 }
 
-// CSI ~ æ‰©å±•åŠŸèƒ½é”®ä¸åº”å›
+// CSI ~ À©Õ¹¹¦ÄÜ¼ü²»Ó¦»Ø
 bool test_echo_csi_tilde_not_echoed()
 {
     vt_parser p;
@@ -1597,7 +1597,7 @@ bool test_echo_csi_tilde_not_echoed()
 }
 
 // ============================================================================
-// å…¥å£
+// Èë¿Ú
 // ============================================================================
 
 int main()
@@ -1649,7 +1649,7 @@ int main()
     RUN_TEST(test_echo_esc_not_echoed, L"ESC / reverse_index not echoed");
     RUN_TEST(test_echo_csi_cursor_not_echoed, L"CSI D cursor_backward NOT echoed");
     RUN_TEST(test_echo_ss3_not_echoed, L"SS3 D key_left NOT echoed");
-    RUN_TEST(test_echo_text_esc_transition, L"Textâ†’ESC transition preserves echo state");
+    RUN_TEST(test_echo_text_esc_transition, L"Text¡úESC transition preserves echo state");
     RUN_TEST(test_echo_osc_not_echoed, L"OSC title not echoed");
     RUN_TEST(test_echo_sgr_not_echoed, L"SGR not echoed");
     RUN_TEST(test_echo_csi_tilde_not_echoed, L"CSI ~ extended key not echoed");

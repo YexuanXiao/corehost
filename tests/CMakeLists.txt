@@ -15,6 +15,7 @@ add_library(test_common INTERFACE)
 target_include_directories(test_common INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/libcorehost
+    ${CMAKE_SOURCE_DIR}/lib
     ${CMAKE_SOURCE_DIR}/corehost
     ${CMAKE_SOURCE_DIR}/third_parties/cstring_view/include/beman
     ${CMAKE_SOURCE_DIR}/third_parties/libunicode/src

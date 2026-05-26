@@ -1,11 +1,11 @@
-ï»¿// === tests/test_conpty_newline.cpp ===
+// === tests/test_conpty_newline.cpp ===
 // Reproduces the "welcome message all on first line" bug.
 // Tests that multiple WriteConsole calls with \r\n properly advance cursor.
 #include "test_common.hpp"
-#include "conpty/conpty_vt_parser.hpp"
-#include "conpty/vt_msg_dispatch.hpp"
-#include "conpty/console_state.hpp"
-#include "conpty/screen_buffer.hpp"
+#include "conpty_vt_parser.hpp"
+#include "vt_msg_dispatch.hpp"
+#include "console_state.hpp"
+#include "screen_buffer.hpp"
 #include <cstdio>
 
 using namespace conpty;
@@ -29,7 +29,7 @@ void dump_sb(screen_buffer &sb, int rows)
     }
 }
 
-// Simulate api_write_console: CUPâ†’SGRâ†’text (split at \\r \\n) â†’ CUP
+// Simulate api_write_console: CUP¡úSGR¡útext (split at \\r \\n) ¡ú CUP
 void sim_write_console(console_state &st, screen_buffer &sb, std::u32string_view text)
 {
     // Step 1: CUP to start position
@@ -38,12 +38,12 @@ void sim_write_console(console_state &st, screen_buffer &sb, std::u32string_view
     m.col = st.cursor.position.X + 1;
     vt_msg_apply_state(vt_message_id::cursor_position, m, st, sb);
 
-    // Step 2: SGR (simplified â€” just ensure default attrs)
+    // Step 2: SGR (simplified ¡ª just ensure default attrs)
     m = vt_message{};
     m.sgr_reset = true;
     vt_msg_apply_state(vt_message_id::sgr, m, st, sb);
 
-    // Step 3: text â€” split at \\r \\n into dedicated messages
+    // Step 3: text ¡ª split at \\r \\n into dedicated messages
     m = vt_message{};
     size_t seg_start = 0;
     for (size_t i = 0; i < text.size(); ++i)
@@ -188,7 +188,7 @@ bool test_cls_full_screen()
     st.screen_buffer_size = {120, 30};
     st.cursor.position = {0, 0};
 
-    // Step 1: cmd welcome â†’ fills rows 0-2, prompt on row 3
+    // Step 1: cmd welcome ¡ú fills rows 0-2, prompt on row 3
     sim_write_console(st, sb, U"Microsoft Windows [Version 10.0.26100.0]\r\n");
     sim_write_console(st, sb, U"(c) Microsoft Corporation. All rights reserved.\r\n");
     sim_write_console(st, sb, U"\r\n");
@@ -249,7 +249,7 @@ bool test_cls_multiple()
 
 bool test_cls_then_echo()
 {
-    // Full scenario: welcome â†’ cls â†’ prompt â†’ user types echo hello
+    // Full scenario: welcome ¡ú cls ¡ú prompt ¡ú user types echo hello
     console_state st;
     screen_buffer sb({80, 25});
     st.screen_buffer_size = {80, 25};
@@ -285,7 +285,7 @@ bool test_cls_then_echo()
 bool test_cls_cursor_at_zero_after_echo()
 {
     // Reg: after echo + cls, next prompt must be at row 0
-    // This tests the exact "echo hello â†’ cls" scenario
+    // This tests the exact "echo hello ¡ú cls" scenario
     console_state st;
     screen_buffer sb({80, 25});
     st.screen_buffer_size = {80, 25};
@@ -293,7 +293,7 @@ bool test_cls_cursor_at_zero_after_echo()
 
     // Welcome + prompt
     sim_write_console(st, sb, U"Windows\r\n\r\nC:\\Users\\xyx>");
-    // User types echo hello â†’ prompt advances
+    // User types echo hello ¡ú prompt advances
     sim_write_console(st, sb, U"echo hello\r\n");
     sim_write_console(st, sb, U"hello\r\n"); // cmd's output
     sim_write_console(st, sb, U"\r\n");

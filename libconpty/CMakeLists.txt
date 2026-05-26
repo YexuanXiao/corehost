@@ -10,11 +10,12 @@ option(USE_INBOX_CONHOST "Always use system conhost.exe (no corehost side-load)"
 # ── conpty_static: 静态库，继承父级所有编译选项 ──────────
 add_library(conpty_static STATIC
     libconpty.cpp
-    ../libcorehost/shell/shell.cpp
+    ../lib/shell/shell.cpp
 )
 
 target_include_directories(conpty_static PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../lib
     ${CMAKE_CURRENT_SOURCE_DIR}/../libcorehost
     ${CMAKE_CURRENT_SOURCE_DIR}/../third_parties/cstring_view/include/beman
 )
@@ -32,13 +33,14 @@ endif()
 # ── conpty (DLL): 独立编译选项 ────
 add_library(conpty SHARED
     libconpty.cpp
-    ../libcorehost/shell/shell.cpp
+    ../lib/shell/shell.cpp
     dllmain.cpp
     conpty.def
 )
 
 target_include_directories(conpty PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../lib
     ${CMAKE_CURRENT_SOURCE_DIR}/../libcorehost
     ${CMAKE_CURRENT_SOURCE_DIR}/../third_parties/cstring_view/include/beman
 )

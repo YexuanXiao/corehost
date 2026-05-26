@@ -1,7 +1,7 @@
 #pragma once
 
 #include "win32/command_line.hpp"
-#include "conpty/text_measurement_mode.hpp"
+#include "text_measurement_mode.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -171,7 +171,7 @@ class console_arguments
             }
 
             // 只允许以下三个值：
-            //   "graphemes" Unicode 字簇（grapheme cluster）测量宽度
+            //   "graphemes" Unicode 字簇（grapheme cluster）测量宽�?
             //   "wcswidth" wcswidth 规则测量宽度
             //   "console" 传统 conhost 规则测量宽度
             if (token == text_measurement_arg)
@@ -191,7 +191,7 @@ class console_arguments
                 continue;
             }
 
-            // ---- 显式客户端命令行分隔符 ------------------------------------
+            // ---- 显式客户端命令行分隔�?------------------------------------
             if (token == client_commandline_arg)
             {
                 // 跳过 "--"
@@ -199,7 +199,7 @@ class console_arguments
                 return;
             }
 
-            // ---- 未知 token -> 隐式客户端负载 -------------------------------
+            // ---- 未知 token -> 隐式客户端负�?-------------------------------
             _client_command_line = remaining;
             return;
         }

@@ -1,24 +1,23 @@
 # ═══════════════════════════════════════════════════════════════
-# libcorehost — ConPTY 核心静态库
+# lib — 核心基础设施静态库
 #
-# 提供 conpty_entry() 函数作为外部接口。
+# 提供 ConDrv I/O 原语 (miniio), OS 头文件 (os),
+# NT API 封装 (ntapi), Win32 RAII (win32),
+# COM 工具 (com), 工具函数 (utility), Shell 检测 (shell).
 # ═══════════════════════════════════════════════════════════════
 
-add_library(libcorehost STATIC
-    conpty.cpp
-    signal.cpp
+add_library(lib STATIC
+    ntapi/consolecontrol.cpp
+    ntapi/consolenslmode.cpp
 )
 
-target_include_directories(libcorehost PUBLIC
+target_include_directories(lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/lib
     ${CMAKE_SOURCE_DIR}/third_parties/cstring_view/include/beman
     ${CMAKE_SOURCE_DIR}/third_parties/utf_view/include/beman
-    ${CMAKE_SOURCE_DIR}/third_parties/deque
     ${CMAKE_SOURCE_DIR}/proxy/${CONHOST_PROXY_ARCH_DIR}
 )
 
-target_link_libraries(libcorehost PUBLIC
-    lib
-    unicode::unicode
+target_link_libraries(lib PUBLIC
+    ntdll.lib
 )

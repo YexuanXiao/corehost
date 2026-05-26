@@ -1,5 +1,5 @@
-#include "conpty/char_width.hpp"
-#include "conpty/text_measurement_mode.hpp"
+#include "char_width.hpp"
+#include "text_measurement_mode.hpp"
 #include <iostream>
 #include <cstdlib>
 #include <string>
@@ -9,7 +9,7 @@ int main()
 {
     using namespace conpty;
 
-    // ── Part 1: 单字符宽度验证 ──
+    // ── Part 1: 单字符宽度验�?──
     std::cout << "=== Part 1: Single Char Width ===" << std::endl;
     struct
     {
@@ -77,7 +77,7 @@ int main()
         int ww = char_width_wcswidth(cp);
         int wu = char_width_unicode(cp);
 
-        // 只在宽度非1时打印（节省输出）
+        // 只在宽度�?时打印（节省输出�?
         if (wc != 1 || ww != 1 || wu != 1)
         {
             char utf8[8] = {};

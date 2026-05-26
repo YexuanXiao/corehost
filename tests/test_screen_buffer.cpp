@@ -1,8 +1,8 @@
-﻿// === tests/test_screen_buffer.cpp ===
+// === tests/test_screen_buffer.cpp ===
 // Screen buffer unit tests (screen_buffer.hpp, screen_buffer_row.hpp)
 // Coverage: read/write, fill, scroll, clear, resize, char32_t text
 #include "test_common.hpp"
-#include "conpty/screen_buffer.hpp"
+#include "screen_buffer.hpp"
 #include <cstring>
 
 using namespace conpty;
