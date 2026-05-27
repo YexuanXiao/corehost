@@ -247,6 +247,7 @@ bool test_alias_empty()
 // 消息体 = Exe + Source + Target 三段连续布局。
 
 #include "api_handlers.hpp"
+#include "os/Console/ntcon.h"
 #include "os/Console/conmsgl3.h"
 struct api_test_context
 {
@@ -261,6 +262,21 @@ struct api_test_context
 };
 
 static api_test_context api_ctx;
+
+void mock_get_console_input_msg(miniio::io_msg &msg, USHORT flags)
+{
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + sizeof(INPUT_RECORD);
+
+    auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
+    hdr->ApiNumber = static_cast<ULONG>(ConsolepGetConsoleInput);
+    hdr->ApiDescriptorSize = sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+
+    auto *input = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    input->Flags = flags;
+    input->Unicode = TRUE;
+}
 
 // 辅助: 构造模拟 ConDrv AddAlias 消息 (Unicode)
 void mock_add_alias_msg(miniio::io_msg &msg, const std::wstring &exe, const std::wstring &src, const std::wstring &tgt)
@@ -297,6 +313,59 @@ bool test_regression_add_alias_msg_layout()
     auto it = st.aliases.find(L"hello");
     ASSERT(it != st.aliases.end());
     ASSERT(it->second == L"echo hello");
+    return true;
+}
+
+bool test_regression_get_console_input_nowait_empty()
+{
+    miniio::io_msg msg;
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    mock_get_console_input_msg(msg, CONSOLE_READ_NOWAIT);
+    ASSERT(api_get_console_input(msg, st, sb, inp, bridge));
+
+    auto *input = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    ASSERT(input->NumRecords == 0);
+    return true;
+}
+
+bool test_regression_get_console_input_waits_when_empty()
+{
+    miniio::io_msg msg;
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    mock_get_console_input_msg(msg, 0);
+    ASSERT(!api_get_console_input(msg, st, sb, inp, bridge));
+    ASSERT(bridge.has_pending());
+    return true;
+}
+
+bool test_regression_get_console_input_ready_event()
+{
+    miniio::io_msg msg;
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    INPUT_RECORD rec{};
+    rec.EventType = KEY_EVENT;
+    rec.Event.KeyEvent.bKeyDown = TRUE;
+    rec.Event.KeyEvent.wVirtualKeyCode = L'A';
+    rec.Event.KeyEvent.uChar.UnicodeChar = L'a';
+    inp.write(&rec, 1);
+
+    mock_get_console_input_msg(msg, 0);
+    ASSERT(api_get_console_input(msg, st, sb, inp, bridge));
+
+    auto *input = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    ASSERT(input->NumRecords == 1);
     return true;
 }
 
@@ -840,6 +909,9 @@ int main()
 
     RUN_TEST(test_alias_add_and_find, L"Alias add/find");
     RUN_TEST(test_alias_empty, L"Alias empty");
+    RUN_TEST(test_regression_get_console_input_nowait_empty, L"GetConsoleInput NOWAIT empty");
+    RUN_TEST(test_regression_get_console_input_waits_when_empty, L"GetConsoleInput waits when empty");
+    RUN_TEST(test_regression_get_console_input_ready_event, L"GetConsoleInput ready event");
     RUN_TEST(test_regression_add_alias_msg_layout, L"Alias msg layout (Exe+Src+Tgt)");
     RUN_TEST(test_regression_add_alias_zero_exe, L"Alias msg zero exe");
     RUN_TEST(test_regression_alias_expand_after_store, L"Alias expand after store");

@@ -20,6 +20,7 @@
 #include <string_view>
 #include "win32/handle.hpp"
 #include "miniio/io_thread.hpp"
+#include "os/Console/ntcon.h"
 #include "os/Console/conmsgl1.h"
 #include "os/Console/conmsgl2.h"
 #include "conpty_vt_parser.hpp"
@@ -70,11 +71,13 @@ struct pipe_bridge
     {
         None,
         RawRead,
-        ConsoleRead
+        ConsoleRead,
+        ConsoleInput
     };
     PendingKind _pend_kind = PendingKind::None;
     miniio::io_msg *_pend_raw = nullptr;
     miniio::io_msg *_pend_usr = nullptr;
+    miniio::io_msg *_pend_input = nullptr;
     CONSOLE_READCONSOLE_MSG _pend_req{};
     bool _pend_uni = false;
     bool _vt_eof = false;
@@ -120,6 +123,14 @@ struct pipe_bridge
     std::u32string _conv_u32; // UTF-16/ANSI/UTF-8 → char32_t
     std::string _conv_utf8;   // char32_t → UTF-8
     std::wstring _conv_wstr;  // char32_t → wchar_t / ANSI 中间缓冲
+
+    static size_t console_input_max_records(const miniio::io_msg &msg) noexcept
+    {
+        const auto client_buf = msg.descriptor.OutputSize;
+        const auto header_size = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+        const auto count = client_buf > header_size ? (client_buf - header_size) / sizeof(INPUT_RECORD) : 0;
+        return count == 0 ? 1 : count;
+    }
 
   public:
     // ════════════════════════════════════════════════════
@@ -901,6 +912,84 @@ struct pipe_bridge
         return false;
     }
 
+    bool handle_console_input(miniio::io_msg &msg)
+    {
+        auto *req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *out =
+            reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+        const auto max_count = console_input_max_records(msg);
+
+        const bool peek = (req->Flags & CONSOLE_READ_NOREMOVE) != 0;
+        const bool wait_allowed = (req->Flags & CONSOLE_READ_NOWAIT) == 0;
+        const auto count = peek ? inp.peek(out, max_count) : inp.read(out, max_count);
+
+        if (count == 0 && wait_allowed)
+        {
+            _pend_kind = PendingKind::ConsoleInput;
+            _pend_input = &msg;
+            return false;
+        }
+
+        req->NumRecords = static_cast<ULONG>(count);
+        const auto size =
+            static_cast<ULONG>(sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + count * sizeof(INPUT_RECORD));
+        miniio::prepare_completion(msg, 0, size);
+        msg.complete.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
+        msg.complete.Write.Size = size;
+        return true;
+    }
+
+    void wait_for_pending_vt_input()
+    {
+        if (_vt_eof || _pend_kind == PendingKind::None)
+            return;
+
+        DWORD avail = 0;
+        if (!::PeekNamedPipe(vt_in.get(), nullptr, 0, nullptr, &avail, nullptr))
+        {
+            LOG("[bridge] wait_for_pending_vt_input: PeekNamedPipe failed err=%lu", ::GetLastError());
+            _vt_eof = true;
+            complete_pending();
+            return;
+        }
+
+        if (avail > 0)
+        {
+            accumulate_from_pipe();
+            return;
+        }
+
+        if (_vt_pipe_broken.load(std::memory_order_relaxed))
+        {
+            _vt_eof = true;
+            complete_pending();
+            return;
+        }
+
+        const auto old_total = _read_total;
+        DWORD room = static_cast<DWORD>(_readbuf.size()) - _read_total;
+        if (room == 0)
+        {
+            complete_pending();
+            return;
+        }
+
+        DWORD read = 0;
+        if (!::ReadFile(vt_in.get(), _readbuf.data() + _read_total, room, &read, nullptr) || read == 0)
+        {
+            LOG("[bridge] wait_for_pending_vt_input: ReadFile failed read=%lu err=%lu", read, ::GetLastError());
+            _vt_eof = true;
+            complete_pending();
+            return;
+        }
+
+        _read_total += read;
+        _line_found = false;
+        process_input(_readbuf.data() + old_total, read);
+        vt_flush();
+        _echo_start = _read_total;
+    }
+
     // ── on_idle ──
     void on_idle()
     {
@@ -1109,6 +1198,7 @@ struct pipe_bridge
         r.Event.KeyEvent.uChar.UnicodeChar = uc;
         r.Event.KeyEvent.dwControlKeyState = 0;
         inp.write(&r, 1);
+        complete_pending_console_input();
     }
     void emit_key_pair(WORD vk, WCHAR uc)
     {
@@ -1122,6 +1212,7 @@ struct pipe_bridge
         up.Event.KeyEvent.uChar.UnicodeChar = 0;
         up.Event.KeyEvent.dwControlKeyState = 0;
         inp.write(&up, 1);
+        complete_pending_console_input();
     }
 
     // ════════════════════════════════════════════════════
@@ -1698,6 +1789,7 @@ struct pipe_bridge
                 ir.Event.KeyEvent.uChar.UnicodeChar = m.win32_uc;
                 ir.Event.KeyEvent.dwControlKeyState = m.win32_cs;
                 inp.write(&ir, 1);
+                complete_pending_console_input();
                 break;
             }
 
@@ -2010,6 +2102,12 @@ struct pipe_bridge
         if (_pend_kind == PendingKind::None)
             return;
 
+        if (_pend_kind == PendingKind::ConsoleInput)
+        {
+            complete_pending_console_input();
+            return;
+        }
+
         // 保存 completion 指针 (在清空 _pend_* 之前)
         CD_IO_COMPLETE comp_before{};
         CD_IO_COMPLETE *comp_ptr = nullptr;
@@ -2119,6 +2217,7 @@ struct pipe_bridge
         _pend_kind = PendingKind::None;
         _pend_raw = nullptr;
         _pend_usr = nullptr;
+        _pend_input = nullptr;
         _read_total = 0;
         _echo_start = 0;
 
@@ -2149,6 +2248,32 @@ struct pipe_bridge
             LOG("[bridge] complete_pending: sending CD_IO_COMPLETE");
             miniio::complete_io(server, *comp_ptr);
         }
+    }
+
+    void complete_pending_console_input()
+    {
+        if (_pend_kind != PendingKind::ConsoleInput || !_pend_input)
+            return;
+
+        auto &m = *_pend_input;
+        auto *req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(m.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *out =
+            reinterpret_cast<INPUT_RECORD *>(m.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+        const auto max_count = console_input_max_records(m);
+
+        const auto count = (req->Flags & CONSOLE_READ_NOREMOVE) ? inp.peek(out, max_count) : inp.read(out, max_count);
+        req->NumRecords = static_cast<ULONG>(count);
+        const auto size =
+            static_cast<ULONG>(sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + count * sizeof(INPUT_RECORD));
+        miniio::prepare_completion(m, 0, size);
+        m.complete.Write.Data = m.body + sizeof(CONSOLE_MSG_HEADER);
+        m.complete.Write.Size = size;
+
+        auto comp = m.complete;
+        _pend_kind = PendingKind::None;
+        _pend_input = nullptr;
+
+        miniio::complete_io(server, comp);
     }
 
   public:

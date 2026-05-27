@@ -48,13 +48,47 @@
 namespace defterm
 {
 
+[[nodiscard]] inline const wchar_t *show_window_name(WORD value) noexcept
+{
+    switch (value)
+    {
+    case SW_HIDE:
+        return L"SW_HIDE";
+    case SW_SHOWNORMAL:
+        return L"SW_SHOWNORMAL";
+    case SW_SHOWMINIMIZED:
+        return L"SW_SHOWMINIMIZED";
+    case SW_SHOWMAXIMIZED:
+        return L"SW_SHOWMAXIMIZED";
+    case SW_SHOWNOACTIVATE:
+        return L"SW_SHOWNOACTIVATE";
+    case SW_SHOW:
+        return L"SW_SHOW";
+    case SW_MINIMIZE:
+        return L"SW_MINIMIZE";
+    case SW_SHOWMINNOACTIVE:
+        return L"SW_SHOWMINNOACTIVE";
+    case SW_SHOWNA:
+        return L"SW_SHOWNA";
+    case SW_RESTORE:
+        return L"SW_RESTORE";
+    case SW_SHOWDEFAULT:
+        return L"SW_SHOWDEFAULT";
+    case SW_FORCEMINIMIZE:
+        return L"SW_FORCEMINIMIZE";
+    default:
+        return L"UNKNOWN";
+    }
+}
+
 // 如果注册表提供的 CLSID 无效，则后续会回退到尝试 WT
 [[nodiscard]] inline bool need_skip(const CLSID &c) noexcept
 {
-    // 系统 conhost 被认为是有效的，因为当安装 corehost 到系统时，
-    // 它就是系统 conhost。由于 corehost 实现了 IConsoleHandoff，
-    // 在此场景下可以工作，因此不需要排除。
-    return c == clsid::zero;
+    // 零 CLSID 和标准 conhost CLSID 都不是可移交目标。
+    // 旧实现会跳过 conhost CLSID 后继续尝试 WT 的固定通道；
+    // 若把 conhost 当作 IConsoleHandoff 目标，默认终端链路可能绕回
+    // inbox/corehost 自身，导致 WT 关闭后等待对象不按预期结束。
+    return c == clsid::zero || c == clsid::conhost;
 }
 
 // 判断当前进程是否运行在交互式用户会话中。
@@ -67,22 +101,36 @@ namespace defterm
 {
     DWORD session_id = 0;
     if (!::ProcessIdToSessionId(::GetCurrentProcessId(), &session_id))
+    {
+        LOG("is_interactive_user_session: ProcessIdToSessionId failed err=%lu", ::GetLastError());
         return false;
+    }
     if (session_id == 0)
+    {
+        LOG("is_interactive_user_session: session 0");
         return false;
+    }
 
     auto winsta = ::GetProcessWindowStation();
     if (!winsta)
+    {
+        LOG("is_interactive_user_session: GetProcessWindowStation failed err=%lu", ::GetLastError());
         return false;
+    }
 
     USEROBJECTFLAGS flags{};
     if (!::GetUserObjectInformationW(winsta, UOI_FLAGS, &flags, sizeof(flags), nullptr))
     {
+        LOG("is_interactive_user_session: GetUserObjectInformationW failed err=%lu", ::GetLastError());
         return false;
     }
     if (!(flags.dwFlags & WSF_VISIBLE))
+    {
+        LOG("is_interactive_user_session: invisible window station flags=0x%08lx", flags.dwFlags);
         return false;
+    }
 
+    LOG("is_interactive_user_session: yes session=%lu flags=0x%08lx", session_id, flags.dwFlags);
     return true;
 }
 
@@ -95,21 +143,39 @@ namespace defterm
 //
 [[nodiscard]] inline bool should_attempt_handoff(const CONSOLE_SERVER_MSG &msg) noexcept
 {
+    LOG("should_attempt_handoff: consoleApp=%u visible=%u startupFlags=0x%08lx showWindow=%ls(%u) titleLength=%u pgid=%lu",
+        static_cast<unsigned>(msg.ConsoleApp), static_cast<unsigned>(msg.WindowVisible), msg.StartupFlags,
+        show_window_name(msg.ShowWindow), msg.ShowWindow, msg.TitleLength, msg.ProcessGroupId);
+
     // AllocConsole/AttachConsole 可能需要获得控制台，因此不检查它是否是控制台应用
     // if (!msg.ConsoleApp)
     //    return false;
 
     // WindowVisible == FALSE -> 进程以 CREATE_NO_WINDOW 创建，不应弹出窗口。
     if (!msg.WindowVisible)
+    {
+        LOG("should_attempt_handoff: reject WindowVisible=false");
         return false;
+    }
 
     // STARTF_USESHOWWINDOW 且 ShowWindow 为隐藏 -> 进程明确不想显示窗口。
     if (msg.StartupFlags & STARTF_USESHOWWINDOW)
     {
-        if (msg.ShowWindow == SW_HIDE)
+        switch (msg.ShowWindow)
+        {
+        case SW_HIDE:
+        case SW_SHOWMINIMIZED:
+        case SW_MINIMIZE:
+        case SW_SHOWMINNOACTIVE:
+        case SW_FORCEMINIMIZE:
+            LOG("should_attempt_handoff: reject showWindow=%ls(%u)", show_window_name(msg.ShowWindow), msg.ShowWindow);
             return false;
+        default:
+            break;
+        }
     }
 
+    LOG("should_attempt_handoff: accept");
     return true;
 }
 
@@ -139,34 +205,47 @@ namespace defterm
     // 只有 WindowsTerminal 需要实现此接口
     if (marker_check_required)
     {
+        LOG("attempt_handoff: checking IDefaultTerminalMarker");
         (void)hnd.as<IDefaultTerminalMarker>();
+        LOG("attempt_handoff: marker ok");
     }
     // ── 2. 信号管道 + 进程句柄 + EstablishHandoff ──
     // CreatePipe：WT 通过写端发回控制信号，conhost 线程从读端接收
     auto [sr, sw] = win32::create_pipe();
+    LOG("attempt_handoff: signal pipe read=%p write=%p", sr.get(), sw.get());
 
     // 复制自身进程句柄
     auto our_proc = win32::duplicate_self();
+    LOG("attempt_handoff: duplicated self process=%p", our_proc.get());
 
     // EstablishHandoff 移交：server + inputEvent + portableMsg + signalPipe + ourProc -> WT 返回 clientProc 供
     // WaitForSingleObject
-    LOG("attempt_handoff: calling EstablishHandoff");
+    LOG("attempt_handoff: calling EstablishHandoff server=%p event=%p signalWrite=%p self=%p id=%08lx:%08lx",
+        server_handle.get(), input_event.get(), sw.get(), our_proc.get(), portable_msg.IdHighPart,
+        portable_msg.IdLowPart);
     win32::event client;
     auto hr = hnd->EstablishHandoff(server_handle.get(), input_event.get(), &portable_msg, sw.get(), our_proc.get(),
                                     client.put());
+    LOG("attempt_handoff: EstablishHandoff hr=0x%08lx client=%p", static_cast<unsigned long>(hr), client.get());
     win32::throw_hresult(win32::hresult(hr));
 
     // WT 在 EstablishHandoff 中已通过 DuplicateHandle 获取自己的副本，conhost 侧可安全关闭这两句柄
     sw.clear();
     our_proc.clear();
+    LOG("attempt_handoff: transferred signal/self handles");
 
     // 启动信号监听线程 (第一跳: inbox→corehost, 无需 vt_in)
     auto tp = std::make_unique<defterm::signal_thread_params>(defterm::signal_thread_params{std::move(sr)});
-    auto sig_thread = win32::basic_thread{defterm::signal_thread_proc, tp.release()};
+    DWORD signal_thread_id = 0;
+    auto sig_thread = win32::basic_thread{defterm::signal_thread_proc, tp.release(), &signal_thread_id};
+    LOG("attempt_handoff: signal thread started tid=%lu handle=%p", signal_thread_id, sig_thread.get());
 
-    // 阻塞等待 WT 退出
+    // 阻塞等待 WT 退出。上游 conhost 随后调用 ExitProcess，是因为它
+    // 在后台 IO 线程和全局 rundown 体系内运行；corehost 的 defterm
+    // 路径在主调用栈上等待，返回 true 让外层自然退出即可。
+    LOG("attempt_handoff: waiting for handoff process handle=%p", client.get());
     client.wait();
-
+    LOG("attempt_handoff: handoff process exited");
     return true;
 }
 

@@ -4,6 +4,7 @@
 // 与 conpty/io_state.hpp 相同 — 无文本编码依赖。
 #pragma once
 #include <windows.h>
+#include "connect_completion.hpp"
 #include "win32/handle.hpp"
 #include "miniio/io_thread.hpp"
 #include "ntapi/condrv.hpp"
@@ -52,7 +53,7 @@ struct io_state
         }
     }
 
-    bool handle_connect(miniio::io_msg &msg)
+    bool handle_connect(miniio::io_msg &msg, connect_completion &completion)
     {
         client_pid = msg.descriptor.Process;
         add_process(static_cast<DWORD>(client_pid));
@@ -60,11 +61,13 @@ struct io_state
         {
             // ── 首个连接：创建客户端句柄对 + CD_CONNECTION_INFORMATION ──
             miniio::accept_connection(server, msg, condrv_input, condrv_output);
+            completion = connect_completion::explicit_complete;
         }
         else
         {
             // ── 后续连接 (子进程接入)：仅标记成功，不重复创建句柄 ──
             miniio::prepare_completion(msg);
+            completion = connect_completion::inline_complete;
         }
         return true;
     }

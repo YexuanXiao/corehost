@@ -6,13 +6,17 @@
 // miniio::set_server_info 注册了 InputAvailableEvent。
 //
 // Handler 需提供:
-//   bool on_connect(miniio::io_msg &msg)   — CONNECT 处理
+//   bool on_connect(miniio::io_msg &msg, connect_completion &completion)
+//                                           — CONNECT 处理，并说明 completion
+//                                             是否已由 CompleteIo 显式提交
 //   bool on_message(miniio::io_msg &msg)  — 非 CONNECT 消息
 //   void on_idle()                         — 空闲时调用
 //   bool has_pending() const               — 检查是否有挂起 I/O
+//   void wait_for_pending_input()          — 等待/服务终端输入直到 pending 可能完成
 //   bool should_exit() const               — I/O 循环退出条件
 
 #pragma once
+#include "connect_completion.hpp"
 #include "miniio/io_thread.hpp"
 #include "utility/log.hpp"
 
@@ -39,7 +43,7 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             if (handler.should_exit())
                 break;
             if (!handler.has_pending())
-                ::WaitForSingleObject(ev.get(), 1);
+                ::WaitForSingleObject(server.get(), 1);
         }
 
         // ── 对标原始 ReadIo(ReplyMsg, &ReceiveMsg):
@@ -55,9 +59,17 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         if (read_result == miniio::read_io_result::no_message)
         {
             prev_done = nullptr;
+            // 对标原版 ConDrvDeviceComm::ReadIo: ERROR_IO_PENDING 后先
+            // wait server handle 一次，让 ConDrv 消化这次无消息状态。
+            // ev 是传给 ConDrv 的 InputAvailableEvent，用于唤醒客户端
+            // 读输入；PowerShell/PSReadLine 路径可能让它保持 signaled，
+            // 因此不能用它给服务端消息循环节流。
+            ::WaitForSingleObject(server.get(), 0);
             handler.on_idle();
             if (handler.should_exit())
                 break;
+            if (!handler.has_pending())
+                ::WaitForSingleObject(server.get(), 1);
             continue;
         }
         prev_done = nullptr; // completion 已被 read_io 消费
@@ -82,13 +94,12 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             }
             else
             {
-                // 挂起: 轮询 on_idle 直到 pending 解除
-                // WaitForSingleObject(ev,16) 防止 PeekNamedPipe 空转 100% CPU
+                // 挂起: 阻塞等待 VT 输入，再由 bridge 完成挂起请求。
+                // 不能在这里等 server 句柄；挂起期间 ConDrv 可能保持 server 可等待，
+                // 用它节流会造成 corehost 在没有终端输入时高频空转。
                 while (handler.has_pending())
                 {
-                    handler.on_idle();
-                    if (handler.has_pending())
-                        ::WaitForSingleObject(ev.get(), 16);
+                    handler.wait_for_pending_input();
                 }
                 if (handler.should_exit())
                     break;
@@ -97,10 +108,21 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             continue;
         }
 
-        if (!handler.on_connect(*cur))
+        connect_completion connect_result = connect_completion::explicit_complete;
+        if (!handler.on_connect(*cur, connect_result))
             return;
 
-        prev_done = cur; // CONNECT completion → 下一轮 read_io 提交
+        if (connect_result == connect_completion::inline_complete)
+        {
+            prev_done = cur; // 后续 CONNECT completion → 下一轮 read_io 提交
+        }
+        else
+        {
+            // 首个 CONNECT 可能由 miniio::accept_connection() 通过
+            // IOCTL_COMPLETE_IO 显式完成。此时不能再把同一个 completion
+            // 作为下一轮 READ_IO 的输入重复提交。
+            prev_done = nullptr;
+        }
         cur = (cur == &msgA) ? &msgB : &msgA;
     }
 

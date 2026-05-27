@@ -9,10 +9,12 @@
 #pragma once
 #include <windows.h>
 #include <winternl.h>
-#include <shellapi.h>
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <ranges>
+#include <string>
+#include <string_view>
 #include "handoff.hpp"
 #include "win32/handle.hpp"
 #include "win32/event.hpp"
@@ -25,6 +27,86 @@
 
 namespace defterm
 {
+using namespace std::literals;
+
+struct connect_process_info
+{
+    DWORD pid = 0;
+    DWORD process_group_id = 0;
+    std::wstring image_path;
+};
+
+struct fallback_state
+{
+    bool break_when_input_waits = false;
+    bool break_sent = false;
+    DWORD target_process_group_id = 0;
+};
+
+[[nodiscard]] inline std::wstring query_process_image_path(DWORD pid)
+{
+    if (pid == 0)
+        return {};
+
+    win32::handle process{::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)};
+    if (!process.valid())
+    {
+        LOG("query_process_image_path: OpenProcess pid=%lu failed err=%lu", pid, ::GetLastError());
+        return {};
+    }
+
+    std::wstring path(32768, L'\0');
+    DWORD path_length = static_cast<DWORD>(path.size());
+    if (!::QueryFullProcessImageNameW(process.get(), 0, path.data(), &path_length))
+    {
+        LOG("query_process_image_path: QueryFullProcessImageNameW pid=%lu failed err=%lu", pid, ::GetLastError());
+        return {};
+    }
+
+    path.resize(path_length);
+    LOG("query_process_image_path: pid=%lu length=%zu", pid, path.size());
+    return path;
+}
+
+[[nodiscard]] inline connect_process_info make_connect_process_info(const CONSOLE_SERVER_MSG &connect_info,
+                                                                    DWORD client_pid)
+{
+    connect_process_info info;
+    info.pid = client_pid;
+    info.process_group_id = connect_info.ProcessGroupId;
+    info.image_path = query_process_image_path(info.process_group_id);
+    if (info.image_path.empty() && info.process_group_id != info.pid)
+        info.image_path = query_process_image_path(info.pid);
+    LOG("make_connect_process_info: pid=%lu pgid=%lu imagePathLength=%zu", info.pid, info.process_group_id,
+        info.image_path.size());
+    return info;
+}
+
+[[nodiscard]] inline bool is_waiting_for_user_input(const miniio::io_msg &msg) noexcept
+{
+    if (msg.descriptor.Function == CONSOLE_IO_RAW_READ)
+    {
+        LOG("is_waiting_for_user_input: RAW_READ");
+        return true;
+    }
+    if (msg.descriptor.Function != CONSOLE_IO_USER_DEFINED ||
+        msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG))
+        return false;
+
+    auto *header = reinterpret_cast<const CONSOLE_MSG_HEADER *>(msg.body);
+    LOG("is_waiting_for_user_input: USER_DEFINED api=0x%08lx", header->ApiNumber);
+    return header->ApiNumber == ConsolepReadConsole;
+}
+
+inline void send_deferred_ctrl_break_if_needed(const miniio::io_msg &msg, fallback_state &fallback)
+{
+    if (!fallback.break_when_input_waits || fallback.break_sent || !is_waiting_for_user_input(msg))
+        return;
+
+    LOG("fallback: sending deferred CTRL_BREAK to pgid=%lu", fallback.target_process_group_id);
+    ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, fallback.target_process_group_id);
+    fallback.break_sent = true;
+}
 
 // 从 io_msg 提取便携连接消息（供 COM 接口使用）。
 inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const miniio::io_msg &msg)
@@ -74,19 +156,28 @@ inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const miniio::io_msg
 //   3. 依次尝试 5 个候选 CLSID -> 成功则直接 return（WT 接管）
 //   4. 全部失败 -> handle_no_terminal 回退
 //
-// 返回 true  -> 调用方退出事件循环 (移交成功，conhost 进程退出)
+// 返回 true  -> 移交成功
 // 返回 false -> 调用方继续循环 (mini console 需处理后续消息)
+// completion 说明 CONNECT completion 是否已经通过 accept_connection 显式提交。
 [[nodiscard]] inline bool handle_connect(win32::handle_view server, win32::handle_view ev, miniio::io_msg &msg,
-                                         bool &initialized, win32::handle &condrv_input, win32::handle &condrv_output)
+                                         bool &initialized, win32::handle &condrv_input, win32::handle &condrv_output,
+                                         fallback_state &fallback, connect_completion &completion)
 {
     DWORD client_pid = static_cast<DWORD>(msg.descriptor.Process);
-    LOG("handle_connect: pid=%lu func=%lu input=%lu output=%lu initialized=%d", client_pid, msg.descriptor.Function,
-        msg.descriptor.InputSize, msg.descriptor.OutputSize, initialized);
+    auto &connect_info = *reinterpret_cast<const CONSOLE_SERVER_MSG *>(msg.body);
+    LOG("handle_connect: pid=%lu pgid=%lu func=%lu input=%lu output=%lu initialized=%d consoleApp=%u visible=%u show=%u flags=0x%08lx",
+        client_pid, connect_info.ProcessGroupId, msg.descriptor.Function, msg.descriptor.InputSize,
+        msg.descriptor.OutputSize, initialized, static_cast<unsigned>(connect_info.ConsoleApp),
+        static_cast<unsigned>(connect_info.WindowVisible), connect_info.ShowWindow, connect_info.StartupFlags);
 
     // ── 分派决策 ──
-    bool need_gui = !initialized && should_attempt_handoff(*reinterpret_cast<const CONSOLE_SERVER_MSG *>(msg.body)) &&
-                    is_interactive_user_session();
-    LOG("handle_connect: need_gui=%d", need_gui);
+    bool first_connect = !initialized;
+    bool handoff_allowed = should_attempt_handoff(connect_info);
+    bool interactive = is_interactive_user_session();
+    bool elevated = env::is_elevated();
+    bool need_gui = first_connect && handoff_allowed && interactive;
+    LOG("handle_connect: first=%d handoffAllowed=%d interactive=%d elevated=%d needGui=%d", first_connect,
+        handoff_allowed, interactive, elevated, need_gui);
     initialized = true;
 
     if (!need_gui)
@@ -94,9 +185,17 @@ inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const miniio::io_msg
         LOG("handle_connect: no GUI → %s, continuing loop",
             condrv_input.valid() ? "prepare_completion" : "accept_connection");
         if (!condrv_input.valid())
+        {
+            LOG("handle_connect: accepting mini-console connection");
             miniio::accept_connection(server, msg, condrv_input, condrv_output);
+            LOG("handle_connect: accepted mini-console input=%p output=%p", condrv_input.get(), condrv_output.get());
+        }
         else
+        {
+            LOG("handle_connect: completing secondary connect inline");
             miniio::prepare_completion(msg);
+            completion = connect_completion::inline_complete;
+        }
         return false; // 继续事件循环
     }
 
@@ -106,13 +205,18 @@ inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const miniio::io_msg
     // 阻止向 Medium IL 的 Windows Terminal 传递内核句柄。
     // COM 激活也由于跨会话边界而失败。
     //
-    // 此函数是降级路径：接管连接 -> MessageBox 告知用户 -> 发送
-    // Ctrl+Break 终止客户端（避免客户端在无窗口控制台中无限等待输入）。
-    if (env::is_elevated())
+    // 此函数是降级路径：接管连接 -> 通知用户 -> 等客户端真正开始等待输入
+    // 时发送 Ctrl+Break。这样 GUI/CLI 初始化代码仍能先运行到稳定点。
+    if (elevated)
     {
-        env::show_elevated_message();
+        LOG("handle_connect: elevated fallback");
+        auto process = make_connect_process_info(connect_info, client_pid);
+        env::show_elevated_notification(process.pid, process.process_group_id, process.image_path);
         miniio::accept_connection(server, msg, condrv_input, condrv_output);
-        ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, client_pid);
+        fallback.break_when_input_waits = true;
+        fallback.target_process_group_id = process.process_group_id ? process.process_group_id : process.pid;
+        LOG("handle_connect: elevated fallback accepted input=%p output=%p breakTarget=%lu", condrv_input.get(),
+            condrv_output.get(), fallback.target_process_group_id);
         return false;
     }
 
@@ -128,10 +232,12 @@ inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const miniio::io_msg
     // 无可用终端回退
     //
     // 如果所有 5 个候选 CLSID 均不可用（终端未安装或 COM 激活失败）。
-    // 提示用户安装 Windows Terminal，并跳转 Microsoft Store。
+    // 通知用户安装 Windows Terminal。
     // 之后发送 Ctrl+Break 终止客户端。
-    env::show_not_found_message();
+    env::show_not_found_notification();
     miniio::accept_connection(server, msg, condrv_input, condrv_output);
+    LOG("handle_connect: no terminal fallback accepted input=%p output=%p sending break pid=%lu", condrv_input.get(),
+        condrv_output.get(), client_pid);
     ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, client_pid);
     return false;
 }
@@ -144,14 +250,20 @@ struct connect_handler
     win32::handle condrv_output;
     win32::handle_view server;
     win32::handle_view ev;
+    fallback_state fallback;
 
-    bool on_connect(miniio::io_msg &msg)
+    bool on_connect(miniio::io_msg &msg, connect_completion &completion)
     {
-        return !handle_connect(server, ev, msg, initialized, condrv_input, condrv_output);
+        LOG("connect_handler::on_connect");
+        completion = connect_completion::explicit_complete;
+        return !handle_connect(server, ev, msg, initialized, condrv_input, condrv_output, fallback, completion);
     }
 
     bool on_message(miniio::io_msg &msg)
     {
+        LOG("connect_handler::on_message func=%lu fallbackWait=%d breakSent=%d", msg.descriptor.Function,
+            fallback.break_when_input_waits, fallback.break_sent);
+        send_deferred_ctrl_break_if_needed(msg, fallback);
         dispatch_non_connect(server, msg, condrv_input, condrv_output);
         return true;
     }

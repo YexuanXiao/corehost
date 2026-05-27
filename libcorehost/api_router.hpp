@@ -114,9 +114,9 @@ struct api_router
         case 6:
             return api_write_console(msg, state, sb, inp, bridge);
         case 7:
-            return api_get_langid(msg, state, sb, inp, bridge);
-        case 8:
             return api_deprecated_l1(msg, state, sb, inp, bridge);
+        case 8:
+            return api_get_langid(msg, state, sb, inp, bridge);
         case 9:
             return api_deprecated_l1(msg, state, sb, inp, bridge);
         default:

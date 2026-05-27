@@ -1,7 +1,9 @@
 #pragma once
 #include <windows.h>
-#include <shellapi.h>
+#include <string>
+#include <string_view>
 #include "win32/handle.hpp"
+#include "utility/notification.hpp"
 
 namespace env
 {
@@ -38,28 +40,36 @@ namespace env
     return true;
 }
 
-inline void show_elevated_message()
+inline void show_elevated_notification(DWORD process_id, DWORD process_group_id, std::wstring_view image_path)
 {
-    (void)::MessageBoxW(nullptr,
-                        L"当前控制台程序以管理员权限运行，并且需要一个终端。\n"
-                        L"Windows 的安全策略阻止具有管理员的控制台主机移交控制"
-                        L"台到第三方终端。\n"
-                        L"请先以管理员身份运行终端，再运行控制台程序，如果已经"
-                        L"在管理员权限的终端中，请直接运行控制台程序，不需要重"
-                        L"新提升权限。\n",
-                        L"请求被安全策略阻止", MB_OK | MB_ICONINFORMATION);
-}
-inline void show_not_found_message()
-{
-    auto rc = ::MessageBoxW(nullptr,
-                            L"未找到默认终端应用程序。\n"
-                            L"请安装 Windows Terminal 以恢复系统功能。\n"
-                            L"选择\"是\"将前往 Microsoft Store。",
-                            L"无可用 Windows 终端", MB_YESNO | MB_ICONWARNING);
-    if (rc == IDYES)
+    std::wstring body;
+    body.reserve(image_path.size() + 160);
+    body += L"管理员权限的控制台主机无法把控制权移交给普通权限终端。";
+    body += L"\n进程 PID: ";
+    body += std::to_wstring(process_id);
+    if (process_group_id != 0 && process_group_id != process_id)
     {
-        (void)::ShellExecuteW(nullptr, L"open", L"ms-windows-store://pdp/?ProductId=9N0DX20HK701", nullptr, nullptr,
-                              SW_SHOWNORMAL);
+        body += L"\n进程组: ";
+        body += std::to_wstring(process_group_id);
     }
+    if (!image_path.empty())
+    {
+        body += L"\n程序路径:\n";
+        body += image_path;
+    }
+    body += L"\n请在管理员权限的终端中重新运行该程序。";
+
+    notification::send(L"请求被安全策略阻止", body);
+}
+
+inline void show_not_found_notification()
+{
+    constexpr notification::action store_action{
+        L"打开 Microsoft Store",
+        L"ms-windows-store://pdp/?ProductId=9N0DX20HK701",
+    };
+    notification::send(L"无可用 Windows 终端",
+                       L"未找到默认终端应用程序。请安装 Windows Terminal 以恢复默认终端功能。",
+                       &store_action);
 }
 } // namespace env

@@ -19,9 +19,9 @@ struct message_router
     pipe_bridge &bridge;
     api_router &api;
 
-    bool on_connect(miniio::io_msg &msg)
+    bool on_connect(miniio::io_msg &msg, connect_completion &completion)
     {
-        return io.handle_connect(msg);
+        return io.handle_connect(msg, completion);
     }
 
     bool on_message(miniio::io_msg &msg)
@@ -39,6 +39,11 @@ struct message_router
         return bridge.has_pending();
     }
 
+    void wait_for_pending_input()
+    {
+        bridge.wait_for_pending_vt_input();
+    }
+
     bool should_exit() const
     {
         return bridge.should_exit();
@@ -50,7 +55,8 @@ struct message_router
         switch (msg.descriptor.Function)
         {
         case CONSOLE_IO_CONNECT: {
-            bool ok = io.handle_connect(msg);
+            connect_completion completion = connect_completion::explicit_complete;
+            bool ok = io.handle_connect(msg, completion);
             bridge.proc_count = io.process_count;
             for (size_t i = 0; i < io.process_count; ++i)
                 bridge.proc_list[i] = io.process_list[i];

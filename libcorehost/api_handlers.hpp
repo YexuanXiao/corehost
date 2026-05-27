@@ -120,26 +120,10 @@ inline bool api_get_num_input(miniio::io_msg &msg, console_state &, screen_buffe
     return true;
 }
 
-inline bool api_get_console_input(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
-                                  pipe_bridge &)
+inline bool api_get_console_input(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
+                                  pipe_bridge &bridge)
 {
-    auto *r = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    auto *out =
-        reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
-    // 按客户端 buffer 大小限制返回记录数（关键修复：PSReadLine ReadKey(1) 要求一次只读 1 条）
-    auto clientBuf = msg.descriptor.OutputSize;
-    auto hdrSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
-    auto maxc = clientBuf > hdrSize ? (clientBuf - hdrSize) / sizeof(INPUT_RECORD) : 0;
-    if (maxc == 0)
-        maxc = 1; // 至少允许 1 条
-    size_t n = 0;
-    if (r->Flags & 0x0001)
-        n = inp.peek(out, maxc);
-    else
-        n = inp.read(out, maxc);
-    r->NumRecords = static_cast<ULONG>(n);
-    ucomplete_sz(msg, sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + static_cast<ULONG>(n * sizeof(INPUT_RECORD)));
-    return true;
+    return bridge.handle_console_input(msg);
 }
 
 inline bool api_get_langid(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
