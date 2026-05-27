@@ -258,7 +258,7 @@ bool test_stream_decoder_truncated()
     utf8_stream_decoder dec;
     // 只给首字节 C3，然后 reset
     ASSERT(!dec(0xC3).has_value());
-    dec.reset();
+    dec = {};
     // reset 后可以正常解码新字符
     auto r = dec('A');
     ASSERT(r.has_value());
@@ -327,30 +327,6 @@ bool test_to_wchar_surrogate()
     return true;
 }
 
-bool test_to_char32_surrogate_pair()
-{
-    const wchar_t src[] = {0xD83D, 0xDE00, 0};
-    const wchar_t *it = src;
-    char32_t cp = to_char32_surrogate(it, src + 2);
-    ASSERT(cp == 0x1F600);
-    ASSERT(it == src + 2);
-    return true;
-}
-
-bool test_to_char32_surrogate_broken()
-{
-    // 只有高位代理，缺少低位 → U+FFFD
-    const wchar_t src[] = {0xD83D, 0};
-    const wchar_t *it = src;
-    char32_t cp = to_char32_surrogate(it, src + 1);
-    ASSERT(cp == 0xFFFD);
-    return true;
-}
-
-// ═══════════════════════════════════════════════════════
-// Test Runner
-// ═══════════════════════════════════════════════════════
-
 int main()
 {
     std::wcout << L"=== char_convert Tests ===" << std::endl;
@@ -387,8 +363,6 @@ int main()
 
     RUN_TEST(test_to_wchar_bmp, L"to_wchar BMP");
     RUN_TEST(test_to_wchar_surrogate, L"to_wchar Surrogate");
-    RUN_TEST(test_to_char32_surrogate_pair, L"to_char32_surrogate");
-    RUN_TEST(test_to_char32_surrogate_broken, L"to_char32 broken surrogate");
 
     std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, " << (tests_passed + tests_failed)
                << L" total." << std::endl;

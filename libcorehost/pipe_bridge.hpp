@@ -401,16 +401,9 @@ struct pipe_bridge
         if (title.empty())
             return;
         vt_append_str("\x1b]0;"sv);
-        // char32_t → UTF-8 逐码点追加
-        for (char32_t cp : title)
-        {
-            char buf[8];
-            int n = to_utf8_bytes(cp, buf);
-            if (_vt_len + n > _vt_buf.size())
-                vt_flush();
-            std::memcpy(_vt_buf.data() + _vt_len, buf, static_cast<size_t>(n));
-            _vt_len += n;
-        }
+        // char32_t → UTF-8 批量转换（复用 _conv_utf8）
+        convert_u32_to_utf8(title, _conv_utf8);
+        vt_append_str(_conv_utf8);
         vt_append_char('\x07');
     }
 
@@ -584,8 +577,9 @@ struct pipe_bridge
             break;
 
         case vt_message_id::text: {
-            for (char32_t ch : msg.text)
-                vt_write_cell(ch);
+            // 批量 char32_t → UTF-8 追加（复用 _conv_utf8）
+            convert_u32_to_utf8(msg.text, _conv_utf8);
+            vt_append_str(_conv_utf8);
             break;
         }
 
@@ -1074,8 +1068,6 @@ struct pipe_bridge
             return;
         if (_term_cursor.X > _input_column_start)
             _term_cursor.X--;
-        if (_term_cursor.X < _input_column_end)
-            _input_column_end = _term_cursor.X;
     }
     void term_cursor_crlf()
     {
@@ -1189,6 +1181,7 @@ struct pipe_bridge
         if (cooked_at_end())
         {
             echo_byte(raw);
+            term_cursor_advance();
         }
         else
         {

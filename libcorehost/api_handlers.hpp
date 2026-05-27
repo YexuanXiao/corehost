@@ -850,7 +850,6 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
         return true;
     }
 
-    const wchar_t *chars_w = nullptr;
     if (r->StringType == CONSOLE_ATTRIBUTE)
     {
         auto *attrs = reinterpret_cast<const WORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
@@ -860,47 +859,40 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
     }
     else
     {
-        chars_w = reinterpret_cast<const wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                    sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+        auto *in_w = reinterpret_cast<const wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                       sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
         auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
         auto wlen = ib / sizeof(wchar_t);
-        // convert wchar_t → char32_t for screen_buffer
-        std::array<char32_t, 256> u32buf;
-        size_t u32len = 0;
-        const wchar_t *wp = chars_w;
-        const wchar_t *wend = wp + wlen;
-        while (wp != wend && u32len < u32buf.size())
-            u32buf[u32len++] = to_char32_surrogate(wp, wend);
-        r->NumRecords = static_cast<ULONG>(sb.write_char32(r->WriteCoord, u32buf.data(), u32len));
-    }
+        // wchar_t → char32_t 批量转换（复用 bridge 持久缓冲）
+        auto &u32text = bridge.conv_u32();
+        convert_utf16_to_u32(std::wstring_view{in_w, wlen}, u32text);
+        r->NumRecords = static_cast<ULONG>(sb.write_char32(r->WriteCoord, u32text.data(), u32text.size()));
 
-    if (r->NumRecords > 0 && chars_w)
-    {
-        // ── WriteConsoleOutputString 不移动光标 ──
-        // 终端: DECSC → CUP → text → DECRC (光标回到原位)
-        // 状态: 仅更新 screen_buffer 格子，不改变 state.cursor
-        vt_message m{};
-        bridge.vt_msg_send(vt_message_id::save_cursor, m);
+        if (r->NumRecords > 0)
+        {
+            // ── WriteConsoleOutputString 不移动光标 ──
+            // 终端: DECSC → CUP → text → DECRC (光标回到原位)
+            // 状态: 仅更新 screen_buffer 格子，不改变 state.cursor
+            vt_message m{};
+            bridge.vt_msg_send(vt_message_id::save_cursor, m);
 
-        m = vt_message{};
-        m.row = static_cast<short>(r->WriteCoord.Y + 1);
-        m.col = static_cast<short>(r->WriteCoord.X + 1);
-        bridge.vt_msg_send(vt_message_id::cursor_position, m);
+            m = vt_message{};
+            m.row = static_cast<short>(r->WriteCoord.Y + 1);
+            m.col = static_cast<short>(r->WriteCoord.X + 1);
+            bridge.vt_msg_send(vt_message_id::cursor_position, m);
 
-        m = vt_message{};
-        set_sgr_from_win32_attr(m, state.default_attributes);
-        bridge.vt_msg_send(vt_message_id::sgr, m);
+            m = vt_message{};
+            set_sgr_from_win32_attr(m, state.default_attributes);
+            bridge.vt_msg_send(vt_message_id::sgr, m);
 
-        std::u32string u32text(r->NumRecords, U'\0');
-        for (ULONG i = 0; i < r->NumRecords; ++i)
-            u32text[i] = to_char32(chars_w[i]);
-        m = vt_message{};
-        m.text = u32text;
-        bridge.vt_msg_send(vt_message_id::text, m);
+            m = vt_message{};
+            m.text = std::u32string_view{u32text.data(), u32text.size()};
+            bridge.vt_msg_send(vt_message_id::text, m);
 
-        m = vt_message{};
-        bridge.vt_msg_send(vt_message_id::restore_cursor, m);
-        bridge.vt_flush();
+            m = vt_message{};
+            bridge.vt_msg_send(vt_message_id::restore_cursor, m);
+            bridge.vt_flush();
+        }
     }
 
     ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
