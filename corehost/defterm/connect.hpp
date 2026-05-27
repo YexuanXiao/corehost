@@ -122,6 +122,44 @@ inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const miniio::io_msg
     return p;
 }
 
+inline void handle_non_gui_connect(win32::handle_view server, miniio::io_msg &msg, win32::handle &condrv_input,
+                                   win32::handle &condrv_output, connect_completion &completion)
+{
+    LOG("handle_connect: no GUI -> %s, continuing loop",
+        condrv_input.valid() ? "prepare_completion" : "accept_connection");
+    if (!condrv_input.valid())
+    {
+        LOG("handle_connect: accepting mini-console connection");
+        miniio::accept_connection(server, msg, condrv_input, condrv_output);
+        LOG("handle_connect: accepted mini-console input=%p output=%p", condrv_input.get(), condrv_output.get());
+        return;
+    }
+
+    LOG("handle_connect: completing secondary connect inline");
+    miniio::prepare_completion(msg);
+    completion = connect_completion::inline_complete;
+}
+
+[[nodiscard]] inline bool should_open_terminal_window(const CONSOLE_SERVER_MSG &connect_info, bool initialized)
+{
+    if (initialized)
+    {
+        LOG("should_open_terminal_window: reject already initialized");
+        return false;
+    }
+    if (!should_attempt_handoff(connect_info))
+    {
+        LOG("should_open_terminal_window: reject startup info");
+        return false;
+    }
+    if (!is_interactive_user_session())
+    {
+        LOG("should_open_terminal_window: reject non-interactive session");
+        return false;
+    }
+    return true;
+}
+
 // 依次尝试全部候选终端
 //
 // 候选顺序：注册表配置优先 -> WT 稳定版 -> Preview -> Canary -> Dev。
@@ -170,32 +208,13 @@ inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const miniio::io_msg
         msg.descriptor.OutputSize, initialized, static_cast<unsigned>(connect_info.ConsoleApp),
         static_cast<unsigned>(connect_info.WindowVisible), connect_info.ShowWindow, connect_info.StartupFlags);
 
-    // ── 分派决策 ──
-    bool first_connect = !initialized;
-    bool handoff_allowed = should_attempt_handoff(connect_info);
-    bool interactive = is_interactive_user_session();
-    bool elevated = env::is_elevated();
-    bool need_gui = first_connect && handoff_allowed && interactive;
-    LOG("handle_connect: first=%d handoffAllowed=%d interactive=%d elevated=%d needGui=%d", first_connect,
-        handoff_allowed, interactive, elevated, need_gui);
+    bool need_gui = should_open_terminal_window(connect_info, initialized);
+    LOG("handle_connect: needGui=%d", need_gui);
     initialized = true;
 
     if (!need_gui)
     {
-        LOG("handle_connect: no GUI → %s, continuing loop",
-            condrv_input.valid() ? "prepare_completion" : "accept_connection");
-        if (!condrv_input.valid())
-        {
-            LOG("handle_connect: accepting mini-console connection");
-            miniio::accept_connection(server, msg, condrv_input, condrv_output);
-            LOG("handle_connect: accepted mini-console input=%p output=%p", condrv_input.get(), condrv_output.get());
-        }
-        else
-        {
-            LOG("handle_connect: completing secondary connect inline");
-            miniio::prepare_completion(msg);
-            completion = connect_completion::inline_complete;
-        }
+        handle_non_gui_connect(server, msg, condrv_input, condrv_output, completion);
         return false; // 继续事件循环
     }
 
@@ -207,7 +226,7 @@ inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const miniio::io_msg
     //
     // 此函数是降级路径：接管连接 -> 通知用户 -> 等客户端真正开始等待输入
     // 时发送 Ctrl+Break。这样 GUI/CLI 初始化代码仍能先运行到稳定点。
-    if (elevated)
+    if (env::is_elevated())
     {
         LOG("handle_connect: elevated fallback");
         auto process = make_connect_process_info(connect_info, client_pid);
