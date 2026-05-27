@@ -852,7 +852,7 @@ class vt_parser
     }
 
     // 限制参数值在有效范围内（32767）
-    static short _clamp(short v)
+    short _clamp(short v)
     {
         return v > 32767 ? static_cast<short>(32767) : v;
     }
@@ -877,7 +877,7 @@ class vt_parser
 
     // 处理 Ground 状态下遇到的控制字符（C0 和 DEL），返回对应的消息 id。
     // 注意：\\r \\n \\t 和 ESC 已在调用方分流，不会进入此函数。
-    static vt_message_id _classify_control(char32_t ch)
+    vt_message_id _classify_control(char32_t ch)
     {
         switch (ch)
         {

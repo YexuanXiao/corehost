@@ -32,6 +32,7 @@
 #pragma once
 #include <windows.h>
 #include <objbase.h>
+#include <array>
 #include <memory>
 #include "com/com_ptr.hpp"
 #include "signal.hpp"
@@ -235,17 +236,28 @@ namespace defterm
     LOG("attempt_handoff: transferred signal/self handles");
 
     // 启动信号监听线程 (第一跳: inbox→corehost, 无需 vt_in)
-    auto tp = std::make_unique<defterm::signal_thread_params>(defterm::signal_thread_params{std::move(sr)});
+    auto shutdown_event = win32::event{win32::create_tag, true, false};
+    auto signal_shutdown_event = win32::duplicate_handle(shutdown_event.view());
+    auto tp = std::make_unique<defterm::signal_thread_params>(
+        defterm::signal_thread_params{std::move(sr), std::move(signal_shutdown_event)});
     DWORD signal_thread_id = 0;
     auto sig_thread = win32::basic_thread{defterm::signal_thread_proc, tp.release(), &signal_thread_id};
-    LOG("attempt_handoff: signal thread started tid=%lu handle=%p", signal_thread_id, sig_thread.get());
+    LOG("attempt_handoff: signal thread started tid=%lu handle=%p shutdownEvent=%p", signal_thread_id,
+        sig_thread.get(), shutdown_event.get());
 
-    // 阻塞等待 WT 退出。上游 conhost 随后调用 ExitProcess，是因为它
-    // 在后台 IO 线程和全局 rundown 体系内运行；corehost 的 defterm
-    // 路径在主调用栈上等待，返回 true 让外层自然退出即可。
-    LOG("attempt_handoff: waiting for handoff process handle=%p", client.get());
-    client.wait();
-    LOG("attempt_handoff: handoff process exited");
+    // WT 返回的 client 进程句柄用于保持默认终端协议中的 PID 连续性，
+    // 但实际窗口关闭时更可靠的退出信号是 WT 关闭 signal pipe。
+    // 原版 HostSignalInputThread 在管道断开时 RundownAndExit；
+    // corehost 没有全局 rundown 体系，因此这里同时等待二者。
+    std::array<HANDLE, 2> wait_handles{client.get(), shutdown_event.get()};
+    LOG("attempt_handoff: waiting for handoff process=%p or signal shutdown=%p", client.get(), shutdown_event.get());
+    const auto wait_result =
+        ::WaitForMultipleObjects(static_cast<DWORD>(wait_handles.size()), wait_handles.data(), FALSE, INFINITE);
+    if (wait_result == WAIT_FAILED)
+        win32::throw_last_error();
+
+    LOG("attempt_handoff: wait completed result=%lu source=%ls", wait_result,
+        wait_result == WAIT_OBJECT_0 ? L"process" : L"signal");
     return true;
 }
 

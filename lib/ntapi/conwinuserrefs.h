@@ -32,10 +32,17 @@ typedef struct _CONSOLE_PROCESS_INFO
 typedef struct _CONSOLEENDTASKDATA
 {
     DWORD dwSize;
-    HANDLE ProcessId;
+    DWORD ProcessId;
     ULONG ConsoleEventCode;
     ULONG ConsoleFlags;
 } CONSOLEENDTASKDATA, *PCONSOLEENDTASKDATA;
+
+typedef struct _CONSOLESETFOREGROUNDDATA
+{
+    DWORD dwSize;
+    DWORD ProcessId;
+    bool Foreground;
+} CONSOLESETFOREGROUNDDATA, *PCONSOLESETFOREGROUNDDATA;
 
 typedef struct _CONSOLENOTIFYAPPDATA
 {

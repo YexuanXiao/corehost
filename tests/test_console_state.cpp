@@ -261,7 +261,7 @@ struct api_test_context
     }
 };
 
-static api_test_context api_ctx;
+api_test_context api_ctx;
 
 void mock_get_console_input_msg(miniio::io_msg &msg, USHORT flags)
 {
@@ -862,19 +862,20 @@ bool test_dec_line_drawing()
 
 bool test_dec_to_unicode()
 {
+    console_state st;
     // 测试 DEC 特殊图形字符映射
     // 'j' (0x6A) → U+2518 (┘)
-    ASSERT(console_state::dec_to_unicode(0x6A) == 0x2518);
+    ASSERT(st.dec_to_unicode(0x6A) == 0x2518);
     // 'k' (0x6B) → U+2510 (┐)
-    ASSERT(console_state::dec_to_unicode(0x6B) == 0x2510);
+    ASSERT(st.dec_to_unicode(0x6B) == 0x2510);
     // 'l' (0x6C) → U+250C (┌)
-    ASSERT(console_state::dec_to_unicode(0x6C) == 0x250C);
+    ASSERT(st.dec_to_unicode(0x6C) == 0x250C);
     // 'm' (0x6D) → U+2514 (└)
-    ASSERT(console_state::dec_to_unicode(0x6D) == 0x2514);
+    ASSERT(st.dec_to_unicode(0x6D) == 0x2514);
     // 'n' (0x6E) → U+253C (┼)
-    ASSERT(console_state::dec_to_unicode(0x6E) == 0x253C);
+    ASSERT(st.dec_to_unicode(0x6E) == 0x253C);
     // 'x' (0x78) → U+2502 (│)
-    ASSERT(console_state::dec_to_unicode(0x78) == 0x2502);
+    ASSERT(st.dec_to_unicode(0x78) == 0x2502);
     return true;
 }
 

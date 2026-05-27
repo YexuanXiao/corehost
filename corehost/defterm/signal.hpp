@@ -29,7 +29,8 @@ namespace defterm
 // ConDrv 断连 → read_io 返回 false → I/O 循环退出。
 struct signal_thread_params
 {
-    win32::handle pipe; // 信号管道读端
+    win32::handle pipe;            // 信号管道读端
+    win32::handle shutdown_event;  // 管道断开时通知 handoff 等待方
 };
 
 // ── 信号线程过程 ────────────────────────────────────────────

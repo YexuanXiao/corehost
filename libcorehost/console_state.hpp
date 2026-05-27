@@ -152,7 +152,7 @@ struct console_state
     bool dec_line_drawing_mode = false;
 
     // DEC → Unicode 映射表 (返回 char32_t)
-    static char32_t dec_to_unicode(unsigned char ch) noexcept
+    char32_t dec_to_unicode(unsigned char ch) const noexcept
     {
         switch (ch)
         {

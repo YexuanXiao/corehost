@@ -366,7 +366,7 @@ struct screen_buffer
     {
         return y >= 0 && y < size.Y;
     }
-    static bool _rvalid(const SMALL_RECT &r) noexcept
+    bool _rvalid(const SMALL_RECT &r) const noexcept
     {
         return r.Left <= r.Right && r.Top <= r.Bottom;
     }

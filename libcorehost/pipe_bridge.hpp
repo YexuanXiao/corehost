@@ -124,7 +124,7 @@ struct pipe_bridge
     std::string _conv_utf8;   // char32_t → UTF-8
     std::wstring _conv_wstr;  // char32_t → wchar_t / ANSI 中间缓冲
 
-    static size_t console_input_max_records(const miniio::io_msg &msg) noexcept
+    size_t console_input_max_records(const miniio::io_msg &msg) const noexcept
     {
         const auto client_buf = msg.descriptor.OutputSize;
         const auto header_size = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
@@ -345,8 +345,8 @@ struct pipe_bridge
             vt_append_str(";4"sv);
         if (fl & COMMON_LVB_GRID_HORIZONTAL)
             vt_append_str(";9"sv);
-        static constexpr int fg_map[] = {30, 34, 32, 36, 31, 35, 33, 37, 90, 94, 92, 96, 91, 95, 93, 97};
-        static constexpr int bg_map[] = {40, 44, 42, 46, 41, 45, 43, 47, 100, 104, 102, 106, 101, 105, 103, 107};
+        const int fg_map[] = {30, 34, 32, 36, 31, 35, 33, 37, 90, 94, 92, 96, 91, 95, 93, 97};
+        const int bg_map[] = {40, 44, 42, 46, 41, 45, 43, 47, 100, 104, 102, 106, 101, 105, 103, 107};
         vt_append_char(';');
         vt_append_int(fg_map[fg & 15]);
         vt_append_char(';');
@@ -1469,7 +1469,7 @@ struct pipe_bridge
     }
 
     // ── 非 ConsoleRead (PowerShell) 路径: 只发 KEY_DOWN ──
-    static WORD ascii_to_vk(WCHAR ch) noexcept
+    WORD ascii_to_vk(WCHAR ch) const noexcept
     {
         if (ch >= L'a' && ch <= L'z')
             return static_cast<WORD>(ch - 0x20);

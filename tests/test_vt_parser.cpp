@@ -34,7 +34,7 @@ uint8_t rand_u8(uint8_t lo = 0, uint8_t hi = 255)
     return static_cast<uint8_t>(std::uniform_int_distribution<int>(lo, hi)(rng));
 }
 
-static wchar_t rand_ascii_wchar()
+wchar_t rand_ascii_wchar()
 {
     return static_cast<wchar_t>(rand_u8(0x20, 0x7E)); // printable ASCII
 }
@@ -601,8 +601,8 @@ struct msg_gen
             if (std::uniform_int_distribution<int>(0, 1)(rng))
             {
                 // SS3: ESC O X
-                static const char s_keys[] = {'A', 'B', 'C', 'D', 'H', 'F', 'P', 'Q', 'R', 'S'};
-                static const vt_message_id s_ids[] = {
+                const char s_keys[] = {'A', 'B', 'C', 'D', 'H', 'F', 'P', 'Q', 'R', 'S'};
+                const vt_message_id s_ids[] = {
                     vt_message_id::key_up,   vt_message_id::key_down, vt_message_id::key_right, vt_message_id::key_left,
                     vt_message_id::key_home, vt_message_id::key_end,  vt_message_id::key_f1,    vt_message_id::key_f2,
                     vt_message_id::key_f3,   vt_message_id::key_f4};
@@ -615,8 +615,8 @@ struct msg_gen
             else
             {
                 // CSI ~
-                static const short c_codes[] = {2, 3, 5, 6, 15, 17, 18, 19, 20, 21, 23, 24};
-                static const vt_message_id c_ids[] = {
+                const short c_codes[] = {2, 3, 5, 6, 15, 17, 18, 19, 20, 21, 23, 24};
+                const vt_message_id c_ids[] = {
                     vt_message_id::key_insert,    vt_message_id::key_delete, vt_message_id::key_page_up,
                     vt_message_id::key_page_down, vt_message_id::key_f5,     vt_message_id::key_f6,
                     vt_message_id::key_f7,        vt_message_id::key_f8,     vt_message_id::key_f9,

@@ -1319,7 +1319,7 @@ bool test_history_saved_input_preserved_across_navigation()
 // 辅助：构造 Win32Input 序列的原始字节
 // 格式: \x1b[Vk;Sc;Uc;Kd;Cs;Rc_
 // Vk=虚拟键码, Sc=扫描码, Uc=Unicode, Kd=1按下/0释放, Cs=控制键状态, Rc=重复次数
-static std::vector<BYTE> make_win32_seq(WORD vk, WORD sc, WCHAR uc, bool down, DWORD cs = 0, WORD rc = 1)
+std::vector<BYTE> make_win32_seq(WORD vk, WORD sc, WCHAR uc, bool down, DWORD cs = 0, WORD rc = 1)
 {
     char buf[64];
     int n =

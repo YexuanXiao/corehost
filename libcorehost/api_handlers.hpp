@@ -174,7 +174,7 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
             {
                 for (auto &ch : u32s)
                     if (ch >= 0x5f && ch <= 0x7e)
-                        ch = console_state::dec_to_unicode(static_cast<unsigned char>(ch));
+                        ch = state.dec_to_unicode(static_cast<unsigned char>(ch));
             }
 
             vt_message m{};

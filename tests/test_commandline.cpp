@@ -14,7 +14,7 @@
 #include <vector>
 #include <string_view>
 
-[[nodiscard]] static std::vector<std::wstring> split_command_line(const win32::wcstring_view command_line)
+[[nodiscard]] std::vector<std::wstring> split_command_line(const win32::wcstring_view command_line)
 {
     std::vector<std::wstring> args;
     win32::command_line_view parser(command_line);
@@ -25,7 +25,7 @@
     return args;
 }
 
-[[nodiscard]] static std::vector<std::wstring> split_command_line_win32(const win32::wcstring_view command_line)
+[[nodiscard]] std::vector<std::wstring> split_command_line_win32(const win32::wcstring_view command_line)
 {
     int argc = 0;
     auto argv = ::CommandLineToArgvW(command_line.c_str(), &argc);

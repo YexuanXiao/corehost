@@ -599,8 +599,8 @@ struct msg_gen
             if (std::uniform_int_distribution<int>(0, 1)(rng))
             {
                 // SS3: ESC O X
-                static const char32_t s_keys[] = {U'A', U'B', U'C', U'D', U'H', U'F', U'P', U'Q', U'R', U'S'};
-                static const vt_message_id s_ids[] = {
+                const char32_t s_keys[] = {U'A', U'B', U'C', U'D', U'H', U'F', U'P', U'Q', U'R', U'S'};
+                const vt_message_id s_ids[] = {
                     vt_message_id::key_up,   vt_message_id::key_down, vt_message_id::key_right, vt_message_id::key_left,
                     vt_message_id::key_home, vt_message_id::key_end,  vt_message_id::key_f1,    vt_message_id::key_f2,
                     vt_message_id::key_f3,   vt_message_id::key_f4};
@@ -613,8 +613,8 @@ struct msg_gen
             else
             {
                 // CSI ~
-                static const short c_codes[] = {2, 3, 5, 6, 15, 17, 18, 19, 20, 21, 23, 24};
-                static const vt_message_id c_ids[] = {
+                const short c_codes[] = {2, 3, 5, 6, 15, 17, 18, 19, 20, 21, 23, 24};
+                const vt_message_id c_ids[] = {
                     vt_message_id::key_insert,    vt_message_id::key_delete, vt_message_id::key_page_up,
                     vt_message_id::key_page_down, vt_message_id::key_f5,     vt_message_id::key_f6,
                     vt_message_id::key_f7,        vt_message_id::key_f8,     vt_message_id::key_f9,
@@ -1179,7 +1179,7 @@ bool test_parse_resize_window_fields_reset()
 
 // 模拟 pipe_bridge process_input 逻辑：char32_t 喂入 parser
 // 验证 text 消息的内容正确
-static std::u32string feed_and_collect_text(const std::u32string &input)
+std::u32string feed_and_collect_text(const std::u32string &input)
 {
     vt_parser p;
     std::u32string collected;
