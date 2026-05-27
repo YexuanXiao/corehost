@@ -9,113 +9,146 @@
 #include <cstdio>
 #include <ctime>
 #include <cwchar>
+#include <cwctype>
 #include <cstdarg>
-#include <cstdlib> // for std::abort
 #include <string>
 #include <vector>
+#include <algorithm>
 #include <io.h>    // for _fileno, _get_osfhandle
 #include <fcntl.h> // for _O_* constants (if needed)
 
-// 单独的日志文件初始化函数（原 lambda 提取至此）
-inline FILE *init_log_file()
+inline std::wstring lower_path(std::wstring path)
 {
-    // ---------- 1. 获取模块所在目录（两步法，不用 MAX_PATH） ----------
-    std::wstring exe_dir;
+    std::ranges::replace(path, L'/', L'\\');
+    std::ranges::transform(path, path.begin(), [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+    return path;
+}
+
+inline std::wstring module_directory()
+{
+    DWORD size = 512;
+    std::vector<wchar_t> buf(size);
+    for (;;)
     {
-        DWORD size = 512;               // 初始探测大小，拒绝写死 MAX_PATH
-        std::vector<wchar_t> buf(size); // ← 修正：原来是 <<wchar_t>
-        while (true)
+        DWORD len = ::GetModuleFileNameW(nullptr, buf.data(), size);
+        if (len == 0)
+            return {};
+
+        if (len < size)
         {
-            DWORD len = ::GetModuleFileNameW(nullptr, buf.data(), size);
-            if (len == 0)
-                std::abort(); // 获取模块路径失败
-
-            // len < size 表示缓冲区足够（含 null 终止位）
-            if (len < size)
-            {
-                exe_dir.assign(buf.data(), len);
-                break;
-            }
-
-            // 缓冲区不足，倍增后重试
-            size *= 2;
-            buf.resize(size);
+            std::wstring dir(buf.data(), len);
+            auto pos = dir.find_last_of(L"\\/");
+            if (pos != std::wstring::npos)
+                dir.resize(pos + 1);
+            else
+                dir = L".\\";
+            return dir;
         }
 
-        // 截断到目录部分
-        auto pos = exe_dir.find_last_of(L"\\/");
-        if (pos != std::wstring::npos)
-            exe_dir.resize(pos + 1);
-        else
-            exe_dir = L".\\";
+        size *= 2;
+        buf.resize(size);
+    }
+}
+
+inline std::wstring temp_directory()
+{
+    DWORD needed = ::GetEnvironmentVariableW(L"TEMP", nullptr, 0);
+    if (needed != 0)
+    {
+        std::wstring temp(needed, L'\0');
+        DWORD actual = ::GetEnvironmentVariableW(L"TEMP", temp.data(), needed);
+        if (actual != 0 && actual < needed)
+        {
+            temp.resize(actual);
+            return temp;
+        }
     }
 
-    // ---------- 2. 选择日志根目录 ----------
-    std::wstring base_path;
-    if (exe_dir.find(L"system32") != std::wstring::npos)
+    DWORD size = 512;
+    std::vector<wchar_t> buf(size);
+    for (;;)
     {
-        // 严格两步法获取 %TEMP%：第一步先获得大小，第二步再分配缓冲区
-        DWORD needed = ::GetEnvironmentVariableW(L"TEMP", nullptr, 0);
-        if (needed == 0)
-        {
-            // 回退到 GetTempPathW，同样两步法
-            needed = ::GetTempPathW(0, nullptr);
-            if (needed == 0)
-                std::abort();
+        DWORD len = ::GetTempPathW(size, buf.data());
+        if (len == 0)
+            return {};
+        if (len < size)
+            return std::wstring(buf.data(), len);
+        size = len + 1;
+        buf.resize(size);
+    }
+}
 
-            std::wstring temp(needed, L'\0');
-            DWORD actual = ::GetTempPathW(needed, temp.data());
-            if (actual == 0 || actual > needed)
-                std::abort();
-            temp.resize(actual);
-            base_path = std::move(temp);
-        }
-        else
+inline bool is_system_directory(std::wstring_view dir)
+{
+    auto module_dir = lower_path(std::wstring(dir));
+
+    DWORD size = 512;
+    std::vector<wchar_t> buf(size);
+    for (;;)
+    {
+        UINT len = ::GetSystemDirectoryW(buf.data(), size);
+        if (len == 0)
+            return module_dir.find(L"\\system32\\") != std::wstring::npos;
+        if (len < size)
         {
-            std::wstring temp(needed, L'\0');
-            DWORD actual = ::GetEnvironmentVariableW(L"TEMP", temp.data(), needed);
-            if (actual == 0 || actual >= needed)
-                std::abort();
-            temp.resize(actual);
-            base_path = std::move(temp);
+            std::wstring system_dir(buf.data(), len);
+            if (!system_dir.empty() && system_dir.back() != L'\\' && system_dir.back() != L'/')
+                system_dir.push_back(L'\\');
+            return module_dir == lower_path(std::move(system_dir));
         }
+        size = len + 1;
+        buf.resize(size);
+    }
+}
+
+inline FILE *open_log_file(std::wstring base_path, const wchar_t *filename)
+{
+    if (base_path.empty())
+        return nullptr;
+
+    if (base_path.back() != L'\\' && base_path.back() != L'/')
+        base_path.push_back(L'\\');
+
+    std::wstring logs_dir = base_path + L"logs";
+    if (!::CreateDirectoryW(logs_dir.c_str(), nullptr) && ::GetLastError() != ERROR_ALREADY_EXISTS)
+        return nullptr;
+
+    logs_dir.push_back(L'\\');
+    return ::_wfsopen((logs_dir + filename).c_str(), L"a", _SH_DENYNO);
+}
+
+// 单独的日志文件初始化函数（原 lambda 提取至此）
+inline FILE *init_log_file()
+try
+{
+    auto exe_dir = module_directory();
+
+    std::time_t now = std::time(nullptr);
+    std::tm tm_buf{};
+    if (localtime_s(&tm_buf, &now) != 0)
+        return nullptr;
+    wchar_t time_str[32]{};
+    std::wcsftime(time_str, std::size(time_str), L"%Y%m%d_%H%M%S", &tm_buf);
+
+    wchar_t filename[64]{};
+    std::swprintf(filename, std::size(filename), L"corehost_%u_%ls.log", ::GetCurrentProcessId(), time_str);
+
+    if (is_system_directory(exe_dir))
+    {
+        if (auto *f = open_log_file(temp_directory(), filename))
+            return f;
     }
     else
     {
-        base_path = std::move(exe_dir);
+        if (auto *f = open_log_file(exe_dir, filename))
+            return f;
     }
 
-    // 确保根目录末尾有分隔符
-    if (!base_path.empty() && base_path.back() != L'\\' && base_path.back() != L'/')
-        base_path.push_back(L'\\');
-
-    // ---------- 3. 自动创建 logs 文件夹 ----------
-    std::wstring logs_dir = base_path + L"logs";
-    if (!::CreateDirectoryW(logs_dir.c_str(), nullptr) && ::GetLastError() != ERROR_ALREADY_EXISTS)
-        std::abort(); // 创建失败且不是因为目录已存在
-
-    logs_dir.push_back(L'\\');
-
-    // ---------- 4. 构造日志文件名 ----------
-    std::time_t now = std::time(nullptr);
-    std::tm tm_buf;
-    localtime_s(&tm_buf, &now);
-    wchar_t time_str[32];
-    std::wcsftime(time_str, 32, L"%Y%m%d_%H%M%S", &tm_buf);
-
-    DWORD pid = ::GetCurrentProcessId();
-
-    wchar_t filename[64];
-    std::swprintf(filename, std::size(filename), L"corehost_%u_%ls.log", pid, time_str);
-
-    std::wstring full_path = logs_dir + filename;
-
-    // ---------- 5. 以追加模式打开，允许其他进程同时读取 ----------
-    FILE *f = ::_wfsopen(full_path.c_str(), L"a", _SH_DENYNO);
-    if (!f)
-        std::abort();
-
-    return f;
+    return open_log_file(temp_directory(), filename);
+}
+catch (...)
+{
+    return nullptr;
 }
 
 // 内联全局文件指针，调用单独的初始化函数
@@ -134,6 +167,11 @@ inline void core_log(const wchar_t *fmt, ...)
     va_end(va);
 
     // 写入并立即刷新，确保日志不丢失
+    if (!g_log_file)
+    {
+        ::OutputDebugStringW(buf);
+        return;
+    }
     std::fputws(buf, g_log_file);
     std::fflush(g_log_file);
 }
