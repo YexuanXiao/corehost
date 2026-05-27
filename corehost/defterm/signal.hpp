@@ -16,6 +16,7 @@
 
 #pragma once
 #include <windows.h>
+#include "win32/event.hpp"
 #include "win32/handle.hpp"
 
 namespace defterm
@@ -30,7 +31,7 @@ namespace defterm
 struct signal_thread_params
 {
     win32::handle pipe;            // 信号管道读端
-    win32::handle shutdown_event;  // 管道断开时通知 handoff 等待方
+    win32::event shutdown_event;   // 管道断开时通知 handoff 等待方
 };
 
 // ── 信号线程过程 ────────────────────────────────────────────

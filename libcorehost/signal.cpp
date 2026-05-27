@@ -11,6 +11,13 @@
 namespace conpty
 {
 
+static void notify_signal_pipe_closed(pty_signal_thread_params &params) noexcept
+{
+    LOG("pty_signal_thread_proc: signal pipe closed, vt_in=%p", params.vt_in.get());
+    params.vt_in.clear();
+    params.pipe_broken.store(true, std::memory_order_relaxed);
+}
+
 DWORD WINAPI pty_signal_thread_proc(LPVOID param)
 {
     auto pp = std::unique_ptr<pty_signal_thread_params>{static_cast<pty_signal_thread_params *>(param)};
@@ -21,8 +28,8 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
         unsigned short sig = 0;
         if (!miniio::read_exact(hp.view(), &sig, sizeof(sig)))
         {
-            pp->vt_in.clear();
-            pp->pipe_broken.store(true, std::memory_order_relaxed);
+            LOG("pty_signal_thread_proc: failed to read signal id err=%lu", ::GetLastError());
+            notify_signal_pipe_closed(*pp);
             break;
         }
         switch (static_cast<PtySignal>(sig))
@@ -30,7 +37,11 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
         case PtySignal::ShowHideWindow: {
             unsigned short show = 0;
             if (!miniio::read_exact(hp.view(), &show, sizeof(show)))
-                return 1;
+            {
+                LOG("pty_signal_thread_proc: ShowHideWindow payload short read err=%lu", ::GetLastError());
+                notify_signal_pipe_closed(*pp);
+                return 0;
+            }
             break;
         }
         case PtySignal::ClearBuffer:
@@ -40,13 +51,21 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
             // 读取 HWND (8 字节, 32/64 兼容)
             ULONG_PTR hwnd = 0;
             if (!miniio::read_exact(hp.view(), &hwnd, sizeof(hwnd)))
-                return 1;
+            {
+                LOG("pty_signal_thread_proc: SetParent payload short read err=%lu", ::GetLastError());
+                notify_signal_pipe_closed(*pp);
+                return 0;
+            }
             break;
         }
         case PtySignal::ResizeWindow: {
             COORD sz{0, 0};
             if (!miniio::read_exact(hp.view(), &sz, sizeof(sz)))
-                return 1;
+            {
+                LOG("pty_signal_thread_proc: ResizeWindow payload short read err=%lu", ::GetLastError());
+                notify_signal_pipe_closed(*pp);
+                return 0;
+            }
             pp->state.screen_buffer_size = sz;
             pp->state.current_window_size = sz;
             pp->state.max_window_size = sz;

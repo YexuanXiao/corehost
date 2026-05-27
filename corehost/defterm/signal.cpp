@@ -3,6 +3,7 @@
 
 #include "signal.hpp"
 #include <memory>
+#include <mutex>
 #include "miniio/io_thread.hpp"
 #include "ntapi/conwinuserrefs.h"
 #include "ntapi/consolecontrol.hpp"
@@ -62,15 +63,15 @@ DWORD WINAPI signal_thread_proc(LPVOID param)
     auto &hp = pp->pipe;
     auto &shutdown_event = pp->shutdown_event;
     LOG("signal_thread_proc: start pipe=%p shutdownEvent=%p", hp.get(), shutdown_event.get());
+    std::unique_lock shutdown_signal{shutdown_event, std::adopt_lock};
 
-    bool keep_running = true;
-    while (keep_running)
+    for (;;)
     {
         std::uint8_t code = 0;
         if (!miniio::read_exact(hp.view(), &code, 1))
         {
             LOG("signal_thread_proc: pipe closed err=%lu", ::GetLastError());
-            break;
+            return 0;
         }
 
         LOG("signal_thread_proc: code=%u", static_cast<unsigned>(code));
@@ -79,10 +80,7 @@ DWORD WINAPI signal_thread_proc(LPVOID param)
         case ConsoleNotifyConsoleApplication: {
             CONSOLENOTIFYAPPDATA d{};
             if (!read_remote_console_payload(hp.view(), d))
-            {
-                keep_running = false;
-                break;
-            }
+                return 0;
             CONSOLE_PROCESS_INFO cpi{d.dwProcessID, CPI_NEWPROCESSWINDOW};
             LOG("signal_thread_proc: NotifyConsoleApplication pid=%lu", d.dwProcessID);
             console::ConsoleControl(ConsoleNotifyConsoleApplication, &cpi, sizeof(cpi));
@@ -91,20 +89,14 @@ DWORD WINAPI signal_thread_proc(LPVOID param)
         case ConsoleSetForeground: {
             CONSOLESETFOREGROUNDDATA d{};
             if (!read_remote_console_payload(hp.view(), d))
-            {
-                keep_running = false;
-                break;
-            }
+                return 0;
             LOG("signal_thread_proc: ConsoleSetForeground");
             break;
         }
         case ConsoleEndTask: {
             CONSOLEENDTASKDATA d{};
             if (!read_remote_console_payload(hp.view(), d))
-            {
-                keep_running = false;
-                break;
-            }
+                return 0;
             CONSOLEENDTASK c{reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(d.ProcessId)), nullptr,
                              d.ConsoleEventCode, d.ConsoleFlags};
             LOG("signal_thread_proc: ConsoleEndTask pid=%lu event=%lu flags=0x%08lx", d.ProcessId,
@@ -117,12 +109,6 @@ DWORD WINAPI signal_thread_proc(LPVOID param)
             break;
         }
     }
-
-    LOG("signal_thread_proc: signaling shutdown event=%p", shutdown_event.get());
-    if (!::SetEvent(shutdown_event.get()))
-        LOG("signal_thread_proc: SetEvent failed err=%lu", ::GetLastError());
-    LOG("signal_thread_proc: exit");
-    return 0;
 }
 
 } // namespace defterm
