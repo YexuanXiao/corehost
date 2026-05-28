@@ -22,6 +22,8 @@ endif()
 add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 
 add_compile_definitions($<$<BOOL:${DISABLE_COREHOST_LOG}>:COREHOST_DISABLE_LOG>)
+set(COREHOST_LOG_LEVEL "1" CACHE STRING "CoreHost log level by frequency: 1=low, 2=medium, 3=high")
+add_compile_definitions(COREHOST_LOG_LEVEL=${COREHOST_LOG_LEVEL})
 
 # ── 架构检测 (proxy 子目录使用) ──────────────────────
 if(CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64" OR CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x86_64")

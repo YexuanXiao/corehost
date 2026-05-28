@@ -9,6 +9,8 @@
 add_library(lib STATIC
     ntapi/consolecontrol.cpp
     ntapi/consolenslmode.cpp
+    shell/shell.cpp
+    utility/log.cpp
     utility/notification.cpp
 )
 
@@ -21,5 +23,7 @@ target_include_directories(lib PUBLIC
 
 target_link_libraries(lib PUBLIC
     ntdll.lib
+    ole32.lib
     runtimeobject.lib
+    shell32.lib
 )

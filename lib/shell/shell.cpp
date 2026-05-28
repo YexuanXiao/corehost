@@ -50,6 +50,7 @@ bool is_package_installed(PCWSTR package_family_name)
     return (result == ERROR_SUCCESS && count > 0);
 }
 
+// Windows 商店应用的别名是一种特殊的重分析点 
 bool file_exists(PCWSTR file_path)
 {
     HANDLE hFile = CreateFileW(file_path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
@@ -119,5 +120,52 @@ std::wstring get_system_conhost_path()
     conhost_path.append(system_dir.c_str(), system_dir.size());
     conhost_path.append(conhost_suffix.data(), conhost_suffix.size());
     return conhost_path;
+}
+
+std::wstring get_module_path()
+{
+    std::wstring path;
+    DWORD buffer_size = 128;
+
+    while (true)
+    {
+        path.resize(buffer_size);
+
+        DWORD actual = GetModuleFileNameW(nullptr, path.data(), buffer_size);
+
+        if (actual == 0)
+        {
+            return {};
+        }
+
+        if (actual < buffer_size)
+        {
+            path.resize(actual);
+            return path;
+        }
+
+        buffer_size *= 2;
+    }
+}
+
+std::wstring get_module_dir_path()
+{
+    std::wstring modPath = get_module_path();
+
+    if (modPath.empty())
+    return {};
+
+    modPath.resize(modPath.size() - 4 /* .exe */);
+
+    auto it = modPath.end();
+    while (it != modPath.begin()) {
+        --it;
+        if (*it == L'\\') break;
+    }
+
+    size_t dirLen = static_cast<size_t>(it - modPath.begin()) + 1;
+    modPath.resize(dirLen);
+
+    return modPath;
 }
 } // namespace shell

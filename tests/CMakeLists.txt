@@ -21,7 +21,7 @@ target_include_directories(test_common INTERFACE
     ${CMAKE_SOURCE_DIR}/third_parties/libunicode/src
     ${CMAKE_SOURCE_DIR}/proxy/${CONHOST_PROXY_ARCH_DIR}
 )
-target_link_libraries(test_common INTERFACE shell32.lib ole32.lib ntdll.lib)
+target_link_libraries(test_common INTERFACE lib shell32.lib ole32.lib ntdll.lib)
 target_compile_features(test_common INTERFACE cxx_std_23)
 
 if(MSVC)

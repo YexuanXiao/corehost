@@ -11,7 +11,7 @@ namespace console
 PFN_ConsoleControl g_pfnConsoleControl = nullptr;
 void initialize_console_control()
 {
-    assert(g_pfnConsoleControl != nullptr);
+    assert(g_pfnConsoleControl == nullptr);
     HMODULE hUser32 = nullptr;
     auto res = GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, L"user32.dll", &hUser32);
 

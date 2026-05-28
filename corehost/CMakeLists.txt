@@ -7,7 +7,6 @@ add_executable(corehost WIN32
     defterm/defterm.cpp
     defterm/signal.cpp
     comserver/com_server.cpp
-    ../lib/shell/shell.cpp
 )
 
 target_include_directories(corehost PRIVATE

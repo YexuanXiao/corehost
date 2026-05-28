@@ -323,30 +323,6 @@ struct pipe_bridge
         _vt_len = 0;
     }
 
-    // 诊断 flush: 输出 hex dump 到日志
-    void vt_flush_diag(const char *tag)
-    {
-        if (_vt_len == 0)
-            return;
-        char hex[512];
-        int pos = 0;
-        for (size_t i = 0; i < _vt_len && pos < 500; i++)
-        {
-            unsigned char b = static_cast<unsigned char>(_vt_buf[i]);
-            if (b >= 0x20 && b <= 0x7E)
-                hex[pos++] = static_cast<char>(b);
-            else
-            {
-                hex[pos++] = '\\';
-                hex[pos++] = 'x';
-                pos += snprintf(hex + pos, 4, "%02X", b);
-            }
-        }
-        hex[pos] = '\0';
-        LOG("[vt_flush] %s: len=%zu -> \"%s\"", tag, _vt_len, hex);
-        vt_flush();
-    }
-
     // 直接写字节序列（不缓冲）
     void vt_write(const char *utf8, size_t len)
     {
@@ -1745,17 +1721,7 @@ struct pipe_bridge
     void process_input(const BYTE *bytes, DWORD len)
     {
         if (len > 0)
-        {
-            wchar_t hb[256]{};
-            DWORD hn = len < 60 ? len : 60;
-            for (DWORD k = 0; k < hn; ++k)
-            {
-                hb[k * 3] = L"0123456789ABCDEF"[bytes[k] >> 4];
-                hb[k * 3 + 1] = L"0123456789ABCDEF"[bytes[k] & 0xF];
-                hb[k * 3 + 2] = L' ';
-            }
-            LOG(L"[in] hex len=%lu: %ls", len, hb);
-        }
+            LOG_HEX("input", bytes, len);
         for (DWORD i = 0; i < len; ++i)
         {
             BYTE b = bytes[i];
