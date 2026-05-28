@@ -28,10 +28,9 @@ struct pty_signal_thread_params
     console_state &state;
     screen_buffer &sbuf;
 
-    pty_signal_thread_params(win32::handle signal_pipe, win32::event signal_shutdown_event,
-                             console_state &console, screen_buffer &screen) noexcept
-        : pipe(std::move(signal_pipe)), shutdown_event(std::move(signal_shutdown_event)),
-          state(console), sbuf(screen)
+    pty_signal_thread_params(win32::handle signal_pipe, win32::event signal_shutdown_event, console_state &console,
+                             screen_buffer &screen) noexcept
+        : pipe(std::move(signal_pipe)), shutdown_event(std::move(signal_shutdown_event)), state(console), sbuf(screen)
     {
     }
 };

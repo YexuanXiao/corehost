@@ -48,8 +48,7 @@ bool read_remote_console_payload(win32::handle_view pipe, T &payload)
         return false;
     }
 
-    if (payload.dwSize > sizeof(payload) &&
-        !skip_bytes(pipe, payload.dwSize - static_cast<DWORD>(sizeof(payload))))
+    if (payload.dwSize > sizeof(payload) && !skip_bytes(pipe, payload.dwSize - static_cast<DWORD>(sizeof(payload))))
     {
         return false;
     }
@@ -99,8 +98,8 @@ DWORD WINAPI signal_thread_proc(LPVOID param)
                 return 0;
             CONSOLEENDTASK c{reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(d.ProcessId)), nullptr,
                              d.ConsoleEventCode, d.ConsoleFlags};
-            LOG("signal_thread_proc: ConsoleEndTask pid=%lu event=%lu flags=0x%08lx", d.ProcessId,
-                d.ConsoleEventCode, d.ConsoleFlags);
+            LOG("signal_thread_proc: ConsoleEndTask pid=%lu event=%lu flags=0x%08lx", d.ProcessId, d.ConsoleEventCode,
+                d.ConsoleFlags);
             console::ConsoleControl(ConsoleEndTask, &c, sizeof(c));
             break;
         }

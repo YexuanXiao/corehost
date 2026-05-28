@@ -50,7 +50,7 @@ bool is_package_installed(PCWSTR package_family_name)
     return (result == ERROR_SUCCESS && count > 0);
 }
 
-// Windows 商店应用的别名是一种特殊的重分析点 
+// Windows 商店应用的别名是一种特殊的重分析点
 bool file_exists(PCWSTR file_path)
 {
     HANDLE hFile = CreateFileW(file_path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
@@ -153,14 +153,16 @@ std::wstring get_module_dir_path()
     std::wstring modPath = get_module_path();
 
     if (modPath.empty())
-    return {};
+        return {};
 
     modPath.resize(modPath.size() - 4 /* .exe */);
 
     auto it = modPath.end();
-    while (it != modPath.begin()) {
+    while (it != modPath.begin())
+    {
         --it;
-        if (*it == L'\\') break;
+        if (*it == L'\\')
+            break;
     }
 
     size_t dirLen = static_cast<size_t>(it - modPath.begin()) + 1;

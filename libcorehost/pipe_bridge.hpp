@@ -976,8 +976,8 @@ struct pipe_bridge
     bool handle_console_input(miniio::io_msg &msg)
     {
         auto *req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-        auto *out =
-            reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+        auto *out = reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                     sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
         const auto max_count = console_input_max_records(msg);
 
         const bool peek = (req->Flags & CONSOLE_READ_NOREMOVE) != 0;
@@ -992,8 +992,7 @@ struct pipe_bridge
         }
 
         req->NumRecords = static_cast<ULONG>(count);
-        const auto size =
-            static_cast<ULONG>(sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + count * sizeof(INPUT_RECORD));
+        const auto size = static_cast<ULONG>(sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + count * sizeof(INPUT_RECORD));
         miniio::prepare_completion(msg, 0, size);
         msg.complete.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
         msg.complete.Write.Size = size;
@@ -2322,8 +2321,7 @@ struct pipe_bridge
 
         const auto count = (req->Flags & CONSOLE_READ_NOREMOVE) ? inp.peek(out, max_count) : inp.read(out, max_count);
         req->NumRecords = static_cast<ULONG>(count);
-        const auto size =
-            static_cast<ULONG>(sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + count * sizeof(INPUT_RECORD));
+        const auto size = static_cast<ULONG>(sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + count * sizeof(INPUT_RECORD));
         miniio::prepare_completion(m, 0, size);
         m.complete.Write.Data = m.body + sizeof(CONSOLE_MSG_HEADER);
         m.complete.Write.Size = size;

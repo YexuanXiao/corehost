@@ -99,8 +99,8 @@ inline void run_io_loop(win32::handle_view server, win32::handle_view ev, Handle
         CD_IO_COMPLETE *prev_comp = prev_done ? &prev_done->complete : nullptr;
         if (prev_comp)
         {
-            LOG("run_io_loop: read #%llu submitting completion id=%08lx:%08lx status=0x%08lx info=%llu",
-                iteration, prev_comp->Identifier.HighPart, prev_comp->Identifier.LowPart,
+            LOG("run_io_loop: read #%llu submitting completion id=%08lx:%08lx status=0x%08lx info=%llu", iteration,
+                prev_comp->Identifier.HighPart, prev_comp->Identifier.LowPart,
                 static_cast<unsigned long>(prev_comp->IoStatus.Status),
                 static_cast<unsigned long long>(prev_comp->IoStatus.Information));
         }

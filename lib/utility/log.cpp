@@ -75,16 +75,15 @@ FILE *init_log_file()
 
     constexpr std::size_t max_timestamp_digits = 20;
     constexpr std::size_t max_pid_digits = 10;
-    constexpr std::size_t max_filename_chars =
-        (sizeof(L"corehost_") / sizeof(wchar_t) - 1) + max_timestamp_digits + 1 + max_pid_digits +
-        (sizeof(L".log") / sizeof(wchar_t) - 1);
+    constexpr std::size_t max_filename_chars = (sizeof(L"corehost_") / sizeof(wchar_t) - 1) + max_timestamp_digits + 1 +
+                                               max_pid_digits + (sizeof(L".log") / sizeof(wchar_t) - 1);
 
     const auto filename_offset = exe_dir.size();
     exe_dir.resize(filename_offset + max_filename_chars + 1);
 
     const int filename_chars =
-        std::swprintf(exe_dir.data() + filename_offset, max_filename_chars + 1,
-                      L"corehost_%llu_%010u.log", static_cast<unsigned long long>(now), ::GetCurrentProcessId());
+        std::swprintf(exe_dir.data() + filename_offset, max_filename_chars + 1, L"corehost_%llu_%010u.log",
+                      static_cast<unsigned long long>(now), ::GetCurrentProcessId());
     if (filename_chars < 0 || static_cast<std::size_t>(filename_chars) > max_filename_chars)
         return nullptr;
 

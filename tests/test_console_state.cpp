@@ -266,8 +266,7 @@ api_test_context api_ctx;
 void mock_get_console_input_msg(miniio::io_msg &msg, USHORT flags)
 {
     std::memset(&msg, 0, sizeof(msg));
-    msg.descriptor.OutputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + sizeof(INPUT_RECORD);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + sizeof(INPUT_RECORD);
 
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetConsoleInput);

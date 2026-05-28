@@ -203,7 +203,8 @@ inline void handle_non_gui_connect(win32::handle_view server, miniio::io_msg &ms
 {
     DWORD client_pid = static_cast<DWORD>(msg.descriptor.Process);
     auto &connect_info = *reinterpret_cast<const CONSOLE_SERVER_MSG *>(msg.body);
-    LOG("handle_connect: pid=%lu pgid=%lu func=%lu input=%lu output=%lu initialized=%d consoleApp=%u visible=%u show=%u flags=0x%08lx",
+    LOG("handle_connect: pid=%lu pgid=%lu func=%lu input=%lu output=%lu initialized=%d consoleApp=%u visible=%u "
+        "show=%u flags=0x%08lx",
         client_pid, connect_info.ProcessGroupId, msg.descriptor.Function, msg.descriptor.InputSize,
         msg.descriptor.OutputSize, initialized, static_cast<unsigned>(connect_info.ConsoleApp),
         static_cast<unsigned>(connect_info.WindowVisible), connect_info.ShowWindow, connect_info.StartupFlags);

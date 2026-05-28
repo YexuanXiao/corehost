@@ -144,7 +144,8 @@ namespace defterm
 //
 [[nodiscard]] inline bool should_attempt_handoff(const CONSOLE_SERVER_MSG &msg) noexcept
 {
-    LOG("should_attempt_handoff: consoleApp=%u visible=%u startupFlags=0x%08lx showWindow=%ls(%u) titleLength=%u pgid=%lu",
+    LOG("should_attempt_handoff: consoleApp=%u visible=%u startupFlags=0x%08lx showWindow=%ls(%u) titleLength=%u "
+        "pgid=%lu",
         static_cast<unsigned>(msg.ConsoleApp), static_cast<unsigned>(msg.WindowVisible), msg.StartupFlags,
         show_window_name(msg.ShowWindow), msg.ShowWindow, msg.TitleLength, msg.ProcessGroupId);
 
@@ -242,8 +243,8 @@ namespace defterm
         defterm::signal_thread_params{std::move(sr), std::move(signal_shutdown_event)});
     DWORD signal_thread_id = 0;
     auto sig_thread = win32::basic_thread{defterm::signal_thread_proc, tp.release(), &signal_thread_id};
-    LOG("attempt_handoff: signal thread started tid=%lu handle=%p shutdownEvent=%p", signal_thread_id,
-        sig_thread.get(), shutdown_event.get());
+    LOG("attempt_handoff: signal thread started tid=%lu handle=%p shutdownEvent=%p", signal_thread_id, sig_thread.get(),
+        shutdown_event.get());
 
     // WT 返回的 client 进程句柄用于保持默认终端协议中的 PID 连续性，
     // 但实际窗口关闭时更可靠的退出信号是 WT 关闭 signal pipe。

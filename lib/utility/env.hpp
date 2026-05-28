@@ -51,14 +51,13 @@ inline void show_elevated_notification(DWORD process_id, DWORD process_group_id,
     constexpr auto hint = std::wstring_view{L"\n请在管理员权限的终端中重新运行该程序。"};
     constexpr auto max_dword_digits = std::numeric_limits<DWORD>::digits10 + 1;
 
-    auto body_size_bound = intro.size() + process_id_label.size() + max_dword_digits +
-                           process_group_label.size() + max_dword_digits + image_path_label.size() +
-                           image_path.size() + hint.size();
+    auto body_size_bound = intro.size() + process_id_label.size() + max_dword_digits + process_group_label.size() +
+                           max_dword_digits + image_path_label.size() + image_path.size() + hint.size();
 
     std::wstring body;
     body.resize_and_overwrite(body_size_bound, [&](wchar_t *buffer, size_t) noexcept {
-        auto out = std::format_to(buffer, L"{}{}{}{}{}{}{}{}", intro, process_id_label, process_id,
-                                  process_group_label, process_group_id, image_path_label, image_path, hint);
+        auto out = std::format_to(buffer, L"{}{}{}{}{}{}{}{}", intro, process_id_label, process_id, process_group_label,
+                                  process_group_id, image_path_label, image_path, hint);
         return static_cast<size_t>(out - buffer);
     });
 
@@ -71,8 +70,7 @@ inline void show_not_found_notification()
         L"打开 Microsoft Store",
         L"ms-windows-store://pdp/?ProductId=9N0DX20HK701",
     };
-    notification::send(L"无可用 Windows 终端",
-                       L"未找到默认终端应用程序。请安装 Windows Terminal 以恢复默认终端功能。",
+    notification::send(L"无可用 Windows 终端", L"未找到默认终端应用程序。请安装 Windows Terminal 以恢复默认终端功能。",
                        &store_action);
 }
 } // namespace env

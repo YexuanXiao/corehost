@@ -20,8 +20,8 @@ void register_app_user_model_id()
                                    L"Software\\Classes\\AppUserModelId\\CoreHost", KEY_WRITE, REG_OPTION_VOLATILE};
 
     constexpr wchar_t display_name[] = L"CoreHost";
-    auto result = ::RegSetValueExW(key.get(), L"DisplayName", 0, REG_SZ,
-                                   reinterpret_cast<const BYTE *>(display_name), sizeof(display_name));
+    auto result = ::RegSetValueExW(key.get(), L"DisplayName", 0, REG_SZ, reinterpret_cast<const BYTE *>(display_name),
+                                   sizeof(display_name));
     if (result != ERROR_SUCCESS)
         throw static_cast<win32::error>(result);
 }
