@@ -63,6 +63,10 @@ class event
     // ── Default (no-event) ───────────────────────────────────
     event() noexcept = default;
 
+    explicit event(win32::handle owned_handle) noexcept : _handle(std::move(owned_handle))
+    {
+    }
+
     ~event() noexcept = default;
 
     event(const event &) = delete;

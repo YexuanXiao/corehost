@@ -14,7 +14,6 @@
 //   最终通过 flush 写入 vt_out 管道。
 #pragma once
 #include <windows.h>
-#include <atomic>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -37,6 +36,8 @@ using namespace std::literals;
 
 struct pipe_bridge
 {
+    static constexpr DWORD pending_vt_input_wait_ms = 16;
+
     // ════════════════════════════════════════════════════
     //  变量
     // ════════════════════════════════════════════════════
@@ -67,7 +68,7 @@ struct pipe_bridge
 
   private:
     // ── 挂起 I/O 状态 ──
-    enum class PendingKind : uint8_t
+    enum class PendingKind
     {
         None,
         RawRead,
@@ -82,7 +83,7 @@ struct pipe_bridge
     bool _pend_uni = false;
     bool _vt_eof = false;
     bool _process_control_z = false;
-    std::atomic<bool> _vt_pipe_broken{false}; // signal 线程设置 → on_idle 检测退出
+    win32::handle_view _signal_shutdown_event;
 
     // ── Parser 外部缓冲：_raw_buf 记录全部字符，_cooked_buf 仅记录地面态文本 ──
     std::u32string _raw_buf;    // Parser 写入全部字符（供 msg.text 视图指向）
@@ -150,14 +151,98 @@ struct pipe_bridge
         return _vt_eof;
     }
 
-    // ── signal 线程在管道断开时调用，通知 I/O 循环退出 ──
-    void signal_pipe_broken() noexcept
+    void set_signal_shutdown_event(win32::handle_view event) noexcept
     {
-        _vt_pipe_broken.store(true, std::memory_order_relaxed);
+        _signal_shutdown_event = event;
     }
-    std::atomic<bool> &pipe_broken_flag() noexcept
+
+    [[nodiscard]] bool is_signal_shutdown_signaled() const noexcept
     {
-        return _vt_pipe_broken;
+        return _signal_shutdown_event.valid() &&
+               ::WaitForSingleObject(_signal_shutdown_event.get(), 0) == WAIT_OBJECT_0;
+    }
+
+    [[nodiscard]] bool peek_vt_input(DWORD &avail) noexcept
+    {
+        if (::PeekNamedPipe(vt_in.get(), nullptr, 0, nullptr, &avail, nullptr))
+            return true;
+
+        LOG("[bridge] peek_vt_input: PeekNamedPipe failed err=%lu", ::GetLastError());
+        return false;
+    }
+
+    enum class vt_read_status
+    {
+        bytes,
+        empty,
+        eof,
+        full,
+    };
+
+    [[nodiscard]] vt_read_status read_available_vt_input()
+    {
+        DWORD avail = 0;
+        if (!peek_vt_input(avail))
+            return vt_read_status::eof;
+        if (avail == 0)
+            return vt_read_status::empty;
+
+        DWORD room = static_cast<DWORD>(_readbuf.size()) - _read_total;
+        if (room == 0)
+            return vt_read_status::full;
+
+        auto to_read = avail < room ? avail : room;
+        DWORD read = 0;
+        if (!::ReadFile(vt_in.get(), _readbuf.data() + _read_total, to_read, &read, nullptr) || read == 0)
+        {
+            LOG("[bridge] read_available_vt_input: ReadFile failed read=%lu err=%lu", read, ::GetLastError());
+            return vt_read_status::eof;
+        }
+
+        _read_total += read;
+        return vt_read_status::bytes;
+    }
+
+    [[nodiscard]] vt_read_status read_blocking_vt_input()
+    {
+        DWORD room = static_cast<DWORD>(_readbuf.size()) - _read_total;
+        if (room == 0)
+            return vt_read_status::full;
+
+        DWORD read = 0;
+        if (!::ReadFile(vt_in.get(), _readbuf.data() + _read_total, room, &read, nullptr) || read == 0)
+        {
+            LOG("[bridge] read_blocking_vt_input: ReadFile failed read=%lu err=%lu", read, ::GetLastError());
+            return vt_read_status::eof;
+        }
+
+        _read_total += read;
+        return vt_read_status::bytes;
+    }
+
+    void process_new_vt_input(DWORD old_total)
+    {
+        _line_found = false;
+        process_input(_readbuf.data() + old_total, _read_total - old_total);
+        vt_flush();
+        _echo_start = _read_total;
+    }
+
+    void complete_pending_with_eof()
+    {
+        _vt_eof = true;
+        complete_pending();
+    }
+
+    [[nodiscard]] bool wait_for_signal_shutdown_slice()
+    {
+        if (!_signal_shutdown_event.valid())
+            return false;
+
+        // The shutdown event is only one of the two conditions we care about here.
+        // VT input does not signal this event, so this must stay a short throttle,
+        // not an infinite wait.
+        return ::WaitForSingleObject(_signal_shutdown_event.get(), pending_vt_input_wait_ms) == WAIT_OBJECT_0;
     }
 
     // ── 持久转换缓冲区访问器 ──
@@ -944,50 +1029,65 @@ struct pipe_bridge
         if (_vt_eof || _pend_kind == PendingKind::None)
             return;
 
-        DWORD avail = 0;
-        if (!::PeekNamedPipe(vt_in.get(), nullptr, 0, nullptr, &avail, nullptr))
+        auto drain_available = [&] {
+            const auto old_total = _read_total;
+            switch (read_available_vt_input())
+            {
+            case vt_read_status::bytes:
+                process_new_vt_input(old_total);
+                return true;
+            case vt_read_status::empty:
+                return false;
+            case vt_read_status::full:
+                complete_pending();
+                return true;
+            case vt_read_status::eof:
+                complete_pending_with_eof();
+                return true;
+            default:
+                std::unreachable();
+            }
+        };
+
+        if (drain_available())
         {
-            LOG("[bridge] wait_for_pending_vt_input: PeekNamedPipe failed err=%lu", ::GetLastError());
-            _vt_eof = true;
-            complete_pending();
             return;
         }
 
-        if (avail > 0)
+        if (is_signal_shutdown_signaled())
         {
-            accumulate_from_pipe();
+            complete_pending_with_eof();
             return;
         }
 
-        if (_vt_pipe_broken.load(std::memory_order_relaxed))
+        if (wait_for_signal_shutdown_slice())
         {
-            _vt_eof = true;
-            complete_pending();
+            complete_pending_with_eof();
+            return;
+        }
+        if (_signal_shutdown_event.valid())
+        {
+            drain_available();
             return;
         }
 
         const auto old_total = _read_total;
-        DWORD room = static_cast<DWORD>(_readbuf.size()) - _read_total;
-        if (room == 0)
+        switch (read_blocking_vt_input())
         {
+        case vt_read_status::bytes:
+            process_new_vt_input(old_total);
+            return;
+        case vt_read_status::full:
             complete_pending();
             return;
-        }
-
-        DWORD read = 0;
-        if (!::ReadFile(vt_in.get(), _readbuf.data() + _read_total, room, &read, nullptr) || read == 0)
-        {
-            LOG("[bridge] wait_for_pending_vt_input: ReadFile failed read=%lu err=%lu", read, ::GetLastError());
-            _vt_eof = true;
-            complete_pending();
+        case vt_read_status::eof:
+            complete_pending_with_eof();
             return;
+        case vt_read_status::empty:
+            return;
+        default:
+            std::unreachable();
         }
-
-        _read_total += read;
-        _line_found = false;
-        process_input(_readbuf.data() + old_total, read);
-        vt_flush();
-        _echo_start = _read_total;
     }
 
     // ── on_idle ──
@@ -998,9 +1098,8 @@ struct pipe_bridge
 
         // ── 始终检查 VT pipe（即使无 pending I/O），否则 GetConsoleInput 紧密轮询时永远检测不到断开 ──
         DWORD avail = 0;
-        if (!::PeekNamedPipe(vt_in.get(), nullptr, 0, nullptr, &avail, nullptr))
+        if (!peek_vt_input(avail))
         {
-            LOG("[bridge] on_idle: PeekNamedPipe failed err=%lu", ::GetLastError());
             _vt_eof = true;
             if (_pend_kind != PendingKind::None)
                 complete_pending();
@@ -1015,12 +1114,12 @@ struct pipe_bridge
             _echo_start = 0;
         }
 
-        // ── 检测管道关闭：PeekNamedPipe 返回 0 字节且 signal 线程已通知 pipe broken ──
+        // ── 检测管道关闭：PeekNamedPipe 返回 0 字节且 signal 线程已退出 ──
         if (avail == 0)
         {
-            if (_vt_pipe_broken.load(std::memory_order_relaxed))
+            if (is_signal_shutdown_signaled())
             {
-                LOG("[bridge] on_idle: pipe broken flag set, marking EOF");
+                LOG("[bridge] on_idle: signal shutdown event set, marking EOF");
                 _vt_eof = true;
                 if (_pend_kind != PendingKind::None)
                     complete_pending();
@@ -1609,34 +1708,28 @@ struct pipe_bridge
     {
         for (;;)
         {
-            DWORD avail = 0;
-            if (!::PeekNamedPipe(vt_in.get(), nullptr, 0, nullptr, &avail, nullptr) || avail == 0)
-                return false;
-
-            DWORD room = static_cast<DWORD>(_readbuf.size()) - _read_total;
-            if (room == 0)
+            const auto old_total = _read_total;
+            switch (read_available_vt_input())
             {
+            case vt_read_status::empty:
+                return false;
+            case vt_read_status::full:
                 LOG("[bridge] accumulate: buffer full");
                 complete_pending();
                 return true;
-            }
-
-            auto to_read = avail < room ? avail : room;
-            DWORD ck = 0;
-            if (!::ReadFile(vt_in.get(), _readbuf.data() + _read_total, to_read, &ck, nullptr) || ck == 0)
-            {
-                LOG("[bridge] accumulate: ReadFile failed ck=%lu err=%lu", ck, ::GetLastError());
+            case vt_read_status::eof:
                 _vt_eof = true;
                 complete_pending();
                 return true;
+            case vt_read_status::bytes:
+                break;
+            default:
+                std::unreachable();
             }
-            _read_total += ck;
 
             // ── 单遍处理：process_input 内部检测 \r/\n/Ctrl+Z，不再需要二次 scan_for_line ──
-            DWORD new_start = _read_total - ck;
-            DWORD new_len = _read_total - new_start;
             _line_found = false;
-            process_input(_readbuf.data() + new_start, new_len);
+            process_input(_readbuf.data() + old_total, _read_total - old_total);
             // 批量 echo 后必须在本批输入结束时刷新，否则普通打字会滞留在 _vt_buf，
             // 直到后续控制序列/应用输出/缓冲满才显示，表现为终端输入卡顿。
             vt_flush();

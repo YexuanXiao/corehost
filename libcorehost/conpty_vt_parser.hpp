@@ -44,7 +44,7 @@ namespace conpty
 // 所有可能的解析结果标识。
 // continue_: 需要继续喂入字符，当前未产出完整消息。
 // text:      普通文本或无法识别的序列原文。
-enum class vt_message_id : uint16_t
+enum class vt_message_id
 {
     continue_text = 0, // 可打印字符 → echo + 插入行缓冲
     continue_ = 1,     // 转义内部状态 → 无操作

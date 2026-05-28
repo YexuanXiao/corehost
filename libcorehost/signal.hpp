@@ -4,13 +4,13 @@
 // 与 conpty/signal.hpp 相同 — 无文本编码依赖。
 #pragma once
 #include <windows.h>
-#include <atomic>
+#include "win32/event.hpp"
 #include "win32/handle.hpp"
 
 namespace conpty
 {
 
-enum class PtySignal : unsigned short
+enum class PtySignal
 {
     ShowHideWindow = 1,
     ClearBuffer = 2,
@@ -24,15 +24,14 @@ struct screen_buffer;
 struct pty_signal_thread_params
 {
     win32::handle pipe;
-    win32::handle vt_in;
-    std::atomic<bool> &pipe_broken; // signal 线程设置此标志以通知 I/O 循环退出
+    win32::event shutdown_event;
     console_state &state;
     screen_buffer &sbuf;
 
-    pty_signal_thread_params(win32::handle signal_pipe, win32::handle vt_input, std::atomic<bool> &broken_flag,
+    pty_signal_thread_params(win32::handle signal_pipe, win32::event signal_shutdown_event,
                              console_state &console, screen_buffer &screen) noexcept
-        : pipe(std::move(signal_pipe)), vt_in(std::move(vt_input)), pipe_broken(broken_flag), state(console),
-          sbuf(screen)
+        : pipe(std::move(signal_pipe)), shutdown_event(std::move(signal_shutdown_event)),
+          state(console), sbuf(screen)
     {
     }
 };

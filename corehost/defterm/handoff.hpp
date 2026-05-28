@@ -237,8 +237,7 @@ namespace defterm
 
     // 启动信号监听线程 (第一跳: inbox→corehost, 无需 vt_in)
     auto shutdown_event = win32::event{win32::create_tag, true, false};
-    auto signal_shutdown_event = win32::event{};
-    *signal_shutdown_event.put() = win32::duplicate_handle(shutdown_event.view()).release();
+    auto signal_shutdown_event = win32::event{win32::duplicate_handle(shutdown_event.view())};
     auto tp = std::make_unique<defterm::signal_thread_params>(
         defterm::signal_thread_params{std::move(sr), std::move(signal_shutdown_event)});
     DWORD signal_thread_id = 0;

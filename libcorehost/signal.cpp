@@ -7,21 +7,16 @@
 #include "utility/log.hpp"
 #include <algorithm>
 #include <memory>
+#include <mutex>
 
 namespace conpty
 {
-
-static void notify_signal_pipe_closed(pty_signal_thread_params &params) noexcept
-{
-    LOG("pty_signal_thread_proc: signal pipe closed, vt_in=%p", params.vt_in.get());
-    params.vt_in.clear();
-    params.pipe_broken.store(true, std::memory_order_relaxed);
-}
 
 DWORD WINAPI pty_signal_thread_proc(LPVOID param)
 {
     auto pp = std::unique_ptr<pty_signal_thread_params>{static_cast<pty_signal_thread_params *>(param)};
     auto &hp = pp->pipe;
+    std::unique_lock shutdown_signal{pp->shutdown_event, std::adopt_lock};
 
     for (;;)
     {
@@ -29,7 +24,6 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
         if (!miniio::read_exact(hp.view(), &sig, sizeof(sig)))
         {
             LOG("pty_signal_thread_proc: failed to read signal id err=%lu", ::GetLastError());
-            notify_signal_pipe_closed(*pp);
             break;
         }
         switch (static_cast<PtySignal>(sig))
@@ -39,7 +33,6 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
             if (!miniio::read_exact(hp.view(), &show, sizeof(show)))
             {
                 LOG("pty_signal_thread_proc: ShowHideWindow payload short read err=%lu", ::GetLastError());
-                notify_signal_pipe_closed(*pp);
                 return 0;
             }
             break;
@@ -53,7 +46,6 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
             if (!miniio::read_exact(hp.view(), &hwnd, sizeof(hwnd)))
             {
                 LOG("pty_signal_thread_proc: SetParent payload short read err=%lu", ::GetLastError());
-                notify_signal_pipe_closed(*pp);
                 return 0;
             }
             break;
@@ -63,7 +55,6 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
             if (!miniio::read_exact(hp.view(), &sz, sizeof(sz)))
             {
                 LOG("pty_signal_thread_proc: ResizeWindow payload short read err=%lu", ::GetLastError());
-                notify_signal_pipe_closed(*pp);
                 return 0;
             }
             pp->state.screen_buffer_size = sz;

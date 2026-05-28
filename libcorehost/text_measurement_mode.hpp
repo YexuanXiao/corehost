@@ -9,7 +9,7 @@
 namespace conpty
 {
 
-enum class text_measurement_mode : int
+enum class text_measurement_mode
 {
     console = 0,
     graphemes,

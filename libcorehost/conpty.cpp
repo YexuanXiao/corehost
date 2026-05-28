@@ -3,6 +3,7 @@
 
 #include "conpty.hpp"
 #include <memory>
+#include "win32/event.hpp"
 #include "win32/thread.hpp"
 #include "io_loop.hpp"
 #include "console_state.hpp"
@@ -70,12 +71,16 @@ void conpty_entry(win32::handle server, win32::handle event, win32::handle condr
 
     // ── PtySignal 信号线程 ──
     win32::basic_thread sig_thread;
+    win32::event signal_shutdown_event;
     if (signal_pipe.valid())
     {
+        signal_shutdown_event = win32::event{win32::create_tag, true, false};
+        bridge.set_signal_shutdown_event(signal_shutdown_event.view());
+        auto signal_thread_event = win32::event{win32::duplicate_handle(signal_shutdown_event.view())};
         auto tp = std::make_unique<pty_signal_thread_params>(
-            std::move(signal_pipe), win32::duplicate_handle(vt_in.view()), bridge.pipe_broken_flag(), state, sbuf);
+            std::move(signal_pipe), std::move(signal_thread_event), state, sbuf);
         sig_thread = win32::basic_thread{pty_signal_thread_proc, tp.release()};
-        LOG("conpty::conpty_entry: signal thread started");
+        LOG("conpty::conpty_entry: signal thread started shutdownEvent=%p", signal_shutdown_event.get());
     }
 
     // ── 继承光标位置（对标原始 VtIo::StartIfNeeded + WriteDSRCPR）──
