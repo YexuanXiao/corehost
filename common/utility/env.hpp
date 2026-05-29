@@ -42,8 +42,10 @@ namespace env
 
 inline void show_elevated_notification(std::wstring_view image_path)
 {
-    std::wstring_view intro = L"控制台主机无法启动默认终端，请先以管理员权限启动终端，再重新运行程序 ";
-    std::wstring_view suffix = L"。";
+    std::wstring_view intro =
+        L"CoreHost cannot start the default terminal for an elevated process. Start the terminal as administrator, "
+        L"then run ";
+    std::wstring_view suffix = L" again.";
 
     std::wstring body;
     body.reserve(intro.size() + image_path.size() + suffix.size());
@@ -51,16 +53,18 @@ inline void show_elevated_notification(std::wstring_view image_path)
     body.append(image_path);
     body.append(suffix);
 
-    notification::send(L"程序执行被安全策略阻止", body);
+    notification::send(L"Execution blocked by security policy", body);
 }
 
 inline void show_not_found_notification()
 {
     constexpr notification::action store_action{
-        L"打开 Microsoft Store",
+        L"Open Microsoft Store",
         L"ms-windows-store://pdp/?ProductId=9N0DX20HK701",
     };
-    notification::send(L"无可用 Windows 终端", L"未找到默认终端应用程序。请安装 Windows Terminal 以恢复默认终端功能。",
+    notification::send(L"No terminal available",
+                       L"No default terminal application was found. Install Windows Terminal to restore default "
+                       L"terminal support.",
                        &store_action);
 }
 } // namespace env
