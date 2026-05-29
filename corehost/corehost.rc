@@ -17,7 +17,7 @@ BEGIN
     BEGIN
         BLOCK "000004b0"
         BEGIN
-            VALUE "FileDescription", "A reimplementation of Windows conhost"
+            VALUE "FileDescription", "CoreHost (Windows Console Host)"
             VALUE "FileVersion", "0.0.0.1-beta"
             VALUE "InternalName", "corehost"
             VALUE "OriginalFilename", "corehost.exe"

@@ -62,7 +62,8 @@ try
         conpty::conpty_entry(std::move(hr.server), std::move(hr.event), std::move(hr.condrv_input),
                              std::move(hr.condrv_output), std::move(hr.vt_in), std::move(hr.vt_out),
                              std::move(hr.signal), hr.width, hr.height, false,
-                             conpty::text_measurement_mode::graphemes, true);
+                             conpty::text_measurement_mode::graphemes, true, hr.vt_in_keepalive.valid(),
+                             hr.has_initial_connect ? &hr.initial_connect : nullptr);
         LOG("conpty_entry from deftermv2 returned cleanly");
         return 0;
     }

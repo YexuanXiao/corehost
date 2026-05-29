@@ -1,0 +1,45 @@
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: 命令“setlo
+cal [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_cursor_sync.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: "C:\Prog
+ram Files\Microsoft Visual Studio\18\Insiders\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E make_directory C:/Users
+/xyx/Documents/OpenConsole/build/Release/logs [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_cursor_sync.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: if %erro
+rlevel% neq 0 goto :cmEnd [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_cursor_sync.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: :cmEnd [
+C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_cursor_sync.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: endlocal
+ & call :cmErrorLevel %errorlevel% & goto :cmDone [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_cursor_sync.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: :cmError
+Level [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_cursor_sync.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: exit /b 
+%1 [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_cursor_sync.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: :cmDone 
+[C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_cursor_sync.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: if %erro
+rlevel% neq 0 goto :VCEnd [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_cursor_sync.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: :VCEnd”已
+退出，代码为 -1073741502。 [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_cursor_sync.vcxproj]
+  正在扫描源以查找模块依赖项...
+  test_conpty_e2e.vcxproj -> C:\Users\xyx\Documents\OpenConsole\build\Release\test_conpty_e2e.exe
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: 命令“setlo
+cal [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_e2e.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: "C:\Prog
+ram Files\Microsoft Visual Studio\18\Insiders\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E copy_if_different C:/Us
+ers/xyx/Documents/OpenConsole/build/Release/corehost.exe C:/Users/xyx/Documents/OpenConsole/build/Release [C:\Users\xyx\Documents\OpenCons
+ole\build\tests\test_conpty_e2e.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: if %erro
+rlevel% neq 0 goto :cmEnd [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_e2e.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: :cmEnd [
+C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_e2e.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: endlocal
+ & call :cmErrorLevel %errorlevel% & goto :cmDone [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_e2e.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: :cmError
+Level [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_e2e.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: exit /b 
+%1 [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_e2e.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: :cmDone 
+[C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_e2e.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: if %erro
+rlevel% neq 0 goto :VCEnd [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_e2e.vcxproj]
+C:\Program Files\Microsoft Visual Studio\18\Insiders\MSBuild\Microsoft\VC\v180\Microsoft.CppCommon.targets(166,5): error MSB3073: :VCEnd”已
+退出，代码为 -1073741502。 [C:\Users\xyx\Documents\OpenConsole\build\tests\test_conpty_e2e.vcxproj]
