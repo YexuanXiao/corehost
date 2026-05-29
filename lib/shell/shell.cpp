@@ -1,6 +1,5 @@
 #include <windows.h>
 #include <shlobj.h>
-#include <appmodel.h>
 #include "win32/string.hpp"
 #include "shell.hpp"
 
@@ -42,14 +41,6 @@ class known_folder_path
     }
 };
 
-bool is_package_installed(PCWSTR package_family_name)
-{
-    UINT32 count = 0;
-    LONG result = FindPackagesByPackageFamily(package_family_name, PACKAGE_FILTER_HEAD | PACKAGE_FILTER_DIRECT, &count,
-                                              nullptr, nullptr, nullptr, nullptr);
-    return (result == ERROR_SUCCESS && count > 0);
-}
-
 // Windows 商店应用的别名是一种特殊的重分析点
 bool file_exists(PCWSTR file_path)
 {
@@ -66,7 +57,6 @@ bool file_exists(PCWSTR file_path)
 get_shell_result get_shell()
 {
     constexpr win32::wcstring_view prefix = L"\\\\?\\";
-    // constexpr win32::wcstring_view package_family = L"Microsoft.PowerShell-LTS_8wekyb3d8bbwe";
     // 直接假定存在pwsh别名，因此不需要判断是否安装了包
     constexpr win32::wcstring_view pwsh_suffix = L"\\Microsoft\\WindowsApps\\pwsh.exe";
     constexpr win32::wcstring_view powershell_suffix = L"\\WindowsPowerShell\\v1.0\\powershell.exe";
@@ -125,27 +115,10 @@ std::wstring get_system_conhost_path()
 std::wstring get_module_path()
 {
     std::wstring path;
-    DWORD buffer_size = 128;
-
-    while (true)
-    {
-        path.resize(buffer_size);
-
-        DWORD actual = GetModuleFileNameW(nullptr, path.data(), buffer_size);
-
-        if (actual == 0)
-        {
-            return {};
-        }
-
-        if (actual < buffer_size)
-        {
-            path.resize(actual);
-            return path;
-        }
-
-        buffer_size *= 2;
-    }
+    path.resize_and_overwrite(32768, [&](wchar_t *buffer, size_t capacity) noexcept {
+        return static_cast<size_t>(::GetModuleFileNameW(nullptr, buffer, static_cast<DWORD>(capacity)));
+    });
+    return path;
 }
 
 std::wstring get_module_dir_path()

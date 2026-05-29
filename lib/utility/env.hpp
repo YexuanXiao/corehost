@@ -1,7 +1,5 @@
 #pragma once
 #include <windows.h>
-#include <format>
-#include <limits>
 #include <string>
 #include <string_view>
 #include "win32/handle.hpp"
@@ -42,26 +40,18 @@ namespace env
     return true;
 }
 
-inline void show_elevated_notification(DWORD process_id, DWORD process_group_id, std::wstring_view image_path)
+inline void show_elevated_notification(std::wstring_view image_path)
 {
-    constexpr auto intro = std::wstring_view{L"管理员权限的控制台主机无法把控制权移交给普通权限终端。"};
-    constexpr auto process_id_label = std::wstring_view{L"\n进程 PID: "};
-    constexpr auto process_group_label = std::wstring_view{L"\n进程组: "};
-    constexpr auto image_path_label = std::wstring_view{L"\n程序路径:\n"};
-    constexpr auto hint = std::wstring_view{L"\n请在管理员权限的终端中重新运行该程序。"};
-    constexpr auto max_dword_digits = std::numeric_limits<DWORD>::digits10 + 1;
-
-    auto body_size_bound = intro.size() + process_id_label.size() + max_dword_digits + process_group_label.size() +
-                           max_dword_digits + image_path_label.size() + image_path.size() + hint.size();
+    std::wstring_view intro = L"控制台主机无法启动默认终端，请先以管理员权限启动终端，再重新运行程序 ";
+    std::wstring_view suffix = L"。";
 
     std::wstring body;
-    body.resize_and_overwrite(body_size_bound, [&](wchar_t *buffer, size_t) noexcept {
-        auto out = std::format_to(buffer, L"{}{}{}{}{}{}{}{}", intro, process_id_label, process_id, process_group_label,
-                                  process_group_id, image_path_label, image_path, hint);
-        return static_cast<size_t>(out - buffer);
-    });
+    body.reserve(intro.size() + image_path.size() + suffix.size());
+    body.append(intro);
+    body.append(image_path);
+    body.append(suffix);
 
-    notification::send(L"请求被安全策略阻止", body);
+    notification::send(L"程序执行被安全策略阻止", body);
 }
 
 inline void show_not_found_notification()

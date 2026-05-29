@@ -24,6 +24,7 @@ target_include_directories(lib PUBLIC
 target_link_libraries(lib PUBLIC
     ntdll.lib
     ole32.lib
+    psapi.lib
     runtimeobject.lib
     shell32.lib
 )

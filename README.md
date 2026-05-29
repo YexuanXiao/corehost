@@ -38,6 +38,10 @@ This implementation also solves the problem that the original version of conhost
 
 When corehost runs with elevated integrity (High IL) due to sudo or runas, UIPI prevents COM activation and handle transfer to Medium IL terminals. When corehost detects this situation, since no GUI is available (the only GUI available to the original conhost is itself), corehost will refuse to execute the program and pop up a MessageBox to inform the user of what happened.
 
+### Silent Shell
+
+Currently, when corehost acts as the system conhost, it uses a simplified version of the I/O loop to run silent console programs. This is incomplete for shell programs and may cause them to crash. This issue will be addressed in a future version.
+
 ### Roadmap
 
 - [x] Default Terminal Handoff

@@ -21,16 +21,12 @@
 
 namespace
 {
-std::wstring lower_path(std::wstring path)
-{
-    std::ranges::transform(path, path.begin(), [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
-    return path;
-}
 
 std::wstring temp_directory()
 {
     std::wstring path;
-    path.resize(MAX_PATH);
+    path.resize(path.capacity());
+    // 故意使用GetTempPathW，因为GetTempPath2W会返回被保护的路径，由于我们只写入不读取，因此不需要这种保护措施
     DWORD len = ::GetTempPathW(static_cast<DWORD>(path.size()), path.data());
     if (len == 0)
         return {};
@@ -45,15 +41,17 @@ std::wstring temp_directory()
         return {};
 
     path.resize(len);
-    if (!path.empty() && path.back() != L'\\')
+    if (!path.empty() && path.back() != L'\\' && path.back() != L'/')
         path.push_back(L'\\');
     return path;
 }
 
 FILE *init_log_file()
 {
-    auto exe_dir = lower_path(shell::get_module_dir_path());
-    if (exe_dir.find(L"\\system32\\") != std::wstring::npos)
+    std::wstring exe_dir = shell::get_module_dir_path();
+    std::ranges::transform(exe_dir, exe_dir.begin(),
+                           [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+    if (exe_dir.find(L"\\system32") != std::wstring::npos)
         exe_dir = temp_directory();
 
     const auto now = std::time(nullptr);
@@ -63,10 +61,7 @@ FILE *init_log_file()
     if (exe_dir.empty())
         return nullptr;
 
-    constexpr std::wstring_view logs_dir_name = L"logs";
-    const auto logs_dir_offset = exe_dir.size();
-    exe_dir.resize(logs_dir_offset + logs_dir_name.size());
-    std::wmemcpy(exe_dir.data() + logs_dir_offset, logs_dir_name.data(), logs_dir_name.size());
+    exe_dir.append(L"logs");
 
     if (!::CreateDirectoryW(exe_dir.c_str(), nullptr) && ::GetLastError() != ERROR_ALREADY_EXISTS)
         return nullptr;
@@ -88,11 +83,13 @@ FILE *init_log_file()
         return nullptr;
 
     exe_dir.resize(filename_offset + static_cast<std::size_t>(filename_chars));
-    if (auto *file = ::_wfsopen(exe_dir.c_str(), L"a", _SH_DENYNO))
-        return file;
-
-    ::MessageBoxW(nullptr, exe_dir.c_str(), L"CoreHost Open Log File Error", MB_OK | MB_ICONERROR);
-    return nullptr;
+    auto *file = ::_wfsopen(exe_dir.c_str(), L"a", _SH_DENYNO);
+    if (file == nullptr)
+    {
+        ::MessageBoxW(nullptr, exe_dir.c_str(), L"CoreHost Open Log File Error", MB_OK | MB_ICONERROR);
+        std::abort();
+    }
+    return file;
 }
 
 FILE *g_log_file = init_log_file();

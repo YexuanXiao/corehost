@@ -18,6 +18,7 @@
 #include "handoff.hpp"
 #include "win32/handle.hpp"
 #include "win32/event.hpp"
+#include "win32/process.hpp"
 #include "os/Console/condrv.h"
 #include "ntapi/condrv.hpp"
 #include "miniio/io_thread.hpp"
@@ -29,13 +30,6 @@ namespace defterm
 {
 using namespace std::literals;
 
-struct connect_process_info
-{
-    DWORD pid = 0;
-    DWORD process_group_id = 0;
-    std::wstring image_path;
-};
-
 struct fallback_state
 {
     bool break_when_input_waits = false;
@@ -45,41 +39,10 @@ struct fallback_state
 
 [[nodiscard]] inline std::wstring query_process_image_path(DWORD pid)
 {
-    if (pid == 0)
-        return {};
-
     win32::handle process{::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)};
-    if (!process.valid())
-    {
-        LOG("query_process_image_path: OpenProcess pid=%lu failed err=%lu", pid, ::GetLastError());
-        return {};
-    }
+    win32::throw_last_error(!process.valid());
 
-    std::wstring path(32768, L'\0');
-    DWORD path_length = static_cast<DWORD>(path.size());
-    if (!::QueryFullProcessImageNameW(process.get(), 0, path.data(), &path_length))
-    {
-        LOG("query_process_image_path: QueryFullProcessImageNameW pid=%lu failed err=%lu", pid, ::GetLastError());
-        return {};
-    }
-
-    path.resize(path_length);
-    LOG("query_process_image_path: pid=%lu length=%zu", pid, path.size());
-    return path;
-}
-
-[[nodiscard]] inline connect_process_info make_connect_process_info(const CONSOLE_SERVER_MSG &connect_info,
-                                                                    DWORD client_pid)
-{
-    connect_process_info info;
-    info.pid = client_pid;
-    info.process_group_id = connect_info.ProcessGroupId;
-    info.image_path = query_process_image_path(info.process_group_id);
-    if (info.image_path.empty() && info.process_group_id != info.pid)
-        info.image_path = query_process_image_path(info.pid);
-    LOG("make_connect_process_info: pid=%lu pgid=%lu imagePathLength=%zu", info.pid, info.process_group_id,
-        info.image_path.size());
-    return info;
+    return win32::query_full_process_image_name(process);
 }
 
 [[nodiscard]] inline bool is_waiting_for_user_input(const miniio::io_msg &msg) noexcept
@@ -230,11 +193,12 @@ inline void handle_non_gui_connect(win32::handle_view server, miniio::io_msg &ms
     if (env::is_elevated())
     {
         LOG("handle_connect: elevated fallback");
-        auto process = make_connect_process_info(connect_info, client_pid);
-        env::show_elevated_notification(process.pid, process.process_group_id, process.image_path);
+        auto image_path = query_process_image_path(client_pid);
+        LOG(L"handle_connect: elevated process imagePath=%ls", image_path.c_str());
+        env::show_elevated_notification(image_path);
         miniio::accept_connection(server, msg, condrv_input, condrv_output);
         fallback.break_when_input_waits = true;
-        fallback.target_process_group_id = process.process_group_id ? process.process_group_id : process.pid;
+        fallback.target_process_group_id = connect_info.ProcessGroupId;
         LOG("handle_connect: elevated fallback accepted input=%p output=%p breakTarget=%lu", condrv_input.get(),
             condrv_output.get(), fallback.target_process_group_id);
         return false;

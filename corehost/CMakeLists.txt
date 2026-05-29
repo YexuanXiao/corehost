@@ -3,6 +3,7 @@
 # ═══════════════════════════════════════════════════════════════
 
 add_executable(corehost WIN32
+    corehost.rc
     cli/main.cpp
     defterm/defterm.cpp
     defterm/signal.cpp
@@ -26,3 +27,11 @@ target_link_libraries(corehost PRIVATE
     conhost_proxy
     conhost_proxy_headers
 )
+
+if(MSVC)
+    target_link_options(corehost PRIVATE
+        "/MANIFEST:EMBED"
+        "/MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/corehost.manifest"
+        "/SUBSYSTEM:WINDOWS,10.0"
+    )
+endif()
