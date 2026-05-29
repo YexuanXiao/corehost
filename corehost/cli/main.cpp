@@ -51,20 +51,8 @@ try
     if (auto ch = args.condrv_handle(); ch != 0)
     {
         LOG("entering deftermv2_entry, handle=0x%Ix", ch);
-        auto hr = deftermv2::deftermv2_entry(ch);
+        deftermv2::deftermv2_entry(ch);
         LOG("deftermv2_entry returned");
-        // 由于缺少默认终端或者运行在提升后进程而无法启动
-        if (!hr.server.valid())
-            return 0;
-        LOG("entering conpty_entry from deftermv2: server=%p vt_in=%p vt_out=%p event=%p signal=%p w=%d h=%d",
-            hr.server.get(), hr.vt_in.get(), hr.vt_out.get(), hr.event.get(), hr.signal.get(), hr.width,
-            hr.height);
-        conpty::conpty_entry(std::move(hr.server), std::move(hr.event), std::move(hr.condrv_input),
-                             std::move(hr.condrv_output), std::move(hr.vt_in), std::move(hr.vt_out),
-                             std::move(hr.signal), hr.width, hr.height, false,
-                             conpty::text_measurement_mode::graphemes, true, hr.vt_in_keepalive.valid(),
-                             hr.has_initial_connect ? &hr.initial_connect : nullptr);
-        LOG("conpty_entry from deftermv2 returned cleanly");
         return 0;
     }
 
