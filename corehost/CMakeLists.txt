@@ -7,6 +7,7 @@ add_executable(corehost WIN32
     cli/main.cpp
     defterm/defterm.cpp
     defterm/signal.cpp
+    deftermv2/deftermv2.cpp
     comserver/com_server.cpp
 )
 
