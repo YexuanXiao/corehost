@@ -132,12 +132,12 @@ void core_log(const wchar_t *fmt, ...)
     std::fflush(g_log_file);
 }
 
-void core_log_hex(const wchar_t *function_name, const char *tag, const void *data, std::size_t size)
+void core_log_hex(const char *function_name, const char *tag, const void *data, std::size_t size)
 {
     auto *bytes = static_cast<const unsigned char *>(data);
     if (bytes == nullptr && size != 0)
     {
-        core_log(L"%-35s [hex] %hs: null data, len=%zu\n", function_name, tag, size);
+        core_log(L"%-35hs [hex] %hs: null data, len=%zu\n", function_name, tag, size);
         return;
     }
 
@@ -146,7 +146,7 @@ void core_log_hex(const wchar_t *function_name, const char *tag, const void *dat
 
     if (size == 0)
     {
-        core_log(L"%-35s [hex] %hs: len=0\n", function_name, tag);
+        core_log(L"%-35hs [hex] %hs: len=0\n", function_name, tag);
         return;
     }
 
@@ -154,7 +154,7 @@ void core_log_hex(const wchar_t *function_name, const char *tag, const void *dat
     {
         const auto count = std::min(bytes_per_line, size - offset);
         write_hex_digits(hex.data(), bytes + offset, count);
-        core_log(L"%-35s [hex] %hs +%04zu/%zu: %ls\n", function_name, tag, offset, size, hex.data());
+        core_log(L"%-35hs [hex] %hs +%04zu/%zu: %ls\n", function_name, tag, offset, size, hex.data());
     }
 }
 

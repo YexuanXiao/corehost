@@ -29,22 +29,22 @@
 #include <cstddef>
 
 void core_log(const wchar_t *fmt, ...);
-void core_log_hex(const wchar_t *function_name, const char *tag, const void *data, std::size_t size);
+void core_log_hex(const char *function_name, const char *tag, const void *data, std::size_t size);
 
 #if COREHOST_LOG_LEVEL >= 1
-#define LOG(fmt, ...) core_log(L"%-35s " fmt L"\n", __FUNCTIONW__, ##__VA_ARGS__)
-#define LOG_IF(condition, fmt, ...)                                                                                 \
-    do                                                                                                              \
-    {                                                                                                               \
-        if (condition)                                                                                              \
-            LOG(fmt, ##__VA_ARGS__);                                                                                \
+#define LOG(fmt, ...) core_log(L"%-35hs " fmt L"\n", __func__, ##__VA_ARGS__)
+#define LOG_IF(condition, fmt, ...)                                                                                    \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (condition)                                                                                                 \
+            LOG(fmt, ##__VA_ARGS__);                                                                                   \
     } while (false)
-#define LOG_HEX(tag, data, size) core_log_hex(__FUNCTIONW__, tag, data, size)
-#define LOG_HEX_IF(condition, tag, data, size)                                                                      \
-    do                                                                                                              \
-    {                                                                                                               \
-        if (condition)                                                                                              \
-            LOG_HEX(tag, data, size);                                                                               \
+#define LOG_HEX(tag, data, size) core_log_hex(__func__, tag, data, size)
+#define LOG_HEX_IF(condition, tag, data, size)                                                                         \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (condition)                                                                                                 \
+            LOG_HEX(tag, data, size);                                                                                  \
     } while (false)
 #else
 #define LOG(fmt, ...) ((void)0)
@@ -54,19 +54,19 @@ void core_log_hex(const wchar_t *function_name, const char *tag, const void *dat
 #endif
 
 #if COREHOST_LOG_LEVEL >= 2
-#define LOG2(fmt, ...) core_log(L"%-35s " fmt L"\n", __FUNCTIONW__, ##__VA_ARGS__)
-#define LOG2_IF(condition, fmt, ...)                                                                                \
-    do                                                                                                              \
-    {                                                                                                               \
-        if (condition)                                                                                              \
-            LOG2(fmt, ##__VA_ARGS__);                                                                               \
+#define LOG2(fmt, ...) core_log(L"%-35hs " fmt L"\n", __func__, ##__VA_ARGS__)
+#define LOG2_IF(condition, fmt, ...)                                                                                   \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (condition)                                                                                                 \
+            LOG2(fmt, ##__VA_ARGS__);                                                                                  \
     } while (false)
-#define LOG2_HEX(tag, data, size) core_log_hex(__FUNCTIONW__, tag, data, size)
-#define LOG2_HEX_IF(condition, tag, data, size)                                                                     \
-    do                                                                                                              \
-    {                                                                                                               \
-        if (condition)                                                                                              \
-            LOG2_HEX(tag, data, size);                                                                              \
+#define LOG2_HEX(tag, data, size) core_log_hex(__func__, tag, data, size)
+#define LOG2_HEX_IF(condition, tag, data, size)                                                                        \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (condition)                                                                                                 \
+            LOG2_HEX(tag, data, size);                                                                                 \
     } while (false)
 #else
 #define LOG2(fmt, ...) ((void)0)
@@ -76,19 +76,19 @@ void core_log_hex(const wchar_t *function_name, const char *tag, const void *dat
 #endif
 
 #if COREHOST_LOG_LEVEL >= 3
-#define LOG3(fmt, ...) core_log(L"%-35s " fmt L"\n", __FUNCTIONW__, ##__VA_ARGS__)
-#define LOG3_IF(condition, fmt, ...)                                                                                \
-    do                                                                                                              \
-    {                                                                                                               \
-        if (condition)                                                                                              \
-            LOG3(fmt, ##__VA_ARGS__);                                                                               \
+#define LOG3(fmt, ...) core_log(L"%-35hs " fmt L"\n", __func__, ##__VA_ARGS__)
+#define LOG3_IF(condition, fmt, ...)                                                                                   \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (condition)                                                                                                 \
+            LOG3(fmt, ##__VA_ARGS__);                                                                                  \
     } while (false)
-#define LOG3_HEX(tag, data, size) core_log_hex(__FUNCTIONW__, tag, data, size)
-#define LOG3_HEX_IF(condition, tag, data, size)                                                                     \
-    do                                                                                                              \
-    {                                                                                                               \
-        if (condition)                                                                                              \
-            LOG3_HEX(tag, data, size);                                                                              \
+#define LOG3_HEX(tag, data, size) core_log_hex(__func__, tag, data, size)
+#define LOG3_HEX_IF(condition, tag, data, size)                                                                        \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (condition)                                                                                                 \
+            LOG3_HEX(tag, data, size);                                                                                 \
     } while (false)
 #else
 #define LOG3(fmt, ...) ((void)0)

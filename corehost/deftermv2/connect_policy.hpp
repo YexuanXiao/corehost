@@ -13,56 +13,63 @@ namespace deftermv2
 
 [[nodiscard]] inline bool is_interactive_user_session() noexcept
 {
+    // session_id == 0 通常是服务/系统会话，不应该尝试启动用户可见终端。
+    // 非 0 仍需继续检查 window station 是否可见。
     DWORD session_id = 0;
     if (!::ProcessIdToSessionId(::GetCurrentProcessId(), &session_id))
     {
-        LOG("deftermv2::is_interactive_user_session: ProcessIdToSessionId failed err=%lu", ::GetLastError());
+        LOG("serious: cannot query process session; GUI handoff is not safe err=%lu", ::GetLastError());
         return false;
     }
     if (session_id == 0)
     {
-        LOG("deftermv2::is_interactive_user_session: session 0");
+        LOG("session 0 is non-interactive; GUI handoff is not expected");
         return false;
     }
 
+    // nullptr 表示无法取得当前进程 window station；这种环境不能保证 GUI
+    // 终端可见。
     auto window_station = ::GetProcessWindowStation();
     if (!window_station)
     {
-        LOG("deftermv2::is_interactive_user_session: GetProcessWindowStation failed err=%lu", ::GetLastError());
+        LOG("serious: cannot query window station; GUI handoff is not safe err=%lu", ::GetLastError());
         return false;
     }
 
+    // WSF_VISIBLE 是默认终端 handoff 的最低 GUI 条件。没有这个标志时，
+    // COM 激活即使成功也可能无法显示窗口。
     USEROBJECTFLAGS flags{};
     if (!::GetUserObjectInformationW(window_station, UOI_FLAGS, &flags, sizeof(flags), nullptr))
     {
-        LOG("deftermv2::is_interactive_user_session: GetUserObjectInformationW failed err=%lu", ::GetLastError());
+        LOG("serious: cannot query window station visibility; GUI handoff is not safe err=%lu", ::GetLastError());
         return false;
     }
     if (!(flags.dwFlags & WSF_VISIBLE))
     {
-        LOG("deftermv2::is_interactive_user_session: invisible window station flags=0x%08lx", flags.dwFlags);
+        LOG("window station is not visible; GUI handoff is not expected flags=0x%08lx", flags.dwFlags);
         return false;
     }
 
-    LOG("deftermv2::is_interactive_user_session: yes session=%lu flags=0x%08lx", session_id, flags.dwFlags);
+    LOG("interactive session confirmed: session=%lu flags=0x%08lx", session_id, flags.dwFlags);
     return true;
 }
 
 [[nodiscard]] inline bool connect_requests_terminal_window(const CONSOLE_SERVER_MSG &msg) noexcept
 {
-    LOG("deftermv2::connect_requests_terminal_window: consoleApp=%u visible=%u startupFlags=0x%08lx "
-        "showWindow=%u titleLength=%u pgid=%lu",
+    LOG("startup visibility: consoleApp=%u visible=%u flags=0x%08lx showWindow=%u titleBytes=%u pgid=%lu",
         static_cast<unsigned>(msg.ConsoleApp), static_cast<unsigned>(msg.WindowVisible), msg.StartupFlags,
         msg.ShowWindow, msg.TitleLength, msg.ProcessGroupId);
 
     if (!msg.WindowVisible)
     {
-        LOG("deftermv2::connect_requests_terminal_window: reject WindowVisible=false");
+        LOG("WindowVisible=false; headless conpty is expected");
         return false;
     }
 
     if (msg.StartupFlags & STARTF_USESHOWWINDOW)
     {
+        // 这些 ShowWindow 值表示调用方明确要求隐藏或最小化；deftermv2
+        // 不主动弹出终端窗口，后续会走 conpty/headless 路径。
         switch (msg.ShowWindow)
         {
         case SW_HIDE:
@@ -70,7 +77,7 @@ namespace deftermv2
         case SW_MINIMIZE:
         case SW_SHOWMINNOACTIVE:
         case SW_FORCEMINIMIZE:
-            LOG("deftermv2::connect_requests_terminal_window: reject showWindow=%u", msg.ShowWindow);
+            LOG("hidden/minimized startup requested; headless conpty is expected showWindow=%u", msg.ShowWindow);
             return false;
         default:
             break;
@@ -84,17 +91,17 @@ namespace deftermv2
 {
     if (already_initialized)
     {
-        LOG("deftermv2::should_start_terminal_window: reject already initialized");
+        LOG("CONNECT after initial session; no new terminal window expected");
         return false;
     }
     if (!connect_requests_terminal_window(connect_info))
     {
-        LOG("deftermv2::should_start_terminal_window: reject startup info");
+        LOG("startup info does not request a visible terminal");
         return false;
     }
     if (!is_interactive_user_session())
     {
-        LOG("deftermv2::should_start_terminal_window: reject non-interactive session");
+        LOG("non-interactive session; GUI handoff is not expected");
         return false;
     }
     return true;
@@ -102,6 +109,8 @@ namespace deftermv2
 
 [[nodiscard]] inline std::wstring query_process_image_path(DWORD pid)
 {
+    // pid 必须来自 ConDrv 的 CONNECT 描述符。OpenProcess 失败会抛异常，
+    // 调用方没有可靠路径时不应生成带空程序名的通知。
     win32::handle process{::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)};
     win32::throw_last_error(!process.valid());
     return win32::query_full_process_image_name(process);
