@@ -10,6 +10,21 @@
 namespace conpty
 {
 
+struct conpty_session_config
+{
+    short width = 0;
+    short height = 0;
+    bool inherit_cursor = false;
+    text_measurement_mode text_measurement = text_measurement_mode::graphemes;
+    bool ambiguous_is_wide = false;
+    bool poll_vt_input = false;
+    DWORD attached_process_id = 0;
+};
+
+void run_conpty_session(win32::handle server, win32::handle event, win32::handle condrv_input,
+                        win32::handle condrv_output, win32::handle vt_in, win32::handle vt_out,
+                        win32::handle signal_pipe, const conpty_session_config &config);
+
 void conpty_entry(win32::handle server, win32::handle event, win32::handle condrv_input, win32::handle condrv_output,
                   win32::handle vt_in, win32::handle vt_out, win32::handle signal_pipe, short width, short height,
                   bool inherit_cursor, text_measurement_mode text_measurement, bool ambiguous_is_wide = false);

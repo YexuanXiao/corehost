@@ -49,39 +49,6 @@
 namespace defterm
 {
 
-[[nodiscard]] inline const wchar_t *show_window_name(WORD value) noexcept
-{
-    switch (value)
-    {
-    case SW_HIDE:
-        return L"SW_HIDE";
-    case SW_SHOWNORMAL:
-        return L"SW_SHOWNORMAL";
-    case SW_SHOWMINIMIZED:
-        return L"SW_SHOWMINIMIZED";
-    case SW_SHOWMAXIMIZED:
-        return L"SW_SHOWMAXIMIZED";
-    case SW_SHOWNOACTIVATE:
-        return L"SW_SHOWNOACTIVATE";
-    case SW_SHOW:
-        return L"SW_SHOW";
-    case SW_MINIMIZE:
-        return L"SW_MINIMIZE";
-    case SW_SHOWMINNOACTIVE:
-        return L"SW_SHOWMINNOACTIVE";
-    case SW_SHOWNA:
-        return L"SW_SHOWNA";
-    case SW_RESTORE:
-        return L"SW_RESTORE";
-    case SW_SHOWDEFAULT:
-        return L"SW_SHOWDEFAULT";
-    case SW_FORCEMINIMIZE:
-        return L"SW_FORCEMINIMIZE";
-    default:
-        return L"UNKNOWN";
-    }
-}
-
 // 如果注册表提供的 CLSID 无效，则后续会回退到尝试 WT
 [[nodiscard]] inline bool need_skip(const CLSID &c) noexcept
 {
@@ -144,10 +111,10 @@ namespace defterm
 //
 [[nodiscard]] inline bool should_attempt_handoff(const CONSOLE_SERVER_MSG &msg) noexcept
 {
-    LOG("should_attempt_handoff: consoleApp=%u visible=%u startupFlags=0x%08lx showWindow=%ls(%u) titleLength=%u "
+    LOG("should_attempt_handoff: consoleApp=%u visible=%u startupFlags=0x%08lx showWindow=%u titleLength=%u "
         "pgid=%lu",
         static_cast<unsigned>(msg.ConsoleApp), static_cast<unsigned>(msg.WindowVisible), msg.StartupFlags,
-        show_window_name(msg.ShowWindow), msg.ShowWindow, msg.TitleLength, msg.ProcessGroupId);
+        msg.ShowWindow, msg.TitleLength, msg.ProcessGroupId);
 
     // AllocConsole/AttachConsole 可能需要获得控制台，因此不检查它是否是控制台应用
     // if (!msg.ConsoleApp)
@@ -170,7 +137,7 @@ namespace defterm
         case SW_MINIMIZE:
         case SW_SHOWMINNOACTIVE:
         case SW_FORCEMINIMIZE:
-            LOG("should_attempt_handoff: reject showWindow=%ls(%u)", show_window_name(msg.ShowWindow), msg.ShowWindow);
+            LOG("should_attempt_handoff: reject showWindow=%u", msg.ShowWindow);
             return false;
         default:
             break;

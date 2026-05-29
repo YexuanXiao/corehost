@@ -27,33 +27,6 @@ enum class connect_completion
     inline_complete,
 };
 
-[[nodiscard]] inline const wchar_t *io_function_name(ULONG function) noexcept
-{
-    switch (function)
-    {
-    case 0:
-        return L"None";
-    case CONSOLE_IO_CONNECT:
-        return L"CONNECT";
-    case CONSOLE_IO_DISCONNECT:
-        return L"DISCONNECT";
-    case CONSOLE_IO_CREATE_OBJECT:
-        return L"CREATE_OBJECT";
-    case CONSOLE_IO_CLOSE_OBJECT:
-        return L"CLOSE_OBJECT";
-    case CONSOLE_IO_RAW_WRITE:
-        return L"RAW_WRITE";
-    case CONSOLE_IO_RAW_READ:
-        return L"RAW_READ";
-    case CONSOLE_IO_USER_DEFINED:
-        return L"USER_DEFINED";
-    case CONSOLE_IO_RAW_FLUSH:
-        return L"RAW_FLUSH";
-    default:
-        return L"UNKNOWN";
-    }
-}
-
 // ── run_io_loop ────────────────────────────────────────────
 // 对应原版 ConsoleCreateIoThread 后半段 + ConsoleIoThread 的消息循环。
 //
@@ -76,11 +49,9 @@ inline void run_io_loop(win32::handle_view server, win32::handle_view ev, Handle
     miniio::io_msg msgA{}, msgB{};
     miniio::io_msg *cur = &msgA;
     miniio::io_msg *prev_done = nullptr;
-    unsigned long long iteration = 0;
 
     for (;;)
     {
-        ++iteration;
         // 有上一条完成包待提交时，必须立即进入 read_io(prev_comp, ...)。
         // 若在提交 completion 前先等待，会把每个 Console API 往返都人为延迟。
         //
@@ -99,20 +70,20 @@ inline void run_io_loop(win32::handle_view server, win32::handle_view ev, Handle
         CD_IO_COMPLETE *prev_comp = prev_done ? &prev_done->complete : nullptr;
         if (prev_comp)
         {
-            LOG("run_io_loop: read #%llu submitting completion id=%08lx:%08lx status=0x%08lx info=%llu", iteration,
+            LOG("run_io_loop: read submitting completion id=%08lx:%08lx status=0x%08lx info=%llu",
                 prev_comp->Identifier.HighPart, prev_comp->Identifier.LowPart,
                 static_cast<unsigned long>(prev_comp->IoStatus.Status),
                 static_cast<unsigned long long>(prev_comp->IoStatus.Information));
         }
         else
         {
-            LOG("run_io_loop: read #%llu without completion", iteration);
+            LOG("run_io_loop: read without completion");
         }
 
         auto read_result = miniio::read_io_try(server, prev_comp, *cur);
         if (read_result == miniio::read_io_result::disconnected)
         {
-            LOG("run_io_loop: disconnected after read #%llu", iteration);
+            LOG("run_io_loop: disconnected");
             break;
         }
         if (read_result == miniio::read_io_result::no_message)
@@ -121,7 +92,7 @@ inline void run_io_loop(win32::handle_view server, win32::handle_view ev, Handle
             // IOCTL_READ_IO 的输入交给驱动，ERROR_IO_PENDING 只表示没有新
             // 消息可取，不能在下一轮重复提交同一个 completion。
             if (prev_done)
-                LOG("run_io_loop: read #%llu pending; completion consumed by READ_IO", iteration);
+                LOG("run_io_loop: read pending; completion consumed by READ_IO");
             prev_done = nullptr;
             handler.on_idle();
             if (handler.should_exit())
@@ -133,9 +104,9 @@ inline void run_io_loop(win32::handle_view server, win32::handle_view ev, Handle
         }
         prev_done = nullptr;
 
-        LOG("run_io_loop: got #%llu func=%ls(%lu) id=%08lx:%08lx pid=%llu object=%llu in=%lu out=%lu", iteration,
-            io_function_name(cur->descriptor.Function), cur->descriptor.Function, cur->descriptor.Identifier.HighPart,
-            cur->descriptor.Identifier.LowPart, static_cast<unsigned long long>(cur->descriptor.Process),
+        LOG("run_io_loop: got func=%lu id=%08lx:%08lx pid=%llu object=%llu in=%lu out=%lu", cur->descriptor.Function,
+            cur->descriptor.Identifier.HighPart, cur->descriptor.Identifier.LowPart,
+            static_cast<unsigned long long>(cur->descriptor.Process),
             static_cast<unsigned long long>(cur->descriptor.Object), cur->descriptor.InputSize,
             cur->descriptor.OutputSize);
 
@@ -155,8 +126,7 @@ inline void run_io_loop(win32::handle_view server, win32::handle_view ev, Handle
             if (handler.on_message(*cur))
             {
                 prev_done = cur;
-                LOG("run_io_loop: message completed inline func=%ls(%lu) id=%08lx:%08lx",
-                    io_function_name(cur->descriptor.Function), cur->descriptor.Function,
+                LOG("run_io_loop: message completed inline func=%lu id=%08lx:%08lx", cur->descriptor.Function,
                     cur->descriptor.Identifier.HighPart, cur->descriptor.Identifier.LowPart);
                 handler.on_idle();
                 if (handler.should_exit())
@@ -167,8 +137,7 @@ inline void run_io_loop(win32::handle_view server, win32::handle_view ev, Handle
             }
             else
             {
-                LOG("run_io_loop: message pending func=%ls(%lu)", io_function_name(cur->descriptor.Function),
-                    cur->descriptor.Function);
+                LOG("run_io_loop: message pending func=%lu", cur->descriptor.Function);
                 while (handler.has_pending())
                 {
                     handler.on_idle();
@@ -233,10 +202,10 @@ inline void run_io_loop(win32::handle_view server, win32::handle_view ev, Handle
 inline void dispatch_non_connect(win32::handle_view server, miniio::io_msg &msg, win32::handle &input,
                                  win32::handle &output)
 {
-    LOG("dispatch_non_connect: func=%ls(%lu) id=%08lx:%08lx pid=%llu object=%llu inputHandle=%p outputHandle=%p",
-        io_function_name(msg.descriptor.Function), msg.descriptor.Function, msg.descriptor.Identifier.HighPart,
-        msg.descriptor.Identifier.LowPart, static_cast<unsigned long long>(msg.descriptor.Process),
-        static_cast<unsigned long long>(msg.descriptor.Object), input.get(), output.get());
+    LOG("dispatch_non_connect: func=%lu id=%08lx:%08lx pid=%llu object=%llu inputHandle=%p outputHandle=%p",
+        msg.descriptor.Function, msg.descriptor.Identifier.HighPart, msg.descriptor.Identifier.LowPart,
+        static_cast<unsigned long long>(msg.descriptor.Process), static_cast<unsigned long long>(msg.descriptor.Object),
+        input.get(), output.get());
 
     switch (msg.descriptor.Function)
     {

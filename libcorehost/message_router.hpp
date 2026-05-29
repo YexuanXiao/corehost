@@ -4,6 +4,7 @@
 // 与 conpty/message_router.hpp 相同 — 纯调度, 无文本编码。
 #pragma once
 #include <windows.h>
+#include <cstring>
 #include "miniio/io_thread.hpp"
 #include "io_state.hpp"
 #include "pipe_bridge.hpp"
@@ -58,8 +59,7 @@ struct message_router
             connect_completion completion = connect_completion::explicit_complete;
             bool ok = io.handle_connect(msg, completion);
             bridge.proc_count = io.process_count;
-            for (size_t i = 0; i < io.process_count; ++i)
-                bridge.proc_list[i] = io.process_list[i];
+            std::memcpy(bridge.proc_list, io.process_list, io.process_count * sizeof(DWORD));
             return ok;
         }
         case CONSOLE_IO_DISCONNECT:
