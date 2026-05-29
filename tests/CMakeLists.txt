@@ -15,13 +15,10 @@ add_library(test_common INTERFACE)
 target_include_directories(test_common INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/libcorehost
-    ${CMAKE_SOURCE_DIR}/lib
     ${CMAKE_SOURCE_DIR}/corehost
-    ${CMAKE_SOURCE_DIR}/third_parties/cstring_view/include/beman
     ${CMAKE_SOURCE_DIR}/third_parties/libunicode/src
-    ${CMAKE_SOURCE_DIR}/proxy/${CONHOST_PROXY_ARCH_DIR}
 )
-target_link_libraries(test_common INTERFACE lib shell32.lib ole32.lib ntdll.lib)
+target_link_libraries(test_common INTERFACE common)
 target_compile_features(test_common INTERFACE cxx_std_23)
 
 if(MSVC)
@@ -49,10 +46,6 @@ add_executable(test_vt_parser_utf32
     test_vt_parser_utf32.cpp
 )
 target_link_libraries(test_vt_parser_utf32 PRIVATE test_common)
-target_include_directories(test_vt_parser_utf32 PRIVATE
-    ${CMAKE_SOURCE_DIR}/libcorehost
-    ${CMAKE_SOURCE_DIR}/third_parties/cstring_view/include/beman
-)
 add_test(NAME VT.Parser.Utf32 COMMAND test_vt_parser_utf32)
 
 set_tests_properties(VT.Parser.Utf32 PROPERTIES
@@ -65,10 +58,6 @@ add_executable(test_char_convert
     test_char_convert.cpp
 )
 target_link_libraries(test_char_convert PRIVATE test_common unicode::unicode)
-target_include_directories(test_char_convert PRIVATE
-    ${CMAKE_SOURCE_DIR}/libcorehost
-    ${CMAKE_SOURCE_DIR}/third_parties/cstring_view/include/beman
-)
 add_test(NAME Convert.Char COMMAND test_char_convert)
 set_tests_properties(Convert.Char PROPERTIES LABELS "convert" TIMEOUT 30)
 
@@ -85,10 +74,6 @@ add_executable(test_console_state
     test_console_state.cpp
 )
 target_link_libraries(test_console_state PRIVATE test_common unicode::unicode)
-target_include_directories(test_console_state PRIVATE
-    ${CMAKE_SOURCE_DIR}/libcorehost
-    ${CMAKE_SOURCE_DIR}/third_parties/cstring_view/include/beman
-)
 add_test(NAME ConsoleState COMMAND test_console_state)
 set_tests_properties(ConsoleState PROPERTIES LABELS "state" TIMEOUT 30)
 
@@ -121,10 +106,6 @@ add_executable(test_conpty_cursor_sync
     test_conpty_cursor_sync.cpp
 )
 target_link_libraries(test_conpty_cursor_sync PRIVATE test_common unicode::unicode)
-target_include_directories(test_conpty_cursor_sync PRIVATE
-    ${CMAKE_SOURCE_DIR}/libcorehost
-    ${CMAKE_SOURCE_DIR}/third_parties/cstring_view/include/beman
-)
 add_test(NAME ConPTY.CursorSync COMMAND test_conpty_cursor_sync)
 set_tests_properties(ConPTY.CursorSync PROPERTIES LABELS "conpty;cursor" TIMEOUT 30)
 # pipe_bridge.hpp utility/log.hpp 静态初始化需要在 exe 目录下有 logs/ 子目
@@ -138,8 +119,6 @@ add_executable(test_conpty_e2e
 )
 target_include_directories(test_conpty_e2e PRIVATE
     ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/libcorehost
-    ${CMAKE_SOURCE_DIR}/third_parties/cstring_view/include/beman
 )
 target_link_libraries(test_conpty_e2e PRIVATE test_common unicode::unicode conpty_static)
 add_dependencies(test_conpty_e2e corehost)
@@ -167,10 +146,6 @@ add_executable(test_commandline
     test_commandline.cpp
 )
 target_link_libraries(test_commandline PRIVATE test_common)
-target_include_directories(test_commandline PRIVATE
-    ${CMAKE_SOURCE_DIR}/libcorehost
-    ${CMAKE_SOURCE_DIR}/third_parties/cstring_view/include/beman
-)
 add_test(NAME CLI.CommandLine COMMAND test_commandline)
 
 set_tests_properties(CLI.CommandLine PROPERTIES

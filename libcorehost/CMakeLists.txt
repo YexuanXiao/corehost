@@ -11,14 +11,10 @@ add_library(libcorehost STATIC
 
 target_include_directories(libcorehost PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/lib
-    ${CMAKE_SOURCE_DIR}/third_parties/cstring_view/include/beman
-    ${CMAKE_SOURCE_DIR}/third_parties/utf_view/include/beman
     ${CMAKE_SOURCE_DIR}/third_parties/deque
-    ${CMAKE_SOURCE_DIR}/proxy/${CONHOST_PROXY_ARCH_DIR}
 )
 
 target_link_libraries(libcorehost PUBLIC
-    lib
+    common
     unicode::unicode
 )

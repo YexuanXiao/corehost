@@ -49,8 +49,8 @@ add_subdirectory(third_parties/libunicode)
 # ── proxy (conhost_proxy.dll + 头文件) ───────────────
 add_subdirectory(proxy)
 
-# ── lib (核心基础设施: miniio/os/ntapi/win32/com/utility) ──
-add_subdirectory(lib)
+# ── common (核心基础设施: miniio/os/ntapi/win32/com/utility) ──
+add_subdirectory(common)
 
 # ── libcorehost (ConPTY 核心静态库) ──────────────────
 add_subdirectory(libcorehost)

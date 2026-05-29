@@ -1,9 +1,20 @@
+
+#pragma once
+
 #include <windows.h>
 #include <shlobj.h>
+#include <string>
 #include "win32/string.hpp"
-#include "shell.hpp"
 
 namespace shell
+{
+struct get_shell_result
+{
+    win32::wcstring_view name;
+    std::wstring path;
+};
+
+namespace details
 {
 // 保证路径结尾不包含反斜线
 class known_folder_path
@@ -14,47 +25,50 @@ class known_folder_path
   public:
     explicit known_folder_path(REFKNOWNFOLDERID rfid)
     {
-        if (SUCCEEDED(SHGetKnownFolderPath(rfid, 0, nullptr, &m_path)))
-        {
+        if (SUCCEEDED(::SHGetKnownFolderPath(rfid, 0, nullptr, &m_path)))
             m_size = wcslen(m_path);
-        }
     }
+
     ~known_folder_path()
     {
         if (m_path)
-            CoTaskMemFree(m_path);
+            ::CoTaskMemFree(m_path);
     }
+
     known_folder_path(const known_folder_path &) = delete;
     known_folder_path &operator=(const known_folder_path &) = delete;
 
-    const wchar_t *c_str() const
+    const wchar_t *c_str() const noexcept
     {
         return m_path;
     }
-    size_t size() const
+
+    size_t size() const noexcept
     {
         return m_size;
     }
-    bool empty() const
+
+    bool empty() const noexcept
     {
         return m_path == nullptr;
     }
 };
+} // namespace details
 
 // Windows 商店应用的别名是一种特殊的重分析点
-bool file_exists(PCWSTR file_path)
+inline bool file_exists(PCWSTR file_path)
 {
-    HANDLE hFile = CreateFileW(file_path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                               FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    HANDLE hFile = ::CreateFileW(file_path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                                 FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr);
     if (hFile != INVALID_HANDLE_VALUE)
     {
-        CloseHandle(hFile);
+        ::CloseHandle(hFile);
         return true;
     }
     return false;
 }
 
-get_shell_result get_shell()
+inline get_shell_result get_shell()
 {
     constexpr win32::wcstring_view prefix = L"\\\\?\\";
     // 直接假定存在pwsh别名，因此不需要判断是否安装了包
@@ -62,7 +76,7 @@ get_shell_result get_shell()
     constexpr win32::wcstring_view powershell_suffix = L"\\WindowsPowerShell\\v1.0\\powershell.exe";
     constexpr win32::wcstring_view cmd_exe_suffix = L"\\cmd.exe";
 
-    known_folder_path local_app_data(FOLDERID_LocalAppData);
+    details::known_folder_path local_app_data(FOLDERID_LocalAppData);
     if (!local_app_data.empty())
     {
         std::wstring pwsh_path;
@@ -75,7 +89,7 @@ get_shell_result get_shell()
             return {L"PowerShell 8", pwsh_path};
     }
 
-    known_folder_path system_dir(FOLDERID_System);
+    details::known_folder_path system_dir(FOLDERID_System);
     if (system_dir.empty())
         return {};
 
@@ -95,12 +109,12 @@ get_shell_result get_shell()
     return {L"cmd", cmd_path};
 }
 
-std::wstring get_system_conhost_path()
+inline std::wstring get_system_conhost_path()
 {
     constexpr win32::wcstring_view prefix = L"\\\\?\\";
     constexpr win32::wcstring_view conhost_suffix = L"\\conhost.exe";
 
-    known_folder_path system_dir(FOLDERID_System);
+    details::known_folder_path system_dir(FOLDERID_System);
     if (system_dir.empty())
         return {};
 
@@ -112,7 +126,7 @@ std::wstring get_system_conhost_path()
     return conhost_path;
 }
 
-std::wstring get_module_path()
+inline std::wstring get_module_path()
 {
     std::wstring path;
     path.resize_and_overwrite(32768, [&](wchar_t *buffer, size_t capacity) noexcept {
@@ -121,26 +135,25 @@ std::wstring get_module_path()
     return path;
 }
 
-std::wstring get_module_dir_path()
+inline std::wstring get_module_dir_path()
 {
-    std::wstring modPath = get_module_path();
+    std::wstring module_path = get_module_path();
 
-    if (modPath.empty())
+    if (module_path.empty())
         return {};
 
-    modPath.resize(modPath.size() - 4 /* .exe */);
+    module_path.resize(module_path.size() - 4 /* .exe */);
 
-    auto it = modPath.end();
-    while (it != modPath.begin())
+    auto it = module_path.end();
+    while (it != module_path.begin())
     {
         --it;
         if (*it == L'\\')
             break;
     }
 
-    size_t dirLen = static_cast<size_t>(it - modPath.begin()) + 1;
-    modPath.resize(dirLen);
-
-    return modPath;
+    size_t dir_length = static_cast<size_t>(it - module_path.begin()) + 1;
+    module_path.resize(dir_length);
+    return module_path;
 }
 } // namespace shell
