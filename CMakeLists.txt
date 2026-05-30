@@ -21,7 +21,9 @@ endif()
 
 add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 
-add_compile_definitions($<$<BOOL:${DISABLE_COREHOST_LOG}>:COREHOST_DISABLE_LOG>)
+option(COREHOST_DISABLE_LOG "Disable CoreHost logging" OFF)
+add_compile_definitions($<$<BOOL:${COREHOST_DISABLE_LOG}>:COREHOST_DISABLE_LOG>)
+
 set(COREHOST_LOG_LEVEL "1" CACHE STRING "CoreHost log level by frequency: 1=low, 2=medium, 3=high")
 add_compile_definitions(COREHOST_LOG_LEVEL=${COREHOST_LOG_LEVEL})
 
