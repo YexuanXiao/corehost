@@ -18,3 +18,8 @@ target_link_libraries(libcorehost PUBLIC
     common
     unicode::unicode
 )
+
+if(COREHOST_USE_SYSTEM_ICU)
+    target_compile_definitions(libcorehost PUBLIC COREHOST_USE_SYSTEM_ICU)
+    target_link_libraries(libcorehost PUBLIC icu)
+endif()
