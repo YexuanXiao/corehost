@@ -16,6 +16,7 @@
 #include "screen_buffer.hpp"
 #include "input_buffer.hpp"
 #include "pipe_bridge.hpp"
+#include "viewport_render.hpp"
 #include "conpty_vt_parser.hpp"
 #include "vt_msg_dispatch.hpp"
 #include "char_convert.hpp"
@@ -151,111 +152,394 @@ inline bool is_line_terminator_echo(std::u32string_view text) noexcept
     return text == U"\r"sv || text == U"\n"sv || text == U"\r\n"sv;
 }
 
-inline bool is_c0_control(char32_t ch) noexcept
+inline bool viewport_covers_screen_buffer(const screen_buffer &sb) noexcept
 {
-    return ch < 0x20 || ch == 0x7F;
+    return sb.viewport.covers(sb.size);
 }
 
-inline char32_t legacy_control_glyph(char32_t ch, UINT code_page) noexcept
+inline void clear_viewport_rect(screen_buffer &sb, WORD attr, SMALL_RECT rect) noexcept
 {
-    if (ch > 0xFF)
-        return 0;
+    const auto view = sb.viewport.rect();
+    rect.Left = std::max(rect.Left, view.Left);
+    rect.Top = std::max(rect.Top, view.Top);
+    rect.Right = std::min(rect.Right, view.Right);
+    rect.Bottom = std::min(rect.Bottom, view.Bottom);
+    if (rect.Left > rect.Right || rect.Top > rect.Bottom)
+        return;
 
-    wchar_t glyph = 0;
-    const auto byte = static_cast<char>(ch);
-    const auto cp = code_page ? code_page : CP_ACP;
-    const auto converted = ::MultiByteToWideChar(cp, MB_USEGLYPHCHARS, &byte, 1, &glyph, 1);
-    return converted == 1 ? static_cast<char32_t>(glyph) : 0;
+    for (SHORT y = rect.Top; y <= rect.Bottom; ++y)
+        for (SHORT x = rect.Left; x <= rect.Right; ++x)
+            sb.clear_cell({x, y}, attr);
 }
 
-inline void legacy_write_console_text(std::u32string_view text, console_state &state, screen_buffer &sb,
-                                      pipe_bridge &bridge)
+inline void apply_terminal_erase_in_display(const vt_message &msg, console_state &state, screen_buffer &sb) noexcept
 {
-    std::u32string run;
-    run.reserve(text.size());
-
-    auto flush_run = [&] {
-        if (run.empty())
-            return;
-        vt_message text_msg{};
-        text_msg.text = run;
-        bridge.vt_msg_send(vt_message_id::text, text_msg);
-        vt_msg_apply_state(vt_message_id::text, text_msg, state, sb);
-        run.clear();
-    };
-
-    auto append_spaces = [&](size_t count) {
-        run.append(count, U' ');
-        flush_run();
-    };
-
-    const bool processed_output = (state.output_mode & ENABLE_PROCESSED_OUTPUT) != 0;
-    const bool disable_newline_auto_return = (state.output_mode & DISABLE_NEWLINE_AUTO_RETURN) != 0;
-
-    if (!processed_output)
+    const auto view = sb.viewport.rect();
+    const auto cursor_x = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
+    const auto cursor_y = std::clamp<SHORT>(state.cursor.position.Y, view.Top, view.Bottom);
+    switch (msg.erase_mode)
     {
-        for (char32_t ch : text)
-            run.push_back(is_c0_control(ch) ? U' ' : ch);
-        flush_run();
+    case 0:
+        clear_viewport_rect(sb, state.default_attributes, {cursor_x, cursor_y, view.Right, cursor_y});
+        clear_viewport_rect(sb, state.default_attributes,
+                            {view.Left, static_cast<SHORT>(cursor_y + 1), view.Right, view.Bottom});
+        break;
+    case 1:
+        clear_viewport_rect(sb, state.default_attributes,
+                            {view.Left, view.Top, view.Right, static_cast<SHORT>(cursor_y - 1)});
+        clear_viewport_rect(sb, state.default_attributes, {view.Left, cursor_y, cursor_x, cursor_y});
+        break;
+    case 2:
+    case 3:
+        clear_viewport_rect(sb, state.default_attributes, view);
+        break;
+    default:
+        break;
+    }
+}
+
+inline void apply_terminal_erase_in_line(const vt_message &msg, console_state &state, screen_buffer &sb) noexcept
+{
+    const auto view = sb.viewport.rect();
+    if (state.cursor.position.Y < view.Top || state.cursor.position.Y > view.Bottom)
+        return;
+
+    const auto cursor_x = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
+    const auto y = state.cursor.position.Y;
+    switch (msg.erase_mode)
+    {
+    case 0:
+        clear_viewport_rect(sb, state.default_attributes, {cursor_x, y, view.Right, y});
+        break;
+    case 1:
+        clear_viewport_rect(sb, state.default_attributes, {view.Left, y, cursor_x, y});
+        break;
+    case 2:
+        clear_viewport_rect(sb, state.default_attributes, {view.Left, y, view.Right, y});
+        break;
+    default:
+        break;
+    }
+}
+
+inline SMALL_RECT terminal_scroll_region(console_state &state, screen_buffer &sb) noexcept
+{
+    const auto view = sb.viewport.rect();
+    const auto height = static_cast<SHORT>(view.Bottom - view.Top + 1);
+    const auto top = std::clamp<SHORT>(state.scroll_region_top, 1, height);
+    const auto bottom =
+        state.scroll_region_bottom <= 0 ? height : std::clamp<SHORT>(state.scroll_region_bottom, 1, height);
+    if (top >= bottom)
+        return view;
+    return {view.Left, static_cast<SHORT>(view.Top + top - 1), view.Right, static_cast<SHORT>(view.Top + bottom - 1)};
+}
+
+inline void apply_terminal_line_feed(console_state &state, screen_buffer &sb)
+{
+    const auto view = sb.viewport.rect();
+    const auto scroll_region = terminal_scroll_region(state, sb);
+    if (state.cursor.position.Y == scroll_region.Bottom && state.cursor.position.Y >= scroll_region.Top)
+    {
+        sb.scroll(scroll_region, scroll_region, true,
+                  {scroll_region.Left, static_cast<SHORT>(scroll_region.Top - 1)}, U' ',
+                  state.default_attributes);
+        state.cursor.position.Y = scroll_region.Bottom;
+    }
+    else
+    {
+        state.cursor.position.Y =
+            std::min<SHORT>(view.Bottom, static_cast<SHORT>(state.cursor.position.Y + 1));
+    }
+    state.cursor.position.X = view.Left;
+}
+
+inline void apply_terminal_text(const vt_message &msg, console_state &state, screen_buffer &sb)
+{
+    const auto view = sb.viewport.rect();
+    state.cursor.position.X = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
+    state.cursor.position.Y = std::clamp<SHORT>(state.cursor.position.Y, view.Top, view.Bottom);
+
+    for (char32_t ch : msg.text)
+    {
+        int cw = char_width_for_mode(ch, state.text_measurement, state.ambiguous_is_wide);
+        if (cw < 1)
+            cw = 1;
+        if (cw > 2)
+            cw = 2;
+
+        if (state.cursor.position.X + cw - 1 > view.Right)
+            apply_terminal_line_feed(state, sb);
+
+        sb.set_u32(state.cursor.position, ch, state.default_attributes);
+        state.cursor.position.X = static_cast<SHORT>(state.cursor.position.X + cw);
+        if (state.cursor.position.X > view.Right)
+            apply_terminal_line_feed(state, sb);
+    }
+}
+
+inline void clear_terminal_line_range(screen_buffer &sb, SHORT y, SHORT left, SHORT right, WORD attr)
+{
+    for (SHORT x = left; x <= right; ++x)
+        sb.clear_cell({x, y}, attr);
+}
+
+inline void apply_terminal_insert_characters(const vt_message &msg, console_state &state, screen_buffer &sb)
+{
+    const auto view = sb.viewport.rect();
+    if (state.cursor.position.Y < view.Top || state.cursor.position.Y > view.Bottom)
+        return;
+
+    const auto y = state.cursor.position.Y;
+    const auto x = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
+    const auto available = static_cast<SHORT>(view.Right - x + 1);
+    const auto count = std::min<SHORT>(available, static_cast<SHORT>(std::max<int>(1, msg.count)));
+    const auto saved = sb.row(y);
+    const auto copy_count = static_cast<SHORT>(available - count);
+    if (copy_count > 0)
+        sb.row(y).copy_from(saved, static_cast<uint16_t>(x), static_cast<uint16_t>(x + count),
+                            static_cast<uint16_t>(copy_count));
+    clear_terminal_line_range(sb, y, x, static_cast<SHORT>(x + count - 1), state.default_attributes);
+}
+
+inline void apply_terminal_delete_characters(const vt_message &msg, console_state &state, screen_buffer &sb)
+{
+    const auto view = sb.viewport.rect();
+    if (state.cursor.position.Y < view.Top || state.cursor.position.Y > view.Bottom)
+        return;
+
+    const auto y = state.cursor.position.Y;
+    const auto x = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
+    const auto available = static_cast<SHORT>(view.Right - x + 1);
+    const auto count = std::min<SHORT>(available, static_cast<SHORT>(std::max<int>(1, msg.count)));
+    const auto saved = sb.row(y);
+    const auto copy_count = static_cast<SHORT>(available - count);
+    if (copy_count > 0)
+        sb.row(y).copy_from(saved, static_cast<uint16_t>(x + count), static_cast<uint16_t>(x),
+                            static_cast<uint16_t>(copy_count));
+    clear_terminal_line_range(sb, y, static_cast<SHORT>(view.Right - count + 1), view.Right,
+                              state.default_attributes);
+}
+
+inline void apply_terminal_erase_characters(const vt_message &msg, console_state &state, screen_buffer &sb)
+{
+    const auto view = sb.viewport.rect();
+    if (state.cursor.position.Y < view.Top || state.cursor.position.Y > view.Bottom)
+        return;
+
+    const auto y = state.cursor.position.Y;
+    const auto x = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
+    const auto count = std::min<SHORT>(static_cast<SHORT>(view.Right - x + 1),
+                                       static_cast<SHORT>(std::max<int>(1, msg.count)));
+    clear_terminal_line_range(sb, y, x, static_cast<SHORT>(x + count - 1), state.default_attributes);
+}
+
+inline void apply_terminal_reverse_index(console_state &state, screen_buffer &sb)
+{
+    const auto view = sb.viewport.rect();
+    const auto scroll_region = terminal_scroll_region(state, sb);
+    state.cursor.position.X = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
+    state.cursor.position.Y = std::clamp<SHORT>(state.cursor.position.Y, view.Top, view.Bottom);
+
+    if (state.cursor.position.Y == scroll_region.Top)
+    {
+        sb.scroll(scroll_region, scroll_region, true,
+                  {scroll_region.Left, static_cast<SHORT>(scroll_region.Top + 1)}, U' ',
+                  state.default_attributes);
         return;
     }
+    --state.cursor.position.Y;
+}
 
-    for (size_t i = 0; i < text.size(); ++i)
+inline SHORT terminal_relative_column(console_state &state, screen_buffer &sb) noexcept
+{
+    const auto view = sb.viewport.rect();
+    return std::clamp<SHORT>(static_cast<SHORT>(state.cursor.position.X - view.Left), 0,
+                             static_cast<SHORT>(view.Right - view.Left));
+}
+
+inline void apply_terminal_forward_tab(const vt_message &msg, console_state &state, screen_buffer &sb) noexcept
+{
+    const auto view = sb.viewport.rect();
+    auto relative_x = terminal_relative_column(state, sb);
+    const auto count = std::max<int>(1, msg.count);
+    for (int i = 0; i < count; ++i)
+        relative_x = state.next_tab_stop(relative_x);
+    state.cursor.position.X =
+        std::clamp<SHORT>(static_cast<SHORT>(view.Left + relative_x), view.Left, view.Right);
+}
+
+inline void apply_terminal_backward_tab(const vt_message &msg, console_state &state, screen_buffer &sb) noexcept
+{
+    const auto view = sb.viewport.rect();
+    auto relative_x = terminal_relative_column(state, sb);
+    const auto count = std::max<int>(1, msg.count);
+    for (int i = 0; i < count; ++i)
+        relative_x = state.prev_tab_stop(relative_x);
+    state.cursor.position.X =
+        std::clamp<SHORT>(static_cast<SHORT>(view.Left + relative_x), view.Left, view.Right);
+}
+
+inline void apply_terminal_scrolling_region(const vt_message &msg, console_state &state, screen_buffer &sb) noexcept
+{
+    const auto view = sb.viewport.rect();
+    const auto height = static_cast<SHORT>(view.Bottom - view.Top + 1);
+    const auto top = std::clamp<SHORT>(msg.scroll_top, 1, height);
+    const auto bottom =
+        msg.scroll_bottom <= 0 ? height : std::clamp<SHORT>(msg.scroll_bottom, 1, height);
+    if (top < bottom)
     {
-        const auto ch = text[i];
-        if (!is_c0_control(ch))
-        {
-            run.push_back(ch);
-            continue;
-        }
-
-        flush_run();
-
-        switch (ch)
-        {
-        case U'\0':
-            append_spaces(1);
-            break;
-        case U'\a':
-            break;
-        case U'\b':
-            if (state.cursor.position.X > 0)
-                --state.cursor.position.X;
-            bridge.vt_append_char('\b');
-            break;
-        case U'\t': {
-            const auto x = state.cursor.position.X;
-            const auto remaining = state.screen_buffer_size.X - x;
-            const auto tab_count = static_cast<size_t>(std::min<SHORT>(remaining, static_cast<SHORT>(8 - (x & 7))));
-            append_spaces(tab_count);
-            break;
-        }
-        case U'\n':
-            if (disable_newline_auto_return)
-                bridge.vt_append_char('\n');
-            else
-            {
-                state.cursor.position.X = 0;
-                bridge.vt_append_str("\r\n"sv);
-            }
-            if (state.cursor.position.Y + 1 < state.screen_buffer_size.Y)
-                ++state.cursor.position.Y;
-            break;
-        case U'\r':
-            state.cursor.position.X = 0;
-            bridge.vt_append_char('\r');
-            break;
-        default:
-            if (auto glyph = legacy_control_glyph(ch, state.output_code_page))
-            {
-                run.push_back(glyph);
-                flush_run();
-            }
-            break;
-        }
+        state.scroll_region_top = top;
+        state.scroll_region_bottom = bottom == height ? 0 : bottom;
+    }
+    else
+    {
+        state.scroll_region_top = 1;
+        state.scroll_region_bottom = 0;
     }
 
-    flush_run();
+    state.cursor.position = {view.Left, view.Top};
+}
+
+inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg, console_state &state,
+                                        screen_buffer &sb)
+{
+    const auto view = sb.viewport.rect();
+    const auto origin = sb.viewport.origin();
+    const auto count = static_cast<SHORT>(std::max<int>(1, msg.count));
+    switch (id)
+    {
+    case vt_message_id::text:
+        apply_terminal_text(msg, state, sb);
+        break;
+    case vt_message_id::carriage_return:
+        state.cursor.position.X = view.Left;
+        break;
+    case vt_message_id::line_feed:
+        apply_terminal_line_feed(state, sb);
+        break;
+    case vt_message_id::reverse_index:
+        apply_terminal_reverse_index(state, sb);
+        break;
+    case vt_message_id::cursor_position: {
+        auto adjusted = msg;
+        adjusted.row = static_cast<short>(msg.row + origin.Y);
+        adjusted.col = static_cast<short>(msg.col + origin.X);
+        vt_msg_apply_state(id, adjusted, state, sb);
+        break;
+    }
+    case vt_message_id::cursor_horiz_absolute:
+    {
+        auto adjusted = msg;
+        adjusted.col = static_cast<short>(msg.col + origin.X);
+        vt_msg_apply_state(id, adjusted, state, sb);
+        break;
+    }
+    case vt_message_id::cursor_vert_absolute:
+    {
+        auto adjusted = msg;
+        adjusted.row = static_cast<short>(msg.row + origin.Y);
+        vt_msg_apply_state(id, adjusted, state, sb);
+        break;
+    }
+    case vt_message_id::cursor_up:
+        state.cursor.position.Y =
+            std::max<SHORT>(view.Top, static_cast<SHORT>(state.cursor.position.Y - count));
+        break;
+    case vt_message_id::cursor_down:
+        state.cursor.position.Y =
+            std::min<SHORT>(view.Bottom, static_cast<SHORT>(state.cursor.position.Y + count));
+        break;
+    case vt_message_id::cursor_forward:
+        state.cursor.position.X =
+            std::min<SHORT>(view.Right, static_cast<SHORT>(state.cursor.position.X + count));
+        break;
+    case vt_message_id::cursor_backward:
+        state.cursor.position.X =
+            std::max<SHORT>(view.Left, static_cast<SHORT>(state.cursor.position.X - count));
+        break;
+    case vt_message_id::cursor_forward_tab:
+        apply_terminal_forward_tab(msg, state, sb);
+        break;
+    case vt_message_id::cursor_backward_tab:
+        apply_terminal_backward_tab(msg, state, sb);
+        break;
+    case vt_message_id::cursor_next_line:
+        state.cursor.position.X = view.Left;
+        state.cursor.position.Y =
+            std::min<SHORT>(view.Bottom, static_cast<SHORT>(state.cursor.position.Y + count));
+        break;
+    case vt_message_id::cursor_prev_line:
+        state.cursor.position.X = view.Left;
+        state.cursor.position.Y =
+            std::max<SHORT>(view.Top, static_cast<SHORT>(state.cursor.position.Y - count));
+        break;
+    case vt_message_id::scroll_up:
+    {
+        const auto region = terminal_scroll_region(state, sb);
+        sb.scroll(region, region, true, {region.Left, static_cast<SHORT>(region.Top - count)}, U' ',
+                  state.default_attributes);
+        break;
+    }
+    case vt_message_id::scroll_down:
+    {
+        const auto region = terminal_scroll_region(state, sb);
+        sb.scroll(region, region, true, {region.Left, static_cast<SHORT>(region.Top + count)}, U' ',
+                  state.default_attributes);
+        break;
+    }
+    case vt_message_id::insert_lines:
+    {
+        const auto region = terminal_scroll_region(state, sb);
+        if (state.cursor.position.Y >= region.Top && state.cursor.position.Y <= region.Bottom)
+        {
+            const SMALL_RECT lines{region.Left, state.cursor.position.Y, region.Right, region.Bottom};
+            sb.scroll(lines, lines, true, {region.Left, static_cast<SHORT>(state.cursor.position.Y + count)}, U' ',
+                      state.default_attributes);
+        }
+        break;
+    }
+    case vt_message_id::delete_lines:
+    {
+        const auto region = terminal_scroll_region(state, sb);
+        if (state.cursor.position.Y >= region.Top && state.cursor.position.Y <= region.Bottom)
+        {
+            const SMALL_RECT lines{region.Left, state.cursor.position.Y, region.Right, region.Bottom};
+            sb.scroll(lines, lines, true, {region.Left, static_cast<SHORT>(state.cursor.position.Y - count)}, U' ',
+                      state.default_attributes);
+        }
+        break;
+    }
+    case vt_message_id::insert_characters:
+        apply_terminal_insert_characters(msg, state, sb);
+        break;
+    case vt_message_id::delete_characters:
+        apply_terminal_delete_characters(msg, state, sb);
+        break;
+    case vt_message_id::erase_characters:
+        apply_terminal_erase_characters(msg, state, sb);
+        break;
+    case vt_message_id::erase_in_display:
+        apply_terminal_erase_in_display(msg, state, sb);
+        break;
+    case vt_message_id::erase_in_line:
+        apply_terminal_erase_in_line(msg, state, sb);
+        break;
+    case vt_message_id::horizontal_tab_set:
+        state.set_tab_stop(terminal_relative_column(state, sb));
+        break;
+    case vt_message_id::tab_clear_current:
+        state.clear_tab_stop(terminal_relative_column(state, sb));
+        break;
+    case vt_message_id::tab_clear_all:
+        state.clear_all_tab_stops();
+        break;
+    case vt_message_id::set_scrolling_region:
+        apply_terminal_scrolling_region(msg, state, sb);
+        break;
+    default:
+        vt_msg_apply_state(id, msg, state, sb);
+        break;
+    }
 }
 
 // ── completion 辅助 ──
@@ -408,10 +692,10 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                 // 输入桥接已经本地回显 Enter。这里把应用输出起点移动到当时锁定
                 // 的新行位置，而不是使用后续 SetCursorPos 可能修改过的坐标。
                 COORD nl_pos = bridge.get_enter_dest();
-                m.row = static_cast<short>(nl_pos.Y + 1);
-                m.col = static_cast<short>(nl_pos.X + 1);
-                bridge.vt_msg_send(vt_message_id::cursor_position, m);
-                vt_msg_apply_state(vt_message_id::cursor_position, m, state, sb);
+                state.cursor.position = nl_pos;
+                if (sb.viewport.snap_to_cursor(state.cursor.position, state.screen_buffer_size))
+                    render_visible_viewport(state, sb, bridge);
+                bridge.vt_write_cup_buffer(nl_pos);
                 start_pos = state.cursor.position;
 
                 if (is_line_terminator_echo(u32s))
@@ -428,9 +712,9 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             {
                 // 真实 conhost 的 WriteConsole 从当前 Console 光标输出；宿主
                 // 终端光标可能因本地 echo 不同，所以每次文本输出前都发送 CUP。
-                m.row = static_cast<short>(start_pos.Y + 1);
-                m.col = static_cast<short>(start_pos.X + 1);
-                bridge.vt_msg_send(vt_message_id::cursor_position, m);
+                if (sb.viewport.snap_to_cursor(state.cursor.position, state.screen_buffer_size))
+                    render_visible_viewport(state, sb, bridge);
+                bridge.vt_write_cup_buffer(start_pos);
             }
 
             WORD attr = state.default_attributes;
@@ -439,65 +723,42 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             bridge.vt_msg_send(vt_message_id::sgr, m);
             vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
 
-            const bool vt_processing = (state.output_mode & ENABLE_PROCESSED_OUTPUT) != 0 &&
-                                       (state.output_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0;
-            const bool contains_escape = std::find(u32s.begin(), u32s.end(), U'\x1b') != u32s.end();
-            if (vt_processing || contains_escape)
-            {
-                // 文本经 vt_parser 分流：普通文字更新 screen_buffer，内嵌 SGR/OSC
-                // 等控制序列按结构化消息更新状态或透传到终端。
-                // 即使应用未显式开启 VT processing，也不能把 ESC 序列按可见
-                // 字符推进本地光标；WT 会解释这些字节，corehost 的状态必须
-                // 跟随实际终端行为。
-                filter_osc_sequences(u32s);
-                vt_parser write_parser;
-                for (char32_t ch : u32s)
-                {
-                    auto id = write_parser.parse(ch);
-                    if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
-                        continue;
-                    auto &pm = write_parser.get();
-                    bridge.vt_msg_send(id, pm);
-                    if (id != vt_message_id::sgr)
-                        vt_msg_apply_state(id, pm, state, sb);
+            // cmd.exe 以及 ConDrv 兼容输出即使在 legacy mode 下也可能写入
+            // 宿主终端会解释的 VT 序列。本地模型必须和实际终端保持一致，
+            // 因此 WriteConsole 输出始终经 vt_parser 分流。
+            filter_osc_sequences(u32s);
+            vt_parser write_parser;
+            auto consume_vt_message = [&](vt_message_id id) {
+                auto &pm = write_parser.get();
+                bridge.vt_msg_send(id, pm);
+                if (id != vt_message_id::sgr)
+                    vt_msg_apply_terminal_state(id, pm, state, sb);
+                write_parser.reset(id);
+            };
 
-                    write_parser.reset(id);
-
-                    if (auto id2 = write_parser.parse(U'\0');
-                        id2 != vt_message_id::continue_ && id2 != vt_message_id::continue_text)
-                    {
-                        auto &pm2 = write_parser.get();
-                        bridge.vt_msg_send(id2, pm2);
-                        if (id2 != vt_message_id::sgr)
-                            vt_msg_apply_state(id2, pm2, state, sb);
-                        write_parser.reset(id2);
-                    }
-                }
-                // 释放循环后残留的累积文本；没有控制字符结束的普通输出会走这里。
-                if (auto id = write_parser.flush_text(); id != vt_message_id::continue_)
-                {
-                    auto &pm = write_parser.get();
-                    bridge.vt_msg_send(id, pm);
-                    vt_msg_apply_state(id, pm, state, sb);
-                }
-                // 排空 parser 残留的 _pending_control，例如文本以单独 '\r' 结束。
-                if (auto id = write_parser.parse(U'\0');
-                    id != vt_message_id::continue_ && id != vt_message_id::continue_text)
-                {
-                    auto &pm = write_parser.get();
-                    bridge.vt_msg_send(id, pm);
-                    if (id != vt_message_id::sgr)
-                        vt_msg_apply_state(id, pm, state, sb);
-                    write_parser.reset(id);
-                }
-            }
-            else
+            for (char32_t ch : u32s)
             {
-                // 原版 WriteConsole 只有显式开启 VT processing 时才解析 VT。
-                // legacy 路径会处理 CR/LF/BS/TAB 等 C0 字符，并阻止 ESC
-                // 透传成宿主终端控制序列。
-                legacy_write_console_text(u32s, state, sb, bridge);
+                auto id = write_parser.parse(ch);
+                if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
+                    continue;
+                consume_vt_message(id);
+
+                if (auto id2 = write_parser.parse(U'\0');
+                    id2 != vt_message_id::continue_ && id2 != vt_message_id::continue_text)
+                    consume_vt_message(id2);
             }
+
+            // 释放循环后残留的累积文本；没有控制字符结束的普通输出会走这里。
+            if (auto id = write_parser.flush_text(); id != vt_message_id::continue_)
+            {
+                auto &pm = write_parser.get();
+                bridge.vt_msg_send(id, pm);
+                vt_msg_apply_terminal_state(id, pm, state, sb);
+            }
+            // 排空 parser 残留的 _pending_control，例如文本以单独 '\r' 结束。
+            if (auto id = write_parser.parse(U'\0');
+                id != vt_message_id::continue_ && id != vt_message_id::continue_text)
+                consume_vt_message(id);
 
             // VT 已写入宿主终端后，同步 bridge 的行编辑边界到新的 Console
             // 光标位置，供下一次 ReadConsole 使用。
@@ -657,6 +918,12 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
         orig_length,
         (r->ElementType != CONSOLE_ATTRIBUTE && r->Element >= 32 && r->Element < 127) ? (char)r->Element : '?',
         r->Element, r->ElementType, is_fullscreen_space ? 1 : 0);
+    if (!viewport_covers_screen_buffer(sb))
+    {
+        render_visible_viewport(state, sb, bridge);
+        ucomplete_sz(msg, sizeof(CONSOLE_FILLCONSOLEOUTPUT_MSG));
+        return true;
+    }
     if (is_fullscreen_space)
     {
         // 全屏空格填充通常来自 Clear-Host/cls。直接发送 ED2 比逐格写空格
@@ -836,7 +1103,7 @@ inline bool api_set_cursor(miniio::io_msg &msg, console_state &state, screen_buf
     return true;
 }
 
-inline bool api_get_sb_info(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
+inline bool api_get_sb_info(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &, pipe_bridge &)
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG))
     {
@@ -851,10 +1118,9 @@ inline bool api_get_sb_info(miniio::io_msg &msg, console_state &state, screen_bu
         state.cursor_position_dirty = false;
     r->Size = state.screen_buffer_size;
     r->CursorPosition = state.cursor.position;
-    r->ScrollPosition.X = 0;
-    r->ScrollPosition.Y = 0;
+    r->ScrollPosition = sb.viewport.origin();
     r->Attributes = state.default_attributes;
-    r->CurrentWindowSize = state.current_window_size;
+    r->CurrentWindowSize = sb.viewport.size();
     r->MaximumWindowSize = state.max_window_size;
     r->PopupAttributes = state.popup_attributes;
     r->FullscreenSupported = FALSE;
@@ -864,7 +1130,8 @@ inline bool api_get_sb_info(miniio::io_msg &msg, console_state &state, screen_bu
     return true;
 }
 
-inline bool api_set_sb_info(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &, pipe_bridge &)
+inline bool api_set_sb_info(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                            pipe_bridge &bridge)
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG))
     {
@@ -884,24 +1151,31 @@ inline bool api_set_sb_info(miniio::io_msg &msg, console_state &state, screen_bu
     }
     state.screen_buffer_size = r->Size;
     state.default_attributes = r->Attributes;
-    state.current_window_size = r->CurrentWindowSize;
     state.max_window_size = r->MaximumWindowSize;
     state.popup_attributes = r->PopupAttributes;
     std::memcpy(state.color_table, r->ColorTable, sizeof(state.color_table));
+    const auto old_viewport_size = sb.viewport.size();
     sb.resize(r->Size);
-    if (state.cursor.position.X >= state.screen_buffer_size.X)
-        state.cursor.position.X = state.screen_buffer_size.X - 1;
-    if (state.cursor.position.Y >= state.screen_buffer_size.Y)
-        state.cursor.position.Y = state.screen_buffer_size.Y - 1;
-    if (state.cursor.position.X < 0)
-        state.cursor.position.X = 0;
-    if (state.cursor.position.Y < 0)
-        state.cursor.position.Y = 0;
+    bool viewport_changed = sb.viewport.set_size(r->CurrentWindowSize, sb.size);
+    viewport_changed = sb.viewport.clamp_to_buffer(sb.size) || viewport_changed;
+    state.clamp_cursor_to_buffer();
+    const auto new_viewport_size = sb.viewport.size();
+    if (old_viewport_size.X != new_viewport_size.X || old_viewport_size.Y != new_viewport_size.Y)
+    {
+        bridge.vt_append_str("\x1b[8;"sv);
+        bridge.vt_append_int(new_viewport_size.Y);
+        bridge.vt_append_char(';');
+        bridge.vt_append_int(new_viewport_size.X);
+        bridge.vt_append_str("t"sv);
+    }
+    if (viewport_changed || !viewport_covers_screen_buffer(sb))
+        render_visible_viewport(state, sb, bridge);
     ucomplete(msg);
     return true;
 }
 
-inline bool api_set_sb_size(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &, pipe_bridge &)
+inline bool api_set_sb_size(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                            pipe_bridge &bridge)
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETSCREENBUFFERSIZE_MSG))
     {
@@ -912,21 +1186,17 @@ inline bool api_set_sb_size(miniio::io_msg &msg, console_state &state, screen_bu
     auto *r = reinterpret_cast<CONSOLE_SETSCREENBUFFERSIZE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     COORD new_size = r->Size;
     if (new_size.X < 1 || new_size.Y < 1 || new_size.X == SHRT_MAX || new_size.Y == SHRT_MAX ||
-        new_size.X < state.current_window_size.X || new_size.Y < state.current_window_size.Y)
+        new_size.X < sb.viewport.size().X || new_size.Y < sb.viewport.size().Y)
     {
         miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     state.screen_buffer_size = new_size;
-    if (state.cursor.position.X >= new_size.X)
-        state.cursor.position.X = new_size.X - 1;
-    if (state.cursor.position.Y >= new_size.Y)
-        state.cursor.position.Y = new_size.Y - 1;
-    if (state.cursor.position.X < 0)
-        state.cursor.position.X = 0;
-    if (state.cursor.position.Y < 0)
-        state.cursor.position.Y = 0;
     sb.resize(new_size);
+    const bool viewport_changed = sb.viewport.clamp_to_buffer(sb.size);
+    state.clamp_cursor_to_buffer();
+    if (viewport_changed || !viewport_covers_screen_buffer(sb))
+        render_visible_viewport(state, sb, bridge);
     ucomplete(msg);
     return true;
 }
@@ -954,11 +1224,10 @@ inline bool api_set_cursor_pos(miniio::io_msg &msg, console_state &state, screen
     if (new_pos.X == 0 && new_pos.Y == 0)
         // 清屏序列常先 SetCursorPos(0,0)，这时 Enter 的一次性换行标志已过期。
         bridge.reset_enter_newline();
-    vt_message m{};
-    m.row = static_cast<short>(new_pos.Y + 1);
-    m.col = static_cast<short>(new_pos.X + 1);
-    bridge.vt_msg_send(vt_message_id::cursor_position, m);
-    vt_msg_apply_state(vt_message_id::cursor_position, m, state, sb);
+    state.cursor.position = new_pos;
+    if (sb.viewport.snap_to_cursor(state.cursor.position, state.screen_buffer_size))
+        render_visible_viewport(state, sb, bridge);
+    bridge.vt_write_cup_buffer(new_pos);
     bridge.vt_flush();
     // 该 API 直接改变终端光标，bridge 的行编辑光标必须同步到同一位置。
     bridge.sync_cursor_after_write(state.cursor.position);
@@ -1028,6 +1297,12 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
          r->DestinationOrigin.X == 0 && r->DestinationOrigin.Y <= -buf_height && r->Clip == FALSE);
     LOG("[api_scroll_sb] full_screen=%d buf_h=%d sr.Bottom=%d fill_char=0x%X", full_screen_scroll, buf_height,
         sr.Bottom, static_cast<unsigned>(fill_char));
+    if (!viewport_covers_screen_buffer(sb))
+    {
+        render_visible_viewport(state, sb, bridge);
+        ucomplete(msg);
+        return true;
+    }
     if (full_screen_scroll && fill_char == U' ')
     {
         // cls 清屏使用 ED2+Home，避免把整屏滚动翻译成大量 IL/DL。
@@ -1118,7 +1393,7 @@ inline bool api_set_text_attr(miniio::io_msg &msg, console_state &state, screen_
 }
 
 inline bool api_set_window_info(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
-                                pipe_bridge &)
+                                pipe_bridge &bridge)
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETWINDOWINFO_MSG))
     {
@@ -1127,33 +1402,43 @@ inline bool api_set_window_info(miniio::io_msg &msg, console_state &state, scree
     }
 
     auto *r = reinterpret_cast<CONSOLE_SETWINDOWINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    if (r->Absolute && (r->Window.Right < r->Window.Left || r->Window.Bottom < r->Window.Top))
+    SMALL_RECT window = r->Window;
+    if (!r->Absolute)
+    {
+        const auto current = sb.viewport.rect();
+        window.Left = static_cast<SHORT>(window.Left + current.Left);
+        window.Right = static_cast<SHORT>(window.Right + current.Right);
+        window.Top = static_cast<SHORT>(window.Top + current.Top);
+        window.Bottom = static_cast<SHORT>(window.Bottom + current.Bottom);
+    }
+
+    if (window.Right < window.Left || window.Bottom < window.Top)
     {
         miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
-    if (r->Absolute)
+
+    const COORD requested_size{static_cast<SHORT>(window.Right - window.Left + 1),
+                               static_cast<SHORT>(window.Bottom - window.Top + 1)};
+    if (requested_size.X > state.screen_buffer_size.X || requested_size.Y > state.screen_buffer_size.Y)
     {
-        // 绝对矩形的 Right/Bottom 是包含端点，尺寸需要 +1。
-        state.current_window_size.X = static_cast<SHORT>(r->Window.Right - r->Window.Left + 1);
-        state.current_window_size.Y = static_cast<SHORT>(r->Window.Bottom - r->Window.Top + 1);
-        state.screen_buffer_size = state.current_window_size;
+        state.screen_buffer_size.X = std::max(state.screen_buffer_size.X, requested_size.X);
+        state.screen_buffer_size.Y = std::max(state.screen_buffer_size.Y, requested_size.Y);
+        sb.resize(state.screen_buffer_size);
     }
-    else
+
+    const auto old_size = sb.viewport.size();
+    sb.viewport.set_rect(window, sb.size);
+    const auto new_size = sb.viewport.size();
+    if (old_size.X != new_size.X || old_size.Y != new_size.Y)
     {
-        // 相对模式传入的是边界偏移；这里只有尺寸模型，没有窗口原点，
-        // 因此折算为当前宽高增量。
-        state.current_window_size.X += static_cast<SHORT>(r->Window.Right - r->Window.Left);
-        state.current_window_size.Y += static_cast<SHORT>(r->Window.Bottom - r->Window.Top);
-        if (state.current_window_size.X < 1 || state.current_window_size.Y < 1)
-        {
-            miniio::prepare_completion(msg, status_invalid_parameter);
-            return true;
-        }
-        // ConPTY 模式无独立滚动缓冲区: buffer size 始终与窗口大小一致。
-        state.screen_buffer_size = state.current_window_size;
+        bridge.vt_append_str("\x1b[8;"sv);
+        bridge.vt_append_int(new_size.Y);
+        bridge.vt_append_char(';');
+        bridge.vt_append_int(new_size.X);
+        bridge.vt_append_str("t"sv);
     }
-    sb.resize(state.current_window_size);
+    render_visible_viewport(state, sb, bridge);
     ucomplete(msg);
     return true;
 }
@@ -1347,6 +1632,12 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
     cr = clipped;
 
     LOG("[api_write_console_output] region=(%d,%d)-(%d,%d)", clipped.Left, clipped.Top, clipped.Right, clipped.Bottom);
+    if (!viewport_covers_screen_buffer(sb))
+    {
+        render_visible_viewport(state, sb, bridge);
+        ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG));
+        return true;
+    }
     // WriteConsoleOutput 不移动应用光标。终端侧保存光标后按格子重绘，再恢复。
     vt_message m{};
     bridge.vt_msg_send(vt_message_id::save_cursor, m);
@@ -1408,6 +1699,12 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
         auto *attrs = reinterpret_cast<const WORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                      sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
         r->NumRecords = static_cast<ULONG>(sb.write_attr_seq_linear(r->WriteCoord, attrs, ib / sizeof(WORD)));
+        if (!viewport_covers_screen_buffer(sb))
+        {
+            render_visible_viewport(state, sb, bridge);
+            ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+            return true;
+        }
     }
     else
     {
@@ -1438,6 +1735,13 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
         {
             convert_u32_to_wstr(std::u32string_view{u32text.data(), written_u32}, bridge.conv_wstr());
             r->NumRecords = static_cast<ULONG>(bridge.conv_wstr().size());
+        }
+
+        if (!viewport_covers_screen_buffer(sb))
+        {
+            render_visible_viewport(state, sb, bridge);
+            ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+            return true;
         }
 
         if (r->NumRecords > 0)

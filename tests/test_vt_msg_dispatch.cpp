@@ -17,7 +17,6 @@ void setup(console_state &st, screen_buffer &sb)
     st = console_state{};
     const COORD test_size{80, 25};
     st.screen_buffer_size = test_size;
-    st.current_window_size = test_size;
     st.max_window_size = test_size;
     sb = screen_buffer{test_size};
 }
@@ -510,7 +509,6 @@ bool test_dispatch_resize_updates_state()
     console_state st;
     screen_buffer sb{{120, 30}};
     st.screen_buffer_size = {120, 30};
-    st.current_window_size = {120, 30};
     st.max_window_size = {120, 30};
 
     vt_message m{};
@@ -518,8 +516,8 @@ bool test_dispatch_resize_updates_state()
     m.resize_cols = 80;
     vt_msg_apply_state(vt_message_id::resize_window, m, st, sb);
 
-    ASSERT(st.current_window_size.X == 80);
-    ASSERT(st.current_window_size.Y == 24);
+    ASSERT(sb.viewport.size().X == 80);
+    ASSERT(sb.viewport.size().Y == 24);
     ASSERT(st.max_window_size.X == 80);
     ASSERT(st.max_window_size.Y == 24);
     return true;

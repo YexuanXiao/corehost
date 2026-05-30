@@ -55,9 +55,7 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
     state.screen_buffer_size.X = config.width > 0 ? config.width : default_console_size.X;
     state.screen_buffer_size.Y = config.height > 0 ? config.height : default_console_size.Y;
 
-    // current_window_size/max_window_size 当前与缓冲区等大；libcorehost 不实现
-    // 传统 conhost 的独立滚动缓冲区窗口。
-    state.current_window_size = state.screen_buffer_size;
+    // 初始 viewport 与缓冲区等大；后续 Win32 API 可以独立移动/缩放 viewport。
     state.max_window_size = state.screen_buffer_size;
 
     // 会话初始光标总是 0-based (0,0)。inherit_cursor=true 时后面会通过 CPR

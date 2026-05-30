@@ -10,6 +10,7 @@
 //    api_handlers 和 vt_msg_dispatch 看到同一份状态。
 #pragma once
 #include <windows.h>
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <flat_map>
@@ -52,7 +53,6 @@ struct console_state
 
     // ── Screen Buffer 信息 ──
     COORD screen_buffer_size{default_console_size};
-    COORD current_window_size{default_console_size};
     COORD max_window_size{default_console_size};
     // 0x07 是传统控制台白前景/黑背景属性。
     WORD default_attributes = 0x07;
@@ -129,10 +129,22 @@ struct console_state
         bool has_state = false;
     } decsc_cursor;
 
+    // ── DECSTBM 滚动区域 ──
+    // 1-based viewport-relative 行号；scroll_region_bottom=0 表示当前 viewport
+    // 的最后一行。top < bottom 时启用局部滚动，否则等价于完整 viewport。
+    SHORT scroll_region_top = 1;
+    SHORT scroll_region_bottom = 0;
+
     // ── 标记光标可能已脏 ──
     void mark_cursor_dirty() noexcept
     {
         cursor_position_dirty = true;
+    }
+
+    void clamp_cursor_to_buffer() noexcept
+    {
+        cursor.position.X = std::clamp<SHORT>(cursor.position.X, 0, static_cast<SHORT>(screen_buffer_size.X - 1));
+        cursor.position.Y = std::clamp<SHORT>(cursor.position.Y, 0, static_cast<SHORT>(screen_buffer_size.Y - 1));
     }
 
     // ── Tab 停靠位 ──

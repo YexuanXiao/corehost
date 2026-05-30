@@ -49,11 +49,23 @@ struct pipe_bridge
     input_buffer &inp;
     console_state &cstate;
     screen_buffer &sbuf;
+    screen_buffer *_active_screen = nullptr;
 
     pipe_bridge(input_buffer &input, console_state &state, screen_buffer &screen) noexcept
         : inp(input), cstate(state), sbuf(screen)
     {
+        _active_screen = &screen;
         _history_max = state.history_buffer_size;
+    }
+
+    void set_active_screen_buffer(screen_buffer &screen) noexcept
+    {
+        _active_screen = &screen;
+    }
+
+    screen_buffer &active_screen_buffer() const noexcept
+    {
+        return *_active_screen;
     }
 
     // ── ProcessList ──
@@ -372,11 +384,12 @@ struct pipe_bridge
     {
         // Console 输出是新的行编辑边界：后续 ReadConsole 的左右移动不得越过
         // 本次输出结束位置，否则用户可以删到 shell prompt 或上一条输出。
+        const auto terminal_pos = active_screen_buffer().viewport.relative_position(pos);
         LOG("[bridge] sync_cursor_after_write: pos=(%d,%d) was_tc=(%d,%d) was_col_start=%d was_col_end=%d enter_nl=%d",
             pos.X, pos.Y, _term_cursor.X, _term_cursor.Y, _input_column_start, _input_column_end,
             _enter_pending_newline);
-        term_cursor_set(pos);
-        bounds_reset(pos.X);
+        term_cursor_set(terminal_pos);
+        bounds_reset(terminal_pos.X);
     }
 
     // ════════════════════════════════════════════════════
@@ -471,6 +484,12 @@ struct pipe_bridge
         vt_append_char(';');
         vt_append_int(static_cast<int>(col) + 1);
         vt_append_char('H');
+    }
+
+    void vt_write_cup_buffer(COORD buffer_position)
+    {
+        const auto terminal_position = active_screen_buffer().viewport.clamped_relative_position(buffer_position);
+        vt_write_cup(terminal_position.Y, terminal_position.X);
     }
 
     void vt_write_attr(WORD attr)
@@ -2172,11 +2191,12 @@ struct pipe_bridge
                 {
                     // CPR 是 1-based 终端坐标。继承完成后要重设输入边界，
                     // 让下一次 ReadConsole 从真实光标列开始编辑。
-                    cstate.cursor.position.X = static_cast<SHORT>(m.cpr_col - 1);
-                    cstate.cursor.position.Y = static_cast<SHORT>(m.cpr_row - 1);
-                    _term_cursor = cstate.cursor.position;
+                    const COORD terminal_position{static_cast<SHORT>(m.cpr_col - 1), static_cast<SHORT>(m.cpr_row - 1)};
+                    cstate.cursor.position = active_screen_buffer().viewport.absolute_position(terminal_position);
+                    cstate.clamp_cursor_to_buffer();
+                    _term_cursor = terminal_position;
                     _term_cursor_valid = true;
-                    bounds_reset(cstate.cursor.position.X);
+                    bounds_reset(terminal_position.X);
                     _pending_inherit_cursor = false;
                     LOG("[bridge] cpr_response: inherit cursor (%d,%d)", cstate.cursor.position.X,
                         cstate.cursor.position.Y);
@@ -2211,9 +2231,10 @@ struct pipe_bridge
                     LOG("[bridge] resize_window: old=(%d,%d) new=(%d,%d)", cstate.screen_buffer_size.X,
                         cstate.screen_buffer_size.Y, new_size.X, new_size.Y);
                     cstate.screen_buffer_size = new_size;
-                    cstate.current_window_size = new_size;
                     cstate.max_window_size = new_size;
-                    sbuf.resize(new_size);
+                    auto &active_screen = active_screen_buffer();
+                    active_screen.viewport.reset_to_buffer(cstate.screen_buffer_size);
+                    active_screen.resize(new_size);
 
                     vt_flush();
                     vt_append_str("\x1b[8;"sv);
@@ -2231,16 +2252,16 @@ struct pipe_bridge
                         vt_write_cup(y, 0);
                         for (SHORT x = 0; x < new_size.X; ++x)
                         {
-                            WORD attr = sbuf.attr_at({x, y});
+                            WORD attr = active_screen.attr_at({x, y});
                             if (attr != last_attr)
                             {
                                 vt_write_attr(attr);
                                 last_attr = attr;
                             }
-                            vt_write_cell(sbuf.at_u32({x, y}));
+                            vt_write_cell(active_screen.at_u32({x, y}));
                         }
                     }
-                    vt_write_cup(cstate.cursor.position.Y, cstate.cursor.position.X);
+                    vt_write_cup_buffer(cstate.cursor.position);
                     vt_flush();
                 }
                 break;

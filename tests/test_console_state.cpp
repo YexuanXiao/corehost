@@ -889,6 +889,457 @@ bool test_regression_set_window_info_rejects_short_message()
     return true;
 }
 
+bool test_viewport_set_window_info_absolute_updates_origin_without_resizing_buffer()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETWINDOWINFO_MSG);
+    auto *window = reinterpret_cast<CONSOLE_SETWINDOWINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    window->Absolute = TRUE;
+    window->Window = {10, 5, 49, 14};
+
+    ASSERT(api_set_window_info(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(st.screen_buffer_size.X == default_console_size.X);
+    ASSERT(st.screen_buffer_size.Y == default_console_size.Y);
+    ASSERT(sb.viewport.origin().X == 10);
+    ASSERT(sb.viewport.origin().Y == 5);
+    ASSERT(sb.viewport.size().X == 40);
+    ASSERT(sb.viewport.size().Y == 10);
+    return true;
+}
+
+bool test_viewport_set_window_info_relative_offsets_current_rect()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    sb.viewport.set_rect({10, 5, 49, 14}, sb.size);
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETWINDOWINFO_MSG);
+    auto *window = reinterpret_cast<CONSOLE_SETWINDOWINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    window->Absolute = FALSE;
+    window->Window = {1, 2, 1, 2};
+
+    ASSERT(api_set_window_info(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    const auto rect = sb.viewport.rect();
+    ASSERT(rect.Left == 11);
+    ASSERT(rect.Top == 7);
+    ASSERT(rect.Right == 50);
+    ASSERT(rect.Bottom == 16);
+    return true;
+}
+
+bool test_viewport_set_cursor_position_snaps_cursor_into_view()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    sb.viewport.set_rect({10, 5, 49, 14}, sb.size);
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORPOSITION_MSG);
+    auto *cursor = reinterpret_cast<CONSOLE_SETCURSORPOSITION_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    cursor->CursorPosition = {0, 0};
+
+    ASSERT(api_set_cursor_pos(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(st.cursor.position.X == 0);
+    ASSERT(st.cursor.position.Y == 0);
+    ASSERT(sb.viewport.origin().X == 0);
+    ASSERT(sb.viewport.origin().Y == 0);
+    ASSERT(sb.viewport.size().X == 40);
+    ASSERT(sb.viewport.size().Y == 10);
+    return true;
+}
+
+bool test_viewport_set_screen_buffer_info_resizes_view_without_moving_origin()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    sb.viewport.set_rect({10, 5, 49, 14}, sb.size);
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG);
+    auto *info = reinterpret_cast<CONSOLE_SCREENBUFFERINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    info->Size = {120, 50};
+    info->ScrollPosition = {99, 99};
+    info->CurrentWindowSize = {30, 8};
+    info->MaximumWindowSize = {120, 50};
+    info->Attributes = 0x07;
+    info->PopupAttributes = 0x07;
+
+    ASSERT(api_set_sb_info(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(st.screen_buffer_size.X == 120);
+    ASSERT(st.screen_buffer_size.Y == 50);
+    ASSERT(sb.viewport.origin().X == 10);
+    ASSERT(sb.viewport.origin().Y == 5);
+    ASSERT(sb.viewport.size().X == 30);
+    ASSERT(sb.viewport.size().Y == 8);
+    return true;
+}
+
+bool test_viewport_state_is_owned_by_each_screen_buffer()
+{
+    console_state st;
+    screen_buffer main_sb{{120, 30}};
+    screen_buffer alt_sb{{120, 30}};
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, main_sb};
+
+    main_sb.viewport.set_rect({10, 5, 49, 14}, main_sb.size);
+    ASSERT(main_sb.viewport.origin().X == 10);
+    ASSERT(main_sb.viewport.origin().Y == 5);
+    ASSERT(alt_sb.viewport.origin().X == 0);
+    ASSERT(alt_sb.viewport.origin().Y == 0);
+
+    ASSERT(&bridge.active_screen_buffer() == &main_sb);
+    bridge.set_active_screen_buffer(alt_sb);
+    ASSERT(&bridge.active_screen_buffer() == &alt_sb);
+    return true;
+}
+
+bool test_viewport_vt_cursor_position_updates_buffer_coordinates()
+{
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    sb.viewport.set_rect({10, 5, 49, 14}, sb.size);
+    st.cursor.position = {10, 5};
+
+    const std::wstring text = L"\x1b[2;3HX";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(text.data()),
+                          static_cast<ULONG>(text.size() * sizeof(wchar_t)), st, sb, bridge);
+
+    ASSERT(sb.at_u32({12, 6}) == U'X');
+    ASSERT(st.cursor.position.X == 13);
+    ASSERT(st.cursor.position.Y == 6);
+
+    const std::wstring relative = L"\x1b[999DX";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(relative.data()),
+                          static_cast<ULONG>(relative.size() * sizeof(wchar_t)), st, sb, bridge);
+
+    ASSERT(sb.at_u32({10, 6}) == U'X');
+    ASSERT(st.cursor.position.X == 11);
+    ASSERT(st.cursor.position.Y == 6);
+
+    sb.set_u32({0, 0}, U'Z');
+    sb.set_u32({10, 5}, U'Y');
+    const std::wstring erase_display = L"\x1b[2J";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(erase_display.data()),
+                          static_cast<ULONG>(erase_display.size() * sizeof(wchar_t)), st, sb, bridge);
+
+    ASSERT(sb.at_u32({10, 5}) == U' ');
+    ASSERT(sb.at_u32({0, 0}) == U'Z');
+
+    sb.set_u32({9, 6}, U'B');
+    sb.set_u32({10, 6}, U'A');
+    const std::wstring erase_line = L"\x1b[2K";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(erase_line.data()),
+                          static_cast<ULONG>(erase_line.size() * sizeof(wchar_t)), st, sb, bridge);
+
+    ASSERT(sb.at_u32({10, 6}) == U' ');
+    ASSERT(sb.at_u32({9, 6}) == U'B');
+    return true;
+}
+
+bool test_viewport_vt_scroll_is_clipped_to_visible_window()
+{
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    sb.viewport.set_rect({10, 5, 49, 14}, sb.size);
+    st.cursor.position = {10, 5};
+
+    sb.set_u32({10, 5}, U'A');
+    sb.set_u32({10, 6}, U'B');
+    sb.set_u32({10, 14}, U'Z');
+    sb.set_u32({9, 5}, U'L');
+    sb.set_u32({50, 5}, U'R');
+
+    const std::wstring scroll_up = L"\x1b[S";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(scroll_up.data()),
+                          static_cast<ULONG>(scroll_up.size() * sizeof(wchar_t)), st, sb, bridge);
+
+    ASSERT(sb.at_u32({10, 5}) == U'B');
+    ASSERT(sb.at_u32({10, 13}) == U'Z');
+    ASSERT(sb.at_u32({10, 14}) == U' ');
+    ASSERT(sb.at_u32({9, 5}) == U'L');
+    ASSERT(sb.at_u32({50, 5}) == U'R');
+
+    sb.set_u32({10, 5}, U'A');
+    sb.set_u32({10, 6}, U'B');
+    const std::wstring scroll_down = L"\x1b[T";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(scroll_down.data()),
+                          static_cast<ULONG>(scroll_down.size() * sizeof(wchar_t)), st, sb, bridge);
+
+    ASSERT(sb.at_u32({10, 5}) == U' ');
+    ASSERT(sb.at_u32({10, 6}) == U'A');
+    ASSERT(sb.at_u32({10, 7}) == U'B');
+    ASSERT(sb.at_u32({9, 5}) == U'L');
+    ASSERT(sb.at_u32({50, 5}) == U'R');
+    return true;
+}
+
+bool test_viewport_vt_insert_delete_lines_start_at_cursor_row()
+{
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    sb.viewport.set_rect({10, 5, 49, 14}, sb.size);
+    st.cursor.position = {12, 7};
+
+    sb.set_u32({10, 5}, U'T');
+    sb.set_u32({10, 7}, U'A');
+    sb.set_u32({10, 8}, U'B');
+    sb.set_u32({10, 14}, U'Z');
+    sb.set_u32({9, 7}, U'L');
+
+    const std::wstring insert_line = L"\x1b[L";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(insert_line.data()),
+                          static_cast<ULONG>(insert_line.size() * sizeof(wchar_t)), st, sb, bridge);
+
+    ASSERT(sb.at_u32({10, 5}) == U'T');
+    ASSERT(sb.at_u32({10, 7}) == U' ');
+    ASSERT(sb.at_u32({10, 8}) == U'A');
+    ASSERT(sb.at_u32({10, 9}) == U'B');
+    ASSERT(sb.at_u32({9, 7}) == U'L');
+
+    sb.set_u32({10, 7}, U'A');
+    sb.set_u32({10, 8}, U'B');
+    const std::wstring delete_line = L"\x1b[M";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(delete_line.data()),
+                          static_cast<ULONG>(delete_line.size() * sizeof(wchar_t)), st, sb, bridge);
+
+    ASSERT(sb.at_u32({10, 5}) == U'T');
+    ASSERT(sb.at_u32({10, 7}) == U'B');
+    ASSERT(sb.at_u32({10, 14}) == U' ');
+    ASSERT(sb.at_u32({9, 7}) == U'L');
+    return true;
+}
+
+bool test_viewport_vt_text_wraps_inside_visible_window()
+{
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    sb.viewport.set_rect({10, 5, 12, 6}, sb.size);
+    st.cursor.position = {10, 5};
+
+    const std::wstring text = L"ABCD";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(text.data()),
+                          static_cast<ULONG>(text.size() * sizeof(wchar_t)), st, sb, bridge);
+
+    ASSERT(sb.at_u32({10, 5}) == U'A');
+    ASSERT(sb.at_u32({11, 5}) == U'B');
+    ASSERT(sb.at_u32({12, 5}) == U'C');
+    ASSERT(sb.at_u32({10, 6}) == U'D');
+    ASSERT(st.cursor.position.X == 11);
+    ASSERT(st.cursor.position.Y == 6);
+    return true;
+}
+
+bool test_viewport_vt_line_feed_scrolls_visible_window()
+{
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    sb.viewport.set_rect({10, 5, 12, 6}, sb.size);
+    st.cursor.position = {10, 6};
+    sb.set_u32({10, 5}, U'A');
+    sb.set_u32({10, 6}, U'B');
+    sb.set_u32({9, 6}, U'L');
+
+    const std::wstring line_feed = L"\n";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(line_feed.data()),
+                          static_cast<ULONG>(line_feed.size() * sizeof(wchar_t)), st, sb, bridge);
+
+    ASSERT(sb.at_u32({10, 5}) == U'B');
+    ASSERT(sb.at_u32({10, 6}) == U' ');
+    ASSERT(sb.at_u32({9, 6}) == U'L');
+    ASSERT(st.cursor.position.X == 10);
+    ASSERT(st.cursor.position.Y == 6);
+    return true;
+}
+
+bool test_viewport_vt_character_editing_is_clipped_to_visible_window()
+{
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    sb.viewport.set_rect({10, 5, 14, 5}, sb.size);
+    st.cursor.position = {12, 5};
+    sb.set_u32({9, 5}, U'L');
+    sb.set_u32({15, 5}, U'R');
+
+    auto set_visible_text = [&] {
+        sb.set_u32({10, 5}, U'A');
+        sb.set_u32({11, 5}, U'B');
+        sb.set_u32({12, 5}, U'C');
+        sb.set_u32({13, 5}, U'D');
+        sb.set_u32({14, 5}, U'E');
+    };
+
+    set_visible_text();
+    const std::wstring insert_char = L"\x1b[@";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(insert_char.data()),
+                          static_cast<ULONG>(insert_char.size() * sizeof(wchar_t)), st, sb, bridge);
+    ASSERT(sb.at_u32({10, 5}) == U'A');
+    ASSERT(sb.at_u32({11, 5}) == U'B');
+    ASSERT(sb.at_u32({12, 5}) == U' ');
+    ASSERT(sb.at_u32({13, 5}) == U'C');
+    ASSERT(sb.at_u32({14, 5}) == U'D');
+
+    set_visible_text();
+    const std::wstring delete_char = L"\x1b[P";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(delete_char.data()),
+                          static_cast<ULONG>(delete_char.size() * sizeof(wchar_t)), st, sb, bridge);
+    ASSERT(sb.at_u32({10, 5}) == U'A');
+    ASSERT(sb.at_u32({11, 5}) == U'B');
+    ASSERT(sb.at_u32({12, 5}) == U'D');
+    ASSERT(sb.at_u32({13, 5}) == U'E');
+    ASSERT(sb.at_u32({14, 5}) == U' ');
+
+    set_visible_text();
+    const std::wstring erase_char = L"\x1b[X";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(erase_char.data()),
+                          static_cast<ULONG>(erase_char.size() * sizeof(wchar_t)), st, sb, bridge);
+    ASSERT(sb.at_u32({10, 5}) == U'A');
+    ASSERT(sb.at_u32({11, 5}) == U'B');
+    ASSERT(sb.at_u32({12, 5}) == U' ');
+    ASSERT(sb.at_u32({13, 5}) == U'D');
+    ASSERT(sb.at_u32({14, 5}) == U'E');
+    ASSERT(sb.at_u32({9, 5}) == U'L');
+    ASSERT(sb.at_u32({15, 5}) == U'R');
+    return true;
+}
+
+bool test_viewport_vt_reverse_index_scrolls_visible_window()
+{
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    sb.viewport.set_rect({10, 5, 12, 6}, sb.size);
+    st.cursor.position = {11, 5};
+    sb.set_u32({10, 5}, U'A');
+    sb.set_u32({10, 6}, U'B');
+    sb.set_u32({9, 5}, U'L');
+
+    const std::wstring reverse_index = L"\x1bM";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(reverse_index.data()),
+                          static_cast<ULONG>(reverse_index.size() * sizeof(wchar_t)), st, sb, bridge);
+
+    ASSERT(sb.at_u32({10, 5}) == U' ');
+    ASSERT(sb.at_u32({10, 6}) == U'A');
+    ASSERT(sb.at_u32({9, 5}) == U'L');
+    ASSERT(st.cursor.position.X == 11);
+    ASSERT(st.cursor.position.Y == 5);
+    return true;
+}
+
+bool test_viewport_vt_tabs_are_viewport_relative()
+{
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    sb.viewport.set_rect({10, 5, 49, 14}, sb.size);
+    st.cursor.position = {11, 5};
+
+    const std::wstring tab = L"\t";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(tab.data()),
+                          static_cast<ULONG>(tab.size() * sizeof(wchar_t)), st, sb, bridge);
+    ASSERT(st.cursor.position.X == 18);
+
+    const std::wstring backward_tab = L"\x1b[Z";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(backward_tab.data()),
+                          static_cast<ULONG>(backward_tab.size() * sizeof(wchar_t)), st, sb, bridge);
+    ASSERT(st.cursor.position.X == 10);
+    return true;
+}
+
+bool test_viewport_vt_scrolling_region_is_viewport_relative()
+{
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    sb.viewport.set_rect({10, 5, 12, 8}, sb.size);
+    st.cursor.position = {10, 5};
+    sb.set_u32({10, 5}, U'A');
+    sb.set_u32({10, 6}, U'B');
+    sb.set_u32({10, 7}, U'C');
+    sb.set_u32({10, 8}, U'D');
+
+    const std::wstring set_region = L"\x1b[2;3r";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(set_region.data()),
+                          static_cast<ULONG>(set_region.size() * sizeof(wchar_t)), st, sb, bridge);
+
+    ASSERT(st.scroll_region_top == 2);
+    ASSERT(st.scroll_region_bottom == 3);
+    ASSERT(st.cursor.position.X == 10);
+    ASSERT(st.cursor.position.Y == 5);
+
+    st.cursor.position = {10, 7};
+    const std::wstring line_feed = L"\n";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(line_feed.data()),
+                          static_cast<ULONG>(line_feed.size() * sizeof(wchar_t)), st, sb, bridge);
+
+    ASSERT(sb.at_u32({10, 5}) == U'A');
+    ASSERT(sb.at_u32({10, 6}) == U'C');
+    ASSERT(sb.at_u32({10, 7}) == U' ');
+    ASSERT(sb.at_u32({10, 8}) == U'D');
+
+    sb.set_u32({10, 6}, U'B');
+    sb.set_u32({10, 7}, U'C');
+    st.cursor.position = {11, 6};
+    const std::wstring reverse_index = L"\x1bM";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(reverse_index.data()),
+                          static_cast<ULONG>(reverse_index.size() * sizeof(wchar_t)), st, sb, bridge);
+
+    ASSERT(sb.at_u32({10, 5}) == U'A');
+    ASSERT(sb.at_u32({10, 6}) == U' ');
+    ASSERT(sb.at_u32({10, 7}) == U'B');
+    ASSERT(sb.at_u32({10, 8}) == U'D');
+    return true;
+}
+
 bool test_regression_read_output_string_output_size_and_linear_read()
 {
     miniio::io_msg msg{};
@@ -1720,7 +2171,7 @@ bool test_regression_create_object_rejects_malformed_or_unknown_type()
     return true;
 }
 
-bool test_regression_legacy_escape_sequence_does_not_advance_cursor()
+bool test_regression_write_console_escape_sequence_without_vt_mode_updates_state()
 {
     miniio::io_msg msg{};
     console_state st;
@@ -2361,6 +2812,34 @@ int main()
              L"ScrollScreenBuffer validation and ANSI fill");
     RUN_TEST(test_regression_set_text_attribute_rejects_short_message, L"SetTextAttribute rejects short message");
     RUN_TEST(test_regression_set_window_info_rejects_short_message, L"SetWindowInfo rejects short message");
+    RUN_TEST(test_viewport_set_window_info_absolute_updates_origin_without_resizing_buffer,
+             L"Viewport SetWindowInfo absolute");
+    RUN_TEST(test_viewport_set_window_info_relative_offsets_current_rect,
+             L"Viewport SetWindowInfo relative");
+    RUN_TEST(test_viewport_set_cursor_position_snaps_cursor_into_view,
+             L"Viewport SetCursorPosition snaps");
+    RUN_TEST(test_viewport_set_screen_buffer_info_resizes_view_without_moving_origin,
+             L"Viewport SetScreenBufferInfo size only");
+    RUN_TEST(test_viewport_state_is_owned_by_each_screen_buffer,
+             L"Viewport per-screen-buffer ownership");
+    RUN_TEST(test_viewport_vt_cursor_position_updates_buffer_coordinates,
+             L"Viewport VT cursor updates buffer coordinates");
+    RUN_TEST(test_viewport_vt_scroll_is_clipped_to_visible_window,
+             L"Viewport VT scroll clips to visible window");
+    RUN_TEST(test_viewport_vt_insert_delete_lines_start_at_cursor_row,
+             L"Viewport VT insert/delete lines clips to visible window");
+    RUN_TEST(test_viewport_vt_text_wraps_inside_visible_window,
+             L"Viewport VT text wraps inside visible window");
+    RUN_TEST(test_viewport_vt_line_feed_scrolls_visible_window,
+             L"Viewport VT line feed scrolls visible window");
+    RUN_TEST(test_viewport_vt_character_editing_is_clipped_to_visible_window,
+             L"Viewport VT character editing clips to visible window");
+    RUN_TEST(test_viewport_vt_reverse_index_scrolls_visible_window,
+             L"Viewport VT reverse index scrolls visible window");
+    RUN_TEST(test_viewport_vt_tabs_are_viewport_relative,
+             L"Viewport VT tabs are viewport-relative");
+    RUN_TEST(test_viewport_vt_scrolling_region_is_viewport_relative,
+             L"Viewport VT scrolling region is viewport-relative");
     RUN_TEST(test_regression_read_output_string_output_size_and_linear_read,
              L"ReadOutputString output size and linear read");
     RUN_TEST(test_regression_write_console_input_a_uses_input_codepage, L"WriteConsoleInputA uses input codepage");
@@ -2413,8 +2892,8 @@ int main()
              L"CONNECT/DISCONNECT sync process snapshot");
     RUN_TEST(test_regression_create_object_rejects_malformed_or_unknown_type,
              L"CREATE_OBJECT rejects malformed or unknown type");
-    RUN_TEST(test_regression_legacy_escape_sequence_does_not_advance_cursor,
-             L"Legacy escape sequence does not advance cursor");
+    RUN_TEST(test_regression_write_console_escape_sequence_without_vt_mode_updates_state,
+             L"WriteConsole escape sequence updates state without VT mode");
     RUN_TEST(test_regression_set_console_mode_validation, L"SetConsoleMode validation");
     RUN_TEST(test_regression_add_alias_msg_layout, L"Alias msg layout (Exe+Src+Tgt)");
     RUN_TEST(test_regression_add_alias_zero_exe, L"Alias msg zero exe");

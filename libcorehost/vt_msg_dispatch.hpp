@@ -400,8 +400,10 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
             // 终端 resize 同时改变 buffer/window/max 三个尺寸字段。当前实现
             // 没有独立 scrollback，因此三者保持一致。
             state.screen_buffer_size = {cols, rows};
-            state.current_window_size = {cols, rows};
             state.max_window_size = {cols, rows};
+            sb.viewport.reset_to_buffer({cols, rows});
+            state.scroll_region_top = 1;
+            state.scroll_region_bottom = 0;
             state.clear_all_tab_stops();
             state.init_tab_stops();
             sb.resize({cols, rows});

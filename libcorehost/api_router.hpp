@@ -14,6 +14,7 @@
 #include "screen_buffer.hpp"
 #include "input_buffer.hpp"
 #include "io_state.hpp"
+#include "viewport_render.hpp"
 
 namespace conpty
 {
@@ -43,6 +44,7 @@ struct api_router
             return;
 
         alt_active = alt;
+        bridge.set_active_screen_buffer(active_screen_buffer());
 
         // DECSET/DECRST 1049 让终端切换备用缓冲区。随后重绘本地 active
         // screen_buffer，保证终端内容与 libcorehost 内存状态一致。
@@ -56,32 +58,8 @@ struct api_router
 
     void vt_write_screen_snapshot()
     {
-        // 快照重绘只输出 active buffer 的可见格子，不改变 screen_buffer。
-        auto &sb = active_screen_buffer();
-
-        // 先写当前默认属性，随后按 cell 属性变化补发 SGR。
-        bridge.vt_write_attr(state.default_attributes);
-        for (SHORT y = 0; y < sb.size.Y && y < state.screen_buffer_size.Y; ++y)
-        {
-            // VT CUP 使用 1-based 坐标；vt_write_cup 接口接收 0-based 坐标。
-            bridge.vt_write_cup(y, 0);
-            // 0xFFFF 不可能是有效 16 色属性快照，强制第一格写入 SGR。
-            WORD last_attr = 0xFFFF;
-            for (SHORT x = 0; x < sb.size.X && x < state.screen_buffer_size.X; ++x)
-            {
-                WORD cell_attr = sb.attr_at({x, y});
-                if (cell_attr != last_attr)
-                {
-                    bridge.vt_write_attr(cell_attr);
-                    last_attr = cell_attr;
-                }
-                bridge.vt_write_cell(sb.at_u32({x, y}));
-            }
-        }
-
-        // 快照输出后恢复到 console_state 当前光标，避免重绘改变应用看到的位置。
-        bridge.vt_write_cup(state.cursor.position.Y, state.cursor.position.X);
-        bridge.vt_flush();
+        // 快照重绘只输出 active buffer 的 viewport，不改变 screen_buffer。
+        render_visible_viewport(state, active_screen_buffer(), bridge);
     }
 
     bool handle_user_defined(miniio::io_msg &msg)

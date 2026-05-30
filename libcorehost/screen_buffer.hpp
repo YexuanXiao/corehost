@@ -12,6 +12,7 @@
 #include <cstring>
 #include <vector>
 #include "default_console_size.hpp"
+#include "console_viewport.hpp"
 #include "screen_buffer_row.hpp"
 #include "char_convert.hpp"
 #include "char_width.hpp"
@@ -23,12 +24,14 @@ struct screen_buffer
 {
     // 字符列/行数，必须保持 >= 1。resize 会修正非法输入。
     COORD size{default_console_size};
+    console_viewport viewport{default_console_size};
 
     screen_buffer()
     {
         _ensure_rows();
     }
     explicit screen_buffer(COORD sz) : size(sz)
+                                      , viewport(sz)
     {
         _ensure_rows();
     }
@@ -48,6 +51,7 @@ struct screen_buffer
         auto old_rows = std::move(_rows);
         auto old_size = size;
         size = new_size;
+        viewport.clamp_to_buffer(size);
         _ensure_rows();
 
         // 只复制新旧高度重叠的行；copy_from 自己按目标宽度截断列。

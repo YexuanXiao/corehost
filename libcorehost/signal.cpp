@@ -69,8 +69,8 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
                 return 0;
             }
             pp->state.screen_buffer_size = sz;
-            pp->state.current_window_size = sz;
             pp->state.max_window_size = sz;
+            pp->sbuf.viewport.reset_to_buffer(sz);
             pp->sbuf.resize(sz);
             break;
         }
