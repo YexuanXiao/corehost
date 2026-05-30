@@ -140,37 +140,55 @@ struct screen_buffer
     fill_result fill_char(char32_t cp, COORD start, ULONG count)
     {
         fill_result r;
-        if (!_valid_y(start.Y))
+        if (!_valid_y(start.Y) || start.X < 0)
             return r;
-        ULONG rs = static_cast<ULONG>(start.X);
-        if (rs >= static_cast<ULONG>(size.X))
+        auto x = static_cast<SHORT>(start.X);
+        auto y = static_cast<SHORT>(start.Y);
+        if (x >= size.X)
             return r;
-        ULONG rem = static_cast<ULONG>(size.X) - rs;
-        // 目前 fill_* 只处理单行，n 不能越过当前行末。length_read 与
-        // cells_modified 相同，表示实际完成的控制台单元格数。
-        ULONG n = count < rem ? count : rem;
-        auto &rr = row(start.Y);
-        for (ULONG i = 0; i < n; ++i)
-            rr.clear_cell(static_cast<uint16_t>(rs + i));
-        for (ULONG i = 0; i < n; ++i)
-            rr.write_glyph(static_cast<uint16_t>(rs + i), std::u32string_view{&cp, 1}, 1,
-                           rr.attr_at(static_cast<uint16_t>(rs + i)));
-        r.length_read = r.cells_modified = n;
+
+        while (count > 0 && y < size.Y)
+        {
+            auto &rr = row(y);
+            const auto start_x = static_cast<ULONG>(x);
+            const auto available = static_cast<ULONG>(size.X) - start_x;
+            const auto n = count < available ? count : available;
+            for (ULONG i = 0; i < n; ++i)
+                rr.clear_cell(static_cast<uint16_t>(start_x + i));
+            for (ULONG i = 0; i < n; ++i)
+                rr.write_glyph(static_cast<uint16_t>(start_x + i), std::u32string_view{&cp, 1}, 1,
+                               rr.attr_at(static_cast<uint16_t>(start_x + i)));
+            r.length_read += n;
+            r.cells_modified += n;
+            count -= n;
+            x = 0;
+            ++y;
+        }
         return r;
     }
 
     fill_result fill_attr(WORD attr, COORD start, ULONG count)
     {
         fill_result r;
-        if (!_valid_y(start.Y))
+        if (!_valid_y(start.Y) || start.X < 0)
             return r;
-        ULONG rs = static_cast<ULONG>(start.X);
-        if (rs >= static_cast<ULONG>(size.X))
+        auto x = static_cast<SHORT>(start.X);
+        auto y = static_cast<SHORT>(start.Y);
+        if (x >= size.X)
             return r;
-        ULONG rem = static_cast<ULONG>(size.X) - rs;
-        ULONG n = count < rem ? count : rem;
-        row(start.Y).fill_attrs(static_cast<uint16_t>(rs), static_cast<uint16_t>(rs + n), text_attribute{attr});
-        r.length_read = r.cells_modified = n;
+        while (count > 0 && y < size.Y)
+        {
+            const auto start_x = static_cast<ULONG>(x);
+            const auto available = static_cast<ULONG>(size.X) - start_x;
+            const auto n = count < available ? count : available;
+            row(y).fill_attrs(static_cast<uint16_t>(start_x), static_cast<uint16_t>(start_x + n),
+                              text_attribute{attr});
+            r.length_read += n;
+            r.cells_modified += n;
+            count -= n;
+            x = 0;
+            ++y;
+        }
         return r;
     }
 
@@ -200,6 +218,30 @@ struct screen_buffer
         return w;
     }
 
+    size_t write_char32_linear(COORD start, const char32_t *chars, size_t len)
+    {
+        if (!_valid(start))
+            return 0;
+        size_t w = 0;
+        for (SHORT y = start.Y; y < size.Y && w < len; ++y)
+        {
+            SHORT x = (y == start.Y) ? start.X : 0;
+            while (w < len && x < size.X)
+            {
+                int cw = char_width_for_mode(chars[w], text_measurement_mode::console);
+                if (cw < 1)
+                    cw = 1;
+                if (cw > 2)
+                    cw = 2;
+                row(y).write_glyph(static_cast<uint16_t>(x), std::u32string_view{chars + w, 1}, cw,
+                                   row(y).attr_at(static_cast<uint16_t>(x)));
+                x += static_cast<SHORT>(cw);
+                ++w;
+            }
+        }
+        return w;
+    }
+
     size_t write_attr_seq(COORD start, const WORD *attrs, size_t len)
     {
         // 返回实际写入的属性数量；可能小于 len，表示到达行尾或 Y 无效。
@@ -213,6 +255,24 @@ struct screen_buffer
             rr.set_attr(static_cast<uint16_t>(x), text_attribute{attrs[w]});
             ++w;
             ++x;
+        }
+        return w;
+    }
+
+    size_t write_attr_seq_linear(COORD start, const WORD *attrs, size_t len)
+    {
+        if (!_valid(start))
+            return 0;
+        size_t w = 0;
+        for (SHORT y = start.Y; y < size.Y && w < len; ++y)
+        {
+            SHORT x = (y == start.Y) ? start.X : 0;
+            while (w < len && x < size.X)
+            {
+                row(y).set_attr(static_cast<uint16_t>(x), text_attribute{attrs[w]});
+                ++w;
+                ++x;
+            }
         }
         return w;
     }
@@ -236,6 +296,25 @@ struct screen_buffer
         return r;
     }
 
+    size_t read_wchars_linear(COORD start, wchar_t *out, size_t max_len) const noexcept
+    {
+        if (!_valid(start))
+            return 0;
+        size_t r = 0;
+        for (SHORT y = start.Y; y < size.Y && r < max_len; ++y)
+        {
+            SHORT x = (y == start.Y) ? start.X : 0;
+            while (x < size.X && r < max_len)
+            {
+                auto gv = row(y).glyph_at(static_cast<uint16_t>(x));
+                out[r] = gv.empty() ? L' ' : static_cast<wchar_t>(gv[0] <= 0xFFFF ? gv[0] : 0xFFFD);
+                ++r;
+                ++x;
+            }
+        }
+        return r;
+    }
+
     size_t read_attrs(COORD start, WORD *out, size_t max_len) const noexcept
     {
         // 返回实际导出的属性数量；可能小于 max_len。
@@ -249,6 +328,24 @@ struct screen_buffer
             out[r] = rr.attr_at(static_cast<uint16_t>(x)).legacy;
             ++r;
             ++x;
+        }
+        return r;
+    }
+
+    size_t read_attrs_linear(COORD start, WORD *out, size_t max_len) const noexcept
+    {
+        if (!_valid(start))
+            return 0;
+        size_t r = 0;
+        for (SHORT y = start.Y; y < size.Y && r < max_len; ++y)
+        {
+            SHORT x = (y == start.Y) ? start.X : 0;
+            while (x < size.X && r < max_len)
+            {
+                out[r] = row(y).attr_at(static_cast<uint16_t>(x)).legacy;
+                ++r;
+                ++x;
+            }
         }
         return r;
     }
@@ -423,12 +520,13 @@ struct screen_buffer
         _clamp(r);
         if (!_rvalid(r))
             return;
-        // 目前 clear_cell 固定写空格，cp 参数保留给 scroll/fill 的完整语义；
-        // 调用点传入的 fill_char 尚未参与实际绘制。
-        (void)cp;
         for (SHORT y = r.Top; y <= r.Bottom; ++y)
             for (SHORT x = r.Left; x <= r.Right; ++x)
+            {
                 row(y).clear_cell(static_cast<uint16_t>(x), text_attribute{attr});
+                row(y).write_glyph(static_cast<uint16_t>(x), std::u32string_view{&cp, 1}, 1,
+                                   text_attribute{attr});
+            }
     }
 };
 

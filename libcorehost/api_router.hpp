@@ -88,11 +88,25 @@ struct api_router
     {
         // msg.body 必须以 CONSOLE_MSG_HEADER 开头；message_router 只把
         // CONSOLE_IO_USER_DEFINED 传到这里。
+        if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER))
+        {
+            miniio::prepare_completion(msg, status_illegal_function);
+            return true;
+        }
+
         auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
 
         // ApiNumber 高字节为 L1/L2/L3 层号，低 24 位为该层 API 编号。
         auto layer = hdr->ApiNumber >> 24;
         auto api = hdr->ApiNumber & 0xFFFFFF;
+        auto required_size = api_descriptor_required_size(layer, api);
+        if (required_size == invalid_api_descriptor_size || hdr->ApiDescriptorSize > sizeof(msg.body) ||
+            hdr->ApiDescriptorSize > msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) ||
+            hdr->ApiDescriptorSize < required_size)
+        {
+            miniio::prepare_completion(msg, status_illegal_function);
+            return true;
+        }
 
         switch (layer)
         {
@@ -103,13 +117,189 @@ struct api_router
         case 3:
             return dispatch_L3(msg, api);
         default:
-            // 未识别层级按空成功完成，避免旧/未知 API 阻塞客户端。
-            ucomplete(msg);
+            miniio::prepare_completion(msg, status_illegal_function);
             return true;
         }
     }
 
     // ── L1 / L2 / L3 分发表 ──
+
+    static constexpr size_t invalid_api_descriptor_size = static_cast<size_t>(-1);
+
+    constexpr size_t api_descriptor_required_size(DWORD layer, DWORD api) const noexcept
+    {
+        switch (layer)
+        {
+        case 1:
+            switch (api)
+            {
+            case 0:
+                return sizeof(CONSOLE_GETCP_MSG);
+            case 1:
+            case 2:
+                return sizeof(CONSOLE_MODE_MSG);
+            case 3:
+                return sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG);
+            case 4:
+                return sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+            case 5:
+                return sizeof(CONSOLE_READCONSOLE_MSG);
+            case 6:
+                return sizeof(CONSOLE_WRITECONSOLE_MSG);
+            case 7:
+                return 0;
+            case 8:
+                return sizeof(CONSOLE_LANGID_MSG);
+            case 9:
+                return sizeof(CONSOLE_MAPBITMAP_MSG);
+            default:
+                return invalid_api_descriptor_size;
+            }
+        case 2:
+            switch (api)
+            {
+            case 0:
+                return sizeof(CONSOLE_FILLCONSOLEOUTPUT_MSG);
+            case 1:
+                return sizeof(CONSOLE_CTRLEVENT_MSG);
+            case 2:
+            case 3:
+                return 0;
+            case 4:
+                return sizeof(CONSOLE_SETCP_MSG);
+            case 5:
+                return sizeof(CONSOLE_GETCURSORINFO_MSG);
+            case 6:
+                return sizeof(CONSOLE_SETCURSORINFO_MSG);
+            case 7:
+            case 8:
+                return sizeof(CONSOLE_SCREENBUFFERINFO_MSG);
+            case 9:
+                return sizeof(CONSOLE_SETSCREENBUFFERSIZE_MSG);
+            case 10:
+                return sizeof(CONSOLE_SETCURSORPOSITION_MSG);
+            case 11:
+                return sizeof(CONSOLE_GETLARGESTWINDOWSIZE_MSG);
+            case 12:
+                return sizeof(CONSOLE_SCROLLSCREENBUFFER_MSG);
+            case 13:
+                return sizeof(CONSOLE_SETTEXTATTRIBUTE_MSG);
+            case 14:
+                return sizeof(CONSOLE_SETWINDOWINFO_MSG);
+            case 15:
+                return sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
+            case 16:
+                return sizeof(CONSOLE_WRITECONSOLEINPUT_MSG);
+            case 17:
+                return sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG);
+            case 18:
+                return sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
+            case 19:
+                return sizeof(CONSOLE_READCONSOLEOUTPUT_MSG);
+            case 20:
+                return sizeof(CONSOLE_GETTITLE_MSG);
+            case 21:
+                return sizeof(CONSOLE_SETTITLE_MSG);
+            default:
+                return invalid_api_descriptor_size;
+            }
+        case 3:
+            switch (api)
+            {
+            case 0:
+                return sizeof(CONSOLE_GETNUMBEROFFONTS_MSG);
+            case 1:
+                return sizeof(CONSOLE_GETMOUSEINFO_MSG);
+            case 2:
+                return sizeof(CONSOLE_GETFONTINFO_MSG);
+            case 3:
+                return sizeof(CONSOLE_GETFONTSIZE_MSG);
+            case 4:
+                return sizeof(CONSOLE_CURRENTFONT_MSG);
+            case 5:
+                return sizeof(CONSOLE_SETFONT_MSG);
+            case 6:
+                return sizeof(CONSOLE_SETICON_MSG);
+            case 7:
+                return sizeof(CONSOLE_INVALIDATERECT_MSG);
+            case 8:
+                return sizeof(CONSOLE_VDM_MSG);
+            case 9:
+                return sizeof(CONSOLE_SETCURSOR_MSG);
+            case 10:
+                return sizeof(CONSOLE_SHOWCURSOR_MSG);
+            case 11:
+                return sizeof(CONSOLE_MENUCONTROL_MSG);
+            case 12:
+                return sizeof(CONSOLE_SETPALETTE_MSG);
+            case 13:
+                return sizeof(CONSOLE_SETDISPLAYMODE_MSG);
+            case 14:
+                return sizeof(CONSOLE_REGISTERVDM_MSG);
+            case 15:
+                return sizeof(CONSOLE_GETHARDWARESTATE_MSG);
+            case 16:
+                return sizeof(CONSOLE_SETHARDWARESTATE_MSG);
+            case 17:
+                return sizeof(CONSOLE_GETDISPLAYMODE_MSG);
+            case 18:
+                return sizeof(CONSOLE_ADDALIAS_MSG);
+            case 19:
+                return sizeof(CONSOLE_GETALIAS_MSG);
+            case 20:
+                return sizeof(CONSOLE_GETALIASESLENGTH_MSG);
+            case 21:
+                return sizeof(CONSOLE_GETALIASEXESLENGTH_MSG);
+            case 22:
+                return sizeof(CONSOLE_GETALIASES_MSG);
+            case 23:
+                return sizeof(CONSOLE_GETALIASEXES_MSG);
+            case 24:
+                return sizeof(CONSOLE_EXPUNGECOMMANDHISTORY_MSG);
+            case 25:
+                return sizeof(CONSOLE_SETNUMBEROFCOMMANDS_MSG);
+            case 26:
+                return sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG);
+            case 27:
+                return sizeof(CONSOLE_GETCOMMANDHISTORY_MSG);
+            case 28:
+                return sizeof(CONSOLE_SETKEYSHORTCUTS_MSG);
+            case 29:
+                return sizeof(CONSOLE_SETMENUCLOSE_MSG);
+            case 30:
+                return sizeof(CONSOLE_GETKEYBOARDLAYOUTNAME_MSG);
+            case 31:
+                return sizeof(CONSOLE_GETCONSOLEWINDOW_MSG);
+            case 32:
+                return sizeof(CONSOLE_CHAR_TYPE_MSG);
+            case 33:
+                return sizeof(CONSOLE_LOCAL_EUDC_MSG);
+            case 34:
+            case 35:
+                return sizeof(CONSOLE_CURSOR_MODE_MSG);
+            case 36:
+                return sizeof(CONSOLE_REGISTEROS2_MSG);
+            case 37:
+                return sizeof(CONSOLE_SETOS2OEMFORMAT_MSG);
+            case 38:
+            case 39:
+                return sizeof(CONSOLE_NLS_MODE_MSG);
+            case 40:
+                return sizeof(CONSOLE_GETSELECTIONINFO_MSG);
+            case 41:
+                return sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG);
+            case 42:
+            case 43:
+                return sizeof(CONSOLE_HISTORY_MSG);
+            case 44:
+                return sizeof(CONSOLE_CURRENTFONT_MSG);
+            default:
+                return invalid_api_descriptor_size;
+            }
+        default:
+            return invalid_api_descriptor_size;
+        }
+    }
 
     bool dispatch_L1(miniio::io_msg &msg, DWORD api)
     {
@@ -143,8 +333,7 @@ struct api_router
         case 9:
             return api_deprecated_l1(msg, state, sb, inp, bridge);
         default:
-            // 未实现 L1 API 返回空成功，匹配 deprecated handler 的宽容策略。
-            ucomplete(msg);
+            miniio::prepare_completion(msg, status_illegal_function);
             return true;
         }
     }
@@ -203,8 +392,7 @@ struct api_router
         case 21:
             return api_set_title(msg, state, sb, inp, bridge);
         default:
-            // 未实现 L2 API 返回空成功，避免老客户端探测 API 时卡住。
-            ucomplete(msg);
+            miniio::prepare_completion(msg, status_illegal_function);
             return true;
         }
     }
@@ -292,8 +480,7 @@ struct api_router
             return api_l3_deprecated(msg, state, sb, inp, bridge);
 
         default:
-            // 未知 L3 API 也按空成功完成；客户端不能依赖这里返回阻塞错误。
-            ucomplete(msg);
+            miniio::prepare_completion(msg, status_illegal_function);
             return true;
         }
     }

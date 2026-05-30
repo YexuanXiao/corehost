@@ -27,7 +27,9 @@ struct message_router
     {
         // CONNECT 走单独入口，因为 I/O loop 需要知道 completion 是显式完成
         // 还是要在下一轮 READ_IO 中提交。
-        return io.handle_connect(msg, completion);
+        auto ok = io.handle_connect(msg, completion);
+        sync_process_snapshot();
+        return ok;
     }
 
     bool on_message(miniio::io_msg &msg)
@@ -73,14 +75,14 @@ struct message_router
             // 的调用路径，仍然同步进程列表快照。
             connect_completion completion = connect_completion::explicit_complete;
             bool ok = io.handle_connect(msg, completion);
-
-            // bridge 持有一份快照，供 GetConsoleProcessList 的 API handler 读取。
-            bridge.proc_count = io.process_count;
-            std::memcpy(bridge.proc_list, io.process_list, io.process_count * sizeof(DWORD));
+            sync_process_snapshot();
             return ok;
         }
-        case CONSOLE_IO_DISCONNECT:
-            return io.handle_disconnect(msg);
+        case CONSOLE_IO_DISCONNECT: {
+            bool ok = io.handle_disconnect(msg);
+            sync_process_snapshot();
+            return ok;
+        }
         case CONSOLE_IO_CREATE_OBJECT:
             return io.handle_create_object(msg);
         case CONSOLE_IO_CLOSE_OBJECT:
@@ -95,6 +97,9 @@ struct message_router
             // Console API 消息体以 CONSOLE_MSG_HEADER 开头，由 api_router 继续拆层。
             return api.handle_user_defined(msg);
         case CONSOLE_IO_RAW_FLUSH:
+            // 原版 RAW_FLUSH 复用 ServerFlushConsoleInputBuffer；这里没有
+            // USER_DEFINED header，因此只清空事件队列并返回普通 IO completion。
+            api.inp.flush();
             io.handle_raw_flush(msg);
             return true;
         default:
@@ -102,6 +107,13 @@ struct message_router
             miniio::prepare_completion(msg);
             return true;
         }
+    }
+
+    void sync_process_snapshot() noexcept
+    {
+        // bridge 持有一份快照，供 GetConsoleProcessList 的 API handler 读取。
+        bridge.proc_count = io.process_count;
+        std::memcpy(bridge.proc_list, io.process_list, io.process_count * sizeof(DWORD));
     }
 };
 

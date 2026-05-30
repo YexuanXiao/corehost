@@ -10,6 +10,7 @@
 //    缓存最近返回的 input/output 句柄值用于 CLOSE_OBJECT 识别。
 #pragma once
 #include <windows.h>
+#include <algorithm>
 #include "connect_completion.hpp"
 #include "win32/handle.hpp"
 #include "miniio/io_thread.hpp"
@@ -57,23 +58,22 @@ struct io_state
 
     void add_process(DWORD pid)
     {
-        for (size_t i = 0; i < process_count; ++i)
-            if (process_list[i] == pid)
-                return;
+        const auto end = process_list + process_count;
+        if (std::find(process_list, end, pid) != end)
+            return;
         if (process_count < max_processes)
             process_list[process_count++] = pid;
     }
 
     void remove_process(DWORD pid)
     {
-        for (size_t i = 0; i < process_count; ++i)
-        {
-            if (process_list[i] == pid)
-            {
-                process_list[i] = process_list[--process_count];
-                return;
-            }
-        }
+        const auto end = process_list + process_count;
+        const auto it = std::find(process_list, end, pid);
+        if (it == end)
+            return;
+        std::move(it + 1, end, it);
+        --process_count;
+        process_list[process_count] = 0;
     }
 
     bool handle_connect(miniio::io_msg &msg, connect_completion &completion)
@@ -118,6 +118,12 @@ struct io_state
 
     bool handle_create_object(miniio::io_msg &msg)
     {
+        if (msg.descriptor.InputSize < sizeof(CD_CREATE_OBJECT_INFORMATION))
+        {
+            miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+            return true;
+        }
+
         // CREATE_OBJECT 的输入体由 ConDrv 提供。GENERIC 类型需要根据访问
         // 掩码推导为当前 input 或 output；无法推导的类型返回失败。
         auto *req = reinterpret_cast<CD_CREATE_OBJECT_INFORMATION *>(msg.body);
@@ -148,8 +154,7 @@ struct io_state
             output_id = reinterpret_cast<ULONG_PTR>(nh.get());
             break;
         default:
-            // STATUS_UNSUCCESSFUL：对象类型无法映射为当前支持的 Input/Output。
-            miniio::prepare_completion(msg, 0xC0000001 /* STATUS_UNSUCCESSFUL */);
+            miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
             return true;
         }
         miniio::prepare_completion(msg, 0, reinterpret_cast<ULONG_PTR>(nh.release()));

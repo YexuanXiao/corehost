@@ -171,6 +171,25 @@ struct pipe_bridge
         return std::min<size_t>(requested, local_capacity);
     }
 
+    size_t raw_read_capacity(const miniio::io_msg &msg) const noexcept
+    {
+        // CONSOLE_IO_RAW_READ 对应客户端 ReadFile；OutputSize 就是客户端
+        // buffer 的字节数。原版 IoSorter 让 ReadConsole 从 State.WriteOffset==0
+        // 取得输出缓冲，因此完成时只写原始数据，不写 ReadConsole 描述符。
+        return std::min<size_t>(msg.descriptor.OutputSize, sizeof(msg.body));
+    }
+
+    size_t console_read_data_capacity(const miniio::io_msg &msg) const noexcept
+    {
+        // USER_DEFINED ReadConsole completion 先返回 CONSOLE_READCONSOLE_MSG，
+        // 随后的文本才是客户端 lpBuffer。OutputSize 不含
+        // CONSOLE_MSG_HEADER，因此只扣掉 API 描述符。
+        const auto local_capacity = sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLE_MSG);
+        if (msg.descriptor.OutputSize <= sizeof(CONSOLE_READCONSOLE_MSG))
+            return 0;
+        return std::min<size_t>(msg.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLE_MSG), local_capacity);
+    }
+
   public:
     bool has_pending() const noexcept
     {
@@ -223,8 +242,11 @@ struct pipe_bridge
         if (avail == 0)
             return vt_read_status::empty;
 
-        // room==0 表示 _readbuf 已满，调用方必须先处理已有字节。
-        DWORD room = static_cast<DWORD>(_readbuf.size()) - _read_total;
+        // room==0 表示本次 pending 可返回的缓冲已满，调用方必须先完成它。
+        auto limit = _readbuf.size();
+        if (_pend_kind == PendingKind::RawRead && _pend_raw)
+            limit = raw_read_capacity(*_pend_raw);
+        DWORD room = static_cast<DWORD>(limit) - _read_total;
         if (room == 0)
             return vt_read_status::full;
 
@@ -943,21 +965,20 @@ struct pipe_bridge
     // ── RAW_READ (挂起模式) ──
     bool handle_raw_read(miniio::io_msg &msg)
     {
-        // RAW_READ 使用 CONSOLE_READCONSOLE_MSG 作为 body，但没有
-        // CONSOLE_MSG_HEADER。它读取终端原始字节，直到行结束、缓冲满或 EOF。
-        auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(msg.body);
+        // 原版 RAW_READ 不信任客户端 body，而是在 IoSorter 中清零
+        // CONSOLE_READCONSOLE_MSG，仅显式开启 ProcessControlZ 后调用
+        // ServerReadConsole。这里保存同等语义：ANSI/raw byte read，Ctrl+Z 只在
+        // ENABLE_PROCESSED_INPUT 下代表 EOF。
         if (_vt_eof)
         {
-            req->NumBytes = 0;
             miniio::prepare_completion(msg, 0, 0);
-            msg.complete.Write.Data = msg.body;
-            msg.complete.Write.Size = sizeof(CONSOLE_READCONSOLE_MSG);
             return true;
         }
 
         _pend_kind = PendingKind::RawRead;
         _pend_raw = &msg;
-        _pend_uni = req->Unicode != 0;
+        _pend_uni = false;
+        _process_control_z = (cstate.input_mode & ENABLE_PROCESSED_INPUT) != 0;
         // 新的 RawRead 请求不能继承上一次读取留下的扫描状态；否则旧的
         // _line_found/_echo_start 会让本次请求被错误地立即完成。
         _read_total = 0;
@@ -1039,6 +1060,12 @@ struct pipe_bridge
         auto *req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
         auto *out = reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                      sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+        if ((req->Flags & ~CONSOLE_READ_VALID) != 0)
+        {
+            miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+            return true;
+        }
+
         const auto max_count = console_input_max_records(msg);
         if (max_count == 0)
         {
@@ -1890,8 +1917,10 @@ struct pipe_bridge
                     else
                         edit_insert_codepoint(ch);
                 }
-                else
+                else if (_pend_kind != PendingKind::RawRead)
+                {
                     _write_char_key_event(ch, b);
+                }
                 _parser.reset(vt_message_id::continue_text); // 清累积文本
                 continue;
             }
@@ -1909,13 +1938,13 @@ struct pipe_bridge
             case vt_message_id::carriage_return:
                 // 行终止符会完成当前 ReadConsole/RawRead；非 ConsoleRead 路径还
                 // 需要发 KEY_EVENT，供 PowerShell 这类应用自行处理提交。
-                if (_pend_kind != PendingKind::ConsoleRead)
+                if (_pend_kind != PendingKind::ConsoleRead && _pend_kind != PendingKind::RawRead)
                     _write_enter_key_event();
                 _on_line_terminator(true, i, len, bytes);
                 return;
 
             case vt_message_id::line_feed:
-                if (_pend_kind != PendingKind::ConsoleRead)
+                if (_pend_kind != PendingKind::ConsoleRead && _pend_kind != PendingKind::RawRead)
                     _write_char_key_event(U'\n', 0x0A);
                 _on_line_terminator(false, i, len, bytes);
                 return;
@@ -1983,22 +2012,25 @@ struct pipe_bridge
                     vt_append_str("\r\n"sv);
                     LOG("[bridge] ENTER_Win32Input done tc=(%d,%d)", _term_cursor.X, _term_cursor.Y);
                 }
-                else if (m.win32_kd)
+                else if (_pend_kind != PendingKind::RawRead && m.win32_kd)
                 {
                     LOG("[bridge] Win32Input write_input: vk=%d uc=0x%04X cs=0x%X tc=(%d,%d)", m.win32_vk, m.win32_uc,
                         m.win32_cs, _term_cursor.X, _term_cursor.Y);
                 }
 
-                INPUT_RECORD ir{};
-                ir.EventType = KEY_EVENT;
-                ir.Event.KeyEvent.bKeyDown = m.win32_kd ? TRUE : FALSE;
-                ir.Event.KeyEvent.wRepeatCount = m.win32_rc;
-                ir.Event.KeyEvent.wVirtualKeyCode = m.win32_vk;
-                ir.Event.KeyEvent.wVirtualScanCode = m.win32_sc;
-                ir.Event.KeyEvent.uChar.UnicodeChar = m.win32_uc;
-                ir.Event.KeyEvent.dwControlKeyState = m.win32_cs;
-                inp.write(&ir, 1);
-                complete_pending_console_input();
+                if (_pend_kind != PendingKind::RawRead)
+                {
+                    INPUT_RECORD ir{};
+                    ir.EventType = KEY_EVENT;
+                    ir.Event.KeyEvent.bKeyDown = m.win32_kd ? TRUE : FALSE;
+                    ir.Event.KeyEvent.wRepeatCount = m.win32_rc;
+                    ir.Event.KeyEvent.wVirtualKeyCode = m.win32_vk;
+                    ir.Event.KeyEvent.wVirtualScanCode = m.win32_sc;
+                    ir.Event.KeyEvent.uChar.UnicodeChar = m.win32_uc;
+                    ir.Event.KeyEvent.dwControlKeyState = m.win32_cs;
+                    inp.write(&ir, 1);
+                    complete_pending_console_input();
+                }
                 break;
             }
 
@@ -2319,6 +2351,103 @@ struct pipe_bridge
         return false;
     }
 
+    void prepare_raw_read_completion(miniio::io_msg &m)
+    {
+        // RawRead 返回 _readbuf 原始字节；它不使用 cooked line 编辑结果。
+        auto capacity = static_cast<DWORD>(raw_read_capacity(m));
+        DWORD data_bytes = std::min(_read_total, capacity);
+
+        // ConDrv read-line 语义期望 CRLF。终端可能只送 CR 或只送 LF，
+        // 因此 completion 前把行尾规范化为 CRLF；但绝不超过客户端
+        // ReadFile 提供的 OutputSize。
+        if (data_bytes >= 1 && _readbuf[data_bytes - 1] == '\r')
+        {
+            if (data_bytes < capacity)
+                _readbuf[data_bytes++] = '\n';
+        }
+        else if (data_bytes >= 1 && _readbuf[data_bytes - 1] == '\n')
+        {
+            if (data_bytes < 2 || _readbuf[data_bytes - 2] != '\r')
+            {
+                if (data_bytes < capacity)
+                {
+                    _readbuf[data_bytes] = '\n';
+                    _readbuf[data_bytes - 1] = '\r';
+                    data_bytes++;
+                }
+            }
+        }
+
+        if (_vt_eof && _read_total == 0)
+        {
+            // EOF 且没有已读数据时返回空读取；这是会话退出的可观察信号。
+            miniio::prepare_completion(m, 0, 0);
+            return;
+        }
+
+        if (data_bytes > 0)
+            std::memcpy(m.body, _readbuf.data(), data_bytes);
+        miniio::prepare_completion(m, 0, data_bytes);
+        m.complete.Write.Data = m.body;
+        m.complete.Write.Size = data_bytes;
+    }
+
+    void prepare_console_read_completion(miniio::io_msg &m)
+    {
+        auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(m.body + sizeof(CONSOLE_MSG_HEADER));
+        req->ControlKeyState = 0;
+
+        if (_vt_eof && _cooked_buf.empty() && _read_total == 0)
+        {
+            req->NumBytes = 0;
+            auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
+            miniio::prepare_completion(m, 0, sz);
+            m.complete.Write.Data = m.body + sizeof(CONSOLE_MSG_HEADER);
+            m.complete.Write.Size = sz;
+            return;
+        }
+
+        // DOSKEY 别名展开发生在完成读取前；客户端只看到展开后的命令行。
+        _expand_alias();
+
+        auto *db = m.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+        DWORD maxd = static_cast<DWORD>(console_read_data_capacity(m));
+        DWORD cp = 0;
+        if (_pend_uni)
+        {
+            // ReadConsoleW 返回 UTF-16 字节数。内部 cooked buffer 是 UTF-32，
+            // 先转 UTF-8 只是复用现有转换器。
+            _conv_utf8.clear();
+            convert_u32_to_utf8(_cooked_buf, _conv_utf8);
+            _conv_utf8 += "\r\n";
+            auto *utf16_out = reinterpret_cast<char16_t *>(db);
+            auto max_chars = maxd / sizeof(char16_t);
+            size_t n = unicode::detail::convert_utf8_to_utf16(_conv_utf8.data(), _conv_utf8.size(), utf16_out);
+            if (n > max_chars)
+                n = max_chars;
+            cp = static_cast<DWORD>(n * sizeof(char16_t));
+        }
+        else
+        {
+            // ReadConsoleA 使用控制台输入代码页，而不是终端 UTF-8。否则
+            // CJK 输入会以 UTF-8 字节交给期望 OEM/ANSI 的控制台程序。
+            _conv_u32 = _cooked_buf;
+            _conv_u32.push_back(U'\r');
+            _conv_u32.push_back(U'\n');
+            convert_u32_to_ansi(_conv_u32, cstate.input_code_page, _conv_utf8, _conv_wstr);
+            cp = static_cast<DWORD>(_conv_utf8.size());
+            if (cp > maxd)
+                cp = maxd;
+            if (cp > 0)
+                std::memcpy(db, _conv_utf8.data(), cp);
+        }
+        req->NumBytes = cp;
+        auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG) + cp);
+        miniio::prepare_completion(m, 0, sz);
+        m.complete.Write.Data = m.body + sizeof(CONSOLE_MSG_HEADER);
+        m.complete.Write.Size = sz;
+    }
+
     // ── complete_pending ──────────────────────────────
     void complete_pending()
     {
@@ -2340,47 +2469,8 @@ struct pipe_bridge
         CD_IO_COMPLETE *comp_ptr = nullptr;
         if (_pend_kind == PendingKind::RawRead && _pend_raw)
         {
-            // RawRead 返回 _readbuf 原始字节；它不使用 cooked line 编辑结果。
             auto &m = *_pend_raw;
-            DWORD data_bytes = _read_total;
-
-            // ConDrv read-line 语义期望 CRLF。终端可能只送 CR 或只送 LF，
-            // 因此 completion 前把行尾规范化为 CRLF。
-            if (data_bytes >= 1 && _readbuf[data_bytes - 1] == '\r')
-            {
-                if (data_bytes < _readbuf.size())
-                    _readbuf[data_bytes++] = '\n';
-            }
-            else if (data_bytes >= 1 && _readbuf[data_bytes - 1] == '\n')
-            {
-                if (data_bytes < 2 || _readbuf[data_bytes - 2] != '\r')
-                {
-                    if (data_bytes < _readbuf.size())
-                    {
-                        _readbuf[data_bytes] = '\n';
-                        _readbuf[data_bytes - 1] = '\r';
-                        data_bytes++;
-                    }
-                }
-            }
-
-            auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(m.body);
-            if (_vt_eof && _read_total == 0)
-            {
-                // EOF 且没有已读数据时返回空读取；这是会话退出的可观察信号。
-                req->NumBytes = 0;
-                miniio::prepare_completion(m, 0, 0);
-                m.complete.Write.Data = m.body;
-                m.complete.Write.Size = sizeof(CONSOLE_READCONSOLE_MSG);
-            }
-            else
-            {
-                req->NumBytes = data_bytes;
-                auto cb = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG) + data_bytes);
-                miniio::prepare_completion(m, 0, cb);
-                m.complete.Write.Data = m.body;
-                m.complete.Write.Size = cb;
-            }
+            prepare_raw_read_completion(m);
             comp_before = m.complete;
             comp_ptr = &comp_before;
         }
@@ -2389,59 +2479,7 @@ struct pipe_bridge
             auto &m = *_pend_usr;
             // ConsoleRead 返回行编辑后的文本，而不是原始 VT 字节；退格、历史、
             // alias 等本地编辑结果都已经体现在 _cooked_buf 中。
-            auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(m.body + sizeof(CONSOLE_MSG_HEADER));
-            req->ControlKeyState = 0;
-
-            if (_vt_eof && _cooked_buf.empty() && _read_total == 0)
-            {
-                req->NumBytes = 0;
-                auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
-                miniio::prepare_completion(m, 0, sz);
-                m.complete.Write.Data = m.body + sizeof(CONSOLE_MSG_HEADER);
-                m.complete.Write.Size = sz;
-            }
-            else
-            {
-                // ── DOSKEY 别名展开 ──
-                _expand_alias();
-
-                auto *db = m.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
-                DWORD maxd =
-                    static_cast<DWORD>(sizeof(m.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLE_MSG));
-                DWORD cp = 0;
-                if (_pend_uni)
-                {
-                    // Unicode ReadConsoleW 返回 UTF-16 字节数。先经 UTF-8 是复用
-                    // 现有转换器；NumBytes 仍按 UTF-16 输出字节计算。
-                    _conv_utf8.clear();
-                    convert_u32_to_utf8(_cooked_buf, _conv_utf8);
-                    _conv_utf8 += "\r\n"; // ConDrv 要求 \r\n 行尾
-                    auto *utf16_out = reinterpret_cast<char16_t *>(db);
-                    auto max_chars = maxd / sizeof(char16_t);
-                    size_t n = unicode::detail::convert_utf8_to_utf16(_conv_utf8.data(), _conv_utf8.size(), utf16_out);
-                    if (n > max_chars)
-                        n = max_chars;
-                    cp = static_cast<DWORD>(n * sizeof(char16_t));
-                }
-                else
-                {
-                    // 非 Unicode 路径当前返回 UTF-8 字节；调用方的缓冲上限
-                    // maxd 是硬边界，超过部分截断并用 NumBytes 告知实际长度。
-                    _conv_utf8.clear();
-                    convert_u32_to_utf8(_cooked_buf, _conv_utf8);
-                    _conv_utf8 += "\r\n";
-                    cp = static_cast<DWORD>(_conv_utf8.size());
-                    if (cp > maxd)
-                        cp = maxd;
-                    if (cp > 0)
-                        std::memcpy(db, _conv_utf8.data(), cp);
-                }
-                req->NumBytes = cp;
-                auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG) + cp);
-                miniio::prepare_completion(m, 0, sz);
-                m.complete.Write.Data = m.body + sizeof(CONSOLE_MSG_HEADER);
-                m.complete.Write.Size = sz;
-            }
+            prepare_console_read_completion(m);
             comp_before = m.complete;
             comp_ptr = &comp_before;
         }
@@ -2770,6 +2808,33 @@ struct pipe_bridge
     {
         process_input(bytes, len);
         vt_flush(); // 确保 echo 字节及时刷新（回归：之前缺失此 flush 导致卡顿）
+    }
+
+    void test_prepare_raw_read_completion(miniio::io_msg &msg, const BYTE *bytes, DWORD len, bool eof = false)
+    {
+        // 测试生产路径使用的 RawRead completion 构造；不调用 complete_pending，
+        // 避免单元测试需要真实 ConDrv server 句柄。
+        _pend_kind = PendingKind::RawRead;
+        _pend_raw = &msg;
+        _vt_eof = eof;
+        _read_total = std::min<DWORD>(len, static_cast<DWORD>(_readbuf.size()));
+        if (_read_total > 0)
+            std::memcpy(_readbuf.data(), bytes, _read_total);
+        prepare_raw_read_completion(msg);
+    }
+
+    void test_prepare_console_read_completion(miniio::io_msg &msg, std::u32string_view line, bool unicode)
+    {
+        // 测试生产路径使用的 ConsoleRead completion 构造；不调用
+        // complete_pending，避免单元测试需要真实 ConDrv server 句柄。
+        _pend_kind = PendingKind::ConsoleRead;
+        _pend_usr = &msg;
+        _pend_uni = unicode;
+        _vt_eof = false;
+        _read_total = static_cast<DWORD>(line.size());
+        _cooked_buf.assign(line.begin(), line.end());
+        _cooked_cursor = _cooked_buf.size();
+        prepare_console_read_completion(msg);
     }
 
     // 同上，但使用 Win32Input ControlKeyState（Shift/Ctrl 等修饰键上下文）

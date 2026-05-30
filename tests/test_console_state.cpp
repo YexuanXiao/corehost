@@ -125,8 +125,8 @@ bool test_tab_stop_prev()
 bool test_default_mode()
 {
     console_state st;
-    ASSERT(st.input_mode != 0);
-    ASSERT(st.output_mode != 0);
+    ASSERT(st.input_mode == (ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_MOUSE_INPUT));
+    ASSERT(st.output_mode == (ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT));
     return true;
 }
 
@@ -247,6 +247,7 @@ bool test_alias_empty()
 // 消息体 = Exe + Source + Target 三段连续布局。
 
 #include "api_handlers.hpp"
+#include "message_router.hpp"
 #include "os/Console/ntcon.h"
 #include "os/Console/conmsgl3.h"
 struct api_test_context
@@ -284,6 +285,9 @@ void mock_add_alias_msg(miniio::io_msg &msg, const std::wstring &exe, const std:
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepAddAlias); // 0x12 L3-18
     hdr->ApiDescriptorSize = sizeof(CONSOLE_ADDALIAS_MSG);
+    msg.descriptor.InputSize =
+        static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG) +
+                           (exe.size() + src.size() + tgt.size()) * sizeof(wchar_t));
 
     auto *alias = reinterpret_cast<CONSOLE_ADDALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     alias->SourceLength = static_cast<USHORT>(src.size() * sizeof(wchar_t));
@@ -421,6 +425,21 @@ bool test_regression_get_console_input_output_size_without_record()
     return true;
 }
 
+bool test_regression_get_console_input_rejects_invalid_flags()
+{
+    miniio::io_msg msg;
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    mock_get_console_input_msg(msg, CONSOLE_READ_VALID | 0x8000);
+    ASSERT(api_get_console_input(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    ASSERT(!bridge.has_pending());
+    return true;
+}
+
 bool test_regression_raw_write_decodes_output_codepage()
 {
     miniio::io_msg msg{};
@@ -440,6 +459,1310 @@ bool test_regression_raw_write_decodes_output_codepage()
     ASSERT(sb.at_u32({2, 0}) == U'\u6B22');
     ASSERT(sb.at_u32({4, 0}) == U'\u4F60');
     ASSERT(st.cursor.position.X == 6);
+    return true;
+}
+
+bool test_regression_raw_read_completion_writes_only_bytes()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    const BYTE text[] = {'a', 'b', 'c', '\r'};
+    msg.descriptor.OutputSize = 16;
+    bridge.test_prepare_raw_read_completion(msg, text, sizeof(text));
+
+    ASSERT(msg.complete.IoStatus.Information == 5);
+    ASSERT(msg.complete.Write.Data == msg.body);
+    ASSERT(msg.complete.Write.Size == 5);
+    ASSERT(std::memcmp(msg.body, "abc\r\n", 5) == 0);
+    return true;
+}
+
+bool test_regression_raw_read_completion_respects_output_size()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    const BYTE text[] = {'a', 'b', 'c', '\r'};
+    msg.descriptor.OutputSize = 4;
+    bridge.test_prepare_raw_read_completion(msg, text, sizeof(text));
+
+    ASSERT(msg.complete.IoStatus.Information == 4);
+    ASSERT(msg.complete.Write.Size == 4);
+    ASSERT(std::memcmp(msg.body, "abc\r", 4) == 0);
+    return true;
+}
+
+bool test_regression_read_console_a_uses_input_codepage()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    st.input_code_page = 936;
+    msg.descriptor.OutputSize = sizeof(CONSOLE_READCONSOLE_MSG) + 16;
+    auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    req->Unicode = FALSE;
+
+    bridge.test_prepare_console_read_completion(msg, U"\u559C\u6B22\u4F60", false);
+
+    const BYTE expected[] = {0xCF, 0xB2, 0xBB, 0xB6, 0xC4, 0xE3, '\r', '\n'};
+    auto *out = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    ASSERT(req->NumBytes == sizeof(expected));
+    ASSERT(msg.complete.IoStatus.Information == sizeof(CONSOLE_READCONSOLE_MSG) + sizeof(expected));
+    ASSERT(std::memcmp(out, expected, sizeof(expected)) == 0);
+    return true;
+}
+
+bool test_regression_read_console_initial_bytes_check_output_capacity()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_READCONSOLE_MSG) + 2;
+    auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    req->Unicode = TRUE;
+    req->InitialNumBytes = 4;
+
+    ASSERT(api_read_console(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    ASSERT(!bridge.has_pending());
+    return true;
+}
+
+bool test_regression_write_console_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) - 1;
+    ASSERT(api_write_console(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_write_console_w_reports_complete_utf16_units()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) + 3;
+    auto *req = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    req->Unicode = TRUE;
+    auto *payload = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG);
+    const wchar_t ch = L'A';
+    std::memcpy(payload, &ch, sizeof(ch));
+    payload[sizeof(ch)] = 0x7F;
+
+    ASSERT(api_write_console(msg, st, sb, inp, bridge));
+    ASSERT(req->NumBytes == sizeof(wchar_t));
+    ASSERT(sb.at_u32({0, 0}) == U'A');
+    return true;
+}
+
+bool test_regression_deprecated_l1_returns_not_implemented()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    ASSERT(api_deprecated_l1(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_not_implemented);
+    return true;
+}
+
+bool test_regression_get_langid_matches_original_gate()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    st.output_code_page = code_page_chinese_simplified;
+    ASSERT(api_get_langid(msg, st, sb, inp, bridge));
+
+    if (is_east_asian_code_page(::GetACP()))
+    {
+        auto *lang = reinterpret_cast<CONSOLE_LANGID_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+        ASSERT(msg.complete.IoStatus.Status == 0);
+        ASSERT(lang->LangId == MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED));
+    }
+    else
+    {
+        ASSERT(msg.complete.IoStatus.Status == status_not_supported);
+    }
+
+    ASSERT(lang_id_from_console_output_code_page(code_page_japanese) == MAKELANGID(LANG_JAPANESE, SUBLANG_DEFAULT));
+    ASSERT(lang_id_from_console_output_code_page(code_page_korean) == MAKELANGID(LANG_KOREAN, SUBLANG_KOREAN));
+    ASSERT(lang_id_from_console_output_code_page(code_page_chinese_traditional) ==
+           MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_TRADITIONAL));
+    return true;
+}
+
+bool test_regression_fill_console_output_a_uses_output_codepage()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    st.output_code_page = 437;
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_FILLCONSOLEOUTPUT_MSG);
+    auto *fill = reinterpret_cast<CONSOLE_FILLCONSOLEOUTPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    fill->ElementType = CONSOLE_ASCII;
+    fill->Element = 0xB3;
+    fill->Length = 1;
+    fill->WriteCoord = {0, 0};
+
+    ASSERT(api_fill_output(msg, st, sb, inp, bridge));
+    ASSERT(fill->Length == 1);
+    ASSERT(sb.at_u32({0, 0}) == U'\u2502');
+    return true;
+}
+
+bool test_regression_fill_console_output_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_FILLCONSOLEOUTPUT_MSG) - 1;
+    ASSERT(api_fill_output(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_fill_console_output_attr_preserves_current_attr()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    st.default_attributes = 0x1E;
+    sb.set_u32({0, 0}, U'X', 0x07);
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_FILLCONSOLEOUTPUT_MSG);
+    auto *fill = reinterpret_cast<CONSOLE_FILLCONSOLEOUTPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    fill->ElementType = CONSOLE_ATTRIBUTE;
+    fill->Element = 0x2C;
+    fill->Length = 1;
+    fill->WriteCoord = {0, 0};
+
+    ASSERT(api_fill_output(msg, st, sb, inp, bridge));
+    ASSERT(fill->Length == 1);
+    ASSERT(sb.attr_at({0, 0}) == 0x2C);
+    ASSERT(sb.at_u32({0, 0}) == U'X');
+    ASSERT(st.default_attributes == 0x1E);
+    return true;
+}
+
+bool test_regression_ctrl_event_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CTRLEVENT_MSG) - 1;
+    ASSERT(api_ctrl_event(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_set_console_cp_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCP_MSG) - 1;
+    ASSERT(api_set_cp(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_set_console_cp_updates_selected_codepage()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCP_MSG);
+    auto *cp = reinterpret_cast<CONSOLE_SETCP_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    cp->Output = FALSE;
+    cp->CodePage = 65001;
+    ASSERT(api_set_cp(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(st.input_code_page == 65001);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCP_MSG);
+    cp = reinterpret_cast<CONSOLE_SETCP_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    cp->Output = TRUE;
+    cp->CodePage = 65001;
+    ASSERT(api_set_cp(msg, st, sb, inp, bridge));
+    ASSERT(st.output_code_page == 65001);
+    return true;
+}
+
+bool test_regression_cursor_info_rejects_short_messages()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCURSORINFO_MSG) - 1;
+    ASSERT(api_get_cursor(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORINFO_MSG) - 1;
+    ASSERT(api_set_cursor(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_get_screen_buffer_info_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG) - 1;
+    ASSERT(api_get_sb_info(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_set_screen_buffer_info_validation()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG) - 1;
+    ASSERT(api_set_sb_info(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG);
+    auto *info = reinterpret_cast<CONSOLE_SCREENBUFFERINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    info->Size = {120, 30};
+    info->CurrentWindowSize = {0, 0};
+    ASSERT(api_set_sb_info(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_set_screen_buffer_size_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETSCREENBUFFERSIZE_MSG) - 1;
+    ASSERT(api_set_sb_size(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_set_cursor_position_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORPOSITION_MSG) - 1;
+    ASSERT(api_set_cursor_pos(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_largest_window_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETLARGESTWINDOWSIZE_MSG) - 1;
+    ASSERT(api_largest_window(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_scroll_screen_buffer_validation_and_ansi_fill()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCROLLSCREENBUFFER_MSG) - 1;
+    ASSERT(api_scroll_sb(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    st.output_code_page = 437;
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCROLLSCREENBUFFER_MSG);
+    auto *scroll = reinterpret_cast<CONSOLE_SCROLLSCREENBUFFER_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    scroll->Unicode = FALSE;
+    scroll->ScrollRectangle = {0, 0, 0, 0};
+    scroll->DestinationOrigin = {static_cast<SHORT>(sb.size.X), 0};
+    scroll->Fill.Char.AsciiChar = static_cast<CHAR>(0xB3);
+    scroll->Fill.Attributes = 0x0A;
+
+    ASSERT(api_scroll_sb(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(sb.at_u32({0, 0}) == U'\u2502');
+    ASSERT(sb.attr_at({0, 0}) == 0x0A);
+    return true;
+}
+
+bool test_regression_set_text_attribute_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTEXTATTRIBUTE_MSG) - 1;
+    ASSERT(api_set_text_attr(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_set_window_info_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETWINDOWINFO_MSG) - 1;
+    ASSERT(api_set_window_info(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_read_output_string_output_size_and_linear_read()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb{{2, 2}};
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) - 1;
+    ASSERT(api_read_output_string(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    sb.set_u32({0, 0}, U'A');
+    sb.set_u32({1, 0}, U'B');
+    sb.set_u32({0, 1}, U'C');
+    sb.set_u32({1, 1}, U'D');
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + 3 * sizeof(wchar_t);
+    auto *read = reinterpret_cast<CONSOLE_READCONSOLEOUTPUTSTRING_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    read->StringType = CONSOLE_REAL_UNICODE;
+    read->ReadCoord = {1, 0};
+
+    ASSERT(api_read_output_string(msg, st, sb, inp, bridge));
+    auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                            sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
+    ASSERT(read->NumRecords == 3);
+    ASSERT(out[0] == L'B');
+    ASSERT(out[1] == L'C');
+    ASSERT(out[2] == L'D');
+    return true;
+}
+
+bool test_regression_write_console_input_a_uses_input_codepage()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG) - 1;
+    ASSERT(api_write_console_input(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    st.input_code_page = 936;
+    msg.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG) + 2 * sizeof(INPUT_RECORD);
+    auto *write = reinterpret_cast<CONSOLE_WRITECONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    write->Unicode = FALSE;
+    write->Append = TRUE;
+    auto *records =
+        reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
+    records[0].EventType = KEY_EVENT;
+    records[0].Event.KeyEvent.bKeyDown = TRUE;
+    records[0].Event.KeyEvent.uChar.AsciiChar = static_cast<CHAR>(0xCF);
+    records[1].EventType = KEY_EVENT;
+    records[1].Event.KeyEvent.bKeyDown = TRUE;
+    records[1].Event.KeyEvent.uChar.AsciiChar = static_cast<CHAR>(0xB2);
+
+    ASSERT(api_write_console_input(msg, st, sb, inp, bridge));
+    ASSERT(write->NumRecords == 1);
+    INPUT_RECORD out{};
+    ASSERT(inp.read(&out, 1) == 1);
+    ASSERT(out.EventType == KEY_EVENT);
+    ASSERT(out.Event.KeyEvent.uChar.UnicodeChar == L'\u559c');
+    return true;
+}
+
+bool test_regression_write_console_output_validation_and_clipping()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb{{2, 1}};
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG) - 1;
+    ASSERT(api_write_console_output(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG) + 2 * sizeof(CHAR_INFO);
+    auto *write = reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    write->Unicode = TRUE;
+    write->CharRegion = {-1, 0, 0, 0};
+    auto *cells =
+        reinterpret_cast<CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG));
+    cells[0].Char.UnicodeChar = L'A';
+    cells[0].Attributes = 0x07;
+    cells[1].Char.UnicodeChar = L'B';
+    cells[1].Attributes = 0x0A;
+
+    ASSERT(api_write_console_output(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(write->CharRegion.Left == 0);
+    ASSERT(write->CharRegion.Right == 0);
+    ASSERT(sb.at_u32({0, 0}) == U'B');
+    ASSERT(sb.attr_at({0, 0}) == 0x0A);
+    return true;
+}
+
+bool test_regression_write_output_string_linear_and_ansi_count()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb{{2, 2}};
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG) - 1;
+    ASSERT(api_write_output_string(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG) + 3 * sizeof(wchar_t);
+    auto *write = reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    write->StringType = CONSOLE_REAL_UNICODE;
+    write->WriteCoord = {1, 0};
+    auto *text = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                             sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+    text[0] = L'X';
+    text[1] = L'Y';
+    text[2] = L'Z';
+
+    ASSERT(api_write_output_string(msg, st, sb, inp, bridge));
+    ASSERT(write->NumRecords == 3);
+    ASSERT(sb.at_u32({1, 0}) == U'X');
+    ASSERT(sb.at_u32({0, 1}) == U'Y');
+    ASSERT(sb.at_u32({1, 1}) == U'Z');
+
+    std::memset(&msg, 0, sizeof(msg));
+    st.output_code_page = 936;
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG) + 2;
+    write = reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    write->StringType = CONSOLE_ASCII;
+    write->WriteCoord = {0, 0};
+    auto *bytes = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                           sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+    bytes[0] = static_cast<char>(0xCF);
+    bytes[1] = static_cast<char>(0xB2);
+
+    ASSERT(api_write_output_string(msg, st, sb, inp, bridge));
+    ASSERT(write->NumRecords == 2);
+    ASSERT(sb.at_u32({0, 0}) == U'\u559c');
+    return true;
+}
+
+bool test_regression_read_console_output_output_size_and_clipping()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb{{2, 1}};
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG) - 1;
+    ASSERT(api_read_console_output(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    sb.set_u32({0, 0}, U'B', 0x0A);
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_READCONSOLEOUTPUT_MSG) + 2 * sizeof(CHAR_INFO);
+    auto *read = reinterpret_cast<CONSOLE_READCONSOLEOUTPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    read->Unicode = TRUE;
+    read->CharRegion = {-1, 0, 0, 0};
+
+    ASSERT(api_read_console_output(msg, st, sb, inp, bridge));
+    ASSERT(read->CharRegion.Left == 0);
+    ASSERT(read->CharRegion.Right == 0);
+    auto *cells =
+        reinterpret_cast<CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
+    ASSERT(cells[1].Char.UnicodeChar == L'B');
+    ASSERT(cells[1].Attributes == 0x0A);
+    ASSERT(!st.cursor_position_dirty);
+    return true;
+}
+
+bool test_regression_get_title_output_size_limits_copy()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG) - 1;
+    ASSERT(api_get_title(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::u32string title;
+    convert_utf16_to_u32(std::wstring_view{L"test"}, title);
+    st.title = title;
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETTITLE_MSG) + 2 * sizeof(wchar_t);
+    auto *get = reinterpret_cast<CONSOLE_GETTITLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    get->Unicode = TRUE;
+    auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
+
+    ASSERT(api_get_title(msg, st, sb, inp, bridge));
+    ASSERT(get->TitleLength == 8);
+    ASSERT(out[0] == L't');
+    ASSERT(out[1] == L'e');
+    return true;
+}
+
+bool test_regression_set_title_a_uses_input_codepage()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG) - 1;
+    ASSERT(api_set_title(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    st.input_code_page = 936;
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG) + 2;
+    auto *set = reinterpret_cast<CONSOLE_SETTITLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    set->Unicode = FALSE;
+    auto *bytes = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG));
+    bytes[0] = static_cast<char>(0xCF);
+    bytes[1] = static_cast<char>(0xB2);
+
+    ASSERT(api_set_title(msg, st, sb, inp, bridge));
+    ASSERT(st.title.size() == 1);
+    ASSERT(st.title[0] == U'\u559c');
+    return true;
+}
+
+bool test_regression_l3_mouse_info_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETMOUSEINFO_MSG) - 1;
+    ASSERT(api_l3_get_mouse_info(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_l3_font_size_validation()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETFONTSIZE_MSG) - 1;
+    ASSERT(api_l3_get_font_size(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETFONTSIZE_MSG);
+    auto *font = reinterpret_cast<CONSOLE_GETFONTSIZE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    font->FontIndex = 1;
+    font->FontSize = {9, 9};
+    ASSERT(api_l3_get_font_size(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    ASSERT(font->FontSize.X == 0);
+    ASSERT(font->FontSize.Y == 0);
+    return true;
+}
+
+bool test_regression_l3_current_font_validation_and_maximum_window()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG) - 1;
+    ASSERT(api_l3_get_current_font(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    st.max_window_size = {132, 43};
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG);
+    auto *font = reinterpret_cast<CONSOLE_CURRENTFONT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    font->MaximumWindow = TRUE;
+    ASSERT(api_l3_get_current_font(msg, st, sb, inp, bridge));
+    ASSERT(font->FontSize.X == 132);
+    ASSERT(font->FontSize.Y == 43);
+    return true;
+}
+
+bool test_regression_l3_set_display_mode_validation_and_size_output()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETDISPLAYMODE_MSG) - 1;
+    ASSERT(api_l3_set_display_mode(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETDISPLAYMODE_MSG);
+    auto *mode = reinterpret_cast<CONSOLE_SETDISPLAYMODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    mode->dwFlags = 0;
+    ASSERT(api_l3_set_display_mode(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    st.screen_buffer_size = {120, 30};
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETDISPLAYMODE_MSG);
+    mode = reinterpret_cast<CONSOLE_SETDISPLAYMODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    mode->dwFlags = CONSOLE_FULLSCREEN_MODE;
+    mode->ScreenBufferDimensions = {1, 1};
+    ASSERT(api_l3_set_display_mode(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(mode->ScreenBufferDimensions.X == 120);
+    ASSERT(mode->ScreenBufferDimensions.Y == 30);
+    ASSERT(st.display_mode == CONSOLE_FULLSCREEN_MODE);
+    return true;
+}
+
+bool test_regression_l3_get_display_mode_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETDISPLAYMODE_MSG) - 1;
+    ASSERT(api_l3_get_display_mode(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    st.display_mode = CONSOLE_FULLSCREEN_MODE;
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETDISPLAYMODE_MSG);
+    auto *mode = reinterpret_cast<CONSOLE_GETDISPLAYMODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    ASSERT(api_l3_get_display_mode(msg, st, sb, inp, bridge));
+    ASSERT(mode->ModeFlags == CONSOLE_FULLSCREEN_MODE);
+    return true;
+}
+
+bool test_regression_l3_add_alias_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG) - 1;
+    ASSERT(api_l3_add_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_l3_get_alias_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIAS_MSG) - 1;
+    ASSERT(api_l3_get_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_l3_get_aliases_length_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASESLENGTH_MSG) - 1;
+    ASSERT(api_l3_get_aliases_length(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_l3_get_alias_exes_length_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXESLENGTH_MSG) - 1;
+    ASSERT(api_l3_get_alias_exes_length(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_l3_get_aliases_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG) - 1;
+    ASSERT(api_l3_get_aliases(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_l3_get_alias_exes_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG) - 1;
+    ASSERT(api_l3_get_alias_exes(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_l3_expunge_history_rejects_short_message_and_clears_history()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_EXPUNGECOMMANDHISTORY_MSG) - 1;
+    ASSERT(api_l3_expunge_history(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    bridge.test_cooked_append(U"cmd", 3);
+    bridge.test_history_push();
+    ASSERT(bridge.test_history_size() == 1);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_EXPUNGECOMMANDHISTORY_MSG);
+    ASSERT(api_l3_expunge_history(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(bridge.test_history_size() == 0);
+    return true;
+}
+
+bool test_regression_l3_set_num_commands_validation_and_trim()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETNUMBEROFCOMMANDS_MSG) - 1;
+    ASSERT(api_l3_set_num_commands(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    bridge.test_cooked_append(U"one", 3);
+    bridge.test_history_push();
+    bridge.test_cooked_append(U"two", 3);
+    bridge.test_history_push();
+    bridge.test_cooked_append(U"three", 5);
+    bridge.test_history_push();
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETNUMBEROFCOMMANDS_MSG);
+    auto *set = reinterpret_cast<CONSOLE_SETNUMBEROFCOMMANDS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    set->NumCommands = 2;
+    ASSERT(api_l3_set_num_commands(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(st.history_buffer_size == 2);
+    ASSERT(bridge.test_history_size() == 2);
+    return true;
+}
+
+bool test_regression_l3_get_history_length_validation_and_bytes()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG) - 1;
+    ASSERT(api_l3_get_history_length(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    bridge.test_cooked_append(U"cmd1", 4);
+    bridge.test_history_push();
+    bridge.test_cooked_append(U"dir", 3);
+    bridge.test_history_push();
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG);
+    auto *len = reinterpret_cast<CONSOLE_GETCOMMANDHISTORYLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    len->Unicode = TRUE;
+    ASSERT(api_l3_get_history_length(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(len->CommandHistoryLength == (4 + 1 + 3 + 1) * sizeof(wchar_t));
+    return true;
+}
+
+bool test_regression_l3_get_history_validation_output_size_and_serialization()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG) - 1;
+    ASSERT(api_l3_get_history(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    bridge.test_cooked_append(U"cmd", 3);
+    bridge.test_history_push();
+    bridge.test_cooked_append(U"dir", 3);
+    bridge.test_history_push();
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETCOMMANDHISTORY_MSG) + 2 * sizeof(wchar_t);
+    auto *hist = reinterpret_cast<CONSOLE_GETCOMMANDHISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    hist->Unicode = TRUE;
+    ASSERT(api_l3_get_history(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_buffer_too_small);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETCOMMANDHISTORY_MSG) + (3 + 1 + 3 + 1) * sizeof(wchar_t);
+    hist = reinterpret_cast<CONSOLE_GETCOMMANDHISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    hist->Unicode = TRUE;
+    ASSERT(api_l3_get_history(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(hist->CommandBufferLength == (3 + 1 + 3 + 1) * sizeof(wchar_t));
+
+    auto *out = reinterpret_cast<const wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                  sizeof(CONSOLE_GETCOMMANDHISTORY_MSG));
+    const auto first_command = std::wstring_view{out, 3};
+    const auto second_command = std::wstring_view{out + 4, 3};
+    ASSERT(first_command == L"cmd");
+    ASSERT(out[3] == L'\0');
+    ASSERT(second_command == L"dir");
+    ASSERT(out[7] == L'\0');
+    return true;
+}
+
+bool test_regression_l3_get_console_window_rejects_short_message()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEWINDOW_MSG) - 1;
+    ASSERT(api_l3_get_console_window(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEWINDOW_MSG);
+    ASSERT(api_l3_get_console_window(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    return true;
+}
+
+bool test_regression_l3_selection_info_validation_and_copy()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETSELECTIONINFO_MSG) - 1;
+    ASSERT(api_l3_get_selection_info(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    st.selection_info.dwFlags = CONSOLE_SELECTION_IN_PROGRESS;
+    st.selection_info.dwSelectionAnchor = {2, 3};
+    st.selection_info.srSelection = {1, 2, 5, 6};
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETSELECTIONINFO_MSG);
+    auto *selection = reinterpret_cast<CONSOLE_GETSELECTIONINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    ASSERT(api_l3_get_selection_info(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(selection->SelectionInfo.dwFlags == CONSOLE_SELECTION_IN_PROGRESS);
+    ASSERT(selection->SelectionInfo.dwSelectionAnchor.X == 2);
+    ASSERT(selection->SelectionInfo.srSelection.Right == 5);
+    return true;
+}
+
+bool test_regression_l3_process_list_validation_and_output_size()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG) - 1;
+    ASSERT(api_l3_get_process_list(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    bridge.proc_list[0] = 11;
+    bridge.proc_list[1] = 22;
+    bridge.proc_list[2] = 33;
+    bridge.proc_count = 3;
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG) + 2 * sizeof(DWORD);
+    auto *plist = reinterpret_cast<CONSOLE_GETCONSOLEPROCESSLIST_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    ASSERT(api_l3_get_process_list(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(plist->dwProcessCount == 3);
+
+    auto *out = reinterpret_cast<const DWORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
+    ASSERT(out[0] == 33);
+    ASSERT(out[1] == 22);
+    return true;
+}
+
+bool test_regression_l3_history_info_validation_get_set()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG) - 1;
+    ASSERT(api_l3_get_history_info(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG);
+    auto *history = reinterpret_cast<CONSOLE_HISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    history->HistoryBufferSize = SHRT_MAX + 1u;
+    ASSERT(api_l3_set_history_info(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG);
+    history = reinterpret_cast<CONSOLE_HISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    history->HistoryBufferSize = 7;
+    history->NumberOfHistoryBuffers = 3;
+    history->dwFlags = HISTORY_NO_DUP_FLAG;
+    ASSERT(api_l3_set_history_info(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG);
+    history = reinterpret_cast<CONSOLE_HISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    ASSERT(api_l3_get_history_info(msg, st, sb, inp, bridge));
+    ASSERT(history->HistoryBufferSize == 7);
+    ASSERT(history->NumberOfHistoryBuffers == 3);
+    ASSERT(history->dwFlags == HISTORY_NO_DUP_FLAG);
+    return true;
+}
+
+bool test_regression_l3_set_current_font_validation_and_store()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG) - 1;
+    ASSERT(api_l3_set_current_font(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG);
+    auto *font = reinterpret_cast<CONSOLE_CURRENTFONT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    font->FontIndex = 0;
+    font->FontSize = {10, 20};
+    font->FontFamily = TMPF_TRUETYPE;
+    font->FontWeight = 700;
+    std::wmemcpy(font->FaceName, L"Consolas", 8);
+    ASSERT(api_l3_set_current_font(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(st.font_size.X == 10);
+    ASSERT(st.font_size.Y == 20);
+    ASSERT(st.font_family == TMPF_TRUETYPE);
+    ASSERT(st.font_weight == 700);
+    const auto face_name = std::wstring_view{st.face_name, 8};
+    ASSERT(face_name == L"Consolas");
+    return true;
+}
+
+bool test_regression_raw_flush_clears_input_events()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer main_sb;
+    screen_buffer alt_sb;
+    input_buffer inp;
+    io_state io;
+    pipe_bridge bridge{inp, st, main_sb};
+    api_router api{st, main_sb, alt_sb, inp, io, bridge};
+    message_router router{io, bridge, api};
+
+    INPUT_RECORD rec{};
+    rec.EventType = KEY_EVENT;
+    rec.Event.KeyEvent.bKeyDown = TRUE;
+    rec.Event.KeyEvent.uChar.UnicodeChar = L'x';
+    inp.write(&rec, 1);
+
+    msg.descriptor.Function = CONSOLE_IO_RAW_FLUSH;
+    ASSERT(router.on_message(msg));
+    ASSERT(inp.available() == 0);
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    return true;
+}
+
+bool test_regression_user_defined_router_matches_api_sorter_validation()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer main_sb;
+    screen_buffer alt_sb;
+    input_buffer inp;
+    io_state io;
+    pipe_bridge bridge{inp, st, main_sb};
+    api_router api{st, main_sb, alt_sb, inp, io, bridge};
+
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) - 1;
+    ASSERT(api.handle_user_defined(msg));
+    ASSERT(msg.complete.IoStatus.Status == status_illegal_function);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER);
+    auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
+    hdr->ApiNumber = 0x04000000;
+    hdr->ApiDescriptorSize = 0;
+    ASSERT(api.handle_user_defined(msg));
+    ASSERT(msg.complete.IoStatus.Status == status_illegal_function);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER);
+    hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
+    hdr->ApiNumber = static_cast<ULONG>(ConsolepGetNumberOfFonts);
+    hdr->ApiDescriptorSize = 0;
+    ASSERT(api.handle_user_defined(msg));
+    ASSERT(msg.complete.IoStatus.Status == status_illegal_function);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETNUMBEROFFONTS_MSG);
+    hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
+    hdr->ApiNumber = static_cast<ULONG>(ConsolepGetNumberOfFonts);
+    hdr->ApiDescriptorSize = sizeof(CONSOLE_GETNUMBEROFFONTS_MSG);
+    ASSERT(api.handle_user_defined(msg));
+    ASSERT(msg.complete.IoStatus.Status == status_not_implemented);
+    return true;
+}
+
+bool test_regression_connect_disconnect_syncs_process_snapshot()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer main_sb;
+    screen_buffer alt_sb;
+    input_buffer inp;
+    io_state io;
+    io.condrv_input = win32::duplicate_self();
+    io.condrv_output = win32::duplicate_self();
+    pipe_bridge bridge{inp, st, main_sb};
+    api_router api{st, main_sb, alt_sb, inp, io, bridge};
+    message_router router{io, bridge, api};
+
+    connect_completion completion = connect_completion::explicit_complete;
+    msg.descriptor.Function = CONSOLE_IO_CONNECT;
+    msg.descriptor.Process = 11;
+    ASSERT(router.on_connect(msg, completion));
+    ASSERT(completion == connect_completion::inline_complete);
+
+    std::memset(&msg, 0, sizeof(msg));
+    completion = connect_completion::explicit_complete;
+    msg.descriptor.Function = CONSOLE_IO_CONNECT;
+    msg.descriptor.Process = 22;
+    ASSERT(router.on_connect(msg, completion));
+
+    std::memset(&msg, 0, sizeof(msg));
+    completion = connect_completion::explicit_complete;
+    msg.descriptor.Function = CONSOLE_IO_CONNECT;
+    msg.descriptor.Process = 33;
+    ASSERT(router.on_connect(msg, completion));
+    ASSERT(bridge.proc_count == 3);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.Function = CONSOLE_IO_DISCONNECT;
+    msg.descriptor.Process = 11;
+    ASSERT(router.on_message(msg));
+    ASSERT(bridge.proc_count == 2);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG) + 2 * sizeof(DWORD);
+    auto *plist = reinterpret_cast<CONSOLE_GETCONSOLEPROCESSLIST_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    ASSERT(api_l3_get_process_list(msg, st, main_sb, inp, bridge));
+    ASSERT(plist->dwProcessCount == 2);
+
+    auto *out = reinterpret_cast<const DWORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
+    ASSERT(out[0] == 33);
+    ASSERT(out[1] == 22);
+    return true;
+}
+
+bool test_regression_create_object_rejects_malformed_or_unknown_type()
+{
+    miniio::io_msg msg{};
+    io_state io;
+
+    msg.descriptor.InputSize = sizeof(CD_CREATE_OBJECT_INFORMATION) - 1;
+    ASSERT(io.handle_create_object(msg));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.InputSize = sizeof(CD_CREATE_OBJECT_INFORMATION);
+    auto *create = reinterpret_cast<CD_CREATE_OBJECT_INFORMATION *>(msg.body);
+    create->ObjectType = 0xFFFF;
+    ASSERT(io.handle_create_object(msg));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    return true;
+}
+
+bool test_regression_legacy_escape_sequence_does_not_advance_cursor()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    msg.descriptor.InputSize =
+        static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) + 6);
+    auto *write = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    write->Unicode = FALSE;
+    std::memcpy(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG), "\x1b[?25l", 6);
+
+    ASSERT(api_write_console(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(st.cursor.position.X == 0);
+    ASSERT(st.cursor.position.Y == 0);
+    ASSERT(st.cursor.visible == false);
+    return true;
+}
+
+bool test_regression_set_console_mode_validation()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    auto *mode = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    mode->Mode = ENABLE_ECHO_INPUT;
+    ASSERT(api_set_mode(msg, st, sb, inp, bridge, true));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    ASSERT(st.input_mode == ENABLE_ECHO_INPUT);
+
+    std::memset(&msg, 0, sizeof(msg));
+    mode = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    mode->Mode = ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | 0x80000000u;
+    ASSERT(api_set_mode(msg, st, sb, inp, bridge, false));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    ASSERT(st.output_mode == (ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT));
+
     return true;
 }
 
@@ -506,6 +1829,7 @@ bool test_regression_add_alias_ansi_ignored()
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepAddAlias);
     hdr->ApiDescriptorSize = sizeof(CONSOLE_ADDALIAS_MSG);
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG);
 
     auto *alias = reinterpret_cast<CONSOLE_ADDALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     alias->SourceLength = 0; // zero-length→skip
@@ -525,6 +1849,10 @@ void mock_get_alias_msg(miniio::io_msg &msg, const std::wstring &exe, const std:
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetAlias);
     hdr->ApiDescriptorSize = sizeof(CONSOLE_GETALIAS_MSG);
+    msg.descriptor.InputSize = static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIAS_MSG) +
+                                                  (exe.size() + src.size()) * sizeof(wchar_t));
+    msg.descriptor.OutputSize =
+        static_cast<ULONG>(sizeof(CONSOLE_GETALIAS_MSG) + exe.size() * sizeof(wchar_t) + 256 * sizeof(wchar_t));
 
     auto *r = reinterpret_cast<CONSOLE_GETALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->SourceLength = static_cast<USHORT>(src.size() * sizeof(wchar_t));
@@ -588,6 +1916,8 @@ bool test_regression_get_aliases_buffer_length_bytes()
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetAliases);
     hdr->ApiDescriptorSize = sizeof(CONSOLE_GETALIASES_MSG);
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETALIASES_MSG) + 256 * sizeof(wchar_t);
 
     auto *r = reinterpret_cast<CONSOLE_GETALIASES_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->Unicode = TRUE;
@@ -611,6 +1941,7 @@ bool test_regression_get_aliases_length_ansi()
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetAliasesLength);
     hdr->ApiDescriptorSize = sizeof(CONSOLE_GETALIASESLENGTH_MSG);
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASESLENGTH_MSG);
 
     auto *r = reinterpret_cast<CONSOLE_GETALIASESLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->Unicode = FALSE;
@@ -630,6 +1961,7 @@ bool test_regression_get_history_length_zero()
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetCommandHistoryLength);
     hdr->ApiDescriptorSize = sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG);
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG);
 
     console_state st;
     api_l3_get_history_length(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
@@ -647,6 +1979,8 @@ bool test_regression_get_history_zero()
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetCommandHistory);
     hdr->ApiDescriptorSize = sizeof(CONSOLE_GETCOMMANDHISTORY_MSG);
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETCOMMANDHISTORY_MSG);
 
     console_state st;
     api_l3_get_history(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
@@ -669,6 +2003,8 @@ bool test_regression_get_title_length_bytes()
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetTitle);
     hdr->ApiDescriptorSize = sizeof(CONSOLE_GETTITLE_MSG);
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETTITLE_MSG) + 5 * sizeof(wchar_t);
 
     auto *r = reinterpret_cast<CONSOLE_GETTITLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->Unicode = TRUE;
@@ -689,6 +2025,9 @@ void mock_add_alias_msg_ansi(miniio::io_msg &msg, const std::string &exe, const 
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepAddAlias);
     hdr->ApiDescriptorSize = sizeof(CONSOLE_ADDALIAS_MSG);
+    msg.descriptor.InputSize =
+        static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG) + exe.size() + src.size() +
+                           tgt.size());
 
     auto *alias = reinterpret_cast<CONSOLE_ADDALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     alias->SourceLength = static_cast<USHORT>(src.size());
@@ -732,6 +2071,9 @@ bool test_regression_get_alias_ansi_output()
 
     std::string exe_a = "cmd.exe";
     std::string src_a = "ls";
+    msg.descriptor.InputSize =
+        static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIAS_MSG) + exe_a.size() + src_a.size());
+    msg.descriptor.OutputSize = static_cast<ULONG>(sizeof(CONSOLE_GETALIAS_MSG) + exe_a.size() + 64);
     auto *r = reinterpret_cast<CONSOLE_GETALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->SourceLength = static_cast<USHORT>(src_a.size());
     r->ExeLength = static_cast<USHORT>(exe_a.size());
@@ -765,6 +2107,8 @@ bool test_regression_get_aliases_ansi_output()
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetAliases);
     hdr->ApiDescriptorSize = sizeof(CONSOLE_GETALIASES_MSG);
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETALIASES_MSG) + 256;
 
     auto *r = reinterpret_cast<CONSOLE_GETALIASES_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->Unicode = FALSE;
@@ -792,6 +2136,8 @@ bool test_regression_get_title_ansi_output()
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetTitle);
     hdr->ApiDescriptorSize = sizeof(CONSOLE_GETTITLE_MSG);
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETTITLE_MSG) + 4;
 
     auto *r = reinterpret_cast<CONSOLE_GETTITLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->Unicode = FALSE;
@@ -988,7 +2334,88 @@ int main()
     RUN_TEST(test_regression_get_console_input_ready_event, L"GetConsoleInput ready event");
     RUN_TEST(test_regression_get_console_input_output_size_excludes_header, L"GetConsoleInput OutputSize excludes header");
     RUN_TEST(test_regression_get_console_input_output_size_without_record, L"GetConsoleInput OutputSize without record");
+    RUN_TEST(test_regression_get_console_input_rejects_invalid_flags, L"GetConsoleInput rejects invalid flags");
     RUN_TEST(test_regression_raw_write_decodes_output_codepage, L"RawWrite decodes output codepage");
+    RUN_TEST(test_regression_raw_read_completion_writes_only_bytes, L"RawRead writes only bytes");
+    RUN_TEST(test_regression_raw_read_completion_respects_output_size, L"RawRead respects OutputSize");
+    RUN_TEST(test_regression_read_console_a_uses_input_codepage, L"ReadConsoleA uses input codepage");
+    RUN_TEST(test_regression_read_console_initial_bytes_check_output_capacity, L"ReadConsole initial bytes capacity");
+    RUN_TEST(test_regression_write_console_rejects_short_message, L"WriteConsole rejects short message");
+    RUN_TEST(test_regression_write_console_w_reports_complete_utf16_units, L"WriteConsoleW reports complete UTF16");
+    RUN_TEST(test_regression_deprecated_l1_returns_not_implemented, L"L1 deprecated returns not implemented");
+    RUN_TEST(test_regression_get_langid_matches_original_gate, L"GetConsoleLangId original gate");
+    RUN_TEST(test_regression_fill_console_output_a_uses_output_codepage, L"FillConsoleOutputA uses output codepage");
+    RUN_TEST(test_regression_fill_console_output_rejects_short_message, L"FillConsoleOutput rejects short message");
+    RUN_TEST(test_regression_fill_console_output_attr_preserves_current_attr,
+             L"FillConsoleOutputAttribute preserves current attr");
+    RUN_TEST(test_regression_ctrl_event_rejects_short_message, L"GenerateConsoleCtrlEvent rejects short message");
+    RUN_TEST(test_regression_set_console_cp_rejects_short_message, L"SetConsoleCP rejects short message");
+    RUN_TEST(test_regression_set_console_cp_updates_selected_codepage, L"SetConsoleCP updates selected codepage");
+    RUN_TEST(test_regression_cursor_info_rejects_short_messages, L"CursorInfo rejects short messages");
+    RUN_TEST(test_regression_get_screen_buffer_info_rejects_short_message, L"GetScreenBufferInfo rejects short message");
+    RUN_TEST(test_regression_set_screen_buffer_info_validation, L"SetScreenBufferInfo validation");
+    RUN_TEST(test_regression_set_screen_buffer_size_rejects_short_message, L"SetScreenBufferSize rejects short message");
+    RUN_TEST(test_regression_set_cursor_position_rejects_short_message, L"SetCursorPosition rejects short message");
+    RUN_TEST(test_regression_largest_window_rejects_short_message, L"LargestWindow rejects short message");
+    RUN_TEST(test_regression_scroll_screen_buffer_validation_and_ansi_fill,
+             L"ScrollScreenBuffer validation and ANSI fill");
+    RUN_TEST(test_regression_set_text_attribute_rejects_short_message, L"SetTextAttribute rejects short message");
+    RUN_TEST(test_regression_set_window_info_rejects_short_message, L"SetWindowInfo rejects short message");
+    RUN_TEST(test_regression_read_output_string_output_size_and_linear_read,
+             L"ReadOutputString output size and linear read");
+    RUN_TEST(test_regression_write_console_input_a_uses_input_codepage, L"WriteConsoleInputA uses input codepage");
+    RUN_TEST(test_regression_write_console_output_validation_and_clipping,
+             L"WriteConsoleOutput validation and clipping");
+    RUN_TEST(test_regression_write_output_string_linear_and_ansi_count,
+             L"WriteOutputString linear and ANSI count");
+    RUN_TEST(test_regression_read_console_output_output_size_and_clipping,
+             L"ReadConsoleOutput output size and clipping");
+    RUN_TEST(test_regression_get_title_output_size_limits_copy, L"GetTitle output size limits copy");
+    RUN_TEST(test_regression_set_title_a_uses_input_codepage, L"SetTitleA uses input codepage");
+    RUN_TEST(test_regression_l3_mouse_info_rejects_short_message, L"L3 MouseInfo rejects short message");
+    RUN_TEST(test_regression_l3_font_size_validation, L"L3 FontSize validation");
+    RUN_TEST(test_regression_l3_current_font_validation_and_maximum_window,
+             L"L3 CurrentFont validation and maximum window");
+    RUN_TEST(test_regression_l3_set_display_mode_validation_and_size_output,
+             L"L3 SetDisplayMode validation and size output");
+    RUN_TEST(test_regression_l3_get_display_mode_rejects_short_message,
+             L"L3 GetDisplayMode rejects short message");
+    RUN_TEST(test_regression_l3_add_alias_rejects_short_message, L"L3 AddAlias rejects short message");
+    RUN_TEST(test_regression_l3_get_alias_rejects_short_message, L"L3 GetAlias rejects short message");
+    RUN_TEST(test_regression_l3_get_aliases_length_rejects_short_message,
+             L"L3 GetAliasesLength rejects short message");
+    RUN_TEST(test_regression_l3_get_alias_exes_length_rejects_short_message,
+             L"L3 GetAliasExesLength rejects short message");
+    RUN_TEST(test_regression_l3_get_aliases_rejects_short_message, L"L3 GetAliases rejects short message");
+    RUN_TEST(test_regression_l3_get_alias_exes_rejects_short_message, L"L3 GetAliasExes rejects short message");
+    RUN_TEST(test_regression_l3_expunge_history_rejects_short_message_and_clears_history,
+             L"L3 ExpungeHistory validation and clear");
+    RUN_TEST(test_regression_l3_set_num_commands_validation_and_trim,
+             L"L3 SetNumberOfCommands validation and trim");
+    RUN_TEST(test_regression_l3_get_history_length_validation_and_bytes,
+             L"L3 GetHistoryLength validation and bytes");
+    RUN_TEST(test_regression_l3_get_history_validation_output_size_and_serialization,
+             L"L3 GetHistory validation and serialization");
+    RUN_TEST(test_regression_l3_get_console_window_rejects_short_message,
+             L"L3 GetConsoleWindow rejects short message");
+    RUN_TEST(test_regression_l3_selection_info_validation_and_copy,
+             L"L3 SelectionInfo validation and copy");
+    RUN_TEST(test_regression_l3_process_list_validation_and_output_size,
+             L"L3 ProcessList validation and output size");
+    RUN_TEST(test_regression_l3_history_info_validation_get_set,
+             L"L3 HistoryInfo validation get/set");
+    RUN_TEST(test_regression_l3_set_current_font_validation_and_store,
+             L"L3 SetCurrentFont validation and store");
+    RUN_TEST(test_regression_raw_flush_clears_input_events, L"RawFlush clears input events");
+    RUN_TEST(test_regression_user_defined_router_matches_api_sorter_validation,
+             L"USER_DEFINED router validation");
+    RUN_TEST(test_regression_connect_disconnect_syncs_process_snapshot,
+             L"CONNECT/DISCONNECT sync process snapshot");
+    RUN_TEST(test_regression_create_object_rejects_malformed_or_unknown_type,
+             L"CREATE_OBJECT rejects malformed or unknown type");
+    RUN_TEST(test_regression_legacy_escape_sequence_does_not_advance_cursor,
+             L"Legacy escape sequence does not advance cursor");
+    RUN_TEST(test_regression_set_console_mode_validation, L"SetConsoleMode validation");
     RUN_TEST(test_regression_add_alias_msg_layout, L"Alias msg layout (Exe+Src+Tgt)");
     RUN_TEST(test_regression_add_alias_zero_exe, L"Alias msg zero exe");
     RUN_TEST(test_regression_alias_expand_after_store, L"Alias expand after store");

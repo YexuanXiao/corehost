@@ -28,6 +28,20 @@ namespace conpty
 
 inline constexpr LONG status_invalid_parameter = 0xC000000D;
 inline constexpr LONG status_buffer_too_small = 0xC0000023;
+inline constexpr LONG status_illegal_function = 0xC00000AF;
+inline constexpr LONG status_not_implemented = 0xC0000002;
+inline constexpr LONG status_not_supported = 0xC00000BB;
+inline constexpr UINT code_page_japanese = 932;
+inline constexpr UINT code_page_korean = 949;
+inline constexpr UINT code_page_chinese_simplified = 936;
+inline constexpr UINT code_page_chinese_traditional = 950;
+inline constexpr DWORD valid_input_modes = ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_ECHO_INPUT |
+                                           ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_VIRTUAL_TERMINAL_INPUT;
+inline constexpr DWORD private_input_modes = ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE | ENABLE_EXTENDED_FLAGS |
+                                             ENABLE_AUTO_POSITION;
+inline constexpr DWORD valid_output_modes = ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT |
+                                            ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN |
+                                            ENABLE_LVB_GRID_WORLDWIDE;
 
 inline std::wstring lower_wstring(std::wstring_view text)
 {
@@ -36,6 +50,29 @@ inline std::wstring lower_wstring(std::wstring_view text)
         return static_cast<wchar_t>(std::towlower(ch));
     });
     return result;
+}
+
+inline bool is_east_asian_code_page(UINT code_page) noexcept
+{
+    return code_page == code_page_japanese || code_page == code_page_korean ||
+           code_page == code_page_chinese_simplified || code_page == code_page_chinese_traditional;
+}
+
+inline LANGID lang_id_from_console_output_code_page(UINT output_code_page) noexcept
+{
+    switch (output_code_page)
+    {
+    case code_page_japanese:
+        return MAKELANGID(LANG_JAPANESE, SUBLANG_DEFAULT);
+    case code_page_korean:
+        return MAKELANGID(LANG_KOREAN, SUBLANG_KOREAN);
+    case code_page_chinese_simplified:
+        return MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED);
+    case code_page_chinese_traditional:
+        return MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_TRADITIONAL);
+    default:
+        return MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US);
+    }
 }
 
 inline size_t message_tail_capacity(const miniio::io_msg &msg, size_t api_size, ULONG declared_size) noexcept
@@ -55,7 +92,13 @@ inline size_t message_input_tail_capacity(const miniio::io_msg &msg, size_t api_
 
 inline size_t message_output_tail_capacity(const miniio::io_msg &msg, size_t api_size) noexcept
 {
-    return message_tail_capacity(msg, api_size, msg.descriptor.OutputSize);
+    const auto local_prefix = sizeof(CONSOLE_MSG_HEADER) + api_size;
+    const auto local_capacity = sizeof(msg.body) - local_prefix;
+    if (msg.descriptor.OutputSize == 0)
+        return local_capacity;
+    if (msg.descriptor.OutputSize > api_size)
+        return std::min<size_t>(msg.descriptor.OutputSize - api_size, local_capacity);
+    return 0;
 }
 
 inline void ucomplete_status_sz(miniio::io_msg &msg, LONG status, ULONG sz)
@@ -260,9 +303,28 @@ inline bool api_set_mode(miniio::io_msg &msg, console_state &state, screen_buffe
 {
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (input_handle)
-        state.input_mode = r->Mode;
+    {
+        const auto requested_mode = r->Mode;
+        state.input_mode = requested_mode & ~private_input_modes;
+
+        // 原版为了兼容会先保存模式，再返回 E_INVALIDARG。PSReadLine 依赖
+        // “ECHO 开启但 LINE 关闭”这种无效组合仍然影响后续 Ctrl+C 行为。
+        if ((requested_mode & ~(valid_input_modes | private_input_modes)) != 0 ||
+            ((requested_mode & ENABLE_ECHO_INPUT) != 0 && (requested_mode & ENABLE_LINE_INPUT) == 0))
+        {
+            miniio::prepare_completion(msg, status_invalid_parameter);
+            return true;
+        }
+    }
     else
+    {
+        if ((r->Mode & ~valid_output_modes) != 0)
+        {
+            miniio::prepare_completion(msg, status_invalid_parameter);
+            return true;
+        }
         state.output_mode = r->Mode;
+    }
     ucomplete(msg);
     return true;
 }
@@ -285,7 +347,15 @@ inline bool api_get_console_input(miniio::io_msg &msg, console_state &, screen_b
 inline bool api_get_langid(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_LANGID_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    r->LangId = state.lang_id;
+    // 原版只在 Windows ACP 是东亚代码页时成功返回 LANGID；否则返回
+    // STATUS_NOT_SUPPORTED，让客户端 loader 跳过 SetThreadLocale。
+    if (!is_east_asian_code_page(::GetACP()))
+    {
+        miniio::prepare_completion(msg, status_not_supported);
+        return true;
+    }
+
+    r->LangId = lang_id_from_console_output_code_page(state.output_code_page);
     ucomplete_sz(msg, sizeof(CONSOLE_LANGID_MSG));
     return true;
 }
@@ -371,10 +441,14 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
 
             const bool vt_processing = (state.output_mode & ENABLE_PROCESSED_OUTPUT) != 0 &&
                                        (state.output_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0;
-            if (vt_processing)
+            const bool contains_escape = std::find(u32s.begin(), u32s.end(), U'\x1b') != u32s.end();
+            if (vt_processing || contains_escape)
             {
                 // 文本经 vt_parser 分流：普通文字更新 screen_buffer，内嵌 SGR/OSC
                 // 等控制序列按结构化消息更新状态或透传到终端。
+                // 即使应用未显式开启 VT processing，也不能把 ESC 序列按可见
+                // 字符推进本地光标；WT 会解释这些字节，corehost 的状态必须
+                // 跟随实际终端行为。
                 filter_osc_sequences(u32s);
                 vt_parser write_parser;
                 for (char32_t ch : u32s)
@@ -441,12 +515,19 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
 inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                               pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *req = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto sd = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG);
     auto sbytes = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLE_MSG);
+    auto consumed_bytes = req->Unicode ? sbytes - (sbytes % sizeof(wchar_t)) : sbytes;
 
-    write_console_payload(req->Unicode != 0, sd, sbytes, state, sb, bridge);
-    req->NumBytes = sbytes;
+    write_console_payload(req->Unicode != 0, sd, consumed_bytes, state, sb, bridge);
+    req->NumBytes = consumed_bytes;
     ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLE_MSG));
     return true;
 }
@@ -467,6 +548,12 @@ inline bool api_raw_write_console(miniio::io_msg &msg, console_state &state, scr
 inline bool api_read_console(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                              pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     LOG("[api_read_console] unicode=%d ctrl_wakeup=%lu", req->Unicode, req->CtrlWakeupMask);
     // Ctrl+Z 只有在 processed input 模式下作为 EOF；raw 模式应作为普通字符。
@@ -476,6 +563,12 @@ inline bool api_read_console(miniio::io_msg &msg, console_state &state, screen_b
     const BYTE *init_data = nullptr;
     if (initial_bytes > 0)
     {
+        if (initial_bytes > message_output_tail_capacity(msg, sizeof(CONSOLE_READCONSOLE_MSG)))
+        {
+            miniio::prepare_completion(msg, status_invalid_parameter);
+            return true;
+        }
+
         // 原版只允许 ReadConsoleW 使用 InitialNumBytes。
         if (!req->Unicode)
         {
@@ -503,7 +596,7 @@ inline bool api_read_console(miniio::io_msg &msg, console_state &state, screen_b
 
 inline bool api_deprecated_l1(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &)
 {
-    ucomplete(msg);
+    miniio::prepare_completion(msg, status_not_implemented);
     return true;
 }
 
@@ -518,6 +611,12 @@ inline bool api_deprecated_l1(miniio::io_msg &msg, console_state &, screen_buffe
 inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                             pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_FILLCONSOLEOUTPUT_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_FILLCONSOLEOUTPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     ULONG orig_length = r->Length;
     r->Length = 0;
@@ -528,6 +627,16 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
         return true;
     }
 
+    char32_t fill_char = static_cast<char32_t>(r->Element);
+    if (r->ElementType == CONSOLE_ASCII)
+    {
+        const char byte = static_cast<char>(r->Element & 0xFF);
+        convert_ansi_to_u32(&byte, 1, state.output_code_page ? state.output_code_page : CP_ACP, bridge.conv_u32(),
+                            bridge.conv_wstr());
+        if (!bridge.conv_u32().empty())
+            fill_char = bridge.conv_u32().front();
+    }
+
     if (r->ElementType == CONSOLE_ATTRIBUTE)
     {
         auto res = sb.fill_attr(static_cast<WORD>(r->Element), r->WriteCoord, orig_length);
@@ -535,12 +644,12 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
     }
     else
     {
-        auto res = sb.fill_char(static_cast<char32_t>(r->Element), r->WriteCoord, orig_length);
+        auto res = sb.fill_char(fill_char, r->WriteCoord, orig_length);
         r->Length = res.cells_modified;
     }
 
     bool is_fullscreen_space = (r->ElementType != CONSOLE_ATTRIBUTE && r->WriteCoord.X == 0 && r->WriteCoord.Y == 0 &&
-                                static_cast<wchar_t>(r->Element) == L' ' &&
+                                fill_char == U' ' &&
                                 orig_length >= static_cast<ULONG>(state.screen_buffer_size.X) *
                                                    static_cast<ULONG>(state.screen_buffer_size.Y));
 
@@ -575,20 +684,48 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
 
         if (r->ElementType == CONSOLE_ATTRIBUTE)
         {
-            // 属性填充只改变终端后续绘制属性；screen_buffer 中对应列的属性
-            // 已由 sb.fill_attr 更新。
+            // 属性填充需要重绘受影响的既有字符；只发送 SGR 会改变后续输出
+            // 颜色，却不会让终端上已经显示的 cell 变色。
             WORD fill_attr = static_cast<WORD>(r->Element);
             vt_message m_sgr{};
             set_sgr_from_win32_attr(m_sgr, fill_attr);
-            bridge.vt_msg_send(vt_message_id::sgr, m_sgr);
-            vt_msg_apply_state(vt_message_id::sgr, m_sgr, state, sb);
+            auto remaining = r->Length;
+            auto y = r->WriteCoord.Y;
+            auto x = r->WriteCoord.X;
+            auto &fill_text = bridge.conv_u32();
+            while (remaining > 0 && y >= 0 && y < sb.size.Y && x >= 0 && x < sb.size.X)
+            {
+                const auto n =
+                    std::min<ULONG>(remaining, static_cast<ULONG>(static_cast<ULONG>(sb.size.X) - x));
+                vt_message row_cup{};
+                row_cup.row = static_cast<short>(y + 1);
+                row_cup.col = static_cast<short>(x + 1);
+                bridge.vt_msg_send(vt_message_id::cursor_position, row_cup);
+                bridge.vt_msg_send(vt_message_id::sgr, m_sgr);
+
+                fill_text.clear();
+                fill_text.reserve(n);
+                for (ULONG i = 0; i < n; ++i)
+                    fill_text.push_back(sb.at_u32({static_cast<SHORT>(x + i), y}));
+                vt_message m_text{};
+                m_text.text = fill_text;
+                bridge.vt_msg_send(vt_message_id::text, m_text);
+
+                remaining -= n;
+                x = 0;
+                ++y;
+            }
+
+            vt_message restore_attr{};
+            set_sgr_from_win32_attr(restore_attr, state.default_attributes);
+            bridge.vt_msg_send(vt_message_id::sgr, restore_attr);
         }
         else
         {
             // text fill 使用重复 codepoint 构造临时 text 视图；缓冲属于 bridge，
             // vt_msg_send 只在调用期间读取。
             auto &fill_text = bridge.conv_u32();
-            fill_text.assign(static_cast<size_t>(r->Length), static_cast<char32_t>(r->Element));
+            fill_text.assign(static_cast<size_t>(r->Length), fill_char);
             vt_message m_text{};
             m_text.text = fill_text;
             bridge.vt_msg_send(vt_message_id::text, m_text);
@@ -607,6 +744,12 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
 
 inline bool api_ctrl_event(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CTRLEVENT_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_CTRLEVENT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     ::GenerateConsoleCtrlEvent(r->CtrlEvent, r->ProcessGroupId);
     ucomplete(msg);
@@ -632,10 +775,16 @@ inline bool api_flush_input_buf(miniio::io_msg &msg, console_state &, screen_buf
 
 inline bool api_set_cp(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCP_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_SETCP_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (!::IsValidCodePage(r->CodePage))
     {
-        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     if (r->Output)
@@ -648,6 +797,12 @@ inline bool api_set_cp(miniio::io_msg &msg, console_state &state, screen_buffer 
 
 inline bool api_get_cursor(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCURSORINFO_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETCURSORINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->CursorSize = state.cursor.size;
     r->Visible = state.cursor.visible ? TRUE : FALSE;
@@ -658,11 +813,17 @@ inline bool api_get_cursor(miniio::io_msg &msg, console_state &state, screen_buf
 inline bool api_set_cursor(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                            pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORINFO_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     // CursorSize 只保存在本地状态；当前 VT 输出只同步可见性。
     auto *r = reinterpret_cast<CONSOLE_SETCURSORINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (r->CursorSize == 0 || r->CursorSize > 100)
     {
-        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     state.cursor.size = r->CursorSize;
@@ -677,6 +838,12 @@ inline bool api_set_cursor(miniio::io_msg &msg, console_state &state, screen_buf
 
 inline bool api_get_sb_info(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_SCREENBUFFERINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     std::memset(r, 0, sizeof(*r));
     if (state.cursor_position_dirty)
@@ -699,12 +866,20 @@ inline bool api_get_sb_info(miniio::io_msg &msg, console_state &state, screen_bu
 
 inline bool api_set_sb_info(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &, pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     // SetScreenBufferInfoEx 不设置 cursor position；cursor 只在尺寸变化后
     // 保证仍位于缓冲区内。
     auto *r = reinterpret_cast<CONSOLE_SCREENBUFFERINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    if (r->Size.X <= 0 || r->Size.Y <= 0 || r->Size.X == SHRT_MAX || r->Size.Y == SHRT_MAX)
+    if (r->Size.X <= 0 || r->Size.Y <= 0 || r->Size.X == SHRT_MAX || r->Size.Y == SHRT_MAX ||
+        r->CurrentWindowSize.X <= 0 || r->CurrentWindowSize.Y <= 0 || r->CurrentWindowSize.X > r->Size.X ||
+        r->CurrentWindowSize.Y > r->Size.Y)
     {
-        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     state.screen_buffer_size = r->Size;
@@ -728,12 +903,18 @@ inline bool api_set_sb_info(miniio::io_msg &msg, console_state &state, screen_bu
 
 inline bool api_set_sb_size(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &, pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETSCREENBUFFERSIZE_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_SETSCREENBUFFERSIZE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     COORD new_size = r->Size;
     if (new_size.X < 1 || new_size.Y < 1 || new_size.X == SHRT_MAX || new_size.Y == SHRT_MAX ||
         new_size.X < state.current_window_size.X || new_size.Y < state.current_window_size.Y)
     {
-        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     state.screen_buffer_size = new_size;
@@ -753,12 +934,18 @@ inline bool api_set_sb_size(miniio::io_msg &msg, console_state &state, screen_bu
 inline bool api_set_cursor_pos(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                                pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORPOSITION_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_SETCURSORPOSITION_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     COORD new_pos = r->CursorPosition;
     if (new_pos.X < 0 || new_pos.X >= state.screen_buffer_size.X || new_pos.Y < 0 ||
         new_pos.Y >= state.screen_buffer_size.Y)
     {
-        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -782,6 +969,12 @@ inline bool api_set_cursor_pos(miniio::io_msg &msg, console_state &state, screen
 inline bool api_largest_window(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETLARGESTWINDOWSIZE_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETLARGESTWINDOWSIZE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->Size = state.max_window_size;
     ucomplete_sz(msg, sizeof(CONSOLE_GETLARGESTWINDOWSIZE_MSG));
@@ -791,26 +984,51 @@ inline bool api_largest_window(miniio::io_msg &msg, console_state &state, screen
 inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                           pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCROLLSCREENBUFFER_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_SCROLLSCREENBUFFER_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto &sr = r->ScrollRectangle;
     LOG("[api_scroll_sb] sr=(%d,%d,%d,%d) clip=(%d,%d,%d,%d) dest=(%d,%d) fill_char=0x%X fill_attr=0x%X", sr.Left,
         sr.Top, sr.Right, sr.Bottom, r->ClipRectangle.Left, r->ClipRectangle.Top, r->ClipRectangle.Right,
         r->ClipRectangle.Bottom, r->DestinationOrigin.X, r->DestinationOrigin.Y, r->Fill.Char.UnicodeChar,
         r->Fill.Attributes);
-    if (sr.Left > sr.Right || sr.Top > sr.Bottom)
+    if ((sr.Left == r->DestinationOrigin.X && sr.Top == r->DestinationOrigin.Y) || sr.Left > sr.Right ||
+        sr.Top > sr.Bottom)
     {
-        // 空矩形是成功的 no-op；保持 r 原结构之外的 completion 语义。
+        // 原版把空 source 或移动到自身视为成功 no-op。
         ucomplete(msg);
         return true;
     }
-    sb.scroll(r->ScrollRectangle, r->ClipRectangle, r->Clip != FALSE, r->DestinationOrigin,
-              static_cast<char32_t>(r->Fill.Char.UnicodeChar), r->Fill.Attributes);
+
+    char32_t fill_char = static_cast<char32_t>(r->Fill.Char.UnicodeChar);
+    WORD fill_attr = r->Fill.Attributes;
+    if (!r->Unicode)
+    {
+        const char byte = r->Fill.Char.AsciiChar;
+        convert_ansi_to_u32(&byte, 1, state.output_code_page ? state.output_code_page : CP_ACP, bridge.conv_u32(),
+                            bridge.conv_wstr());
+        if (!bridge.conv_u32().empty())
+            fill_char = bridge.conv_u32().front();
+    }
+    if (fill_char == U'\0' && fill_attr == 0)
+    {
+        fill_char = U' ';
+        fill_attr = state.default_attributes;
+    }
+
+    sb.scroll(r->ScrollRectangle, r->ClipRectangle, r->Clip != FALSE, r->DestinationOrigin, fill_char, fill_attr);
 
     SHORT buf_height = sb.size.Y;
-    bool full_screen_scroll = (sr.Top == 0 && sr.Bottom >= buf_height - 1);
+    bool full_screen_scroll =
+        (sr.Left <= 0 && sr.Top <= 0 && sr.Right >= sb.size.X - 1 && sr.Bottom >= buf_height - 1 &&
+         r->DestinationOrigin.X == 0 && r->DestinationOrigin.Y <= -buf_height && r->Clip == FALSE);
     LOG("[api_scroll_sb] full_screen=%d buf_h=%d sr.Bottom=%d fill_char=0x%X", full_screen_scroll, buf_height,
-        sr.Bottom, r->Fill.Char.UnicodeChar);
-    if (full_screen_scroll && r->Fill.Char.UnicodeChar == L' ')
+        sr.Bottom, static_cast<unsigned>(fill_char));
+    if (full_screen_scroll && fill_char == U' ')
     {
         // cls 清屏使用 ED2+Home，避免把整屏滚动翻译成大量 IL/DL。
         bridge.vt_append_str("\x1b[2J\x1b[H"sv);
@@ -874,12 +1092,18 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
 inline bool api_set_text_attr(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                               pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTEXTATTRIBUTE_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     // SetConsoleTextAttribute 影响后续输出默认属性，同时立即同步宿主终端 SGR。
     auto *r = reinterpret_cast<CONSOLE_SETTEXTATTRIBUTE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     static constexpr WORD valid_text_attributes = 0xDFFF;
     if ((r->Attributes & ~valid_text_attributes) != 0)
     {
-        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     state.default_attributes = r->Attributes;
@@ -896,10 +1120,16 @@ inline bool api_set_text_attr(miniio::io_msg &msg, console_state &state, screen_
 inline bool api_set_window_info(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                                 pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETWINDOWINFO_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_SETWINDOWINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (r->Absolute && (r->Window.Right < r->Window.Left || r->Window.Bottom < r->Window.Top))
     {
-        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     if (r->Absolute)
@@ -917,7 +1147,7 @@ inline bool api_set_window_info(miniio::io_msg &msg, console_state &state, scree
         state.current_window_size.Y += static_cast<SHORT>(r->Window.Bottom - r->Window.Top);
         if (state.current_window_size.X < 1 || state.current_window_size.Y < 1)
         {
-            miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+            miniio::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
         // ConPTY 模式无独立滚动缓冲区: buffer size 始终与窗口大小一致。
@@ -931,18 +1161,23 @@ inline bool api_set_window_info(miniio::io_msg &msg, console_state &state, scree
 inline bool api_read_output_string(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                                    pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_READCONSOLEOUTPUTSTRING_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    r->NumRecords = 0;
     LOG("[api_read_output_string] at=(%d,%d) type=%d", r->ReadCoord.X, r->ReadCoord.Y, r->StringType);
     if (r->StringType != CONSOLE_ASCII && r->StringType != CONSOLE_REAL_UNICODE &&
         r->StringType != CONSOLE_FALSE_UNICODE && r->StringType != CONSOLE_ATTRIBUTE)
     {
-        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
-    auto data_capacity = msg.descriptor.OutputSize > sizeof(CONSOLE_MSG_HEADER) +
-                                                     sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)
-                             ? msg.descriptor.OutputSize - sizeof(CONSOLE_MSG_HEADER) -
-                                   sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)
+    auto data_capacity = msg.descriptor.OutputSize > sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)
+                             ? msg.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)
                              : 0;
     if (r->StringType == CONSOLE_ATTRIBUTE)
     {
@@ -950,7 +1185,7 @@ inline bool api_read_output_string(miniio::io_msg &msg, console_state &state, sc
         auto *out = reinterpret_cast<WORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                              sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
         auto maxn = data_capacity / sizeof(WORD);
-        r->NumRecords = static_cast<ULONG>(sb.read_attrs(r->ReadCoord, out, maxn));
+        r->NumRecords = static_cast<ULONG>(sb.read_attrs_linear(r->ReadCoord, out, maxn));
     }
     else if (r->StringType == CONSOLE_ASCII)
     {
@@ -959,7 +1194,7 @@ inline bool api_read_output_string(miniio::io_msg &msg, console_state &state, sc
         auto maxb = data_capacity;
         auto &wbuf = bridge.conv_wstr();
         wbuf.resize(maxb);
-        auto wchar_count = sb.read_wchars(r->ReadCoord, wbuf.data(), wbuf.size());
+        auto wchar_count = sb.read_wchars_linear(r->ReadCoord, wbuf.data(), wbuf.size());
         auto cp = state.output_code_page ? state.output_code_page : CP_ACP;
         int bytes = ::WideCharToMultiByte(cp, 0, wbuf.data(), static_cast<int>(wchar_count), out,
                                           static_cast<int>(maxb), nullptr, nullptr);
@@ -970,24 +1205,69 @@ inline bool api_read_output_string(miniio::io_msg &msg, console_state &state, sc
         auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                 sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
         auto maxn = data_capacity / sizeof(wchar_t);
-        r->NumRecords = static_cast<ULONG>(sb.read_wchars(r->ReadCoord, out, maxn));
+        r->NumRecords = static_cast<ULONG>(sb.read_wchars_linear(r->ReadCoord, out, maxn));
     }
     ucomplete_sz(msg, static_cast<ULONG>(sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + data_capacity));
     return true;
 }
 
-inline bool api_write_console_input(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
+inline bool api_write_console_input(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &inp,
                                     pipe_bridge &)
 {
-    // WriteConsoleInput 直接把客户端提供的 INPUT_RECORD 放入队列，返回实际写入数。
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
+    // W 事件原样入队；A 事件先按当前输入代码页转换 KEY_EVENT 字符。
     auto *r = reinterpret_cast<CONSOLE_WRITECONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    r->NumRecords = 0;
     auto *records =
         reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
     auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEINPUT_MSG);
     auto nrec = static_cast<size_t>(ib / sizeof(INPUT_RECORD));
     size_t written = 0;
-    if (nrec > 0)
+    if (nrec > 0 && r->Unicode)
+    {
         written = r->Append ? inp.write(records, nrec) : inp.prepend(records, nrec);
+    }
+    else if (nrec > 0)
+    {
+        std::vector<INPUT_RECORD> converted;
+        converted.reserve(nrec);
+        const auto cp = state.input_code_page ? state.input_code_page : CP_ACP;
+        for (size_t i = 0; i < nrec; ++i)
+        {
+            auto rec = records[i];
+            if (rec.EventType != KEY_EVENT)
+            {
+                converted.push_back(rec);
+                continue;
+            }
+
+            char bytes[2]{rec.Event.KeyEvent.uChar.AsciiChar, 0};
+            auto byte_count = 1;
+            if (::IsDBCSLeadByteEx(cp, static_cast<BYTE>(bytes[0])) && i + 1 < nrec &&
+                records[i + 1].EventType == KEY_EVENT)
+            {
+                bytes[1] = records[i + 1].Event.KeyEvent.uChar.AsciiChar;
+                byte_count = 2;
+                ++i;
+            }
+
+            wchar_t wide[2]{};
+            const auto wide_count = ::MultiByteToWideChar(cp, 0, bytes, byte_count, wide, 2);
+            for (int j = 0; j < wide_count; ++j)
+            {
+                rec.Event.KeyEvent.uChar.UnicodeChar = wide[j];
+                converted.push_back(rec);
+            }
+        }
+        if (!converted.empty())
+            written = r->Append ? inp.write(converted.data(), converted.size())
+                                : inp.prepend(converted.data(), converted.size());
+    }
     r->NumRecords = static_cast<ULONG>(written);
     ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
     return true;
@@ -996,6 +1276,12 @@ inline bool api_write_console_input(miniio::io_msg &msg, console_state &, screen
 inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                                      pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     SMALL_RECT &cr = r->CharRegion;
     if (cr.Left > cr.Right || cr.Top > cr.Bottom)
@@ -1016,7 +1302,7 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
     if (input_bytes < required)
     {
         cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
-        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     std::vector<CHAR_INFO> unicode_data;
@@ -1034,23 +1320,45 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
         }
         data = unicode_data.data();
     }
-    for (SHORT y = orig.Top; y <= orig.Bottom && y < sb.size.Y; ++y)
-        sb.row_from_ci(y, data + (y - orig.Top) * w, static_cast<uint16_t>(w), static_cast<uint16_t>(orig.Left));
-    cr = orig;
 
-    LOG("[api_write_console_output] region=(%d,%d)-(%d,%d)", orig.Left, orig.Top, orig.Right, orig.Bottom);
+    SMALL_RECT clipped = orig;
+    if (clipped.Left < 0)
+        clipped.Left = 0;
+    if (clipped.Top < 0)
+        clipped.Top = 0;
+    if (clipped.Right >= sb.size.X)
+        clipped.Right = static_cast<SHORT>(sb.size.X - 1);
+    if (clipped.Bottom >= sb.size.Y)
+        clipped.Bottom = static_cast<SHORT>(sb.size.Y - 1);
+    if (clipped.Left > clipped.Right || clipped.Top > clipped.Bottom)
+    {
+        cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
+        ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG));
+        return true;
+    }
+
+    for (SHORT y = clipped.Top; y <= clipped.Bottom; ++y)
+    {
+        const auto row_offset = static_cast<size_t>(y - orig.Top) * static_cast<size_t>(w);
+        const auto col_offset = static_cast<size_t>(clipped.Left - orig.Left);
+        sb.row_from_ci(y, data + row_offset + col_offset, static_cast<uint16_t>(clipped.Right - clipped.Left + 1),
+                       static_cast<uint16_t>(clipped.Left));
+    }
+    cr = clipped;
+
+    LOG("[api_write_console_output] region=(%d,%d)-(%d,%d)", clipped.Left, clipped.Top, clipped.Right, clipped.Bottom);
     // WriteConsoleOutput 不移动应用光标。终端侧保存光标后按格子重绘，再恢复。
     vt_message m{};
     bridge.vt_msg_send(vt_message_id::save_cursor, m);
 
-    for (SHORT y = orig.Top; y <= orig.Bottom; ++y)
+    for (SHORT y = clipped.Top; y <= clipped.Bottom; ++y)
     {
         m = vt_message{};
         m.row = static_cast<short>(y + 1);
-        m.col = static_cast<short>(orig.Left + 1);
+        m.col = static_cast<short>(clipped.Left + 1);
         bridge.vt_msg_send(vt_message_id::cursor_position, m);
 
-        for (SHORT x = orig.Left; x <= orig.Right; ++x)
+        for (SHORT x = clipped.Left; x <= clipped.Right; ++x)
         {
             // 当前实现逐格写 SGR+text，保证每个 CHAR_INFO 属性都能反映到终端；
             // 后续可在这里合并连续相同属性的 run。
@@ -1078,25 +1386,31 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
 inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                                     pipe_bridge &bridge)
 {
-    auto *r = reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    if (r->StringType != CONSOLE_ASCII && r->StringType != CONSOLE_REAL_UNICODE &&
-        r->StringType != CONSOLE_FALSE_UNICODE && r->StringType != CONSOLE_ATTRIBUTE)
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG))
     {
-        ucomplete(msg);
+        miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
+    auto *r = reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    r->NumRecords = 0;
+    if (r->StringType != CONSOLE_ASCII && r->StringType != CONSOLE_REAL_UNICODE &&
+        r->StringType != CONSOLE_FALSE_UNICODE && r->StringType != CONSOLE_ATTRIBUTE)
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
+    auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
     if (r->StringType == CONSOLE_ATTRIBUTE)
     {
         // WriteConsoleOutputAttribute 只更新本地属性模型；没有字符输出可发给终端。
         auto *attrs = reinterpret_cast<const WORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                      sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
-        auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
-        r->NumRecords = static_cast<ULONG>(sb.write_attr_seq(r->WriteCoord, attrs, ib / sizeof(WORD)));
+        r->NumRecords = static_cast<ULONG>(sb.write_attr_seq_linear(r->WriteCoord, attrs, ib / sizeof(WORD)));
     }
     else
     {
-        auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
         auto &u32text = bridge.conv_u32();
         if (r->StringType == CONSOLE_ASCII)
         {
@@ -1112,7 +1426,19 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
             auto wlen = ib / sizeof(wchar_t);
             convert_utf16_to_u32(std::wstring_view{in_w, wlen}, u32text);
         }
-        r->NumRecords = static_cast<ULONG>(sb.write_char32(r->WriteCoord, u32text.data(), u32text.size()));
+        const auto written_u32 = sb.write_char32_linear(r->WriteCoord, u32text.data(), u32text.size());
+        if (r->StringType == CONSOLE_ASCII)
+        {
+            std::string encoded;
+            convert_u32_to_ansi(std::u32string_view{u32text.data(), written_u32},
+                                state.output_code_page ? state.output_code_page : CP_ACP, encoded, bridge.conv_wstr());
+            r->NumRecords = static_cast<ULONG>(encoded.size());
+        }
+        else
+        {
+            convert_u32_to_wstr(std::u32string_view{u32text.data(), written_u32}, bridge.conv_wstr());
+            r->NumRecords = static_cast<ULONG>(bridge.conv_wstr().size());
+        }
 
         if (r->NumRecords > 0)
         {
@@ -1130,7 +1456,7 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
             bridge.vt_msg_send(vt_message_id::sgr, m);
 
             m = vt_message{};
-            m.text = std::u32string_view{u32text.data(), u32text.size()};
+            m.text = std::u32string_view{u32text.data(), written_u32};
             bridge.vt_msg_send(vt_message_id::text, m);
 
             m = vt_message{};
@@ -1146,6 +1472,12 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
 inline bool api_read_console_output(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                                     pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_READCONSOLEOUTPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     SMALL_RECT &cr = r->CharRegion;
     LOG("[api_read_console_output] region=(%d,%d)-(%d,%d)", cr.Left, cr.Top, cr.Right, cr.Bottom);
@@ -1155,20 +1487,37 @@ inline bool api_read_console_output(miniio::io_msg &msg, console_state &state, s
         ucomplete_sz(msg, sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
         return true;
     }
-    auto data_capacity = msg.descriptor.OutputSize > sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG)
-                             ? msg.descriptor.OutputSize - sizeof(CONSOLE_MSG_HEADER) -
-                                   sizeof(CONSOLE_READCONSOLEOUTPUT_MSG)
+    auto data_capacity = msg.descriptor.OutputSize > sizeof(CONSOLE_READCONSOLEOUTPUT_MSG)
+                             ? msg.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLEOUTPUT_MSG)
                              : 0;
+    SMALL_RECT orig = cr;
     SHORT w = cr.Right - cr.Left + 1;
     auto h = cr.Bottom - cr.Top + 1;
     auto required = static_cast<size_t>(w) * static_cast<size_t>(h) * sizeof(CHAR_INFO);
     if (required > data_capacity)
     {
         cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
-        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
-    for (SHORT y = cr.Top; y <= cr.Bottom && y < sb.size.Y; ++y)
+
+    SMALL_RECT clipped = orig;
+    if (clipped.Left < 0)
+        clipped.Left = 0;
+    if (clipped.Top < 0)
+        clipped.Top = 0;
+    if (clipped.Right >= sb.size.X)
+        clipped.Right = static_cast<SHORT>(sb.size.X - 1);
+    if (clipped.Bottom >= sb.size.Y)
+        clipped.Bottom = static_cast<SHORT>(sb.size.Y - 1);
+    if (clipped.Left > clipped.Right || clipped.Top > clipped.Bottom)
+    {
+        cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
+        ucomplete_sz(msg, static_cast<ULONG>(sizeof(CONSOLE_READCONSOLEOUTPUT_MSG) + data_capacity));
+        return true;
+    }
+
+    for (SHORT y = clipped.Top; y <= clipped.Bottom; ++y)
     {
         // row_to_ci 导出整行后只复制请求区间；这样保留 row 层对宽字符和属性
         // 的 CHAR_INFO 降级逻辑。
@@ -1176,25 +1525,27 @@ inline bool api_read_console_output(miniio::io_msg &msg, console_state &state, s
         sb.row_to_ci(y, tmp.data());
         auto *dst = reinterpret_cast<CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                   sizeof(CONSOLE_READCONSOLEOUTPUT_MSG)) +
-                    (y - cr.Top) * w;
+                    (y - orig.Top) * w + (clipped.Left - orig.Left);
         if (r->Unicode)
         {
-            std::memcpy(dst, tmp.data() + cr.Left, w * sizeof(CHAR_INFO));
+            std::memcpy(dst, tmp.data() + clipped.Left,
+                        static_cast<size_t>(clipped.Right - clipped.Left + 1) * sizeof(CHAR_INFO));
         }
         else
         {
             const auto cp = state.output_code_page ? state.output_code_page : CP_ACP;
-            for (SHORT x = 0; x < w; ++x)
+            for (SHORT x = clipped.Left; x <= clipped.Right; ++x)
             {
-                auto &src = tmp[static_cast<size_t>(cr.Left + x)];
+                auto &src = tmp[static_cast<size_t>(x)];
                 char mb = ' ';
                 ::WideCharToMultiByte(cp, 0, &src.Char.UnicodeChar, 1, &mb, 1, nullptr, nullptr);
-                dst[x].Char.AsciiChar = mb;
-                dst[x].Attributes = src.Attributes;
+                auto &out = dst[x - clipped.Left];
+                out.Char.AsciiChar = mb;
+                out.Attributes = src.Attributes;
             }
         }
     }
-    state.cursor_position_dirty = true;
+    cr = clipped;
     ucomplete_sz(msg, static_cast<ULONG>(sizeof(CONSOLE_READCONSOLEOUTPUT_MSG) + data_capacity));
     return true;
 }
@@ -1203,31 +1554,63 @@ inline bool api_read_console_output(miniio::io_msg &msg, console_state &state, s
 
 inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETTITLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto &src = r->Original ? state.original_title : state.title;
     std::wstring wstr;
     convert_u32_to_wstr(src, wstr);
+    const auto data_capacity = msg.descriptor.OutputSize > sizeof(CONSOLE_GETTITLE_MSG)
+                                   ? msg.descriptor.OutputSize - sizeof(CONSOLE_GETTITLE_MSG)
+                                   : 0;
 
     if (r->Unicode)
     {
         // TitleLength 返回不含结尾 NUL 的字节数；completion size 包含写入的 NUL。
         auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
-        auto maxc = (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG)) / sizeof(wchar_t);
+        auto maxc = std::min<size_t>(data_capacity,
+                                     sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG)) /
+                    sizeof(wchar_t);
         auto cp = wstr.size() < maxc ? wstr.size() : maxc;
         std::memcpy(out, wstr.data(), cp * sizeof(wchar_t));
         if (cp < maxc)
             out[cp] = L'\0';
-        r->TitleLength = static_cast<ULONG>(cp * sizeof(wchar_t));
-        ucomplete_sz(msg, sizeof(CONSOLE_GETTITLE_MSG) + static_cast<ULONG>((cp + 1) * sizeof(wchar_t)));
+        r->TitleLength = static_cast<ULONG>(wstr.size() * sizeof(wchar_t));
+        const auto written = cp * sizeof(wchar_t) + (cp < maxc ? sizeof(wchar_t) : 0);
+        ucomplete_sz(msg, static_cast<ULONG>(sizeof(CONSOLE_GETTITLE_MSG) + written));
     }
     else
     {
         // ANSI title 使用系统 ACP，和传统控制台标题 API 保持一致。
         auto *out = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
-        auto maxb = sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG);
-        size_t n = convert_wide_to_ansi_raw(wstr.data(), wstr.size(), CP_ACP, out, maxb);
-        r->TitleLength = static_cast<ULONG>(n);
-        ucomplete_sz(msg, sizeof(CONSOLE_GETTITLE_MSG) + static_cast<ULONG>(n + 1));
+        auto maxb =
+            std::min<size_t>(data_capacity, sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG));
+        std::string encoded;
+        convert_wstr_to_ansi(std::wstring_view{wstr.data(), wstr.size()},
+                             state.input_code_page ? state.input_code_page : CP_ACP, encoded);
+        size_t written = 0;
+        if (maxb >= encoded.size())
+        {
+            written = encoded.size();
+            std::memcpy(out, encoded.data(), written);
+            if (written < maxb)
+                out[written++] = '\0';
+            r->TitleLength = static_cast<ULONG>(encoded.size());
+        }
+        else
+        {
+            if (maxb > 0)
+            {
+                out[0] = '\0';
+                written = 1;
+            }
+            r->TitleLength = 0;
+        }
+        ucomplete_sz(msg, static_cast<ULONG>(sizeof(CONSOLE_GETTITLE_MSG) + written));
     }
     return true;
 }
@@ -1235,6 +1618,12 @@ inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buff
 inline bool api_set_title(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                           pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *req = reinterpret_cast<CONSOLE_SETTITLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *input = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG);
     auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_SETTITLE_MSG);
@@ -1243,14 +1632,12 @@ inline bool api_set_title(miniio::io_msg &msg, console_state &state, screen_buff
     {
         auto *in = reinterpret_cast<const wchar_t *>(input);
         auto ic = ib / sizeof(wchar_t);
-        auto cp = ic < 256 ? ic : 255;
-        convert_utf16_to_u32(std::wstring_view{in, cp}, u32title);
+        convert_utf16_to_u32(std::wstring_view{in, ic}, u32title);
     }
     else
     {
-        auto cp = ib < 256 ? ib : 255;
-        convert_ansi_to_u32(reinterpret_cast<const char *>(input), cp, state.output_code_page ? state.output_code_page : CP_ACP,
-                            u32title, bridge.conv_wstr());
+        convert_ansi_to_u32(reinterpret_cast<const char *>(input), ib,
+                            state.input_code_page ? state.input_code_page : CP_ACP, u32title, bridge.conv_wstr());
     }
     if (state.title.empty())
         state.original_title = u32title;
@@ -1277,6 +1664,12 @@ inline bool api_set_title(miniio::io_msg &msg, console_state &state, screen_buff
 inline bool api_l3_get_mouse_info(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                   pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETMOUSEINFO_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETMOUSEINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->NumButtons = state.mouse_buttons != 0 ? state.mouse_buttons : static_cast<ULONG>(::GetSystemMetrics(SM_CMOUSEBUTTONS));
     ucomplete_sz(msg, sizeof(CONSOLE_GETMOUSEINFO_MSG));
@@ -1287,11 +1680,17 @@ inline bool api_l3_get_mouse_info(miniio::io_msg &msg, console_state &state, scr
 inline bool api_l3_get_font_size(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                  pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETFONTSIZE_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETFONTSIZE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (r->FontIndex != 0)
     {
         r->FontSize = {};
-        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     r->FontSize = state.font_size; // 简化: 返回当前字体尺寸 (所有 index 相同)
@@ -1303,9 +1702,15 @@ inline bool api_l3_get_font_size(miniio::io_msg &msg, console_state &state, scre
 inline bool api_l3_get_current_font(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                     pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_CURRENTFONT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->FontIndex = state.font_index;
-    r->FontSize = state.font_size;
+    r->FontSize = r->MaximumWindow ? state.max_window_size : state.font_size;
     r->FontFamily = state.font_family;
     r->FontWeight = state.font_weight;
     std::memcpy(r->FaceName, state.face_name, sizeof(state.face_name));
@@ -1317,15 +1722,21 @@ inline bool api_l3_get_current_font(miniio::io_msg &msg, console_state &state, s
 inline bool api_l3_set_display_mode(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                                     pipe_bridge &)
 {
-    auto *r = reinterpret_cast<CONSOLE_SETDISPLAYMODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    state.display_mode = r->dwFlags;
-    // ConPTY 下不真正切换全屏；如果请求附带尺寸，则作为窗口/buffer resize。
-    if (r->ScreenBufferDimensions.X > 0 && r->ScreenBufferDimensions.Y > 0)
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETDISPLAYMODE_MSG))
     {
-        state.screen_buffer_size = r->ScreenBufferDimensions;
-        state.current_window_size = r->ScreenBufferDimensions;
-        sb.resize(r->ScreenBufferDimensions);
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
     }
+
+    auto *r = reinterpret_cast<CONSOLE_SETDISPLAYMODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    if ((r->dwFlags & (CONSOLE_FULLSCREEN_MODE | CONSOLE_WINDOWED_MODE)) == 0)
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+    state.display_mode = (r->dwFlags & CONSOLE_FULLSCREEN_MODE) != 0 ? CONSOLE_FULLSCREEN_MODE : 0;
+    r->ScreenBufferDimensions = state.screen_buffer_size;
+    (void)sb;
     ucomplete_sz(msg, sizeof(CONSOLE_SETDISPLAYMODE_MSG));
     return true;
 }
@@ -1334,6 +1745,12 @@ inline bool api_l3_set_display_mode(miniio::io_msg &msg, console_state &state, s
 inline bool api_l3_get_display_mode(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                     pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETDISPLAYMODE_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETDISPLAYMODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->ModeFlags = state.display_mode;
     ucomplete_sz(msg, sizeof(CONSOLE_GETDISPLAYMODE_MSG));
@@ -1343,11 +1760,16 @@ inline bool api_l3_get_display_mode(miniio::io_msg &msg, console_state &state, s
 // ── 0x12 AddAlias ──
 inline bool api_l3_add_alias(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_ADDALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *db = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG);
 
-    // 消息格式为 Exe + Source + Target，长度字段都是字节数。当前 aliases 不按
-    // exe 分桶，因此 Exe 只用于定位 Source 起点。
+    // 消息格式为 Exe + Source + Target，长度字段都是字节数。
     auto exe_len_bytes = static_cast<size_t>(r->ExeLength);
     auto src_len_bytes = static_cast<size_t>(r->SourceLength);
     auto tgt_len_bytes = static_cast<size_t>(r->TargetLength);
@@ -1429,6 +1851,12 @@ inline bool api_l3_add_alias(miniio::io_msg &msg, console_state &state, screen_b
 // ── 0x13 GetAlias ──
 inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIAS_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *db = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIAS_MSG);
 
@@ -1532,6 +1960,12 @@ inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_b
 inline bool api_l3_get_aliases_length(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                       pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASESLENGTH_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETALIASESLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *db = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASESLENGTH_MSG);
     auto exe_len_bytes = message_input_tail_capacity(msg, sizeof(CONSOLE_GETALIASESLENGTH_MSG));
@@ -1576,6 +2010,12 @@ inline bool api_l3_get_aliases_length(miniio::io_msg &msg, console_state &state,
 inline bool api_l3_get_alias_exes_length(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                          pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXESLENGTH_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETALIASEXESLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     ULONG total = 0;
     for (const auto &[exe, _] : state.aliases_by_exe)
@@ -1592,6 +2032,12 @@ inline bool api_l3_get_alias_exes_length(miniio::io_msg &msg, console_state &sta
 inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETALIASES_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *db = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG);
     auto exe_len_bytes = message_input_tail_capacity(msg, sizeof(CONSOLE_GETALIASES_MSG));
@@ -1655,6 +2101,12 @@ inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen
 // ── 0x17 GetAliasExes ──
 inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETALIASEXES_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     ULONG written = 0;
     if (r->Unicode)
@@ -1698,6 +2150,12 @@ inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &state, scr
 inline bool api_l3_expunge_history(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                                    pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_EXPUNGECOMMANDHISTORY_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     bridge.api_clear_history();
     ucomplete(msg);
     return true;
@@ -1707,6 +2165,12 @@ inline bool api_l3_expunge_history(miniio::io_msg &msg, console_state &, screen_
 inline bool api_l3_set_num_commands(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                     pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETNUMBEROFCOMMANDS_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_SETNUMBEROFCOMMANDS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.history_buffer_size = r->NumCommands;
     bridge.api_set_history_capacity(r->NumCommands);
@@ -1718,6 +2182,12 @@ inline bool api_l3_set_num_commands(miniio::io_msg &msg, console_state &state, s
 inline bool api_l3_get_history_length(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                       pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETCOMMANDHISTORYLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->CommandHistoryLength = static_cast<ULONG>(bridge.api_history_length(r->Unicode != FALSE, state.input_code_page));
     ucomplete_sz(msg, sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG));
@@ -1727,6 +2197,12 @@ inline bool api_l3_get_history_length(miniio::io_msg &msg, console_state &state,
 // ── 0x1B GetCommandHistory ──
 inline bool api_l3_get_history(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETCOMMANDHISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *out = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG);
     auto cap = message_output_tail_capacity(msg, sizeof(CONSOLE_GETCOMMANDHISTORY_MSG));
@@ -1744,6 +2220,12 @@ inline bool api_l3_get_history(miniio::io_msg &msg, console_state &state, screen
 inline bool api_l3_get_console_window(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                                       pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEWINDOW_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETCONSOLEWINDOW_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->hwnd = ::GetConsoleWindow(); // 返回实际 HWND (可能 NULL)
     ucomplete_sz(msg, sizeof(CONSOLE_GETCONSOLEWINDOW_MSG));
@@ -1754,6 +2236,12 @@ inline bool api_l3_get_console_window(miniio::io_msg &msg, console_state &, scre
 inline bool api_l3_get_selection_info(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                       pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETSELECTIONINFO_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETSELECTIONINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->SelectionInfo = state.selection_info;
     ucomplete_sz(msg, sizeof(CONSOLE_GETSELECTIONINFO_MSG));
@@ -1766,11 +2254,16 @@ inline bool api_l3_get_selection_info(miniio::io_msg &msg, console_state &state,
 inline bool api_l3_get_process_list(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                                     pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_GETCONSOLEPROCESSLIST_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *out =
         reinterpret_cast<DWORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
-    auto maxc =
-        (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG)) / sizeof(DWORD);
+    auto maxc = message_output_tail_capacity(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG)) / sizeof(DWORD);
     size_t count = bridge.proc_count < maxc ? bridge.proc_count : maxc;
     // 旧 conhost 返回 newest first；bridge.proc_list 按连接顺序保存，因此反向导出。
     for (size_t i = 0; i < count; ++i)
@@ -1784,6 +2277,12 @@ inline bool api_l3_get_process_list(miniio::io_msg &msg, console_state &, screen
 inline bool api_l3_get_history_info(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                     pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_HISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->HistoryBufferSize = static_cast<ULONG>(state.history_buffer_size);
     r->NumberOfHistoryBuffers = static_cast<ULONG>(state.history_num_buffers);
@@ -1796,6 +2295,12 @@ inline bool api_l3_get_history_info(miniio::io_msg &msg, console_state &state, s
 inline bool api_l3_set_history_info(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                     pipe_bridge &bridge)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_HISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (r->HistoryBufferSize > SHRT_MAX || r->NumberOfHistoryBuffers > SHRT_MAX ||
         (r->dwFlags & ~HISTORY_NO_DUP_FLAG) != 0)
@@ -1815,6 +2320,12 @@ inline bool api_l3_set_history_info(miniio::io_msg &msg, console_state &state, s
 inline bool api_l3_set_current_font(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                     pipe_bridge &)
 {
+    if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     auto *r = reinterpret_cast<CONSOLE_CURRENTFONT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     // 字体设置只影响后续查询；WT/宿主终端字体不能通过该 API 同步修改。
     state.font_index = r->FontIndex;
@@ -1829,9 +2340,9 @@ inline bool api_l3_set_current_font(miniio::io_msg &msg, console_state &state, s
 // ── 第二类 L3: 废弃 API (对标 ServerDeprecatedApi) ──
 inline bool api_l3_deprecated(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &)
 {
-    // 与原始 ServerDeprecatedApi 一样返回成功空 completion，避免旧程序因未实现
-    // 的窗口菜单/IME 等 API 失败退出。
-    ucomplete(msg);
+    // 原版 ServerDeprecatedApi 返回 E_NOTIMPL，经 ApiSorter 转为
+    // STATUS_NOT_IMPLEMENTED。
+    miniio::prepare_completion(msg, status_not_implemented);
     return true;
 }
 

@@ -86,7 +86,7 @@ inline get_shell_result get_shell()
         pwsh_path.append(pwsh_suffix.data(), pwsh_suffix.size());
 
         if (file_exists(pwsh_path.c_str()))
-            return {L"PowerShell 8", pwsh_path};
+            return {L"PowerShell", pwsh_path};
     }
 
     details::known_folder_path system_dir(FOLDERID_System);
