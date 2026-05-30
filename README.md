@@ -36,7 +36,7 @@ This implementation also solves the problem that the original version of conhost
 
 ### UAC elevation
 
-When corehost runs with elevated integrity (High IL) due to sudo or runas, UIPI prevents COM activation and handle transfer to Medium IL terminals. When corehost detects this situation, since no GUI is available (the only GUI available to the original conhost is itself), corehost will refuse to execute the program and pop up a MessageBox to inform the user of what happened.
+When corehost runs with elevated integrity (High IL) due to sudo or runas, UIPI prevents COM activation and handle transfer to Medium IL terminals. When corehost detects this situation, since no GUI is available (the only GUI available to the original conhost is itself), corehost will refuse to execute the program and send a message in the notification center about what happened.
 
 ### Roadmap
 
