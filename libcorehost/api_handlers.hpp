@@ -3,8 +3,11 @@
 // console_state、screen_buffer、input_buffer 和 VT 输出操作。
 #pragma once
 #include <windows.h>
+#include <algorithm>
 #include <cstring>
+#include <cwctype>
 #include <array>
+#include <vector>
 #include "miniio/io_thread.hpp"
 #include "os/Console/conmsgl1.h"
 #include "os/Console/conmsgl2.h"
@@ -22,6 +25,45 @@
 
 namespace conpty
 {
+
+inline constexpr LONG status_invalid_parameter = 0xC000000D;
+inline constexpr LONG status_buffer_too_small = 0xC0000023;
+
+inline std::wstring lower_wstring(std::wstring_view text)
+{
+    std::wstring result{text};
+    std::transform(result.begin(), result.end(), result.begin(), [](wchar_t ch) {
+        return static_cast<wchar_t>(std::towlower(ch));
+    });
+    return result;
+}
+
+inline size_t message_tail_capacity(const miniio::io_msg &msg, size_t api_size, ULONG declared_size) noexcept
+{
+    const auto prefix = sizeof(CONSOLE_MSG_HEADER) + api_size;
+    if (declared_size == 0)
+        return sizeof(msg.body) - prefix;
+    if (declared_size > prefix)
+        return std::min<size_t>(declared_size - prefix, sizeof(msg.body) - prefix);
+    return 0;
+}
+
+inline size_t message_input_tail_capacity(const miniio::io_msg &msg, size_t api_size) noexcept
+{
+    return message_tail_capacity(msg, api_size, msg.descriptor.InputSize);
+}
+
+inline size_t message_output_tail_capacity(const miniio::io_msg &msg, size_t api_size) noexcept
+{
+    return message_tail_capacity(msg, api_size, msg.descriptor.OutputSize);
+}
+
+inline void ucomplete_status_sz(miniio::io_msg &msg, LONG status, ULONG sz)
+{
+    auto &c = miniio::prepare_completion(msg, status, sz);
+    c.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
+    c.Write.Size = sz;
+}
 
 // ── 前向声明 ──
 struct pipe_bridge;
@@ -66,6 +108,113 @@ inline bool is_line_terminator_echo(std::u32string_view text) noexcept
     return text == U"\r"sv || text == U"\n"sv || text == U"\r\n"sv;
 }
 
+inline bool is_c0_control(char32_t ch) noexcept
+{
+    return ch < 0x20 || ch == 0x7F;
+}
+
+inline char32_t legacy_control_glyph(char32_t ch, UINT code_page) noexcept
+{
+    if (ch > 0xFF)
+        return 0;
+
+    wchar_t glyph = 0;
+    const auto byte = static_cast<char>(ch);
+    const auto cp = code_page ? code_page : CP_ACP;
+    const auto converted = ::MultiByteToWideChar(cp, MB_USEGLYPHCHARS, &byte, 1, &glyph, 1);
+    return converted == 1 ? static_cast<char32_t>(glyph) : 0;
+}
+
+inline void legacy_write_console_text(std::u32string_view text, console_state &state, screen_buffer &sb,
+                                      pipe_bridge &bridge)
+{
+    std::u32string run;
+    run.reserve(text.size());
+
+    auto flush_run = [&] {
+        if (run.empty())
+            return;
+        vt_message text_msg{};
+        text_msg.text = run;
+        bridge.vt_msg_send(vt_message_id::text, text_msg);
+        vt_msg_apply_state(vt_message_id::text, text_msg, state, sb);
+        run.clear();
+    };
+
+    auto append_spaces = [&](size_t count) {
+        run.append(count, U' ');
+        flush_run();
+    };
+
+    const bool processed_output = (state.output_mode & ENABLE_PROCESSED_OUTPUT) != 0;
+    const bool disable_newline_auto_return = (state.output_mode & DISABLE_NEWLINE_AUTO_RETURN) != 0;
+
+    if (!processed_output)
+    {
+        for (char32_t ch : text)
+            run.push_back(is_c0_control(ch) ? U' ' : ch);
+        flush_run();
+        return;
+    }
+
+    for (size_t i = 0; i < text.size(); ++i)
+    {
+        const auto ch = text[i];
+        if (!is_c0_control(ch))
+        {
+            run.push_back(ch);
+            continue;
+        }
+
+        flush_run();
+
+        switch (ch)
+        {
+        case U'\0':
+            append_spaces(1);
+            break;
+        case U'\a':
+            break;
+        case U'\b':
+            if (state.cursor.position.X > 0)
+                --state.cursor.position.X;
+            bridge.vt_append_char('\b');
+            break;
+        case U'\t': {
+            const auto x = state.cursor.position.X;
+            const auto remaining = state.screen_buffer_size.X - x;
+            const auto tab_count = static_cast<size_t>(std::min<SHORT>(remaining, static_cast<SHORT>(8 - (x & 7))));
+            append_spaces(tab_count);
+            break;
+        }
+        case U'\n':
+            if (disable_newline_auto_return)
+                bridge.vt_append_char('\n');
+            else
+            {
+                state.cursor.position.X = 0;
+                bridge.vt_append_str("\r\n"sv);
+            }
+            if (state.cursor.position.Y + 1 < state.screen_buffer_size.Y)
+                ++state.cursor.position.Y;
+            break;
+        case U'\r':
+            state.cursor.position.X = 0;
+            bridge.vt_append_char('\r');
+            break;
+        default:
+            if (auto glyph = legacy_control_glyph(ch, state.output_code_page))
+            {
+                run.push_back(glyph);
+                flush_run();
+            }
+            break;
+        }
+    }
+
+    flush_run();
+}
+
 // ── completion 辅助 ──
 
 inline void ucomplete(miniio::io_msg &msg)
@@ -97,22 +246,23 @@ inline bool api_get_cp(miniio::io_msg &msg, console_state &state, screen_buffer 
     return true;
 }
 
-inline bool api_get_mode(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
+inline bool api_get_mode(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &,
+                         bool input_handle)
 {
-    // 当前模型没有分离 input/output handle 的 mode 查询；返回 input_mode 兼容
-    // 依赖 GetConsoleMode(stdin) 的 shell 路径。
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    r->Mode = state.input_mode;
+    r->Mode = input_handle ? state.input_mode : state.output_mode;
     ucomplete_sz(msg, sizeof(CONSOLE_MODE_MSG));
     return true;
 }
 
-inline bool api_set_mode(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
+inline bool api_set_mode(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &,
+                         bool input_handle)
 {
-    // ConDrv 消息未携带要设置的具体 handle，本实现保持 input/output mode 一致。
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    state.input_mode = r->Mode;
-    state.output_mode = r->Mode;
+    if (input_handle)
+        state.input_mode = r->Mode;
+    else
+        state.output_mode = r->Mode;
     ucomplete(msg);
     return true;
 }
@@ -140,30 +290,24 @@ inline bool api_get_langid(miniio::io_msg &msg, console_state &state, screen_buf
     return true;
 }
 
-// ── WriteConsole: UTF-16/ANSI → char32_t → vt_message 驱动 ──
-inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
-                              pipe_bridge &bridge)
+inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, console_state &state, screen_buffer &sb,
+                                  pipe_bridge &bridge)
 {
-    auto *req = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    bool uni = req->Unicode != 0;
-    auto sd = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG);
-    auto sbytes = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLE_MSG);
-
-    if (sbytes > 0)
+    if (bytes > 0)
     {
         auto &u32s = bridge.conv_u32();
-        if (uni)
+        if (unicode)
         {
             // WriteConsoleW 的 NumBytes/输入长度仍按 UTF-16 字节计算；内部统一成
             // char32_t，便于和 VT parser/screen_buffer 共用文本路径。
-            auto *ws = reinterpret_cast<const wchar_t *>(sd);
-            auto wl = sbytes / sizeof(wchar_t);
+            auto *ws = reinterpret_cast<const wchar_t *>(data);
+            auto wl = bytes / sizeof(wchar_t);
             convert_utf16_to_u32(std::wstring_view{ws, wl}, u32s);
         }
         else
         {
             // 非 Unicode 路径使用当前输出代码页；0 是未初始化兜底，退回系统 ACP。
-            convert_ansi_to_u32(reinterpret_cast<const char *>(sd), sbytes,
+            convert_ansi_to_u32(reinterpret_cast<const char *>(data), bytes,
                                 state.output_code_page ? state.output_code_page : CP_ACP, u32s, bridge.conv_wstr());
         }
 
@@ -172,7 +316,7 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
             COORD start_pos = state.cursor.position;
             auto preview_len = static_cast<int>(std::min<size_t>(60, u32s.size()));
             LOG("[api_write_console] start: u32s_len=%zu sbytes=%lu start=(%d,%d) first=%.*ls", u32s.size(),
-                static_cast<unsigned long>(sbytes), static_cast<int>(start_pos.X), static_cast<int>(start_pos.Y),
+                static_cast<unsigned long>(bytes), static_cast<int>(start_pos.X), static_cast<int>(start_pos.Y),
                 preview_len, reinterpret_cast<const wchar_t *>(u32s.data()));
 
             if (state.dec_line_drawing_mode)
@@ -202,14 +346,12 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
 
                 if (is_line_terminator_echo(u32s))
                 {
-                    // 这条 completion 仍报告原始 sbytes 已写入；只是终端输出被
-                    // 抑制，以避免 Enter 后多出空行。
+                    // 这条 completion 仍由调用者报告原始字节数已写入；这里只是
+                    // 抑制终端输出，避免 Enter 后多出空行。
                     bridge.vt_flush();
                     bridge.sync_cursor_after_write(state.cursor.position);
                     LOG("[api_write_console] swallowed enter echo newline");
-                    req->NumBytes = sbytes;
-                    ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLE_MSG));
-                    return true;
+                    return;
                 }
             }
             else
@@ -227,48 +369,60 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
             bridge.vt_msg_send(vt_message_id::sgr, m);
             vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
 
-            // 文本经 vt_parser 分流：普通文字更新 screen_buffer，内嵌 SGR/OSC
-            // 等控制序列按结构化消息更新状态或透传到终端。
-            filter_osc_sequences(u32s);
-            vt_parser write_parser;
-            for (char32_t ch : u32s)
+            const bool vt_processing = (state.output_mode & ENABLE_PROCESSED_OUTPUT) != 0 &&
+                                       (state.output_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0;
+            if (vt_processing)
             {
-                auto id = write_parser.parse(ch);
-                if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
-                    continue;
-                auto &pm = write_parser.get();
-                bridge.vt_msg_send(id, pm);
-                if (id != vt_message_id::sgr)
-                    vt_msg_apply_state(id, pm, state, sb);
-
-                write_parser.reset(id);
-
-                if (auto id2 = write_parser.parse(U'\0');
-                    id2 != vt_message_id::continue_ && id2 != vt_message_id::continue_text)
+                // 文本经 vt_parser 分流：普通文字更新 screen_buffer，内嵌 SGR/OSC
+                // 等控制序列按结构化消息更新状态或透传到终端。
+                filter_osc_sequences(u32s);
+                vt_parser write_parser;
+                for (char32_t ch : u32s)
                 {
-                    auto &pm2 = write_parser.get();
-                    bridge.vt_msg_send(id2, pm2);
-                    if (id2 != vt_message_id::sgr)
-                        vt_msg_apply_state(id2, pm2, state, sb);
-                    write_parser.reset(id2);
+                    auto id = write_parser.parse(ch);
+                    if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
+                        continue;
+                    auto &pm = write_parser.get();
+                    bridge.vt_msg_send(id, pm);
+                    if (id != vt_message_id::sgr)
+                        vt_msg_apply_state(id, pm, state, sb);
+
+                    write_parser.reset(id);
+
+                    if (auto id2 = write_parser.parse(U'\0');
+                        id2 != vt_message_id::continue_ && id2 != vt_message_id::continue_text)
+                    {
+                        auto &pm2 = write_parser.get();
+                        bridge.vt_msg_send(id2, pm2);
+                        if (id2 != vt_message_id::sgr)
+                            vt_msg_apply_state(id2, pm2, state, sb);
+                        write_parser.reset(id2);
+                    }
+                }
+                // 释放循环后残留的累积文本；没有控制字符结束的普通输出会走这里。
+                if (auto id = write_parser.flush_text(); id != vt_message_id::continue_)
+                {
+                    auto &pm = write_parser.get();
+                    bridge.vt_msg_send(id, pm);
+                    vt_msg_apply_state(id, pm, state, sb);
+                }
+                // 排空 parser 残留的 _pending_control，例如文本以单独 '\r' 结束。
+                if (auto id = write_parser.parse(U'\0');
+                    id != vt_message_id::continue_ && id != vt_message_id::continue_text)
+                {
+                    auto &pm = write_parser.get();
+                    bridge.vt_msg_send(id, pm);
+                    if (id != vt_message_id::sgr)
+                        vt_msg_apply_state(id, pm, state, sb);
+                    write_parser.reset(id);
                 }
             }
-            // 释放循环后残留的累积文本；没有控制字符结束的普通输出会走这里。
-            if (auto id = write_parser.flush_text(); id != vt_message_id::continue_)
+            else
             {
-                auto &pm = write_parser.get();
-                bridge.vt_msg_send(id, pm);
-                vt_msg_apply_state(id, pm, state, sb);
-            }
-            // 排空 parser 残留的 _pending_control，例如文本以单独 '\r' 结束。
-            if (auto id = write_parser.parse(U'\0');
-                id != vt_message_id::continue_ && id != vt_message_id::continue_text)
-            {
-                auto &pm = write_parser.get();
-                bridge.vt_msg_send(id, pm);
-                if (id != vt_message_id::sgr)
-                    vt_msg_apply_state(id, pm, state, sb);
-                write_parser.reset(id);
+                // 原版 WriteConsole 只有显式开启 VT processing 时才解析 VT。
+                // legacy 路径会处理 CR/LF/BS/TAB 等 C0 字符，并阻止 ESC
+                // 透传成宿主终端控制序列。
+                legacy_write_console_text(u32s, state, sb, bridge);
             }
 
             // VT 已写入宿主终端后，同步 bridge 的行编辑边界到新的 Console
@@ -277,13 +431,35 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
             bridge.sync_cursor_after_write(state.cursor.position);
 
             LOG("[api_write_console] done: u32s_len=%zu sbytes=%lu end_cursor=(%d,%d) synced", u32s.size(),
-                static_cast<unsigned long>(sbytes), static_cast<int>(state.cursor.position.X),
+                static_cast<unsigned long>(bytes), static_cast<int>(state.cursor.position.X),
                 static_cast<int>(state.cursor.position.Y));
         }
     }
+}
 
+// ── WriteConsole: UTF-16/ANSI → char32_t → vt_message 驱动 ──
+inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                              pipe_bridge &bridge)
+{
+    auto *req = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    auto sd = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG);
+    auto sbytes = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLE_MSG);
+
+    write_console_payload(req->Unicode != 0, sd, sbytes, state, sb, bridge);
     req->NumBytes = sbytes;
     ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLE_MSG));
+    return true;
+}
+
+inline bool api_raw_write_console(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                                  pipe_bridge &bridge)
+{
+    // 原版 IoSorter 把 CONSOLE_IO_RAW_WRITE 伪造成 WriteConsoleA，而不是把
+    // 客户端字节直接透传给终端。否则 WriteFile 写入的 OEM/ANSI 字节会被
+    // 宿主终端当 UTF-8 显示，CJK live echo 会乱码。
+    auto bytes = msg.descriptor.InputSize;
+    write_console_payload(false, msg.body, bytes, state, sb, bridge);
+    miniio::prepare_completion(msg, 0, bytes);
     return true;
 }
 
@@ -300,17 +476,26 @@ inline bool api_read_console(miniio::io_msg &msg, console_state &state, screen_b
     const BYTE *init_data = nullptr;
     if (initial_bytes > 0)
     {
-        // InitialNumBytes 可能跟在 ExeName 后面。ExeNameLength 只用于跳过前缀，
-        // bridge 只关心真正要预填充到 ReadConsole 的初始输入。
-        init_data = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
-        if (req->ExeNameLength > 0)
+        // 原版只允许 ReadConsoleW 使用 InitialNumBytes。
+        if (!req->Unicode)
         {
-            ULONG max_xn = static_cast<ULONG>(msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
-                                              sizeof(CONSOLE_READCONSOLE_MSG));
-            ULONG skip = req->ExeNameLength < max_xn ? req->ExeNameLength : max_xn;
-            init_data += skip;
-            initial_bytes = (initial_bytes > skip) ? (initial_bytes - skip) : 0;
+            miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+            return true;
         }
+
+        // Initial data 位于 ExeName 后。ExeNameLength 是 wchar_t 字符数，不是字节数。
+        auto input_payload = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLE_MSG);
+        auto exe_bytes = static_cast<ULONG>(req->ExeNameLength) * static_cast<ULONG>(sizeof(wchar_t));
+        if (exe_bytes > input_payload)
+        {
+            miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+            return true;
+        }
+
+        init_data = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + exe_bytes;
+        auto available_initial_bytes = input_payload - exe_bytes;
+        if (initial_bytes > available_initial_bytes)
+            initial_bytes = available_initial_bytes;
     }
 
     return bridge.handle_console_read(msg, proc_z, init_data, initial_bytes);
@@ -334,25 +519,23 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
                             pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_FILLCONSOLEOUTPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    ULONG orig_length = r->Length;
+    r->Length = 0;
     if (r->ElementType != CONSOLE_ASCII && r->ElementType != CONSOLE_REAL_UNICODE &&
         r->ElementType != CONSOLE_FALSE_UNICODE && r->ElementType != CONSOLE_ATTRIBUTE)
     {
-        ucomplete(msg);
+        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
         return true;
     }
 
-    // r->Length 最终要回写实际修改数；orig_length 保留请求长度，用于识别
-    // 全屏清空这种“请求覆盖整个缓冲区”的语义。
-    ULONG orig_length = r->Length;
-
     if (r->ElementType == CONSOLE_ATTRIBUTE)
     {
-        auto res = sb.fill_attr(static_cast<WORD>(r->Element), r->WriteCoord, r->Length);
+        auto res = sb.fill_attr(static_cast<WORD>(r->Element), r->WriteCoord, orig_length);
         r->Length = res.cells_modified;
     }
     else
     {
-        auto res = sb.fill_char(static_cast<char32_t>(r->Element), r->WriteCoord, r->Length);
+        auto res = sb.fill_char(static_cast<char32_t>(r->Element), r->WriteCoord, orig_length);
         r->Length = res.cells_modified;
     }
 
@@ -422,17 +605,10 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
     return true;
 }
 
-inline bool api_ctrl_event(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &bridge)
+inline bool api_ctrl_event(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_CTRLEVENT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    // GenerateConsoleCtrlEvent 面向进程组；Ctrl+C 额外写入 ^C 字节让宿主终端
-    // 立即出现传统控制台反馈。
     ::GenerateConsoleCtrlEvent(r->CtrlEvent, r->ProcessGroupId);
-    if (r->CtrlEvent == CTRL_C_EVENT)
-    {
-        bridge.vt_append_char('\x03');
-        bridge.vt_flush();
-    }
     ucomplete(msg);
     return true;
 }
@@ -457,6 +633,11 @@ inline bool api_flush_input_buf(miniio::io_msg &msg, console_state &, screen_buf
 inline bool api_set_cp(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_SETCP_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    if (!::IsValidCodePage(r->CodePage))
+    {
+        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        return true;
+    }
     if (r->Output)
         state.output_code_page = r->CodePage;
     else
@@ -479,6 +660,11 @@ inline bool api_set_cursor(miniio::io_msg &msg, console_state &state, screen_buf
 {
     // CursorSize 只保存在本地状态；当前 VT 输出只同步可见性。
     auto *r = reinterpret_cast<CONSOLE_SETCURSORINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    if (r->CursorSize == 0 || r->CursorSize > 100)
+    {
+        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        return true;
+    }
     state.cursor.size = r->CursorSize;
     state.cursor.visible = r->Visible != FALSE;
     vt_message m{};
@@ -513,25 +699,29 @@ inline bool api_get_sb_info(miniio::io_msg &msg, console_state &state, screen_bu
 
 inline bool api_set_sb_info(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &, pipe_bridge &)
 {
-    // SetScreenBufferInfo 是批量状态导入；所有坐标先写入 state，再按新尺寸
-    // 钳制 cursor 并调整本地 screen_buffer。
+    // SetScreenBufferInfoEx 不设置 cursor position；cursor 只在尺寸变化后
+    // 保证仍位于缓冲区内。
     auto *r = reinterpret_cast<CONSOLE_SCREENBUFFERINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    if (r->Size.X <= 0 || r->Size.Y <= 0 || r->Size.X == SHRT_MAX || r->Size.Y == SHRT_MAX)
+    {
+        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        return true;
+    }
     state.screen_buffer_size = r->Size;
-    state.cursor.position = r->CursorPosition;
-    if (state.cursor.position.X < 0)
-        state.cursor.position.X = 0;
-    if (state.cursor.position.X >= state.screen_buffer_size.X)
-        state.cursor.position.X = state.screen_buffer_size.X - 1;
-    if (state.cursor.position.Y < 0)
-        state.cursor.position.Y = 0;
-    if (state.cursor.position.Y >= state.screen_buffer_size.Y)
-        state.cursor.position.Y = state.screen_buffer_size.Y - 1;
     state.default_attributes = r->Attributes;
     state.current_window_size = r->CurrentWindowSize;
     state.max_window_size = r->MaximumWindowSize;
     state.popup_attributes = r->PopupAttributes;
     std::memcpy(state.color_table, r->ColorTable, sizeof(state.color_table));
     sb.resize(r->Size);
+    if (state.cursor.position.X >= state.screen_buffer_size.X)
+        state.cursor.position.X = state.screen_buffer_size.X - 1;
+    if (state.cursor.position.Y >= state.screen_buffer_size.Y)
+        state.cursor.position.Y = state.screen_buffer_size.Y - 1;
+    if (state.cursor.position.X < 0)
+        state.cursor.position.X = 0;
+    if (state.cursor.position.Y < 0)
+        state.cursor.position.Y = 0;
     ucomplete(msg);
     return true;
 }
@@ -540,15 +730,12 @@ inline bool api_set_sb_size(miniio::io_msg &msg, console_state &state, screen_bu
 {
     auto *r = reinterpret_cast<CONSOLE_SETSCREENBUFFERSIZE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     COORD new_size = r->Size;
-    // 控制台缓冲区不能小于窗口尺寸；否则后续 cursor/window 查询会出现无效坐标。
-    if (new_size.X < 1)
-        new_size.X = 1;
-    if (new_size.Y < 1)
-        new_size.Y = 1;
-    if (new_size.X < state.current_window_size.X)
-        new_size.X = state.current_window_size.X;
-    if (new_size.Y < state.current_window_size.Y)
-        new_size.Y = state.current_window_size.Y;
+    if (new_size.X < 1 || new_size.Y < 1 || new_size.X == SHRT_MAX || new_size.Y == SHRT_MAX ||
+        new_size.X < state.current_window_size.X || new_size.Y < state.current_window_size.Y)
+    {
+        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        return true;
+    }
     state.screen_buffer_size = new_size;
     if (state.cursor.position.X >= new_size.X)
         state.cursor.position.X = new_size.X - 1;
@@ -568,16 +755,12 @@ inline bool api_set_cursor_pos(miniio::io_msg &msg, console_state &state, screen
 {
     auto *r = reinterpret_cast<CONSOLE_SETCURSORPOSITION_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     COORD new_pos = r->CursorPosition;
-    // SetConsoleCursorPosition 接受客户端坐标；本实现钳制到当前缓冲区，而不是
-    // 返回错误，保持已有兼容行为。
-    if (new_pos.X < 0)
-        new_pos.X = 0;
-    if (new_pos.X >= state.screen_buffer_size.X)
-        new_pos.X = state.screen_buffer_size.X - 1;
-    if (new_pos.Y < 0)
-        new_pos.Y = 0;
-    if (new_pos.Y >= state.screen_buffer_size.Y)
-        new_pos.Y = state.screen_buffer_size.Y - 1;
+    if (new_pos.X < 0 || new_pos.X >= state.screen_buffer_size.X || new_pos.Y < 0 ||
+        new_pos.Y >= state.screen_buffer_size.Y)
+    {
+        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        return true;
+    }
 
     LOG("[api_set_cursor_pos] to=(%d,%d) was=(%d,%d)", new_pos.X, new_pos.Y, state.cursor.position.X,
         state.cursor.position.Y);
@@ -693,6 +876,12 @@ inline bool api_set_text_attr(miniio::io_msg &msg, console_state &state, screen_
 {
     // SetConsoleTextAttribute 影响后续输出默认属性，同时立即同步宿主终端 SGR。
     auto *r = reinterpret_cast<CONSOLE_SETTEXTATTRIBUTE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    static constexpr WORD valid_text_attributes = 0xDFFF;
+    if ((r->Attributes & ~valid_text_attributes) != 0)
+    {
+        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        return true;
+    }
     state.default_attributes = r->Attributes;
     vt_message m{};
     WORD attr = r->Attributes;
@@ -708,6 +897,11 @@ inline bool api_set_window_info(miniio::io_msg &msg, console_state &state, scree
                                 pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_SETWINDOWINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    if (r->Absolute && (r->Window.Right < r->Window.Left || r->Window.Bottom < r->Window.Top))
+    {
+        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        return true;
+    }
     if (r->Absolute)
     {
         // 绝对矩形的 Right/Bottom 是包含端点，尺寸需要 +1。
@@ -721,10 +915,11 @@ inline bool api_set_window_info(miniio::io_msg &msg, console_state &state, scree
         // 因此折算为当前宽高增量。
         state.current_window_size.X += static_cast<SHORT>(r->Window.Right - r->Window.Left);
         state.current_window_size.Y += static_cast<SHORT>(r->Window.Bottom - r->Window.Top);
-        if (state.current_window_size.X < 1)
-            state.current_window_size.X = 1;
-        if (state.current_window_size.Y < 1)
-            state.current_window_size.Y = 1;
+        if (state.current_window_size.X < 1 || state.current_window_size.Y < 1)
+        {
+            miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+            return true;
+        }
         // ConPTY 模式无独立滚动缓冲区: buffer size 始终与窗口大小一致。
         state.screen_buffer_size = state.current_window_size;
     }
@@ -733,35 +928,51 @@ inline bool api_set_window_info(miniio::io_msg &msg, console_state &state, scree
     return true;
 }
 
-inline bool api_read_output_string(miniio::io_msg &msg, console_state &, screen_buffer &sb, input_buffer &,
-                                   pipe_bridge &)
+inline bool api_read_output_string(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                                   pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_READCONSOLEOUTPUTSTRING_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     LOG("[api_read_output_string] at=(%d,%d) type=%d", r->ReadCoord.X, r->ReadCoord.Y, r->StringType);
     if (r->StringType != CONSOLE_ASCII && r->StringType != CONSOLE_REAL_UNICODE &&
         r->StringType != CONSOLE_FALSE_UNICODE && r->StringType != CONSOLE_ATTRIBUTE)
     {
-        ucomplete(msg);
+        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
         return true;
     }
+    auto data_capacity = msg.descriptor.OutputSize > sizeof(CONSOLE_MSG_HEADER) +
+                                                     sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)
+                             ? msg.descriptor.OutputSize - sizeof(CONSOLE_MSG_HEADER) -
+                                   sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)
+                             : 0;
     if (r->StringType == CONSOLE_ATTRIBUTE)
     {
         // ATTRIBUTE 读取 WORD 数组；其他字符类型都降级为 wchar_t 输出。
         auto *out = reinterpret_cast<WORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                              sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
-        auto maxn = (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)) /
-                    sizeof(WORD);
+        auto maxn = data_capacity / sizeof(WORD);
         r->NumRecords = static_cast<ULONG>(sb.read_attrs(r->ReadCoord, out, maxn));
+    }
+    else if (r->StringType == CONSOLE_ASCII)
+    {
+        auto *out = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                             sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
+        auto maxb = data_capacity;
+        auto &wbuf = bridge.conv_wstr();
+        wbuf.resize(maxb);
+        auto wchar_count = sb.read_wchars(r->ReadCoord, wbuf.data(), wbuf.size());
+        auto cp = state.output_code_page ? state.output_code_page : CP_ACP;
+        int bytes = ::WideCharToMultiByte(cp, 0, wbuf.data(), static_cast<int>(wchar_count), out,
+                                          static_cast<int>(maxb), nullptr, nullptr);
+        r->NumRecords = bytes > 0 ? static_cast<ULONG>(bytes) : 0;
     }
     else
     {
         auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                 sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
-        auto maxn = (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)) /
-                    sizeof(wchar_t);
+        auto maxn = data_capacity / sizeof(wchar_t);
         r->NumRecords = static_cast<ULONG>(sb.read_wchars(r->ReadCoord, out, maxn));
     }
-    ucomplete_sz(msg, sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
+    ucomplete_sz(msg, static_cast<ULONG>(sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + data_capacity));
     return true;
 }
 
@@ -776,7 +987,7 @@ inline bool api_write_console_input(miniio::io_msg &msg, console_state &, screen
     auto nrec = static_cast<size_t>(ib / sizeof(INPUT_RECORD));
     size_t written = 0;
     if (nrec > 0)
-        written = inp.write(records, nrec);
+        written = r->Append ? inp.write(records, nrec) : inp.prepend(records, nrec);
     r->NumRecords = static_cast<ULONG>(written);
     ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
     return true;
@@ -799,6 +1010,30 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
     auto *data = reinterpret_cast<const CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                      sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG));
     SHORT w = orig.Right - orig.Left + 1;
+    auto h = orig.Bottom - orig.Top + 1;
+    auto input_bytes = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG);
+    auto required = static_cast<size_t>(w) * static_cast<size_t>(h) * sizeof(CHAR_INFO);
+    if (input_bytes < required)
+    {
+        cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
+        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        return true;
+    }
+    std::vector<CHAR_INFO> unicode_data;
+    if (!r->Unicode)
+    {
+        unicode_data.resize(static_cast<size_t>(w) * static_cast<size_t>(h));
+        const auto cp = state.output_code_page ? state.output_code_page : CP_ACP;
+        for (size_t i = 0; i < unicode_data.size(); ++i)
+        {
+            auto ch = static_cast<char>(data[i].Char.AsciiChar);
+            wchar_t wc = L' ';
+            ::MultiByteToWideChar(cp, MB_USEGLYPHCHARS, &ch, 1, &wc, 1);
+            unicode_data[i].Char.UnicodeChar = wc;
+            unicode_data[i].Attributes = data[i].Attributes;
+        }
+        data = unicode_data.data();
+    }
     for (SHORT y = orig.Top; y <= orig.Bottom && y < sb.size.Y; ++y)
         sb.row_from_ci(y, data + (y - orig.Top) * w, static_cast<uint16_t>(w), static_cast<uint16_t>(orig.Left));
     cr = orig;
@@ -861,13 +1096,22 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
     }
     else
     {
-        auto *in_w = reinterpret_cast<const wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                       sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
         auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
-        auto wlen = ib / sizeof(wchar_t);
-        // 字符串写入不改变光标；只修改本地 buffer 中从 WriteCoord 开始的一段。
         auto &u32text = bridge.conv_u32();
-        convert_utf16_to_u32(std::wstring_view{in_w, wlen}, u32text);
+        if (r->StringType == CONSOLE_ASCII)
+        {
+            auto *in_a = reinterpret_cast<const char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                       sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+            convert_ansi_to_u32(in_a, ib, state.output_code_page ? state.output_code_page : CP_ACP, u32text,
+                                bridge.conv_wstr());
+        }
+        else
+        {
+            auto *in_w = reinterpret_cast<const wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                           sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+            auto wlen = ib / sizeof(wchar_t);
+            convert_utf16_to_u32(std::wstring_view{in_w, wlen}, u32text);
+        }
         r->NumRecords = static_cast<ULONG>(sb.write_char32(r->WriteCoord, u32text.data(), u32text.size()));
 
         if (r->NumRecords > 0)
@@ -911,7 +1155,19 @@ inline bool api_read_console_output(miniio::io_msg &msg, console_state &state, s
         ucomplete_sz(msg, sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
         return true;
     }
+    auto data_capacity = msg.descriptor.OutputSize > sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG)
+                             ? msg.descriptor.OutputSize - sizeof(CONSOLE_MSG_HEADER) -
+                                   sizeof(CONSOLE_READCONSOLEOUTPUT_MSG)
+                             : 0;
     SHORT w = cr.Right - cr.Left + 1;
+    auto h = cr.Bottom - cr.Top + 1;
+    auto required = static_cast<size_t>(w) * static_cast<size_t>(h) * sizeof(CHAR_INFO);
+    if (required > data_capacity)
+    {
+        cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
+        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        return true;
+    }
     for (SHORT y = cr.Top; y <= cr.Bottom && y < sb.size.Y; ++y)
     {
         // row_to_ci 导出整行后只复制请求区间；这样保留 row 层对宽字符和属性
@@ -921,10 +1177,25 @@ inline bool api_read_console_output(miniio::io_msg &msg, console_state &state, s
         auto *dst = reinterpret_cast<CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                   sizeof(CONSOLE_READCONSOLEOUTPUT_MSG)) +
                     (y - cr.Top) * w;
-        std::memcpy(dst, tmp.data() + cr.Left, w * sizeof(CHAR_INFO));
+        if (r->Unicode)
+        {
+            std::memcpy(dst, tmp.data() + cr.Left, w * sizeof(CHAR_INFO));
+        }
+        else
+        {
+            const auto cp = state.output_code_page ? state.output_code_page : CP_ACP;
+            for (SHORT x = 0; x < w; ++x)
+            {
+                auto &src = tmp[static_cast<size_t>(cr.Left + x)];
+                char mb = ' ';
+                ::WideCharToMultiByte(cp, 0, &src.Char.UnicodeChar, 1, &mb, 1, nullptr, nullptr);
+                dst[x].Char.AsciiChar = mb;
+                dst[x].Attributes = src.Attributes;
+            }
+        }
     }
     state.cursor_position_dirty = true;
-    ucomplete_sz(msg, sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
+    ucomplete_sz(msg, static_cast<ULONG>(sizeof(CONSOLE_READCONSOLEOUTPUT_MSG) + data_capacity));
     return true;
 }
 
@@ -964,13 +1235,23 @@ inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buff
 inline bool api_set_title(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                           pipe_bridge &bridge)
 {
-    auto *in = reinterpret_cast<const wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG));
+    auto *req = reinterpret_cast<CONSOLE_SETTITLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *input = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG);
     auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_SETTITLE_MSG);
-    auto ic = ib / sizeof(wchar_t);
-    auto cp = ic < 256 ? ic : 255;
-    // 只接收前 255 个 UTF-16 code unit，匹配当前状态层标题容量假设。
     std::u32string u32title;
-    convert_utf16_to_u32(std::wstring_view{in, cp}, u32title);
+    if (req->Unicode)
+    {
+        auto *in = reinterpret_cast<const wchar_t *>(input);
+        auto ic = ib / sizeof(wchar_t);
+        auto cp = ic < 256 ? ic : 255;
+        convert_utf16_to_u32(std::wstring_view{in, cp}, u32title);
+    }
+    else
+    {
+        auto cp = ib < 256 ? ib : 255;
+        convert_ansi_to_u32(reinterpret_cast<const char *>(input), cp, state.output_code_page ? state.output_code_page : CP_ACP,
+                            u32title, bridge.conv_wstr());
+    }
     if (state.title.empty())
         state.original_title = u32title;
     state.title = std::move(u32title);
@@ -997,7 +1278,7 @@ inline bool api_l3_get_mouse_info(miniio::io_msg &msg, console_state &state, scr
                                   pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETMOUSEINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    r->NumButtons = state.mouse_buttons;
+    r->NumButtons = state.mouse_buttons != 0 ? state.mouse_buttons : static_cast<ULONG>(::GetSystemMetrics(SM_CMOUSEBUTTONS));
     ucomplete_sz(msg, sizeof(CONSOLE_GETMOUSEINFO_MSG));
     return true;
 }
@@ -1007,8 +1288,13 @@ inline bool api_l3_get_font_size(miniio::io_msg &msg, console_state &state, scre
                                  pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETFONTSIZE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    if (r->FontIndex != 0)
+    {
+        r->FontSize = {};
+        miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        return true;
+    }
     r->FontSize = state.font_size; // 简化: 返回当前字体尺寸 (所有 index 相同)
-    (void)r->FontIndex;
     ucomplete_sz(msg, sizeof(CONSOLE_GETFONTSIZE_MSG));
     return true;
 }
@@ -1065,30 +1351,74 @@ inline bool api_l3_add_alias(miniio::io_msg &msg, console_state &state, screen_b
     auto exe_len_bytes = static_cast<size_t>(r->ExeLength);
     auto src_len_bytes = static_cast<size_t>(r->SourceLength);
     auto tgt_len_bytes = static_cast<size_t>(r->TargetLength);
+    if (exe_len_bytes + src_len_bytes + tgt_len_bytes > message_input_tail_capacity(msg, sizeof(CONSOLE_ADDALIAS_MSG)))
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
+    if (src_len_bytes == 0)
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
 
     if (r->Unicode)
     {
-        // Unicode alias 直接按 wchar_t 视图进入 map；空 source/target 不记录。
+        if ((exe_len_bytes | src_len_bytes | tgt_len_bytes) % sizeof(wchar_t) != 0)
+        {
+            miniio::prepare_completion(msg, status_invalid_parameter);
+            return true;
+        }
+        auto *exe = reinterpret_cast<const wchar_t *>(db);
         auto *src = reinterpret_cast<const wchar_t *>(db + exe_len_bytes);
         auto *tgt = reinterpret_cast<const wchar_t *>(db + exe_len_bytes + src_len_bytes);
+        auto exe_chars = exe_len_bytes / sizeof(wchar_t);
         auto src_chars = src_len_bytes / sizeof(wchar_t);
         auto tgt_chars = tgt_len_bytes / sizeof(wchar_t);
 
-        if (src_chars > 0 && tgt_chars > 0)
-            state.aliases.emplace(std::wstring_view{src, src_chars}, std::wstring_view{tgt, tgt_chars});
+        auto exe_key = lower_wstring(std::wstring_view{exe, exe_chars});
+        auto src_key = lower_wstring(std::wstring_view{src, src_chars});
+        if (tgt_chars == 0)
+        {
+            state.aliases.erase(src_key);
+            if (auto exe_it = state.aliases_by_exe.find(exe_key); exe_it != state.aliases_by_exe.end())
+                exe_it->second.erase(src_key);
+        }
+        else
+        {
+            std::wstring target{tgt, tgt_chars};
+            state.aliases[src_key] = target;
+            state.aliases_by_exe[std::move(exe_key)][std::move(src_key)] = std::move(target);
+        }
     }
     else
     {
-        // ANSI alias 先按 ACP 转为宽字符串，保持 state.aliases 的统一存储格式。
+        // 原版 A 路径使用控制台输入代码页，而不是进程 ACP。
+        auto *exe_a = reinterpret_cast<const char *>(db);
         auto *src_a = reinterpret_cast<const char *>(db + exe_len_bytes);
         auto *tgt_a = reinterpret_cast<const char *>(db + exe_len_bytes + src_len_bytes);
-        if (src_len_bytes > 0 && tgt_len_bytes > 0)
+        std::wstring wexe, wsrc, wtgt;
+        convert_ansi_to_wstr(exe_a, exe_len_bytes, state.input_code_page, wexe);
+        convert_ansi_to_wstr(src_a, src_len_bytes, state.input_code_page, wsrc);
+        convert_ansi_to_wstr(tgt_a, tgt_len_bytes, state.input_code_page, wtgt);
+        if (wsrc.empty())
         {
-            std::wstring wsrc, wtgt;
-            convert_ansi_to_wstr(src_a, src_len_bytes, CP_ACP, wsrc);
-            convert_ansi_to_wstr(tgt_a, tgt_len_bytes, CP_ACP, wtgt);
-            if (!wsrc.empty() && !wtgt.empty())
-                state.aliases.emplace(std::move(wsrc), std::move(wtgt));
+            miniio::prepare_completion(msg, status_invalid_parameter);
+            return true;
+        }
+        auto exe_key = lower_wstring(wexe);
+        auto src_key = lower_wstring(wsrc);
+        if (wtgt.empty())
+        {
+            state.aliases.erase(src_key);
+            if (auto exe_it = state.aliases_by_exe.find(exe_key); exe_it != state.aliases_by_exe.end())
+                exe_it->second.erase(src_key);
+        }
+        else
+        {
+            state.aliases[src_key] = wtgt;
+            state.aliases_by_exe[std::move(exe_key)][std::move(src_key)] = std::move(wtgt);
         }
     }
 
@@ -1105,55 +1435,89 @@ inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_b
     // 返回值写回 Source 所在位置；调用方提供的 Exe 前缀区域不被覆盖。
     auto exe_len_bytes = static_cast<size_t>(r->ExeLength);
     auto src_len_bytes = static_cast<size_t>(r->SourceLength);
+    if (exe_len_bytes + src_len_bytes > message_input_tail_capacity(msg, sizeof(CONSOLE_GETALIAS_MSG)))
+    {
+        r->TargetLength = 0;
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
+    auto find_alias = [&](std::wstring_view exe, std::wstring_view source) -> const std::wstring * {
+        auto exe_key = lower_wstring(exe);
+        auto source_key = lower_wstring(source);
+        if (auto exe_it = state.aliases_by_exe.find(exe_key); exe_it != state.aliases_by_exe.end())
+            if (auto alias_it = exe_it->second.find(source_key); alias_it != exe_it->second.end())
+                return &alias_it->second;
+        if (auto alias_it = state.aliases.find(source_key); alias_it != state.aliases.end())
+            return &alias_it->second;
+        return nullptr;
+    };
 
     if (r->Unicode)
     {
+        if ((exe_len_bytes | src_len_bytes) % sizeof(wchar_t) != 0)
+        {
+            r->TargetLength = 0;
+            miniio::prepare_completion(msg, status_invalid_parameter);
+            return true;
+        }
+        auto *exe = reinterpret_cast<const wchar_t *>(db);
         auto *src = reinterpret_cast<const wchar_t *>(db + exe_len_bytes);
+        auto exe_chars = exe_len_bytes / sizeof(wchar_t);
         auto src_chars = src_len_bytes / sizeof(wchar_t);
 
         if (src_chars > 0)
         {
-            std::wstring key{src, src_chars};
-            auto it = state.aliases.find(key);
-            if (it != state.aliases.end())
+            if (auto *wval = find_alias(std::wstring_view{exe, exe_chars}, std::wstring_view{src, src_chars}))
             {
-                auto &wval = it->second;
                 auto *tgt_out = reinterpret_cast<wchar_t *>(db + exe_len_bytes);
-                auto available_chars =
-                    (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETALIAS_MSG) - exe_len_bytes) /
-                    sizeof(wchar_t);
-                if (wval.size() + 1 <= available_chars)
+                auto available_bytes = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIAS_MSG));
+                auto available_chars = available_bytes > exe_len_bytes ? (available_bytes - exe_len_bytes) / sizeof(wchar_t) : 0;
+                if (wval->size() + 1 <= available_chars)
                 {
-                    // TargetLength 不含 NUL；缓冲区足够时补 NUL 方便旧调用者读取。
-                    std::memcpy(tgt_out, wval.data(), wval.size() * sizeof(wchar_t));
-                    tgt_out[wval.size()] = L'\0';
-                    r->TargetLength = static_cast<USHORT>(wval.size() * sizeof(wchar_t));
+                    std::memcpy(tgt_out, wval->data(), wval->size() * sizeof(wchar_t));
+                    tgt_out[wval->size()] = L'\0';
+                    r->TargetLength = static_cast<USHORT>((wval->size() + 1) * sizeof(wchar_t));
+                    ucomplete_sz(msg, sizeof(CONSOLE_GETALIAS_MSG) + r->TargetLength);
                 }
-                ucomplete_sz(msg, sizeof(CONSOLE_GETALIAS_MSG));
+                else
+                {
+                    r->TargetLength = static_cast<USHORT>(available_chars * sizeof(wchar_t));
+                    ucomplete_status_sz(msg, status_buffer_too_small, sizeof(CONSOLE_GETALIAS_MSG));
+                }
                 return true;
             }
         }
     }
     else
     {
+        auto *exe_a = reinterpret_cast<const char *>(db);
         auto *src_a = reinterpret_cast<const char *>(db + exe_len_bytes);
         if (src_len_bytes > 0)
         {
+            std::wstring exe_key;
             std::wstring key;
-            convert_ansi_to_wstr(src_a, src_len_bytes, CP_ACP, key);
+            convert_ansi_to_wstr(exe_a, exe_len_bytes, state.input_code_page, exe_key);
+            convert_ansi_to_wstr(src_a, src_len_bytes, state.input_code_page, key);
             if (!key.empty())
             {
-                auto it = state.aliases.find(key);
-                if (it != state.aliases.end())
+                if (auto *wval = find_alias(exe_key, key))
                 {
-                    auto &wval = it->second;
                     auto *tgt_out = reinterpret_cast<char *>(db + exe_len_bytes);
-                    auto available_bytes =
-                        sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETALIAS_MSG) - exe_len_bytes;
-                    size_t n = convert_wide_to_ansi_raw(wval.data(), wval.size(), CP_ACP, tgt_out, available_bytes);
-                    if (n > 0)
-                        r->TargetLength = static_cast<USHORT>(n);
-                    ucomplete_sz(msg, sizeof(CONSOLE_GETALIAS_MSG));
+                    auto available_bytes = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIAS_MSG));
+                    available_bytes = available_bytes > exe_len_bytes ? available_bytes - exe_len_bytes : 0;
+                    auto needed = wstr_to_ansi_len(std::wstring_view{wval->data(), wval->size()}, state.input_code_page) + 1;
+                    if (needed <= available_bytes)
+                    {
+                        auto n = convert_wide_to_ansi_raw(wval->data(), wval->size(), state.input_code_page, tgt_out, available_bytes);
+                        r->TargetLength = static_cast<USHORT>(n + 1);
+                        ucomplete_sz(msg, sizeof(CONSOLE_GETALIAS_MSG) + r->TargetLength);
+                    }
+                    else
+                    {
+                        r->TargetLength = static_cast<USHORT>(available_bytes * sizeof(wchar_t));
+                        ucomplete_status_sz(msg, status_buffer_too_small, sizeof(CONSOLE_GETALIAS_MSG));
+                    }
                     return true;
                 }
             }
@@ -1169,19 +1533,36 @@ inline bool api_l3_get_aliases_length(miniio::io_msg &msg, console_state &state,
                                       pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETALIASESLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *db = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASESLENGTH_MSG);
+    auto exe_len_bytes = message_input_tail_capacity(msg, sizeof(CONSOLE_GETALIASESLENGTH_MSG));
+    std::wstring exe_name;
+    if (r->Unicode)
+    {
+        exe_name.assign(reinterpret_cast<const wchar_t *>(db), exe_len_bytes / sizeof(wchar_t));
+    }
+    else
+    {
+        convert_ansi_to_wstr(reinterpret_cast<const char *>(db), exe_len_bytes, state.input_code_page, exe_name);
+    }
+
+    const auto *aliases = &state.aliases;
+    auto exe_key = lower_wstring(exe_name);
+    if (auto exe_it = state.aliases_by_exe.find(exe_key); exe_it != state.aliases_by_exe.end())
+        aliases = &exe_it->second;
+
     ULONG total = 0;
     if (r->Unicode)
     {
-        // 每条 alias 导出为 key\0value\0，长度按字节返回。
-        for (const auto &[k, v] : state.aliases)
+        // 原版导出格式是 source=target\0；AliasesLength 按字节返回。
+        for (const auto &[k, v] : *aliases)
             total += static_cast<ULONG>((k.size() + 1 + v.size() + 1) * sizeof(wchar_t));
     }
     else
     {
-        for (const auto &[k, v] : state.aliases)
+        for (const auto &[k, v] : *aliases)
         {
-            auto k_len = wstr_to_ansi_len(std::wstring_view{k.data(), k.size()}, CP_ACP);
-            auto v_len = wstr_to_ansi_len(std::wstring_view{v.data(), v.size()}, CP_ACP);
+            auto k_len = wstr_to_ansi_len(std::wstring_view{k.data(), k.size()}, state.input_code_page);
+            auto v_len = wstr_to_ansi_len(std::wstring_view{v.data(), v.size()}, state.input_code_page);
             if (k_len > 0 && v_len > 0)
                 total += static_cast<ULONG>(k_len + 1 + v_len + 1);
         }
@@ -1196,7 +1577,13 @@ inline bool api_l3_get_alias_exes_length(miniio::io_msg &msg, console_state &sta
                                          pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETALIASEXESLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    r->AliasExesLength = 0; // ConPTY 下不跟踪 exe 名称
+    ULONG total = 0;
+    for (const auto &[exe, _] : state.aliases_by_exe)
+    {
+        auto len = r->Unicode ? exe.size() : wstr_to_ansi_len(std::wstring_view{exe.data(), exe.size()}, state.input_code_page);
+        total += static_cast<ULONG>(len + 1) * (r->Unicode ? sizeof(wchar_t) : 1);
+    }
+    r->AliasExesLength = total;
     ucomplete_sz(msg, sizeof(CONSOLE_GETALIASEXESLENGTH_MSG));
     return true;
 }
@@ -1206,20 +1593,33 @@ inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen
                                pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETALIASES_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *db = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG);
+    auto exe_len_bytes = message_input_tail_capacity(msg, sizeof(CONSOLE_GETALIASES_MSG));
+    std::wstring exe_name;
+    if (r->Unicode)
+        exe_name.assign(reinterpret_cast<const wchar_t *>(db), exe_len_bytes / sizeof(wchar_t));
+    else
+        convert_ansi_to_wstr(reinterpret_cast<const char *>(db), exe_len_bytes, state.input_code_page, exe_name);
+
+    const auto *aliases = &state.aliases;
+    auto exe_key = lower_wstring(exe_name);
+    if (auto exe_it = state.aliases_by_exe.find(exe_key); exe_it != state.aliases_by_exe.end())
+        aliases = &exe_it->second;
+
     ULONG written = 0;
     if (r->Unicode)
     {
-        // 输出是连续的 key\0value\0 列表；空间不足时停止在上一条完整记录。
+        // 输出是连续的 source=target\0 列表；空间不足时停止在上一条完整记录。
         auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG));
-        auto maxw = (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETALIASES_MSG)) / sizeof(wchar_t);
-        for (const auto &[k, v] : state.aliases)
+        auto maxw = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIASES_MSG)) / sizeof(wchar_t);
+        for (const auto &[k, v] : *aliases)
         {
             ULONG need = static_cast<ULONG>(k.size() + 1 + v.size() + 1);
             if (written + need > maxw)
                 break;
             std::memcpy(out + written, k.data(), k.size() * sizeof(wchar_t));
             written += static_cast<ULONG>(k.size());
-            out[written++] = L'\0';
+            out[written++] = L'=';
             std::memcpy(out + written, v.data(), v.size() * sizeof(wchar_t));
             written += static_cast<ULONG>(v.size());
             out[written++] = L'\0';
@@ -1229,22 +1629,22 @@ inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen
     }
     else
     {
-        // ANSI 路径按 ACP 编码，每个 convert_wide_to_ansi_raw 会写入结尾 NUL。
         auto *out = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG));
-        auto maxb = sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETALIASES_MSG);
-        for (const auto &[k, v] : state.aliases)
+        auto maxb = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIASES_MSG));
+        std::wstring entry;
+        std::string converted;
+        for (const auto &[k, v] : *aliases)
         {
-            auto k_len = wstr_to_ansi_len(std::wstring_view{k.data(), k.size()}, CP_ACP);
-            auto v_len = wstr_to_ansi_len(std::wstring_view{v.data(), v.size()}, CP_ACP);
-            if (k_len == 0 || v_len == 0)
-                continue;
-            ULONG need = static_cast<ULONG>(k_len + 1 + v_len + 1);
+            entry.assign(k);
+            entry.push_back(L'=');
+            entry.append(v);
+            convert_wstr_to_ansi(entry, state.input_code_page, converted);
+            ULONG need = static_cast<ULONG>(converted.size() + 1);
             if (written + need > maxb)
                 break;
-            convert_wide_to_ansi_raw(k.data(), k.size(), CP_ACP, out + written, maxb - written);
-            written += static_cast<ULONG>(k_len) + 1; // +1 for \0 from convert_wide_to_ansi_raw
-            convert_wide_to_ansi_raw(v.data(), v.size(), CP_ACP, out + written, maxb - written);
-            written += static_cast<ULONG>(v_len) + 1;
+            std::memcpy(out + written, converted.data(), converted.size());
+            written += static_cast<ULONG>(converted.size());
+            out[written++] = '\0';
         }
         r->AliasesBufferLength = written;
         ucomplete_sz(msg, sizeof(CONSOLE_GETALIASES_MSG) + written);
@@ -1253,51 +1653,90 @@ inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen
 }
 
 // ── 0x17 GetAliasExes ──
-inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &)
+inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETALIASEXES_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    r->AliasExesBufferLength = 0;
-    ucomplete_sz(msg, sizeof(CONSOLE_GETALIASEXES_MSG));
+    ULONG written = 0;
+    if (r->Unicode)
+    {
+        auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG));
+        auto maxw = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIASEXES_MSG)) / sizeof(wchar_t);
+        for (const auto &[exe, _] : state.aliases_by_exe)
+        {
+            auto need = exe.size() + 1;
+            if (written + need > maxw)
+                break;
+            std::memcpy(out + written, exe.data(), exe.size() * sizeof(wchar_t));
+            written += static_cast<ULONG>(exe.size());
+            out[written++] = L'\0';
+        }
+        r->AliasExesBufferLength = written * sizeof(wchar_t);
+        ucomplete_sz(msg, sizeof(CONSOLE_GETALIASEXES_MSG) + r->AliasExesBufferLength);
+    }
+    else
+    {
+        auto *out = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG));
+        auto maxb = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIASEXES_MSG));
+        std::string converted;
+        for (const auto &[exe, _] : state.aliases_by_exe)
+        {
+            convert_wstr_to_ansi(exe, state.input_code_page, converted);
+            auto need = converted.size() + 1;
+            if (written + need > maxb)
+                break;
+            std::memcpy(out + written, converted.data(), converted.size());
+            written += static_cast<ULONG>(converted.size());
+            out[written++] = '\0';
+        }
+        r->AliasExesBufferLength = written;
+        ucomplete_sz(msg, sizeof(CONSOLE_GETALIASEXES_MSG) + written);
+    }
     return true;
 }
 
 // ── 0x18 ExpungeCommandHistory ──
-inline bool api_l3_expunge_history(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                                   pipe_bridge &)
+inline bool api_l3_expunge_history(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
+                                   pipe_bridge &bridge)
 {
-    state.command_history.clear();
+    bridge.api_clear_history();
     ucomplete(msg);
     return true;
 }
 
 // ── 0x19 SetNumberOfCommands ──
 inline bool api_l3_set_num_commands(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                                    pipe_bridge &)
+                                    pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_SETNUMBEROFCOMMANDS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    state.history_num_buffers = r->NumCommands;
+    state.history_buffer_size = r->NumCommands;
+    bridge.api_set_history_capacity(r->NumCommands);
     ucomplete(msg);
     return true;
 }
 
 // ── 0x1A GetCommandHistoryLength ──
-// ConPTY 模式下历史由 pipe_bridge 内部管理，不通过 ConDrv CommandHistory API 暴露。
-inline bool api_l3_get_history_length(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
-                                      pipe_bridge &)
+inline bool api_l3_get_history_length(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                      pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_GETCOMMANDHISTORYLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    r->CommandHistoryLength = 0;
+    r->CommandHistoryLength = static_cast<ULONG>(bridge.api_history_length(r->Unicode != FALSE, state.input_code_page));
     ucomplete_sz(msg, sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG));
     return true;
 }
 
 // ── 0x1B GetCommandHistory ──
-// ConPTY 模式下历史由 pipe_bridge 内部管理，不通过 ConDrv CommandHistory API 暴露。
-inline bool api_l3_get_history(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &)
+inline bool api_l3_get_history(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_GETCOMMANDHISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    r->CommandBufferLength = 0;
-    ucomplete_sz(msg, sizeof(CONSOLE_GETCOMMANDHISTORY_MSG));
+    auto *out = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG);
+    auto cap = message_output_tail_capacity(msg, sizeof(CONSOLE_GETCOMMANDHISTORY_MSG));
+    auto needed = bridge.api_history_length(r->Unicode != FALSE, state.input_code_page);
+    auto written = bridge.api_write_history(r->Unicode != FALSE, state.input_code_page, out, cap);
+    r->CommandBufferLength = static_cast<ULONG>(written);
+    if (written < needed)
+        ucomplete_status_sz(msg, status_buffer_too_small, sizeof(CONSOLE_GETCOMMANDHISTORY_MSG));
+    else
+        ucomplete_sz(msg, sizeof(CONSOLE_GETCOMMANDHISTORY_MSG) + static_cast<ULONG>(written));
     return true;
 }
 
@@ -1336,7 +1775,7 @@ inline bool api_l3_get_process_list(miniio::io_msg &msg, console_state &, screen
     // 旧 conhost 返回 newest first；bridge.proc_list 按连接顺序保存，因此反向导出。
     for (size_t i = 0; i < count; ++i)
         out[i] = bridge.proc_list[bridge.proc_count - 1 - i]; // newest first
-    r->dwProcessCount = static_cast<ULONG>(count);
+    r->dwProcessCount = static_cast<ULONG>(bridge.proc_count);
     ucomplete_sz(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG) + static_cast<ULONG>(count * sizeof(DWORD)));
     return true;
 }
@@ -1355,12 +1794,19 @@ inline bool api_l3_get_history_info(miniio::io_msg &msg, console_state &state, s
 
 // ── 0x2B SetHistory ──
 inline bool api_l3_set_history_info(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                                    pipe_bridge &)
+                                    pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_HISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    if (r->HistoryBufferSize > SHRT_MAX || r->NumberOfHistoryBuffers > SHRT_MAX ||
+        (r->dwFlags & ~HISTORY_NO_DUP_FLAG) != 0)
+    {
+        miniio::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
     state.history_buffer_size = r->HistoryBufferSize;
     state.history_num_buffers = r->NumberOfHistoryBuffers;
     state.history_flags = r->dwFlags;
+    bridge.api_set_history_capacity(r->HistoryBufferSize);
     ucomplete_sz(msg, sizeof(CONSOLE_HISTORY_MSG));
     return true;
 }

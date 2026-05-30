@@ -50,6 +50,18 @@ struct input_buffer
         return n;
     }
 
+    size_t prepend(const INPUT_RECORD *events, size_t count)
+    {
+        size_t n = 0;
+        while (n < count && _events.size() < max_events)
+            ++n;
+        for (size_t i = 0; i < n; ++i)
+            _events.push_front(events[n - 1 - i]);
+        if (n > 0 && input_available_event)
+            ::SetEvent(input_available_event);
+        return n;
+    }
+
     size_t read(INPUT_RECORD *out, size_t max_count)
     {
         // 返回值为实际读出的记录数；0 表示当前没有输入事件。

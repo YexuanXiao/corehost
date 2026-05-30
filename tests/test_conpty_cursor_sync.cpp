@@ -1388,6 +1388,19 @@ bool test_win32_console_read_printable_inserts_char()
     return true;
 }
 
+bool test_console_read_utf8_text_decodes_once()
+{
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
+    bridge.test_enter_console_read_mode(13);
+
+    const BYTE text[] = {0xE5, 0x96, 0x9C, 0xE6, 0xAC, 0xA2, 0xE4, 0xBD, 0xA0};
+    bridge.test_feed_raw_bytes(text, static_cast<DWORD>(std::size(text)));
+
+    ASSERT(bridge.test_get_cooked_buf() == U"\u559C\u6B22\u4F60");
+    return true;
+}
+
 // ── BUG #1 测试: Win32Input Backspace → 删除字符 ──
 bool test_win32_console_read_backspace_deletes_char()
 {
@@ -2031,6 +2044,7 @@ int main()
     std::wcout << L"\nWin32Input → ConsoleRead Regression (cmd shell) :\n";
     RUN_TEST(test_win32_console_read_enter_submits_line, L"Enter submits line");
     RUN_TEST(test_win32_console_read_printable_inserts_char, L"Printable inserts char");
+    RUN_TEST(test_console_read_utf8_text_decodes_once, L"UTF-8 text decodes once");
     RUN_TEST(test_win32_console_read_backspace_deletes_char, L"Backspace deletes char");
     RUN_TEST(test_win32_console_read_arrow_keys_move_cursor, L"Arrow keys move cursor");
     RUN_TEST(test_win32_console_read_home_end, L"Home/End jump");

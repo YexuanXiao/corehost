@@ -368,6 +368,81 @@ bool test_regression_get_console_input_ready_event()
     return true;
 }
 
+bool test_regression_get_console_input_output_size_excludes_header()
+{
+    miniio::io_msg msg;
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    INPUT_RECORD rec{};
+    rec.EventType = KEY_EVENT;
+    rec.Event.KeyEvent.bKeyDown = TRUE;
+    rec.Event.KeyEvent.wVirtualKeyCode = L'E';
+    rec.Event.KeyEvent.uChar.UnicodeChar = L'e';
+    inp.write(&rec, 1);
+
+    mock_get_console_input_msg(msg, 0);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + sizeof(INPUT_RECORD);
+    ASSERT(api_get_console_input(msg, st, sb, inp, bridge));
+
+    auto *input = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *out = reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                 sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+    ASSERT(input->NumRecords == 1);
+    ASSERT(out->EventType == KEY_EVENT);
+    ASSERT(out->Event.KeyEvent.uChar.UnicodeChar == L'e');
+    return true;
+}
+
+bool test_regression_get_console_input_output_size_without_record()
+{
+    miniio::io_msg msg;
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    INPUT_RECORD rec{};
+    rec.EventType = KEY_EVENT;
+    rec.Event.KeyEvent.bKeyDown = TRUE;
+    rec.Event.KeyEvent.wVirtualKeyCode = L'E';
+    rec.Event.KeyEvent.uChar.UnicodeChar = L'e';
+    inp.write(&rec, 1);
+
+    mock_get_console_input_msg(msg, 0);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+    ASSERT(api_get_console_input(msg, st, sb, inp, bridge));
+
+    auto *input = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    ASSERT(input->NumRecords == 0);
+    ASSERT(inp.available() == 1);
+    return true;
+}
+
+bool test_regression_raw_write_decodes_output_codepage()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge bridge{inp, st, sb};
+
+    st.output_code_page = 936;
+    const BYTE text[] = {0xCF, 0xB2, 0xBB, 0xB6, 0xC4, 0xE3};
+    std::memcpy(msg.body, text, sizeof(text));
+    msg.descriptor.InputSize = sizeof(text);
+
+    ASSERT(api_raw_write_console(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Information == sizeof(text));
+    ASSERT(sb.at_u32({0, 0}) == U'\u559C');
+    ASSERT(sb.at_u32({2, 0}) == U'\u6B22');
+    ASSERT(sb.at_u32({4, 0}) == U'\u4F60');
+    ASSERT(st.cursor.position.X == 6);
+    return true;
+}
+
 // 回归: ExeLength=0 (无 exe 名)
 bool test_regression_add_alias_zero_exe()
 {
@@ -474,8 +549,8 @@ bool test_regression_get_alias_skips_exe()
     api_l3_get_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
     auto *r = reinterpret_cast<CONSOLE_GETALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    // TargetLength 应为字节数: "echo hello" = 10 wchars × 2 = 20
-    ASSERT(r->TargetLength == 20);
+    // TargetLength 包含结尾 NUL: "echo hello\0" = 11 wchars × 2 = 22
+    ASSERT(r->TargetLength == 22);
 
     // 验证返回的 target 字符串被写回
     auto *data = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIAS_MSG);
@@ -542,7 +617,7 @@ bool test_regression_get_aliases_length_ansi()
 
     api_l3_get_aliases_length(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
-    // "x\0exit\0" = 1 + 1 + 4 + 1 = 7 字节
+    // "x=exit\0" = 1 + 1 + 4 + 1 = 7 字节
     ASSERT(r->AliasesLength == 7);
     return true;
 }
@@ -669,8 +744,8 @@ bool test_regression_get_alias_ansi_output()
 
     api_l3_get_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
-    // TargetLength 应为 ANSI 字节数: "dir" = 3
-    ASSERT(r->TargetLength == 3);
+    // TargetLength 包含结尾 NUL: "dir\0" = 4 字节
+    ASSERT(r->TargetLength == 4);
     // 验证写回的 target 字符串
     auto *tgt_out = reinterpret_cast<const char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                    sizeof(CONSOLE_GETALIAS_MSG) + exe_a.size());
@@ -696,12 +771,11 @@ bool test_regression_get_aliases_ansi_output()
 
     api_l3_get_aliases(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
-    // 序列化: "x\0exit\0" = 1 + 1 + 4 + 1 = 7 字节
+    // 序列化: "x=exit\0" = 1 + 1 + 4 + 1 = 7 字节
     ASSERT(r->AliasesBufferLength == 7);
     auto *out = reinterpret_cast<const char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG));
-    ASSERT(out[0] == 'x' && out[1] == '\0');
-    std::string exit_str{out + 2, 4};
-    ASSERT(exit_str == "exit");
+    std::string alias_str{out, 6};
+    ASSERT(alias_str == "x=exit");
     return true;
 }
 
@@ -912,6 +986,9 @@ int main()
     RUN_TEST(test_regression_get_console_input_nowait_empty, L"GetConsoleInput NOWAIT empty");
     RUN_TEST(test_regression_get_console_input_waits_when_empty, L"GetConsoleInput waits when empty");
     RUN_TEST(test_regression_get_console_input_ready_event, L"GetConsoleInput ready event");
+    RUN_TEST(test_regression_get_console_input_output_size_excludes_header, L"GetConsoleInput OutputSize excludes header");
+    RUN_TEST(test_regression_get_console_input_output_size_without_record, L"GetConsoleInput OutputSize without record");
+    RUN_TEST(test_regression_raw_write_decodes_output_codepage, L"RawWrite decodes output codepage");
     RUN_TEST(test_regression_add_alias_msg_layout, L"Alias msg layout (Exe+Src+Tgt)");
     RUN_TEST(test_regression_add_alias_zero_exe, L"Alias msg zero exe");
     RUN_TEST(test_regression_alias_expand_after_store, L"Alias expand after store");

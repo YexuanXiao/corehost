@@ -86,8 +86,8 @@ struct message_router
         case CONSOLE_IO_CLOSE_OBJECT:
             return io.handle_close_object(msg);
         case CONSOLE_IO_RAW_WRITE:
-            // 客户端直接写控制台输出字节，bridge 转成 VT 输出并完成请求。
-            return bridge.handle_raw_write(msg);
+            // 对齐原版 IoSorter: RAW_WRITE 按 WriteConsoleA 处理，再转成 VT 输出。
+            return api_raw_write_console(msg, api.state, api.active_screen_buffer(), api.inp, bridge);
         case CONSOLE_IO_RAW_READ:
             // 客户端请求原始输入。若当前没有足够 VT 输入，bridge 会挂起请求。
             return bridge.handle_raw_read(msg);

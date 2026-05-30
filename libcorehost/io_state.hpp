@@ -20,6 +20,13 @@ namespace conpty
 
 struct io_state
 {
+    enum class object_kind
+    {
+        unknown,
+        input,
+        output,
+    };
+
     // 必须指向 ConDrv \Server；CREATE_OBJECT 和首个 CONNECT 使用它创建
     // \Input/\Output 客户端句柄。
     win32::handle_view server;
@@ -83,6 +90,8 @@ struct io_state
             // 首个 CONNECT 需要创建 \Input/\Output，并由 accept_connection
             // 直接调用 COMPLETE_IO。调用方下一轮不能再次提交这个 completion。
             miniio::accept_connection(server, msg, condrv_input, condrv_output);
+            input_id = reinterpret_cast<ULONG_PTR>(condrv_input.get());
+            output_id = reinterpret_cast<ULONG_PTR>(condrv_output.get());
             completion = connect_completion::explicit_complete;
         }
         else
@@ -158,6 +167,15 @@ struct io_state
             output_id = 0;
         miniio::prepare_completion(msg);
         return true;
+    }
+
+    object_kind kind_from_object(ULONG_PTR id) const noexcept
+    {
+        if (id != 0 && id == input_id)
+            return object_kind::input;
+        if (id != 0 && id == output_id)
+            return object_kind::output;
+        return object_kind::unknown;
     }
 
     void handle_raw_flush(miniio::io_msg &msg)

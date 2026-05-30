@@ -100,7 +100,11 @@ struct console_state
     DWORD history_flags = 0;
 
     // ── DOSKEY 别名 (wchar_t, ConDrv 边界零拷贝) ──
+    // aliases 是当前行编辑器使用的扁平视图；aliases_by_exe 保留 Console API
+    // 要求的 exe 分桶。AddAlias 同时维护两者，测试或旧路径直接填 aliases 时
+    // GetAlias/GetAliases 仍会把它当作兼容回退。
     std::flat_map<std::wstring, std::wstring> aliases;
+    std::flat_map<std::wstring, std::flat_map<std::wstring, std::wstring>> aliases_by_exe;
 
     // ── 文本测量模式 ──
     text_measurement_mode text_measurement = text_measurement_mode::console;

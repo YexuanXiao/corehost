@@ -12,6 +12,7 @@
 //    COMPLETE_IO 显式回给 ConDrv。
 #pragma once
 #include <windows.h>
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -52,6 +53,7 @@ struct pipe_bridge
     pipe_bridge(input_buffer &input, console_state &state, screen_buffer &screen) noexcept
         : inp(input), cstate(state), sbuf(screen)
     {
+        _history_max = state.history_buffer_size;
     }
 
     // ── ProcessList ──
@@ -106,6 +108,7 @@ struct pipe_bridge
     // ── 命令历史（上下键导航）──
     // 每次 complete_pending 后记录非空输入行。
     std::vector<std::u32string> _history;
+    size_t _history_max = 50;
 
     // SIZE_MAX 表示当前没有浏览历史；否则为 _history 下标。
     size_t _history_idx = static_cast<size_t>(-1);
@@ -154,10 +157,18 @@ struct pipe_bridge
 
     size_t console_input_max_records(const miniio::io_msg &msg) const noexcept
     {
-        const auto client_buf = msg.descriptor.OutputSize;
-        const auto header_size = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
-        const auto count = client_buf > header_size ? (client_buf - header_size) / sizeof(INPUT_RECORD) : 0;
-        return count == 0 ? 1 : count;
+        // Original OpenConsole writes the API descriptor first, then calls
+        // GetOutputBuffer() from State.WriteOffset == ApiDescriptorSize. The
+        // header is not part of OutputSize, so only skip the L1 descriptor.
+        const auto output_buffer =
+            msg.descriptor.OutputSize > sizeof(CONSOLE_GETCONSOLEINPUT_MSG)
+                ? msg.descriptor.OutputSize - sizeof(CONSOLE_GETCONSOLEINPUT_MSG)
+                : 0;
+        const auto requested = output_buffer / sizeof(INPUT_RECORD);
+        const auto local_capacity =
+            (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETCONSOLEINPUT_MSG)) /
+            sizeof(INPUT_RECORD);
+        return std::min<size_t>(requested, local_capacity);
     }
 
   public:
@@ -929,25 +940,6 @@ struct pipe_bridge
     //  I/O Handlers
     // ════════════════════════════════════════════════════
 
-    // ── RAW_WRITE: msg.body 就是原始文本, 无 CONSOLE_WRITECONSOLE_MSG 头 ──
-    bool handle_raw_write(miniio::io_msg &msg)
-    {
-        // RAW_WRITE 没有 Console API 头，InputSize 就是要透传给终端的字节数。
-        // completion 的 transferred bytes 也使用同一个值，匹配 ConDrv 对
-        // WriteFile/WriteConsoleA 低层路径的期望。
-        auto str_bytes = msg.descriptor.InputSize;
-        if (str_bytes == 0)
-        {
-            miniio::prepare_completion(msg, 0, 0);
-            return true;
-        }
-        vt_flush();
-        DWORD _ = 0;
-        ::WriteFile(vt_out.get(), msg.body, str_bytes, &_, nullptr);
-        miniio::prepare_completion(msg, 0, str_bytes);
-        return true;
-    }
-
     // ── RAW_READ (挂起模式) ──
     bool handle_raw_read(miniio::io_msg &msg)
     {
@@ -1048,6 +1040,14 @@ struct pipe_bridge
         auto *out = reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                      sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
         const auto max_count = console_input_max_records(msg);
+        if (max_count == 0)
+        {
+            req->NumRecords = 0;
+            miniio::prepare_completion(msg, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+            msg.complete.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
+            msg.complete.Write.Size = sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+            return true;
+        }
 
         const bool peek = (req->Flags & CONSOLE_READ_NOREMOVE) != 0;
         const bool wait_allowed = (req->Flags & CONSOLE_READ_NOWAIT) == 0;
@@ -1577,7 +1577,15 @@ struct pipe_bridge
     {
         // 只保存非空且不同于上一条的命令，避免连续 Enter 或重复提交污染历史。
         if (!_cooked_buf.empty() && (_history.empty() || _history.back() != _cooked_buf))
+        {
             _history.push_back(_cooked_buf);
+            trim_history_to_capacity();
+        }
+    }
+    void trim_history_to_capacity()
+    {
+        if (_history.size() > _history_max)
+            _history.erase(_history.begin(), _history.begin() + static_cast<std::ptrdiff_t>(_history.size() - _history_max));
     }
     void history_break_browse()
     {
@@ -1681,7 +1689,7 @@ struct pipe_bridge
     }
     void input_printable(char32_t ch, BYTE raw)
     {
-        WORD vk = ascii_to_vk(raw);
+        WORD vk = ascii_to_vk(static_cast<WCHAR>(ch));
         LOG(L"[in] PRINTABLE ch=U+%04X vk=0x%X uc=0x%X", (unsigned)ch, vk, (unsigned)(WCHAR)ch);
         // 非 ConsoleRead 模式下应用从 GetConsoleInput 获取按键事件；同时维护
         // cooked_buf 只用于本层对 Enter/历史等兼容行为的内部判断。
@@ -1862,7 +1870,10 @@ struct pipe_bridge
             }
 
             // ── 1. 解码：UTF-8 → char32_t ──
-            char32_t ch = *_utf8_decoder(static_cast<uint8_t>(b));
+            auto decoded = _utf8_decoder(static_cast<uint8_t>(b));
+            if (!decoded)
+                continue;
+            char32_t ch = *decoded;
 
             // ── 2. 解析 ──
             vt_message_id id = _parser.parse(ch);
@@ -1873,7 +1884,12 @@ struct pipe_bridge
                 // 响应编辑键和回显，所以这里立即消费并重置文本累积。
                 LOG(L"[in] TEXT ch=U+%04X raw=0x%02X kind=%d", (unsigned)ch, b, (int)_pend_kind);
                 if (_pend_kind == PendingKind::ConsoleRead)
-                    _edit_insert(ch, b);
+                {
+                    if (ch <= 0x7F)
+                        _edit_insert(ch, b);
+                    else
+                        edit_insert_codepoint(ch);
+                }
                 else
                     _write_char_key_event(ch, b);
                 _parser.reset(vt_message_id::continue_text); // 清累积文本
@@ -2438,8 +2454,7 @@ struct pipe_bridge
         _read_total = 0;
         _echo_start = 0;
 
-        if (!_cooked_buf.empty() && (_history.empty() || _history.back() != _cooked_buf))
-            _history.push_back(_cooked_buf);
+        history_push();
 
         // completion 后所有行编辑临时状态失效；下一次 ReadConsole 重新从当前
         // cursor 和 prompt 边界建立编辑上下文。
@@ -2482,6 +2497,20 @@ struct pipe_bridge
         auto *out =
             reinterpret_cast<INPUT_RECORD *>(m.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
         const auto max_count = console_input_max_records(m);
+        if (max_count == 0)
+        {
+            req->NumRecords = 0;
+            miniio::prepare_completion(m, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+            m.complete.Write.Data = m.body + sizeof(CONSOLE_MSG_HEADER);
+            m.complete.Write.Size = sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+
+            auto comp = m.complete;
+            _pend_kind = PendingKind::None;
+            _pend_input = nullptr;
+
+            miniio::complete_io(server, comp);
+            return;
+        }
 
         const auto count = (req->Flags & CONSOLE_READ_NOREMOVE) ? inp.peek(out, max_count) : inp.read(out, max_count);
         req->NumRecords = static_cast<ULONG>(count);
@@ -2577,11 +2606,76 @@ struct pipe_bridge
     {
         return _history.size();
     }
+
+    void api_clear_history()
+    {
+        _history.clear();
+        _history_idx = static_cast<size_t>(-1);
+        _saved_input.clear();
+    }
+
+    void api_set_history_capacity(size_t max_commands)
+    {
+        _history_max = max_commands;
+        trim_history_to_capacity();
+    }
+
+    size_t api_history_length(bool unicode, UINT code_page) const
+    {
+        size_t total = 0;
+        std::wstring wide;
+        std::string ansi;
+        for (const auto &command : _history)
+        {
+            convert_u32_to_wstr(command, wide);
+            if (unicode)
+                total += wide.size() + 1;
+            else
+            {
+                convert_wstr_to_ansi(wide, code_page, ansi);
+                total += ansi.size() + 1;
+            }
+        }
+        return total * (unicode ? sizeof(wchar_t) : 1);
+    }
+
+    size_t api_write_history(bool unicode, UINT code_page, BYTE *out, size_t out_cap) const
+    {
+        size_t written = 0;
+        std::wstring wide;
+        std::string ansi;
+        for (const auto &command : _history)
+        {
+            convert_u32_to_wstr(command, wide);
+            if (unicode)
+            {
+                auto need = (wide.size() + 1) * sizeof(wchar_t);
+                if (written + need > out_cap)
+                    return written;
+                std::memcpy(out + written, wide.data(), wide.size() * sizeof(wchar_t));
+                written += wide.size() * sizeof(wchar_t);
+                const wchar_t terminator = L'\0';
+                std::memcpy(out + written, &terminator, sizeof(terminator));
+                written += sizeof(wchar_t);
+            }
+            else
+            {
+                convert_wstr_to_ansi(wide, code_page, ansi);
+                auto need = ansi.size() + 1;
+                if (written + need > out_cap)
+                    return written;
+                std::memcpy(out + written, ansi.data(), ansi.size());
+                written += ansi.size();
+                out[written++] = '\0';
+            }
+        }
+        return written;
+    }
+
     void test_history_push()
     {
         // 模拟 complete_pending 保存历史
-        if (!_cooked_buf.empty() && (_history.empty() || _history.back() != _cooked_buf))
-            _history.push_back(_cooked_buf);
+        history_push();
         _cooked_buf.clear();
         _cooked_cursor = 0;
         _history_idx = static_cast<size_t>(-1);

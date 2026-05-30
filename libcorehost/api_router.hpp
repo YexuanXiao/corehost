@@ -115,6 +115,8 @@ struct api_router
     {
         // L1 包含代码页、模式、输入读取和 WriteConsole 等基础 API。
         auto &sb = active_screen_buffer();
+        auto object_kind = io.kind_from_object(msg.descriptor.Object);
+        const bool input_handle = object_kind != io_state::object_kind::output;
         // api==4 是 GetConsoleInput，PSReadLine 会高频轮询；不记录以免刷屏。
         if (api != 4)
             LOG("[dispatch] L1 api=%lu", api);
@@ -123,9 +125,9 @@ struct api_router
         case 0:
             return api_get_cp(msg, state, sb, inp, bridge);
         case 1:
-            return api_get_mode(msg, state, sb, inp, bridge);
+            return api_get_mode(msg, state, sb, inp, bridge, input_handle);
         case 2:
-            return api_set_mode(msg, state, sb, inp, bridge);
+            return api_set_mode(msg, state, sb, inp, bridge, input_handle);
         case 3:
             return api_get_num_input(msg, state, sb, inp, bridge);
         case 4:
