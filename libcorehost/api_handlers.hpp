@@ -926,13 +926,17 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
     }
     if (is_fullscreen_space)
     {
-        // 全屏空格填充通常来自 Clear-Host/cls。直接发送 ED2 比逐格写空格
-        // 更接近终端行为，并避免把行编辑的 enter_pending_newline 带到清屏后。
+        // 全屏空格填充通常来自 Clear-Host/cls。ED2 清可见屏幕，ED3 请求
+        // Windows Terminal 同时清 scrollback，避免滚动条拖回旧内容。
         bridge.reset_enter_newline();
-        vt_message m{};
-        m.erase_mode = 2;
-        bridge.vt_msg_send(vt_message_id::erase_in_display, m);
-        vt_msg_apply_state(vt_message_id::erase_in_display, m, state, sb);
+        vt_message erase_display{};
+        erase_display.erase_mode = 2;
+        bridge.vt_msg_send(vt_message_id::erase_in_display, erase_display);
+        vt_msg_apply_state(vt_message_id::erase_in_display, erase_display, state, sb);
+        vt_message erase_scrollback{};
+        erase_scrollback.erase_mode = 3;
+        bridge.vt_msg_send(vt_message_id::erase_in_display, erase_scrollback);
+        vt_msg_apply_state(vt_message_id::erase_in_display, erase_scrollback, state, sb);
         bridge.vt_flush();
     }
     else
@@ -1305,13 +1309,14 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
     }
     if (full_screen_scroll && fill_char == U' ')
     {
-        // cls 清屏使用 ED2+Home，避免把整屏滚动翻译成大量 IL/DL。
-        bridge.vt_append_str("\x1b[2J\x1b[H"sv);
+        // cls 清屏使用 ED2+ED3+Home，避免把整屏滚动翻译成大量 IL/DL；
+        // ED3 清掉终端 scrollback。
+        bridge.vt_append_str("\x1b[2J\x1b[3J\x1b[H"sv);
         bridge.vt_flush();
         // ── 同步 state 光标和终端光标到 (0,0) ──
         state.cursor.position = {0, 0};
         bridge.sync_cursor_after_write({0, 0});
-        LOG("[api_scroll_sb] cls: sent ED2+H, cursor->(0,0)");
+        LOG("[api_scroll_sb] cls: sent ED2+ED3+H, cursor->(0,0)");
     }
     else
     {
