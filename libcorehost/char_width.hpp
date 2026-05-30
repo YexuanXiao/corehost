@@ -1,15 +1,12 @@
 // ── conpty/char_width.hpp ──────────────────────────
-// 字符宽度计算 (char32_t 版本，支持 grapheme cluster)
+// 字符宽度计算。
 //
-// 三种文本测量模式:
-//   console   — 简化 CJK/全角判断 (char32_t 范围)
-//   wcswidth  — ICU/libunicode width(char32_t) (wcwidth 等效)
-//   graphemes — grapheme cluster width (含 emoji VS16/VS15)
+// 功能分解：
+// 1. console 模式用固定 Unicode 范围模拟传统 conhost 宽度判断。
+// 2. wcswidth 模式使用 ICU/libunicode，并按 ambiguous_is_wide 修正 EAW=A。
+// 3. graphemes 模式先分割 grapheme cluster，再把单个 cluster 钳制到 2 列。
 //
-// 与 conpty/char_width.hpp 的区别:
-//   - 输入为 char32_t 而非 wchar_t
-//   - graphemes 模式在段级别计算总宽度（不是逐码点）
-//   - CJK 范围扩展至完整 Unicode 区域
+// 返回值约定：0 表示不占列，1 表示单列，2 表示双列。
 #pragma once
 #include <cstdint>
 #include <string_view>
@@ -31,6 +28,8 @@ namespace conpty
 // 注意: 控制字符与 tab 由调用方处理
 inline int char_width_console(char32_t cp) noexcept
 {
+    // console 模式刻意不依赖 ICU/EAW 数据表；它提供稳定、低成本的宽度估计，
+    // 用于传统 Console API 的格子模型。
     // 控制字符（含 DEL）
     if (cp < 0x20)
         return 0;
@@ -198,9 +197,14 @@ inline int grapheme_cluster_width_u32(std::u32string_view cluster, bool ambiguou
 {
     if (cluster.empty())
         return 0;
+
+    // width 是 cluster 内各码点宽度累计值，最后钳制到终端单个 cluster
+    // 能占据的最大 2 列。
     int width = 0;
     for (char32_t cp : cluster)
     {
+        // cluster 内组合标记通常为 0 宽；emoji variation selector 需要覆盖
+        // 默认 width，使整个 cluster 最终按宽 emoji 显示。
         int w = char_width_unicode(cp, ambiguous_is_wide);
         // 对标原始 CodepointWidthDetector::_graphemeNext:
         // VS16 会把 emoji presentation 强制为宽字符，最终 cluster 宽度再 clamp 到 2。
@@ -217,6 +221,8 @@ inline int grapheme_text_width(std::u32string_view text, bool ambiguous_is_wide 
 {
     if (text.empty())
         return 0;
+
+    // total 是整段文本的列宽，不做 2 列钳制。
     int total = 0;
     for (auto seg = unicode::grapheme_segmenter{text}; seg; ++seg)
         total += grapheme_cluster_width_u32(*seg, ambiguous_is_wide);
@@ -245,6 +251,8 @@ inline int char_width_for_mode(char32_t cp, text_measurement_mode mode, bool amb
 inline int text_width_for_mode(std::u32string_view text, text_measurement_mode mode,
                                bool ambiguous_is_wide = false) noexcept
 {
+    // graphemes 模式按 cluster 分段；其他模式逐 codepoint 累加，调用方用该
+    // 返回值推进 Console 光标或计算填充宽度。
     switch (mode)
     {
     case text_measurement_mode::graphemes:

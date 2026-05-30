@@ -1,11 +1,10 @@
 // ── conpty/vt_input_engine.hpp ─────────────────────
-// Layer 2: VT 消息 → INPUT_RECORD 转换引擎 (char32_t 版本)
+// Layer 2: VT 键盘消息到 INPUT_RECORD 的转换。
 //
-// 与 conpty/vt_input_engine.hpp 的区别:
-//   - 使用 conpty::vt_message (char32_t 解析器输出)
-//   - convert(): vt_message → INPUT_RECORD
-//   - convert_text(): char32_t 文本 → INPUT_RECORD 序列 (含 char32_t→WCHAR 转换)
-//   - convert_text() 直接操作 char32_t, 不再手工 UTF-8 解码
+// 功能分解：
+// 1. convert 把解析器产出的键盘类 vt_message 映射为单条 KEY_EVENT_RECORD。
+// 2. convert_text 把普通文本拆成可写入 input_buffer 的 KEY_EVENT_RECORD 序列。
+// 3. ctrl_state 保存当前修饰键状态，并写入每条生成的 key event。
 #pragma once
 #include <windows.h>
 #include <string>
@@ -17,12 +16,16 @@ namespace conpty
 
 struct vt_input_engine
 {
+    // 当前键盘修饰键状态，取值为 LEFT_CTRL_PRESSED 等 ControlKeyState 标志位组合。
     DWORD ctrl_state = 0;
 
     // ── convert: (vt_message_id + vt_message) → INPUT_RECORD ──
     // id 由 parse() 返回, msg 由 parser.get() 提供 (二者分离)
     bool convert(vt_message_id id, const vt_message &msg, INPUT_RECORD &rec)
     {
+        // convert 只生成 KEY_DOWN；pipe_bridge 在需要完整按下/释放对时会额外
+        // 构造 KEY_UP。这样 ConsoleRead 本地编辑可只消费按下事件。
+        // rec 先初始化为一个 key-down 事件；非键盘消息返回 false。
         rec.EventType = KEY_EVENT;
         auto &ke = rec.Event.KeyEvent;
         ke.bKeyDown = true;
@@ -128,6 +131,7 @@ struct vt_input_engine
             ke.uChar.UnicodeChar = L'\b';
             return true;
         case vt_message_id::char_sub:
+            // Ctrl+Z 在控制台输入里以 SUB 字符出现，VK 值沿用 ASCII 26。
             ke.wVirtualKeyCode = 26;
             ke.uChar.UnicodeChar = 0x1A;
             return true;
@@ -149,6 +153,7 @@ struct vt_input_engine
     template <typename Func>
     void convert_text(std::u32string_view text, Func &&emit_record, bool append_enter = false)
     {
+        // emit_record 会被调用 0..N 次；代理对字符会产生两个 UTF-16 record。
         INPUT_RECORD rec;
         rec.EventType = KEY_EVENT;
         auto &ke = rec.Event.KeyEvent;
@@ -159,7 +164,7 @@ struct vt_input_engine
         for (char32_t cp : text)
         {
             if (cp < 0x20 && cp != U'\t')
-                continue; // 控制字符跳过
+                continue; // 除 tab 外，文本输入不把 C0 控制字符写入队列。
 
             if (cp == U'\t')
             {
@@ -169,7 +174,8 @@ struct vt_input_engine
             else
             {
                 ke.wVirtualKeyCode = 0;
-                // char32_t → wchar_t (含代理对 → 需拆分为多个 INPUT_RECORD)
+                // Unicode 文本输入不一定有稳定 VK；用 VK=0 + UnicodeChar 表示
+                // 字符输入。非 BMP 字符拆成 UTF-16 code unit 逐条发送。
                 wchar_t wbuf[2];
                 int nw = to_wchar(cp, wbuf);
                 for (int i = 0; i < nw; ++i)
@@ -186,6 +192,8 @@ struct vt_input_engine
 
         if (append_enter)
         {
+            // append_enter 用于把一段文本模拟成已提交的行，末尾只追加
+            // KEY_DOWN Enter，由调用方决定是否需要 KEY_UP。
             ke.wVirtualKeyCode = VK_RETURN;
             ke.uChar.UnicodeChar = L'\r';
             ke.wVirtualScanCode = 0;

@@ -1,9 +1,13 @@
 // ── conpty/io_loop.hpp ────────────────────────────────────
-// ConDrv I/O 事件循环 — conpty 专用 (不调用 set_server_info)
+// ConDrv I/O 事件循环。
 //
-// 同 defterm::run_io_loop 但不调用 set_server_info，
-// 因为 cli/main.cpp 已在进入 conpty_entry 之前通过
-// miniio::set_server_info 注册了 InputAvailableEvent。
+// 功能分解：
+// 1. READ_IO 双缓冲：本轮 READ_IO 提交上一条 completion，同时读取下一条
+//    消息，因此接收缓冲不能覆盖上一条消息的 completion 数据。
+// 2. 空闲节流：没有 pending 和 completion 时先让 handler 处理 VT 输入，
+//    再短暂等待 server；不能等待 InputAvailableEvent，因为它服务客户端输入。
+// 3. 挂起请求：handler 返回 false 时进入 wait_for_pending_input，直到
+//    bridge 用 VT 输入完成挂起的 ReadConsole/RawRead/GetConsoleInput。
 //
 // Handler 需提供:
 //   bool on_connect(miniio::io_msg &msg, connect_completion &completion)
@@ -27,29 +31,46 @@ template <typename Handler>
 inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view ev, Handler &handler)
 {
     LOG("run_io_loop_no_setup: enter");
+
+    // server 是 READ_IO/COMPLETE_IO 的等待对象。ev 是 ConDrv InputAvailableEvent，
+    // 本循环不等待 ev：ev 只通知客户端输入可用，不能作为服务端消息节流信号。
+    (void)ev;
+
+    // READ_IO 会在同一次调用中提交上一条 completion 并读取下一条消息。
+    // 双缓冲保证 completion 中指向的 body 不会被下一条消息覆盖。
     miniio::io_msg msgA{}, msgB{};
+
+    // cur 只在 msgA/msgB 之间切换，指向本轮接收缓冲。
     miniio::io_msg *cur = &msgA;
-    miniio::io_msg *prev_done = nullptr; // 上一条已完成消息，其 completion 需在下一轮 read_io 中提交
+
+    // nullptr 表示本轮不提交 completion；非空表示上一条消息已经处理完，
+    // 其 completion 必须作为下一轮 READ_IO 的输入。
+    miniio::io_msg *prev_done = nullptr;
 
     for (;;)
     {
-        // ══ rate-limit: 无 pending 且无 completion 待提交时，先服务 VT 输入再短等待 ══
-        // vt_in 键盘管道可读不会触发 ConDrv ev；如果先睡 16ms，打字只能按 16ms
-        // 轮询粒度被发现，并会被 PowerShell/PSReadLine 的多请求路径继续放大。
-        // 但如果 prev_done != nullptr，completion 必须零延迟提交。
+        // 只有在没有 pending 请求、也没有 completion 待提交时才允许等待。
+        // prev_done 非空时必须立即 READ_IO，把 completion 交回 ConDrv。
         if (!handler.has_pending() && prev_done == nullptr)
         {
+            // on_idle 会主动读取 vt_in；键盘输入不会唤醒 server，所以等待前
+            // 必须先服务一次终端输入。
             handler.on_idle();
             if (handler.should_exit())
                 break;
             if (!handler.has_pending())
+                // 1ms 只是空闲节流；不能无限等待，因为 vt_in 不会唤醒 server。
                 ::WaitForSingleObject(server.get(), 1);
         }
 
-        // ── 对标原始 ReadIo(ReplyMsg, &ReceiveMsg):
-        //     将上一条已完成消息的 completion 作为 lpInBuffer 传入，
-        //     ConDrv 由此确认消息已处理，才会转发同一客户端的下一条消息。
+        // prev_comp 非空时由 ConDrv 消费；read_io_try 返回 no_message 后也不
+        // 能再次提交同一个 completion。
         CD_IO_COMPLETE *prev_comp = prev_done ? &prev_done->complete : nullptr;
+
+        // read_io_try 的三个结果含义：
+        // disconnected: server 已断开，本循环结束。
+        // no_message   : completion 已提交，但暂时没有新消息。
+        // message      : cur 中已有一条新的 ConDrv 消息。
         auto read_result = miniio::read_io_try(server, prev_comp, *cur);
         if (read_result == miniio::read_io_result::disconnected)
         {
@@ -58,17 +79,16 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         }
         if (read_result == miniio::read_io_result::no_message)
         {
+            // no_message 仍可能已经消费 prev_comp，因此必须清空 prev_done。
             prev_done = nullptr;
-            // 对标原版 ConDrvDeviceComm::ReadIo: ERROR_IO_PENDING 后先
-            // wait server handle 一次，让 ConDrv 消化这次无消息状态。
-            // ev 是传给 ConDrv 的 InputAvailableEvent，用于唤醒客户端
-            // 读输入；PowerShell/PSReadLine 路径可能让它保持 signaled，
-            // 因此不能用它给服务端消息循环节流。
+
+            // 0ms 只触发一次非阻塞等待，让 ConDrv 消化 pending 状态。
             ::WaitForSingleObject(server.get(), 0);
             handler.on_idle();
             if (handler.should_exit())
                 break;
             if (!handler.has_pending())
+                // 1ms 只是空闲节流；pending VT 输入仍由 on_idle/handler 处理。
                 ::WaitForSingleObject(server.get(), 1);
             continue;
         }
@@ -76,6 +96,7 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
 
         if (cur->descriptor.Function == 0)
         {
+            // Function==0 是空 descriptor，不对应可完成的 Console I/O。
             handler.on_idle();
             if (handler.should_exit())
                 break;
@@ -84,9 +105,10 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
 
         if (cur->descriptor.Function != CONSOLE_IO_CONNECT)
         {
+            // true 表示 handler 已经填好 cur->complete，下一轮 READ_IO 提交。
+            // false 表示请求挂起，handler 会在后续 VT 输入到达时显式完成。
             if (handler.on_message(*cur))
             {
-                // 立即完成 → 标记 completion，下一轮 read_io 提交
                 prev_done = cur;
                 handler.on_idle();
                 if (handler.should_exit())
@@ -94,9 +116,8 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             }
             else
             {
-                // 挂起: 阻塞等待 VT 输入，再由 bridge 完成挂起请求。
-                // 不能在这里等 server 句柄；挂起期间 ConDrv 可能保持 server 可等待，
-                // 用它节流会造成 corehost 在没有终端输入时高频空转。
+                // pending 期间只等待终端输入或关闭信号。继续等 server 会在
+                // 没有终端输入时重复唤醒，造成空转。
                 while (handler.has_pending())
                 {
                     handler.wait_for_pending_input();
@@ -112,9 +133,11 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         if (!handler.on_connect(*cur, connect_result))
             return;
 
+        // inline_complete 说明 handler 只填了 cur->complete，仍需要下一轮 READ_IO
+        // 把 completion 交给 ConDrv。
         if (connect_result == connect_completion::inline_complete)
         {
-            prev_done = cur; // 后续 CONNECT completion → 下一轮 read_io 提交
+            prev_done = cur;
         }
         else
         {

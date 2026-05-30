@@ -1,11 +1,12 @@
 // ── conpty/screen_buffer.hpp ──────────────────────
-// 屏幕缓冲区 — 纯 char32_t 内部存储, 对标 terminal/src/buffer/out/TextBuffer
+// 屏幕缓冲区。
 //
-// 内部: screen_buffer_row (u32string _text + column offsets + text_attribute)
-// CHAR_INFO 仅在 api_handlers 通过 row_to_char_info/row_from_char_info 转换,
-// 不进入 screen_buffer 的其他公开接口。
-//
-// grapheme cluster 支持: _columns offset + 0x8000 trailing flag
+// 功能分解：
+// 1. 以 screen_buffer_row 保存每行 glyph、列偏移和属性。
+// 2. 对 Console API 暴露 char32_t/WORD 操作，并在 row_to_ci/row_from_ci
+//    边界转换 CHAR_INFO。
+// 3. resize/scroll/fill 只改变本地缓冲区；VT 同步由 api_handlers 或
+//    vt_msg_dispatch 负责。
 #pragma once
 #include <windows.h>
 #include <cstring>
@@ -20,6 +21,7 @@ namespace conpty
 
 struct screen_buffer
 {
+    // 字符列/行数，必须保持 >= 1。resize 会修正非法输入。
     COORD size{default_console_size};
 
     screen_buffer()
@@ -33,6 +35,7 @@ struct screen_buffer
 
     void resize(COORD new_size)
     {
+        // 控制台缓冲区不能为 0 行或 0 列。
         if (new_size.X < 1)
             new_size.X = 1;
         if (new_size.Y < 1)
@@ -40,11 +43,14 @@ struct screen_buffer
         if (new_size.X == size.X && new_size.Y == size.Y)
             return;
 
+        // old_rows 保存 resize 前内容。resize 是本地模型变更，不主动发 VT；
+        // 调用者若需要终端同步，必须在 API handler 中重绘或发 resize 序列。
         auto old_rows = std::move(_rows);
         auto old_size = size;
         size = new_size;
         _ensure_rows();
 
+        // 只复制新旧高度重叠的行；copy_from 自己按目标宽度截断列。
         SHORT copy_h = old_size.Y < new_size.Y ? old_size.Y : new_size.Y;
         for (SHORT y = 0; y < copy_h; ++y)
             _rows[y].copy_from(old_rows[y], 0, 0, static_cast<uint16_t>(old_size.X));
@@ -65,6 +71,8 @@ struct screen_buffer
     {
         if (!_valid(c))
             return;
+        // Console 模式只区分 1/2 列宽；组合字符和控制字符在这里至少占一列，
+        // 防止屏幕模型出现 0 宽单元格。
         int cw = char_width_for_mode(cp, text_measurement_mode::console);
         if (cw < 1)
             cw = 1;
@@ -114,6 +122,8 @@ struct screen_buffer
     {
         if (!_valid_y(start.Y))
             return;
+        // FillConsoleOutputAttribute 在当前实现中只覆盖 start 所在行；超过行尾
+        // 的部分由 row 层截断。
         auto &rr = row(start.Y);
         rr.fill_attrs(static_cast<uint16_t>(start.X), static_cast<uint16_t>(start.X + static_cast<SHORT>(count)),
                       text_attribute{attr});
@@ -122,6 +132,7 @@ struct screen_buffer
     // ── fill (char32_t) ──
     struct fill_result
     {
+        // length_read 是请求可视为已消费的单元数；cells_modified 是实际改变的列数。
         ULONG length_read = 0;
         ULONG cells_modified = 0;
     };
@@ -135,6 +146,8 @@ struct screen_buffer
         if (rs >= static_cast<ULONG>(size.X))
             return r;
         ULONG rem = static_cast<ULONG>(size.X) - rs;
+        // 目前 fill_* 只处理单行，n 不能越过当前行末。length_read 与
+        // cells_modified 相同，表示实际完成的控制台单元格数。
         ULONG n = count < rem ? count : rem;
         auto &rr = row(start.Y);
         for (ULONG i = 0; i < n; ++i)
@@ -164,6 +177,7 @@ struct screen_buffer
     // ── write_character: char32_t 序列写入 ──
     size_t write_char32(COORD start, const char32_t *chars, size_t len)
     {
+        // 返回实际写入的 char32_t 数量；可能小于 len，表示到达行尾或 Y 无效。
         if (!_valid_y(start.Y))
             return 0;
         SHORT x = start.X;
@@ -171,6 +185,8 @@ struct screen_buffer
         auto &rr = row(start.Y);
         while (w < len && x < size.X)
         {
+            // x 按显示列推进，w 按输入 codepoint 推进；双宽字符会消耗两列，
+            // 但返回值仍是已消费的输入字符数。
             int cw = char_width_for_mode(chars[w], text_measurement_mode::console);
             if (cw < 1)
                 cw = 1;
@@ -186,6 +202,7 @@ struct screen_buffer
 
     size_t write_attr_seq(COORD start, const WORD *attrs, size_t len)
     {
+        // 返回实际写入的属性数量；可能小于 len，表示到达行尾或 Y 无效。
         if (!_valid_y(start.Y))
             return 0;
         SHORT x = start.X;
@@ -203,6 +220,7 @@ struct screen_buffer
     // ── read (wchar_t 兼容, 供 api_handlers 以 ConDrv 格式导出) ──
     size_t read_wchars(COORD start, wchar_t *out, size_t max_len) const noexcept
     {
+        // 返回实际导出的 wchar_t 数量；非 BMP glyph 以 U+FFFD 代替。
         if (!_valid_y(start.Y))
             return 0;
         SHORT x = start.X;
@@ -220,6 +238,7 @@ struct screen_buffer
 
     size_t read_attrs(COORD start, WORD *out, size_t max_len) const noexcept
     {
+        // 返回实际导出的属性数量；可能小于 max_len。
         if (!_valid_y(start.Y))
             return 0;
         SHORT x = start.X;
@@ -237,6 +256,7 @@ struct screen_buffer
     // ── clear ──
     void clear(WORD attr = 0x07)
     {
+        // 0x07 是传统白前景/黑背景属性。
         for (auto &r : _rows)
             r = screen_buffer_row(static_cast<uint16_t>(size.X), attr);
     }
@@ -244,15 +264,19 @@ struct screen_buffer
     // ── scroll (纯 char32_t + WORD) ──
     void scroll(SMALL_RECT sr, SMALL_RECT clip, bool use_clip, COORD dest, char32_t fill_char, WORD fill_attr)
     {
+        // sr 是源矩形；clip 为可写区域；dest 是源矩形左上角移动后的目标位置。
         _clamp(sr);
         if (!_rvalid(sr))
             return;
+        // 没有 clip 时，整个缓冲区都是可写范围；有 clip 时，源和目标都要裁剪
+        // 到 clip 内，clip 外内容保持不变。
         if (use_clip)
             _clamp(clip);
         else
             clip = {0, 0, static_cast<SHORT>(size.X - 1), static_cast<SHORT>(size.Y - 1)};
 
         SMALL_RECT src = sr;
+        // src 是最终要复制的源区域，先取 sr 与 clip 的交集。
         if (src.Left < clip.Left)
             src.Left = clip.Left;
         if (src.Top < clip.Top)
@@ -267,8 +291,10 @@ struct screen_buffer
             return;
         }
 
+        // dx/dy 是源矩形相对目标位置的偏移。
         SHORT dx = dest.X - sr.Left, dy = dest.Y - sr.Top;
         SMALL_RECT dst = {src.Left + dx, src.Top + dy, src.Right + dx, src.Bottom + dy};
+        // 如果目标越界，反向收缩源区域，保持 src/dst 尺寸一致。
         if (dst.Left < clip.Left)
         {
             SHORT a = clip.Left - dst.Left;
@@ -302,6 +328,8 @@ struct screen_buffer
             return;
         }
 
+        // saved 保存源区域内容，避免源/目标重叠时覆盖尚未复制的行。每个
+        // saved row 使用完整缓冲区宽度，便于 copy_from 按列偏移写回。
         std::vector<screen_buffer_row> saved(sh);
         for (SHORT y = 0; y < sh; ++y)
         {
@@ -311,6 +339,8 @@ struct screen_buffer
         }
 
         SMALL_RECT fr = sr;
+        // Win32 scroll 会用 fill 字符填充原源矩形与 clip 的交集，然后再写回
+        // 移动后的内容；这会清掉未被目标覆盖的旧区域。
         if (fr.Left < clip.Left)
             fr.Left = clip.Left;
         if (fr.Top < clip.Top)
@@ -330,6 +360,7 @@ struct screen_buffer
     // ── CHAR_INFO 行级转换 (仅 api_handlers 使用) ──
     void row_to_ci(SHORT y, CHAR_INFO *out) const noexcept
     {
+        // y 越界时不写 out；调用者通常已经准备好默认输出缓冲。
         if (y >= 0 && y < size.Y)
             row(y).to_char_info(out);
     }
@@ -344,14 +375,18 @@ struct screen_buffer
     {
         if (!_valid(c))
             return;
+        // erase 类 VT/API 操作使用空格覆盖单元格，并设置指定属性。
         row(c.Y).clear_cell(static_cast<uint16_t>(c.X), text_attribute{attr});
     }
 
   private:
+    // _rows.size() 必须等于 size.Y，每行宽度必须等于 size.X。
     std::vector<screen_buffer_row> _rows;
 
     void _ensure_rows()
     {
+        // _ensure_rows 重建所有行，不保留旧内容；需要保留内容的 resize 会在
+        // 调用前先保存 old_rows 并按交集复制回来。
         _rows.clear();
         _rows.reserve(static_cast<size_t>(size.Y));
         for (SHORT y = 0; y < size.Y; ++y)
@@ -388,6 +423,9 @@ struct screen_buffer
         _clamp(r);
         if (!_rvalid(r))
             return;
+        // 目前 clear_cell 固定写空格，cp 参数保留给 scroll/fill 的完整语义；
+        // 调用点传入的 fill_char 尚未参与实际绘制。
+        (void)cp;
         for (SHORT y = r.Top; y <= r.Bottom; ++y)
             for (SHORT x = r.Left; x <= r.Right; ++x)
                 row(y).clear_cell(static_cast<uint16_t>(x), text_attribute{attr});

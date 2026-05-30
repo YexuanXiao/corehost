@@ -197,7 +197,8 @@ struct vt_message
 // ── vt_parser ────────────────────────────────────────
 class vt_parser
 {
-    static constexpr size_t MAX_PARAMS = 16; // CSI 最大参数个数
+    // CSI 参数数量上限。超过该数量时标记 overflow，整条序列按文本处理。
+    static constexpr size_t MAX_PARAMS = 16;
 
   public:
     // 默认构造：自建内部缓冲（向后兼容测试）
@@ -235,6 +236,8 @@ class vt_parser
     // 释放累积文本为 text 消息并返回 text id；无残留文本时返回 continue_
     [[nodiscard]] vt_message_id flush_text()
     {
+        // flush_text 只交付地面态累积文本；正在解析 ESC/CSI/OSC 时不能调用它
+        // 来强行结束序列，否则非法序列会丢失原文。
         if (_ground_text_start == npos || _raw.empty())
             return vt_message_id::continue_;
         _msg.text = {_raw.data() + _ground_text_start, _raw.size() - _ground_text_start};
@@ -249,10 +252,14 @@ class vt_parser
         // ── 上次因 has_text + 控制字符而延迟的消息优先交付 ──
         if (_pending_control != vt_message_id::continue_)
         {
+            // 文本和控制字符不能在同一次返回里同时交付。上一次 parse 先返回
+            // text，这里再返回被延迟的 CR/LF/TAB/控制键消息。
             auto id = _pending_control;
             // \r\n 配对：将 CR 升级为 LF（\n 被吞掉但 LF 会在下一次排空时交付）
             if (id == vt_message_id::carriage_return && ch == U'\n')
             {
+                // CRLF 被拆成两次交付：本次返回 CR，下次 drain sentinel 或后续
+                // 字符再返回 LF，调用方可按自己的行尾策略决定是否消费 LF。
                 _pending_control = vt_message_id::line_feed;
                 _msg_id = id; // 本次交付 carriage_return
                 _msg.text = {};
@@ -273,13 +280,16 @@ class vt_parser
         // 如果上次因 text→ESC 过渡而暂存了 ESC，先还原
         if (_pending_esc)
         {
+            // 上次在普通文本后遇到 ESC，为了先返回 text 曾把 ESC 从 _raw 弹出。
+            // 现在恢复它并进入 ESC 状态，保证序列原文从 ESC 开始。
             _pending_esc = false;
             _raw += U'\x1B';
             _seq_start = _raw.size() - 1;
             _esc = true;
         }
 
-        // 所有字符无条件写入内部缓冲区，保证非法序列等也被记录
+        // 所有字符先写入 _raw。合法序列用结构化字段返回；非法序列则用
+        // _raw 的切片作为 text 透传，避免吞字节。
         _raw += ch;
 
         // ── echo 判定：仅地面态可打印字符及有视觉效果的 C0 字符回显 ──
@@ -314,12 +324,16 @@ class vt_parser
             {
                 if (ch == 0x07) // BEL 正常结束 OSC
                 {
+                    // OSC 以 BEL 结束时，BEL 本身保留在 _raw 里，dispatch 通过
+                    // 终止符位置计算 payload 范围。
                     bool ok = _dispatch_osc();
                     _osc = false;
                     return _finish_seq(ok);
                 }
                 if (ch == 0x1B) // ST 的开始 (ESC \)
                 {
+                    // ESC 可能是 OSC ST 的第一字节，也可能是非法中断。先切换到
+                    // ESC 状态，下一字符为 '\' 时才完成 OSC。
                     _osc = false;
                     _esc = true;
                     _osc_st = true; // 标记：此 ESC 来自 OSC，期待 ST
@@ -339,6 +353,8 @@ class vt_parser
             // 尚未遇到分号，解析 OSC 数字操作码
             if (!_osc_had_semi)
             {
+                // OSC 操作码只解析分号前的十进制数字。未知操作码也继续收集，
+                // 最终 dispatch 失败后作为 text 透传。
                 if (ch >= U'0' && ch <= U'9')
                 {
                     _osc_code = static_cast<short>(_osc_code * 10 + (ch - U'0'));
@@ -355,6 +371,8 @@ class vt_parser
             // 已进入 payload 区域
             if (_osc_code == 0 || _osc_code == 2)
             {
+                // 标题 payload 可能包含非 ASCII，直接保留在 _raw，最终返回
+                // u32string_view。
                 // 标题内容直接留在 raw 中，dispatch 时再定位
             }
             else
@@ -392,6 +410,8 @@ class vt_parser
             }
             if (ch >= U'0' && ch <= U'9')
             {
+                // CSI 参数按 short 存储；异常大的数字会在 dispatch/default 逻辑中
+                // 被截断或导致序列按文本处理。
                 _current_param = static_cast<short>(_current_param * 10 + (ch - U'0'));
                 _has_param = true;
                 return vt_message_id::continue_;
@@ -408,6 +428,8 @@ class vt_parser
             }
             if (ch >= 0x20 && ch <= 0x2F)
             {
+                // intermediate 只保留最后一个字节；当前支持的序列都只需要一个
+                // intermediate，例如 DECSTR 的 '!p'。
                 _intermediate = static_cast<char>(ch);
                 return vt_message_id::continue_;
             }
@@ -512,11 +534,12 @@ class vt_parser
         {
             bool has_text = (_ground_text_start != npos && _raw.size() > 1);
 
-            // ── ESC：先交付文本，ESC 暂存到 _pending_esc ──
             if (ch == 0x1B)
             {
                 if (has_text)
                 {
+                    // 普通文本后紧跟 ESC 时，先交付 ESC 前的文本。ESC 留给下次
+                    // parse 处理，避免一个返回值同时表示 text 和控制序列。
                     _msg.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
                     _raw.pop_back(); // 弹出 ESC，下次 parse 再还原
                     _pending_esc = true;
@@ -534,6 +557,7 @@ class vt_parser
             // ── \r \n：专用消息，前导文本先交付 ──
             if (ch == U'\r' || ch == U'\n')
             {
+                // CR/LF 不进入 _raw 文本视图；它们作为独立控制消息交付。
                 _raw.pop_back(); // 控制字符不进入 raw
                 vt_message_id cid = (ch == U'\r') ? vt_message_id::carriage_return : vt_message_id::line_feed;
                 if (has_text)
@@ -553,6 +577,8 @@ class vt_parser
             // ── \\t：cursor_forward_tab；有前导文本时先交付文本，tab 延迟 ──
             if (ch == U'\t')
             {
+                // Tab 在状态层表现为 cursor_forward_tab，在输入层表现为 VK_TAB。
+                // 有前导文本时同样先返回 text，再延迟交付 tab。
                 if (has_text)
                 {
                     _msg.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
@@ -596,11 +622,15 @@ class vt_parser
     // 根据已消费的消息类型重置受污染的字段与解析器状态。
     void reset(vt_message_id id)
     {
+        // reset 只清理刚刚交付消息污染过的字段。没有出现在该消息类型中的
+        // 字段保持默认值，避免下一条消息读到陈旧参数。
         // 根据消息类型重置受污染的数值字段
         switch (id)
         {
         // ── continue_text: 清除累积但未交付的单字符文本 ──
         case vt_message_id::continue_text:
+            // continue_text 是 bridge 立即消费的单字符文本；消费后可清空 raw，
+            // 否则每个可打印字符都会累积到后续消息视图里。
             _raw.clear();
             _ground_text_start = npos;
             break;
@@ -608,6 +638,8 @@ class vt_parser
         // ── 文本 / 标题 ──
         case vt_message_id::text:
         case vt_message_id::set_window_title:
+            // text/title 的 view 指向 _raw；调用者必须在 reset 前使用或复制。
+            // 本 switch 后的公共清理会释放该 view。
             break;
 
         // ── 换行/回车：无字段需重置 ──
@@ -783,42 +815,51 @@ class vt_parser
     }
 
   private:
-    vt_message _msg;                                  // 解析出的消息（不含 id）
-    vt_message_id _msg_id = vt_message_id::continue_; // 当前消息 id
+    // 解析出的消息体；消息类型由 _msg_id 或 parse() 返回值给出。
+    vt_message _msg;
+    vt_message_id _msg_id = vt_message_id::continue_;
 
     // ── 中央缓冲区与视图位置 ──
-    std::u32string &_raw;                      // 所有输入字符（外部引用，或 _internal_raw）
-    std::u32string _internal_raw;              // 默认构造时的 fallback 缓冲
-    static constexpr size_t npos = ~size_t{0}; // 无效位置标记
-    size_t _ground_text_start = npos;          // 当前普通文本段在 _raw 中的起始偏移
-    size_t _seq_start = 0;                     // 当前序列（ESC/CSI/OSC）在 _raw 中的起始偏移
+    // _raw 保存当前未消费输入，可能引用外部缓冲或 _internal_raw。
+    std::u32string &_raw;
+    std::u32string _internal_raw;
+
+    // npos 表示没有有效偏移。
+    static constexpr size_t npos = ~size_t{0};
+
+    // 当前普通文本段在 _raw 中的起始偏移；npos 表示没有累积文本。
+    size_t _ground_text_start = npos;
+
+    // 当前 ESC/CSI/OSC 序列在 _raw 中的起始偏移。
+    size_t _seq_start = 0;
 
     // ── 解析状态标志 ──
     bool _esc = false;            // 已收到 ESC，等待后续字符
     bool _csi = false;            // 已收到 CSI 引入符 '['
     bool _osc = false;            // 已收到 OSC 引入符 ']'
     bool _ss3 = false;            // 已收到 SS3 引入符 'O'
-    bool _private_marker = false; // CSI 参数中的 '?' 标记
+    bool _private_marker = false; // true 表示 CSI '?' private marker
     bool _pending_esc = false;    // text→ESC 过渡：下次 parse 先 push ESC
     bool _osc_st = false;         // ESC 来自 OSC 终止（等待 ST），非地面态裸 ESC
     bool _should_echo = false;    // 最近一次 parse() 的字符是否该回显
 
     // ── 延迟交付：has_text+控制字符时先交付文本，控制消息下次返回 ──
+    // continue_ 表示没有排队消息。
     vt_message_id _pending_control = vt_message_id::continue_;
 
     // ── CSI 参数收集 ──
-    std::array<short, MAX_PARAMS> _params{}; // 参数数组
-    size_t _param_index = 0;                 // 当前已收集参数个数
-    short _current_param = 0;                // 正在解析的当前参数值
-    bool _has_param = false;                 // 当前参数是否被显式赋值（用于区分默认值）
-    char _intermediate = 0;                  // CSI 序列中的中间字符（0x20-0x2F）
-    bool _csi_overflow = false;              // 参数数量或数值溢出标记
+    std::array<short, MAX_PARAMS> _params{};
+    size_t _param_index = 0;    // 当前已收集参数个数，范围 0..MAX_PARAMS
+    short _current_param = 0;   // 正在解析的当前参数值
+    bool _has_param = false;    // 当前参数是否被显式赋值（用于区分默认值）
+    char _intermediate = 0;     // 0 表示没有 CSI/ESC intermediate 字节
+    bool _csi_overflow = false; // 参数数量或数值溢出标记
 
     // ── OSC 参数收集 ──
-    short _osc_code = 0;             // OSC 操作码（数字）
-    std::array<char, 32> _osc_buf{}; // OSC 4 的调色板参数窄字符缓冲
-    size_t _osc_len = 0;             // _osc_buf 的有效长度
-    bool _osc_had_semi = false;      // 是否已经遇到分号（进入 payload）
+    short _osc_code = 0;             // OSC 操作码；0 表示尚未解析
+    std::array<char, 32> _osc_buf{}; // OSC 4 调色板参数窄字符缓冲
+    size_t _osc_len = 0;             // _osc_buf 的有效长度，范围 0.._osc_buf.size()
+    bool _osc_had_semi = false;      // true 表示已进入 payload
 
     // ── 内部辅助函数 ──
 
@@ -837,6 +878,8 @@ class vt_parser
     // 将当前正在收集的参数值保存到参数数组
     void _add_param()
     {
+        // 空参数通过 _has_param=false 表示；这里仍保存 0，dispatch 使用
+        // _get_param(i, default) 决定默认值。
         if (_param_index < MAX_PARAMS)
             _params[_param_index++] = _current_param;
         else
@@ -867,6 +910,7 @@ class vt_parser
         }
         else
         {
+            // 未识别序列按原文返回 text，调用方可以选择透传到终端而不是丢弃。
             _msg.text = {_raw.data() + _seq_start, _raw.size() - _seq_start};
             _msg_id = vt_message_id::text;
             _ground_text_start = _raw.size(); // 下一个文本起点
@@ -1055,7 +1099,8 @@ class vt_parser
     bool _dispatch_osc()
     {
         auto &m = _msg;
-        // 从 _raw 中取出整个 OSC 序列（从 ESC ] 到当前）
+        // seq 覆盖完整 OSC 序列，包括 ESC ] 和终止符；payload 在后面根据
+        // 操作码后的分号与终止符位置切片出来。
         std::u32string_view seq(_raw.data() + _seq_start, _raw.size() - _seq_start);
         if (seq.size() < 3 || seq[0] != U'\x1B' || seq[1] != U']')
             return false;
@@ -1099,7 +1144,7 @@ class vt_parser
         {
         case 0:
         case 2:
-            // 设置窗口标题
+            // OSC 0 和 OSC 2 都作为窗口标题处理；icon title 不单独建模。
             _msg_id = vt_message_id::set_window_title;
             m.title = payload; // 直接指向原始缓冲区
             return true;

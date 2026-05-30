@@ -1,7 +1,10 @@
 // ── conpty/signal.hpp ──────────────────────────────
-// PtySignal 管道线程 (char32_t 版本)
+// PtySignal 管道线程。
 //
-// 与 conpty/signal.hpp 相同 — 无文本编码依赖。
+// 功能分解：
+// 1. 从 WT 信号管道读取 PtySignal id 和对应 payload。
+// 2. ClearBuffer/ResizeWindow 直接更新 screen_buffer 和 console_state。
+// 3. 管道关闭或短读时退出线程，并置位 shutdown_event。
 #pragma once
 #include <windows.h>
 #include "win32/event.hpp"
@@ -23,8 +26,13 @@ struct screen_buffer;
 
 struct pty_signal_thread_params
 {
+    // pipe 是 WT 信号管道读端，线程独占所有权。
     win32::handle pipe;
+
+    // 线程退出时置位，唤醒主 I/O 路径停止等待。
     win32::event shutdown_event;
+
+    // state/sbuf 由 run_conpty_session 持有，信号线程只在会话存活期间访问。
     console_state &state;
     screen_buffer &sbuf;
 

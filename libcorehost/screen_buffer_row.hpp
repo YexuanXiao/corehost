@@ -1,12 +1,12 @@
 // ── conpty/screen_buffer_row.hpp ───────────────────
-// 屏幕缓冲区行存储 — 对标原始 terminal/src/buffer/out/Row.hpp
+// 屏幕缓冲区单行存储。
 //
-// 设计:
-//   _text:    std::u32string — 该行全部 char32_t 文本 (连续, 无 padding null)
-//   _columns: std::vector<uint16_t> — 列→_text 偏移量, 0x8000 标记宽字符的后半列
-//   _attrs:   std::vector<WORD> — 每列的传统属性 (16 色)
+// 功能分解：
+// 1. _text 连续保存一行内所有 glyph 的 char32_t 码点。
+// 2. _columns 把屏幕列映射到 _text 偏移；高位标记双宽 glyph 的 trailing 列。
+// 3. _attrs 按列保存 Win32 传统属性，CHAR_INFO 导出时直接使用。
 //
-// graphene cluster 支持:
+// grapheme cluster 支持:
 //   一个 glyph (grapheme cluster) 可能包含多个 char32_t (如 emoji ZWJ 序列),
 //   占据 1 或 2 列。_columns[col] 指向该 glyph 在 _text 中的起始偏移，
 //   下一非 trailing 列的偏移差 = glyph 的 char32_t 长度。
@@ -32,7 +32,8 @@ namespace conpty
 // ── TextAttribute (对标原始 TextAttribute, 简化版) ──
 struct text_attribute
 {
-    WORD legacy = 0x07; // 16 色传统属性
+    // 0x07 是传统白前景/黑背景；legacy 保存 Win32 16 色属性位。
+    WORD legacy = 0x07;
 
     text_attribute() = default;
     explicit text_attribute(WORD attr) : legacy(attr)
@@ -56,12 +57,20 @@ struct text_attribute
 // ── screen_buffer_row ─────────────────────────────────
 struct screen_buffer_row
 {
+    // _columns 的高位标记当前列是双宽/多列 glyph 的 trailing 列；
+    // 低 15 位保存 _text 偏移。单行文本长度必须保持在 OFFSET_MASK 范围内。
     static constexpr uint16_t TRAILING_FLAG = 0x8000;
     static constexpr uint16_t OFFSET_MASK = 0x7FFF;
 
-    std::u32string _text;               // char32_t 文本 (连续)
-    std::vector<uint16_t> _columns;     // 列→偏移 [0..width], _columns[width] 为 past-the-end
-    std::vector<text_attribute> _attrs; // 每列属性
+    // _text 连续保存所有 glyph 的 char32_t 码点；不包含按列填充的 NUL。
+    std::u32string _text;
+
+    // 大小为 width+1。_columns[width] 是 past-the-end 偏移，便于计算最后
+    // 一个 glyph 的长度。
+    std::vector<uint16_t> _columns;
+
+    // 大小为 width。trailing 列也保存属性，便于 CHAR_INFO 导出。
+    std::vector<text_attribute> _attrs;
 
     screen_buffer_row() = default;
 
@@ -70,7 +79,7 @@ struct screen_buffer_row
     {
         _columns.resize(static_cast<size_t>(width) + 1);
         _attrs.resize(width, text_attribute{default_attr});
-        // 所有列指向同一个空格字符
+        // 初始状态每一列都是独立空格，偏移等于列号。
         _text.assign(static_cast<size_t>(width), U' ');
         for (uint16_t i = 0; i <= width; ++i)
             _columns[i] = i;
@@ -85,6 +94,8 @@ struct screen_buffer_row
     // ── 偏移量读取 ──
     uint16_t col_offset(uint16_t col) const noexcept
     {
+        // 返回值已经去掉 trailing 标志；越界列按 0 处理，调用者通常会先用
+        // width() 做边界检查。
         return (col < _columns.size()) ? (_columns[col] & OFFSET_MASK) : 0;
     }
 
@@ -99,7 +110,8 @@ struct screen_buffer_row
         if (col >= width())
             return {};
         uint16_t start = col_offset(col);
-        // 跳过 trailing column 找到下一个非 trailing 列的真实偏移
+        // trailing 列与 leading 列共享 start。end_col 找到下一个非 trailing
+        // 列或 past-the-end sentinel，以便得到完整 glyph 的 codepoint 范围。
         uint16_t end_col = col + 1;
         while (end_col < width() && is_trailing(end_col))
             ++end_col;
@@ -118,7 +130,7 @@ struct screen_buffer_row
             return 0;
         if (is_trailing(col))
             return 0; // trailing half, width belongs to leading
-        // Count consecutive columns sharing the same offset
+        // 连续 trailing 列共享 leading 列偏移，计数即 glyph 宽度。
         uint16_t offset = col_offset(col);
         int w = 1;
         while (col + w < width() && is_trailing(static_cast<uint16_t>(col + w)))
@@ -140,6 +152,8 @@ struct screen_buffer_row
 
     void fill_attrs(uint16_t start, uint16_t end_excl, text_attribute a) noexcept
     {
+        // end_excl 是半开区间右边界；超过行宽的部分静默截断，匹配控制台 API
+        // 对短写的容忍行为。
         for (uint16_t c = start; c < end_excl && c < _attrs.size(); ++c)
             _attrs[c] = a;
     }
@@ -154,11 +168,13 @@ struct screen_buffer_row
         if (col + width_columns > width())
             width_columns = width() - col;
 
-        // 清除旧 glyph 的 trailing 标记并取得可用的 text 范围
+        // 如果 col 落在旧双宽 glyph 的 trailing 半列，必须先解除旧宽字符的列
+        // 关系，否则新 glyph 会和旧 leading 列共享偏移。
         _unwrap_glyph(col);
 
         uint16_t old_start = col_offset(col);
-        // old_end = 下一个非 trailing 列的起始偏移 (或 _text.size())
+        // old_end 是被替换 glyph 在 _text 中的结束偏移；用下一个非 trailing
+        // 列的 offset 推导，最后一列由 _columns[width()] sentinel 支持。
         uint16_t old_end = old_start;
         {
             uint16_t scan = col + 1;
@@ -167,8 +183,11 @@ struct screen_buffer_row
             old_end = (scan <= width()) ? col_offset(scan) : static_cast<uint16_t>(_text.size());
         }
 
+        // text.size() 必须能放入 OFFSET_MASK；当前屏幕模型把每个 glyph 的
+        // codepoint 序列嵌在一行 _text 中，offset 只有 15 位可用。
         uint16_t new_len = static_cast<uint16_t>(text.size());
-        // 替换 _text 中 [old_start, old_end) 为 text
+        // 替换 _text 中 [old_start, old_end) 为 text。replace 后，后续所有
+        // 非 trailing 列的 offset 都要按 delta 平移。
         if (old_end > _text.size())
             old_end = static_cast<uint16_t>(_text.size());
         if (old_start > old_end)
@@ -178,8 +197,8 @@ struct screen_buffer_row
 
         int16_t delta = static_cast<int16_t>(new_len) - static_cast<int16_t>(old_end - old_start);
 
-        // 更新 _columns 中 >= col 且非 trailing 的条目的偏移量
-        // 注意: 先清掉 col 处的 trailing, 再按 width_columns 设置
+        // 更新 _columns 中 >= col 且非 trailing 的条目的偏移量。trailing 列
+        // 没有自己的文本起点，稍后按新宽度重新标记。
         for (uint16_t c = col; c <= width(); ++c)
         {
             if (c == col || !is_trailing(c))
@@ -194,7 +213,8 @@ struct screen_buffer_row
             }
         }
 
-        // 设置宽度标记
+        // 设置宽度标记：leading 列保留普通 offset，后续列设置 TRAILING_FLAG
+        // 并指向同一个 offset。
         for (int w = 1; w < width_columns; ++w)
         {
             uint16_t tc = static_cast<uint16_t>(col + w);
@@ -218,13 +238,16 @@ struct screen_buffer_row
     // ── 从另一行拷贝一段列 ──
     void copy_from(const screen_buffer_row &src, uint16_t src_start, uint16_t dst_start, uint16_t count)
     {
+        // 按列复制时只从 leading 列复制 glyph。遇到 trailing 列跳过，避免把
+        // 一个双宽字符的后半列错误写成独立字符。
         uint16_t w = width();
         uint16_t sw = src.width();
         for (uint16_t i = 0; i < count && dst_start + i < w && src_start + i < sw; ++i)
         {
             uint16_t sc = static_cast<uint16_t>(src_start + i);
             if (src.is_trailing(sc))
-                continue; // skip trailing halves
+                // trailing 列由 leading glyph 一次写入，不能单独复制。
+                continue;
             write_glyph(static_cast<uint16_t>(dst_start + i), src.glyph_at(sc), src.glyph_width(sc), src.attr_at(sc));
         }
     }
@@ -234,6 +257,8 @@ struct screen_buffer_row
     {
         if (text.empty())
             return;
+        // fill 当前按单列重复 text；如果 text 本身代表宽 glyph，调用者应改用
+        // write_glyph 并传入正确 width。
         uint16_t w = width();
         for (uint16_t col = 0; col < w;)
         {
@@ -249,6 +274,8 @@ struct screen_buffer_row
         uint16_t w = width();
         for (uint16_t col = 0; col < w; ++col)
         {
+            // CHAR_INFO 只能容纳一个 UTF-16 code unit 和属性。内部多 codepoint
+            // glyph 在 API 边界降级为首码点，非 BMP 使用 U+FFFD。
             auto &ci = out[col];
             auto gv = glyph_at(col);
             if (!gv.empty())
@@ -274,7 +301,9 @@ struct screen_buffer_row
             wchar_t wch = src[i].Char.UnicodeChar;
             if (wch == 0)
                 continue;                                           // trailing 标记, 跳过
-            char32_t cp = (wch >= 0xD800 && wch <= 0xDBFF) ? 0xFFFD // 孤立代理
+            // CHAR_INFO 不携带完整 surrogate pair；孤立 high surrogate 不能直接
+            // 进入 char32_t 屏幕模型，使用替换字符。
+            char32_t cp = (wch >= 0xD800 && wch <= 0xDBFF) ? 0xFFFD // 孤立 UTF-16 high surrogate
                                                            : static_cast<char32_t>(wch);
             write_glyph(static_cast<uint16_t>(dst_col + i), std::u32string_view{&cp, 1}, 1,
                         text_attribute{src[i].Attributes});
@@ -285,7 +314,8 @@ struct screen_buffer_row
     // 清除 col 处 glyph 的 trailing 部分 (解除宽字符的后半列标记)
     void _unwrap_glyph(uint16_t col)
     {
-        // 找到此 glyph 覆盖的所有 trailing 列并清除标记
+        // 如果 col 是 trailing 列，从当前位置向右清掉连续 trailing 标记。
+        // 这让后续 write_glyph 可以把 col 当作新的 leading 列。
         uint16_t w = width();
         uint16_t scan = col;
         while (scan < w && is_trailing(scan))
@@ -293,7 +323,8 @@ struct screen_buffer_row
             _columns[scan] &= OFFSET_MASK;
             ++scan;
         }
-        // 再往后找到真正的 leading 之后的所有 trailing
+        // 如果刚才从 trailing 区中间开始，scan 会停在旧 glyph 后的 leading。
+        // 继续清理该 leading 后面的 trailing，避免旧宽度关系残留。
         if (scan < w && scan > col)
         {
             uint16_t end = scan;

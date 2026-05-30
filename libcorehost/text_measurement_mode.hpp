@@ -11,6 +11,8 @@ namespace conpty
 
 enum class text_measurement_mode
 {
+    // console 保持传统控制台宽度估计；graphemes 是默认交互路径；wcswidth
+    // 用于按 wcwidth 兼容 POSIX/终端宽度计算的场景。
     console = 0,
     graphemes,
     wcswidth

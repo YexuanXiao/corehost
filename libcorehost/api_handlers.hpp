@@ -1,11 +1,6 @@
 // ── conpty/api_handlers.hpp ────────────────────────
-// Layer 3: Console API handler 函数 (char32_t 版本)
-//
-// 与 conpty/api_handlers.hpp 的区别:
-//   - namespace conpty
-//   - WriteConsole/FillOutput 使用 char32_t 路径
-//   - title 字段为 std::u32string
-//   - VT 输出使用 vt_append_* + vt_flush (无 snprintf)
+// Layer 3: Console API handler。这里把 ConDrv 的用户态 API 消息转换为
+// console_state、screen_buffer、input_buffer 和 VT 输出操作。
 #pragma once
 #include <windows.h>
 #include <cstring>
@@ -38,6 +33,7 @@ struct pipe_bridge;
 // 不能直接把 attr&0x0F 透传给 SGR，否则红/蓝会互换。
 inline short win32_attr_color_to_sgr_index(WORD color) noexcept
 {
+    // 输入只使用低 4 位 Win32 BGRI 颜色；返回值是 SGR 0..15 颜色索引。
     short sgr = 0;
     if (color & FOREGROUND_RED)
         sgr |= 1;
@@ -52,6 +48,8 @@ inline short win32_attr_color_to_sgr_index(WORD color) noexcept
 
 inline void set_sgr_from_win32_attr(vt_message &m, WORD attr) noexcept
 {
+    // 调用者传入的是完整 Win32 属性 WORD。本函数只填充 vt_message 中和 SGR
+    // 有关的字段，其他字段保持调用前状态。
     m.fg_color = win32_attr_color_to_sgr_index(attr & 0x0F);
     m.bg_color = win32_attr_color_to_sgr_index((attr >> 4) & 0x0F);
 
@@ -64,6 +62,7 @@ inline void set_sgr_from_win32_attr(vt_message &m, WORD attr) noexcept
 
 inline bool is_line_terminator_echo(std::u32string_view text) noexcept
 {
+    // PowerShell 在 Enter 后可能补写纯换行 echo；这类文本不应再次显示。
     return text == U"\r"sv || text == U"\n"sv || text == U"\r\n"sv;
 }
 
@@ -71,6 +70,8 @@ inline bool is_line_terminator_echo(std::u32string_view text) noexcept
 
 inline void ucomplete(miniio::io_msg &msg)
 {
+    // USER_DEFINED API 的 completion payload 从 CONSOLE_MSG_HEADER 后开始；
+    // 零长度表示该 API 只需要状态码，不返回结构体。
     auto &c = miniio::prepare_completion(msg, 0, 0);
     c.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
     c.Write.Size = 0;
@@ -78,6 +79,7 @@ inline void ucomplete(miniio::io_msg &msg)
 
 inline void ucomplete_sz(miniio::io_msg &msg, ULONG sz)
 {
+    // sz 是 header 后返回给客户端的字节数，不包含 CONSOLE_MSG_HEADER。
     auto &c = miniio::prepare_completion(msg, 0, sz);
     c.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
     c.Write.Size = sz;
@@ -97,6 +99,8 @@ inline bool api_get_cp(miniio::io_msg &msg, console_state &state, screen_buffer 
 
 inline bool api_get_mode(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
+    // 当前模型没有分离 input/output handle 的 mode 查询；返回 input_mode 兼容
+    // 依赖 GetConsoleMode(stdin) 的 shell 路径。
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->Mode = state.input_mode;
     ucomplete_sz(msg, sizeof(CONSOLE_MODE_MSG));
@@ -105,6 +109,7 @@ inline bool api_get_mode(miniio::io_msg &msg, console_state &state, screen_buffe
 
 inline bool api_set_mode(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
+    // ConDrv 消息未携带要设置的具体 handle，本实现保持 input/output mode 一致。
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.input_mode = r->Mode;
     state.output_mode = r->Mode;
@@ -123,6 +128,7 @@ inline bool api_get_num_input(miniio::io_msg &msg, console_state &, screen_buffe
 inline bool api_get_console_input(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                                   pipe_bridge &bridge)
 {
+    // GetConsoleInput 可能同步完成，也可能由 bridge 挂起到输入事件到达。
     return bridge.handle_console_input(msg);
 }
 
@@ -148,30 +154,31 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
         auto &u32s = bridge.conv_u32();
         if (uni)
         {
+            // WriteConsoleW 的 NumBytes/输入长度仍按 UTF-16 字节计算；内部统一成
+            // char32_t，便于和 VT parser/screen_buffer 共用文本路径。
             auto *ws = reinterpret_cast<const wchar_t *>(sd);
             auto wl = sbytes / sizeof(wchar_t);
             convert_utf16_to_u32(std::wstring_view{ws, wl}, u32s);
         }
         else
         {
+            // 非 Unicode 路径使用当前输出代码页；0 是未初始化兜底，退回系统 ACP。
             convert_ansi_to_u32(reinterpret_cast<const char *>(sd), sbytes,
                                 state.output_code_page ? state.output_code_page : CP_ACP, u32s, bridge.conv_wstr());
         }
 
         if (!u32s.empty())
         {
-            // WriteConsole 必须使用 state.cursor.position —— cmd.exe 的
-            // 文本输出（含 \r\n）依赖此位置。echo 过程中终端光标独立移动，
-            // 但 CUP 会把终端光标拉回到 state 位置，保证后续 \r\n 正确换行。
             COORD start_pos = state.cursor.position;
             auto preview_len = static_cast<int>(std::min<size_t>(60, u32s.size()));
             LOG("[api_write_console] start: u32s_len=%zu sbytes=%lu start=(%d,%d) first=%.*ls", u32s.size(),
                 static_cast<unsigned long>(sbytes), static_cast<int>(start_pos.X), static_cast<int>(start_pos.Y),
                 preview_len, reinterpret_cast<const wchar_t *>(u32s.data()));
 
-            // ── DEC 行绘制预处理 ──
             if (state.dec_line_drawing_mode)
             {
+                // ESC(0 只影响后续文本字节的显示字符，不改变输入字节数量或
+                // WriteConsole 的 NumBytes 返回值。
                 for (auto &ch : u32s)
                     if (ch >= 0x5f && ch <= 0x7e)
                         ch = state.dec_to_unicode(static_cast<unsigned char>(ch));
@@ -179,15 +186,13 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
 
             vt_message m{};
 
-            // 1) 确保终端光标与 state.cursor.position 对齐。
-            //    PSReadLine 的 SetCursorPos 只更新了 state，但终端光标
-            //    可能因上一次 WriteConsole 的 \r\n 处于不同位置。
-            //    非 Enter 换行路径必须先发 CUP，确保文本从正确位置开始。
             bool need_cup = bridge.consume_enter_newline();
             LOG("[api_write_console] need_cup=%d state_start=(%d,%d)", need_cup, state.cursor.position.X,
                 state.cursor.position.Y);
             if (need_cup)
             {
+                // 输入桥接已经本地回显 Enter。这里把应用输出起点移动到当时锁定
+                // 的新行位置，而不是使用后续 SetCursorPos 可能修改过的坐标。
                 COORD nl_pos = bridge.get_enter_dest();
                 m.row = static_cast<short>(nl_pos.Y + 1);
                 m.col = static_cast<short>(nl_pos.X + 1);
@@ -195,11 +200,10 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
                 vt_msg_apply_state(vt_message_id::cursor_position, m, state, sb);
                 start_pos = state.cursor.position;
 
-                // Enter 已由输入桥接回显为一次换行。PowerShell/PSReadLine 随后常会
-                // WriteConsole("\r\n") 同步自己的行状态；这条纯换行 echo 若再写给
-                // 终端，就会产生空行。普通文本仍从 enter_dest 输出。
                 if (is_line_terminator_echo(u32s))
                 {
+                    // 这条 completion 仍报告原始 sbytes 已写入；只是终端输出被
+                    // 抑制，以避免 Enter 后多出空行。
                     bridge.vt_flush();
                     bridge.sync_cursor_after_write(state.cursor.position);
                     LOG("[api_write_console] swallowed enter echo newline");
@@ -210,26 +214,21 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
             }
             else
             {
-                // 始终发送 CUP 对齐终端光标与 state 位置。
-                // 真实 conhost 的 WriteConsole 从当前光标位置输出，
-                // 终端光标必须 = state.cursor.position，否则 \r\n
-                // 会导致后续文本输出到错误的行。
+                // 真实 conhost 的 WriteConsole 从当前 Console 光标输出；宿主
+                // 终端光标可能因本地 echo 不同，所以每次文本输出前都发送 CUP。
                 m.row = static_cast<short>(start_pos.Y + 1);
                 m.col = static_cast<short>(start_pos.X + 1);
                 bridge.vt_msg_send(vt_message_id::cursor_position, m);
             }
 
-            // 2) SGR 默认属性（确保终端以正确的默认颜色开始；若文本内嵌 SGR 序列，
-            //    后续 parser 会覆盖）
             WORD attr = state.default_attributes;
             m = vt_message{};
             set_sgr_from_win32_attr(m, attr);
             bridge.vt_msg_send(vt_message_id::sgr, m);
             vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
 
-            // 3) 文本经 vt_parser 分流 — parser 是文本分段的唯一权威。
-            //    \r\n 配对由 parser 内部处理：_pending_control 从 CR 升级为 LF，
-            //    reset 后无条件 drain 即可取出排队的 LF，不依赖额外标志。
+            // 文本经 vt_parser 分流：普通文字更新 screen_buffer，内嵌 SGR/OSC
+            // 等控制序列按结构化消息更新状态或透传到终端。
             filter_osc_sequences(u32s);
             vt_parser write_parser;
             for (char32_t ch : u32s)
@@ -244,7 +243,6 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
 
                 write_parser.reset(id);
 
-                // _pending_control 最多一个排队消息，一次 drain 即清空
                 if (auto id2 = write_parser.parse(U'\0');
                     id2 != vt_message_id::continue_ && id2 != vt_message_id::continue_text)
                 {
@@ -255,14 +253,14 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
                     write_parser.reset(id2);
                 }
             }
-            // 释放循环后残留的累积文本
+            // 释放循环后残留的累积文本；没有控制字符结束的普通输出会走这里。
             if (auto id = write_parser.flush_text(); id != vt_message_id::continue_)
             {
                 auto &pm = write_parser.get();
                 bridge.vt_msg_send(id, pm);
                 vt_msg_apply_state(id, pm, state, sb);
             }
-            // 排空 parser 残留的 _pending_control（如 \r 在文本末尾无后续 \n）
+            // 排空 parser 残留的 _pending_control，例如文本以单独 '\r' 结束。
             if (auto id = write_parser.parse(U'\0');
                 id != vt_message_id::continue_ && id != vt_message_id::continue_text)
             {
@@ -273,7 +271,8 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
                 write_parser.reset(id);
             }
 
-            // 4) 落盘并同步 bridge 内部光标追踪
+            // VT 已写入宿主终端后，同步 bridge 的行编辑边界到新的 Console
+            // 光标位置，供下一次 ReadConsole 使用。
             bridge.vt_flush();
             bridge.sync_cursor_after_write(state.cursor.position);
 
@@ -294,12 +293,15 @@ inline bool api_read_console(miniio::io_msg &msg, console_state &state, screen_b
 {
     auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     LOG("[api_read_console] unicode=%d ctrl_wakeup=%lu", req->Unicode, req->CtrlWakeupMask);
+    // Ctrl+Z 只有在 processed input 模式下作为 EOF；raw 模式应作为普通字符。
     bool proc_z = req->ProcessControlZ && (state.input_mode & ENABLE_PROCESSED_INPUT);
 
     auto initial_bytes = req->InitialNumBytes;
     const BYTE *init_data = nullptr;
     if (initial_bytes > 0)
     {
+        // InitialNumBytes 可能跟在 ExeName 后面。ExeNameLength 只用于跳过前缀，
+        // bridge 只关心真正要预填充到 ReadConsole 的初始输入。
         init_data = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
         if (req->ExeNameLength > 0)
         {
@@ -339,8 +341,8 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
         return true;
     }
 
-    // 保存原始 Length — sb.fill_* 只填单行会缩小 r->Length,
-    // 导致 is_fullscreen_space 判据失效 (120 < 3600 → ED2 不发)
+    // r->Length 最终要回写实际修改数；orig_length 保留请求长度，用于识别
+    // 全屏清空这种“请求覆盖整个缓冲区”的语义。
     ULONG orig_length = r->Length;
 
     if (r->ElementType == CONSOLE_ATTRIBUTE)
@@ -365,10 +367,8 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
         r->Element, r->ElementType, is_fullscreen_space ? 1 : 0);
     if (is_fullscreen_space)
     {
-        // ── VT 消息驱动: ED2 清屏 ──
-        // 全屏空格填充说明 shell 在执行 Clear-Host / cls，
-        // 光标已由 api_set_cursor_pos(0,0) 或 shell 管理。
-        // 清除 Enter 残留的换行标志，防止后续 prompt 的 CUP 覆盖清屏。
+        // 全屏空格填充通常来自 Clear-Host/cls。直接发送 ED2 比逐格写空格
+        // 更接近终端行为，并避免把行编辑的 enter_pending_newline 带到清屏后。
         bridge.reset_enter_newline();
         vt_message m{};
         m.erase_mode = 2;
@@ -378,7 +378,8 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
     }
     else
     {
-        // ── DECSC → CUP → (SGR|text) → DECRC ──
+        // 局部填充不应改变应用可见光标。终端侧用 save/CUP/write/restore，
+        // 本地 screen_buffer 已在上方 fill_* 完成。
         vt_message msg_save{};
         bridge.vt_msg_send(vt_message_id::save_cursor, msg_save);
         vt_msg_apply_state(vt_message_id::save_cursor, msg_save, state, sb);
@@ -391,6 +392,8 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
 
         if (r->ElementType == CONSOLE_ATTRIBUTE)
         {
+            // 属性填充只改变终端后续绘制属性；screen_buffer 中对应列的属性
+            // 已由 sb.fill_attr 更新。
             WORD fill_attr = static_cast<WORD>(r->Element);
             vt_message m_sgr{};
             set_sgr_from_win32_attr(m_sgr, fill_attr);
@@ -399,7 +402,8 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
         }
         else
         {
-            // text fill — 复用 bridge 持久缓冲
+            // text fill 使用重复 codepoint 构造临时 text 视图；缓冲属于 bridge，
+            // vt_msg_send 只在调用期间读取。
             auto &fill_text = bridge.conv_u32();
             fill_text.assign(static_cast<size_t>(r->Length), static_cast<char32_t>(r->Element));
             vt_message m_text{};
@@ -421,6 +425,8 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
 inline bool api_ctrl_event(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &bridge)
 {
     auto *r = reinterpret_cast<CONSOLE_CTRLEVENT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    // GenerateConsoleCtrlEvent 面向进程组；Ctrl+C 额外写入 ^C 字节让宿主终端
+    // 立即出现传统控制台反馈。
     ::GenerateConsoleCtrlEvent(r->CtrlEvent, r->ProcessGroupId);
     if (r->CtrlEvent == CTRL_C_EVENT)
     {
@@ -440,6 +446,8 @@ inline bool api_set_active_sb(miniio::io_msg &msg, console_state &, screen_buffe
 inline bool api_flush_input_buf(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
                                 pipe_bridge &bridge)
 {
+    // FlushConsoleInputBuffer 也要取消等待输入的 pending 读，否则客户端可能在
+    // 已清空队列后继续挂起。
     inp.flush();
     bridge.cancel_pending_read();
     ucomplete(msg);
@@ -469,6 +477,7 @@ inline bool api_get_cursor(miniio::io_msg &msg, console_state &state, screen_buf
 inline bool api_set_cursor(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                            pipe_bridge &bridge)
 {
+    // CursorSize 只保存在本地状态；当前 VT 输出只同步可见性。
     auto *r = reinterpret_cast<CONSOLE_SETCURSORINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.cursor.size = r->CursorSize;
     state.cursor.visible = r->Visible != FALSE;
@@ -485,6 +494,7 @@ inline bool api_get_sb_info(miniio::io_msg &msg, console_state &state, screen_bu
     auto *r = reinterpret_cast<CONSOLE_SCREENBUFFERINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     std::memset(r, 0, sizeof(*r));
     if (state.cursor_position_dirty)
+        // dirty 标志表示之前有延迟 cursor 同步需求；查询时返回当前 state 后即可清除。
         state.cursor_position_dirty = false;
     r->Size = state.screen_buffer_size;
     r->CursorPosition = state.cursor.position;
@@ -496,13 +506,15 @@ inline bool api_get_sb_info(miniio::io_msg &msg, console_state &state, screen_bu
     r->PopupAttributes = state.popup_attributes;
     r->FullscreenSupported = FALSE;
     std::memcpy(r->ColorTable, state.color_table, sizeof(state.color_table));
-    // LOG 已移除以减少噪音，GetSBInfo 是 PSReadLine 高频轮询 API
+    // GetSBInfo 是 PSReadLine 高频轮询 API，不在这里记录普通路径日志。
     ucomplete_sz(msg, sizeof(CONSOLE_SCREENBUFFERINFO_MSG));
     return true;
 }
 
 inline bool api_set_sb_info(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &, pipe_bridge &)
 {
+    // SetScreenBufferInfo 是批量状态导入；所有坐标先写入 state，再按新尺寸
+    // 钳制 cursor 并调整本地 screen_buffer。
     auto *r = reinterpret_cast<CONSOLE_SCREENBUFFERINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.screen_buffer_size = r->Size;
     state.cursor.position = r->CursorPosition;
@@ -528,6 +540,7 @@ inline bool api_set_sb_size(miniio::io_msg &msg, console_state &state, screen_bu
 {
     auto *r = reinterpret_cast<CONSOLE_SETSCREENBUFFERSIZE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     COORD new_size = r->Size;
+    // 控制台缓冲区不能小于窗口尺寸；否则后续 cursor/window 查询会出现无效坐标。
     if (new_size.X < 1)
         new_size.X = 1;
     if (new_size.Y < 1)
@@ -555,6 +568,8 @@ inline bool api_set_cursor_pos(miniio::io_msg &msg, console_state &state, screen
 {
     auto *r = reinterpret_cast<CONSOLE_SETCURSORPOSITION_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     COORD new_pos = r->CursorPosition;
+    // SetConsoleCursorPosition 接受客户端坐标；本实现钳制到当前缓冲区，而不是
+    // 返回错误，保持已有兼容行为。
     if (new_pos.X < 0)
         new_pos.X = 0;
     if (new_pos.X >= state.screen_buffer_size.X)
@@ -566,8 +581,8 @@ inline bool api_set_cursor_pos(miniio::io_msg &msg, console_state &state, screen
 
     LOG("[api_set_cursor_pos] to=(%d,%d) was=(%d,%d)", new_pos.X, new_pos.Y, state.cursor.position.X,
         state.cursor.position.Y);
-    // 仅当光标被显式移到 (0,0) 时才清除 Enter 换行标志。
     if (new_pos.X == 0 && new_pos.Y == 0)
+        // 清屏序列常先 SetCursorPos(0,0)，这时 Enter 的一次性换行标志已过期。
         bridge.reset_enter_newline();
     vt_message m{};
     m.row = static_cast<short>(new_pos.Y + 1);
@@ -575,7 +590,7 @@ inline bool api_set_cursor_pos(miniio::io_msg &msg, console_state &state, screen
     bridge.vt_msg_send(vt_message_id::cursor_position, m);
     vt_msg_apply_state(vt_message_id::cursor_position, m, state, sb);
     bridge.vt_flush();
-    // sync _term_cursor — api_set_cursor_pos 直接操控光标, bridge 必须跟踪
+    // 该 API 直接改变终端光标，bridge 的行编辑光标必须同步到同一位置。
     bridge.sync_cursor_after_write(state.cursor.position);
     ucomplete(msg);
     return true;
@@ -601,20 +616,20 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
         r->Fill.Attributes);
     if (sr.Left > sr.Right || sr.Top > sr.Bottom)
     {
+        // 空矩形是成功的 no-op；保持 r 原结构之外的 completion 语义。
         ucomplete(msg);
         return true;
     }
     sb.scroll(r->ScrollRectangle, r->ClipRectangle, r->Clip != FALSE, r->DestinationOrigin,
               static_cast<char32_t>(r->Fill.Char.UnicodeChar), r->Fill.Attributes);
 
-    // ── 检测全屏清屏: 滚动矩形覆盖整个 buffer 高度 → 发送 ED2 清屏而非 IL/DL ──
     SHORT buf_height = sb.size.Y;
     bool full_screen_scroll = (sr.Top == 0 && sr.Bottom >= buf_height - 1);
     LOG("[api_scroll_sb] full_screen=%d buf_h=%d sr.Bottom=%d fill_char=0x%X", full_screen_scroll, buf_height,
         sr.Bottom, r->Fill.Char.UnicodeChar);
     if (full_screen_scroll && r->Fill.Char.UnicodeChar == L' ')
     {
-        // cls 清屏: 发送 ED2(清屏) + CUP(1,1) 替代 IL/DL 序列
+        // cls 清屏使用 ED2+Home，避免把整屏滚动翻译成大量 IL/DL。
         bridge.vt_append_str("\x1b[2J\x1b[H"sv);
         bridge.vt_flush();
         // ── 同步 state 光标和终端光标到 (0,0) ──
@@ -624,13 +639,10 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
     }
     else
     {
-        // ── VT 消息驱动: DECSC → set_scrolling_region → CUP → IL/DL → reset_region → DECRC ──
-
-        // 1) 保存光标
+        // 局部滚动用临时 scroll region 约束终端影响范围，并在结束后恢复光标。
         vt_message m_save{};
         bridge.vt_msg_send(vt_message_id::save_cursor, m_save);
 
-        // 2) 设置滚动区域
         SMALL_RECT cr = r->Clip
                             ? r->ClipRectangle
                             : SMALL_RECT{0, 0, static_cast<SHORT>(sb.size.X - 1), static_cast<SHORT>(sb.size.Y - 1)};
@@ -640,14 +652,13 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
         bridge.vt_msg_send(vt_message_id::set_scrolling_region, m_region);
         vt_msg_apply_state(vt_message_id::set_scrolling_region, m_region, state, sb);
 
-        // 3) 光标移到底部
         vt_message m_cup{};
         m_cup.row = static_cast<short>(sr.Bottom + 1);
         m_cup.col = static_cast<short>(sr.Left + 1);
         bridge.vt_msg_send(vt_message_id::cursor_position, m_cup);
 
-        // 4) 插入/删除行
         SHORT dy = r->DestinationOrigin.Y - sr.Top;
+        // dy<0 表示目标在上方，需要插入行把内容向下推；dy>0 则删除行。
         if (dy < 0)
         {
             vt_message m_il{};
@@ -663,13 +674,11 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
             vt_msg_apply_state(vt_message_id::delete_lines, m_dl, state, sb);
         }
 
-        // 5) 重置滚动区域
         vt_message m_reset{};
         m_reset.scroll_top = 1;
         m_reset.scroll_bottom = 0;
         bridge.vt_msg_send(vt_message_id::set_scrolling_region, m_reset);
 
-        // 6) 恢复光标
         vt_message m_restore{};
         bridge.vt_msg_send(vt_message_id::restore_cursor, m_restore);
         bridge.vt_flush();
@@ -682,6 +691,7 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
 inline bool api_set_text_attr(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                               pipe_bridge &bridge)
 {
+    // SetConsoleTextAttribute 影响后续输出默认属性，同时立即同步宿主终端 SGR。
     auto *r = reinterpret_cast<CONSOLE_SETTEXTATTRIBUTE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.default_attributes = r->Attributes;
     vt_message m{};
@@ -700,19 +710,22 @@ inline bool api_set_window_info(miniio::io_msg &msg, console_state &state, scree
     auto *r = reinterpret_cast<CONSOLE_SETWINDOWINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (r->Absolute)
     {
+        // 绝对矩形的 Right/Bottom 是包含端点，尺寸需要 +1。
         state.current_window_size.X = static_cast<SHORT>(r->Window.Right - r->Window.Left + 1);
         state.current_window_size.Y = static_cast<SHORT>(r->Window.Bottom - r->Window.Top + 1);
         state.screen_buffer_size = state.current_window_size;
     }
     else
     {
+        // 相对模式传入的是边界偏移；这里只有尺寸模型，没有窗口原点，
+        // 因此折算为当前宽高增量。
         state.current_window_size.X += static_cast<SHORT>(r->Window.Right - r->Window.Left);
         state.current_window_size.Y += static_cast<SHORT>(r->Window.Bottom - r->Window.Top);
         if (state.current_window_size.X < 1)
             state.current_window_size.X = 1;
         if (state.current_window_size.Y < 1)
             state.current_window_size.Y = 1;
-        // ConPTY 模式无滚动缓冲区: buffer size 始终与窗口大小一致
+        // ConPTY 模式无独立滚动缓冲区: buffer size 始终与窗口大小一致。
         state.screen_buffer_size = state.current_window_size;
     }
     sb.resize(state.current_window_size);
@@ -733,6 +746,7 @@ inline bool api_read_output_string(miniio::io_msg &msg, console_state &, screen_
     }
     if (r->StringType == CONSOLE_ATTRIBUTE)
     {
+        // ATTRIBUTE 读取 WORD 数组；其他字符类型都降级为 wchar_t 输出。
         auto *out = reinterpret_cast<WORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                              sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
         auto maxn = (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)) /
@@ -754,6 +768,7 @@ inline bool api_read_output_string(miniio::io_msg &msg, console_state &, screen_
 inline bool api_write_console_input(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
                                     pipe_bridge &)
 {
+    // WriteConsoleInput 直接把客户端提供的 INPUT_RECORD 放入队列，返回实际写入数。
     auto *r = reinterpret_cast<CONSOLE_WRITECONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *records =
         reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
@@ -779,7 +794,8 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
         return true;
     }
     SMALL_RECT orig = cr;
-    // CHAR_INFO → row 转换: 逐行调用 from_char_info
+    // CHAR_INFO 输入按请求矩形宽度连续排列；本地 screen_buffer 逐行导入，
+    // 超出当前缓冲区高度的行静默忽略。
     auto *data = reinterpret_cast<const CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                      sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG));
     SHORT w = orig.Right - orig.Left + 1;
@@ -788,8 +804,7 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
     cr = orig;
 
     LOG("[api_write_console_output] region=(%d,%d)-(%d,%d)", orig.Left, orig.Top, orig.Right, orig.Bottom);
-    // ── DECSC → 逐行 CUP + SGR + text batch → DECRC ──
-    // 将连续相同属性的 cell 打包为单个 text vt_message，统一走 vt_msg_send
+    // WriteConsoleOutput 不移动应用光标。终端侧保存光标后按格子重绘，再恢复。
     vt_message m{};
     bridge.vt_msg_send(vt_message_id::save_cursor, m);
 
@@ -802,6 +817,8 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
 
         for (SHORT x = orig.Left; x <= orig.Right; ++x)
         {
+            // 当前实现逐格写 SGR+text，保证每个 CHAR_INFO 属性都能反映到终端；
+            // 后续可在这里合并连续相同属性的 run。
             m = vt_message{};
             set_sgr_from_win32_attr(m, sb.attr_at({x, y}));
             bridge.vt_msg_send(vt_message_id::sgr, m);
@@ -836,6 +853,7 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
 
     if (r->StringType == CONSOLE_ATTRIBUTE)
     {
+        // WriteConsoleOutputAttribute 只更新本地属性模型；没有字符输出可发给终端。
         auto *attrs = reinterpret_cast<const WORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                      sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
         auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
@@ -847,16 +865,14 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
                                                        sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
         auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
         auto wlen = ib / sizeof(wchar_t);
-        // wchar_t → char32_t 批量转换（复用 bridge 持久缓冲）
+        // 字符串写入不改变光标；只修改本地 buffer 中从 WriteCoord 开始的一段。
         auto &u32text = bridge.conv_u32();
         convert_utf16_to_u32(std::wstring_view{in_w, wlen}, u32text);
         r->NumRecords = static_cast<ULONG>(sb.write_char32(r->WriteCoord, u32text.data(), u32text.size()));
 
         if (r->NumRecords > 0)
         {
-            // ── WriteConsoleOutputString 不移动光标 ──
-            // 终端: DECSC → CUP → text → DECRC (光标回到原位)
-            // 状态: 仅更新 screen_buffer 格子，不改变 state.cursor
+            // 终端也要保持光标不动，因此使用 save/CUP/write/restore。
             vt_message m{};
             bridge.vt_msg_send(vt_message_id::save_cursor, m);
 
@@ -895,11 +911,11 @@ inline bool api_read_console_output(miniio::io_msg &msg, console_state &state, s
         ucomplete_sz(msg, sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
         return true;
     }
-    // 逐行导出 CHAR_INFO
     SHORT w = cr.Right - cr.Left + 1;
     for (SHORT y = cr.Top; y <= cr.Bottom && y < sb.size.Y; ++y)
     {
-        // row_to_ci 填充整行, 仅复制 [Left..Right] 段
+        // row_to_ci 导出整行后只复制请求区间；这样保留 row 层对宽字符和属性
+        // 的 CHAR_INFO 降级逻辑。
         std::vector<CHAR_INFO> tmp(static_cast<size_t>(sb.size.X));
         sb.row_to_ci(y, tmp.data());
         auto *dst = reinterpret_cast<CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
@@ -923,6 +939,7 @@ inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buff
 
     if (r->Unicode)
     {
+        // TitleLength 返回不含结尾 NUL 的字节数；completion size 包含写入的 NUL。
         auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
         auto maxc = (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG)) / sizeof(wchar_t);
         auto cp = wstr.size() < maxc ? wstr.size() : maxc;
@@ -934,6 +951,7 @@ inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buff
     }
     else
     {
+        // ANSI title 使用系统 ACP，和传统控制台标题 API 保持一致。
         auto *out = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
         auto maxb = sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG);
         size_t n = convert_wide_to_ansi_raw(wstr.data(), wstr.size(), CP_ACP, out, maxb);
@@ -950,14 +968,14 @@ inline bool api_set_title(miniio::io_msg &msg, console_state &state, screen_buff
     auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_SETTITLE_MSG);
     auto ic = ib / sizeof(wchar_t);
     auto cp = ic < 256 ? ic : 255;
-    // wchar_t → char32_t
+    // 只接收前 255 个 UTF-16 code unit，匹配当前状态层标题容量假设。
     std::u32string u32title;
     convert_utf16_to_u32(std::wstring_view{in, cp}, u32title);
     if (state.title.empty())
         state.original_title = u32title;
     state.title = std::move(u32title);
 
-    // VT 同步: OSC 0 设置终端标题
+    // 状态更新后立即用 OSC 0 同步宿主终端标题。
     vt_message m{};
     m.title = state.title;
     bridge.vt_msg_send(vt_message_id::set_window_title, m);
@@ -1015,8 +1033,7 @@ inline bool api_l3_set_display_mode(miniio::io_msg &msg, console_state &state, s
 {
     auto *r = reinterpret_cast<CONSOLE_SETDISPLAYMODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     state.display_mode = r->dwFlags;
-    // CONSOLE_FULLSCREEN_MODE (1) vs CONSOLE_WINDOWED_MODE (2)
-    // ConPTY 下忽略全屏，但 resize screen buffer
+    // ConPTY 下不真正切换全屏；如果请求附带尺寸，则作为窗口/buffer resize。
     if (r->ScreenBufferDimensions.X > 0 && r->ScreenBufferDimensions.Y > 0)
     {
         state.screen_buffer_size = r->ScreenBufferDimensions;
@@ -1038,19 +1055,20 @@ inline bool api_l3_get_display_mode(miniio::io_msg &msg, console_state &state, s
 }
 
 // ── 0x12 AddAlias ──
-// 消息格式: CONSOLE_ADDALIAS_MSG + Exe(ExeLen bytes) + Source(SrcLen bytes) + Target(TgtLen bytes)
-// 注意: SourceLength/TargetLength/ExeLength 是字节数 (USHORT)
 inline bool api_l3_add_alias(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_ADDALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *db = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG);
 
+    // 消息格式为 Exe + Source + Target，长度字段都是字节数。当前 aliases 不按
+    // exe 分桶，因此 Exe 只用于定位 Source 起点。
     auto exe_len_bytes = static_cast<size_t>(r->ExeLength);
     auto src_len_bytes = static_cast<size_t>(r->SourceLength);
     auto tgt_len_bytes = static_cast<size_t>(r->TargetLength);
 
     if (r->Unicode)
     {
+        // Unicode alias 直接按 wchar_t 视图进入 map；空 source/target 不记录。
         auto *src = reinterpret_cast<const wchar_t *>(db + exe_len_bytes);
         auto *tgt = reinterpret_cast<const wchar_t *>(db + exe_len_bytes + src_len_bytes);
         auto src_chars = src_len_bytes / sizeof(wchar_t);
@@ -1061,6 +1079,7 @@ inline bool api_l3_add_alias(miniio::io_msg &msg, console_state &state, screen_b
     }
     else
     {
+        // ANSI alias 先按 ACP 转为宽字符串，保持 state.aliases 的统一存储格式。
         auto *src_a = reinterpret_cast<const char *>(db + exe_len_bytes);
         auto *tgt_a = reinterpret_cast<const char *>(db + exe_len_bytes + src_len_bytes);
         if (src_len_bytes > 0 && tgt_len_bytes > 0)
@@ -1078,13 +1097,12 @@ inline bool api_l3_add_alias(miniio::io_msg &msg, console_state &state, screen_b
 }
 
 // ── 0x13 GetAlias ──
-// 消息格式同 AddAlias: Exe(ExeLen bytes) + Source(SrcLen bytes)
-// SourceLength/TargetLength/ExeLength 均为字节数 (USHORT)
 inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_GETALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *db = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIAS_MSG);
 
+    // 返回值写回 Source 所在位置；调用方提供的 Exe 前缀区域不被覆盖。
     auto exe_len_bytes = static_cast<size_t>(r->ExeLength);
     auto src_len_bytes = static_cast<size_t>(r->SourceLength);
 
@@ -1106,6 +1124,7 @@ inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_b
                     sizeof(wchar_t);
                 if (wval.size() + 1 <= available_chars)
                 {
+                    // TargetLength 不含 NUL；缓冲区足够时补 NUL 方便旧调用者读取。
                     std::memcpy(tgt_out, wval.data(), wval.size() * sizeof(wchar_t));
                     tgt_out[wval.size()] = L'\0';
                     r->TargetLength = static_cast<USHORT>(wval.size() * sizeof(wchar_t));
@@ -1153,6 +1172,7 @@ inline bool api_l3_get_aliases_length(miniio::io_msg &msg, console_state &state,
     ULONG total = 0;
     if (r->Unicode)
     {
+        // 每条 alias 导出为 key\0value\0，长度按字节返回。
         for (const auto &[k, v] : state.aliases)
             total += static_cast<ULONG>((k.size() + 1 + v.size() + 1) * sizeof(wchar_t));
     }
@@ -1189,6 +1209,7 @@ inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen
     ULONG written = 0;
     if (r->Unicode)
     {
+        // 输出是连续的 key\0value\0 列表；空间不足时停止在上一条完整记录。
         auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG));
         auto maxw = (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETALIASES_MSG)) / sizeof(wchar_t);
         for (const auto &[k, v] : state.aliases)
@@ -1208,6 +1229,7 @@ inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen
     }
     else
     {
+        // ANSI 路径按 ACP 编码，每个 convert_wide_to_ansi_raw 会写入结尾 NUL。
         auto *out = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG));
         auto maxb = sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETALIASES_MSG);
         for (const auto &[k, v] : state.aliases)
@@ -1311,6 +1333,7 @@ inline bool api_l3_get_process_list(miniio::io_msg &msg, console_state &, screen
     auto maxc =
         (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG)) / sizeof(DWORD);
     size_t count = bridge.proc_count < maxc ? bridge.proc_count : maxc;
+    // 旧 conhost 返回 newest first；bridge.proc_list 按连接顺序保存，因此反向导出。
     for (size_t i = 0; i < count; ++i)
         out[i] = bridge.proc_list[bridge.proc_count - 1 - i]; // newest first
     r->dwProcessCount = static_cast<ULONG>(count);
@@ -1347,6 +1370,7 @@ inline bool api_l3_set_current_font(miniio::io_msg &msg, console_state &state, s
                                     pipe_bridge &)
 {
     auto *r = reinterpret_cast<CONSOLE_CURRENTFONT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    // 字体设置只影响后续查询；WT/宿主终端字体不能通过该 API 同步修改。
     state.font_index = r->FontIndex;
     state.font_size = r->FontSize;
     state.font_family = r->FontFamily;
@@ -1359,6 +1383,8 @@ inline bool api_l3_set_current_font(miniio::io_msg &msg, console_state &state, s
 // ── 第二类 L3: 废弃 API (对标 ServerDeprecatedApi) ──
 inline bool api_l3_deprecated(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &)
 {
+    // 与原始 ServerDeprecatedApi 一样返回成功空 completion，避免旧程序因未实现
+    // 的窗口菜单/IME 等 API 失败退出。
     ucomplete(msg);
     return true;
 }

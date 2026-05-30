@@ -1,13 +1,10 @@
 // ── conpty/char_convert.hpp ─────────────────────────
-// 编码转换工具 — 所有函数写入预分配的持久缓冲区
+// 编码转换工具。
 //
-// 依赖: libunicode (third_parties/libunicode/src/libunicode/convert.h)
-//       Windows MultiByteToWideChar / WideCharToMultiByte (ANSI路径)
-// 原则:
-//   - ByteSize = WideByteSize = U32ByteSize（保守上界估计）
-//   - CP == 65001 (UTF-8) 时走 libunicode SIMD 快速路径
-//   - 流式 UTF-8 解码 (utf8_stream_decoder): 逐字节喂入
-//
+// 功能分解：
+// 1. utf8_stream_decoder 逐字节解码 vt_in 输入，未完成序列返回 nullopt。
+// 2. UTF-8/UTF-16/UTF-32 批量转换写入调用方提供的持久缓冲，避免热路径分配。
+// 3. 非 UTF-8 代码页通过 Windows MultiByteToWideChar/WideCharToMultiByte。
 #pragma once
 #include <windows.h>
 #include <cstdint>
@@ -31,7 +28,8 @@ struct utf8_stream_decoder
         auto r = _dec(byte);
         if (r.has_value())
             return r;
-        // nullopt: 区分 incomplete (expectedLength>0) 与 invalid (expectedLength==0)
+        // nullopt 有两种含义：多字节序列尚未收齐，或当前字节已经让 decoder
+        // 判定非法。expectedLength==0 表示非法状态已复位，返回替换字符。
         if (_dec.expectedLength == 0)
             return U'\xFFFD';
         return std::nullopt;
@@ -48,6 +46,7 @@ OutputIterator to_utf8(char32_t cp, OutputIterator out)
 
 inline int to_utf8_bytes(char32_t cp, char (&buf)[8]) noexcept
 {
+    // buf[8] 足够容纳一个 UTF-8 codepoint；返回值是实际写入字节数，不含 NUL。
     unicode::encoder<char> enc;
     char *p = buf;
     p = enc(cp, p);
@@ -74,6 +73,7 @@ inline void convert_utf16_to_u32(std::wstring_view ws, std::u32string &out)
         return;
     }
     out.resize_and_overwrite(ws.size(), [&](char32_t *p, size_t) -> size_t {
+        // UTF-16 到 UTF-32 的输出 codepoint 数不会超过输入 code unit 数。
         auto end = unicode::convert_to<char32_t>(
             std::u16string_view{reinterpret_cast<const char16_t *>(ws.data()), ws.size()}, p);
         return static_cast<size_t>(end - p);
@@ -100,6 +100,7 @@ inline void convert_u32_to_wstr(std::u32string_view u32s, std::wstring &out)
         return;
     }
     out.resize_and_overwrite(u32s.size() * 2, [&](wchar_t *p, size_t) -> size_t {
+        // Windows wchar_t 是 UTF-16，非 BMP codepoint 最多展开成两个 code unit。
         auto end = unicode::convert_to<char16_t>(u32s, reinterpret_cast<char16_t *>(p));
         return static_cast<size_t>(end - reinterpret_cast<char16_t *>(p));
     });
@@ -173,6 +174,8 @@ inline void convert_ansi_to_wstr(const char *s, size_t len, UINT cp, std::wstrin
     }
     if (cp == CP_UTF8 || cp == 65001)
     {
+        // CP_UTF8 走 libunicode，避免 Windows API 对非法 UTF-8 的不同容错策略
+        // 影响 VT 输入/输出路径。
         convert_utf8_to_wstr(std::string_view{s, len}, out);
         return;
     }
@@ -207,6 +210,7 @@ inline size_t wstr_to_ansi_len(std::wstring_view ws, UINT cp) noexcept
 {
     if (ws.empty())
         return 0;
+    // 长度查询不包含结尾 NUL，调用者需要自己为 NUL 预留空间。
     int n = ::WideCharToMultiByte(cp, 0, ws.data(), static_cast<int>(ws.size()), nullptr, 0, nullptr, nullptr);
     return n > 0 ? static_cast<size_t>(n) : 0;
 }
@@ -236,6 +240,7 @@ inline void convert_ansi_to_u32(const char *s, size_t len, UINT code_page, std::
         return;
     }
     convert_ansi_to_wstr(s, len, cp, wbuf);
+    // wbuf 是调用方持久缓冲；这里不保留 view，转换完成后可立即复用。
     convert_utf16_to_u32(std::wstring_view{wbuf.data(), wbuf.size()}, out);
 }
 
@@ -283,6 +288,7 @@ inline size_t convert_wide_to_ansi_raw(const wchar_t *s, size_t len, UINT cp, ch
     }
     if (cp == CP_UTF8 || cp == 65001)
     {
+        // raw 写入函数负责补 NUL；如果空间不足以容纳 NUL，返回 0 表示失败。
         auto *end = unicode::convert_to<char>(std::u16string_view{reinterpret_cast<const char16_t *>(s), len}, out);
         size_t n = static_cast<size_t>(end - out);
         if (n < out_cap)

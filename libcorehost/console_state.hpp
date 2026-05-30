@@ -1,15 +1,13 @@
 // ── conpty/console_state.hpp ──────────────────────
-// Layer 4: 控制台状态 (char32_t 内部化版本)
+// Layer 4: 控制台状态。
 //
-// 与 conpty/console_state.hpp 的区别:
-//   - title/original_title 使用 std::u32string 替代 wchar_t[256]
-//   - command_history 使用 std::vector<std::u32string>
-//   - aliases 使用 std::flat_map<std::wstring,std::wstring> (ConDrv 边界零拷贝)
-//   - dec_to_unicode 返回 char32_t
-//   - text_measurement 使用强类型枚举 text_measurement_mode
-//   - face_name 保留 WCHAR[32] (Windows API 边界)
-//
-// ConDrv 边界处的 wchar_t 直接使用，无需转码。
+// 功能分解：
+// 1. 保存 Win32 Console API 可查询/可修改的模式、光标、窗口、字体、标题、
+//    历史和别名状态。
+// 2. 作为 VT 输出和 Console API 之间的共享状态源；screen_buffer 保存格子，
+//    console_state 保存当前模式和游标类元数据。
+// 3. DEC line drawing、tab stops、saved cursor 等 VT 状态放在这里，使
+//    api_handlers 和 vt_msg_dispatch 看到同一份状态。
 #pragma once
 #include <windows.h>
 #include <string>
@@ -26,20 +24,27 @@ inline constexpr DWORD DEFAULT_CONSOLE_MODE = ENABLE_PROCESSED_INPUT | ENABLE_LI
 
 struct cursor_state
 {
-    ULONG size = 25; // 1-100 (百分比)
+    // 1-100 是 Win32 控制台光标高度百分比；默认 25 与传统 conhost 一致。
+    ULONG size = 25;
+
+    // true 表示终端应显示光标；false 对应 SetConsoleCursorInfo 隐藏光标。
     bool visible = true;
+
+    // 0-based 控制台坐标；必须保持在当前 screen_buffer_size 范围内。
     COORD position{0, 0};
 };
 
 struct console_state
 {
     // ── 模式 ──
+    // 取值为 ENABLE_* 标志位组合；默认同时适用于输入和输出兼容路径。
     DWORD input_mode = DEFAULT_CONSOLE_MODE;
     DWORD output_mode = DEFAULT_CONSOLE_MODE;
 
     // ── 代码页 ──
-    UINT input_code_page = 0;  // GetACP()
-    UINT output_code_page = 0; // GetOEMCP()
+    // 构造函数中填充。0 只在构造尚未运行的零初始化状态下出现。
+    UINT input_code_page = 0;
+    UINT output_code_page = 0;
 
     // ── 光标 ──
     cursor_state cursor;
@@ -48,36 +53,48 @@ struct console_state
     COORD screen_buffer_size{default_console_size};
     COORD current_window_size{default_console_size};
     COORD max_window_size{default_console_size};
+    // 0x07 是传统控制台白前景/黑背景属性。
     WORD default_attributes = 0x07;
     WORD popup_attributes = 0x07;
+
+    // 16 项对应 Win32 控制台颜色表索引。
     COLORREF color_table[16]{};
 
     // ── 标题 (char32_t 内部存储) ──
     std::u32string title;
-    std::u32string original_title; // 对标 gci.GetOriginalTitle()
+    // original_title 为空表示尚未捕获初始标题。
+    std::u32string original_title;
 
-    // ── 字体信息 (对标 CONSOLE_FONT_INFO) ──
-    // face_name 保留 WCHAR: Windows API 边界, 由 api_handlers 转换
+    // ── 字体信息 ──
+    // font_index 目前只有 0；font_size 是字符像素尺寸；font_weight 使用
+    // LOGFONT 权重值，400 表示 normal。
     UINT font_index = 0;
     COORD font_size{8, 12};
     UINT font_family = 0;
     UINT font_weight = 400;
+
+    // 固定 32 WCHAR 是 CONSOLE_FONT_INFOEX 的 FaceName 长度。
     WCHAR face_name[32] = L"Consolas";
 
     // ── 鼠标信息 ──
-    ULONG mouse_buttons = 0; // GetNumberOfConsoleMouseButtons
+    // 0 表示尚未查询或没有鼠标按钮信息。
+    ULONG mouse_buttons = 0;
 
     // ── 显示模式 ──
-    ULONG display_mode = 0; // CONSOLE_FULLSCREEN / CONSOLE_WINDOWED
+    // 0 表示未设置；否则为 CONSOLE_FULLSCREEN_MODE 或 CONSOLE_WINDOWED_MODE。
+    ULONG display_mode = 0;
 
     // ── 选择信息 ──
-    CONSOLE_SELECTION_INFO selection_info{}; // GetConsoleSelectionInfo
+    // 全零表示当前没有选择区域。
+    CONSOLE_SELECTION_INFO selection_info{};
 
     // ── 语言 ID ──
+    // 构造函数中填充系统默认 LANGID；0 只表示尚未初始化。
     LANGID lang_id = 0;
 
     // ── 命令历史 (char32_t) ──
     std::vector<std::u32string> command_history;
+    // 默认值匹配传统控制台历史设置；0 仍是有效输入但表示禁用相应容量。
     size_t history_buffer_size = 50;
     size_t history_num_buffers = 4;
     DWORD history_flags = 0;
@@ -87,17 +104,21 @@ struct console_state
 
     // ── 文本测量模式 ──
     text_measurement_mode text_measurement = text_measurement_mode::console;
-    bool ambiguous_is_wide = false; // --ambiguousIsWide: 模糊宽度字符(EAW=A)视为宽字符(2列)
+    // false 按西文终端处理 EAW=A；true 按 CJK 环境将其视为 2 列。
+    bool ambiguous_is_wide = false;
 
     // ── PowerShell shim 状态 ──
+    // true 表示已识别到即将由后续 API 完成的清屏序列。
     bool pending_clear_screen = false;
 
     // ── ConPTY 光标同步 ──
+    // true 表示 state.cursor 已变更，下一次输出前需要把终端光标同步过去。
     bool cursor_position_dirty = false;
 
     // ── DECSC 保存的光标状态 ──
     struct saved_cursor
     {
+        // has_state=false 时 position/attributes 的值无意义。
         COORD position{0, 0};
         WORD attributes = 0x07;
         bool has_state = false;
@@ -110,11 +131,14 @@ struct console_state
     }
 
     // ── Tab 停靠位 ──
+    // tab_stops 覆盖 0..511 列；超出范围的 tab 操作会被忽略。
     static constexpr SHORT tab_width = 8;
     bool tab_stops[512]{};
 
     void init_tab_stops()
     {
+        // DEC 默认每 8 列一个 tab stop，包含第 0 列；后续 HTS/TBC 会在这张
+        // 固定表上增删。
         for (SHORT i = 0; i < 512; i += tab_width)
             tab_stops[i] = true;
     }
@@ -135,6 +159,8 @@ struct console_state
     }
     SHORT next_tab_stop(SHORT col) const noexcept
     {
+        // 返回第一个严格大于 col 的停靠位；找不到时返回原列，调用者据此保持
+        // 光标不动而不是跳到行尾。
         for (SHORT c = col + 1; c < 512; ++c)
             if (tab_stops[c])
                 return c;
@@ -142,6 +168,7 @@ struct console_state
     }
     SHORT prev_tab_stop(SHORT col) const noexcept
     {
+        // 返回第一个严格小于 col 的停靠位；找不到时回到 0，匹配 CBT 的左边界。
         for (SHORT c = col - 1; c >= 0; --c)
             if (tab_stops[c])
                 return c;
@@ -154,6 +181,8 @@ struct console_state
     // DEC → Unicode 映射表 (返回 char32_t)
     char32_t dec_to_unicode(unsigned char ch) const noexcept
     {
+        // ESC(0 只重映射 DEC special graphics 区间；未列出的字节保持 ASCII
+        // 码点，避免普通文本被误转换。
         switch (ch)
         {
         case 0x6a:
@@ -199,6 +228,8 @@ struct console_state
 
     console_state()
     {
+        // 代码页和语言 ID 依赖当前系统环境，只能在运行时初始化；其余字段使用
+        // 成员默认值即可保持可预测的控制台初始状态。
         input_code_page = ::GetACP();
         output_code_page = ::GetOEMCP();
         lang_id = ::GetSystemDefaultLangID();
