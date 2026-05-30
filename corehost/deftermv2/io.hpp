@@ -12,7 +12,7 @@
 namespace deftermv2
 {
 
-// NTSTATUS: STATUS_UNSUCCESSFUL。mini fallback 不实现完整 Console API，
+// NTSTATUS: STATUS_UNSUCCESSFUL。最小控制台 I/O 不实现完整 Console API，
 // 因此对无法安全模拟的请求返回通用失败，而不是假装成功。
 inline constexpr LONG ntstatus_unsuccessful = static_cast<LONG>(0xC0000001);
 
@@ -20,52 +20,11 @@ inline constexpr LONG ntstatus_unsuccessful = static_cast<LONG>(0xC0000001);
 // 只表示当前读取结果没有业务消息需要处理。
 inline constexpr ULONG no_console_io_function = 0;
 
-struct mini_fallback_state
+inline void dispatch_console(win32::handle_view server, miniio::io_msg &msg, win32::handle &input,
+                             win32::handle &output)
 {
-    // true 表示已经通知用户失败，但要等客户端真正进入输入等待后再发
-    // CTRL_BREAK，避免打断进程初始化阶段的错误输出。
-    bool break_when_input_waits = false;
-
-    // true 表示 CTRL_BREAK 已经发送过。控制事件只发送一次，避免重复打断
-    // 同一进程组。
-    bool break_sent = false;
-
-    // 0 表示没有可用目标；非 0 是 GenerateConsoleCtrlEvent 的进程组 id。
-    // UAC fallback 优先使用 CONSOLE_SERVER_MSG::ProcessGroupId，缺失时用 pid。
-    DWORD target_process_group_id = 0;
-};
-
-[[nodiscard]] inline bool is_waiting_for_user_input(const miniio::io_msg &msg) noexcept
-{
-    if (msg.descriptor.Function == CONSOLE_IO_RAW_READ)
-    {
-        LOG3("input wait detected: RAW_READ");
-        return true;
-    }
-    if (msg.descriptor.Function != CONSOLE_IO_USER_DEFINED ||
-        msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG))
-        return false;
-
-    auto *header = reinterpret_cast<const CONSOLE_MSG_HEADER *>(msg.body);
-    LOG3("checking USER_DEFINED input wait api=0x%08lx", header->ApiNumber);
-    return header->ApiNumber == ConsolepReadConsole;
-}
-
-inline void send_deferred_ctrl_break_if_needed(const miniio::io_msg &msg, mini_fallback_state &fallback)
-{
-    if (!fallback.break_when_input_waits || fallback.break_sent || !is_waiting_for_user_input(msg))
-        return;
-
-    LOG("deferred CTRL_BREAK expected now; target process group=%lu", fallback.target_process_group_id);
-    ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, fallback.target_process_group_id);
-    fallback.break_sent = true;
-}
-
-inline void dispatch_mini_fallback_message(win32::handle_view server, miniio::io_msg &msg, win32::handle &input,
-                                           win32::handle &output)
-{
-    LOG3("mini fallback dispatch: func=%lu id=%08lx:%08lx pid=%llu object=%llu input=%p output=%p",
-         msg.descriptor.Function, msg.descriptor.Identifier.HighPart, msg.descriptor.Identifier.LowPart,
+    LOG3("mini IO dispatch: func=%lu id=%08lx:%08lx pid=%llu object=%llu input=%p output=%p", msg.descriptor.Function,
+         msg.descriptor.Identifier.HighPart, msg.descriptor.Identifier.LowPart,
          static_cast<unsigned long long>(msg.descriptor.Process),
          static_cast<unsigned long long>(msg.descriptor.Object), input.get(), output.get());
 

@@ -4,7 +4,7 @@
 #include <cassert>
 #include <utility>
 #include "connect_policy.hpp"
-#include "mini_fallback.hpp"
+#include "io.hpp"
 #include "terminal_handoff.hpp"
 #include "vt_handles.hpp"
 #include "conpty.hpp"
@@ -54,9 +54,6 @@ struct connect_handler
     win32::handle_view server;
     win32::handle_view input_event;
 
-    // 仅 UAC/无终端降级路径使用；普通 conpty 和成功 handoff 路径保持默认值。
-    mini_fallback_state fallback;
-
     bool on_connect(miniio::io_msg &msg, initial_connect_completion &completion)
     {
         // explicit_complete 表示本函数不在当前 READ_IO 返回体中填 completion；
@@ -95,18 +92,20 @@ struct connect_handler
 
         if (env::is_elevated())
         {
-            LOG("elevated process cannot handoff to user terminal; notification expected, CTRL_BREAK deferred");
+            LOG("elevated process cannot handoff to user terminal; notification and immediate CTRL_BREAK expected");
 
             // image_path 只用于通知；查询失败会抛出，避免显示空程序路径。
             auto image_path = query_process_image_path(client_pid);
             LOG(L"elevated client image path: %ls", image_path.c_str());
             env::show_elevated_notification(image_path);
             miniio::accept_connection(server, msg, condrv_input, condrv_output);
-            fallback.break_when_input_waits = true;
 
             // ProcessGroupId 为 0 时没有显式进程组，只能用 pid 作为
             // GenerateConsoleCtrlEvent 的目标。
-            fallback.target_process_group_id = connect_info.ProcessGroupId ? connect_info.ProcessGroupId : client_pid;
+            const DWORD target_process_group_id =
+                connect_info.ProcessGroupId ? connect_info.ProcessGroupId : client_pid;
+            LOG("sending immediate CTRL_BREAK to process group=%lu", target_process_group_id);
+            ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, target_process_group_id);
             return true;
         }
 
@@ -127,10 +126,8 @@ struct connect_handler
 
     bool on_message(miniio::io_msg &msg)
     {
-        LOG3("fallback message: func=%lu waitForInput=%d breakSent=%d", msg.descriptor.Function,
-             fallback.break_when_input_waits, fallback.break_sent);
-        send_deferred_ctrl_break_if_needed(msg, fallback);
-        dispatch_mini_fallback_message(server, msg, condrv_input, condrv_output);
+        LOG3("fallback message: func=%lu", msg.descriptor.Function);
+        dispatch_console(server, msg, condrv_input, condrv_output);
         return true;
     }
 
