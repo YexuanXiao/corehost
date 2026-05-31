@@ -6,7 +6,7 @@
 //      of (0,4), causing "hello" to overwrite the current line.
 // Fix: complete_pending syncs cstate->cursor.position = _term_cursor.
 #include "test_common.hpp"
-#include "pipe_bridge.hpp"
+#include "pipe_bridge_testable.hpp"
 #include "console_state.hpp"
 #include "api_handlers.hpp"
 #include <cstdio>
@@ -18,7 +18,7 @@ struct pipe_bridge_test_context
     console_state state;
     screen_buffer screen;
     input_buffer input;
-    pipe_bridge bridge;
+    pipe_bridge_testable bridge;
 
     pipe_bridge_test_context() : bridge(input, state, screen)
     {
@@ -139,7 +139,7 @@ bool test_state_sync_after_echo()
 
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
     bridge.test_set_term_cursor_valid(st.cursor.position);
 
     // Echo "echo hello\r" — terminal cursor moves to (0,3)
@@ -170,7 +170,7 @@ bool test_state_sync_multiline()
 
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
     bridge.test_set_term_cursor_valid({0, 0});
 
     // Cycle 1: prompt + "echo hello\r\n"
@@ -196,7 +196,7 @@ bool test_state_sync_initial_cursor()
 
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     // Before any echo, term cursor is invalid
     ASSERT(!bridge.test_is_term_cursor_valid());
@@ -222,7 +222,7 @@ bool test_regression_echo_then_output()
 
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
     bridge.test_set_term_cursor_valid({13, 3});
 
     // ── Step 1-2: echo "echo hello\r" → term cursor at (0,3); + LF → (0,4)

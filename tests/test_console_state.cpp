@@ -247,6 +247,7 @@ bool test_alias_empty()
 // 消息体 = Exe + Source + Target 三段连续布局。
 
 #include "api_handlers.hpp"
+#include "pipe_bridge_testable.hpp"
 #include "message_router.hpp"
 #include "os/Console/ntcon.h"
 #include "os/Console/conmsgl3.h"
@@ -255,7 +256,7 @@ struct api_test_context
     screen_buffer sb;
     input_buffer inp;
     console_state state;
-    pipe_bridge bridge;
+    pipe_bridge_testable bridge;
 
     api_test_context() : bridge(inp, state, sb)
     {
@@ -325,7 +326,7 @@ bool test_regression_get_console_input_nowait_empty()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     mock_get_console_input_msg(msg, CONSOLE_READ_NOWAIT);
     ASSERT(api_get_console_input(msg, st, sb, inp, bridge));
@@ -341,7 +342,7 @@ bool test_regression_get_console_input_waits_when_empty()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     mock_get_console_input_msg(msg, 0);
     ASSERT(!api_get_console_input(msg, st, sb, inp, bridge));
@@ -355,7 +356,7 @@ bool test_regression_get_console_input_ready_event()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     INPUT_RECORD rec{};
     rec.EventType = KEY_EVENT;
@@ -378,7 +379,7 @@ bool test_regression_get_console_input_output_size_excludes_header()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     INPUT_RECORD rec{};
     rec.EventType = KEY_EVENT;
@@ -406,7 +407,7 @@ bool test_regression_get_console_input_output_size_without_record()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     INPUT_RECORD rec{};
     rec.EventType = KEY_EVENT;
@@ -431,7 +432,7 @@ bool test_regression_get_console_input_rejects_invalid_flags()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     mock_get_console_input_msg(msg, CONSOLE_READ_VALID | 0x8000);
     ASSERT(api_get_console_input(msg, st, sb, inp, bridge));
@@ -446,7 +447,7 @@ bool test_regression_raw_write_decodes_output_codepage()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     st.output_code_page = 936;
     const BYTE text[] = {0xCF, 0xB2, 0xBB, 0xB6, 0xC4, 0xE3};
@@ -468,7 +469,7 @@ bool test_regression_raw_read_completion_writes_only_bytes()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     const BYTE text[] = {'a', 'b', 'c', '\r'};
     msg.descriptor.OutputSize = 16;
@@ -487,7 +488,7 @@ bool test_regression_raw_read_completion_respects_output_size()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     const BYTE text[] = {'a', 'b', 'c', '\r'};
     msg.descriptor.OutputSize = 4;
@@ -505,7 +506,7 @@ bool test_regression_read_console_a_uses_input_codepage()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     st.input_code_page = 936;
     msg.descriptor.OutputSize = sizeof(CONSOLE_READCONSOLE_MSG) + 16;
@@ -528,7 +529,7 @@ bool test_regression_read_console_initial_bytes_check_output_capacity()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
     msg.descriptor.OutputSize = sizeof(CONSOLE_READCONSOLE_MSG) + 2;
@@ -548,7 +549,7 @@ bool test_regression_write_console_rejects_short_message()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) - 1;
     ASSERT(api_write_console(msg, st, sb, inp, bridge));
@@ -562,7 +563,7 @@ bool test_regression_write_console_w_reports_complete_utf16_units()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) + 3;
     auto *req = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
@@ -584,7 +585,7 @@ bool test_regression_deprecated_l1_returns_not_implemented()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     ASSERT(api_deprecated_l1(msg, st, sb, inp, bridge));
     ASSERT(msg.complete.IoStatus.Status == status_not_implemented);
@@ -597,7 +598,7 @@ bool test_regression_get_langid_matches_original_gate()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     st.output_code_page = code_page_chinese_simplified;
     ASSERT(api_get_langid(msg, st, sb, inp, bridge));
@@ -626,7 +627,7 @@ bool test_regression_fill_console_output_a_uses_output_codepage()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     st.output_code_page = 437;
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_FILLCONSOLEOUTPUT_MSG);
@@ -648,7 +649,7 @@ bool test_regression_fill_console_output_rejects_short_message()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_FILLCONSOLEOUTPUT_MSG) - 1;
     ASSERT(api_fill_output(msg, st, sb, inp, bridge));
@@ -662,7 +663,7 @@ bool test_regression_fill_console_output_attr_preserves_current_attr()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     st.default_attributes = 0x1E;
     sb.set_u32({0, 0}, U'X', 0x07);
@@ -687,7 +688,7 @@ bool test_regression_ctrl_event_rejects_short_message()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CTRLEVENT_MSG) - 1;
     ASSERT(api_ctrl_event(msg, st, sb, inp, bridge));
@@ -701,7 +702,7 @@ bool test_regression_set_console_cp_rejects_short_message()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCP_MSG) - 1;
     ASSERT(api_set_cp(msg, st, sb, inp, bridge));
@@ -715,7 +716,7 @@ bool test_regression_set_console_cp_updates_selected_codepage()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCP_MSG);
     auto *cp = reinterpret_cast<CONSOLE_SETCP_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
@@ -741,7 +742,7 @@ bool test_regression_cursor_info_rejects_short_messages()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCURSORINFO_MSG) - 1;
     ASSERT(api_get_cursor(msg, st, sb, inp, bridge));
@@ -760,7 +761,7 @@ bool test_regression_get_screen_buffer_info_rejects_short_message()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG) - 1;
     ASSERT(api_get_sb_info(msg, st, sb, inp, bridge));
@@ -774,7 +775,7 @@ bool test_regression_set_screen_buffer_info_validation()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG) - 1;
     ASSERT(api_set_sb_info(msg, st, sb, inp, bridge));
@@ -796,7 +797,7 @@ bool test_regression_set_screen_buffer_size_rejects_short_message()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETSCREENBUFFERSIZE_MSG) - 1;
     ASSERT(api_set_sb_size(msg, st, sb, inp, bridge));
@@ -810,7 +811,7 @@ bool test_regression_set_cursor_position_rejects_short_message()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORPOSITION_MSG) - 1;
     ASSERT(api_set_cursor_pos(msg, st, sb, inp, bridge));
@@ -824,7 +825,7 @@ bool test_regression_largest_window_rejects_short_message()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETLARGESTWINDOWSIZE_MSG) - 1;
     ASSERT(api_largest_window(msg, st, sb, inp, bridge));
@@ -838,7 +839,7 @@ bool test_regression_scroll_screen_buffer_validation_and_ansi_fill()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCROLLSCREENBUFFER_MSG) - 1;
     ASSERT(api_scroll_sb(msg, st, sb, inp, bridge));
@@ -867,7 +868,7 @@ bool test_regression_set_text_attribute_rejects_short_message()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTEXTATTRIBUTE_MSG) - 1;
     ASSERT(api_set_text_attr(msg, st, sb, inp, bridge));
@@ -881,7 +882,7 @@ bool test_regression_set_window_info_rejects_short_message()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETWINDOWINFO_MSG) - 1;
     ASSERT(api_set_window_info(msg, st, sb, inp, bridge));
@@ -895,7 +896,7 @@ bool test_viewport_set_window_info_absolute_updates_origin_without_resizing_buff
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETWINDOWINFO_MSG);
     auto *window = reinterpret_cast<CONSOLE_SETWINDOWINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
@@ -919,7 +920,7 @@ bool test_viewport_set_window_info_relative_offsets_current_rect()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     sb.viewport.set_rect({10, 5, 49, 14}, sb.size);
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETWINDOWINFO_MSG);
@@ -943,7 +944,7 @@ bool test_viewport_set_cursor_position_snaps_cursor_into_view()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     sb.viewport.set_rect({10, 5, 49, 14}, sb.size);
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORPOSITION_MSG);
@@ -967,7 +968,7 @@ bool test_viewport_set_screen_buffer_info_resizes_view_without_moving_origin()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     sb.viewport.set_rect({10, 5, 49, 14}, sb.size);
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG);
@@ -996,7 +997,7 @@ bool test_viewport_state_is_owned_by_each_screen_buffer()
     screen_buffer main_sb{{120, 30}};
     screen_buffer alt_sb{{120, 30}};
     input_buffer inp;
-    pipe_bridge bridge{inp, st, main_sb};
+    pipe_bridge_testable bridge{inp, st, main_sb};
 
     main_sb.viewport.set_rect({10, 5, 49, 14}, main_sb.size);
     ASSERT(main_sb.viewport.origin().X == 10);
@@ -1015,7 +1016,7 @@ bool test_viewport_vt_cursor_position_updates_buffer_coordinates()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
     sb.viewport.set_rect({10, 5, 49, 14}, sb.size);
@@ -1062,7 +1063,7 @@ bool test_viewport_vt_scroll_is_clipped_to_visible_window()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
     sb.viewport.set_rect({10, 5, 49, 14}, sb.size);
@@ -1103,7 +1104,7 @@ bool test_viewport_vt_insert_delete_lines_start_at_cursor_row()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
     sb.viewport.set_rect({10, 5, 49, 14}, sb.size);
@@ -1143,7 +1144,7 @@ bool test_viewport_vt_text_wraps_inside_visible_window()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
     sb.viewport.set_rect({10, 5, 12, 6}, sb.size);
@@ -1167,7 +1168,7 @@ bool test_viewport_vt_line_feed_scrolls_visible_window()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
     sb.viewport.set_rect({10, 5, 12, 6}, sb.size);
@@ -1193,7 +1194,7 @@ bool test_viewport_vt_character_editing_is_clipped_to_visible_window()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
     sb.viewport.set_rect({10, 5, 14, 5}, sb.size);
@@ -1248,7 +1249,7 @@ bool test_viewport_vt_reverse_index_scrolls_visible_window()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
     sb.viewport.set_rect({10, 5, 12, 6}, sb.size);
@@ -1274,7 +1275,7 @@ bool test_viewport_vt_tabs_are_viewport_relative()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
     sb.viewport.set_rect({10, 5, 49, 14}, sb.size);
@@ -1297,7 +1298,7 @@ bool test_viewport_vt_scrolling_region_is_viewport_relative()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
     sb.viewport.set_rect({10, 5, 12, 8}, sb.size);
@@ -1346,7 +1347,7 @@ bool test_regression_read_output_string_output_size_and_linear_read()
     console_state st;
     screen_buffer sb{{2, 2}};
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) - 1;
     ASSERT(api_read_output_string(msg, st, sb, inp, bridge));
@@ -1380,7 +1381,7 @@ bool test_regression_write_console_input_a_uses_input_codepage()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG) - 1;
     ASSERT(api_write_console_input(msg, st, sb, inp, bridge));
@@ -1417,7 +1418,7 @@ bool test_regression_write_console_output_validation_and_clipping()
     console_state st;
     screen_buffer sb{{2, 1}};
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG) - 1;
     ASSERT(api_write_console_output(msg, st, sb, inp, bridge));
@@ -1451,7 +1452,7 @@ bool test_regression_write_output_string_linear_and_ansi_count()
     console_state st;
     screen_buffer sb{{2, 2}};
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG) - 1;
     ASSERT(api_write_output_string(msg, st, sb, inp, bridge));
@@ -1498,7 +1499,7 @@ bool test_regression_read_console_output_output_size_and_clipping()
     console_state st;
     screen_buffer sb{{2, 1}};
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG) - 1;
     ASSERT(api_read_console_output(msg, st, sb, inp, bridge));
@@ -1529,7 +1530,7 @@ bool test_regression_get_title_output_size_limits_copy()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG) - 1;
     ASSERT(api_get_title(msg, st, sb, inp, bridge));
@@ -1559,7 +1560,7 @@ bool test_regression_set_title_a_uses_input_codepage()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG) - 1;
     ASSERT(api_set_title(msg, st, sb, inp, bridge));
@@ -1586,7 +1587,7 @@ bool test_regression_l3_mouse_info_rejects_short_message()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETMOUSEINFO_MSG) - 1;
     ASSERT(api_l3_get_mouse_info(msg, st, sb, inp, bridge));
@@ -1600,7 +1601,7 @@ bool test_regression_l3_font_size_validation()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETFONTSIZE_MSG) - 1;
     ASSERT(api_l3_get_font_size(msg, st, sb, inp, bridge));
@@ -1624,7 +1625,7 @@ bool test_regression_l3_current_font_validation_and_maximum_window()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG) - 1;
     ASSERT(api_l3_get_current_font(msg, st, sb, inp, bridge));
@@ -1647,7 +1648,7 @@ bool test_regression_l3_set_display_mode_validation_and_size_output()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETDISPLAYMODE_MSG) - 1;
     ASSERT(api_l3_set_display_mode(msg, st, sb, inp, bridge));
@@ -1680,7 +1681,7 @@ bool test_regression_l3_get_display_mode_rejects_short_message()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETDISPLAYMODE_MSG) - 1;
     ASSERT(api_l3_get_display_mode(msg, st, sb, inp, bridge));
@@ -1767,7 +1768,7 @@ bool test_regression_l3_expunge_history_rejects_short_message_and_clears_history
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_EXPUNGECOMMANDHISTORY_MSG) - 1;
     ASSERT(api_l3_expunge_history(msg, st, sb, inp, bridge));
@@ -1791,7 +1792,7 @@ bool test_regression_l3_set_num_commands_validation_and_trim()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETNUMBEROFCOMMANDS_MSG) - 1;
     ASSERT(api_l3_set_num_commands(msg, st, sb, inp, bridge));
@@ -1821,7 +1822,7 @@ bool test_regression_l3_get_history_length_validation_and_bytes()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG) - 1;
     ASSERT(api_l3_get_history_length(msg, st, sb, inp, bridge));
@@ -1848,7 +1849,7 @@ bool test_regression_l3_get_history_validation_output_size_and_serialization()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG) - 1;
     ASSERT(api_l3_get_history(msg, st, sb, inp, bridge));
@@ -1893,7 +1894,7 @@ bool test_regression_l3_get_console_window_rejects_short_message()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEWINDOW_MSG) - 1;
     ASSERT(api_l3_get_console_window(msg, st, sb, inp, bridge));
@@ -1912,7 +1913,7 @@ bool test_regression_l3_selection_info_validation_and_copy()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETSELECTIONINFO_MSG) - 1;
     ASSERT(api_l3_get_selection_info(msg, st, sb, inp, bridge));
@@ -1939,7 +1940,7 @@ bool test_regression_l3_process_list_validation_and_output_size()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG) - 1;
     ASSERT(api_l3_get_process_list(msg, st, sb, inp, bridge));
@@ -1969,7 +1970,7 @@ bool test_regression_l3_history_info_validation_get_set()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG) - 1;
     ASSERT(api_l3_get_history_info(msg, st, sb, inp, bridge));
@@ -2007,7 +2008,7 @@ bool test_regression_l3_set_current_font_validation_and_store()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG) - 1;
     ASSERT(api_l3_set_current_font(msg, st, sb, inp, bridge));
@@ -2040,7 +2041,7 @@ bool test_regression_raw_flush_clears_input_events()
     screen_buffer alt_sb;
     input_buffer inp;
     io_state io;
-    pipe_bridge bridge{inp, st, main_sb};
+    pipe_bridge_testable bridge{inp, st, main_sb};
     api_router api{st, main_sb, alt_sb, inp, io, bridge};
     message_router router{io, bridge, api};
 
@@ -2065,7 +2066,7 @@ bool test_regression_user_defined_router_matches_api_sorter_validation()
     screen_buffer alt_sb;
     input_buffer inp;
     io_state io;
-    pipe_bridge bridge{inp, st, main_sb};
+    pipe_bridge_testable bridge{inp, st, main_sb};
     api_router api{st, main_sb, alt_sb, inp, io, bridge};
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) - 1;
@@ -2108,7 +2109,7 @@ bool test_regression_connect_disconnect_syncs_process_snapshot()
     io_state io;
     io.condrv_input = win32::duplicate_self();
     io.condrv_output = win32::duplicate_self();
-    pipe_bridge bridge{inp, st, main_sb};
+    pipe_bridge_testable bridge{inp, st, main_sb};
     api_router api{st, main_sb, alt_sb, inp, io, bridge};
     message_router router{io, bridge, api};
 
@@ -2175,7 +2176,7 @@ bool test_regression_write_console_escape_sequence_without_vt_mode_updates_state
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     msg.descriptor.InputSize =
         static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) + 6);
@@ -2197,7 +2198,7 @@ bool test_regression_set_console_mode_validation()
     console_state st;
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
 
     auto *mode = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     mode->Mode = ENABLE_ECHO_INPUT;
@@ -2241,7 +2242,7 @@ bool test_regression_alias_expand_after_store()
 
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
     bridge.test_cooked_append(U"hello", 5);
     bridge.test_expand_alias();
 
@@ -2261,7 +2262,7 @@ bool test_regression_alias_msg_wrong_key()
 
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
     bridge.test_cooked_append(U"world", 5);
     bridge.test_expand_alias();
 
@@ -2611,7 +2612,7 @@ bool test_alias_expand_simple_match()
 
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
     bridge.test_cooked_append(U"hello", 5);
     bridge.test_expand_alias();
 
@@ -2626,7 +2627,7 @@ bool test_alias_expand_with_trailing_args()
 
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
     bridge.test_cooked_append(U"gs --short", 10);
     bridge.test_expand_alias();
 
@@ -2641,7 +2642,7 @@ bool test_alias_expand_no_match_passthrough()
 
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
     bridge.test_cooked_append(U"world", 5);
     bridge.test_expand_alias();
 
@@ -2655,7 +2656,7 @@ bool test_alias_expand_empty_aliases()
 
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
     bridge.test_cooked_append(U"anything", 8);
     bridge.test_expand_alias();
 
@@ -2670,7 +2671,7 @@ bool test_alias_expand_single_word()
 
     screen_buffer sb;
     input_buffer inp;
-    pipe_bridge bridge{inp, st, sb};
+    pipe_bridge_testable bridge{inp, st, sb};
     bridge.test_cooked_append(U"x", 1);
     bridge.test_expand_alias();
 

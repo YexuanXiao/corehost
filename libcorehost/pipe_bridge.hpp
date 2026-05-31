@@ -41,6 +41,8 @@ namespace conpty
 {
 using namespace std::literals;
 
+class pipe_bridge_testable;
+
 struct pipe_bridge
 {
     // 等待 pending VT 输入时的时间片。VT 输入和 signal shutdown 是两个独立
@@ -2261,86 +2263,9 @@ struct pipe_bridge
         _io.complete(comp);
     }
 
+    friend class pipe_bridge_testable;
+
   public:
-    // ════════════════════════════════════════════════════
-    //  测试钩子
-    // ════════════════════════════════════════════════════
-
-    // ── 终端光标追踪和 echo 模拟 ──
-    COORD test_get_term_cursor() const noexcept
-    {
-        return _terminal.cursor();
-    }
-    bool test_is_term_cursor_valid() const noexcept
-    {
-        return _terminal.cursor_valid();
-    }
-    void test_set_term_cursor_valid(COORD pos)
-    {
-        _terminal.set_cursor(pos);
-    }
-    SHORT test_get_input_column_start() const noexcept
-    {
-        return _terminal.input_column_start();
-    }
-    SHORT test_get_input_column_end() const noexcept
-    {
-        return _terminal.input_column_end();
-    }
-    void test_set_input_column_start(SHORT x)
-    {
-        _terminal.set_input_column_start(x);
-    }
-    void test_set_input_column_end(SHORT x)
-    {
-        _terminal.set_input_column_end(x);
-    }
-
-    // ── 编辑缓冲暴露 ──
-    const std::u32string &test_get_cooked_buf() const noexcept
-    {
-        return _cooked_buf;
-    }
-    size_t test_get_cooked_cursor() const noexcept
-    {
-        return _cooked_cursor;
-    }
-    void test_cooked_append(const char32_t *s, size_t n)
-    {
-        for (size_t i = 0; i < n; ++i)
-            _edit_insert(s[i], static_cast<BYTE>(s[i]));
-    }
-    void test_cooked_backspace()
-    {
-        _edit_backspace();
-    }
-    void test_cooked_delete()
-    {
-        _edit_delete();
-    }
-    void test_cooked_left()
-    {
-        _edit_move_left();
-    }
-    void test_cooked_right()
-    {
-        _edit_move_right();
-    }
-    void test_cooked_home()
-    {
-        _edit_home();
-    }
-    void test_cooked_end()
-    {
-        _edit_end();
-    }
-
-    // ── 历史缓冲测试钩子 ──
-    size_t test_history_size() const noexcept
-    {
-        return _history.size();
-    }
-
     void api_clear_history()
     {
         _history.clear();
@@ -2403,121 +2328,6 @@ struct pipe_bridge
             }
         }
         return written;
-    }
-
-    void test_history_push()
-    {
-        // 模拟 complete_pending 保存历史
-        history_push();
-        _cooked_buf.clear();
-        _cooked_cursor = 0;
-        _history.reset_browse();
-    }
-    void test_history_up()
-    {
-        _edit_history_up();
-    }
-    void test_history_down()
-    {
-        _edit_history_down();
-    }
-
-    // ── 别名展开测试钩子 ──
-    void test_expand_alias()
-    {
-        _expand_alias();
-    }
-
-    // 模拟 complete_pending 对 _cooked_buf 的 UTF-8 序列化（含 \r\n 行尾）
-    std::string test_build_completion_utf8() const
-    {
-        std::string s;
-        convert_u32_to_utf8(_cooked_buf, s);
-        s += "\r\n";
-        return s;
-    }
-
-    // 模拟 echo 字节序列 (不依赖真实管道), 返回 echo 后的终端光标位置
-    // 尊重输入列边界
-    COORD test_feed_echo_bytes(const BYTE *bytes, DWORD len)
-    {
-        for (DWORD i = 0; i < len; ++i)
-            _terminal.apply_echo_byte(bytes[i]);
-        return _terminal.cursor();
-    }
-
-    // 进入 ConsoleRead 挂起模式并设置必要的上下文状态
-    void test_enter_console_read_mode(SHORT prompt_col = 13)
-    {
-        _pending.begin_console_read_mode(false, false);
-        _read_total = 0;
-        _echo_start = 0;
-        _cooked_buf.clear();
-        _cooked_cursor = 0;
-        _line_found = false;
-        // 模拟 WriteConsole 完成后的同步：光标位于 prompt 列
-        _terminal.set_cursor({prompt_col, 0});
-        _terminal.reset_bounds(prompt_col);
-    }
-
-    // 将原始字节数组送入 process_input 管道（与 accumulate_from_pipe 内部相同）
-    // process_input 内部检测行终止符并可能调用 complete_pending()
-    // 注意：无真实 server 句柄时 complete_pending 不会触发 IOCTL_COMPLETE_IO
-    void test_feed_raw_bytes(const BYTE *bytes, DWORD len)
-    {
-        process_input(bytes, len);
-        vt_flush();
-    }
-
-    void test_prepare_raw_read_completion(miniio::io_msg &msg, const BYTE *bytes, DWORD len, bool eof = false)
-    {
-        // 测试生产路径使用的 RawRead completion 构造；不调用 complete_pending，
-        // 避免单元测试需要真实 ConDrv server 句柄。
-        _pending.begin_raw_read(msg, false);
-        _pending.set_vt_eof(eof);
-        _read_total = std::min<DWORD>(len, static_cast<DWORD>(_readbuf.size()));
-        if (_read_total > 0)
-            std::memcpy(_readbuf.data(), bytes, _read_total);
-        prepare_raw_read_completion(msg);
-    }
-
-    void test_prepare_console_read_completion(miniio::io_msg &msg, std::u32string_view line, bool unicode)
-    {
-        // 测试生产路径使用的 ConsoleRead completion 构造；不调用
-        // complete_pending，避免单元测试需要真实 ConDrv server 句柄。
-        _pending.begin_console_read(msg, unicode, false);
-        _pending.set_vt_eof(false);
-        _read_total = static_cast<DWORD>(line.size());
-        _cooked_buf.assign(line.begin(), line.end());
-        _cooked_cursor = _cooked_buf.size();
-        prepare_console_read_completion(msg);
-    }
-
-    // 查询 process_input 是否因为 Enter/LF/Ctrl+Z 而完成了一行
-    bool test_line_found() const noexcept
-    {
-        return _line_found;
-    }
-
-    // 查询当前挂起类型（Enter 后应为 None，因为 complete_pending 清除了状态）
-    int test_get_pend_kind() const noexcept
-    {
-        return static_cast<int>(_pending.kind());
-    }
-
-    // VT 输出缓冲当前累积量（验证批量 echo 已及时 flush）
-    size_t test_vt_buf_len() const noexcept
-    {
-        return _vt_output.buffered_size();
-    }
-
-    bool test_get_enter_newline_flag() const noexcept
-    {
-        return _terminal.enter_newline_pending();
-    }
-    void test_set_enter_newline_flag(bool v) noexcept
-    {
-        _terminal.set_enter_newline_pending(v);
     }
 
 };
