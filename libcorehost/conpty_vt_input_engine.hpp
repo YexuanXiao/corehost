@@ -3,13 +3,11 @@
 //
 // 功能分解：
 // 1. convert 把解析器产出的键盘类 vt_message 映射为单条 KEY_EVENT_RECORD。
-// 2. convert_text 把普通文本拆成可写入 input_buffer 的 KEY_EVENT_RECORD 序列。
-// 3. ctrl_state 保存当前修饰键状态，并写入每条生成的 key event。
+// 2. ctrl_state 保存当前修饰键状态，并写入每条生成的 key event。
 #pragma once
 #include <windows.h>
 #include <string>
 #include "conpty_vt_parser.hpp"
-#include "char_convert.hpp"
 
 namespace conpty
 {
@@ -146,60 +144,6 @@ struct vt_input_engine
         }
     }
 
-    // ── convert_text: char32_t 文本 → INPUT_RECORD 序列 ──
-    // text: char32_t 文本 (不含 VT 序列)
-    // emit_record: 每生成一个 INPUT_RECORD 调用一次
-    // append_enter: 末尾追加 Enter 键
-    template <typename Func>
-    void convert_text(std::u32string_view text, Func &&emit_record, bool append_enter = false)
-    {
-        // emit_record 会被调用 0..N 次；代理对字符会产生两个 UTF-16 record。
-        INPUT_RECORD rec;
-        rec.EventType = KEY_EVENT;
-        auto &ke = rec.Event.KeyEvent;
-        ke.bKeyDown = true;
-        ke.wRepeatCount = 1;
-        ke.dwControlKeyState = ctrl_state;
-
-        for (char32_t cp : text)
-        {
-            if (cp < 0x20 && cp != U'\t')
-                continue; // 除 tab 外，文本输入不把 C0 控制字符写入队列。
-
-            if (cp == U'\t')
-            {
-                ke.wVirtualKeyCode = VK_TAB;
-                ke.uChar.UnicodeChar = L'\t';
-            }
-            else
-            {
-                ke.wVirtualKeyCode = 0;
-                // Unicode 文本输入不一定有稳定 VK；用 VK=0 + UnicodeChar 表示
-                // 字符输入。非 BMP 字符拆成 UTF-16 code unit 逐条发送。
-                wchar_t wbuf[2];
-                int nw = to_wchar(cp, wbuf);
-                for (int i = 0; i < nw; ++i)
-                {
-                    ke.uChar.UnicodeChar = wbuf[i];
-                    ke.wVirtualScanCode = 0;
-                    emit_record(rec);
-                }
-                continue; // 已在循环内 emit
-            }
-            ke.wVirtualScanCode = 0;
-            emit_record(rec);
-        }
-
-        if (append_enter)
-        {
-            // append_enter 用于把一段文本模拟成已提交的行，末尾只追加
-            // KEY_DOWN Enter，由调用方决定是否需要 KEY_UP。
-            ke.wVirtualKeyCode = VK_RETURN;
-            ke.uChar.UnicodeChar = L'\r';
-            ke.wVirtualScanCode = 0;
-            emit_record(rec);
-        }
-    }
 };
 
 } // namespace conpty
