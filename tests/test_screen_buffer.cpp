@@ -1,8 +1,8 @@
-﻿// === tests/test_screen_buffer.cpp ===
+// === tests/test_screen_buffer.cpp ===
 // Screen buffer unit tests (screen_buffer.hpp, screen_buffer_row.hpp)
 // Coverage: read/write, fill, scroll, clear, resize, char32_t text
 #include "test_common.hpp"
-#include "conpty/screen_buffer.hpp"
+#include "screen_buffer.hpp"
 #include <cstring>
 
 using namespace conpty;
@@ -77,17 +77,24 @@ bool test_fill_char_clamped()
 {
     screen_buffer sb({80, 25});
     auto res = sb.fill_char(U'#', {70, 0}, 20);
-    ASSERT_EQ(res.cells_modified, (ULONG)10);
+    ASSERT_EQ(res.cells_modified, (ULONG)20);
     ASSERT_EQ(sb.at_u32({79, 0}), U'#');
+    ASSERT_EQ(sb.at_u32({0, 1}), U'#');
+    ASSERT_EQ(sb.at_u32({9, 1}), U'#');
+    ASSERT_EQ(sb.at_u32({10, 1}), U' ');
     return true;
 }
 
 bool test_fill_attr()
 {
     screen_buffer sb({80, 25});
-    auto res = sb.fill_attr(0x2E, {0, 10}, 10);
-    ASSERT_EQ(res.cells_modified, (ULONG)10);
-    ASSERT_EQ(sb.attr_at({0, 10}), (WORD)0x2E);
+    auto res = sb.fill_attr(0x2E, {78, 10}, 5);
+    ASSERT_EQ(res.cells_modified, (ULONG)5);
+    ASSERT_EQ(sb.attr_at({78, 10}), (WORD)0x2E);
+    ASSERT_EQ(sb.attr_at({79, 10}), (WORD)0x2E);
+    ASSERT_EQ(sb.attr_at({0, 11}), (WORD)0x2E);
+    ASSERT_EQ(sb.attr_at({2, 11}), (WORD)0x2E);
+    ASSERT_EQ(sb.attr_at({3, 11}), (WORD)0x07);
     return true;
 }
 
@@ -174,6 +181,17 @@ bool test_scroll_noop()
     SMALL_RECT sr{10, 10, 9, 10};
     sb.scroll(sr, sr, false, {0, 1}, U' ', 0x07);
     ASSERT_EQ(sb.at_u32({0, 0}), U' ');
+    return true;
+}
+
+bool test_scroll_fill_uses_fill_char()
+{
+    screen_buffer sb({4, 2});
+    sb.set_u32({0, 0}, U'A', 0x07);
+    SMALL_RECT sr{0, 0, 0, 0};
+    sb.scroll(sr, sr, false, {4, 0}, U'Z', 0x0A);
+    ASSERT_EQ(sb.at_u32({0, 0}), U'Z');
+    ASSERT_EQ(sb.attr_at({0, 0}), (WORD)0x0A);
     return true;
 }
 
@@ -284,6 +302,7 @@ int main()
     RUN_TEST(test_scroll_up, L"scroll up");
     RUN_TEST(test_scroll_down, L"scroll down");
     RUN_TEST(test_scroll_noop, L"scroll noop");
+    RUN_TEST(test_scroll_fill_uses_fill_char, L"scroll fill char");
 
     RUN_TEST(test_clear, L"clear");
     RUN_TEST(test_clear_cell, L"clear_cell");

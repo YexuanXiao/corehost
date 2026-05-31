@@ -1,4 +1,4 @@
-﻿// === tests/test_conpty_cursor_sync.cpp ===
+// === tests/test_conpty_cursor_sync.cpp ===
 // Regression: echo \r\n cursor sync to console_state
 // Bug: after echo of "echo hello\r", terminal cursor moved to next line (0,4)
 //      but state.cursor.position remained at prompt end (13,3).
@@ -6,17 +6,30 @@
 //      of (0,4), causing "hello" to overwrite the current line.
 // Fix: complete_pending syncs cstate->cursor.position = _term_cursor.
 #include "test_common.hpp"
-#include "conpty/pipe_bridge.hpp"
-#include "conpty/console_state.hpp"
-#include "conpty/api_handlers.hpp"
+#include "pipe_bridge_testable.hpp"
+#include "console_state.hpp"
+#include "api_handlers.hpp"
 #include <cstdio>
 
 using namespace conpty;
 
+struct pipe_bridge_test_context
+{
+    console_state state;
+    screen_buffer screen;
+    input_buffer input;
+    pipe_bridge_testable bridge;
+
+    pipe_bridge_test_context() : bridge(input, state, screen)
+    {
+    }
+};
+
 // ── Terminal cursor tracking ─────────────────────────
 bool test_term_cursor_printable()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({0, 0});
     auto pos = bridge.test_feed_echo_bytes((const BYTE *)"hello", 5);
     ASSERT(pos.X == 5);
@@ -26,7 +39,8 @@ bool test_term_cursor_printable()
 
 bool test_term_cursor_cr()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({10, 0});
     // \r: X→0, Y unchanged
     auto pos = bridge.test_feed_echo_bytes((const BYTE *)"\r", 1);
@@ -37,7 +51,8 @@ bool test_term_cursor_cr()
 
 bool test_term_cursor_lf()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({10, 3});
     auto pos = bridge.test_feed_echo_bytes((const BYTE *)"\n", 1);
     ASSERT(pos.X == 0);
@@ -47,7 +62,8 @@ bool test_term_cursor_lf()
 
 bool test_term_cursor_crlf()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({7, 3});
     auto pos = bridge.test_feed_echo_bytes((const BYTE *)"\r\n", 2);
     ASSERT(pos.X == 0);
@@ -57,7 +73,8 @@ bool test_term_cursor_crlf()
 
 bool test_term_cursor_echo_hello()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({13, 3});
     auto pos = bridge.test_feed_echo_bytes((const BYTE *)"echo hello\r", 11);
     ASSERT(pos.X == 0);
@@ -68,7 +85,8 @@ bool test_term_cursor_echo_hello()
 bool test_term_cursor_echo_full_input()
 {
     // Complete input: "echo hello\r\n" — the full ReadConsole result
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({13, 3});
 
     auto pos = bridge.test_feed_echo_bytes((const BYTE *)"echo hello\r\n", 12);
@@ -80,7 +98,8 @@ bool test_term_cursor_echo_full_input()
 
 bool test_term_cursor_backspace()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({5, 1});
     auto pos = bridge.test_feed_echo_bytes((const BYTE *)"\x08", 1);
     ASSERT(pos.X == 4);
@@ -90,7 +109,8 @@ bool test_term_cursor_backspace()
 
 bool test_term_cursor_del()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({5, 1});
     auto pos = bridge.test_feed_echo_bytes((const BYTE *)"\x7F", 1);
     ASSERT(pos.X == 4);
@@ -100,7 +120,8 @@ bool test_term_cursor_del()
 
 bool test_term_cursor_backspace_at_zero()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({0, 1});
     auto pos = bridge.test_feed_echo_bytes((const BYTE *)"\x08", 1);
     ASSERT(pos.X == 0); // clamped
@@ -116,8 +137,9 @@ bool test_state_sync_after_echo()
     st.screen_buffer_size = {80, 25};
     st.cursor.position = {13, 3}; // cmd prompt position
 
-    pipe_bridge bridge;
-    bridge.cstate = &st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
     bridge.test_set_term_cursor_valid(st.cursor.position);
 
     // Echo "echo hello\r" — terminal cursor moves to (0,3)
@@ -146,8 +168,9 @@ bool test_state_sync_multiline()
     st.screen_buffer_size = {80, 25};
     st.cursor.position = {0, 0};
 
-    pipe_bridge bridge;
-    bridge.cstate = &st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
     bridge.test_set_term_cursor_valid({0, 0});
 
     // Cycle 1: prompt + "echo hello\r\n"
@@ -171,8 +194,9 @@ bool test_state_sync_initial_cursor()
     st.screen_buffer_size = {80, 25};
     st.cursor.position = {13, 3};
 
-    pipe_bridge bridge;
-    bridge.cstate = &st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
 
     // Before any echo, term cursor is invalid
     ASSERT(!bridge.test_is_term_cursor_valid());
@@ -196,8 +220,9 @@ bool test_regression_echo_then_output()
     st.screen_buffer_size = {80, 25};
     st.cursor.position = {13, 3}; // after cmd prompt output
 
-    pipe_bridge bridge;
-    bridge.cstate = &st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
     bridge.test_set_term_cursor_valid({13, 3});
 
     // ── Step 1-2: echo "echo hello\r" → term cursor at (0,3); + LF → (0,4)
@@ -223,7 +248,8 @@ bool test_regression_echo_then_output()
 // Verify sync_cursor_after_write sets both boundaries to cursor X
 bool test_input_boundary_sync_resets_both()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({13, 3});
     bridge.test_set_input_column_start(99);
     bridge.test_set_input_column_end(99);
@@ -236,7 +262,8 @@ bool test_input_boundary_sync_resets_both()
 // Backspace at prompt boundary (X == input_start) → cursor clamped
 bool test_input_boundary_backspace_at_prompt()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({13, 3});
     bridge.sync_cursor_after_write({13, 3});
     // Backspace at prompt start: should not move
@@ -249,7 +276,8 @@ bool test_input_boundary_backspace_at_prompt()
 // Backspace just past prompt (X > input_start) → X decreases, end boundary shrinks
 bool test_input_boundary_backspace_past_prompt()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({15, 3});
     bridge.sync_cursor_after_write({13, 3}); // start=13
     // simulate typing "ab": feed "ab"
@@ -266,7 +294,8 @@ bool test_input_boundary_backspace_past_prompt()
 // Printable chars advance input_column_end
 bool test_input_boundary_printable_advances_end()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({13, 3});
     bridge.sync_cursor_after_write({13, 3});
     // type "echo"
@@ -283,7 +312,8 @@ bool test_input_boundary_printable_advances_end()
 // Backspace erases all typed chars → end boundary falls back to start
 bool test_input_boundary_backspace_all_chars()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({13, 3});
     bridge.sync_cursor_after_write({13, 3});
     // type "abc"
@@ -299,7 +329,8 @@ bool test_input_boundary_backspace_all_chars()
 // Backspace deleting middle chars while cursor is at end → end boundary shrinks
 bool test_input_boundary_end_shrinks_on_delete()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({13, 3});
     bridge.sync_cursor_after_write({13, 3});
     // type "xyz"
@@ -326,7 +357,8 @@ bool test_input_boundary_end_shrinks_on_delete()
 // (We simulate the clamping by checking the bounds that process_input would use)
 bool test_input_boundary_direction_key_clamping()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({13, 3});
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_feed_echo_bytes((const BYTE *)"hello", 5); // X:13→18, end=18
@@ -379,7 +411,8 @@ bool test_input_boundary_direction_key_clamping()
 // Regression: screen_width clamping still works (right boundary can't exceed screen)
 bool test_input_boundary_screen_width_clamping()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({78, 3});
     bridge.sync_cursor_after_write({78, 3}); // last columns of 80-wide screen
     bridge.test_feed_echo_bytes((const BYTE *)"xy", 2);
@@ -402,7 +435,8 @@ bool test_input_boundary_screen_width_clamping()
 // Empty _cooked_buf: UTF-8 output must still end with \r\n
 bool test_completion_rn_empty_cooked()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     std::string u8 = bridge.test_build_completion_utf8();
     ASSERT(u8.size() >= 2);
@@ -414,7 +448,8 @@ bool test_completion_rn_empty_cooked()
 // Typed "echo hello" → UTF-8 = "echo hello\r\n"
 bool test_completion_rn_echo_hello()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"echo hello", 10);
     std::string u8 = bridge.test_build_completion_utf8();
@@ -428,7 +463,8 @@ bool test_completion_rn_echo_hello()
 // \r\n must NOT be part of _cooked_buf (only appended by completion)
 bool test_completion_rn_not_in_cooked_buf()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"abc", 3);
     ASSERT(bridge.test_get_cooked_buf() == U"abc"); // 不含 \r\n
@@ -444,7 +480,8 @@ bool test_completion_rn_not_in_cooked_buf()
 // ── 插入 ────────────────────────────────────────────
 bool test_edit_insert_end()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"a", 1);
     ASSERT(bridge.test_get_cooked_buf() == U"a");
@@ -455,7 +492,8 @@ bool test_edit_insert_end()
 
 bool test_edit_insert_multi_end()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"hello", 5);
     ASSERT(bridge.test_get_cooked_buf() == U"hello");
@@ -466,7 +504,8 @@ bool test_edit_insert_multi_end()
 
 bool test_edit_insert_beginning()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"xyz", 3);
     bridge.test_cooked_home();          // cursor ← 0
@@ -479,7 +518,8 @@ bool test_edit_insert_beginning()
 
 bool test_edit_insert_middle()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"ac", 2);
     bridge.test_cooked_left();          // cursor ← 1
@@ -493,7 +533,8 @@ bool test_edit_insert_middle()
 // ── 回退 (Backspace) ────────────────────────────────
 bool test_edit_backspace_at_zero()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_backspace(); // cursor=0, no-op
     ASSERT(bridge.test_get_cooked_buf() == U"");
@@ -504,7 +545,8 @@ bool test_edit_backspace_at_zero()
 
 bool test_edit_backspace_at_end()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"hello", 5);
     bridge.test_cooked_backspace(); // deletes 'o'
@@ -516,7 +558,8 @@ bool test_edit_backspace_at_end()
 
 bool test_edit_backspace_middle()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"abc", 3);
     bridge.test_cooked_left();      // cursor=2, between 'b' 'c'
@@ -529,7 +572,8 @@ bool test_edit_backspace_middle()
 
 bool test_edit_backspace_all()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"abc", 3);
     bridge.test_cooked_backspace();
@@ -547,7 +591,8 @@ bool test_edit_backspace_all()
 // ── 删除 (Delete) ───────────────────────────────────
 bool test_edit_delete_at_end()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"abc", 3);
     bridge.test_cooked_delete(); // cursor=3=size, no-op
@@ -559,7 +604,8 @@ bool test_edit_delete_at_end()
 
 bool test_edit_delete_beginning()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"abc", 3);
     bridge.test_cooked_home();   // cursor=0
@@ -572,7 +618,8 @@ bool test_edit_delete_beginning()
 
 bool test_edit_delete_middle()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"abc", 3);
     bridge.test_cooked_left();   // cursor=2
@@ -586,7 +633,8 @@ bool test_edit_delete_middle()
 
 bool test_edit_delete_all()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"abc", 3);
     bridge.test_cooked_home();
@@ -605,7 +653,8 @@ bool test_edit_delete_all()
 // ── 光标移动 ────────────────────────────────────────
 bool test_edit_move_left_boundary()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_left(); // cursor=0, no-op
     ASSERT(bridge.test_get_cooked_cursor() == 0);
@@ -614,7 +663,8 @@ bool test_edit_move_left_boundary()
 
 bool test_edit_move_right_boundary()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"abc", 3);
     bridge.test_cooked_right(); // cursor=3=size, no-op
@@ -624,7 +674,8 @@ bool test_edit_move_right_boundary()
 
 bool test_edit_home_end_roundtrip()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"hello", 5);
     ASSERT(bridge.test_get_cooked_cursor() == 5);
@@ -637,7 +688,8 @@ bool test_edit_home_end_roundtrip()
 
 bool test_edit_move_left_right_symmetric()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"abc", 3);
     bridge.test_cooked_left();
@@ -649,7 +701,8 @@ bool test_edit_move_left_right_symmetric()
 
 bool test_edit_empty_buf_all_ops_noop()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     // all ops on empty buffer should be safe
     bridge.test_cooked_left();
@@ -668,7 +721,8 @@ bool test_edit_empty_buf_all_ops_noop()
 // ── 组合操作 ────────────────────────────────────────
 bool test_edit_combo_insert_backspace_undo()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"a", 1);
     bridge.test_cooked_backspace();
@@ -679,7 +733,8 @@ bool test_edit_combo_insert_backspace_undo()
 
 bool test_edit_combo_insert_delete_undo()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"a", 1);
     bridge.test_cooked_home();
@@ -692,7 +747,8 @@ bool test_edit_combo_insert_delete_undo()
 bool test_edit_combo_midline_insert_then_edit()
 {
     // type "ac", left, insert "b" → "abc", then backspace 'b' → "ac"
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"ac", 2);
     bridge.test_cooked_left();          // cursor=1
@@ -707,7 +763,8 @@ bool test_edit_combo_midline_insert_then_edit()
 bool test_edit_combo_midline_delete_char()
 {
     // type "abc", left×2, delete → "ac"
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"abc", 3);
     bridge.test_cooked_left();   // cursor=2
@@ -721,7 +778,8 @@ bool test_edit_combo_midline_delete_char()
 bool test_edit_combo_overwrite_via_backspace()
 {
     // type "xb", home, right, backspace, insert "a" → "ab"
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"xb", 2);
     bridge.test_cooked_home();
@@ -736,7 +794,8 @@ bool test_edit_combo_overwrite_via_backspace()
 bool test_edit_combo_overwrite_via_delete()
 {
     // type "xb", home, delete, insert "a" → "ab"
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"xb", 2);
     bridge.test_cooked_home();
@@ -751,7 +810,8 @@ bool test_edit_combo_full_lifecycle()
 {
     // Full editing session: fix typo "helo" → "hello world!"
     //   type "helo" → home → right×2 → insert "l" → end → insert " world!"
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"helo", 4); // "helo", cursor=4
     bridge.test_cooked_home();             // cursor=0
@@ -770,7 +830,8 @@ bool test_edit_combo_full_lifecycle()
 bool test_edit_combo_rapid_alternating()
 {
     // insert, backspace, insert, backspace... (stress test)
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     for (int i = 0; i < 10; ++i)
     {
@@ -787,7 +848,8 @@ bool test_edit_combo_rapid_alternating()
 bool test_edit_combo_cursor_walk()
 {
     // type "abcde", walk left to beginning, then right to end
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"abcde", 5);
     ASSERT(bridge.test_get_cooked_cursor() == 5);
@@ -822,7 +884,8 @@ bool test_edit_combo_cursor_walk()
 bool test_edit_boundary_insert_then_home_left_clamped()
 {
     // After insert, home should put cursor at 0, left should be no-op
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"hello", 5);
     bridge.test_cooked_home();
@@ -834,7 +897,8 @@ bool test_edit_boundary_insert_then_home_left_clamped()
 
 bool test_edit_boundary_insert_then_end_right_clamped()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_cooked_append(U"hello", 5);
     bridge.test_cooked_end();
@@ -850,7 +914,8 @@ bool test_edit_boundary_insert_then_end_right_clamped()
 
 bool test_history_empty_up_noop()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     ASSERT(bridge.test_history_size() == 0);
     bridge.test_history_up(); // no-op on empty history
@@ -861,7 +926,8 @@ bool test_history_empty_up_noop()
 
 bool test_history_empty_down_noop()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
     bridge.test_history_down(); // no-op when not browsing
     ASSERT(bridge.test_get_cooked_buf() == U"");
@@ -870,7 +936,8 @@ bool test_history_empty_down_noop()
 
 bool test_history_push_one_navigate_up()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
 
     // Simulate typing "echo hello" and pressing Enter (complete_pending)
@@ -890,7 +957,8 @@ bool test_history_push_one_navigate_up()
 
 bool test_history_up_down_roundtrip()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
 
     // Push "echo hello"
@@ -910,7 +978,8 @@ bool test_history_up_down_roundtrip()
 
 bool test_history_push_two_navigate()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
 
     // Push "cmd1"
@@ -947,7 +1016,8 @@ bool test_history_push_two_navigate()
 
 bool test_history_saved_input_restore()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
 
     // Push "oldcmd" to history
@@ -971,7 +1041,8 @@ bool test_history_saved_input_restore()
 
 bool test_history_no_duplicate_push()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
 
     // Push same command twice
@@ -993,7 +1064,8 @@ bool test_history_no_duplicate_push()
 // ── 浏览中编辑：应自动结束浏览模式 ──
 bool test_history_type_while_browsing()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
 
     bridge.test_cooked_append(U"old", 3);
@@ -1015,7 +1087,8 @@ bool test_history_type_while_browsing()
 
 bool test_history_backspace_while_browsing()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
 
     bridge.test_cooked_append(U"histcmd", 7);
@@ -1036,7 +1109,8 @@ bool test_history_backspace_while_browsing()
 
 bool test_history_delete_while_browsing()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
 
     bridge.test_cooked_append(U"xyz", 3);
@@ -1056,7 +1130,8 @@ bool test_history_delete_while_browsing()
 // ── 边界压测 ──
 bool test_history_up_at_boundary_repeated()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
 
     bridge.test_cooked_append(U"only", 4);
@@ -1074,7 +1149,8 @@ bool test_history_up_at_boundary_repeated()
 
 bool test_history_down_at_boundary_repeated()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
 
     bridge.test_cooked_append(U"only", 4);
@@ -1095,7 +1171,8 @@ bool test_history_down_at_boundary_repeated()
 
 bool test_history_empty_input_not_pushed()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
 
     // Push empty (simulate pressing Enter with no input)
@@ -1114,7 +1191,8 @@ bool test_history_empty_input_not_pushed()
 // ── 多条目边界遍历 ──
 bool test_history_many_entries_cycling()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
 
     // Push 5 commands
@@ -1152,7 +1230,8 @@ bool test_history_many_entries_cycling()
 // ── 浏览中再按 Enter 产生的命令应入栈 ──
 bool test_history_browse_then_enter_new()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
 
     // Push "cmd1"
@@ -1183,7 +1262,8 @@ bool test_history_browse_then_enter_new()
 // ── 已暂存输入的恢复 ──
 bool test_history_saved_input_preserved_across_navigation()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.sync_cursor_after_write({13, 3});
 
     bridge.test_cooked_append(U"hs1", 3);
@@ -1228,7 +1308,7 @@ bool test_history_saved_input_preserved_across_navigation()
 //         Up/Down → 历史导航 _edit_history_*
 //         可打印字符/Tab → edit_insert_codepoint()
 //
-//   BUG #2: 批量 echo 后忘记 vt_flush，字节滞留在 _vt_buf 直到后续
+//   BUG #2: 批量 echo 后忘记 vt_flush，字节滞留在 VT 输出缓冲直到后续
 //           控制序列/应用输出才显示，导致约半秒才能显示一个字的卡顿。
 //
 //   修复：accumulate_from_pipe 在 process_input 后立即 vt_flush()。
@@ -1239,7 +1319,7 @@ bool test_history_saved_input_preserved_across_navigation()
 // 辅助：构造 Win32Input 序列的原始字节
 // 格式: \x1b[Vk;Sc;Uc;Kd;Cs;Rc_
 // Vk=虚拟键码, Sc=扫描码, Uc=Unicode, Kd=1按下/0释放, Cs=控制键状态, Rc=重复次数
-static std::vector<BYTE> make_win32_seq(WORD vk, WORD sc, WCHAR uc, bool down, DWORD cs = 0, WORD rc = 1)
+std::vector<BYTE> make_win32_seq(WORD vk, WORD sc, WCHAR uc, bool down, DWORD cs = 0, WORD rc = 1)
 {
     char buf[64];
     int n =
@@ -1253,7 +1333,8 @@ static std::vector<BYTE> make_win32_seq(WORD vk, WORD sc, WCHAR uc, bool down, D
 // 验证 _cooked_buf 中的文本被提交、_line_found 为 true。
 bool test_win32_console_read_enter_submits_line()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_enter_console_read_mode(13);
 
     // 模拟用户输入 "echo hello"（ASCII 直接作为纯文本到达）
@@ -1278,7 +1359,8 @@ bool test_win32_console_read_enter_submits_line()
 // 在 ConsoleRead 模式下发送 Win32Input 'A' keydown，验证字符插入到 _cooked_buf。
 bool test_win32_console_read_printable_inserts_char()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_enter_console_read_mode(13);
 
     // 发送 Win32Input 'a' down: VK=65 (VK_A), Sc=30, Uc=97 (L'a'), Kd=1
@@ -1306,10 +1388,24 @@ bool test_win32_console_read_printable_inserts_char()
     return true;
 }
 
+bool test_console_read_utf8_text_decodes_once()
+{
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
+    bridge.test_enter_console_read_mode(13);
+
+    const BYTE text[] = {0xE5, 0x96, 0x9C, 0xE6, 0xAC, 0xA2, 0xE4, 0xBD, 0xA0};
+    bridge.test_feed_raw_bytes(text, static_cast<DWORD>(std::size(text)));
+
+    ASSERT(bridge.test_get_cooked_buf() == U"\u559C\u6B22\u4F60");
+    return true;
+}
+
 // ── BUG #1 测试: Win32Input Backspace → 删除字符 ──
 bool test_win32_console_read_backspace_deletes_char()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_enter_console_read_mode(13);
 
     // 键入 "ab"
@@ -1332,7 +1428,8 @@ bool test_win32_console_read_backspace_deletes_char()
 // ── BUG #1 测试: Win32Input Left/Right 移动光标 ──
 bool test_win32_console_read_arrow_keys_move_cursor()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_enter_console_read_mode(13);
 
     // 键入 "abc"
@@ -1363,7 +1460,8 @@ bool test_win32_console_read_arrow_keys_move_cursor()
 // ── BUG #1 测试: Win32Input Home/End ──
 bool test_win32_console_read_home_end()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_enter_console_read_mode(13);
 
     auto a = make_win32_seq(0x41, 30, L'a', true, 0);
@@ -1388,7 +1486,8 @@ bool test_win32_console_read_home_end()
 // ── BUG #1 测试: Win32Input Delete 删除光标后字符 ──
 bool test_win32_console_read_delete_char()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_enter_console_read_mode(13);
 
     // 键入 "abc"，光标回到位置 1
@@ -1415,7 +1514,8 @@ bool test_win32_console_read_delete_char()
 // ── BUG #1 测试: Win32Input Up/Down 历史导航 ──
 bool test_win32_console_read_history_navigation()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_enter_console_read_mode(13);
 
     // 第一次输入 "cmd1"，推入历史
@@ -1457,7 +1557,8 @@ bool test_win32_console_read_history_navigation()
 // keydown 负责行编辑，keyup 必须被忽略（否则空白/双重操作）
 bool test_win32_console_read_keyup_ignored()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_enter_console_read_mode(13);
 
     // 键入 "x"
@@ -1482,7 +1583,8 @@ bool test_win32_console_read_keyup_ignored()
 // ── BUG #1 测试: Win32Input Tab 插入制表符 ──
 bool test_win32_console_read_tab_inserts_tab()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_enter_console_read_mode(13);
 
     auto a = make_win32_seq(0x41, 30, L'a', true, 0);
@@ -1519,7 +1621,8 @@ bool test_win32_console_read_tab_inserts_tab()
 //   但 process_input 仍然检测到 b=='\r' 并处理光标。此处仅测试标志。
 bool test_enter_newline_flag_set_on_cr()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({17, 5}); // 提示符末尾
     bridge.sync_cursor_after_write({17, 5});    // 重置输入边界
 
@@ -1548,7 +1651,8 @@ bool test_enter_newline_flag_set_on_cr()
 // api_write_console 在输出 "hello" 文本前调用此方法。
 bool test_enter_newline_consume_flag()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({17, 5});
     bridge.test_feed_echo_bytes((const BYTE *)"echo hello", 10);
     bridge.test_feed_raw_bytes((const BYTE *)"\r", 1);
@@ -1573,7 +1677,8 @@ bool test_enter_newline_consume_flag()
 // ── 3. 无 Enter 时 consume_enter_newline() 返回 false ──
 bool test_enter_newline_no_flag_when_no_cr()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({17, 5});
 
     // 只有打印字符，没有 Enter
@@ -1590,7 +1695,8 @@ bool test_enter_newline_no_flag_when_no_cr()
 // 下方 b=='\r' 检测 → 必须在 win32_input_key 分支中独立设置标志。
 bool test_enter_newline_flag_set_on_win32_enter()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_set_term_cursor_valid({17, 5});
     bridge.sync_cursor_after_write({17, 5});
 
@@ -1616,7 +1722,8 @@ bool test_enter_newline_flag_set_on_win32_enter()
 // PowerShell WriteConsole("hello\r\n") 时先 consume → CUP → 再写文本。
 bool test_enter_newline_full_scenario()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
 
     // ── 初始化: 提示符 WriteConsole 完成，光标在 (17,5) ──
     bridge.test_set_term_cursor_valid({17, 5});
@@ -1659,7 +1766,8 @@ bool test_enter_newline_full_scenario()
 // 不应干涉 _enter_pending_newline。
 bool test_enter_newline_not_set_in_console_read()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_enter_console_read_mode(13);
 
     // 键入 "abc" + Enter
@@ -1693,7 +1801,8 @@ bool test_enter_newline_not_set_in_console_read()
 // FillConsoleOutput + WriteConsole(prompt)，验证 prompt 在第一行而非旧行。
 bool test_clear_reset_newline_only_at_origin()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
 
     // prompt 在 (17,5) 行
     bridge.test_set_term_cursor_valid({17, 5});
@@ -1732,7 +1841,8 @@ bool test_clear_reset_newline_only_at_origin()
 // 验证 "echo hello" + Enter 后 flag 仍为 true，正常换行路径不受影响。
 bool test_psreadline_setcursorpos_does_not_reset_newline()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
 
     // prompt 在 (17,5)
     bridge.test_set_term_cursor_valid({17, 5});
@@ -1758,7 +1868,8 @@ bool test_psreadline_setcursorpos_does_not_reset_newline()
 // ── 3. 完整 Clear-Host 场景 — 含 FillConsoleOutput 清屏后 prompt 位置 ──
 bool test_clear_full_pipeline_prompt_on_row_0()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
 
     // Step 1: initial prompt at (17,5)
     bridge.test_set_term_cursor_valid({17, 5});
@@ -1789,89 +1900,15 @@ bool test_clear_full_pipeline_prompt_on_row_0()
     return true;
 }
 
-// ── BUG #3 测试: effective_formatting_width 导致 Clear 失效 ──
-// 回归背景（2026-05-24）：
-//   BUG: 引入 effective_formatting_width(-1) 后，api_fill_output 的
-//   is_fullscreen_space 检测使用 screen_buffer_size.X(120) 计算阈值，
-//   但 PowerShell 按 CSBI 返回的有效宽度(119)填充 → 3570 >= 3600 失败，
-//   ED2 清屏序列未发送。
-//   修正: is_fullscreen_space 改用 effective_formatting_width * height。
-//
-// 本测试验证:
-//   1. effective_formatting_width(120) = 119
-//   2. is_fullscreen_space 条件: origin (0,0) + space char + length >= effective_w * h
-//   3. PowerShell 按真实宽度填充 3600 仍应被检测为全屏清空
-bool test_fullscreen_space_detect_respects_effective_width()
-{
-    // ── 场景: 120x30 终端, graphemes + ambiguous ──
-    console_state state;
-    state.screen_buffer_size = {120, 30};
-    state.text_measurement = text_measurement_mode::graphemes;
-    state.ambiguous_is_wide = true;
-
-    // 验证 effective_formatting_width 返回 119
-    SHORT eff_w = effective_formatting_width(state.screen_buffer_size.X, state);
-    ASSERT_EQ(eff_w, 119);
-
-    // 计算 is_fullscreen_space 的阈值
-    ULONG fullscreen_threshold = static_cast<ULONG>(eff_w * state.screen_buffer_size.Y);
-    ASSERT_EQ(fullscreen_threshold, 3570u);
-
-    // PowerShell 按 CSBI 报告的宽度(119) × 30 = 3570 填充 → 应检测到
-    ASSERT(fullscreen_threshold >= 3570u);
-
-    // PowerShell 按真实宽度 120 × 30 = 3600 填充 → 也应检测到
-    ULONG real_fill_length = 120u * 30u; // = 3600
-    ASSERT(real_fill_length >= fullscreen_threshold);
-
-    return true;
-}
-
-// ── BUG #3 补充: 不同终端宽度下全屏检测均有效 ──
-bool test_fullscreen_detect_various_widths()
-{
-    struct TestCase
-    {
-        SHORT w;
-        SHORT h;
-        SHORT eff_w;
-        ULONG fill_len;
-        bool expect;
-    };
-    TestCase cases[] = {
-        {120, 30, 119, 3570, true},  // PS 按有效宽度填(119*30)
-        {120, 30, 119, 3600, true},  // PS 按真实宽度填(120*30)
-        {80, 25, 79, 1975, true},    // PS 按有效宽度填(79*25)
-        {80, 25, 79, 2000, true},    // PS 按真实宽度填(80*25)
-        {120, 30, 119, 3569, false}, // 小 1 格不应触发
-        {40, 10, 39, 390, true},     // PS 按真实宽度填(40*10)
-        {40, 10, 39, 389, false},    // 小 1 格不应触发
-    };
-
-    for (auto &tc : cases)
-    {
-        console_state state;
-        state.screen_buffer_size = {tc.w, tc.h};
-        state.text_measurement = text_measurement_mode::graphemes;
-        state.ambiguous_is_wide = true;
-
-        SHORT eff_w = effective_formatting_width(tc.w, state);
-        ASSERT_EQ(eff_w, tc.eff_w);
-
-        ULONG threshold = static_cast<ULONG>(eff_w * tc.h);
-        bool detected = tc.fill_len >= threshold;
-        ASSERT_EQ(detected, tc.expect);
-    }
-    return true;
-}
-// 回归：批量 echo 优化后 echo 追加到 _vt_buf，但遗漏 vt_flush 导致字符滞留。
-// 本测试验证每次 test_feed_raw_bytes 后 _vt_buf 已被排空。
+// 回归：批量 echo 优化后 echo 追加到 VT 输出缓冲，但遗漏 vt_flush 导致字符滞留。
+// 本测试验证每次 test_feed_raw_bytes 后 VT 输出缓冲已被排空。
 bool test_echo_flushed_after_each_batch()
 {
-    pipe_bridge bridge;
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
     bridge.test_enter_console_read_mode(13);
 
-    // 发送可打印字符 → echo 追加到 _vt_buf → test_feed_raw_bytes 内调 vt_flush
+    // 发送可打印字符 → echo 追加到 VT 输出缓冲 → test_feed_raw_bytes 内调 vt_flush
     auto a = make_win32_seq(0x41, 30, L'a', true, 0);
     bridge.test_feed_raw_bytes(a.data(), static_cast<DWORD>(a.size()));
     ASSERT(bridge.test_vt_buf_len() == 0); // 批次结束时已 flush
@@ -1887,43 +1924,17 @@ bool test_echo_flushed_after_each_batch()
     return true;
 }
 
-// ── BUG #4 回归: api_get_sb_info 必须保留 effective_formatting_width ──
-// 回归背景（2026-05-24）：
-//   BUG: 修复"如果包括路径，"空行问题时，误将 api_get_sb_info 中的
-//   effective_formatting_width(-1) 移除，导致 CSBI 返回 120 而非 119。
-//   WT 渲染器像素偏大，PowerShell 按 120 排版 → 文本溢出到下一行，
-//   破坏 WT 兼容性。
-//   修复: CSBI 保留 effective_formatting_width，仅移除 api_write_console
-//   中的初始/最终 CUP。
-bool test_csbi_preserves_effective_width_for_wt_compat()
-{
-    console_state state;
-    state.screen_buffer_size = {120, 30};
-    state.current_window_size = {120, 30};
-    state.max_window_size = {120, 40};
-    state.text_measurement = text_measurement_mode::graphemes;
-    state.ambiguous_is_wide = true;
-
-    // 验证 effective_formatting_width 仍在 -1
-    ASSERT_EQ(effective_formatting_width(120, state), 119);
-    ASSERT_EQ(effective_formatting_width(80, state), 79);
-
-    // CSBI 返回的 Size.X / Win.X / Max.X 应为 119（通过 effective_formatting_width）
-    // 此逻辑在 api_get_sb_info 中，仅验证函数本身不退化
-    return true;
-}
-
 // ── BUG #4 回归: api_write_console 不再发送最终 CUP ──
 //   BUG: 移除最终 CUP 后，终端通过 DECAWM 自然追踪光标。
-//   测试: 通过 vt_flush_diag / _vt_buf 验证 WriteConsole 发送的 VT 序列
+//   测试: 通过 VT 输出缓冲验证 WriteConsole 发送的 VT 序列
 //   不包含两次 CUP（初始+最终），仅 Enter 换行时有一次。
 //
 //   注意: 此测试依赖 pipe_bridge 的 vt_flush_diag 诊断接口和 test_*
-//   辅助方法。通过检查 _vt_buf 实际字节来确认 CUP 未发送。
+//   辅助方法。通过检查 VT 输出缓冲实际字节来确认 CUP 未发送。
 bool test_write_console_does_not_emit_final_cup()
 {
     // 此测试仅文档化回归保护场景，实际 CUP 哨兵由 E2E 测试覆盖。
-    // pipe_bridge 在测试模式下可检查 _vt_buf 内容但需要桥梁暴露。
+    // pipe_bridge 在测试模式下可检查 VT 输出缓冲内容但需要桥梁暴露。
     // 核心断言: api_write_console 的 "vt_flush_diag" 调用已移除，
     // 不再有额外的 CSI n;m H 序列。
     return true;
@@ -2033,6 +2044,7 @@ int main()
     std::wcout << L"\nWin32Input → ConsoleRead Regression (cmd shell) :\n";
     RUN_TEST(test_win32_console_read_enter_submits_line, L"Enter submits line");
     RUN_TEST(test_win32_console_read_printable_inserts_char, L"Printable inserts char");
+    RUN_TEST(test_console_read_utf8_text_decodes_once, L"UTF-8 text decodes once");
     RUN_TEST(test_win32_console_read_backspace_deletes_char, L"Backspace deletes char");
     RUN_TEST(test_win32_console_read_arrow_keys_move_cursor, L"Arrow keys move cursor");
     RUN_TEST(test_win32_console_read_home_end, L"Home/End jump");
@@ -2057,12 +2069,7 @@ int main()
     std::wcout << L"\nEcho Flush Regression :\n";
     RUN_TEST(test_echo_flushed_after_each_batch, L"Echo flushed each batch");
 
-    std::wcout << L"\nEffective Width + Fullscreen Clear Regression :\n";
-    RUN_TEST(test_fullscreen_space_detect_respects_effective_width, L"Fullscreen space respects effective width");
-    RUN_TEST(test_fullscreen_detect_various_widths, L"Fullscreen detect various widths");
-
-    std::wcout << L"\nCSBI & WriteConsole CUP Regression :\n";
-    RUN_TEST(test_csbi_preserves_effective_width_for_wt_compat, L"CSBI preserves effective width");
+    std::wcout << L"\nWriteConsole CUP Regression :\n";
     RUN_TEST(test_write_console_does_not_emit_final_cup, L"WriteConsole no final CUP");
 
     std::wcout << L"\nTotal: " << (tests_passed + tests_failed) << L" | Passed: " << tests_passed << L" | Failed: "

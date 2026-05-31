@@ -19,9 +19,10 @@
 namespace client
 {
 
-inline void client_entry(std::wstring client_command_line)
+inline void client_entry(std::wstring title, std::wstring client_command_line)
 {
     STARTUPINFOW si{sizeof(si)};
+    si.lpTitle = title.empty() ? nullptr : title.data();
     // 返回后 pi 析构 → CloseHandle(hThread) + CloseHandle(hProcess) → 进程退出
     win32::process_information pi{};
     // lpApplicationName=NULL, lpCommandLine=full command line

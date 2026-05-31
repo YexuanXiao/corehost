@@ -15,7 +15,7 @@
 #include "win32/event.hpp"
 #include "defterm.hpp"
 #include "connect.hpp"
-#include "miniio/io_loop.hpp"
+#include "io_loop.hpp"
 #include "utility/log.hpp"
 
 namespace defterm
@@ -34,7 +34,7 @@ void defterm_entry(std::uintptr_t condrv_handle)
     handler.ev = ev.view();
 
     LOG("defterm_entry: entering run_io_loop");
-    miniio::run_io_loop(server, ev.view(), handler);
+    defterm::run_io_loop(server, ev.view(), handler);
     LOG("defterm_entry: run_io_loop returned");
 }
 

@@ -36,7 +36,7 @@ This implementation also solves the problem that the original version of conhost
 
 ### UAC elevation
 
-When corehost runs with elevated integrity (High IL) due to sudo or runas, UIPI prevents COM activation and handle transfer to Medium IL terminals. When corehost detects this situation, since no GUI is available (the only GUI available to the original conhost is itself), corehost will refuse to execute the program and pop up a MessageBox to inform the user of what happened.
+When corehost runs with elevated integrity (High IL) due to sudo or runas, UIPI prevents COM activation and handle transfer to Medium IL terminals. When corehost detects this situation, since no GUI is available (the only GUI available to the original conhost is itself), corehost will refuse to execute the program and send a message in the notification center about what happened.
 
 ### Roadmap
 
@@ -64,6 +64,8 @@ Finally, corehost can be compiled directly as a static library. In static librar
 4. `cmake -B build`  
 5. `cmake --build build --config Release`  
 
-If you want maximum performance rather than helping with diagnostics, use `cmake -B build -DCOREHOST_DISABLE_LOG=ON` for step 4.
+If you want maximum performance rather than helping with diagnostics, set the option `COREHOST_DISABLE_LOG` to `ON`.
+
+corehost supports Windows versions 1903 and above by default because it uses the system's icu.lib to reduce the binary size by approximately 2.5 MB. If you want to use corehost on systems earlier than 1903, set the option `COREHOST_USE_SYSTEM_ICU` to `OFF`.
 
 I plan to support Clang, but it's not a priority at the moment. Therefore, if anyone truly wants to build with Clang, please submit a request, and I will reprioritize accordingly.

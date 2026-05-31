@@ -1,4 +1,4 @@
-﻿// ── tests/test_vt_parser.cpp ──────────────────────────────
+// ── tests/test_vt_parser.cpp ──────────────────────────────
 // VT/CSI/OSC 解析器测(基于 char32_t 的新版解析器)
 //
 // 与旧版测试的区别
@@ -8,7 +8,7 @@
 //   因此反向测试改为验证非法序列被无损地输出text 消息
 //
 #include "test_common.hpp"
-#include "conpty/conpty_vt_parser.hpp"
+#include "conpty_vt_parser.hpp"
 #include "utility/crtdbg.hpp"
 
 #include <random>
@@ -599,8 +599,8 @@ struct msg_gen
             if (std::uniform_int_distribution<int>(0, 1)(rng))
             {
                 // SS3: ESC O X
-                static const char32_t s_keys[] = {U'A', U'B', U'C', U'D', U'H', U'F', U'P', U'Q', U'R', U'S'};
-                static const vt_message_id s_ids[] = {
+                const char32_t s_keys[] = {U'A', U'B', U'C', U'D', U'H', U'F', U'P', U'Q', U'R', U'S'};
+                const vt_message_id s_ids[] = {
                     vt_message_id::key_up,   vt_message_id::key_down, vt_message_id::key_right, vt_message_id::key_left,
                     vt_message_id::key_home, vt_message_id::key_end,  vt_message_id::key_f1,    vt_message_id::key_f2,
                     vt_message_id::key_f3,   vt_message_id::key_f4};
@@ -613,8 +613,8 @@ struct msg_gen
             else
             {
                 // CSI ~
-                static const short c_codes[] = {2, 3, 5, 6, 15, 17, 18, 19, 20, 21, 23, 24};
-                static const vt_message_id c_ids[] = {
+                const short c_codes[] = {2, 3, 5, 6, 15, 17, 18, 19, 20, 21, 23, 24};
+                const vt_message_id c_ids[] = {
                     vt_message_id::key_insert,    vt_message_id::key_delete, vt_message_id::key_page_up,
                     vt_message_id::key_page_down, vt_message_id::key_f5,     vt_message_id::key_f6,
                     vt_message_id::key_f7,        vt_message_id::key_f8,     vt_message_id::key_f9,
@@ -715,7 +715,8 @@ struct msg_gen
 // 冒烟测试: 确保最基本的序列能被解
 bool test_smoke()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
 
     // ESC M reverse_index
     ASSERT(p.parse(U'\x1B') == vt_message_id::continue_);
@@ -751,7 +752,8 @@ bool test_smoke()
 // 测试单条随机消息的往
 bool test_positive_single()
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     for (int trial = 0; trial < 500; ++trial)
     {
         msg_gen gen;
@@ -777,7 +779,8 @@ bool test_positive_single()
 // 测试多条消息拼接后的连续解析
 bool test_positive_concatenated()
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     for (int trial = 0; trial < 200; ++trial)
     {
         int msg_count = rand_short(2, 6);
@@ -810,7 +813,8 @@ bool test_positive_concatenated()
 // 测试消息与文本穿
 bool test_positive_with_text()
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     for (int trial = 0; trial < 100; ++trial)
     {
         msg_gen gen;
@@ -857,20 +861,21 @@ bool test_positive_with_text()
 }
 
 // ============================================================================
-// 反向测试（非法序text 消息，内容与原输入一致）
+// 反向测试（非法序列产生 unknown_sequence，内容与原输入一致）
 // ============================================================================
 
-// 辅助函数：输入一组码点，应当产生一text 消息，且 text 内容等于输入序列
-bool test_illegal_as_text(const raw_seq &seq)
+// 辅助函数：输入一组码点，应当产生 unknown_sequence，且 text 内容等于输入序列
+bool test_illegal_as_unknown_sequence(const raw_seq &seq)
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     bool produced = false;
     for (size_t i = 0; i < seq.code_points.size(); ++i)
     {
         vt_message_id id = parser.parse(seq.code_points[i]);
         if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
         {
-            ASSERT(id == vt_message_id::text);
+            ASSERT(id == vt_message_id::unknown_sequence);
             // 验证 text 视图等于原始非法序列
             std::u32string_view txt = parser.get().text;
             ASSERT(txt.size() == seq.code_points.size());
@@ -895,7 +900,7 @@ bool test_illegal_esc_unknown_final()
     raw_seq seq;
     seq.add_esc();
     seq.add(U'X');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_charset_unknown()
@@ -904,7 +909,7 @@ bool test_illegal_charset_unknown()
     seq.add_esc();
     seq.add(U'(');
     seq.add(U'C');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_csi_unknown_final()
@@ -914,7 +919,7 @@ bool test_illegal_csi_unknown_final()
     seq.add_csi();
     seq.add(U'1');
     seq.add(U'<'); // '<' 不是合法中间或终
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_csi_private_cursor()
@@ -924,7 +929,7 @@ bool test_illegal_csi_private_cursor()
     seq.add(U'?');
     seq.add(U'3');
     seq.add(U'A');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_csi_private_unknown()
@@ -934,7 +939,7 @@ bool test_illegal_csi_private_unknown()
     seq.add(U'?');
     seq.add_str(U"99");
     seq.add(U'h');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_ss3_unknown_final()
@@ -943,7 +948,7 @@ bool test_illegal_ss3_unknown_final()
     seq.add_esc();
     seq.add(U'O');
     seq.add(U'X');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_decscusr_missing_sp()
@@ -952,7 +957,7 @@ bool test_illegal_decscusr_missing_sp()
     seq.add_csi();
     seq.add(U'3');
     seq.add(U'q');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_decstr_missing_bang()
@@ -960,7 +965,7 @@ bool test_illegal_decstr_missing_bang()
     raw_seq seq;
     seq.add_csi();
     seq.add(U'p');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_decfnk_unknown_code()
@@ -969,7 +974,7 @@ bool test_illegal_decfnk_unknown_code()
     seq.add_csi();
     seq.add_str(U"99");
     seq.add(U'~');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_sgr_extended_truncated()
@@ -978,7 +983,7 @@ bool test_illegal_sgr_extended_truncated()
     seq.add_csi();
     seq.add_str(U"38;5");
     seq.add(U'm');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_osc_unknown_code()
@@ -989,13 +994,11 @@ bool test_illegal_osc_unknown_code()
     seq.add(U';');
     seq.add_str(U"test");
     seq.add(0x07);
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 // OSC 缓冲区溢出现在也不丢弃，只是忽略超出部分？在旧版中设osc_buf_overflow 错误
-// 新版中由于我们在解析时仍然尝试写_osc_buf 并检查长度，但非法时整个 OSC 序列会变text
-// 溢出时我们在代码里设置了 _bad，但新版没有 bad，而是继续，然dispatch 可能失败从而输text
-// 所以测试应该验证溢出也输出 text 且内容完整
+// 非法 OSC 应产生 unknown_sequence，调用方可决定丢弃或透传。
 bool test_illegal_osc_buf_overflow()
 {
     raw_seq seq;
@@ -1005,7 +1008,7 @@ bool test_illegal_osc_buf_overflow()
     for (int i = 0; i < 40; ++i)
         seq.add(U'x');
     seq.add(0x07);
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_osc_palette_no_rgb()
@@ -1018,13 +1021,13 @@ bool test_illegal_osc_palette_no_rgb()
     seq.add(U';');
     seq.add_str(U"norgb:ff/00/ff");
     seq.add(0x07);
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
-// 组合测试：多种非法序列连续输入，各自输出 text
+// 组合测试：多种非法序列连续输入，各自产生 unknown_sequence
 bool test_illegal_mixed()
 {
-    // 构造多个非法序列拼接，每个都应产生一text 消息，内容等于该序列原文
+    // 构造多个非法序列拼接，每个都应产生 unknown_sequence，内容等于该序列原文
     struct
     {
         raw_seq seq;
@@ -1062,14 +1065,15 @@ bool test_illegal_mixed()
 
     for (auto &c : cases)
     {
-        vt_parser parser;
+        std::u32string parser_raw;
+        vt_parser parser{parser_raw};
         bool got = false;
         for (size_t i = 0; i < c.seq.code_points.size(); ++i)
         {
             vt_message_id id = parser.parse(c.seq.code_points[i]);
             if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
             {
-                ASSERT(id == vt_message_id::text);
+                ASSERT(id == vt_message_id::unknown_sequence);
                 std::u32string_view txt = parser.get().text;
                 ASSERT(txt.size() == c.seq.code_points.size());
                 for (size_t j = 0; j < txt.size(); ++j)
@@ -1089,7 +1093,8 @@ bool test_illegal_mixed()
 // ============================================================================
 bool test_parse_resize_window_basic()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     bool got = false;
     char32_t seq[] = {0x1B, U'[', U'8', U';', U'4', U'0', U';', U'1', U'0', U'0', U't'};
     for (char32_t ch : seq)
@@ -1110,7 +1115,8 @@ bool test_parse_resize_window_basic()
 
 bool test_parse_resize_window_zero_invalid()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     bool got_text = false;
     char32_t seq[] = {0x1B, U'[', U'8', U';', U'0', U';', U'0', U't'};
     for (char32_t ch : seq)
@@ -1118,7 +1124,7 @@ bool test_parse_resize_window_zero_invalid()
         vt_message_id id = p.parse(ch);
         if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
         {
-            ASSERT(id == vt_message_id::text);
+            ASSERT(id == vt_message_id::unknown_sequence);
             got_text = true;
             p.reset(id);
         }
@@ -1129,7 +1135,8 @@ bool test_parse_resize_window_zero_invalid()
 
 bool test_parse_resize_window_pixel_is_text()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     bool got_text = false;
     char32_t seq[] = {0x1B, U'[', U'4', U';', U'4', U'8', U'0', U';', U'6', U'4', U'0', U't'};
     for (char32_t ch : seq)
@@ -1137,7 +1144,7 @@ bool test_parse_resize_window_pixel_is_text()
         vt_message_id id = p.parse(ch);
         if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
         {
-            ASSERT(id == vt_message_id::text);
+            ASSERT(id == vt_message_id::unknown_sequence);
             got_text = true;
             p.reset(id);
         }
@@ -1148,7 +1155,8 @@ bool test_parse_resize_window_pixel_is_text()
 
 bool test_parse_resize_window_fields_reset()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     // Use explicit code points to avoid any string-literal escape ambiguity
     char32_t seq[] = {0x1B, U'[', U'8', U';', U'3', U'0', U';', U'9', U'0', U't'};
     for (char32_t ch : seq)
@@ -1179,9 +1187,10 @@ bool test_parse_resize_window_fields_reset()
 
 // 模拟 pipe_bridge process_input 逻辑：char32_t 喂入 parser
 // 验证 text 消息的内容正确
-static std::u32string feed_and_collect_text(const std::u32string &input)
+std::u32string feed_and_collect_text(const std::u32string &input)
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     std::u32string collected;
     for (char32_t ch : input)
     {
@@ -1191,14 +1200,29 @@ static std::u32string feed_and_collect_text(const std::u32string &input)
             if (id == vt_message_id::text)
                 collected.append(p.get().text);
             p.reset(id);
+
+            // drain 排队消息
+            if (auto d_id = p.parse(U'\0'); d_id != vt_message_id::continue_ && d_id != vt_message_id::continue_text)
+            {
+                if (d_id == vt_message_id::text)
+                    collected.append(p.get().text);
+                p.reset(d_id);
+            }
         }
+    }
+    // 排空末尾残留的 _pending_control
+    if (auto id = p.parse(U'\0'); id != vt_message_id::continue_ && id != vt_message_id::continue_text)
+    {
+        if (id == vt_message_id::text)
+            collected.append(p.get().text);
+        p.reset(id);
     }
     return collected;
 }
 
 bool test_regression_cr_preserves_text()
 {
-    // "echo hello\r" 累积文本应为 "echo hello"，不\r
+    // \r 是专用 carriage_return，前导文本作为 text 先产出
     auto result = feed_and_collect_text(U"echo hello\r");
     ASSERT(result == U"echo hello");
     return true;
@@ -1206,56 +1230,153 @@ bool test_regression_cr_preserves_text()
 
 bool test_regression_lf_preserves_text()
 {
-    // "echo hello\n" 累积文本应为 "echo hello"，不\n
+    // \n 是专用 line_feed，前导文本作为 text 先产出
     auto result = feed_and_collect_text(U"echo hello\n");
     ASSERT(result == U"echo hello");
     return true;
 }
 
-bool test_regression_bare_cr_returns_empty_text()
+bool test_regression_bare_cr_produces_carriage_return()
 {
-    // 单独\r 应产text 消息但内容为
-    vt_parser p;
-    bool got_text = false;
+    // 单独\r → carriage_return
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
+    bool got_cr = false;
     for (char32_t ch : U"\r")
     {
         vt_message_id id = p.parse(ch);
-        if (id == vt_message_id::text)
+        if (id == vt_message_id::carriage_return)
         {
             ASSERT(p.get().text.empty());
-            got_text = true;
+            got_cr = true;
             p.reset(id);
         }
     }
-    ASSERT(got_text);
+    ASSERT(got_cr);
     return true;
 }
 
-bool test_regression_bare_lf_returns_empty_text()
+bool test_regression_bare_lf_produces_line_feed()
 {
-    // 单独\n 应产text 消息但内容为
-    vt_parser p;
-    bool got_text = false;
+    // 单独\n → line_feed
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
+    bool got_lf = false;
     for (char32_t ch : U"\n")
     {
         vt_message_id id = p.parse(ch);
-        if (id == vt_message_id::text)
+        if (id == vt_message_id::line_feed)
         {
             ASSERT(p.get().text.empty());
-            got_text = true;
+            got_lf = true;
             p.reset(id);
         }
     }
-    ASSERT(got_text);
+    ASSERT(got_lf);
     return true;
 }
 
 bool test_regression_crlf_full_pipeline()
 {
-    // 模拟完整cmd 输入 "echo hello\r\nprompt>"
-    // pipe_bridge UTF-8 字节读入，解码为 char32_t，喂parser
+    // text + carriage_return + line_feed: 文本段不含 \r \n
     auto result = feed_and_collect_text(U"echo hello\r\n");
     ASSERT(result == U"echo hello");
+    return true;
+}
+
+// ── 回归 BUG: reset() 清除了 _pending_control ──
+//   "echo hello" (可打印字符) + \r (CR) → reset(text) 后
+//   _pending_control 被清除，\r 被丢弃，行终止符丢失。
+//   修复: reset() 不再清除 _pending_control。
+bool test_regression_pending_control_survives_reset()
+{
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
+    char32_t input[] = {U'e', U'c', U'h', U'o', U'\r'};
+
+    // 前 4 个字符 → text 消息
+    vt_message_id id = vt_message_id::continue_;
+    for (int i = 0; i < 4; ++i)
+    {
+        id = p.parse(input[i]);
+        ASSERT(id == vt_message_id::continue_text);
+    }
+    // 第 5 个 \r → parser 先交付 text，设 _pending_control=carriage_return
+    id = p.parse(input[4]);
+    ASSERT(id == vt_message_id::text);
+    ASSERT(p.get().text == U"echo");
+    p.reset(vt_message_id::text); // reset 不应清除 _pending_control
+
+    // 下一个 parse() 应交付 carriage_return
+    id = p.parse(U' '); // dummy char 触发 _pending_control 交付
+    ASSERT(id == vt_message_id::carriage_return);
+    ASSERT(p.get().text.empty());
+    return true;
+}
+
+// ── 回归 BUG: 纯文本无控制字符终止时永远不交付 ──
+//   38 个可打印字符积累在 _raw 中，无 \r \n \t ESC 触发交付。
+//   修复: 新增 flush_text()，api_write_console 循环后调用。
+bool test_regression_flush_text_delivers_accumulated()
+{
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
+    char32_t input[] = {U'M', U'i', U'c', U'r', U'o'};
+
+    for (char32_t ch : input)
+    {
+        vt_message_id id = p.parse(ch);
+        ASSERT(id == vt_message_id::continue_text);
+    }
+
+    // 所有字符都是 continue_text，无消息交付
+    ASSERT(p.has_pending_text());
+
+    // flush_text 应释放 "Micro"
+    vt_message_id id = p.flush_text();
+    ASSERT(id == vt_message_id::text);
+    ASSERT(p.get().text == U"Micro");
+
+    // 再次 flush 无残留
+    ASSERT(!p.has_pending_text());
+    ASSERT(p.flush_text() == vt_message_id::continue_);
+    return true;
+}
+
+// ── \r\n 配对由 parser 内部处理，调用方无需额外标志 ──
+// "hello\r\n" 流程: parse('h'..'o') 累积 → parse('\r') 产 text, _pending_control=carriage_return
+// → parse('\n') 触发 _pending_control, 返回 carriage_return 并将 pending 升级为 line_feed
+// → drain: parse(U'\0') 取出 line_feed。调用方只需在每次 reset 后无条件 drain。
+bool test_regression_cr_then_nl_bridge_pairing()
+{
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
+    char32_t hello[] = {U'h', U'e', U'l', U'l', U'o'};
+    for (char32_t ch : hello)
+    {
+        vt_message_id id = p.parse(ch);
+        ASSERT(id == vt_message_id::continue_text);
+    }
+    // "\r" → parser 产 text("hello")，_pending_control=carriage_return
+    vt_message_id id = p.parse(U'\r');
+    ASSERT(id == vt_message_id::text);
+    ASSERT(p.get().text == U"hello");
+    p.reset(id);
+
+    // "\n" → _pending_control 触发, 返回 carriage_return, 升级为 line_feed
+    id = p.parse(U'\n');
+    ASSERT(id == vt_message_id::carriage_return);
+    p.reset(id);
+
+    // drain: parse(U'\0') → line_feed（_pending_control 升级后的延迟消息）
+    id = p.parse(U'\0');
+    ASSERT(id == vt_message_id::line_feed);
+    p.reset(id);
+
+    // 再次 drain: 无 pending → continue_
+    id = p.parse(U'\0');
+    ASSERT(id == vt_message_id::continue_);
+
     return true;
 }
 
@@ -1263,7 +1384,8 @@ bool test_regression_text_with_vt_then_cr()
 {
     // 混合场景: "abc\x1b[Adef\r" text1="abc", cursor_up, text2="def"
     //  key_up remap pipe_bridge 中完成，parser 产出 cursor_up
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     std::u32string collected;
     bool got_cursor_up = false;
 
@@ -1303,9 +1425,40 @@ bool test_regression_text_with_vt_then_cr()
 
 bool test_regression_multiline_input()
 {
-    // 多行输入: "line1\r\nline2\r\nline3\r\n"
-    auto result = feed_and_collect_text(U"line1\r\nline2\r\nline3\r\n");
-    ASSERT(result == U"line1line2line3");
+    // _pending_control 触发时总会消费当前字符。调用方在每次 reset 后
+    // 无条件 drain（parse(U'\0')），无 pending 时首次即返回 continue_。
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
+    std::u32string collected;
+
+    std::u32string input = U"line1\r\nline2\r\nline3\r\n";
+    for (char32_t ch : input)
+    {
+        vt_message_id id = p.parse(ch);
+        if (id == vt_message_id::continue_text || id == vt_message_id::continue_)
+            continue;
+        if (id == vt_message_id::text)
+            collected.append(p.get().text);
+        p.reset(id);
+
+        // 无条件 drain: _pending_control 最多一个排队消息
+        if (auto drain_id = p.parse(U'\0');
+            drain_id != vt_message_id::continue_ && drain_id != vt_message_id::continue_text)
+        {
+            if (drain_id == vt_message_id::text)
+                collected.append(p.get().text);
+            p.reset(drain_id);
+        }
+    }
+    // drain remaining
+    if (auto id = p.parse(U'\0'); id != vt_message_id::continue_ && id != vt_message_id::continue_text)
+    {
+        if (id == vt_message_id::text)
+            collected.append(p.get().text);
+        p.reset(id);
+    }
+
+    ASSERT(collected == U"line1line2line3");
     return true;
 }
 
@@ -1316,7 +1469,8 @@ bool test_regression_multiline_input()
 // 地面态可打印字符应回
 bool test_echo_ground_printable()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     std::u32string_view chars = U"abc123";
     for (char32_t ch : chars)
     {
@@ -1329,7 +1483,8 @@ bool test_echo_ground_printable()
 // 地面态可见控制字符应回显 (\r \n \b \t)
 bool test_echo_ground_controls()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     p.parse(U'\r');
     ASSERT(p.should_echo_last());
     p.reset(vt_message_id::text);
@@ -1348,7 +1503,8 @@ bool test_echo_ground_controls()
 // ESC 本身及普ESC 序列不应回显
 bool test_echo_esc_not_echoed()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     p.parse(0x1B);
     ASSERT(!p.should_echo_last());
     p.parse(U'M');
@@ -1360,7 +1516,8 @@ bool test_echo_esc_not_echoed()
 // CSI 相对光标序列不应回显原始字节（dispatch 生成钳制 CUP
 bool test_echo_csi_cursor_not_echoed()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     for (char32_t ch : std::u32string_view(U"hello"))
     {
         p.parse(ch);
@@ -1382,7 +1539,8 @@ bool test_echo_csi_cursor_not_echoed()
 // SS3 键盘序列不应回显原始字节（dispatch 生成钳制 CUP
 bool test_echo_ss3_not_echoed()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     p.parse(0x1B);
     ASSERT(!p.should_echo_last());
     p.parse(U'O');
@@ -1396,7 +1554,8 @@ bool test_echo_ss3_not_echoed()
 // text→ESC 过渡：ESC 触发 text flush parser 进入转义，CSI 不回
 bool test_echo_text_esc_transition()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     for (char32_t ch : std::u32string_view(U"echo "))
     {
         p.parse(ch);
@@ -1418,7 +1577,8 @@ bool test_echo_text_esc_transition()
 // OSC 标题不应回显
 bool test_echo_osc_not_echoed()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     p.parse(0x1B);
     p.parse(U']');
     p.parse(U'0');
@@ -1434,7 +1594,8 @@ bool test_echo_osc_not_echoed()
 // SGR 序列不应回显
 bool test_echo_sgr_not_echoed()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     p.parse(0x1B);
     p.parse(U'[');
     p.parse(U'3');
@@ -1448,7 +1609,8 @@ bool test_echo_sgr_not_echoed()
 // CSI ~ 扩展功能键不应回
 bool test_echo_csi_tilde_not_echoed()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     p.parse(0x1B);
     p.parse(U'[');
     p.parse(U'1');
@@ -1472,34 +1634,37 @@ int main()
     RUN_TEST(test_positive_concatenated, L"Random concatenated messages");
     RUN_TEST(test_positive_with_text, L"Messages with intervening text");
 
-    std::wcout << L"\nVT Parser Negative Tests (illegal -> text)\n";
-    RUN_TEST(test_illegal_esc_unknown_final, L"ESC unknown final -> text");
-    RUN_TEST(test_illegal_charset_unknown, L"Charset unknown final -> text");
-    RUN_TEST(test_illegal_csi_unknown_final, L"CSI unknown final -> text");
-    RUN_TEST(test_illegal_csi_private_cursor, L"CSI private cursor -> text");
-    RUN_TEST(test_illegal_csi_private_unknown, L"CSI private unknown -> text");
-    RUN_TEST(test_illegal_ss3_unknown_final, L"SS3 unknown final -> text");
-    RUN_TEST(test_illegal_decscusr_missing_sp, L"DECSCUSR missing SP -> text");
-    RUN_TEST(test_illegal_decstr_missing_bang, L"DECSTR missing bang -> text");
-    RUN_TEST(test_illegal_decfnk_unknown_code, L"DECFNK unknown code -> text");
-    RUN_TEST(test_illegal_sgr_extended_truncated, L"SGR extended truncated -> text");
-    RUN_TEST(test_illegal_osc_unknown_code, L"OSC unknown code -> text");
-    RUN_TEST(test_illegal_osc_buf_overflow, L"OSC buffer overflow -> text");
-    RUN_TEST(test_illegal_osc_palette_no_rgb, L"OSC palette missing rgb prefix -> text");
-    RUN_TEST(test_illegal_mixed, L"Multiple illegal sequences -> text");
+    std::wcout << L"\nVT Parser Negative Tests (illegal -> unknown_sequence)\n";
+    RUN_TEST(test_illegal_esc_unknown_final, L"ESC unknown final -> unknown_sequence");
+    RUN_TEST(test_illegal_charset_unknown, L"Charset unknown final -> unknown_sequence");
+    RUN_TEST(test_illegal_csi_unknown_final, L"CSI unknown final -> unknown_sequence");
+    RUN_TEST(test_illegal_csi_private_cursor, L"CSI private cursor -> unknown_sequence");
+    RUN_TEST(test_illegal_csi_private_unknown, L"CSI private unknown -> unknown_sequence");
+    RUN_TEST(test_illegal_ss3_unknown_final, L"SS3 unknown final -> unknown_sequence");
+    RUN_TEST(test_illegal_decscusr_missing_sp, L"DECSCUSR missing SP -> unknown_sequence");
+    RUN_TEST(test_illegal_decstr_missing_bang, L"DECSTR missing bang -> unknown_sequence");
+    RUN_TEST(test_illegal_decfnk_unknown_code, L"DECFNK unknown code -> unknown_sequence");
+    RUN_TEST(test_illegal_sgr_extended_truncated, L"SGR extended truncated -> unknown_sequence");
+    RUN_TEST(test_illegal_osc_unknown_code, L"OSC unknown code -> unknown_sequence");
+    RUN_TEST(test_illegal_osc_buf_overflow, L"OSC buffer overflow -> unknown_sequence");
+    RUN_TEST(test_illegal_osc_palette_no_rgb, L"OSC palette missing rgb prefix -> unknown_sequence");
+    RUN_TEST(test_illegal_mixed, L"Multiple illegal sequences -> unknown_sequence");
 
     std::wcout << L"\nVT Parser Resize Window Tests:\n";
     RUN_TEST(test_parse_resize_window_basic, L"Resize window 40x100");
-    RUN_TEST(test_parse_resize_window_zero_invalid, L"Resize window 0x0->text");
-    RUN_TEST(test_parse_resize_window_pixel_is_text, L"Pixel resize 4;...->text");
+    RUN_TEST(test_parse_resize_window_zero_invalid, L"Resize window 0x0->unknown_sequence");
+    RUN_TEST(test_parse_resize_window_pixel_is_text, L"Pixel resize 4;...->unknown_sequence");
     RUN_TEST(test_parse_resize_window_fields_reset, L"Resize fields reset after");
 
     std::wcout << L"\nVT Parser Regression Tests (CR/LF text preservation)\n";
     RUN_TEST(test_regression_cr_preserves_text, L"CR preserves preceding text");
     RUN_TEST(test_regression_lf_preserves_text, L"LF preserves preceding text");
-    RUN_TEST(test_regression_bare_cr_returns_empty_text, L"Bare CR returns empty text");
-    RUN_TEST(test_regression_bare_lf_returns_empty_text, L"Bare LF returns empty text");
+    RUN_TEST(test_regression_bare_cr_produces_carriage_return, L"Bare CR produces carriage_return");
+    RUN_TEST(test_regression_bare_lf_produces_line_feed, L"Bare LF produces line_feed");
     RUN_TEST(test_regression_crlf_full_pipeline, L"CRLF full pipeline");
+    RUN_TEST(test_regression_flush_text_delivers_accumulated, L"Flush text delivers accumulated");
+    RUN_TEST(test_regression_pending_control_survives_reset, L"Pending control survives reset");
+    RUN_TEST(test_regression_cr_then_nl_bridge_pairing, L"CR then NL bridge pairing");
     RUN_TEST(test_regression_text_with_vt_then_cr, L"Text+VT+CR preserves all");
     RUN_TEST(test_regression_multiline_input, L"Multiline input");
 

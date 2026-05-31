@@ -1,10 +1,10 @@
-﻿// ── tests/test_char_convert.cpp ─────────────────────────
+// ── tests/test_char_convert.cpp ─────────────────────────
 // 编码转换单元测试 (char_convert.hpp, libunicode)
 //
-// 覆盖: UTF-16↔UTF-32, UTF-8↔UTF-32, ANSI→UTF-32,
+// 覆盖: UTF-16?UTF-32, UTF-8?UTF-32, ANSI→UTF-32,
 //       utf8_stream_decoder, resize_and_overwrite 持久缓冲
 #include "test_common.hpp"
-#include "conpty/char_convert.hpp"
+#include "char_convert.hpp"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -40,11 +40,11 @@ bool test_utf16_to_u32_empty()
 bool test_utf16_to_u32_surrogate()
 {
     // 非BMP字符: 代理对 2→1
-    // U+1F600 (😀) = surrogate pair U+D83D U+DE00
+    // U+1F600 (??) = surrogate pair U+D83D U+DE00
     std::u32string out;
     std::wstring ws = L"a\U0001F600z";
     convert_utf16_to_u32(ws, out);
-    ASSERT(out.size() == 3); // a + 😀 + z = 3 个 char32_t
+    ASSERT(out.size() == 3); // a + ?? + z = 3 个 char32_t
     ASSERT(out[0] == U'a');
     ASSERT(out[1] == 0x1F600);
     ASSERT(out[2] == U'z');
@@ -150,7 +150,7 @@ bool test_utf8_to_u32_3byte()
 
 bool test_utf8_to_u32_4byte()
 {
-    // U+1F600 (😀) = UTF-8: 0xF0 0x9F 0x98 0x80
+    // U+1F600 (??) = UTF-8: 0xF0 0x9F 0x98 0x80
     std::u32string out;
     std::string utf8 = "\xF0\x9F\x98\x80";
     convert_utf8_to_u32(std::string_view{utf8}, out);
@@ -258,7 +258,7 @@ bool test_stream_decoder_truncated()
     utf8_stream_decoder dec;
     // 只给首字节 C3，然后 reset
     ASSERT(!dec(0xC3).has_value());
-    dec.reset();
+    dec = {};
     // reset 后可以正常解码新字符
     auto r = dec('A');
     ASSERT(r.has_value());
@@ -327,30 +327,6 @@ bool test_to_wchar_surrogate()
     return true;
 }
 
-bool test_to_char32_surrogate_pair()
-{
-    const wchar_t src[] = {0xD83D, 0xDE00, 0};
-    const wchar_t *it = src;
-    char32_t cp = to_char32_surrogate(it, src + 2);
-    ASSERT(cp == 0x1F600);
-    ASSERT(it == src + 2);
-    return true;
-}
-
-bool test_to_char32_surrogate_broken()
-{
-    // 只有高位代理，缺少低位 → U+FFFD
-    const wchar_t src[] = {0xD83D, 0};
-    const wchar_t *it = src;
-    char32_t cp = to_char32_surrogate(it, src + 1);
-    ASSERT(cp == 0xFFFD);
-    return true;
-}
-
-// ═══════════════════════════════════════════════════════
-// Test Runner
-// ═══════════════════════════════════════════════════════
-
 int main()
 {
     std::wcout << L"=== char_convert Tests ===" << std::endl;
@@ -387,8 +363,6 @@ int main()
 
     RUN_TEST(test_to_wchar_bmp, L"to_wchar BMP");
     RUN_TEST(test_to_wchar_surrogate, L"to_wchar Surrogate");
-    RUN_TEST(test_to_char32_surrogate_pair, L"to_char32_surrogate");
-    RUN_TEST(test_to_char32_surrogate_broken, L"to_char32 broken surrogate");
 
     std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, " << (tests_passed + tests_failed)
                << L" total." << std::endl;

@@ -1,11 +1,11 @@
-﻿// === tests/test_vt_msg_dispatch.cpp ===
+// === tests/test_vt_msg_dispatch.cpp ===
 // VT message dispatch unit tests (vt_msg_dispatch.hpp)
 // Coverage: cursor ops, SGR, text write, erase, scroll, title, tabs
 #include "test_common.hpp"
-#include "conpty/vt_msg_dispatch.hpp"
-#include "conpty/api_handlers.hpp"
-#include "conpty/console_state.hpp"
-#include "conpty/screen_buffer.hpp"
+#include "vt_msg_dispatch.hpp"
+#include "api_handlers.hpp"
+#include "console_state.hpp"
+#include "screen_buffer.hpp"
 
 using namespace conpty;
 
@@ -15,7 +15,10 @@ using namespace conpty;
 void setup(console_state &st, screen_buffer &sb)
 {
     st = console_state{};
-    sb = screen_buffer{{80, 25}};
+    const COORD test_size{80, 25};
+    st.screen_buffer_size = test_size;
+    st.max_window_size = test_size;
+    sb = screen_buffer{test_size};
 }
 
 // ==================================================================
@@ -315,15 +318,16 @@ bool test_dispatch_text_overflow_clamps_y()
     st.cursor.position = {0, 24}; // 最后一行
 
     vt_message m{};
-    // 写入含换行的文本：第一行填满后换行到 Y=25（越界），LF 不重置列号
-    m.text = U"A\n";
+    // 写入 'A' 后换行到 Y=25（越界）
+    m.text = U"A";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT(st.cursor.position.Y == 24); // 钳制在 sb_height-1
-    ASSERT(st.cursor.position.X == 0);  // LF 重置 X=0 (Windows 控制台语义)
+    ASSERT(st.cursor.position.X == 0);  // LF 重置 X=0
 
     // 大量换行溢出
-    m.text = U"\n\n\n\n\n\n\n\n\n\n"; // 10 newlines from Y=24
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    for (int i = 0; i < 10; ++i)
+        vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT(st.cursor.position.Y == 24); // 始终钳制
     return true;
 }
@@ -505,7 +509,6 @@ bool test_dispatch_resize_updates_state()
     console_state st;
     screen_buffer sb{{120, 30}};
     st.screen_buffer_size = {120, 30};
-    st.current_window_size = {120, 30};
     st.max_window_size = {120, 30};
 
     vt_message m{};
@@ -513,8 +516,8 @@ bool test_dispatch_resize_updates_state()
     m.resize_cols = 80;
     vt_msg_apply_state(vt_message_id::resize_window, m, st, sb);
 
-    ASSERT(st.current_window_size.X == 80);
-    ASSERT(st.current_window_size.Y == 24);
+    ASSERT(sb.viewport.size().X == 80);
+    ASSERT(sb.viewport.size().Y == 24);
     ASSERT(st.max_window_size.X == 80);
     ASSERT(st.max_window_size.Y == 24);
     return true;
@@ -630,74 +633,6 @@ bool test_dispatch_vpa_clamped_to_max()
 }
 
 // ==================================================================
-// OSC sequence filtering (filter_osc_sequences)
-// ==================================================================
-bool test_filter_osc_normal_text_unchanged()
-{
-    std::u32string s = U"Hello World";
-    filter_osc_sequences(s);
-    ASSERT(s == U"Hello World");
-    return true;
-}
-
-bool test_filter_osc_bel_terminated_removed()
-{
-    std::u32string s = U"ABC\x1b]9001;CmdNotFound;xyz\x07"
-                       "DEF";
-    filter_osc_sequences(s);
-    ASSERT(s == U"ABCDEF"); // OSC 9001 BEL → removed
-    return true;
-}
-
-bool test_filter_osc_st_terminated_removed()
-{
-    std::u32string s = U"pre\x1b]2;title\x1b\\post";
-    filter_osc_sequences(s);
-    ASSERT(s == U"prepost"); // OSC 2 ESC \ → removed
-    return true;
-}
-
-bool test_filter_osc_unterminated_kept()
-{
-    std::u32string s = U"keep\x1b]999;no_terminator";
-    filter_osc_sequences(s);
-    ASSERT(s == U"keep\x1b]999;no_terminator"); // unterminated → kept
-    return true;
-}
-
-bool test_filter_osc_multiple_in_one_string()
-{
-    std::u32string s = U"\x1b]9001;a\x07Hello\x1b]0;title\x1b\\World";
-    filter_osc_sequences(s);
-    ASSERT(s == U"HelloWorld"); // both OSCs removed
-    return true;
-}
-
-bool test_filter_osc_plain_esc_not_removed()
-{
-    std::u32string s = U"\x1b[31mRed\x1b[0m";
-    filter_osc_sequences(s);
-    ASSERT(s == U"\x1b[31mRed\x1b[0m"); // CSI sequences preserved
-    return true;
-}
-
-bool test_filter_osc_empty_string()
-{
-    std::u32string s = U"";
-    filter_osc_sequences(s);
-    ASSERT(s.empty());
-    return true;
-}
-
-bool test_filter_osc_only_osc()
-{
-    std::u32string s = U"\x1b]0;title\x07";
-    filter_osc_sequences(s);
-    ASSERT(s.empty()); // entire string is OSC → empty
-    return true;
-}
-
-// ==================================================================
 // LF resets X to 0 (Windows console semantics: \n == \r\n for text output)
 // Regression: wrong_command error output was progressively indented because \n did NOT reset X
 // ==================================================================
@@ -709,15 +644,17 @@ bool test_text_lf_resets_x()
     st.cursor.position = {5, 3}; // col 5, row 3
 
     vt_message m{};
-    m.text = U"\n"; // single LF
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
-    ASSERT(st.cursor.position.X == 0); // LF resets X=0 (Windows console behavior)
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
+    ASSERT(st.cursor.position.X == 0); // LF resets X=0
     ASSERT(st.cursor.position.Y == 4); // Y incremented
 
-    m.text = U"ab\ncd";
     st.cursor.position = {5, 4};
+    m.text = U"ab";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
-    ASSERT(st.cursor.position.X == 2); // col 0 + cd(2) = 2 (LF reset to 0)
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
+    m.text = U"cd";
+    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    ASSERT(st.cursor.position.X == 2); // LF reset to 0, cd=2
     ASSERT(st.cursor.position.Y == 5); // moved down one more row
     return true;
 }
@@ -729,25 +666,24 @@ bool test_wrong_command_multiline_indent()
     console_state st;
     screen_buffer sb;
     setup(st, sb);
-
-    // Simulate PowerShell error output: 3 WriteConsole calls, each ending with \n
-    // Line 1: 80 chars from (0,6) fills (0..79,6), wraps to (0,7), then \n → (0,8)
     st.cursor.position = {0, 6};
     vt_message m{};
-    m.text = U"line1_80_chars_ending_at_col2_row7_xxx_yyy_zzz_aaa_bbb_ccc_ddd_eee_fff_ggg_hhh_iii_jjj\n";
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
-    ASSERT(st.cursor.position.X == 0); // \n resets X
-    ASSERT(st.cursor.position.Y == 8); // 80cols wrap→Y=7, \n→Y=8
 
-    // Line 2: 15 chars from (0,8) → (15,8), then \n → (0,9)
-    m.text = U"line2_14_chars_\n";
+    m.text = U"line1_80_chars_ending_at_col2_row7_xxx_yyy_zzz_aaa_bbb_ccc_ddd_eee_fff_ggg_hhh_iii_jjj";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
+    ASSERT(st.cursor.position.X == 0);
+    ASSERT(st.cursor.position.Y == 8);
+
+    m.text = U"line2_14_chars_";
+    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT(st.cursor.position.X == 0);
     ASSERT(st.cursor.position.Y == 9);
 
-    // Line 3: 15 chars from (0,9) → (15,9), then \n → (0,10)
-    m.text = U"line3_14_chars_\n";
+    m.text = U"line3_14_chars_";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT(st.cursor.position.X == 0);
     ASSERT(st.cursor.position.Y == 10);
     return true;
@@ -761,8 +697,7 @@ bool test_text_cr_resets_column()
     st.cursor.position = {10, 2};
 
     vt_message m{};
-    m.text = U"\r"; // single CR
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    vt_msg_apply_state(vt_message_id::carriage_return, m, st, sb);
     ASSERT(st.cursor.position.X == 0); // CR resets X
     ASSERT(st.cursor.position.Y == 2); // Y unchanged
     return true;
@@ -846,40 +781,6 @@ bool test_ps_error_msg_width_diag()
 }
 
 // ==================================================================
-// effective_formatting_width 回归测试
-// 回归背景（2026-05-24）：
-//   BUG: effective_formatting_width(-1) 导致 PowerShell clear 失效。
-//   根因: api_fill_output 的 is_fullscreen_space 使用 state.screen_buffer_size.X(120)
-//   而非 effective_formatting_width(119) 计算阈值 → 3600≥3600 vs 3570≥3600 的误判。
-//   修正: is_fullscreen_space 使用 effective_formatting_width * height 作为阈值。
-// ==================================================================
-bool test_effective_width_reduces_by_one()
-{
-    // 标准模式下 direct_passthrough -> physical_width - 1
-    console_state state;
-    state.text_measurement = text_measurement_mode::graphemes;
-    state.ambiguous_is_wide = true;
-    ASSERT_EQ(effective_formatting_width(120, state), 119);
-    ASSERT_EQ(effective_formatting_width(80, state), 79);
-    // 极小值不下溢
-    ASSERT_EQ(effective_formatting_width(1, state), 1);
-    ASSERT_EQ(effective_formatting_width(2, state), 1);
-    ASSERT_EQ(effective_formatting_width(0, state), 0);
-    return true;
-}
-
-bool test_effective_width_preserves_console_mode()
-{
-    // console 模式不受影响 — 没有 ambiguous_is_wide → 不减
-    console_state state;
-    state.text_measurement = text_measurement_mode::console;
-    state.ambiguous_is_wide = false;
-    ASSERT_EQ(effective_formatting_width(120, state), 120);
-    ASSERT_EQ(effective_formatting_width(80, state), 80);
-    return true;
-}
-
-// ==================================================================
 // api_write_console CUP 移除回归测试
 // 回归背景（2026-05-24）：
 //   BUG: PowerShell "wrong_command" 错误消息 "如果包括路径，" 后多余空行。
@@ -920,19 +821,17 @@ bool test_text_newline_after_cjk_wrap_does_not_double_advance()
     ASSERT(line_after_wrap == 1);       // 从行 0 折到行 1
     ASSERT_EQ(st.cursor.position.X, 0); // 折行后 X 归零
 
-    // 现在写入 \\n —— 不应产生双重换行
-    std::u32string nl = U"\n";
-    m.text = nl;
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    // 现在写入 \n —— 不应产生双重换行
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
 
-    // \\n 移动到下行行首，Y 只递增 1
+    // \n 移动到下行行首，Y 只递增 1
     ASSERT_EQ(st.cursor.position.X, 0);
     ASSERT_EQ(st.cursor.position.Y, line_after_wrap + 1);
 
     return true;
 }
 
-// 场景: 文本最后恰好填满行尾 (pos.X == screen_w)，紧跟 \\n
+// 场景: 文本最后恰好填满行尾 (pos.X == screen_w)，紧跟 \n
 bool test_text_newline_after_exact_fill_does_not_double_advance()
 {
     console_state st;
@@ -952,10 +851,8 @@ bool test_text_newline_after_exact_fill_does_not_double_advance()
     ASSERT_EQ(st.cursor.position.X, 0);
     ASSERT_EQ(st.cursor.position.Y, 1);
 
-    // 紧跟 \\n → Y 仅再递增 1
-    std::u32string nl = U"\n";
-    m.text = nl;
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    // 紧跟 \n → Y 仅再递增 1
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
 
     ASSERT_EQ(st.cursor.position.X, 0);
     ASSERT_EQ(st.cursor.position.Y, 2);
@@ -963,7 +860,7 @@ bool test_text_newline_after_exact_fill_does_not_double_advance()
     return true;
 }
 
-// 场景: 非边界情况正常 \\n
+// 场景: 非边界情况正常 \n
 bool test_text_newline_normal_advances_one_line()
 {
     console_state st;
@@ -972,23 +869,20 @@ bool test_text_newline_normal_advances_one_line()
     st.cursor.position = {10, 5};
     sb = screen_buffer{{120, 30}};
 
-    std::u32string text = U"hello";
     vt_message m{};
-    m.text = text;
+    m.text = U"hello";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     ASSERT_EQ(st.cursor.position.X, 15);
 
-    // \\n → 下一行行首
-    std::u32string nl = U"\n";
-    m.text = nl;
-    vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    // \n → 下一行行首
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT_EQ(st.cursor.position.X, 0);
     ASSERT_EQ(st.cursor.position.Y, 6);
 
     return true;
 }
 
-// 场景: \\r\\n 顺序正确换行
+// 场景: \r \n 顺序正确换行
 bool test_text_crlf_advances_one_line()
 {
     console_state st;
@@ -997,12 +891,13 @@ bool test_text_crlf_advances_one_line()
     st.cursor.position = {10, 5};
     sb = screen_buffer{{120, 30}};
 
-    std::u32string text = U"test\r\n";
     vt_message m{};
-    m.text = text;
+    m.text = U"test";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
+    vt_msg_apply_state(vt_message_id::carriage_return, m, st, sb);
+    vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
 
-    // \\r 归零 X, \\n 递增 Y
+    // \r 归零 X, \n 递增 Y
     ASSERT_EQ(st.cursor.position.X, 0);
     ASSERT_EQ(st.cursor.position.Y, 6);
 
@@ -1059,16 +954,6 @@ int main()
     RUN_TEST(test_dispatch_cha_clamped_to_max, L"CHA clamp to max X");
     RUN_TEST(test_dispatch_vpa_clamped_to_max, L"VPA clamp to max Y");
 
-    std::wcout << L"\nOSC Sequence Filtering Tests:\n";
-    RUN_TEST(test_filter_osc_normal_text_unchanged, L"OSC filter: normal text unchanged");
-    RUN_TEST(test_filter_osc_bel_terminated_removed, L"OSC filter: BEL-terminated removed");
-    RUN_TEST(test_filter_osc_st_terminated_removed, L"OSC filter: ST-terminated removed");
-    RUN_TEST(test_filter_osc_unterminated_kept, L"OSC filter: unterminated kept");
-    RUN_TEST(test_filter_osc_multiple_in_one_string, L"OSC filter: multiple in one string");
-    RUN_TEST(test_filter_osc_plain_esc_not_removed, L"OSC filter: plain ESC preserved");
-    RUN_TEST(test_filter_osc_empty_string, L"OSC filter: empty string");
-    RUN_TEST(test_filter_osc_only_osc, L"OSC filter: entire string is OSC");
-
     std::wcout << L"\nLF/CR VT Semantics Tests:\n";
     RUN_TEST(test_text_lf_resets_x, L"LF resets X=0 (Windows console)");
     RUN_TEST(test_wrong_command_multiline_indent, L"wrong_command multi-line indent");
@@ -1080,10 +965,6 @@ int main()
 
     std::wcout << L"\n=== PS error msg width diagnostics ===\n";
     RUN_TEST(test_ps_error_msg_width_diag, L"PS error msg width diagnostic");
-
-    std::wcout << L"\neffective_formatting_width Regression Tests:\n";
-    RUN_TEST(test_effective_width_reduces_by_one, L"Effective width reduces by 1");
-    RUN_TEST(test_effective_width_preserves_console_mode, L"Console mode unaffected");
 
     std::wcout << L"\napi_write_console CUP Removal Regression Tests:\n";
     RUN_TEST(test_text_newline_after_cjk_wrap_does_not_double_advance, L"CJK wrap+\\n single Y advance");

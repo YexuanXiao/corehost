@@ -116,39 +116,10 @@ LONG OpenConDrvHandle(win32::handle &h, win32::wcstring_view name, HANDLE rootDi
                         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_SYNCHRONOUS_IO_NONALERT);
 }
 
-std::wstring GetModulePath()
-{
-    // L"OpenConsole.exe", L"corehost.exe"
-    std::size_t extra = 15;
-    std::wstring modPath;
-    DWORD len = ::GetModuleFileNameW(nullptr, modPath.data(), 0);
-    if (len == 0)
-        return {};
-
-    modPath.reserve(len + 1 + extra);
-    modPath.resize(len);
-    DWORD actual = ::GetModuleFileNameW(nullptr, modPath.data(), len);
-    if (actual == 0)
-        return {};
-
-    modPath.resize(actual);
-    auto it = modPath.end();
-    while (it != modPath.begin())
-    {
-        --it;
-        if (*it == L'\\')
-            break;
-    }
-    if (it == modPath.begin() && *it != L'\\')
-        return {};
-    modPath.resize(static_cast<size_t>(it - modPath.begin()) + 1);
-    return modPath;
-}
-
 std::wstring FindConsoleHostPath()
 {
 #ifndef USE_INBOX_CONHOST
-    auto modulePath = GetModulePath();
+    auto modulePath = shell::get_module_dir_path();
     auto modulePathSize = modulePath.size();
     modulePath.append(L"corehost.exe");
     if (shell::file_exists(modulePath.c_str()))
