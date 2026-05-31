@@ -3,13 +3,14 @@
 //
 // 设计目标：
 //   · 完全以 Unicode 码点 (char32_t) 作为输入，调用方负责 UTF-8 解码。
-//   · 不丢弃任何输入字符；无法识别的序列原样作为普通文本输出。
+//   · 不丢弃任何输入字符；无法识别的序列以 unknown_sequence 返回，
+//     msg.text 指向完整原文。
 //   · vt_message 中的 title / text 为 std::u32string_view，指向内部缓冲区，
 //     零拷贝，不产生额外的字符串内存分配。
 //   · parse() 返回 vt_message_id，continue_ 表示尚未完成，text 表示文本消息，
-//     其余为具体控制序列 id。不再通过 vt_message::id 获取。
+//     unknown_sequence 表示未知/错误序列，其余为具体控制序列 id。
 //   · 提供 reset(id) 方法，根据已消费的消息类型精确重置受污染的字段，
-//     对于 text/title 消息还会清空内部缓冲区 _raw，兼顾性能与内存。
+//     对于 text/unknown/title 消息还会清空内部缓冲区 _raw，兼顾性能与内存。
 //
 // 使用方式：
 //   std::u32string raw;
@@ -21,6 +22,9 @@
 //           switch (id) {
 //               case vt_message_id::text:
 //                   // 使用 m.text (u32string_view)
+//                   break;
+//               case vt_message_id::unknown_sequence:
+//                   // 使用 m.text (完整未知序列)
 //                   break;
 //               case vt_message_id::set_window_title:
 //                   // 使用 m.title (u32string_view)
@@ -44,12 +48,14 @@ namespace conpty
 // ── vt_message_id ────────────────────────────────────
 // 所有可能的解析结果标识。
 // continue_: 需要继续喂入字符，当前未产出完整消息。
-// text:      普通文本或无法识别的序列原文。
+// text:      普通文本。
+// unknown_sequence: 无法识别或语法错误的控制序列原文。
 enum class vt_message_id
 {
     continue_text = 0, // 可打印字符 → echo + 插入行缓冲
     continue_ = 1,     // 转义内部状态 → 无操作
     text = 2,          // 纯可打印文本消息（不含控制字符）
+    unknown_sequence,  // 无法识别或语法错误的 ESC/CSI/OSC/SS3 序列，msg.text 为完整原文
     carriage_return,   // \r
     line_feed,         // \n
     reverse_index,
@@ -335,14 +341,13 @@ class vt_parser
                     return vt_message_id::continue_;
                 }
                 // 其他控制字符：OSC 被打断，序列转为文本，再处理该控制字符
-                _msg.text = {_raw.data() + _seq_start, _raw.size() - _seq_start};
-                _msg_id = vt_message_id::text;
+                _set_unknown_sequence(_seq_start);
                 _osc = false;
                 _osc_code = 0;
                 _osc_len = 0;
                 _osc_had_semi = false;
                 // 控制字符中断序列，文本已设，返回 text 供透传
-                return vt_message_id::text;
+                return vt_message_id::unknown_sequence;
             }
 
             // 尚未遇到分号，解析 OSC 数字操作码
@@ -397,11 +402,10 @@ class vt_parser
             // 控制字符中断 CSI
             if (ch <= 0x1F || ch == 0x7F)
             {
-                _msg.text = {_raw.data() + _seq_start, _raw.size() - _seq_start};
-                _msg_id = vt_message_id::text;
+                _set_unknown_sequence(_seq_start);
                 _csi = false;
                 _reset_params();
-                return vt_message_id::text;
+                return vt_message_id::unknown_sequence;
             }
             if (ch >= U'0' && ch <= U'9')
             {
@@ -437,11 +441,10 @@ class vt_parser
                 return _finish_seq(ok);
             }
             // 非法 CSI 字符：整段作为文本输出
-            _msg.text = {_raw.data() + _seq_start, _raw.size() - _seq_start};
-            _msg_id = vt_message_id::text;
+            _set_unknown_sequence(_seq_start);
             _csi = false;
             _reset_params();
-            return vt_message_id::text;
+            return vt_message_id::unknown_sequence;
         }
 
         // ── SS3 模式 (ESC O) ──
@@ -449,10 +452,9 @@ class vt_parser
         {
             if (ch <= 0x1F || ch == 0x7F)
             {
-                _msg.text = {_raw.data() + _seq_start, _raw.size() - _seq_start};
-                _msg_id = vt_message_id::text;
+                _set_unknown_sequence(_seq_start);
                 _ss3 = false;
-                return vt_message_id::text;
+                return vt_message_id::unknown_sequence;
             }
             if (ch >= 0x40 && ch <= 0x7E)
             {
@@ -461,10 +463,9 @@ class vt_parser
                 return _finish_seq(ok);
             }
             // 非法 SS3 终态
-            _msg.text = {_raw.data() + _seq_start, _raw.size() - _seq_start};
-            _msg_id = vt_message_id::text;
+            _set_unknown_sequence(_seq_start);
             _ss3 = false;
-            return vt_message_id::text;
+            return vt_message_id::unknown_sequence;
         }
 
         // ── ESC 状态 ──
@@ -472,11 +473,10 @@ class vt_parser
         {
             if (ch <= 0x1F || ch == 0x7F)
             {
-                _msg.text = {_raw.data() + _seq_start, _raw.size() - _seq_start};
-                _msg_id = vt_message_id::text;
+                _set_unknown_sequence(_seq_start);
                 _esc = false;
                 _osc_st = false;
-                return vt_message_id::text;
+                return vt_message_id::unknown_sequence;
             }
             switch (ch)
             {
@@ -513,10 +513,9 @@ class vt_parser
                 }
                 if (_intermediate != 0)
                 {
-                    _msg.text = {_raw.data() + _seq_start, _raw.size() - _seq_start};
-                    _msg_id = vt_message_id::text;
+                    _set_unknown_sequence(_seq_start);
                     _intermediate = 0;
-                    return vt_message_id::text;
+                    return vt_message_id::unknown_sequence;
                 }
                 // 普通 ESC 序列
                 bool ok = _dispatch_esc(ch);
@@ -630,10 +629,11 @@ class vt_parser
             _ground_text_start = npos;
             break;
 
-        // ── 文本 / 标题 ──
+        // ── 文本 / 未知序列 / 标题 ──
         case vt_message_id::text:
+        case vt_message_id::unknown_sequence:
         case vt_message_id::set_window_title:
-            // text/title 的 view 指向 _raw；调用者必须在 reset 前使用或复制。
+            // text/unknown/title 的 view 指向 _raw；调用者必须在 reset 前使用或复制。
             // 本 switch 后的公共清理会释放该 view。
             break;
 
@@ -894,6 +894,13 @@ class vt_parser
         return v > 32767 ? static_cast<short>(32767) : v;
     }
 
+    void _set_unknown_sequence(size_t start)
+    {
+        _msg.text = {_raw.data() + start, _raw.size() - start};
+        _msg_id = vt_message_id::unknown_sequence;
+        _ground_text_start = _raw.size();
+    }
+
     // 完成一个序列（合法或非法），设置 text/id，返回最终的消息 id
     vt_message_id _finish_seq(bool ok)
     {
@@ -904,10 +911,8 @@ class vt_parser
         }
         else
         {
-            // 未识别序列按原文返回 text，调用方可以选择透传到终端而不是丢弃。
-            _msg.text = {_raw.data() + _seq_start, _raw.size() - _seq_start};
-            _msg_id = vt_message_id::text;
-            _ground_text_start = _raw.size(); // 下一个文本起点
+            // 未识别/非法序列按独立消息返回，调用方可以选择透传或丢弃。
+            _set_unknown_sequence(_seq_start);
         }
         _seq_start = 0;
         return _msg_id;

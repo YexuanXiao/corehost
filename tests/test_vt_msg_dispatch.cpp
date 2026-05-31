@@ -633,74 +633,6 @@ bool test_dispatch_vpa_clamped_to_max()
 }
 
 // ==================================================================
-// OSC sequence filtering (filter_osc_sequences)
-// ==================================================================
-bool test_filter_osc_normal_text_unchanged()
-{
-    std::u32string s = U"Hello World";
-    filter_osc_sequences(s);
-    ASSERT(s == U"Hello World");
-    return true;
-}
-
-bool test_filter_osc_bel_terminated_removed()
-{
-    std::u32string s = U"ABC\x1b]9001;CmdNotFound;xyz\x07"
-                       "DEF";
-    filter_osc_sequences(s);
-    ASSERT(s == U"ABCDEF"); // OSC 9001 BEL → removed
-    return true;
-}
-
-bool test_filter_osc_st_terminated_removed()
-{
-    std::u32string s = U"pre\x1b]2;title\x1b\\post";
-    filter_osc_sequences(s);
-    ASSERT(s == U"prepost"); // OSC 2 ESC \ → removed
-    return true;
-}
-
-bool test_filter_osc_unterminated_kept()
-{
-    std::u32string s = U"keep\x1b]999;no_terminator";
-    filter_osc_sequences(s);
-    ASSERT(s == U"keep\x1b]999;no_terminator"); // unterminated → kept
-    return true;
-}
-
-bool test_filter_osc_multiple_in_one_string()
-{
-    std::u32string s = U"\x1b]9001;a\x07Hello\x1b]0;title\x1b\\World";
-    filter_osc_sequences(s);
-    ASSERT(s == U"HelloWorld"); // both OSCs removed
-    return true;
-}
-
-bool test_filter_osc_plain_esc_not_removed()
-{
-    std::u32string s = U"\x1b[31mRed\x1b[0m";
-    filter_osc_sequences(s);
-    ASSERT(s == U"\x1b[31mRed\x1b[0m"); // CSI sequences preserved
-    return true;
-}
-
-bool test_filter_osc_empty_string()
-{
-    std::u32string s = U"";
-    filter_osc_sequences(s);
-    ASSERT(s.empty());
-    return true;
-}
-
-bool test_filter_osc_only_osc()
-{
-    std::u32string s = U"\x1b]0;title\x07";
-    filter_osc_sequences(s);
-    ASSERT(s.empty()); // entire string is OSC → empty
-    return true;
-}
-
-// ==================================================================
 // LF resets X to 0 (Windows console semantics: \n == \r\n for text output)
 // Regression: wrong_command error output was progressively indented because \n did NOT reset X
 // ==================================================================
@@ -1021,16 +953,6 @@ int main()
     RUN_TEST(test_dispatch_cup_clamped_negative_to_zero, L"CUP clamp negative to 0");
     RUN_TEST(test_dispatch_cha_clamped_to_max, L"CHA clamp to max X");
     RUN_TEST(test_dispatch_vpa_clamped_to_max, L"VPA clamp to max Y");
-
-    std::wcout << L"\nOSC Sequence Filtering Tests:\n";
-    RUN_TEST(test_filter_osc_normal_text_unchanged, L"OSC filter: normal text unchanged");
-    RUN_TEST(test_filter_osc_bel_terminated_removed, L"OSC filter: BEL-terminated removed");
-    RUN_TEST(test_filter_osc_st_terminated_removed, L"OSC filter: ST-terminated removed");
-    RUN_TEST(test_filter_osc_unterminated_kept, L"OSC filter: unterminated kept");
-    RUN_TEST(test_filter_osc_multiple_in_one_string, L"OSC filter: multiple in one string");
-    RUN_TEST(test_filter_osc_plain_esc_not_removed, L"OSC filter: plain ESC preserved");
-    RUN_TEST(test_filter_osc_empty_string, L"OSC filter: empty string");
-    RUN_TEST(test_filter_osc_only_osc, L"OSC filter: entire string is OSC");
 
     std::wcout << L"\nLF/CR VT Semantics Tests:\n";
     RUN_TEST(test_text_lf_resets_x, L"LF resets X=0 (Windows console)");

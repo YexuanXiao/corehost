@@ -111,7 +111,7 @@ struct message_router
 
     void sync_process_snapshot() noexcept
     {
-        bridge.set_process_list(std::span<const DWORD>{io.process_list, io.process_count});
+        bridge.set_process_list(std::span<const DWORD>{io.process_list.data(), io.process_count});
     }
 };
 

@@ -861,11 +861,11 @@ bool test_positive_with_text()
 }
 
 // ============================================================================
-// 反向测试（非法序text 消息，内容与原输入一致）
+// 反向测试（非法序列产生 unknown_sequence，内容与原输入一致）
 // ============================================================================
 
-// 辅助函数：输入一组码点，应当产生一text 消息，且 text 内容等于输入序列
-bool test_illegal_as_text(const raw_seq &seq)
+// 辅助函数：输入一组码点，应当产生 unknown_sequence，且 text 内容等于输入序列
+bool test_illegal_as_unknown_sequence(const raw_seq &seq)
 {
     std::u32string parser_raw;
     vt_parser parser{parser_raw};
@@ -875,7 +875,7 @@ bool test_illegal_as_text(const raw_seq &seq)
         vt_message_id id = parser.parse(seq.code_points[i]);
         if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
         {
-            ASSERT(id == vt_message_id::text);
+            ASSERT(id == vt_message_id::unknown_sequence);
             // 验证 text 视图等于原始非法序列
             std::u32string_view txt = parser.get().text;
             ASSERT(txt.size() == seq.code_points.size());
@@ -900,7 +900,7 @@ bool test_illegal_esc_unknown_final()
     raw_seq seq;
     seq.add_esc();
     seq.add(U'X');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_charset_unknown()
@@ -909,7 +909,7 @@ bool test_illegal_charset_unknown()
     seq.add_esc();
     seq.add(U'(');
     seq.add(U'C');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_csi_unknown_final()
@@ -919,7 +919,7 @@ bool test_illegal_csi_unknown_final()
     seq.add_csi();
     seq.add(U'1');
     seq.add(U'<'); // '<' 不是合法中间或终
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_csi_private_cursor()
@@ -929,7 +929,7 @@ bool test_illegal_csi_private_cursor()
     seq.add(U'?');
     seq.add(U'3');
     seq.add(U'A');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_csi_private_unknown()
@@ -939,7 +939,7 @@ bool test_illegal_csi_private_unknown()
     seq.add(U'?');
     seq.add_str(U"99");
     seq.add(U'h');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_ss3_unknown_final()
@@ -948,7 +948,7 @@ bool test_illegal_ss3_unknown_final()
     seq.add_esc();
     seq.add(U'O');
     seq.add(U'X');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_decscusr_missing_sp()
@@ -957,7 +957,7 @@ bool test_illegal_decscusr_missing_sp()
     seq.add_csi();
     seq.add(U'3');
     seq.add(U'q');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_decstr_missing_bang()
@@ -965,7 +965,7 @@ bool test_illegal_decstr_missing_bang()
     raw_seq seq;
     seq.add_csi();
     seq.add(U'p');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_decfnk_unknown_code()
@@ -974,7 +974,7 @@ bool test_illegal_decfnk_unknown_code()
     seq.add_csi();
     seq.add_str(U"99");
     seq.add(U'~');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_sgr_extended_truncated()
@@ -983,7 +983,7 @@ bool test_illegal_sgr_extended_truncated()
     seq.add_csi();
     seq.add_str(U"38;5");
     seq.add(U'm');
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_osc_unknown_code()
@@ -994,13 +994,11 @@ bool test_illegal_osc_unknown_code()
     seq.add(U';');
     seq.add_str(U"test");
     seq.add(0x07);
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 // OSC 缓冲区溢出现在也不丢弃，只是忽略超出部分？在旧版中设osc_buf_overflow 错误
-// 新版中由于我们在解析时仍然尝试写_osc_buf 并检查长度，但非法时整个 OSC 序列会变text
-// 溢出时我们在代码里设置了 _bad，但新版没有 bad，而是继续，然dispatch 可能失败从而输text
-// 所以测试应该验证溢出也输出 text 且内容完整
+// 非法 OSC 应产生 unknown_sequence，调用方可决定丢弃或透传。
 bool test_illegal_osc_buf_overflow()
 {
     raw_seq seq;
@@ -1010,7 +1008,7 @@ bool test_illegal_osc_buf_overflow()
     for (int i = 0; i < 40; ++i)
         seq.add(U'x');
     seq.add(0x07);
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
 bool test_illegal_osc_palette_no_rgb()
@@ -1023,13 +1021,13 @@ bool test_illegal_osc_palette_no_rgb()
     seq.add(U';');
     seq.add_str(U"norgb:ff/00/ff");
     seq.add(0x07);
-    return test_illegal_as_text(seq);
+    return test_illegal_as_unknown_sequence(seq);
 }
 
-// 组合测试：多种非法序列连续输入，各自输出 text
+// 组合测试：多种非法序列连续输入，各自产生 unknown_sequence
 bool test_illegal_mixed()
 {
-    // 构造多个非法序列拼接，每个都应产生一text 消息，内容等于该序列原文
+    // 构造多个非法序列拼接，每个都应产生 unknown_sequence，内容等于该序列原文
     struct
     {
         raw_seq seq;
@@ -1075,7 +1073,7 @@ bool test_illegal_mixed()
             vt_message_id id = parser.parse(c.seq.code_points[i]);
             if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
             {
-                ASSERT(id == vt_message_id::text);
+                ASSERT(id == vt_message_id::unknown_sequence);
                 std::u32string_view txt = parser.get().text;
                 ASSERT(txt.size() == c.seq.code_points.size());
                 for (size_t j = 0; j < txt.size(); ++j)
@@ -1126,7 +1124,7 @@ bool test_parse_resize_window_zero_invalid()
         vt_message_id id = p.parse(ch);
         if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
         {
-            ASSERT(id == vt_message_id::text);
+            ASSERT(id == vt_message_id::unknown_sequence);
             got_text = true;
             p.reset(id);
         }
@@ -1146,7 +1144,7 @@ bool test_parse_resize_window_pixel_is_text()
         vt_message_id id = p.parse(ch);
         if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
         {
-            ASSERT(id == vt_message_id::text);
+            ASSERT(id == vt_message_id::unknown_sequence);
             got_text = true;
             p.reset(id);
         }
@@ -1636,26 +1634,26 @@ int main()
     RUN_TEST(test_positive_concatenated, L"Random concatenated messages");
     RUN_TEST(test_positive_with_text, L"Messages with intervening text");
 
-    std::wcout << L"\nVT Parser Negative Tests (illegal -> text)\n";
-    RUN_TEST(test_illegal_esc_unknown_final, L"ESC unknown final -> text");
-    RUN_TEST(test_illegal_charset_unknown, L"Charset unknown final -> text");
-    RUN_TEST(test_illegal_csi_unknown_final, L"CSI unknown final -> text");
-    RUN_TEST(test_illegal_csi_private_cursor, L"CSI private cursor -> text");
-    RUN_TEST(test_illegal_csi_private_unknown, L"CSI private unknown -> text");
-    RUN_TEST(test_illegal_ss3_unknown_final, L"SS3 unknown final -> text");
-    RUN_TEST(test_illegal_decscusr_missing_sp, L"DECSCUSR missing SP -> text");
-    RUN_TEST(test_illegal_decstr_missing_bang, L"DECSTR missing bang -> text");
-    RUN_TEST(test_illegal_decfnk_unknown_code, L"DECFNK unknown code -> text");
-    RUN_TEST(test_illegal_sgr_extended_truncated, L"SGR extended truncated -> text");
-    RUN_TEST(test_illegal_osc_unknown_code, L"OSC unknown code -> text");
-    RUN_TEST(test_illegal_osc_buf_overflow, L"OSC buffer overflow -> text");
-    RUN_TEST(test_illegal_osc_palette_no_rgb, L"OSC palette missing rgb prefix -> text");
-    RUN_TEST(test_illegal_mixed, L"Multiple illegal sequences -> text");
+    std::wcout << L"\nVT Parser Negative Tests (illegal -> unknown_sequence)\n";
+    RUN_TEST(test_illegal_esc_unknown_final, L"ESC unknown final -> unknown_sequence");
+    RUN_TEST(test_illegal_charset_unknown, L"Charset unknown final -> unknown_sequence");
+    RUN_TEST(test_illegal_csi_unknown_final, L"CSI unknown final -> unknown_sequence");
+    RUN_TEST(test_illegal_csi_private_cursor, L"CSI private cursor -> unknown_sequence");
+    RUN_TEST(test_illegal_csi_private_unknown, L"CSI private unknown -> unknown_sequence");
+    RUN_TEST(test_illegal_ss3_unknown_final, L"SS3 unknown final -> unknown_sequence");
+    RUN_TEST(test_illegal_decscusr_missing_sp, L"DECSCUSR missing SP -> unknown_sequence");
+    RUN_TEST(test_illegal_decstr_missing_bang, L"DECSTR missing bang -> unknown_sequence");
+    RUN_TEST(test_illegal_decfnk_unknown_code, L"DECFNK unknown code -> unknown_sequence");
+    RUN_TEST(test_illegal_sgr_extended_truncated, L"SGR extended truncated -> unknown_sequence");
+    RUN_TEST(test_illegal_osc_unknown_code, L"OSC unknown code -> unknown_sequence");
+    RUN_TEST(test_illegal_osc_buf_overflow, L"OSC buffer overflow -> unknown_sequence");
+    RUN_TEST(test_illegal_osc_palette_no_rgb, L"OSC palette missing rgb prefix -> unknown_sequence");
+    RUN_TEST(test_illegal_mixed, L"Multiple illegal sequences -> unknown_sequence");
 
     std::wcout << L"\nVT Parser Resize Window Tests:\n";
     RUN_TEST(test_parse_resize_window_basic, L"Resize window 40x100");
-    RUN_TEST(test_parse_resize_window_zero_invalid, L"Resize window 0x0->text");
-    RUN_TEST(test_parse_resize_window_pixel_is_text, L"Pixel resize 4;...->text");
+    RUN_TEST(test_parse_resize_window_zero_invalid, L"Resize window 0x0->unknown_sequence");
+    RUN_TEST(test_parse_resize_window_pixel_is_text, L"Pixel resize 4;...->unknown_sequence");
     RUN_TEST(test_parse_resize_window_fields_reset, L"Resize fields reset after");
 
     std::wcout << L"\nVT Parser Regression Tests (CR/LF text preservation)\n";

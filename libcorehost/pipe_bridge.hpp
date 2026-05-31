@@ -13,6 +13,7 @@
 #pragma once
 #include <windows.h>
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -100,6 +101,7 @@ struct pipe_bridge
 
     // ── Parser 外部缓冲：_raw_buf 记录全部字符，_cooked_buf 仅记录地面态文本 ──
     std::u32string _raw_buf;    // Parser 写入全部字符（供 msg.text 视图指向）
+    std::u32string _write_raw_buf;
     std::u32string _cooked_buf; // Parser 写入地面态文本（行编辑缓冲，返回给 cmd）
     // 编辑光标在 _cooked_buf 中的位置，范围 0.._cooked_buf.size()。
     size_t _cooked_cursor = 0;
@@ -113,7 +115,7 @@ struct pipe_bridge
 
     // ── 原始字节缓冲 (echo 用) ──
     // _read_total 是 _readbuf 中有效字节数；_echo_start 是尚未回显区域起点。
-    std::vector<BYTE> _readbuf = std::vector<BYTE>(4096);
+    std::array<BYTE, sizeof(miniio::io_msg::body)> _readbuf{};
     DWORD _read_total = 0;
     DWORD _echo_start = 0;
     bool _line_found = false; // process_input 发现行终止符 → 跳过 scan_for_line 重复扫描
@@ -281,6 +283,11 @@ struct pipe_bridge
     {
         return _conversion.wide();
     }
+    std::u32string &prepare_write_parser_raw() noexcept
+    {
+        _write_raw_buf.clear();
+        return _write_raw_buf;
+    }
 
     // ── Enter 后换行标志: api_write_console 在输出"hello"等文本前检测,
     //     若为 true 则先发 CUP 到保存的换行目标并清标志 ──
@@ -357,6 +364,21 @@ struct pipe_bridge
     void vt_append_int(int n)
     {
         _vt_output.append_int(n);
+    }
+
+    void vt_append_sgr_param(bool &first, int value)
+    {
+        if (!first)
+            vt_append_char(';');
+        first = false;
+        vt_append_int(value);
+    }
+
+    void vt_append_hex_byte(uint8_t value)
+    {
+        constexpr char hex_digits[] = "0123456789abcdef";
+        vt_append_char(hex_digits[value >> 4]);
+        vt_append_char(hex_digits[value & 15]);
     }
 
     // ── 高层 VT 序列 ──
@@ -536,62 +558,56 @@ struct pipe_bridge
             }
 
             bool first = true;
-            auto add_param = [&](int p) {
-                if (!first)
-                    vt_append_char(';');
-                first = false;
-                vt_append_int(p);
-            };
 
             // 重置 → 先发 0
-            add_param(0);
+            vt_append_sgr_param(first, 0);
 
             if (msg.bold)
-                add_param(1);
+                vt_append_sgr_param(first, 1);
             if (msg.faint)
-                add_param(2);
+                vt_append_sgr_param(first, 2);
             if (msg.italic)
-                add_param(3);
+                vt_append_sgr_param(first, 3);
             if (msg.underline)
-                add_param(4);
+                vt_append_sgr_param(first, 4);
             if (msg.blink)
-                add_param(5);
+                vt_append_sgr_param(first, 5);
             if (msg.negative)
-                add_param(7);
+                vt_append_sgr_param(first, 7);
             if (msg.conceal)
-                add_param(8);
+                vt_append_sgr_param(first, 8);
             if (msg.strikethrough)
-                add_param(9);
+                vt_append_sgr_param(first, 9);
 
             if (msg.fg_is_default)
-                add_param(39);
+                vt_append_sgr_param(first, 39);
             else if (msg.fg_is_rgb)
             {
-                add_param(38);
-                add_param(2);
-                add_param(msg.fg_r);
-                add_param(msg.fg_g);
-                add_param(msg.fg_b);
+                vt_append_sgr_param(first, 38);
+                vt_append_sgr_param(first, 2);
+                vt_append_sgr_param(first, msg.fg_r);
+                vt_append_sgr_param(first, msg.fg_g);
+                vt_append_sgr_param(first, msg.fg_b);
             }
             else if (msg.fg_color >= 0 && msg.fg_color <= 7)
-                add_param(30 + msg.fg_color);
+                vt_append_sgr_param(first, 30 + msg.fg_color);
             else if (msg.fg_color >= 8 && msg.fg_color <= 15)
-                add_param(90 + (msg.fg_color - 8));
+                vt_append_sgr_param(first, 90 + (msg.fg_color - 8));
 
             if (msg.bg_is_default)
-                add_param(49);
+                vt_append_sgr_param(first, 49);
             else if (msg.bg_is_rgb)
             {
-                add_param(48);
-                add_param(2);
-                add_param(msg.bg_r);
-                add_param(msg.bg_g);
-                add_param(msg.bg_b);
+                vt_append_sgr_param(first, 48);
+                vt_append_sgr_param(first, 2);
+                vt_append_sgr_param(first, msg.bg_r);
+                vt_append_sgr_param(first, msg.bg_g);
+                vt_append_sgr_param(first, msg.bg_b);
             }
             else if (msg.bg_color >= 0 && msg.bg_color <= 7)
-                add_param(40 + msg.bg_color);
+                vt_append_sgr_param(first, 40 + msg.bg_color);
             else if (msg.bg_color >= 8 && msg.bg_color <= 15)
-                add_param(100 + (msg.bg_color - 8));
+                vt_append_sgr_param(first, 100 + (msg.bg_color - 8));
 
             vt_append_char('m');
             break;
@@ -752,16 +768,11 @@ struct pipe_bridge
             vt_append_char(';');
             // rgb:RR/GG/BB 格式 (不使用 snprintf)
             vt_append_str("rgb:"sv);
-            auto hex2 = [&](uint8_t v) {
-                constexpr char h[] = "0123456789abcdef";
-                vt_append_char(h[v >> 4]);
-                vt_append_char(h[v & 15]);
-            };
-            hex2(msg.palette_r);
+            vt_append_hex_byte(msg.palette_r);
             vt_append_char('/');
-            hex2(msg.palette_g);
+            vt_append_hex_byte(msg.palette_g);
             vt_append_char('/');
-            hex2(msg.palette_b);
+            vt_append_hex_byte(msg.palette_b);
             vt_append_char('\x07');
             break;
         }
@@ -950,33 +961,34 @@ struct pipe_bridge
         return true;
     }
 
+    bool drain_available_vt_input()
+    {
+        // 先非阻塞读取，避免在已经有 VT 输入可用时浪费 16ms 时间片。
+        const auto old_total = _read_total;
+        switch (read_available_vt_input())
+        {
+        case vt_read_status::bytes:
+            process_new_vt_input(old_total);
+            return true;
+        case vt_read_status::empty:
+            return false;
+        case vt_read_status::full:
+            complete_pending();
+            return true;
+        case vt_read_status::eof:
+            complete_pending_with_eof();
+            return true;
+        default:
+            std::unreachable();
+        }
+    }
+
     void wait_for_pending_vt_input()
     {
         if (_pending.vt_eof() || !_pending.has_pending())
             return;
 
-        auto drain_available = [&] {
-            // 先非阻塞读取，避免在已经有 VT 输入可用时浪费 16ms 时间片。
-            const auto old_total = _read_total;
-            switch (read_available_vt_input())
-            {
-            case vt_read_status::bytes:
-                process_new_vt_input(old_total);
-                return true;
-            case vt_read_status::empty:
-                return false;
-            case vt_read_status::full:
-                complete_pending();
-                return true;
-            case vt_read_status::eof:
-                complete_pending_with_eof();
-                return true;
-            default:
-                std::unreachable();
-            }
-        };
-
-        if (drain_available())
+        if (drain_available_vt_input())
         {
             return;
         }
@@ -998,7 +1010,7 @@ struct pipe_bridge
         {
             // 有 shutdown event 的模式不能进入阻塞 ReadFile；这里再试一次
             // 非阻塞 drain，没读到就把控制权还给 io_loop。
-            drain_available();
+            drain_available_vt_input();
             return;
         }
 

@@ -4,7 +4,7 @@
 // 功能分解：
 // 1. 光标、SGR、标题、tab、resize 等消息更新 console_state。
 // 2. text、erase、scroll、insert/delete line 等消息更新 screen_buffer。
-// 3. filter_osc_sequences 移除终端不应显示的 OSC 控制序列。
+// 3. 不可识别的控制序列由 vt_parser 以 unknown_sequence 交给调用方决策。
 //
 // vt_msg_apply_state(id, msg, state, sb):
 //   将 vt_message 反映到控制台状态和屏幕缓冲区中。
@@ -420,35 +420,6 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
     default:
         break;
     }
-}
-
-// ── filter_osc_sequences ───────────────────────────────
-// 原地移除 ESC ] Ps ; Pt ST 序列（如 OSC 9001 ConDrv 专有标记）。
-// 终端不认识这些 OSC 代码时会吞掉整个序列不显示，
-// 导致 cmd.exe 输出中出现空白。
-inline void filter_osc_sequences(std::u32string &s)
-{
-    size_t w = 0;
-    for (size_t r = 0; r < s.size();)
-    {
-        if (s[r] == 0x1B && r + 1 < s.size() && s[r + 1] == U']')
-        {
-            size_t j = r + 2;
-            while (j < s.size() && s[j] != 0x07 && s[j] != 0x1B)
-                ++j;
-            if (j + 1 < s.size() && s[j] == 0x1B && s[j + 1] == U'\\')
-                r = j + 2; // skip OSC ... ESC ST
-            else if (j < s.size() && s[j] == 0x07)
-                r = j + 1; // skip OSC ... BEL
-            else
-            {
-                s[w++] = s[r++];
-            } // unterminated: keep
-            continue;
-        }
-        s[w++] = s[r++];
-    }
-    s.resize(w);
 }
 
 } // namespace conpty

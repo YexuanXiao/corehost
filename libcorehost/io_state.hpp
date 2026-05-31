@@ -11,6 +11,8 @@
 #pragma once
 #include <windows.h>
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include "connect_completion.hpp"
 #include "win32/handle.hpp"
 #include "miniio/io_thread.hpp"
@@ -53,13 +55,13 @@ struct io_state
     // GetConsoleProcessList 兼容数据。数组保存当前已连接进程 pid；
     // 超过容量的新 pid 会被忽略，以避免写越界。
     static constexpr size_t max_processes = 64;
-    DWORD process_list[max_processes]{};
+    std::array<DWORD, max_processes> process_list{};
     size_t process_count = 0;
 
     void add_process(DWORD pid)
     {
-        const auto end = process_list + process_count;
-        if (std::find(process_list, end, pid) != end)
+        const auto end = process_list.begin() + static_cast<std::ptrdiff_t>(process_count);
+        if (std::find(process_list.begin(), end, pid) != end)
             return;
         if (process_count < max_processes)
             process_list[process_count++] = pid;
@@ -67,8 +69,8 @@ struct io_state
 
     void remove_process(DWORD pid)
     {
-        const auto end = process_list + process_count;
-        const auto it = std::find(process_list, end, pid);
+        const auto end = process_list.begin() + static_cast<std::ptrdiff_t>(process_count);
+        const auto it = std::find(process_list.begin(), end, pid);
         if (it == end)
             return;
         std::move(it + 1, end, it);

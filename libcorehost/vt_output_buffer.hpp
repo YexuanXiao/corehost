@@ -1,8 +1,8 @@
 #pragma once
 #include <windows.h>
+#include <array>
 #include <cstring>
 #include <string_view>
-#include <vector>
 #include "win32/handle.hpp"
 #include "char_convert.hpp"
 
@@ -43,13 +43,15 @@ class vt_output_buffer
     void append(std::string_view text)
     {
         const auto length = text.size();
+        if (length > _buffer.size())
+        {
+            write(text.data(), length);
+            return;
+        }
         if (_length + length > _buffer.size())
             flush();
-        if (length <= _buffer.size())
-        {
-            std::memcpy(_buffer.data() + _length, text.data(), length);
-            _length += length;
-        }
+        std::memcpy(_buffer.data() + _length, text.data(), length);
+        _length += length;
     }
 
     void append(char ch)
@@ -95,8 +97,10 @@ class vt_output_buffer
     }
 
   private:
+    static constexpr size_t buffer_capacity = 8192;
+
     win32::handle_view _output;
-    std::vector<char> _buffer = std::vector<char>(8192);
+    std::array<char, buffer_capacity> _buffer{};
     size_t _length = 0;
 };
 

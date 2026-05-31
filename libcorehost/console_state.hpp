@@ -11,6 +11,9 @@
 #pragma once
 #include <windows.h>
 #include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <flat_map>
@@ -36,6 +39,65 @@ struct cursor_state
     COORD position{0, 0};
 };
 
+class tab_stop_table
+{
+  public:
+    class reference
+    {
+      public:
+        explicit reference(uint8_t &value) noexcept : _value(value)
+        {
+        }
+
+        reference &operator=(bool value) noexcept
+        {
+            _value = value ? 1 : 0;
+            return *this;
+        }
+
+        operator bool() const noexcept
+        {
+            return _value != 0;
+        }
+
+      private:
+        uint8_t &_value;
+    };
+
+    void assign(size_t count, bool value)
+    {
+        _values.assign(count, value ? 1 : 0);
+    }
+
+    void resize(size_t count, bool value)
+    {
+        _values.resize(count, value ? 1 : 0);
+    }
+
+    size_t size() const noexcept
+    {
+        return _values.size();
+    }
+
+    void fill(bool value) noexcept
+    {
+        std::fill(_values.begin(), _values.end(), value ? 1 : 0);
+    }
+
+    reference operator[](size_t index) noexcept
+    {
+        return reference{_values[index]};
+    }
+
+    bool operator[](size_t index) const noexcept
+    {
+        return _values[index] != 0;
+    }
+
+  private:
+    std::vector<uint8_t> _values;
+};
+
 struct console_state
 {
     // ── 模式 ──
@@ -59,7 +121,7 @@ struct console_state
     WORD popup_attributes = 0x07;
 
     // 16 项对应 Win32 控制台颜色表索引。
-    COLORREF color_table[16]{};
+    std::array<COLORREF, 16> color_table{};
 
     // ── 标题 (char32_t 内部存储) ──
     std::u32string title;
@@ -148,48 +210,63 @@ struct console_state
     }
 
     // ── Tab 停靠位 ──
-    // tab_stops 覆盖 0..511 列；超出范围的 tab 操作会被忽略。
+    // tab_stops 覆盖当前需要跟踪的列；resize 或访问更大列时可增长。
     static constexpr SHORT tab_width = 8;
-    bool tab_stops[512]{};
+    tab_stop_table tab_stops;
 
     void init_tab_stops()
     {
-        // DEC 默认每 8 列一个 tab stop，包含第 0 列；后续 HTS/TBC 会在这张
-        // 固定表上增删。
-        for (SHORT i = 0; i < 512; i += tab_width)
+        const auto width = std::max<SHORT>(screen_buffer_size.X, default_console_size.X);
+        tab_stops.assign(static_cast<size_t>(width), 0);
+        // DEC 默认每 8 列一个 tab stop，包含第 0 列；后续 HTS/TBC 在当前
+        // 跟踪范围内增删。访问更大列时 ensure_tab_capacity 会扩展范围。
+        for (SHORT i = 0; i < width; i += tab_width)
             tab_stops[i] = true;
     }
     void set_tab_stop(SHORT col)
     {
-        if (col >= 0 && col < 512)
+        if (col >= 0)
+        {
+            ensure_tab_capacity(col);
             tab_stops[col] = true;
+        }
     }
     void clear_tab_stop(SHORT col)
     {
-        if (col >= 0 && col < 512)
+        if (col >= 0 && static_cast<size_t>(col) < tab_stops.size())
             tab_stops[col] = false;
     }
     void clear_all_tab_stops()
     {
-        for (auto &ts : tab_stops)
-            ts = false;
+        tab_stops.fill(false);
     }
     SHORT next_tab_stop(SHORT col) const noexcept
     {
         // 返回第一个严格大于 col 的停靠位；找不到时返回原列，调用者据此保持
         // 光标不动而不是跳到行尾。
-        for (SHORT c = col + 1; c < 512; ++c)
-            if (tab_stops[c])
-                return c;
+        for (int c = static_cast<int>(col) + 1; c >= 0 && static_cast<size_t>(c) < tab_stops.size(); ++c)
+            if (tab_stops[static_cast<size_t>(c)])
+                return static_cast<SHORT>(c);
         return col;
     }
     SHORT prev_tab_stop(SHORT col) const noexcept
     {
         // 返回第一个严格小于 col 的停靠位；找不到时回到 0，匹配 CBT 的左边界。
-        for (SHORT c = col - 1; c >= 0; --c)
-            if (tab_stops[c])
-                return c;
+        for (int c = static_cast<int>(col) - 1; c >= 0; --c)
+            if (static_cast<size_t>(c) < tab_stops.size() && tab_stops[static_cast<size_t>(c)])
+                return static_cast<SHORT>(c);
         return 0;
+    }
+
+    void ensure_tab_capacity(SHORT col)
+    {
+        if (col < 0 || static_cast<size_t>(col) < tab_stops.size())
+            return;
+        const auto old_size = tab_stops.size();
+        tab_stops.resize(static_cast<size_t>(col) + 1, 0);
+        for (size_t i = old_size + (tab_width - old_size % tab_width) % tab_width; i < tab_stops.size();
+             i += tab_width)
+            tab_stops[i] = true;
     }
 
     // ── DEC 行绘制字符集 (ESC(0 → Unicode 框线字符) ──

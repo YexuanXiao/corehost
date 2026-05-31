@@ -30,7 +30,7 @@ namespace conpty
 
 void copy_process_list(io_state &io, pipe_bridge &bridge)
 {
-    bridge.set_process_list(std::span<const DWORD>{io.process_list, io.process_count});
+    bridge.set_process_list(std::span<const DWORD>{io.process_list.data(), io.process_count});
 }
 
 void run_conpty_session(win32::handle server, win32::handle event, win32::handle condrv_input,

@@ -47,10 +47,23 @@ inline constexpr DWORD valid_output_modes = ENABLE_PROCESSED_OUTPUT | ENABLE_WRA
 inline std::wstring lower_wstring(std::wstring_view text)
 {
     std::wstring result{text};
-    std::transform(result.begin(), result.end(), result.begin(), [](wchar_t ch) {
-        return static_cast<wchar_t>(std::towlower(ch));
-    });
+    for (auto &ch : result)
+        if (ch >= L'A' && ch <= L'Z')
+            ch = static_cast<wchar_t>(ch - L'A' + L'a');
     return result;
+}
+
+inline const std::wstring *find_alias_value(const console_state &state, std::wstring_view exe,
+                                            std::wstring_view source)
+{
+    auto exe_key = lower_wstring(exe);
+    auto source_key = lower_wstring(source);
+    if (auto exe_it = state.aliases_by_exe.find(exe_key); exe_it != state.aliases_by_exe.end())
+        if (auto alias_it = exe_it->second.find(source_key); alias_it != exe_it->second.end())
+            return &alias_it->second;
+    if (auto alias_it = state.aliases.find(source_key); alias_it != state.aliases.end())
+        return &alias_it->second;
+    return nullptr;
 }
 
 inline bool is_east_asian_code_page(UINT code_page) noexcept
@@ -542,6 +555,22 @@ inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg,
     }
 }
 
+inline void consume_write_console_vt_message(vt_message_id id, vt_parser &parser, console_state &state,
+                                             screen_buffer &sb, pipe_bridge &bridge)
+{
+    auto &msg = parser.get();
+    if (id == vt_message_id::unknown_sequence)
+    {
+        parser.reset(id);
+        return;
+    }
+
+    bridge.vt_msg_send(id, msg);
+    if (id != vt_message_id::sgr)
+        vt_msg_apply_terminal_state(id, msg, state, sb);
+    parser.reset(id);
+}
+
 // ── completion 辅助 ──
 
 inline void ucomplete(miniio::io_msg &msg)
@@ -726,27 +755,19 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             // cmd.exe 以及 ConDrv 兼容输出即使在 legacy mode 下也可能写入
             // 宿主终端会解释的 VT 序列。本地模型必须和实际终端保持一致，
             // 因此 WriteConsole 输出始终经 vt_parser 分流。
-            filter_osc_sequences(u32s);
-            std::u32string write_parser_raw;
+            auto &write_parser_raw = bridge.prepare_write_parser_raw();
             vt_parser write_parser{write_parser_raw};
-            auto consume_vt_message = [&](vt_message_id id) {
-                auto &pm = write_parser.get();
-                bridge.vt_msg_send(id, pm);
-                if (id != vt_message_id::sgr)
-                    vt_msg_apply_terminal_state(id, pm, state, sb);
-                write_parser.reset(id);
-            };
 
             for (char32_t ch : u32s)
             {
                 auto id = write_parser.parse(ch);
                 if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
                     continue;
-                consume_vt_message(id);
+                consume_write_console_vt_message(id, write_parser, state, sb, bridge);
 
                 if (auto id2 = write_parser.parse(U'\0');
                     id2 != vt_message_id::continue_ && id2 != vt_message_id::continue_text)
-                    consume_vt_message(id2);
+                    consume_write_console_vt_message(id2, write_parser, state, sb, bridge);
             }
 
             // 释放循环后残留的累积文本；没有控制字符结束的普通输出会走这里。
@@ -755,11 +776,12 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                 auto &pm = write_parser.get();
                 bridge.vt_msg_send(id, pm);
                 vt_msg_apply_terminal_state(id, pm, state, sb);
+                write_parser.reset(id);
             }
             // 排空 parser 残留的 _pending_control，例如文本以单独 '\r' 结束。
             if (auto id = write_parser.parse(U'\0');
                 id != vt_message_id::continue_ && id != vt_message_id::continue_text)
-                consume_vt_message(id);
+                consume_write_console_vt_message(id, write_parser, state, sb, bridge);
 
             // VT 已写入宿主终端后，同步 bridge 的行编辑边界到新的 Console
             // 光标位置，供下一次 ReadConsole 使用。
@@ -1129,7 +1151,7 @@ inline bool api_get_sb_info(miniio::io_msg &msg, console_state &state, screen_bu
     r->MaximumWindowSize = state.max_window_size;
     r->PopupAttributes = state.popup_attributes;
     r->FullscreenSupported = FALSE;
-    std::memcpy(r->ColorTable, state.color_table, sizeof(state.color_table));
+    std::memcpy(r->ColorTable, state.color_table.data(), state.color_table.size() * sizeof(state.color_table[0]));
     // GetSBInfo 是 PSReadLine 高频轮询 API，不在这里记录普通路径日志。
     ucomplete_sz(msg, sizeof(CONSOLE_SCREENBUFFERINFO_MSG));
     return true;
@@ -1158,7 +1180,7 @@ inline bool api_set_sb_info(miniio::io_msg &msg, console_state &state, screen_bu
     state.default_attributes = r->Attributes;
     state.max_window_size = r->MaximumWindowSize;
     state.popup_attributes = r->PopupAttributes;
-    std::memcpy(state.color_table, r->ColorTable, sizeof(state.color_table));
+    std::memcpy(state.color_table.data(), r->ColorTable, state.color_table.size() * sizeof(state.color_table[0]));
     const auto old_viewport_size = sb.viewport.size();
     sb.resize(r->Size);
     bool viewport_changed = sb.viewport.set_size(r->CurrentWindowSize, sb.size);
@@ -2180,17 +2202,6 @@ inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_b
         return true;
     }
 
-    auto find_alias = [&](std::wstring_view exe, std::wstring_view source) -> const std::wstring * {
-        auto exe_key = lower_wstring(exe);
-        auto source_key = lower_wstring(source);
-        if (auto exe_it = state.aliases_by_exe.find(exe_key); exe_it != state.aliases_by_exe.end())
-            if (auto alias_it = exe_it->second.find(source_key); alias_it != exe_it->second.end())
-                return &alias_it->second;
-        if (auto alias_it = state.aliases.find(source_key); alias_it != state.aliases.end())
-            return &alias_it->second;
-        return nullptr;
-    };
-
     if (r->Unicode)
     {
         if ((exe_len_bytes | src_len_bytes) % sizeof(wchar_t) != 0)
@@ -2206,7 +2217,8 @@ inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_b
 
         if (src_chars > 0)
         {
-            if (auto *wval = find_alias(std::wstring_view{exe, exe_chars}, std::wstring_view{src, src_chars}))
+            if (auto *wval = find_alias_value(state, std::wstring_view{exe, exe_chars},
+                                              std::wstring_view{src, src_chars}))
             {
                 auto *tgt_out = reinterpret_cast<wchar_t *>(db + exe_len_bytes);
                 auto available_bytes = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIAS_MSG));
@@ -2239,7 +2251,7 @@ inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_b
             convert_ansi_to_wstr(src_a, src_len_bytes, state.input_code_page, key);
             if (!key.empty())
             {
-                if (auto *wval = find_alias(exe_key, key))
+                if (auto *wval = find_alias_value(state, exe_key, key))
                 {
                     auto *tgt_out = reinterpret_cast<char *>(db + exe_len_bytes);
                     auto available_bytes = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIAS_MSG));
