@@ -39,6 +39,11 @@ class pipe_bridge_io
         miniio::complete_io(_server, completion);
     }
 
+    void read_input(LUID identifier, ULONG offset, std::span<BYTE> destination) const
+    {
+        miniio::read_input(_server, identifier, offset, destination);
+    }
+
     [[nodiscard]] bool has_shutdown_event() const noexcept
     {
         return _shutdown_event.valid();

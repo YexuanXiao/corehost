@@ -27,6 +27,7 @@
 #include <winioctl.h>
 #include <winternl.h>
 #include <cstdint>
+#include <span>
 #include "win32/handle.hpp"
 #include "win32/error.hpp"
 #include "win32/string.hpp"
@@ -117,6 +118,22 @@ inline void complete_io(win32::handle_view server, CD_IO_COMPLETE &comp)
 {
     DWORD r = 0;
     if (!::DeviceIoControl(server.get(), IOCTL_COMPLETE_IO, &comp, sizeof(comp), nullptr, 0, &r, nullptr))
+        win32::throw_last_error();
+}
+
+inline void read_input(win32::handle_view server, LUID identifier, ULONG offset, std::span<BYTE> destination)
+{
+    if (destination.empty())
+        return;
+
+    CD_IO_OPERATION operation{};
+    operation.Identifier = identifier;
+    operation.Buffer.Data = destination.data();
+    operation.Buffer.Size = static_cast<ULONG>(destination.size());
+    operation.Buffer.Offset = offset;
+
+    DWORD r = 0;
+    if (!::DeviceIoControl(server.get(), IOCTL_READ_INPUT, &operation, sizeof(operation), nullptr, 0, &r, nullptr))
         win32::throw_last_error();
 }
 

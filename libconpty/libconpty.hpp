@@ -24,6 +24,68 @@
 #include "ntapi/openfile.h"
 #include "shell/shell.hpp"
 
+#endif
+
+namespace console
+{
+
+class proc_thread_attribute_list
+{
+  public:
+    proc_thread_attribute_list() noexcept = default;
+    ~proc_thread_attribute_list() noexcept
+    {
+        reset();
+    }
+    proc_thread_attribute_list(const proc_thread_attribute_list &) = delete;
+    proc_thread_attribute_list &operator=(const proc_thread_attribute_list &) = delete;
+
+    HRESULT initialize(DWORD count) noexcept
+    {
+        reset();
+
+        SIZE_T size = 0;
+        ::InitializeProcThreadAttributeList(nullptr, count, 0, &size);
+        if (size == 0)
+            return HRESULT_FROM_WIN32(::GetLastError());
+
+        _list = static_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, size));
+        if (!_list)
+            return E_OUTOFMEMORY;
+
+        if (!::InitializeProcThreadAttributeList(_list, count, 0, &size))
+        {
+            const HRESULT hr = HRESULT_FROM_WIN32(::GetLastError());
+            reset();
+            return hr;
+        }
+
+        return S_OK;
+    }
+
+    void reset() noexcept
+    {
+        if (_list)
+        {
+            ::DeleteProcThreadAttributeList(_list);
+            ::HeapFree(::GetProcessHeap(), 0, _list);
+            _list = nullptr;
+        }
+    }
+
+    LPPROC_THREAD_ATTRIBUTE_LIST &get() noexcept
+    {
+        return _list;
+    }
+
+  private:
+    LPPROC_THREAD_ATTRIBUTE_LIST _list = nullptr;
+};
+
+} // namespace console
+
+#ifdef LIBCONPTY_IMPLEMENTATION
+
 #ifdef CONPTY_NO_CPP_STDLIB
 
 namespace stdext
@@ -66,30 +128,6 @@ constexpr DWORD kSystemConsoleInformation = 132;
 constexpr const wchar_t *kConDrvServer = L"\\Device\\ConDrv\\Server";
 constexpr const wchar_t *kConDrvReference = L"\\Reference";
 constexpr size_t kInheritedHandlesCount = 4; // server + stdin + stdout + signal
-
-class proc_thread_attribute_list
-{
-  public:
-    proc_thread_attribute_list() noexcept = default;
-    ~proc_thread_attribute_list() noexcept
-    {
-        if (_list)
-        {
-            ::DeleteProcThreadAttributeList(_list);
-            ::HeapFree(::GetProcessHeap(), 0, _list);
-        }
-    }
-    proc_thread_attribute_list(const proc_thread_attribute_list &) = delete;
-    proc_thread_attribute_list &operator=(const proc_thread_attribute_list &) = delete;
-
-    LPPROC_THREAD_ATTRIBUTE_LIST &get() noexcept
-    {
-        return _list;
-    }
-
-  private:
-    LPPROC_THREAD_ATTRIBUTE_LIST _list = nullptr;
-};
 
 void EnsureDriverLoaded() noexcept
 {
@@ -224,18 +262,8 @@ HRESULT BuildStartupInfoEx(win32::handle_view serverHandle, win32::handle_view s
 {
     HANDLE inherited[4] = {serverHandle.get(), hInput, hOutput, signalPipeRead.get()};
 
-    SIZE_T attrSize = 0;
-    ::InitializeProcThreadAttributeList(nullptr, 1, 0, &attrSize);
-    if (attrSize == 0)
-        return E_UNEXPECTED;
-
-    attrList.get() =
-        static_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(::HeapAlloc(::GetProcessHeap(), HEAP_ZERO_MEMORY, attrSize));
-    if (!attrList.get())
-        return E_OUTOFMEMORY;
-
-    if (!::InitializeProcThreadAttributeList(attrList.get(), 1, 0, &attrSize))
-        return hresult_from_last_error();
+    if (HRESULT hr = attrList.initialize(1); FAILED(hr))
+        return hr;
 
     if (!::UpdateProcThreadAttribute(attrList.get(), 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited,
                                      kInheritedHandlesCount * sizeof(HANDLE), nullptr, nullptr))

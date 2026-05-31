@@ -16,9 +16,10 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
-#include <deque>
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 #include "win32/handle.hpp"
 #include "miniio/io_thread.hpp"
 #include "os/Console/ntcon.h"
@@ -39,6 +40,7 @@
 #include "command_history_state.hpp"
 #include "perf_diag.hpp"
 #include "utility/log.hpp"
+#include "deque.hpp"
 
 namespace conpty
 {
@@ -106,15 +108,37 @@ struct pipe_bridge
     }
 
   private:
-    // ── Parser 外部缓冲：_raw_buf 记录全部字符，_cooked_buf 仅记录地面态文本 ──
-    std::u32string _raw_buf; // Parser 写入全部字符（供 msg.text 视图指向）
-    std::u32string _write_raw_buf;
-    std::u32string _cooked_buf; // Parser 写入地面态文本（行编辑缓冲，返回给 cmd）
+    // ── Parser 外部缓冲 ──────────────────────────────
+    // _input_raw_buf 属于终端输入方向：vt_in 的 UTF-8 字节解码成 char32_t 后喂给
+    // _input_parser。vt_parser 会把当前消息的原文写到这里，并让 vt_message::text /
+    // title 指向其中的切片；调用方消费消息并 reset 后，该缓冲才能被清理或复用。
+    std::u32string _input_raw_buf;
+
+    // _output_raw_buf 属于 Console API 输出方向：WriteConsole/RAW_WRITE 的文本
+    // 也可能包含 VT 序列。它和 _input_raw_buf 分离，避免应用输出中的半条 ESC/CSI/OSC
+    // 序列污染终端输入解析状态。
+    std::u32string _output_raw_buf;
+
+    // _cooked_buf 保存当前 cooked ReadConsole 行编辑文本，只包含可以返回给
+    // 控制台程序的地面态输入字符，不包含 ESC/CSI/OSC 控制序列原文。
+    std::u32string _cooked_buf;
     // 编辑光标在 _cooked_buf 中的位置，范围 0.._cooked_buf.size()。
     size_t _cooked_cursor = 0;
 
-    // ── char32_t VT 输入解析（注入外部缓冲）──
-    vt_parser _parser{_raw_buf};
+    // ── char32_t VT 解析器 ───────────────────────────
+    // _input_parser 只处理终端输入方向。它把键盘 VT 序列、Win32 Input Mode 事件、
+    // CPR/resize 等终端回应以及普通文本拆成 vt_message；状态必须跨 vt_in
+    // 读取块保留，因为 pipe 读取边界可能落在一条控制序列中间。
+    vt_parser _input_parser{_input_raw_buf};
+
+    // _output_parser 只处理 Console API 输出方向。它用于在透传输出文本前识别
+    // CUP/SGR/ED/OSC title 等序列并同步本地终端状态；状态必须跨
+    // WriteConsole/RAW_WRITE 消息保留，因为应用一次输出的 VT 序列可能被 ConDrv
+    // 拆成多个 API 消息。
+    vt_parser _output_parser{_output_raw_buf};
+
+    // _engine 把 _input_parser 产出的输入方向 vt_message 转换为 INPUT_RECORD 或 cooked
+    // 行编辑动作；输出方向不经过它。
     vt_input_engine _engine;
 
     // ── 流式 UTF-8 解码器 ──
@@ -125,7 +149,7 @@ struct pipe_bridge
     std::array<BYTE, sizeof(miniio::io_msg::body)> _readbuf{};
     DWORD _read_total = 0;
     bool _line_found = false; // process_input 发现行终止符 → 跳过 scan_for_line 重复扫描
-    std::deque<BYTE> _queued_vt_input;
+    bizwen::deque<BYTE> _queued_vt_input;
 
     pipe_bridge_io _io;
     vt_output_buffer _vt_output;
@@ -276,10 +300,25 @@ struct pipe_bridge
     {
         return _conversion.wide();
     }
-    std::u32string &prepare_write_parser_raw() noexcept
+    std::span<const BYTE> read_input_payload(const miniio::io_msg &msg, size_t offset)
     {
-        _write_raw_buf.clear();
-        return _write_raw_buf;
+        if (offset >= msg.descriptor.InputSize)
+            return {};
+
+        const auto size = static_cast<size_t>(msg.descriptor.InputSize) - offset;
+        if (offset <= sizeof(msg.body) && size <= sizeof(msg.body) - offset)
+            return {msg.body + offset, size};
+
+        auto &buffer = _conversion.utf8();
+        buffer.resize(size);
+        _io.read_input(msg.descriptor.Identifier, static_cast<ULONG>(offset),
+                       std::span{reinterpret_cast<BYTE *>(buffer.data()), buffer.size()});
+        return {reinterpret_cast<const BYTE *>(buffer.data()), buffer.size()};
+    }
+
+    vt_parser &output_parser() noexcept
+    {
+        return _output_parser;
     }
 
     // ── Enter 后换行标志: api_write_console 在输出"hello"等文本前检测,
@@ -1787,7 +1826,7 @@ struct pipe_bridge
             char32_t ch = *decoded;
 
             // ── 2. 解析 ──
-            vt_message_id id = _parser.parse(ch);
+            vt_message_id id = _input_parser.parse(ch);
 
             if (id == vt_message_id::continue_text) [[likely]]
             {
@@ -1806,7 +1845,7 @@ struct pipe_bridge
                 {
                     _write_char_key_event(ch, b);
                 }
-                _parser.reset(vt_message_id::continue_text); // 清累积文本
+                _input_parser.reset(vt_message_id::continue_text); // 清累积文本
                 continue;
             }
 
@@ -1814,11 +1853,11 @@ struct pipe_bridge
                 continue;
 
             const auto pending_kind = _pending.kind();
-            LOG(L"[in] MSG id=%d echo=%d kind=%d", (int)id, (int)_parser.should_echo_last(), (int)pending_kind);
-            if (_parser.should_echo_last() && pending_kind == PendingKind::ConsoleRead)
+            LOG(L"[in] MSG id=%d echo=%d kind=%d", (int)id, (int)_input_parser.should_echo_last(), (int)pending_kind);
+            if (_input_parser.should_echo_last() && pending_kind == PendingKind::ConsoleRead)
                 _echo_byte(b);
 
-            auto &msg = _parser.get();
+            auto &msg = _input_parser.get();
             switch (id)
             {
             case vt_message_id::carriage_return:
@@ -1837,7 +1876,7 @@ struct pipe_bridge
 
             // ── Win32 Input Mode 键盘事件: \x1b[Vk;Sc;Uc;Kd;Cs;Rc_ ──
             case vt_message_id::win32_input_key: {
-                auto &m = _parser.get();
+                auto &m = _input_parser.get();
                 if (pending_kind == PendingKind::ConsoleRead)
                 {
                     // ConsoleRead 自己做本地行编辑，只处理 KEY_DOWN；KEY_UP 不应
@@ -2032,7 +2071,7 @@ struct pipe_bridge
 
             // ── CPR 应答: 终端汇报真实光标位置 ──
             case vt_message_id::cpr_response: {
-                auto &m = _parser.get();
+                auto &m = _input_parser.get();
                 if (_terminal.pending_inherit_cursor() && m.cpr_row > 0 && m.cpr_col > 0)
                 {
                     // CPR 是 1-based 终端坐标。继承完成后要重设输入边界，
@@ -2111,7 +2150,7 @@ struct pipe_bridge
             }
 
             case vt_message_id::text: {
-                auto &tm = _parser.get();
+                auto &tm = _input_parser.get();
                 LOG(L"[in] TEXT_MSG len=%zu", tm.text.size());
                 // parser 聚合的 text 可能来自粘贴或一次性送达的 UTF-8 字符串；
                 // 控制字符已由专门消息处理，这里只分发可打印字符。
@@ -2132,7 +2171,7 @@ struct pipe_bridge
                 break;
             }
 
-            _parser.reset(id);
+            _input_parser.reset(id);
         }
     }
 
@@ -2331,7 +2370,7 @@ struct pipe_bridge
         // cursor 和 prompt 边界建立编辑上下文。
         _cooked_buf.clear();
         _cooked_cursor = 0;
-        _raw_buf.clear();
+        _input_raw_buf.clear();
         _history.reset_browse();
 
         if (_terminal.cursor_valid())
@@ -2408,58 +2447,9 @@ struct pipe_bridge
         _history.set_capacity(max_commands);
     }
 
-    size_t api_history_length(bool unicode, UINT code_page) const
+    const std::vector<std::u32string> &history_commands() const noexcept
     {
-        size_t total = 0;
-        std::wstring wide;
-        std::string ansi;
-        for (const auto &command : _history.commands())
-        {
-            if (unicode)
-            {
-                convert_u32_to_wstr(command, wide);
-                total += wide.size() + 1;
-            }
-            else
-            {
-                convert_u32_to_ansi(command, code_page, ansi, wide);
-                total += ansi.size() + 1;
-            }
-        }
-        return total * (unicode ? sizeof(wchar_t) : 1);
-    }
-
-    size_t api_write_history(bool unicode, UINT code_page, BYTE *out, size_t out_cap) const
-    {
-        size_t written = 0;
-        std::wstring wide;
-        std::string ansi;
-        for (const auto &command : _history.commands())
-        {
-            if (unicode)
-            {
-                convert_u32_to_wstr(command, wide);
-                auto need = (wide.size() + 1) * sizeof(wchar_t);
-                if (written + need > out_cap)
-                    return written;
-                std::memcpy(out + written, wide.data(), wide.size() * sizeof(wchar_t));
-                written += wide.size() * sizeof(wchar_t);
-                const wchar_t terminator = L'\0';
-                std::memcpy(out + written, &terminator, sizeof(terminator));
-                written += sizeof(wchar_t);
-            }
-            else
-            {
-                convert_u32_to_ansi(command, code_page, ansi, wide);
-                auto need = ansi.size() + 1;
-                if (written + need > out_cap)
-                    return written;
-                std::memcpy(out + written, ansi.data(), ansi.size());
-                written += ansi.size();
-                out[written++] = '\0';
-            }
-        }
-        return written;
+        return _history.commands();
     }
 };
 

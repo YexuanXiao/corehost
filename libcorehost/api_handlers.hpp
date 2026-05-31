@@ -165,20 +165,6 @@ inline bool is_line_terminator_echo(std::u32string_view text) noexcept
     return text == U"\r"sv || text == U"\n"sv || text == U"\r\n"sv;
 }
 
-inline bool can_use_plain_console_write_path(std::u32string_view text) noexcept
-{
-    for (char32_t ch : text)
-    {
-        if (ch == U'\x1b')
-            return false;
-        if (ch < U' ' && ch != U'\r' && ch != U'\n' && ch != U'\t')
-            return false;
-        if (ch == U'\x7f')
-            return false;
-    }
-    return true;
-}
-
 inline bool is_printable_ascii_text(std::u32string_view text) noexcept
 {
     for (char32_t ch : text)
@@ -596,51 +582,6 @@ inline void consume_write_console_vt_message(vt_message_id id, vt_parser &parser
     parser.reset(id);
 }
 
-inline void consume_plain_console_write_message(vt_message_id id, const vt_message &msg, console_state &state,
-                                                screen_buffer &sb, pipe_bridge &bridge)
-{
-    bridge.vt_msg_send(id, msg);
-    vt_msg_apply_terminal_state(id, msg, state, sb);
-}
-
-inline void write_plain_console_payload(std::u32string_view text, console_state &state, screen_buffer &sb,
-                                        pipe_bridge &bridge)
-{
-    size_t text_begin = 0;
-    for (size_t i = 0; i < text.size(); ++i)
-    {
-        const auto ch = text[i];
-        if (ch != U'\r' && ch != U'\n' && ch != U'\t')
-            continue;
-
-        if (i > text_begin)
-        {
-            vt_message text_msg{};
-            text_msg.text = text.substr(text_begin, i - text_begin);
-            consume_plain_console_write_message(vt_message_id::text, text_msg, state, sb, bridge);
-        }
-
-        vt_message control_msg{};
-        auto control_id = vt_message_id::carriage_return;
-        if (ch == U'\n')
-            control_id = vt_message_id::line_feed;
-        else if (ch == U'\t')
-        {
-            control_id = vt_message_id::cursor_forward_tab;
-            control_msg.count = 1;
-        }
-        consume_plain_console_write_message(control_id, control_msg, state, sb, bridge);
-        text_begin = i + 1;
-    }
-
-    if (text_begin < text.size())
-    {
-        vt_message text_msg{};
-        text_msg.text = text.substr(text_begin);
-        consume_plain_console_write_message(vt_message_id::text, text_msg, state, sb, bridge);
-    }
-}
-
 // ── completion 辅助 ──
 
 inline void ucomplete(miniio::io_msg &msg)
@@ -831,55 +772,43 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             bridge.vt_msg_send(vt_message_id::sgr, m);
             vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
 
-            // cmd.exe 以及 ConDrv 兼容输出即使在 legacy mode 下也可能写入
-            // 宿主终端会解释的 VT 序列。无 ESC 的普通文本按 CR/LF/TAB 分段
-            // 直接分发；一旦出现真实控制序列，仍交给 vt_parser。
-            if (can_use_plain_console_write_path(u32s))
+            auto &output_parser = bridge.output_parser();
+
             {
                 COREHOST_PERF_SCOPE_AMOUNT(write_console_parser, u32s.size());
-                write_plain_console_payload(u32s, state, sb, bridge);
+                for (char32_t ch : u32s)
+                {
+                    auto id = output_parser.parse(ch);
+                    if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
+                        continue;
+                    {
+                        COREHOST_PERF_SCOPE(write_console_consume_msg);
+                        consume_write_console_vt_message(id, output_parser, state, sb, bridge);
+                    }
+
+                    if (auto id2 = output_parser.parse(U'\0');
+                        id2 != vt_message_id::continue_ && id2 != vt_message_id::continue_text)
+                    {
+                        COREHOST_PERF_SCOPE(write_console_consume_msg);
+                        consume_write_console_vt_message(id2, output_parser, state, sb, bridge);
+                    }
+                }
             }
-            else
+
+            // 释放循环后残留的累积文本；没有控制字符结束的普通输出会走这里。
             {
-                auto &write_parser_raw = bridge.prepare_write_parser_raw();
-                vt_parser write_parser{write_parser_raw};
-
+                COREHOST_PERF_SCOPE(write_console_flush_parser);
+                if (auto id = output_parser.flush_text(); id != vt_message_id::continue_)
                 {
-                    COREHOST_PERF_SCOPE_AMOUNT(write_console_parser, u32s.size());
-                    for (char32_t ch : u32s)
-                    {
-                        auto id = write_parser.parse(ch);
-                        if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
-                            continue;
-                        {
-                            COREHOST_PERF_SCOPE(write_console_consume_msg);
-                            consume_write_console_vt_message(id, write_parser, state, sb, bridge);
-                        }
-
-                        if (auto id2 = write_parser.parse(U'\0');
-                            id2 != vt_message_id::continue_ && id2 != vt_message_id::continue_text)
-                        {
-                            COREHOST_PERF_SCOPE(write_console_consume_msg);
-                            consume_write_console_vt_message(id2, write_parser, state, sb, bridge);
-                        }
-                    }
+                    auto &pm = output_parser.get();
+                    bridge.vt_msg_send(id, pm);
+                    vt_msg_apply_terminal_state(id, pm, state, sb);
+                    output_parser.reset(id);
                 }
-
-                // 释放循环后残留的累积文本；没有控制字符结束的普通输出会走这里。
-                {
-                    COREHOST_PERF_SCOPE(write_console_flush_parser);
-                    if (auto id = write_parser.flush_text(); id != vt_message_id::continue_)
-                    {
-                        auto &pm = write_parser.get();
-                        bridge.vt_msg_send(id, pm);
-                        vt_msg_apply_terminal_state(id, pm, state, sb);
-                        write_parser.reset(id);
-                    }
-                    // 排空 parser 残留的 _pending_control，例如文本以单独 '\r' 结束。
-                    if (auto id = write_parser.parse(U'\0');
-                        id != vt_message_id::continue_ && id != vt_message_id::continue_text)
-                        consume_write_console_vt_message(id, write_parser, state, sb, bridge);
-                }
+                // 排空 parser 残留的 _pending_control，例如文本以单独 '\r' 结束。
+                if (auto id = output_parser.parse(U'\0');
+                    id != vt_message_id::continue_ && id != vt_message_id::continue_text)
+                    consume_write_console_vt_message(id, output_parser, state, sb, bridge);
             }
 
             // VT 已写入宿主终端后，同步 bridge 的行编辑边界到新的 Console
@@ -911,11 +840,12 @@ inline bool api_write_console(miniio::io_msg &msg, console_state &state, screen_
     }
 
     auto *req = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    auto sd = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG);
-    auto sbytes = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLE_MSG);
+    constexpr auto payload_offset = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG);
+    auto payload = bridge.read_input_payload(msg, payload_offset);
+    auto sbytes = static_cast<ULONG>(payload.size());
     auto consumed_bytes = req->Unicode ? sbytes - (sbytes % sizeof(wchar_t)) : sbytes;
 
-    write_console_payload(req->Unicode != 0, sd, consumed_bytes, state, sb, bridge);
+    write_console_payload(req->Unicode != 0, payload.data(), consumed_bytes, state, sb, bridge);
     req->NumBytes = consumed_bytes;
     ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLE_MSG));
     return true;
@@ -927,8 +857,9 @@ inline bool api_raw_write_console(miniio::io_msg &msg, console_state &state, scr
     // 原版 IoSorter 把 CONSOLE_IO_RAW_WRITE 伪造成 WriteConsoleA，而不是把
     // 客户端字节直接透传给终端。否则 WriteFile 写入的 OEM/ANSI 字节会被
     // 宿主终端当 UTF-8 显示，CJK live echo 会乱码。
-    auto bytes = msg.descriptor.InputSize;
-    write_console_payload(false, msg.body, bytes, state, sb, bridge);
+    auto payload = bridge.read_input_payload(msg, 0);
+    auto bytes = static_cast<ULONG>(payload.size());
+    write_console_payload(false, payload.data(), bytes, state, sb, bridge);
     miniio::prepare_completion(msg, 0, bytes);
     return true;
 }
@@ -2580,6 +2511,61 @@ inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &state, scr
 }
 
 // ── 0x18 ExpungeCommandHistory ──
+inline size_t command_history_buffer_length(const pipe_bridge &bridge, bool unicode, UINT code_page)
+{
+    size_t total = 0;
+    std::wstring wide;
+    std::string ansi;
+    for (const auto &command : bridge.history_commands())
+    {
+        if (unicode)
+        {
+            convert_u32_to_wstr(command, wide);
+            total += wide.size() + 1;
+        }
+        else
+        {
+            convert_u32_to_ansi(command, code_page, ansi, wide);
+            total += ansi.size() + 1;
+        }
+    }
+    return total * (unicode ? sizeof(wchar_t) : 1);
+}
+
+inline size_t write_command_history_buffer(const pipe_bridge &bridge, bool unicode, UINT code_page, BYTE *out,
+                                           size_t out_cap)
+{
+    size_t written = 0;
+    std::wstring wide;
+    std::string ansi;
+    for (const auto &command : bridge.history_commands())
+    {
+        if (unicode)
+        {
+            convert_u32_to_wstr(command, wide);
+            const auto need = (wide.size() + 1) * sizeof(wchar_t);
+            if (written + need > out_cap)
+                return written;
+            std::memcpy(out + written, wide.data(), wide.size() * sizeof(wchar_t));
+            written += wide.size() * sizeof(wchar_t);
+            const wchar_t terminator = L'\0';
+            std::memcpy(out + written, &terminator, sizeof(terminator));
+            written += sizeof(wchar_t);
+        }
+        else
+        {
+            convert_u32_to_ansi(command, code_page, ansi, wide);
+            const auto need = ansi.size() + 1;
+            if (written + need > out_cap)
+                return written;
+            std::memcpy(out + written, ansi.data(), ansi.size());
+            written += ansi.size();
+            out[written++] = '\0';
+        }
+    }
+    return written;
+}
+
 inline bool api_l3_expunge_history(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                                    pipe_bridge &bridge)
 {
@@ -2622,7 +2608,8 @@ inline bool api_l3_get_history_length(miniio::io_msg &msg, console_state &state,
     }
 
     auto *r = reinterpret_cast<CONSOLE_GETCOMMANDHISTORYLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    r->CommandHistoryLength = static_cast<ULONG>(bridge.api_history_length(r->Unicode != FALSE, state.input_code_page));
+    r->CommandHistoryLength =
+        static_cast<ULONG>(command_history_buffer_length(bridge, r->Unicode != FALSE, state.input_code_page));
     ucomplete_sz(msg, sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG));
     return true;
 }
@@ -2640,8 +2627,8 @@ inline bool api_l3_get_history(miniio::io_msg &msg, console_state &state, screen
     auto *r = reinterpret_cast<CONSOLE_GETCOMMANDHISTORY_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *out = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG);
     auto cap = message_output_tail_capacity(msg, sizeof(CONSOLE_GETCOMMANDHISTORY_MSG));
-    auto needed = bridge.api_history_length(r->Unicode != FALSE, state.input_code_page);
-    auto written = bridge.api_write_history(r->Unicode != FALSE, state.input_code_page, out, cap);
+    auto needed = command_history_buffer_length(bridge, r->Unicode != FALSE, state.input_code_page);
+    auto written = write_command_history_buffer(bridge, r->Unicode != FALSE, state.input_code_page, out, cap);
     r->CommandBufferLength = static_cast<ULONG>(written);
     if (written < needed)
         ucomplete_status_sz(msg, status_buffer_too_small, sizeof(CONSOLE_GETCOMMANDHISTORY_MSG));
