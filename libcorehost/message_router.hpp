@@ -7,7 +7,7 @@
 // 3. USER_DEFINED 交给 api_router 分派到具体 Console API handler。
 #pragma once
 #include <windows.h>
-#include <cstring>
+#include <span>
 #include "miniio/io_thread.hpp"
 #include "io_state.hpp"
 #include "pipe_bridge.hpp"
@@ -111,9 +111,7 @@ struct message_router
 
     void sync_process_snapshot() noexcept
     {
-        // bridge 持有一份快照，供 GetConsoleProcessList 的 API handler 读取。
-        bridge.proc_count = io.process_count;
-        std::memcpy(bridge.proc_list, io.process_list, io.process_count * sizeof(DWORD));
+        bridge.set_process_list(std::span<const DWORD>{io.process_list, io.process_count});
     }
 };
 

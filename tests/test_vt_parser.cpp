@@ -713,7 +713,8 @@ struct msg_gen
 // ── 正向测试：单条随机消息 → 序列化 → 解析 → 验证 ──
 bool test_positive_single()
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     for (int trial = 0; trial < 500; ++trial)
     {
         msg_gen gen;
@@ -740,7 +741,8 @@ bool test_positive_single()
 // ── 正向测试：多条随机消息拼接为连续序列 → 逐条解析验证 ──
 bool test_positive_concatenated()
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     for (int trial = 0; trial < 200; ++trial)
     {
         // 生成 2-6 条随机消息
@@ -775,7 +777,8 @@ bool test_positive_concatenated()
 // ── 正向测试：消息 + 文本穿插 ──
 bool test_positive_with_text()
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     for (int trial = 0; trial < 100; ++trial)
     {
         msg_gen gen;
@@ -827,7 +830,8 @@ bool test_positive_with_text()
 
 bool test_bad(const std::vector<uint8_t> &bytes, parse_bad_state expected)
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     bool got_result = false;
     for (auto b : bytes)
     {
@@ -861,7 +865,8 @@ bool test_negative_csi_unknown_final()
     // CSI 1 & → '&' is 0x26, not final → aborts CSI
     // Actually: CSI param reading detects '&' is below 0x40, unknown → _csi = false with bad
     // Let's try something that goes through: CSI + garbage byte
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     // CSI 序列中途出现非法字符 → _csi 被中止，设 csi_unknown_final
     (void)parser.parse('\x1B'); // ESC
     (void)parser.parse('[');    // CSI
@@ -900,7 +905,8 @@ bool test_negative_csi_param_overflow()
         seq.add(';');
     }
     seq.add('m');
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     bool got = false;
     for (auto b : seq.bytes)
     {
@@ -954,7 +960,8 @@ bool test_negative_osc_unknown_code()
     seq.add(';');
     seq.add_str("test");
     seq.add(0x07);
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     for (auto b : seq.bytes)
     {
         if (parser.parse(static_cast<char>(b)))
@@ -974,7 +981,8 @@ bool test_negative_osc_buf_overflow()
     for (int i = 0; i < 40; ++i)
         seq.add('x');
     seq.add(0x07);
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     for (auto b : seq.bytes)
     {
         if (parser.parse(static_cast<char>(b)))
@@ -995,7 +1003,8 @@ bool test_negative_osc_palette_no_rgb()
     seq.add(';');
     seq.add_str("norgb:ff/00/ff");
     seq.add(0x07);
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     for (auto b : seq.bytes)
     {
         if (parser.parse(static_cast<char>(b)))
@@ -1021,7 +1030,8 @@ bool test_negative_multiple_garbage()
 
     for (auto &c : cases)
     {
-        vt_parser parser;
+        std::u32string parser_raw;
+        vt_parser parser{parser_raw};
         bool got = false;
         for (auto b : c.bytes)
         {

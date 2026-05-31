@@ -8,8 +8,8 @@
 // 4. 发送 Win32 Input Mode 初始化序列后进入 ConDrv I/O 循环。
 
 #include "conpty.hpp"
-#include <cstring>
 #include <memory>
+#include <span>
 #include "win32/event.hpp"
 #include "win32/thread.hpp"
 #include "io_loop.hpp"
@@ -30,10 +30,7 @@ namespace conpty
 
 void copy_process_list(io_state &io, pipe_bridge &bridge)
 {
-    // bridge.proc_list 是 io.process_list 的快照；长度由 process_count 限制在
-    // 两个数组共同的 max_processes 范围内。
-    bridge.proc_count = io.process_count;
-    std::memcpy(bridge.proc_list, io.process_list, io.process_count * sizeof(DWORD));
+    bridge.set_process_list(std::span<const DWORD>{io.process_list, io.process_count});
 }
 
 void run_conpty_session(win32::handle server, win32::handle event, win32::handle condrv_input,
@@ -103,10 +100,10 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
     // ibuf/state/sbuf，因此主缓冲区和 API 查询能看到同一份光标与文本状态。
     pipe_bridge bridge{ibuf, state, sbuf};
 
-    // vt_in 是终端到 corehost 的输入/控制字节流；vt_out 是 corehost 到终端
-    // 的 VT 输出字节流；server 用于 bridge 完成挂起 ConDrv I/O。
+    // vt_in 是终端到 corehost 的输入/控制字节流；VT 输出句柄由
+    // vt_output_buffer 负责缓冲写入；server 用于 bridge 完成挂起 ConDrv I/O。
     bridge.vt_in = vt_in.view();
-    bridge.vt_out = vt_out.view();
+    bridge.set_vt_output(vt_out.view());
     bridge.server = server.view();
 
     // ── Layer 2: api router ──

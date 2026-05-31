@@ -1945,10 +1945,8 @@ bool test_regression_l3_process_list_validation_and_output_size()
     ASSERT(api_l3_get_process_list(msg, st, sb, inp, bridge));
     ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
 
-    bridge.proc_list[0] = 11;
-    bridge.proc_list[1] = 22;
-    bridge.proc_list[2] = 33;
-    bridge.proc_count = 3;
+    const DWORD processes[] = {11, 22, 33};
+    bridge.set_process_list(processes);
 
     std::memset(&msg, 0, sizeof(msg));
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG);
@@ -2131,13 +2129,13 @@ bool test_regression_connect_disconnect_syncs_process_snapshot()
     msg.descriptor.Function = CONSOLE_IO_CONNECT;
     msg.descriptor.Process = 33;
     ASSERT(router.on_connect(msg, completion));
-    ASSERT(bridge.proc_count == 3);
+    ASSERT(bridge.process_count() == 3);
 
     std::memset(&msg, 0, sizeof(msg));
     msg.descriptor.Function = CONSOLE_IO_DISCONNECT;
     msg.descriptor.Process = 11;
     ASSERT(router.on_message(msg));
-    ASSERT(bridge.proc_count == 2);
+    ASSERT(bridge.process_count() == 2);
 
     std::memset(&msg, 0, sizeof(msg));
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG);

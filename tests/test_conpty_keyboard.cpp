@@ -139,7 +139,8 @@ bool test_unknown_id_returns_false()
 
 bool test_full_pipeline_arrow_up()
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     vt_input_engine engine;
 
     // ESC [ A = Arrow Up (CSI → cursor_up in parser)
@@ -161,7 +162,8 @@ bool test_full_pipeline_arrow_up()
 
 bool test_full_pipeline_arrow_down()
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     vt_input_engine engine;
 
     // ESC [ B = Arrow Down (CSI → cursor_down in parser)
@@ -195,7 +197,8 @@ bool test_regression_cursor_updown_not_directly_convertible()
 
 bool test_full_pipeline_f5()
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     vt_input_engine engine;
     (void)parser.parse(0x1B);
     (void)parser.parse(U'[');
@@ -229,7 +232,8 @@ bool test_text_to_screen_buffer()
 
 bool test_unicode_through_parser()
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
 
     // Feed U+1F600 (??)
     auto id = parser.parse(0x1F600);
@@ -253,7 +257,8 @@ bool test_unicode_through_parser()
 struct test_bridge_stub
 {
     std::u32string _raw; // Parser 外部缓冲
-    conpty::vt_parser parser;
+    std::u32string parser_raw;
+    conpty::vt_parser parser{parser_raw};
     std::vector<INPUT_RECORD> events;
 
     test_bridge_stub() : parser(_raw)

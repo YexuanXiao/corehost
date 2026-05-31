@@ -715,7 +715,8 @@ struct msg_gen
 // 冒烟测试: 确保最基本的序列能被解
 bool test_smoke()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
 
     // ESC M reverse_index
     ASSERT(p.parse(U'\x1B') == vt_message_id::continue_);
@@ -751,7 +752,8 @@ bool test_smoke()
 // 测试单条随机消息的往
 bool test_positive_single()
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     for (int trial = 0; trial < 500; ++trial)
     {
         msg_gen gen;
@@ -777,7 +779,8 @@ bool test_positive_single()
 // 测试多条消息拼接后的连续解析
 bool test_positive_concatenated()
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     for (int trial = 0; trial < 200; ++trial)
     {
         int msg_count = rand_short(2, 6);
@@ -810,7 +813,8 @@ bool test_positive_concatenated()
 // 测试消息与文本穿
 bool test_positive_with_text()
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     for (int trial = 0; trial < 100; ++trial)
     {
         msg_gen gen;
@@ -863,7 +867,8 @@ bool test_positive_with_text()
 // 辅助函数：输入一组码点，应当产生一text 消息，且 text 内容等于输入序列
 bool test_illegal_as_text(const raw_seq &seq)
 {
-    vt_parser parser;
+    std::u32string parser_raw;
+    vt_parser parser{parser_raw};
     bool produced = false;
     for (size_t i = 0; i < seq.code_points.size(); ++i)
     {
@@ -1062,7 +1067,8 @@ bool test_illegal_mixed()
 
     for (auto &c : cases)
     {
-        vt_parser parser;
+        std::u32string parser_raw;
+        vt_parser parser{parser_raw};
         bool got = false;
         for (size_t i = 0; i < c.seq.code_points.size(); ++i)
         {
@@ -1089,7 +1095,8 @@ bool test_illegal_mixed()
 // ============================================================================
 bool test_parse_resize_window_basic()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     bool got = false;
     char32_t seq[] = {0x1B, U'[', U'8', U';', U'4', U'0', U';', U'1', U'0', U'0', U't'};
     for (char32_t ch : seq)
@@ -1110,7 +1117,8 @@ bool test_parse_resize_window_basic()
 
 bool test_parse_resize_window_zero_invalid()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     bool got_text = false;
     char32_t seq[] = {0x1B, U'[', U'8', U';', U'0', U';', U'0', U't'};
     for (char32_t ch : seq)
@@ -1129,7 +1137,8 @@ bool test_parse_resize_window_zero_invalid()
 
 bool test_parse_resize_window_pixel_is_text()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     bool got_text = false;
     char32_t seq[] = {0x1B, U'[', U'4', U';', U'4', U'8', U'0', U';', U'6', U'4', U'0', U't'};
     for (char32_t ch : seq)
@@ -1148,7 +1157,8 @@ bool test_parse_resize_window_pixel_is_text()
 
 bool test_parse_resize_window_fields_reset()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     // Use explicit code points to avoid any string-literal escape ambiguity
     char32_t seq[] = {0x1B, U'[', U'8', U';', U'3', U'0', U';', U'9', U'0', U't'};
     for (char32_t ch : seq)
@@ -1181,7 +1191,8 @@ bool test_parse_resize_window_fields_reset()
 // 验证 text 消息的内容正确
 std::u32string feed_and_collect_text(const std::u32string &input)
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     std::u32string collected;
     for (char32_t ch : input)
     {
@@ -1230,7 +1241,8 @@ bool test_regression_lf_preserves_text()
 bool test_regression_bare_cr_produces_carriage_return()
 {
     // 单独\r → carriage_return
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     bool got_cr = false;
     for (char32_t ch : U"\r")
     {
@@ -1249,7 +1261,8 @@ bool test_regression_bare_cr_produces_carriage_return()
 bool test_regression_bare_lf_produces_line_feed()
 {
     // 单独\n → line_feed
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     bool got_lf = false;
     for (char32_t ch : U"\n")
     {
@@ -1279,7 +1292,8 @@ bool test_regression_crlf_full_pipeline()
 //   修复: reset() 不再清除 _pending_control。
 bool test_regression_pending_control_survives_reset()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     char32_t input[] = {U'e', U'c', U'h', U'o', U'\r'};
 
     // 前 4 个字符 → text 消息
@@ -1307,7 +1321,8 @@ bool test_regression_pending_control_survives_reset()
 //   修复: 新增 flush_text()，api_write_console 循环后调用。
 bool test_regression_flush_text_delivers_accumulated()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     char32_t input[] = {U'M', U'i', U'c', U'r', U'o'};
 
     for (char32_t ch : input)
@@ -1336,7 +1351,8 @@ bool test_regression_flush_text_delivers_accumulated()
 // → drain: parse(U'\0') 取出 line_feed。调用方只需在每次 reset 后无条件 drain。
 bool test_regression_cr_then_nl_bridge_pairing()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     char32_t hello[] = {U'h', U'e', U'l', U'l', U'o'};
     for (char32_t ch : hello)
     {
@@ -1370,7 +1386,8 @@ bool test_regression_text_with_vt_then_cr()
 {
     // 混合场景: "abc\x1b[Adef\r" text1="abc", cursor_up, text2="def"
     //  key_up remap pipe_bridge 中完成，parser 产出 cursor_up
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     std::u32string collected;
     bool got_cursor_up = false;
 
@@ -1412,7 +1429,8 @@ bool test_regression_multiline_input()
 {
     // _pending_control 触发时总会消费当前字符。调用方在每次 reset 后
     // 无条件 drain（parse(U'\0')），无 pending 时首次即返回 continue_。
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     std::u32string collected;
 
     std::u32string input = U"line1\r\nline2\r\nline3\r\n";
@@ -1453,7 +1471,8 @@ bool test_regression_multiline_input()
 // 地面态可打印字符应回
 bool test_echo_ground_printable()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     std::u32string_view chars = U"abc123";
     for (char32_t ch : chars)
     {
@@ -1466,7 +1485,8 @@ bool test_echo_ground_printable()
 // 地面态可见控制字符应回显 (\r \n \b \t)
 bool test_echo_ground_controls()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     p.parse(U'\r');
     ASSERT(p.should_echo_last());
     p.reset(vt_message_id::text);
@@ -1485,7 +1505,8 @@ bool test_echo_ground_controls()
 // ESC 本身及普ESC 序列不应回显
 bool test_echo_esc_not_echoed()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     p.parse(0x1B);
     ASSERT(!p.should_echo_last());
     p.parse(U'M');
@@ -1497,7 +1518,8 @@ bool test_echo_esc_not_echoed()
 // CSI 相对光标序列不应回显原始字节（dispatch 生成钳制 CUP
 bool test_echo_csi_cursor_not_echoed()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     for (char32_t ch : std::u32string_view(U"hello"))
     {
         p.parse(ch);
@@ -1519,7 +1541,8 @@ bool test_echo_csi_cursor_not_echoed()
 // SS3 键盘序列不应回显原始字节（dispatch 生成钳制 CUP
 bool test_echo_ss3_not_echoed()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     p.parse(0x1B);
     ASSERT(!p.should_echo_last());
     p.parse(U'O');
@@ -1533,7 +1556,8 @@ bool test_echo_ss3_not_echoed()
 // text→ESC 过渡：ESC 触发 text flush parser 进入转义，CSI 不回
 bool test_echo_text_esc_transition()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     for (char32_t ch : std::u32string_view(U"echo "))
     {
         p.parse(ch);
@@ -1555,7 +1579,8 @@ bool test_echo_text_esc_transition()
 // OSC 标题不应回显
 bool test_echo_osc_not_echoed()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     p.parse(0x1B);
     p.parse(U']');
     p.parse(U'0');
@@ -1571,7 +1596,8 @@ bool test_echo_osc_not_echoed()
 // SGR 序列不应回显
 bool test_echo_sgr_not_echoed()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     p.parse(0x1B);
     p.parse(U'[');
     p.parse(U'3');
@@ -1585,7 +1611,8 @@ bool test_echo_sgr_not_echoed()
 // CSI ~ 扩展功能键不应回
 bool test_echo_csi_tilde_not_echoed()
 {
-    vt_parser p;
+    std::u32string parser_raw;
+    vt_parser p{parser_raw};
     p.parse(0x1B);
     p.parse(U'[');
     p.parse(U'1');

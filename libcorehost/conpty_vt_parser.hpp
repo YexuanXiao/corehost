@@ -12,7 +12,8 @@
 //     对于 text/title 消息还会清空内部缓冲区 _raw，兼顾性能与内存。
 //
 // 使用方式：
-//   vt_parser p;
+//   std::u32string raw;
+//   vt_parser p{raw};
 //   for (char32_t ch : code_points) {
 //       vt_message_id id = p.parse(ch);
 //       if (id != vt_message_id::continue_) {
@@ -201,12 +202,6 @@ class vt_parser
     static constexpr size_t MAX_PARAMS = 16;
 
   public:
-    // 默认构造：自建内部缓冲（向后兼容测试）
-    vt_parser() : _raw(_internal_raw)
-    {
-    }
-
-    // 外部缓冲注入：Bridge 提供 raw 缓冲引用
     explicit vt_parser(std::u32string &raw) : _raw(raw)
     {
     }
@@ -820,9 +815,8 @@ class vt_parser
     vt_message_id _msg_id = vt_message_id::continue_;
 
     // ── 中央缓冲区与视图位置 ──
-    // _raw 保存当前未消费输入，可能引用外部缓冲或 _internal_raw。
+    // _raw 保存当前未消费输入；message 里的 string_view 指向该缓冲。
     std::u32string &_raw;
-    std::u32string _internal_raw;
 
     // npos 表示没有有效偏移。
     static constexpr size_t npos = ~size_t{0};

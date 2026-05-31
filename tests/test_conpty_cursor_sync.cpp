@@ -1308,7 +1308,7 @@ bool test_history_saved_input_preserved_across_navigation()
 //         Up/Down → 历史导航 _edit_history_*
 //         可打印字符/Tab → edit_insert_codepoint()
 //
-//   BUG #2: 批量 echo 后忘记 vt_flush，字节滞留在 _vt_buf 直到后续
+//   BUG #2: 批量 echo 后忘记 vt_flush，字节滞留在 VT 输出缓冲直到后续
 //           控制序列/应用输出才显示，导致约半秒才能显示一个字的卡顿。
 //
 //   修复：accumulate_from_pipe 在 process_input 后立即 vt_flush()。
@@ -1900,15 +1900,15 @@ bool test_clear_full_pipeline_prompt_on_row_0()
     return true;
 }
 
-// 回归：批量 echo 优化后 echo 追加到 _vt_buf，但遗漏 vt_flush 导致字符滞留。
-// 本测试验证每次 test_feed_raw_bytes 后 _vt_buf 已被排空。
+// 回归：批量 echo 优化后 echo 追加到 VT 输出缓冲，但遗漏 vt_flush 导致字符滞留。
+// 本测试验证每次 test_feed_raw_bytes 后 VT 输出缓冲已被排空。
 bool test_echo_flushed_after_each_batch()
 {
     pipe_bridge_test_context ctx;
     auto &bridge = ctx.bridge;
     bridge.test_enter_console_read_mode(13);
 
-    // 发送可打印字符 → echo 追加到 _vt_buf → test_feed_raw_bytes 内调 vt_flush
+    // 发送可打印字符 → echo 追加到 VT 输出缓冲 → test_feed_raw_bytes 内调 vt_flush
     auto a = make_win32_seq(0x41, 30, L'a', true, 0);
     bridge.test_feed_raw_bytes(a.data(), static_cast<DWORD>(a.size()));
     ASSERT(bridge.test_vt_buf_len() == 0); // 批次结束时已 flush
@@ -1926,15 +1926,15 @@ bool test_echo_flushed_after_each_batch()
 
 // ── BUG #4 回归: api_write_console 不再发送最终 CUP ──
 //   BUG: 移除最终 CUP 后，终端通过 DECAWM 自然追踪光标。
-//   测试: 通过 vt_flush_diag / _vt_buf 验证 WriteConsole 发送的 VT 序列
+//   测试: 通过 VT 输出缓冲验证 WriteConsole 发送的 VT 序列
 //   不包含两次 CUP（初始+最终），仅 Enter 换行时有一次。
 //
 //   注意: 此测试依赖 pipe_bridge 的 vt_flush_diag 诊断接口和 test_*
-//   辅助方法。通过检查 _vt_buf 实际字节来确认 CUP 未发送。
+//   辅助方法。通过检查 VT 输出缓冲实际字节来确认 CUP 未发送。
 bool test_write_console_does_not_emit_final_cup()
 {
     // 此测试仅文档化回归保护场景，实际 CUP 哨兵由 E2E 测试覆盖。
-    // pipe_bridge 在测试模式下可检查 _vt_buf 内容但需要桥梁暴露。
+    // pipe_bridge 在测试模式下可检查 VT 输出缓冲内容但需要桥梁暴露。
     // 核心断言: api_write_console 的 "vt_flush_diag" 调用已移除，
     // 不再有额外的 CSI n;m H 序列。
     return true;

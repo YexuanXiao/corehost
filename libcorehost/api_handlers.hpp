@@ -727,7 +727,8 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             // 宿主终端会解释的 VT 序列。本地模型必须和实际终端保持一致，
             // 因此 WriteConsole 输出始终经 vt_parser 分流。
             filter_osc_sequences(u32s);
-            vt_parser write_parser;
+            std::u32string write_parser_raw;
+            vt_parser write_parser{write_parser_raw};
             auto consume_vt_message = [&](vt_message_id id) {
                 auto &pm = write_parser.get();
                 bridge.vt_msg_send(id, pm);
@@ -2558,8 +2559,6 @@ inline bool api_l3_get_selection_info(miniio::io_msg &msg, console_state &state,
 }
 
 // ── 0x29 GetConsoleProcessList ──
-// 需要访问 io_state 的 process_list，但 handler 签名不含 io_state。
-// 通过 bridge.proc_list/proc_count 间接获取 (pipe_bridge 也维护副本)。
 inline bool api_l3_get_process_list(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                                     pipe_bridge &bridge)
 {
@@ -2573,11 +2572,8 @@ inline bool api_l3_get_process_list(miniio::io_msg &msg, console_state &, screen
     auto *out =
         reinterpret_cast<DWORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
     auto maxc = message_output_tail_capacity(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG)) / sizeof(DWORD);
-    size_t count = bridge.proc_count < maxc ? bridge.proc_count : maxc;
-    // 旧 conhost 返回 newest first；bridge.proc_list 按连接顺序保存，因此反向导出。
-    for (size_t i = 0; i < count; ++i)
-        out[i] = bridge.proc_list[bridge.proc_count - 1 - i]; // newest first
-    r->dwProcessCount = static_cast<ULONG>(bridge.proc_count);
+    size_t count = bridge.copy_process_list_newest_first(out, maxc);
+    r->dwProcessCount = static_cast<ULONG>(bridge.process_count());
     ucomplete_sz(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG) + static_cast<ULONG>(count * sizeof(DWORD)));
     return true;
 }
