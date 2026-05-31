@@ -38,8 +38,8 @@ inline constexpr UINT code_page_chinese_simplified = 936;
 inline constexpr UINT code_page_chinese_traditional = 950;
 inline constexpr DWORD valid_input_modes = ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_ECHO_INPUT |
                                            ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_VIRTUAL_TERMINAL_INPUT;
-inline constexpr DWORD private_input_modes = ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE | ENABLE_EXTENDED_FLAGS |
-                                             ENABLE_AUTO_POSITION;
+inline constexpr DWORD private_input_modes =
+    ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE | ENABLE_EXTENDED_FLAGS | ENABLE_AUTO_POSITION;
 inline constexpr DWORD valid_output_modes = ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT |
                                             ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN |
                                             ENABLE_LVB_GRID_WORLDWIDE;
@@ -53,8 +53,7 @@ inline std::wstring lower_wstring(std::wstring_view text)
     return result;
 }
 
-inline const std::wstring *find_alias_value(const console_state &state, std::wstring_view exe,
-                                            std::wstring_view source)
+inline const std::wstring *find_alias_value(const console_state &state, std::wstring_view exe, std::wstring_view source)
 {
     auto exe_key = lower_wstring(exe);
     auto source_key = lower_wstring(source);
@@ -253,15 +252,13 @@ inline void apply_terminal_line_feed(console_state &state, screen_buffer &sb)
     const auto scroll_region = terminal_scroll_region(state, sb);
     if (state.cursor.position.Y == scroll_region.Bottom && state.cursor.position.Y >= scroll_region.Top)
     {
-        sb.scroll(scroll_region, scroll_region, true,
-                  {scroll_region.Left, static_cast<SHORT>(scroll_region.Top - 1)}, U' ',
-                  state.default_attributes);
+        sb.scroll(scroll_region, scroll_region, true, {scroll_region.Left, static_cast<SHORT>(scroll_region.Top - 1)},
+                  U' ', state.default_attributes);
         state.cursor.position.Y = scroll_region.Bottom;
     }
     else
     {
-        state.cursor.position.Y =
-            std::min<SHORT>(view.Bottom, static_cast<SHORT>(state.cursor.position.Y + 1));
+        state.cursor.position.Y = std::min<SHORT>(view.Bottom, static_cast<SHORT>(state.cursor.position.Y + 1));
     }
     state.cursor.position.X = view.Left;
 }
@@ -329,8 +326,7 @@ inline void apply_terminal_delete_characters(const vt_message &msg, console_stat
     if (copy_count > 0)
         sb.row(y).copy_from(saved, static_cast<uint16_t>(x + count), static_cast<uint16_t>(x),
                             static_cast<uint16_t>(copy_count));
-    clear_terminal_line_range(sb, y, static_cast<SHORT>(view.Right - count + 1), view.Right,
-                              state.default_attributes);
+    clear_terminal_line_range(sb, y, static_cast<SHORT>(view.Right - count + 1), view.Right, state.default_attributes);
 }
 
 inline void apply_terminal_erase_characters(const vt_message &msg, console_state &state, screen_buffer &sb)
@@ -341,8 +337,8 @@ inline void apply_terminal_erase_characters(const vt_message &msg, console_state
 
     const auto y = state.cursor.position.Y;
     const auto x = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
-    const auto count = std::min<SHORT>(static_cast<SHORT>(view.Right - x + 1),
-                                       static_cast<SHORT>(std::max<int>(1, msg.count)));
+    const auto count =
+        std::min<SHORT>(static_cast<SHORT>(view.Right - x + 1), static_cast<SHORT>(std::max<int>(1, msg.count)));
     clear_terminal_line_range(sb, y, x, static_cast<SHORT>(x + count - 1), state.default_attributes);
 }
 
@@ -355,9 +351,8 @@ inline void apply_terminal_reverse_index(console_state &state, screen_buffer &sb
 
     if (state.cursor.position.Y == scroll_region.Top)
     {
-        sb.scroll(scroll_region, scroll_region, true,
-                  {scroll_region.Left, static_cast<SHORT>(scroll_region.Top + 1)}, U' ',
-                  state.default_attributes);
+        sb.scroll(scroll_region, scroll_region, true, {scroll_region.Left, static_cast<SHORT>(scroll_region.Top + 1)},
+                  U' ', state.default_attributes);
         return;
     }
     --state.cursor.position.Y;
@@ -377,8 +372,7 @@ inline void apply_terminal_forward_tab(const vt_message &msg, console_state &sta
     const auto count = std::max<int>(1, msg.count);
     for (int i = 0; i < count; ++i)
         relative_x = state.next_tab_stop(relative_x);
-    state.cursor.position.X =
-        std::clamp<SHORT>(static_cast<SHORT>(view.Left + relative_x), view.Left, view.Right);
+    state.cursor.position.X = std::clamp<SHORT>(static_cast<SHORT>(view.Left + relative_x), view.Left, view.Right);
 }
 
 inline void apply_terminal_backward_tab(const vt_message &msg, console_state &state, screen_buffer &sb) noexcept
@@ -388,8 +382,7 @@ inline void apply_terminal_backward_tab(const vt_message &msg, console_state &st
     const auto count = std::max<int>(1, msg.count);
     for (int i = 0; i < count; ++i)
         relative_x = state.prev_tab_stop(relative_x);
-    state.cursor.position.X =
-        std::clamp<SHORT>(static_cast<SHORT>(view.Left + relative_x), view.Left, view.Right);
+    state.cursor.position.X = std::clamp<SHORT>(static_cast<SHORT>(view.Left + relative_x), view.Left, view.Right);
 }
 
 inline void apply_terminal_scrolling_region(const vt_message &msg, console_state &state, screen_buffer &sb) noexcept
@@ -397,8 +390,7 @@ inline void apply_terminal_scrolling_region(const vt_message &msg, console_state
     const auto view = sb.viewport.rect();
     const auto height = static_cast<SHORT>(view.Bottom - view.Top + 1);
     const auto top = std::clamp<SHORT>(msg.scroll_top, 1, height);
-    const auto bottom =
-        msg.scroll_bottom <= 0 ? height : std::clamp<SHORT>(msg.scroll_bottom, 1, height);
+    const auto bottom = msg.scroll_bottom <= 0 ? height : std::clamp<SHORT>(msg.scroll_bottom, 1, height);
     if (top < bottom)
     {
         state.scroll_region_top = top;
@@ -440,35 +432,29 @@ inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg,
         vt_msg_apply_state(id, adjusted, state, sb);
         break;
     }
-    case vt_message_id::cursor_horiz_absolute:
-    {
+    case vt_message_id::cursor_horiz_absolute: {
         auto adjusted = msg;
         adjusted.col = static_cast<short>(msg.col + origin.X);
         vt_msg_apply_state(id, adjusted, state, sb);
         break;
     }
-    case vt_message_id::cursor_vert_absolute:
-    {
+    case vt_message_id::cursor_vert_absolute: {
         auto adjusted = msg;
         adjusted.row = static_cast<short>(msg.row + origin.Y);
         vt_msg_apply_state(id, adjusted, state, sb);
         break;
     }
     case vt_message_id::cursor_up:
-        state.cursor.position.Y =
-            std::max<SHORT>(view.Top, static_cast<SHORT>(state.cursor.position.Y - count));
+        state.cursor.position.Y = std::max<SHORT>(view.Top, static_cast<SHORT>(state.cursor.position.Y - count));
         break;
     case vt_message_id::cursor_down:
-        state.cursor.position.Y =
-            std::min<SHORT>(view.Bottom, static_cast<SHORT>(state.cursor.position.Y + count));
+        state.cursor.position.Y = std::min<SHORT>(view.Bottom, static_cast<SHORT>(state.cursor.position.Y + count));
         break;
     case vt_message_id::cursor_forward:
-        state.cursor.position.X =
-            std::min<SHORT>(view.Right, static_cast<SHORT>(state.cursor.position.X + count));
+        state.cursor.position.X = std::min<SHORT>(view.Right, static_cast<SHORT>(state.cursor.position.X + count));
         break;
     case vt_message_id::cursor_backward:
-        state.cursor.position.X =
-            std::max<SHORT>(view.Left, static_cast<SHORT>(state.cursor.position.X - count));
+        state.cursor.position.X = std::max<SHORT>(view.Left, static_cast<SHORT>(state.cursor.position.X - count));
         break;
     case vt_message_id::cursor_forward_tab:
         apply_terminal_forward_tab(msg, state, sb);
@@ -478,30 +464,25 @@ inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg,
         break;
     case vt_message_id::cursor_next_line:
         state.cursor.position.X = view.Left;
-        state.cursor.position.Y =
-            std::min<SHORT>(view.Bottom, static_cast<SHORT>(state.cursor.position.Y + count));
+        state.cursor.position.Y = std::min<SHORT>(view.Bottom, static_cast<SHORT>(state.cursor.position.Y + count));
         break;
     case vt_message_id::cursor_prev_line:
         state.cursor.position.X = view.Left;
-        state.cursor.position.Y =
-            std::max<SHORT>(view.Top, static_cast<SHORT>(state.cursor.position.Y - count));
+        state.cursor.position.Y = std::max<SHORT>(view.Top, static_cast<SHORT>(state.cursor.position.Y - count));
         break;
-    case vt_message_id::scroll_up:
-    {
+    case vt_message_id::scroll_up: {
         const auto region = terminal_scroll_region(state, sb);
         sb.scroll(region, region, true, {region.Left, static_cast<SHORT>(region.Top - count)}, U' ',
                   state.default_attributes);
         break;
     }
-    case vt_message_id::scroll_down:
-    {
+    case vt_message_id::scroll_down: {
         const auto region = terminal_scroll_region(state, sb);
         sb.scroll(region, region, true, {region.Left, static_cast<SHORT>(region.Top + count)}, U' ',
                   state.default_attributes);
         break;
     }
-    case vt_message_id::insert_lines:
-    {
+    case vt_message_id::insert_lines: {
         const auto region = terminal_scroll_region(state, sb);
         if (state.cursor.position.Y >= region.Top && state.cursor.position.Y <= region.Bottom)
         {
@@ -511,8 +492,7 @@ inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg,
         }
         break;
     }
-    case vt_message_id::delete_lines:
-    {
+    case vt_message_id::delete_lines: {
         const auto region = terminal_scroll_region(state, sb);
         if (state.cursor.position.Y >= region.Top && state.cursor.position.Y <= region.Bottom)
         {
@@ -932,10 +912,10 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
         r->Length = res.cells_modified;
     }
 
-    bool is_fullscreen_space = (r->ElementType != CONSOLE_ATTRIBUTE && r->WriteCoord.X == 0 && r->WriteCoord.Y == 0 &&
-                                fill_char == U' ' &&
-                                orig_length >= static_cast<ULONG>(state.screen_buffer_size.X) *
-                                                   static_cast<ULONG>(state.screen_buffer_size.Y));
+    bool is_fullscreen_space =
+        (r->ElementType != CONSOLE_ATTRIBUTE && r->WriteCoord.X == 0 && r->WriteCoord.Y == 0 && fill_char == U' ' &&
+         orig_length >=
+             static_cast<ULONG>(state.screen_buffer_size.X) * static_cast<ULONG>(state.screen_buffer_size.Y));
 
     LOG("[api_fill_output] at=(%d,%d) len=%lu elem='%c'(%d) type=%d fullscreen=%d", r->WriteCoord.X, r->WriteCoord.Y,
         orig_length,
@@ -989,8 +969,7 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
             auto &fill_text = bridge.conv_u32();
             while (remaining > 0 && y >= 0 && y < sb.size.Y && x >= 0 && x < sb.size.X)
             {
-                const auto n =
-                    std::min<ULONG>(remaining, static_cast<ULONG>(static_cast<ULONG>(sb.size.X) - x));
+                const auto n = std::min<ULONG>(remaining, static_cast<ULONG>(static_cast<ULONG>(sb.size.X) - x));
                 vt_message row_cup{};
                 row_cup.row = static_cast<short>(y + 1);
                 row_cup.col = static_cast<short>(x + 1);
@@ -1740,7 +1719,7 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
         if (r->StringType == CONSOLE_ASCII)
         {
             auto *in_a = reinterpret_cast<const char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                       sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+                                                        sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
             convert_ansi_to_u32(in_a, ib, state.output_code_page ? state.output_code_page : CP_ACP, u32text,
                                 bridge.conv_wstr());
         }
@@ -1919,8 +1898,8 @@ inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buff
     {
         // ANSI title 使用系统 ACP，和传统控制台标题 API 保持一致。
         auto *out = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
-        auto maxb =
-            std::min<size_t>(data_capacity, sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG));
+        auto maxb = std::min<size_t>(data_capacity,
+                                     sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG));
         std::string encoded;
         std::wstring wbuf;
         convert_u32_to_ansi(src, state.input_code_page ? state.input_code_page : CP_ACP, encoded, wbuf);
@@ -2003,7 +1982,8 @@ inline bool api_l3_get_mouse_info(miniio::io_msg &msg, console_state &state, scr
     }
 
     auto *r = reinterpret_cast<CONSOLE_GETMOUSEINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    r->NumButtons = state.mouse_buttons != 0 ? state.mouse_buttons : static_cast<ULONG>(::GetSystemMetrics(SM_CMOUSEBUTTONS));
+    r->NumButtons =
+        state.mouse_buttons != 0 ? state.mouse_buttons : static_cast<ULONG>(::GetSystemMetrics(SM_CMOUSEBUTTONS));
     ucomplete_sz(msg, sizeof(CONSOLE_GETMOUSEINFO_MSG));
     return true;
 }
@@ -2217,12 +2197,13 @@ inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_b
 
         if (src_chars > 0)
         {
-            if (auto *wval = find_alias_value(state, std::wstring_view{exe, exe_chars},
-                                              std::wstring_view{src, src_chars}))
+            if (auto *wval =
+                    find_alias_value(state, std::wstring_view{exe, exe_chars}, std::wstring_view{src, src_chars}))
             {
                 auto *tgt_out = reinterpret_cast<wchar_t *>(db + exe_len_bytes);
                 auto available_bytes = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIAS_MSG));
-                auto available_chars = available_bytes > exe_len_bytes ? (available_bytes - exe_len_bytes) / sizeof(wchar_t) : 0;
+                auto available_chars =
+                    available_bytes > exe_len_bytes ? (available_bytes - exe_len_bytes) / sizeof(wchar_t) : 0;
                 if (wval->size() + 1 <= available_chars)
                 {
                     std::memcpy(tgt_out, wval->data(), wval->size() * sizeof(wchar_t));
@@ -2256,10 +2237,12 @@ inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_b
                     auto *tgt_out = reinterpret_cast<char *>(db + exe_len_bytes);
                     auto available_bytes = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIAS_MSG));
                     available_bytes = available_bytes > exe_len_bytes ? available_bytes - exe_len_bytes : 0;
-                    auto needed = wstr_to_ansi_len(std::wstring_view{wval->data(), wval->size()}, state.input_code_page) + 1;
+                    auto needed =
+                        wstr_to_ansi_len(std::wstring_view{wval->data(), wval->size()}, state.input_code_page) + 1;
                     if (needed <= available_bytes)
                     {
-                        auto n = convert_wide_to_ansi_raw(wval->data(), wval->size(), state.input_code_page, tgt_out, available_bytes);
+                        auto n = convert_wide_to_ansi_raw(wval->data(), wval->size(), state.input_code_page, tgt_out,
+                                                          available_bytes);
                         r->TargetLength = static_cast<USHORT>(n + 1);
                         ucomplete_sz(msg, sizeof(CONSOLE_GETALIAS_MSG) + r->TargetLength);
                     }
@@ -2342,7 +2325,8 @@ inline bool api_l3_get_alias_exes_length(miniio::io_msg &msg, console_state &sta
     ULONG total = 0;
     for (const auto &[exe, _] : state.aliases_by_exe)
     {
-        auto len = r->Unicode ? exe.size() : wstr_to_ansi_len(std::wstring_view{exe.data(), exe.size()}, state.input_code_page);
+        auto len = r->Unicode ? exe.size()
+                              : wstr_to_ansi_len(std::wstring_view{exe.data(), exe.size()}, state.input_code_page);
         total += static_cast<ULONG>(len + 1) * (r->Unicode ? sizeof(wchar_t) : 1);
     }
     r->AliasExesLength = total;
@@ -2421,7 +2405,8 @@ inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen
 }
 
 // ── 0x17 GetAliasExes ──
-inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
+inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                  pipe_bridge &)
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG))
     {
@@ -2433,7 +2418,8 @@ inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &state, scr
     ULONG written = 0;
     if (r->Unicode)
     {
-        auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG));
+        auto *out =
+            reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG));
         auto maxw = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIASEXES_MSG)) / sizeof(wchar_t);
         for (const auto &[exe, _] : state.aliases_by_exe)
         {
@@ -2517,7 +2503,8 @@ inline bool api_l3_get_history_length(miniio::io_msg &msg, console_state &state,
 }
 
 // ── 0x1B GetCommandHistory ──
-inline bool api_l3_get_history(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &bridge)
+inline bool api_l3_get_history(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                               pipe_bridge &bridge)
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG))
     {

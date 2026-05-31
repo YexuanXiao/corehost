@@ -30,8 +30,7 @@ struct screen_buffer
     {
         _ensure_rows();
     }
-    explicit screen_buffer(COORD sz) : size(sz)
-                                      , viewport(sz)
+    explicit screen_buffer(COORD sz) : size(sz), viewport(sz)
     {
         _ensure_rows();
     }
@@ -185,8 +184,7 @@ struct screen_buffer
             const auto start_x = static_cast<ULONG>(x);
             const auto available = static_cast<ULONG>(size.X) - start_x;
             const auto n = count < available ? count : available;
-            row(y).fill_attrs(static_cast<uint16_t>(start_x), static_cast<uint16_t>(start_x + n),
-                              text_attribute{attr});
+            row(y).fill_attrs(static_cast<uint16_t>(start_x), static_cast<uint16_t>(start_x + n), text_attribute{attr});
             r.length_read += n;
             r.cells_modified += n;
             count -= n;
@@ -528,8 +526,7 @@ struct screen_buffer
             for (SHORT x = r.Left; x <= r.Right; ++x)
             {
                 row(y).clear_cell(static_cast<uint16_t>(x), text_attribute{attr});
-                row(y).write_glyph(static_cast<uint16_t>(x), std::u32string_view{&cp, 1}, 1,
-                                   text_attribute{attr});
+                row(y).write_glyph(static_cast<uint16_t>(x), std::u32string_view{&cp, 1}, 1, text_attribute{attr});
             }
     }
 };

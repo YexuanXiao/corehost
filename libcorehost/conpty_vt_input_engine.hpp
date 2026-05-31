@@ -143,7 +143,6 @@ struct vt_input_engine
             return false;
         }
     }
-
 };
 
 } // namespace conpty

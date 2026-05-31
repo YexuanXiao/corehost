@@ -31,8 +31,7 @@ class console_viewport
 
     COORD size() const noexcept
     {
-        return {static_cast<SHORT>(_rect.Right - _rect.Left + 1),
-                static_cast<SHORT>(_rect.Bottom - _rect.Top + 1)};
+        return {static_cast<SHORT>(_rect.Right - _rect.Left + 1), static_cast<SHORT>(_rect.Bottom - _rect.Top + 1)};
     }
 
     bool covers(COORD buffer_size) const noexcept

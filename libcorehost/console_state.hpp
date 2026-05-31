@@ -264,8 +264,7 @@ struct console_state
             return;
         const auto old_size = tab_stops.size();
         tab_stops.resize(static_cast<size_t>(col) + 1, 0);
-        for (size_t i = old_size + (tab_width - old_size % tab_width) % tab_width; i < tab_stops.size();
-             i += tab_width)
+        for (size_t i = old_size + (tab_width - old_size % tab_width) % tab_width; i < tab_stops.size(); i += tab_width)
             tab_stops[i] = true;
     }
 

@@ -340,7 +340,8 @@ inline size_t convert_wide_to_ansi_raw(const wchar_t *s, size_t len, UINT cp, ch
     }
     if (out_cap == 0)
         return 0;
-    int n = ::WideCharToMultiByte(cp, 0, s, static_cast<int>(len), out, static_cast<int>(out_cap - 1), nullptr, nullptr);
+    int n =
+        ::WideCharToMultiByte(cp, 0, s, static_cast<int>(len), out, static_cast<int>(out_cap - 1), nullptr, nullptr);
     if (n > 0)
     {
         out[n] = '\0';

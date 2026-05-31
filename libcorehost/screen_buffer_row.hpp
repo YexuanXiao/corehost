@@ -300,7 +300,7 @@ struct screen_buffer_row
         {
             wchar_t wch = src[i].Char.UnicodeChar;
             if (wch == 0)
-                continue;                                           // trailing 标记, 跳过
+                continue; // trailing 标记, 跳过
             // CHAR_INFO 不携带完整 surrogate pair；孤立 high surrogate 不能直接
             // 进入 char32_t 屏幕模型，使用替换字符。
             char32_t cp = (wch >= 0xD800 && wch <= 0xDBFF) ? 0xFFFD // 孤立 UTF-16 high surrogate

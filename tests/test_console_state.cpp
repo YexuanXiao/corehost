@@ -286,9 +286,8 @@ void mock_add_alias_msg(miniio::io_msg &msg, const std::wstring &exe, const std:
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepAddAlias); // 0x12 L3-18
     hdr->ApiDescriptorSize = sizeof(CONSOLE_ADDALIAS_MSG);
-    msg.descriptor.InputSize =
-        static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG) +
-                           (exe.size() + src.size() + tgt.size()) * sizeof(wchar_t));
+    msg.descriptor.InputSize = static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG) +
+                                                  (exe.size() + src.size() + tgt.size()) * sizeof(wchar_t));
 
     auto *alias = reinterpret_cast<CONSOLE_ADDALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     alias->SourceLength = static_cast<USHORT>(src.size() * sizeof(wchar_t));
@@ -393,8 +392,8 @@ bool test_regression_get_console_input_output_size_excludes_header()
     ASSERT(api_get_console_input(msg, st, sb, inp, bridge));
 
     auto *input = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    auto *out = reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                 sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+    auto *out =
+        reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
     ASSERT(input->NumRecords == 1);
     ASSERT(out->EventType == KEY_EVENT);
     ASSERT(out->Event.KeyEvent.uChar.UnicodeChar == L'e');
@@ -1482,8 +1481,8 @@ bool test_regression_write_output_string_linear_and_ansi_count()
     write = reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     write->StringType = CONSOLE_ASCII;
     write->WriteCoord = {0, 0};
-    auto *bytes = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                           sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+    auto *bytes =
+        reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
     bytes[0] = static_cast<char>(0xCF);
     bytes[1] = static_cast<char>(0xB2);
 
@@ -2178,8 +2177,7 @@ bool test_regression_write_console_escape_sequence_without_vt_mode_updates_state
     input_buffer inp;
     pipe_bridge_testable bridge{inp, st, sb};
 
-    msg.descriptor.InputSize =
-        static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) + 6);
+    msg.descriptor.InputSize = static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) + 6);
     auto *write = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     write->Unicode = FALSE;
     std::memcpy(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG), "\x1b[?25l", 6);
@@ -2475,9 +2473,8 @@ void mock_add_alias_msg_ansi(miniio::io_msg &msg, const std::string &exe, const 
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepAddAlias);
     hdr->ApiDescriptorSize = sizeof(CONSOLE_ADDALIAS_MSG);
-    msg.descriptor.InputSize =
-        static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG) + exe.size() + src.size() +
-                           tgt.size());
+    msg.descriptor.InputSize = static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG) +
+                                                  exe.size() + src.size() + tgt.size());
 
     auto *alias = reinterpret_cast<CONSOLE_ADDALIAS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     alias->SourceLength = static_cast<USHORT>(src.size());
@@ -2782,8 +2779,10 @@ int main()
     RUN_TEST(test_regression_get_console_input_nowait_empty, L"GetConsoleInput NOWAIT empty");
     RUN_TEST(test_regression_get_console_input_waits_when_empty, L"GetConsoleInput waits when empty");
     RUN_TEST(test_regression_get_console_input_ready_event, L"GetConsoleInput ready event");
-    RUN_TEST(test_regression_get_console_input_output_size_excludes_header, L"GetConsoleInput OutputSize excludes header");
-    RUN_TEST(test_regression_get_console_input_output_size_without_record, L"GetConsoleInput OutputSize without record");
+    RUN_TEST(test_regression_get_console_input_output_size_excludes_header,
+             L"GetConsoleInput OutputSize excludes header");
+    RUN_TEST(test_regression_get_console_input_output_size_without_record,
+             L"GetConsoleInput OutputSize without record");
     RUN_TEST(test_regression_get_console_input_rejects_invalid_flags, L"GetConsoleInput rejects invalid flags");
     RUN_TEST(test_regression_raw_write_decodes_output_codepage, L"RawWrite decodes output codepage");
     RUN_TEST(test_regression_raw_read_completion_writes_only_bytes, L"RawRead writes only bytes");
@@ -2802,9 +2801,11 @@ int main()
     RUN_TEST(test_regression_set_console_cp_rejects_short_message, L"SetConsoleCP rejects short message");
     RUN_TEST(test_regression_set_console_cp_updates_selected_codepage, L"SetConsoleCP updates selected codepage");
     RUN_TEST(test_regression_cursor_info_rejects_short_messages, L"CursorInfo rejects short messages");
-    RUN_TEST(test_regression_get_screen_buffer_info_rejects_short_message, L"GetScreenBufferInfo rejects short message");
+    RUN_TEST(test_regression_get_screen_buffer_info_rejects_short_message,
+             L"GetScreenBufferInfo rejects short message");
     RUN_TEST(test_regression_set_screen_buffer_info_validation, L"SetScreenBufferInfo validation");
-    RUN_TEST(test_regression_set_screen_buffer_size_rejects_short_message, L"SetScreenBufferSize rejects short message");
+    RUN_TEST(test_regression_set_screen_buffer_size_rejects_short_message,
+             L"SetScreenBufferSize rejects short message");
     RUN_TEST(test_regression_set_cursor_position_rejects_short_message, L"SetCursorPosition rejects short message");
     RUN_TEST(test_regression_largest_window_rejects_short_message, L"LargestWindow rejects short message");
     RUN_TEST(test_regression_scroll_screen_buffer_validation_and_ansi_fill,
@@ -2813,30 +2814,23 @@ int main()
     RUN_TEST(test_regression_set_window_info_rejects_short_message, L"SetWindowInfo rejects short message");
     RUN_TEST(test_viewport_set_window_info_absolute_updates_origin_without_resizing_buffer,
              L"Viewport SetWindowInfo absolute");
-    RUN_TEST(test_viewport_set_window_info_relative_offsets_current_rect,
-             L"Viewport SetWindowInfo relative");
-    RUN_TEST(test_viewport_set_cursor_position_snaps_cursor_into_view,
-             L"Viewport SetCursorPosition snaps");
+    RUN_TEST(test_viewport_set_window_info_relative_offsets_current_rect, L"Viewport SetWindowInfo relative");
+    RUN_TEST(test_viewport_set_cursor_position_snaps_cursor_into_view, L"Viewport SetCursorPosition snaps");
     RUN_TEST(test_viewport_set_screen_buffer_info_resizes_view_without_moving_origin,
              L"Viewport SetScreenBufferInfo size only");
-    RUN_TEST(test_viewport_state_is_owned_by_each_screen_buffer,
-             L"Viewport per-screen-buffer ownership");
+    RUN_TEST(test_viewport_state_is_owned_by_each_screen_buffer, L"Viewport per-screen-buffer ownership");
     RUN_TEST(test_viewport_vt_cursor_position_updates_buffer_coordinates,
              L"Viewport VT cursor updates buffer coordinates");
-    RUN_TEST(test_viewport_vt_scroll_is_clipped_to_visible_window,
-             L"Viewport VT scroll clips to visible window");
+    RUN_TEST(test_viewport_vt_scroll_is_clipped_to_visible_window, L"Viewport VT scroll clips to visible window");
     RUN_TEST(test_viewport_vt_insert_delete_lines_start_at_cursor_row,
              L"Viewport VT insert/delete lines clips to visible window");
-    RUN_TEST(test_viewport_vt_text_wraps_inside_visible_window,
-             L"Viewport VT text wraps inside visible window");
-    RUN_TEST(test_viewport_vt_line_feed_scrolls_visible_window,
-             L"Viewport VT line feed scrolls visible window");
+    RUN_TEST(test_viewport_vt_text_wraps_inside_visible_window, L"Viewport VT text wraps inside visible window");
+    RUN_TEST(test_viewport_vt_line_feed_scrolls_visible_window, L"Viewport VT line feed scrolls visible window");
     RUN_TEST(test_viewport_vt_character_editing_is_clipped_to_visible_window,
              L"Viewport VT character editing clips to visible window");
     RUN_TEST(test_viewport_vt_reverse_index_scrolls_visible_window,
              L"Viewport VT reverse index scrolls visible window");
-    RUN_TEST(test_viewport_vt_tabs_are_viewport_relative,
-             L"Viewport VT tabs are viewport-relative");
+    RUN_TEST(test_viewport_vt_tabs_are_viewport_relative, L"Viewport VT tabs are viewport-relative");
     RUN_TEST(test_viewport_vt_scrolling_region_is_viewport_relative,
              L"Viewport VT scrolling region is viewport-relative");
     RUN_TEST(test_regression_read_output_string_output_size_and_linear_read,
@@ -2844,8 +2838,7 @@ int main()
     RUN_TEST(test_regression_write_console_input_a_uses_input_codepage, L"WriteConsoleInputA uses input codepage");
     RUN_TEST(test_regression_write_console_output_validation_and_clipping,
              L"WriteConsoleOutput validation and clipping");
-    RUN_TEST(test_regression_write_output_string_linear_and_ansi_count,
-             L"WriteOutputString linear and ANSI count");
+    RUN_TEST(test_regression_write_output_string_linear_and_ansi_count, L"WriteOutputString linear and ANSI count");
     RUN_TEST(test_regression_read_console_output_output_size_and_clipping,
              L"ReadConsoleOutput output size and clipping");
     RUN_TEST(test_regression_get_title_output_size_limits_copy, L"GetTitle output size limits copy");
@@ -2856,39 +2849,28 @@ int main()
              L"L3 CurrentFont validation and maximum window");
     RUN_TEST(test_regression_l3_set_display_mode_validation_and_size_output,
              L"L3 SetDisplayMode validation and size output");
-    RUN_TEST(test_regression_l3_get_display_mode_rejects_short_message,
-             L"L3 GetDisplayMode rejects short message");
+    RUN_TEST(test_regression_l3_get_display_mode_rejects_short_message, L"L3 GetDisplayMode rejects short message");
     RUN_TEST(test_regression_l3_add_alias_rejects_short_message, L"L3 AddAlias rejects short message");
     RUN_TEST(test_regression_l3_get_alias_rejects_short_message, L"L3 GetAlias rejects short message");
-    RUN_TEST(test_regression_l3_get_aliases_length_rejects_short_message,
-             L"L3 GetAliasesLength rejects short message");
+    RUN_TEST(test_regression_l3_get_aliases_length_rejects_short_message, L"L3 GetAliasesLength rejects short message");
     RUN_TEST(test_regression_l3_get_alias_exes_length_rejects_short_message,
              L"L3 GetAliasExesLength rejects short message");
     RUN_TEST(test_regression_l3_get_aliases_rejects_short_message, L"L3 GetAliases rejects short message");
     RUN_TEST(test_regression_l3_get_alias_exes_rejects_short_message, L"L3 GetAliasExes rejects short message");
     RUN_TEST(test_regression_l3_expunge_history_rejects_short_message_and_clears_history,
              L"L3 ExpungeHistory validation and clear");
-    RUN_TEST(test_regression_l3_set_num_commands_validation_and_trim,
-             L"L3 SetNumberOfCommands validation and trim");
-    RUN_TEST(test_regression_l3_get_history_length_validation_and_bytes,
-             L"L3 GetHistoryLength validation and bytes");
+    RUN_TEST(test_regression_l3_set_num_commands_validation_and_trim, L"L3 SetNumberOfCommands validation and trim");
+    RUN_TEST(test_regression_l3_get_history_length_validation_and_bytes, L"L3 GetHistoryLength validation and bytes");
     RUN_TEST(test_regression_l3_get_history_validation_output_size_and_serialization,
              L"L3 GetHistory validation and serialization");
-    RUN_TEST(test_regression_l3_get_console_window_rejects_short_message,
-             L"L3 GetConsoleWindow rejects short message");
-    RUN_TEST(test_regression_l3_selection_info_validation_and_copy,
-             L"L3 SelectionInfo validation and copy");
-    RUN_TEST(test_regression_l3_process_list_validation_and_output_size,
-             L"L3 ProcessList validation and output size");
-    RUN_TEST(test_regression_l3_history_info_validation_get_set,
-             L"L3 HistoryInfo validation get/set");
-    RUN_TEST(test_regression_l3_set_current_font_validation_and_store,
-             L"L3 SetCurrentFont validation and store");
+    RUN_TEST(test_regression_l3_get_console_window_rejects_short_message, L"L3 GetConsoleWindow rejects short message");
+    RUN_TEST(test_regression_l3_selection_info_validation_and_copy, L"L3 SelectionInfo validation and copy");
+    RUN_TEST(test_regression_l3_process_list_validation_and_output_size, L"L3 ProcessList validation and output size");
+    RUN_TEST(test_regression_l3_history_info_validation_get_set, L"L3 HistoryInfo validation get/set");
+    RUN_TEST(test_regression_l3_set_current_font_validation_and_store, L"L3 SetCurrentFont validation and store");
     RUN_TEST(test_regression_raw_flush_clears_input_events, L"RawFlush clears input events");
-    RUN_TEST(test_regression_user_defined_router_matches_api_sorter_validation,
-             L"USER_DEFINED router validation");
-    RUN_TEST(test_regression_connect_disconnect_syncs_process_snapshot,
-             L"CONNECT/DISCONNECT sync process snapshot");
+    RUN_TEST(test_regression_user_defined_router_matches_api_sorter_validation, L"USER_DEFINED router validation");
+    RUN_TEST(test_regression_connect_disconnect_syncs_process_snapshot, L"CONNECT/DISCONNECT sync process snapshot");
     RUN_TEST(test_regression_create_object_rejects_malformed_or_unknown_type,
              L"CREATE_OBJECT rejects malformed or unknown type");
     RUN_TEST(test_regression_write_console_escape_sequence_without_vt_mode_updates_state,

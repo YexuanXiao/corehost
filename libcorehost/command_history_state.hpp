@@ -109,7 +109,8 @@ class command_history_state
     void trim_to_capacity()
     {
         if (_commands.size() > _capacity)
-            _commands.erase(_commands.begin(), _commands.begin() + static_cast<std::ptrdiff_t>(_commands.size() - _capacity));
+            _commands.erase(_commands.begin(),
+                            _commands.begin() + static_cast<std::ptrdiff_t>(_commands.size() - _capacity));
         if (_browse_index != no_selection && _browse_index >= _commands.size())
             reset_browse();
     }

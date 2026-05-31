@@ -104,7 +104,7 @@ struct pipe_bridge
 
   private:
     // ── Parser 外部缓冲：_raw_buf 记录全部字符，_cooked_buf 仅记录地面态文本 ──
-    std::u32string _raw_buf;    // Parser 写入全部字符（供 msg.text 视图指向）
+    std::u32string _raw_buf; // Parser 写入全部字符（供 msg.text 视图指向）
     std::u32string _write_raw_buf;
     std::u32string _cooked_buf; // Parser 写入地面态文本（行编辑缓冲，返回给 cmd）
     // 编辑光标在 _cooked_buf 中的位置，范围 0.._cooked_buf.size()。
@@ -135,10 +135,9 @@ struct pipe_bridge
     size_t console_input_max_records(const miniio::io_msg &msg) const noexcept
     {
         // OutputSize 不含 CONSOLE_MSG_HEADER；记录数组前还要扣掉 L1 描述符。
-        const auto output_buffer =
-            msg.descriptor.OutputSize > sizeof(CONSOLE_GETCONSOLEINPUT_MSG)
-                ? msg.descriptor.OutputSize - sizeof(CONSOLE_GETCONSOLEINPUT_MSG)
-                : 0;
+        const auto output_buffer = msg.descriptor.OutputSize > sizeof(CONSOLE_GETCONSOLEINPUT_MSG)
+                                       ? msg.descriptor.OutputSize - sizeof(CONSOLE_GETCONSOLEINPUT_MSG)
+                                       : 0;
         const auto requested = output_buffer / sizeof(INPUT_RECORD);
         const auto local_capacity =
             (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETCONSOLEINPUT_MSG)) /
@@ -2329,7 +2328,6 @@ struct pipe_bridge
         }
         return written;
     }
-
 };
 
 } // namespace conpty
