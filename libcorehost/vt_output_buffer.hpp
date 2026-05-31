@@ -5,6 +5,7 @@
 #include <string_view>
 #include "win32/handle.hpp"
 #include "char_convert.hpp"
+#include "perf_diag.hpp"
 
 namespace conpty
 {
@@ -24,10 +25,14 @@ class vt_output_buffer
 
     void flush()
     {
+        COREHOST_PERF_SCOPE_AMOUNT(vt_output_flush, _length);
         if (_length == 0)
             return;
         DWORD written = 0;
-        ::WriteFile(_output.get(), _buffer.data(), static_cast<DWORD>(_length), &written, nullptr);
+        {
+            COREHOST_PERF_SCOPE_AMOUNT(vt_output_write_file, _length);
+            ::WriteFile(_output.get(), _buffer.data(), static_cast<DWORD>(_length), &written, nullptr);
+        }
         _length = 0;
     }
 
@@ -37,7 +42,10 @@ class vt_output_buffer
             return;
         flush();
         DWORD written = 0;
-        ::WriteFile(_output.get(), data, static_cast<DWORD>(length), &written, nullptr);
+        {
+            COREHOST_PERF_SCOPE_AMOUNT(vt_output_write_file, length);
+            ::WriteFile(_output.get(), data, static_cast<DWORD>(length), &written, nullptr);
+        }
     }
 
     void append(std::string_view text)

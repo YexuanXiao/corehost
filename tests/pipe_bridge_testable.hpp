@@ -137,7 +137,6 @@ class pipe_bridge_testable : public pipe_bridge
     {
         _pending.begin_console_read_mode(false, false);
         _read_total = 0;
-        _echo_start = 0;
         _cooked_buf.clear();
         _cooked_cursor = 0;
         _line_found = false;

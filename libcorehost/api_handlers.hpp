@@ -21,6 +21,7 @@
 #include "vt_msg_dispatch.hpp"
 #include "char_convert.hpp"
 #include "char_width.hpp"
+#include "perf_diag.hpp"
 #include "utility/log.hpp"
 #include "ntapi/consolenslmode.hpp"
 
@@ -164,6 +165,28 @@ inline bool is_line_terminator_echo(std::u32string_view text) noexcept
     return text == U"\r"sv || text == U"\n"sv || text == U"\r\n"sv;
 }
 
+inline bool can_use_plain_console_write_path(std::u32string_view text) noexcept
+{
+    for (char32_t ch : text)
+    {
+        if (ch == U'\x1b')
+            return false;
+        if (ch < U' ' && ch != U'\r' && ch != U'\n' && ch != U'\t')
+            return false;
+        if (ch == U'\x7f')
+            return false;
+    }
+    return true;
+}
+
+inline bool is_printable_ascii_text(std::u32string_view text) noexcept
+{
+    for (char32_t ch : text)
+        if (ch < U' ' || ch >= U'\x7f')
+            return false;
+    return true;
+}
+
 inline bool viewport_covers_screen_buffer(const screen_buffer &sb) noexcept
 {
     return sb.viewport.covers(sb.size);
@@ -269,7 +292,29 @@ inline void apply_terminal_text(const vt_message &msg, console_state &state, scr
     state.cursor.position.X = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
     state.cursor.position.Y = std::clamp<SHORT>(state.cursor.position.Y, view.Top, view.Bottom);
 
-    for (char32_t ch : msg.text)
+    auto slow_text = msg.text;
+    if (is_printable_ascii_text(msg.text))
+    {
+        auto remaining = msg.text;
+        while (!remaining.empty())
+        {
+            const auto available = static_cast<size_t>(view.Right - state.cursor.position.X + 1);
+            const auto count = std::min(remaining.size(), available);
+            const auto line_text = remaining.substr(0, count);
+            if (!sb.try_write_single_width_run(state.cursor.position, line_text, state.default_attributes))
+                break;
+
+            state.cursor.position.X = static_cast<SHORT>(state.cursor.position.X + count);
+            remaining.remove_prefix(count);
+            if (state.cursor.position.X > view.Right)
+                apply_terminal_line_feed(state, sb);
+        }
+        if (remaining.empty())
+            return;
+        slow_text = remaining;
+    }
+
+    for (char32_t ch : slow_text)
     {
         int cw = char_width_for_mode(ch, state.text_measurement, state.ambiguous_is_wide);
         if (cw < 1)
@@ -551,6 +596,51 @@ inline void consume_write_console_vt_message(vt_message_id id, vt_parser &parser
     parser.reset(id);
 }
 
+inline void consume_plain_console_write_message(vt_message_id id, const vt_message &msg, console_state &state,
+                                                screen_buffer &sb, pipe_bridge &bridge)
+{
+    bridge.vt_msg_send(id, msg);
+    vt_msg_apply_terminal_state(id, msg, state, sb);
+}
+
+inline void write_plain_console_payload(std::u32string_view text, console_state &state, screen_buffer &sb,
+                                        pipe_bridge &bridge)
+{
+    size_t text_begin = 0;
+    for (size_t i = 0; i < text.size(); ++i)
+    {
+        const auto ch = text[i];
+        if (ch != U'\r' && ch != U'\n' && ch != U'\t')
+            continue;
+
+        if (i > text_begin)
+        {
+            vt_message text_msg{};
+            text_msg.text = text.substr(text_begin, i - text_begin);
+            consume_plain_console_write_message(vt_message_id::text, text_msg, state, sb, bridge);
+        }
+
+        vt_message control_msg{};
+        auto control_id = vt_message_id::carriage_return;
+        if (ch == U'\n')
+            control_id = vt_message_id::line_feed;
+        else if (ch == U'\t')
+        {
+            control_id = vt_message_id::cursor_forward_tab;
+            control_msg.count = 1;
+        }
+        consume_plain_console_write_message(control_id, control_msg, state, sb, bridge);
+        text_begin = i + 1;
+    }
+
+    if (text_begin < text.size())
+    {
+        vt_message text_msg{};
+        text_msg.text = text.substr(text_begin);
+        consume_plain_console_write_message(vt_message_id::text, text_msg, state, sb, bridge);
+    }
+}
+
 // ── completion 辅助 ──
 
 inline void ucomplete(miniio::io_msg &msg)
@@ -622,8 +712,10 @@ inline bool api_set_mode(miniio::io_msg &msg, console_state &state, screen_buffe
     return true;
 }
 
-inline bool api_get_num_input(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp, pipe_bridge &)
+inline bool api_get_num_input(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
+                              pipe_bridge &bridge)
 {
+    bridge.prepare_console_input_events();
     auto *r = reinterpret_cast<CONSOLE_GETNUMBEROFINPUTEVENTS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->ReadyEvents = static_cast<DWORD>(inp.available());
     ucomplete_sz(msg, sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG));
@@ -656,22 +748,26 @@ inline bool api_get_langid(miniio::io_msg &msg, console_state &state, screen_buf
 inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, console_state &state, screen_buffer &sb,
                                   pipe_bridge &bridge)
 {
+    COREHOST_PERF_SCOPE_AMOUNT(write_console_payload, bytes);
     if (bytes > 0)
     {
         auto &u32s = bridge.conv_u32();
-        if (unicode)
         {
-            // WriteConsoleW 的 NumBytes/输入长度仍按 UTF-16 字节计算；内部统一成
-            // char32_t，便于和 VT parser/screen_buffer 共用文本路径。
-            auto *ws = reinterpret_cast<const wchar_t *>(data);
-            auto wl = bytes / sizeof(wchar_t);
-            convert_utf16_to_u32(std::wstring_view{ws, wl}, u32s);
-        }
-        else
-        {
-            // 非 Unicode 路径使用当前输出代码页；0 是未初始化兜底，退回系统 ACP。
-            convert_ansi_to_u32(reinterpret_cast<const char *>(data), bytes,
-                                state.output_code_page ? state.output_code_page : CP_ACP, u32s, bridge.conv_wstr());
+            COREHOST_PERF_SCOPE_AMOUNT(write_console_convert, bytes);
+            if (unicode)
+            {
+                // WriteConsoleW 的 NumBytes/输入长度仍按 UTF-16 字节计算；内部统一成
+                // char32_t，便于和 VT parser/screen_buffer 共用文本路径。
+                auto *ws = reinterpret_cast<const wchar_t *>(data);
+                auto wl = bytes / sizeof(wchar_t);
+                convert_utf16_to_u32(std::wstring_view{ws, wl}, u32s);
+            }
+            else
+            {
+                // 非 Unicode 路径使用当前输出代码页；0 是未初始化兜底，退回系统 ACP。
+                convert_ansi_to_u32(reinterpret_cast<const char *>(data), bytes,
+                                    state.output_code_page ? state.output_code_page : CP_ACP, u32s, bridge.conv_wstr());
+            }
         }
 
         if (!u32s.empty())
@@ -693,37 +789,40 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
 
             vt_message m{};
 
-            bool need_cup = bridge.consume_enter_newline();
-            LOG("[api_write_console] need_cup=%d state_start=(%d,%d)", need_cup, state.cursor.position.X,
-                state.cursor.position.Y);
-            if (need_cup)
             {
-                // 输入桥接已经本地回显 Enter。这里把应用输出起点移动到当时锁定
-                // 的新行位置，而不是使用后续 SetCursorPos 可能修改过的坐标。
-                COORD nl_pos = bridge.get_enter_dest();
-                state.cursor.position = nl_pos;
-                if (sb.viewport.snap_to_cursor(state.cursor.position, state.screen_buffer_size))
-                    render_visible_viewport(state, sb, bridge);
-                bridge.vt_write_cup_buffer(nl_pos);
-                start_pos = state.cursor.position;
-
-                if (is_line_terminator_echo(u32s))
+                COREHOST_PERF_SCOPE(write_console_position);
+                bool need_cup = bridge.consume_enter_newline();
+                LOG("[api_write_console] need_cup=%d state_start=(%d,%d)", need_cup, state.cursor.position.X,
+                    state.cursor.position.Y);
+                if (need_cup)
                 {
-                    // 这条 completion 仍由调用者报告原始字节数已写入；这里只是
-                    // 抑制终端输出，避免 Enter 后多出空行。
-                    bridge.vt_flush();
-                    bridge.sync_cursor_after_write(state.cursor.position);
-                    LOG("[api_write_console] swallowed enter echo newline");
-                    return;
+                    // 输入桥接已经本地回显 Enter。这里把应用输出起点移动到当时锁定
+                    // 的新行位置，而不是使用后续 SetCursorPos 可能修改过的坐标。
+                    COORD nl_pos = bridge.get_enter_dest();
+                    state.cursor.position = nl_pos;
+                    if (sb.viewport.snap_to_cursor(state.cursor.position, state.screen_buffer_size))
+                        render_visible_viewport(state, sb, bridge);
+                    bridge.vt_write_cup_buffer(nl_pos);
+                    start_pos = state.cursor.position;
+
+                    if (is_line_terminator_echo(u32s))
+                    {
+                        // 这条 completion 仍由调用者报告原始字节数已写入；这里只是
+                        // 抑制终端输出，避免 Enter 后多出空行。
+                        bridge.vt_flush();
+                        bridge.sync_cursor_after_write(state.cursor.position);
+                        LOG("[api_write_console] swallowed enter echo newline");
+                        return;
+                    }
                 }
-            }
-            else
-            {
-                // 真实 conhost 的 WriteConsole 从当前 Console 光标输出；宿主
-                // 终端光标可能因本地 echo 不同，所以每次文本输出前都发送 CUP。
-                if (sb.viewport.snap_to_cursor(state.cursor.position, state.screen_buffer_size))
-                    render_visible_viewport(state, sb, bridge);
-                bridge.vt_write_cup_buffer(start_pos);
+                else
+                {
+                    // 真实 conhost 的 WriteConsole 从当前 Console 光标输出；宿主
+                    // 终端光标可能因本地 echo 不同，所以每次文本输出前都发送 CUP。
+                    if (sb.viewport.snap_to_cursor(state.cursor.position, state.screen_buffer_size))
+                        render_visible_viewport(state, sb, bridge);
+                    bridge.vt_write_cup_buffer(start_pos);
+                }
             }
 
             WORD attr = state.default_attributes;
@@ -733,40 +832,66 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
 
             // cmd.exe 以及 ConDrv 兼容输出即使在 legacy mode 下也可能写入
-            // 宿主终端会解释的 VT 序列。本地模型必须和实际终端保持一致，
-            // 因此 WriteConsole 输出始终经 vt_parser 分流。
-            auto &write_parser_raw = bridge.prepare_write_parser_raw();
-            vt_parser write_parser{write_parser_raw};
-
-            for (char32_t ch : u32s)
+            // 宿主终端会解释的 VT 序列。无 ESC 的普通文本按 CR/LF/TAB 分段
+            // 直接分发；一旦出现真实控制序列，仍交给 vt_parser。
+            if (can_use_plain_console_write_path(u32s))
             {
-                auto id = write_parser.parse(ch);
-                if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
-                    continue;
-                consume_write_console_vt_message(id, write_parser, state, sb, bridge);
-
-                if (auto id2 = write_parser.parse(U'\0');
-                    id2 != vt_message_id::continue_ && id2 != vt_message_id::continue_text)
-                    consume_write_console_vt_message(id2, write_parser, state, sb, bridge);
+                COREHOST_PERF_SCOPE_AMOUNT(write_console_parser, u32s.size());
+                write_plain_console_payload(u32s, state, sb, bridge);
             }
-
-            // 释放循环后残留的累积文本；没有控制字符结束的普通输出会走这里。
-            if (auto id = write_parser.flush_text(); id != vt_message_id::continue_)
+            else
             {
-                auto &pm = write_parser.get();
-                bridge.vt_msg_send(id, pm);
-                vt_msg_apply_terminal_state(id, pm, state, sb);
-                write_parser.reset(id);
+                auto &write_parser_raw = bridge.prepare_write_parser_raw();
+                vt_parser write_parser{write_parser_raw};
+
+                {
+                    COREHOST_PERF_SCOPE_AMOUNT(write_console_parser, u32s.size());
+                    for (char32_t ch : u32s)
+                    {
+                        auto id = write_parser.parse(ch);
+                        if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
+                            continue;
+                        {
+                            COREHOST_PERF_SCOPE(write_console_consume_msg);
+                            consume_write_console_vt_message(id, write_parser, state, sb, bridge);
+                        }
+
+                        if (auto id2 = write_parser.parse(U'\0');
+                            id2 != vt_message_id::continue_ && id2 != vt_message_id::continue_text)
+                        {
+                            COREHOST_PERF_SCOPE(write_console_consume_msg);
+                            consume_write_console_vt_message(id2, write_parser, state, sb, bridge);
+                        }
+                    }
+                }
+
+                // 释放循环后残留的累积文本；没有控制字符结束的普通输出会走这里。
+                {
+                    COREHOST_PERF_SCOPE(write_console_flush_parser);
+                    if (auto id = write_parser.flush_text(); id != vt_message_id::continue_)
+                    {
+                        auto &pm = write_parser.get();
+                        bridge.vt_msg_send(id, pm);
+                        vt_msg_apply_terminal_state(id, pm, state, sb);
+                        write_parser.reset(id);
+                    }
+                    // 排空 parser 残留的 _pending_control，例如文本以单独 '\r' 结束。
+                    if (auto id = write_parser.parse(U'\0');
+                        id != vt_message_id::continue_ && id != vt_message_id::continue_text)
+                        consume_write_console_vt_message(id, write_parser, state, sb, bridge);
+                }
             }
-            // 排空 parser 残留的 _pending_control，例如文本以单独 '\r' 结束。
-            if (auto id = write_parser.parse(U'\0');
-                id != vt_message_id::continue_ && id != vt_message_id::continue_text)
-                consume_write_console_vt_message(id, write_parser, state, sb, bridge);
 
             // VT 已写入宿主终端后，同步 bridge 的行编辑边界到新的 Console
             // 光标位置，供下一次 ReadConsole 使用。
-            bridge.vt_flush();
-            bridge.sync_cursor_after_write(state.cursor.position);
+            {
+                COREHOST_PERF_SCOPE(write_console_vt_flush);
+                bridge.vt_flush();
+            }
+            {
+                COREHOST_PERF_SCOPE(write_console_sync_cursor);
+                bridge.sync_cursor_after_write(state.cursor.position);
+            }
 
             LOG("[api_write_console] done: u32s_len=%zu sbytes=%lu end_cursor=(%d,%d) synced", u32s.size(),
                 static_cast<unsigned long>(bytes), static_cast<int>(state.cursor.position.X),

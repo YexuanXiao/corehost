@@ -15,10 +15,10 @@ namespace win32
 
 struct process_information
 {
-    win32::handle h_thread{};
     win32::handle h_process{};
-    DWORD unused1 = 0;
-    DWORD unused2 = 0;
+    win32::handle h_thread{};
+    DWORD process_id = 0;
+    DWORD thread_id = 0;
 };
 
 static_assert(sizeof(::PROCESS_INFORMATION) == sizeof(process_information));

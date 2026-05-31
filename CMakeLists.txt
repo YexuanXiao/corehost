@@ -27,6 +27,9 @@ add_compile_definitions($<$<BOOL:${COREHOST_DISABLE_LOG}>:COREHOST_DISABLE_LOG>)
 set(COREHOST_LOG_LEVEL "1" CACHE STRING "CoreHost log level by frequency: 1=low, 2=medium, 3=high")
 add_compile_definitions(COREHOST_LOG_LEVEL=${COREHOST_LOG_LEVEL})
 
+option(COREHOST_PERF_DIAG "Enable aggregated CoreHost performance diagnostics" OFF)
+add_compile_definitions($<$<BOOL:${COREHOST_PERF_DIAG}>:COREHOST_PERF_DIAG>)
+
 option(COREHOST_USE_SYSTEM_ICU "Use system ICU for Unicode character width calculation" ON)
 
 # ── 架构检测 (proxy 子目录使用) ──────────────────────
@@ -64,6 +67,9 @@ add_subdirectory(corehost)
 
 # ── libconpty (ConPTY 静态库 + DLL) ──────────────────
 add_subdirectory(libconpty)
+
+# ── bench (ConPTY 性能测试工具) ───────────────────────
+add_subdirectory(bench)
 
 # ═══════════════════════════════════════════════════════════════
 # 测试

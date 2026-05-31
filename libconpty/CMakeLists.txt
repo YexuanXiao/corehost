@@ -10,6 +10,7 @@ option(USE_INBOX_CONHOST "Always use system conhost.exe (no corehost side-load)"
 # ── conpty_static: 静态库，继承父级所有编译选项 ──────────
 add_library(conpty_static STATIC
     libconpty.cpp
+    libconpty.hpp
 )
 
 target_include_directories(conpty_static PUBLIC
@@ -28,6 +29,7 @@ endif()
 # ── conpty (DLL): 独立编译选项 ────
 add_library(conpty SHARED
     libconpty.cpp
+    libconpty.hpp
     dllmain.cpp
     conpty.def
 )

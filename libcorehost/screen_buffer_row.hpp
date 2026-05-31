@@ -25,6 +25,7 @@
 #include <vector>
 #include <string_view>
 #include <algorithm>
+#include "perf_diag.hpp"
 
 namespace conpty
 {
@@ -158,15 +159,63 @@ struct screen_buffer_row
             _attrs[c] = a;
     }
 
+    bool try_write_single_width_run(uint16_t col, std::u32string_view text, text_attribute attr)
+    {
+        if (text.empty())
+            return true;
+        if (col >= width() || text.size() > static_cast<size_t>(width() - col))
+            return false;
+
+        const auto count = static_cast<uint16_t>(text.size());
+        for (uint16_t i = 0; i < count; ++i)
+        {
+            const auto cell = static_cast<uint16_t>(col + i);
+            const auto next = static_cast<uint16_t>(cell + 1);
+            if (is_trailing(cell))
+                return false;
+            if (next < width() && is_trailing(next))
+                return false;
+            const auto start = col_offset(cell);
+            const auto end = col_offset(next);
+            if (end != start + 1 || start >= _text.size())
+                return false;
+        }
+
+        for (uint16_t i = 0; i < count; ++i)
+        {
+            const auto cell = static_cast<uint16_t>(col + i);
+            _text[col_offset(cell)] = text[i];
+            _attrs[cell] = attr;
+        }
+        return true;
+    }
+
     // ── 写入单 glyph (grapheme cluster) ──────────────
     // text: Unicode 码点序列 (可包含多个 char32_t 如 ZWJ 序列)
     // width_columns: 占据的列数 (1 或 2)
     void write_glyph(uint16_t col, std::u32string_view text, int width_columns, text_attribute attr)
     {
+        COREHOST_PERF_SCOPE_AMOUNT(row_write_glyph, text.size());
         if (col >= width() || width_columns <= 0)
             return;
         if (col + width_columns > width())
             width_columns = width() - col;
+
+        if (width_columns == 1 && text.size() == 1 && !is_trailing(col))
+        {
+            const auto next_col = static_cast<uint16_t>(col + 1);
+            if (next_col <= width() && (next_col == width() || !is_trailing(next_col)))
+            {
+                const auto old_start = col_offset(col);
+                const auto old_end = col_offset(next_col);
+                if (old_end == old_start + 1 && old_start < _text.size())
+                {
+                    _text[old_start] = text[0];
+                    set_attr(col, attr);
+                    return;
+                }
+            }
+        }
 
         // 如果 col 落在旧双宽 glyph 的 trailing 半列，必须先解除旧宽字符的列
         // 关系，否则新 glyph 会和旧 leading 列共享偏移。

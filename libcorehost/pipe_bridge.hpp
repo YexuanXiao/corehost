@@ -14,7 +14,9 @@
 #include <windows.h>
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstring>
+#include <deque>
 #include <string>
 #include <string_view>
 #include "win32/handle.hpp"
@@ -35,6 +37,7 @@
 #include "terminal_cursor_state.hpp"
 #include "pending_io_state.hpp"
 #include "command_history_state.hpp"
+#include "perf_diag.hpp"
 #include "utility/log.hpp"
 
 namespace conpty
@@ -117,12 +120,12 @@ struct pipe_bridge
     // ── 流式 UTF-8 解码器 ──
     utf8_stream_decoder _utf8_decoder;
 
-    // ── 原始字节缓冲 (echo 用) ──
-    // _read_total 是 _readbuf 中有效字节数；_echo_start 是尚未回显区域起点。
+    // ── 原始字节缓冲 ──
+    // _read_total 是 _readbuf 中有效字节数。
     std::array<BYTE, sizeof(miniio::io_msg::body)> _readbuf{};
     DWORD _read_total = 0;
-    DWORD _echo_start = 0;
     bool _line_found = false; // process_input 发现行终止符 → 跳过 scan_for_line 重复扫描
+    std::deque<BYTE> _queued_vt_input;
 
     pipe_bridge_io _io;
     vt_output_buffer _vt_output;
@@ -205,6 +208,9 @@ struct pipe_bridge
         if (room == 0)
             return vt_read_status::full;
 
+        if (consume_queued_vt_input(room))
+            return vt_read_status::bytes;
+
         DWORD read = 0;
         auto result = _io.read_available(std::span{_readbuf}.subspan(_read_total, room), read);
         if (result == vt_pipe_read_status::bytes)
@@ -224,6 +230,9 @@ struct pipe_bridge
         if (room == 0)
             return vt_read_status::full;
 
+        if (consume_queued_vt_input(room))
+            return vt_read_status::bytes;
+
         DWORD read = 0;
         auto result = _io.read_blocking(std::span{_readbuf}.subspan(_read_total, room), read);
         if (result == vt_pipe_read_status::bytes)
@@ -242,7 +251,6 @@ struct pipe_bridge
         _line_found = false;
         process_input(_readbuf.data() + old_total, _read_total - old_total);
         vt_flush();
-        _echo_start = _read_total;
     }
 
     void complete_pending_with_eof()
@@ -447,6 +455,7 @@ struct pipe_bridge
     // 注意: 不会自动 flush，调用方负责在合适的时机 vt_flush()。
     void vt_msg_send(vt_message_id id, const vt_message &msg)
     {
+        COREHOST_PERF_SCOPE_AMOUNT(vt_msg_send, id == vt_message_id::text ? msg.text.size() : 0);
         // vt_message 是 parser 的结构化中间形态。这里把它重新序列化为宿主
         // 终端可理解的 VT，方便 API handler 与原始 VT 输入共用输出路径。
         switch (id)
@@ -608,6 +617,7 @@ struct pipe_bridge
             break;
 
         case vt_message_id::text: {
+            COREHOST_PERF_SCOPE_AMOUNT(vt_msg_send_text, msg.text.size());
             // 批量 char32_t → UTF-8 追加（复用转换缓冲）。
             auto &utf8 = _conversion.utf8();
             convert_u32_to_utf8(msg.text, utf8);
@@ -843,9 +853,8 @@ struct pipe_bridge
 
         _pending.begin_raw_read(msg, (cstate.input_mode & ENABLE_PROCESSED_INPUT) != 0);
         // 新的 RawRead 请求不能继承上一次读取留下的扫描状态；否则旧的
-        // _line_found/_echo_start 会让本次请求被错误地立即完成。
+        // _line_found 会让本次请求被错误地立即完成。
         _read_total = 0;
-        _echo_start = 0;
         _line_found = false;
 
         if (accumulate_from_pipe())
@@ -873,7 +882,6 @@ struct pipe_bridge
 
         _pending.begin_console_read(msg, req->Unicode != 0, proc_z);
         _read_total = 0;
-        _echo_start = 0;
         _line_found = false;
         _cooked_buf.clear();
         _cooked_cursor = 0;
@@ -888,10 +896,15 @@ struct pipe_bridge
                 init_bytes = static_cast<DWORD>(_readbuf.size());
             std::memcpy(_readbuf.data(), init_data, init_bytes);
             _read_total = init_bytes;
-            _echo_start = init_bytes;
             // ── 预填充 _cooked_buf：解码 init_data 并累积到行缓冲 ──
-            process_input(init_data, init_bytes);
+            process_input(_readbuf.data(), init_bytes);
             LOG("[bridge] handle_console_read: seeded %lu init bytes, cooked=%zu", init_bytes, _cooked_buf.size());
+        }
+
+        if (consume_input_buffer_for_console_read())
+        {
+            LOG("[bridge] handle_console_read: completed from input_buffer");
+            return true;
         }
 
         if (accumulate_from_pipe())
@@ -907,6 +920,8 @@ struct pipe_bridge
     {
         // GetConsoleInput 直接服务于 input_buffer。PEEK 不消费记录；NOWAIT
         // 在没有记录时必须同步返回 0，而不是挂起。
+        prepare_console_input_events();
+
         auto *req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
         auto *out = reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                      sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
@@ -944,6 +959,38 @@ struct pipe_bridge
         msg.complete.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
         msg.complete.Write.Size = size;
         return true;
+    }
+
+    void prepare_console_input_events()
+    {
+        if (_pending.has_pending())
+            return;
+
+        for (;;)
+        {
+            if (_pending.vt_eof())
+                return;
+
+            _read_total = 0;
+
+            if (!_queued_vt_input.empty())
+            {
+                drain_available_vt_input();
+                continue;
+            }
+
+            DWORD avail = 0;
+            if (!peek_vt_input(avail))
+            {
+                _pending.set_vt_eof(true);
+                return;
+            }
+            if (avail == 0)
+                return;
+
+            if (!queue_available_vt_input())
+                return;
+        }
     }
 
     bool drain_available_vt_input()
@@ -1036,14 +1083,6 @@ struct pipe_bridge
             return;
         }
 
-        if (!_pending.has_pending())
-        {
-            // 无挂起的 ReadConsole 时仍须处理 VT 输入
-            // (PowerShell 通过 GetConsoleInput(PEEK) 轮询，不会触发 ReadConsole)
-            _read_total = 0;
-            _echo_start = 0;
-        }
-
         if (avail == 0)
         {
             // PeekNamedPipe 的 0 字节只是“暂时没输入”。只有 signal 线程通知
@@ -1060,6 +1099,12 @@ struct pipe_bridge
         }
 
         LOG("[bridge] on_idle: avail=%lu kind=%d total=%lu", avail, static_cast<int>(_pending.kind()), _read_total);
+        if (!_pending.has_pending())
+        {
+            queue_available_vt_input();
+            return;
+        }
+
         if (accumulate_from_pipe())
             return;
     }
@@ -1315,6 +1360,59 @@ struct pipe_bridge
         _line_found = true;
         complete_pending();
     }
+    bool edit_key_event_for_console_read(const KEY_EVENT_RECORD &key)
+    {
+        if (!key.bKeyDown)
+            return false;
+
+        switch (key.wVirtualKeyCode)
+        {
+        case VK_RETURN:
+            edit_submit_line();
+            return true;
+        case VK_BACK:
+            _edit_backspace();
+            break;
+        case VK_DELETE:
+            _edit_delete();
+            break;
+        case VK_LEFT:
+            _edit_move_left();
+            break;
+        case VK_RIGHT:
+            _edit_move_right();
+            break;
+        case VK_HOME:
+            _edit_home();
+            break;
+        case VK_END:
+            _edit_end();
+            break;
+        case VK_UP:
+            _edit_history_up();
+            break;
+        case VK_DOWN:
+            _edit_history_down();
+            break;
+        default:
+            if (key.uChar.UnicodeChar >= L' ' || key.uChar.UnicodeChar == L'\t')
+                edit_insert_codepoint(static_cast<char32_t>(key.uChar.UnicodeChar));
+            break;
+        }
+        return false;
+    }
+    bool consume_input_buffer_for_console_read()
+    {
+        INPUT_RECORD record{};
+        while (_pending.kind() == PendingKind::ConsoleRead && inp.read(&record, 1) == 1)
+        {
+            if (record.EventType != KEY_EVENT)
+                continue;
+            if (edit_key_event_for_console_read(record.Event.KeyEvent))
+                return true;
+        }
+        return false;
+    }
     void edit_backspace()
     {
         // Backspace 删除光标左侧字符。VT 的 D+P 先左移再删除当前位置字符，
@@ -1558,6 +1656,60 @@ struct pipe_bridge
     //  内部管道
     // ════════════════════════════════════════════════════
 
+    bool consume_queued_vt_input(DWORD room)
+    {
+        if (_queued_vt_input.empty())
+            return false;
+
+        const auto count = std::min<size_t>(room, _queued_vt_input.size());
+        for (size_t i = 0; i < count; ++i)
+        {
+            _readbuf[_read_total + i] = _queued_vt_input.front();
+            _queued_vt_input.pop_front();
+        }
+        _read_total += static_cast<DWORD>(count);
+        LOG("[bridge] consume_queued_vt_input: consumed=%zu remaining=%zu", count, _queued_vt_input.size());
+        return true;
+    }
+
+    bool queue_available_vt_input()
+    {
+        DWORD read = 0;
+        auto result = _io.read_available(std::span{_readbuf}, read);
+        if (result == vt_pipe_read_status::bytes)
+        {
+            _queued_vt_input.insert(_queued_vt_input.end(), _readbuf.data(), _readbuf.data() + read);
+            LOG("[bridge] queue_available_vt_input: read=%lu total=%zu", read, _queued_vt_input.size());
+            return true;
+        }
+
+        if (result == vt_pipe_read_status::eof)
+            _pending.set_vt_eof(true);
+        return false;
+    }
+
+    void queue_unprocessed_vt_input(const BYTE *bytes, DWORD consumed, DWORD len)
+    {
+        if (consumed >= len)
+            return;
+
+        const auto tail_size = static_cast<size_t>(len - consumed);
+        for (auto it = bytes + len; it != bytes + consumed;)
+            _queued_vt_input.push_front(*--it);
+
+        const auto readbuf_begin = reinterpret_cast<std::uintptr_t>(_readbuf.data());
+        const auto readbuf_end = readbuf_begin + _readbuf.size();
+        const auto batch_begin = reinterpret_cast<std::uintptr_t>(bytes);
+        if (batch_begin >= readbuf_begin && batch_begin <= readbuf_end)
+        {
+            const auto absolute_consumed = static_cast<DWORD>((batch_begin - readbuf_begin) + consumed);
+            if (absolute_consumed < _read_total)
+                _read_total = absolute_consumed;
+        }
+
+        LOG("[bridge] queue_unprocessed_vt_input: queued_tail=%zu total=%zu", tail_size, _queued_vt_input.size());
+    }
+
     // ── _echo_byte: 向终端输出单个字节并跟踪光标（经 VT 缓冲批量写入）──
     void _echo_byte(BYTE b)
     {
@@ -1600,7 +1752,6 @@ struct pipe_bridge
             // 批量 echo 后必须在本批输入结束时刷新，否则普通打字会滞留在 VT 输出缓冲，
             // 直到后续控制序列/应用输出/缓冲满才显示，表现为终端输入卡顿。
             vt_flush();
-            _echo_start = _read_total;
 
             if (_line_found)
                 return true;
@@ -1624,6 +1775,7 @@ struct pipe_bridge
             {
                 LOG("[bridge] process_input: Ctrl+Z at offset %lu", i);
                 _line_found = true;
+                queue_unprocessed_vt_input(bytes, i + 1, len);
                 complete_pending();
                 return;
             }
@@ -1693,39 +1845,17 @@ struct pipe_bridge
                     if (!m.win32_kd)
                         break;
 
-                    switch (m.win32_vk)
+                    INPUT_RECORD record{};
+                    record.EventType = KEY_EVENT;
+                    record.Event.KeyEvent.bKeyDown = TRUE;
+                    record.Event.KeyEvent.wVirtualKeyCode = static_cast<WORD>(m.win32_vk);
+                    record.Event.KeyEvent.wVirtualScanCode = static_cast<WORD>(m.win32_sc);
+                    record.Event.KeyEvent.uChar.UnicodeChar = static_cast<WCHAR>(m.win32_uc);
+                    record.Event.KeyEvent.dwControlKeyState = m.win32_cs;
+                    if (edit_key_event_for_console_read(record.Event.KeyEvent))
                     {
-                    case VK_RETURN:
-                        edit_submit_line();
+                        queue_unprocessed_vt_input(bytes, i + 1, len);
                         return;
-                    case VK_BACK:
-                        _edit_backspace();
-                        break;
-                    case VK_DELETE:
-                        _edit_delete();
-                        break;
-                    case VK_LEFT:
-                        _edit_move_left();
-                        break;
-                    case VK_RIGHT:
-                        _edit_move_right();
-                        break;
-                    case VK_HOME:
-                        _edit_home();
-                        break;
-                    case VK_END:
-                        _edit_end();
-                        break;
-                    case VK_UP:
-                        _edit_history_up();
-                        break;
-                    case VK_DOWN:
-                        _edit_history_down();
-                        break;
-                    default:
-                        if (m.win32_uc >= L' ' || m.win32_uc == L'\t')
-                            edit_insert_codepoint(static_cast<char32_t>(m.win32_uc));
-                        break;
                     }
                     break;
                 }
@@ -2011,6 +2141,7 @@ struct pipe_bridge
         // 行终止符处理只消费当前行；i/len/bytes 描述当前 process_input 批次，
         // 用于识别 CRLF 是否跨 ReadFile 边界。
         _line_found = true;
+        auto consumed = i + 1;
 
         if (is_cr)
         {
@@ -2018,6 +2149,7 @@ struct pipe_bridge
             if (i + 1 < len && bytes[i + 1] == '\n')
             {
                 has_lf = true;
+                consumed = i + 2;
             }
             else if (i + 1 == len)
             {
@@ -2035,6 +2167,8 @@ struct pipe_bridge
             if (!has_lf)
                 vt_append_char('\n');
         }
+
+        queue_unprocessed_vt_input(bytes, consumed, len);
 
         // 本地 echo 已经让终端进入下一行；内部 cursor 必须同步，否则下一次
         // WriteConsole 会在旧行列计算输出位置。
@@ -2190,7 +2324,6 @@ struct pipe_bridge
 
         _pending.clear();
         _read_total = 0;
-        _echo_start = 0;
 
         history_push();
 

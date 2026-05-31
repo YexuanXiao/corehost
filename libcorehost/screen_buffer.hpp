@@ -16,6 +16,7 @@
 #include "screen_buffer_row.hpp"
 #include "char_convert.hpp"
 #include "char_width.hpp"
+#include "perf_diag.hpp"
 
 namespace conpty
 {
@@ -72,6 +73,7 @@ struct screen_buffer
     // ── 单 glyph 读写 (char32_t) ──
     void set_u32(COORD c, char32_t cp, WORD attr = 0x07)
     {
+        COREHOST_PERF_SCOPE(screen_set_u32);
         if (!_valid(c))
             return;
         // Console 模式只区分 1/2 列宽；组合字符和控制字符在这里至少占一列，
@@ -82,6 +84,13 @@ struct screen_buffer
         if (cw > 2)
             cw = 2;
         row(c.Y).write_glyph(static_cast<uint16_t>(c.X), std::u32string_view{&cp, 1}, cw, text_attribute{attr});
+    }
+
+    bool try_write_single_width_run(COORD c, std::u32string_view text, WORD attr = 0x07)
+    {
+        if (!_valid(c))
+            return false;
+        return row(c.Y).try_write_single_width_run(static_cast<uint16_t>(c.X), text, text_attribute{attr});
     }
 
     char32_t at_u32(COORD c) const noexcept
@@ -392,6 +401,28 @@ struct screen_buffer
 
         // dx/dy 是源矩形相对目标位置的偏移。
         SHORT dx = dest.X - sr.Left, dy = dest.Y - sr.Top;
+        if (dx == 0 && dy != 0 && sr.Left == 0 && sr.Right == size.X - 1 && clip.Left == sr.Left &&
+            clip.Right == sr.Right && clip.Top == sr.Top && clip.Bottom == sr.Bottom)
+        {
+            const auto height = static_cast<int>(sr.Bottom - sr.Top + 1);
+            const auto count = std::min<int>(dy < 0 ? -static_cast<int>(dy) : static_cast<int>(dy), height);
+            if (dy < 0)
+            {
+                for (SHORT y = sr.Top; y <= static_cast<SHORT>(sr.Bottom - count); ++y)
+                    _rows[static_cast<size_t>(y)] = std::move(_rows[static_cast<size_t>(y + count)]);
+                for (SHORT y = static_cast<SHORT>(sr.Bottom - count + 1); y <= sr.Bottom; ++y)
+                    _fill_row(y, fill_char, fill_attr);
+            }
+            else
+            {
+                for (SHORT y = sr.Bottom; y >= static_cast<SHORT>(sr.Top + count); --y)
+                    _rows[static_cast<size_t>(y)] = std::move(_rows[static_cast<size_t>(y - count)]);
+                for (SHORT y = sr.Top; y < static_cast<SHORT>(sr.Top + count); ++y)
+                    _fill_row(y, fill_char, fill_attr);
+            }
+            return;
+        }
+
         SMALL_RECT dst = {src.Left + dx, src.Top + dy, src.Right + dx, src.Bottom + dy};
         // 如果目标越界，反向收缩源区域，保持 src/dst 尺寸一致。
         if (dst.Left < clip.Left)
@@ -524,10 +555,15 @@ struct screen_buffer
             return;
         for (SHORT y = r.Top; y <= r.Bottom; ++y)
             for (SHORT x = r.Left; x <= r.Right; ++x)
-            {
-                row(y).clear_cell(static_cast<uint16_t>(x), text_attribute{attr});
                 row(y).write_glyph(static_cast<uint16_t>(x), std::u32string_view{&cp, 1}, 1, text_attribute{attr});
-            }
+    }
+
+    void _fill_row(SHORT y, char32_t cp, WORD attr)
+    {
+        auto replacement = screen_buffer_row(static_cast<uint16_t>(size.X), attr);
+        if (cp != U' ')
+            replacement.fill(std::u32string_view{&cp, 1}, text_attribute{attr});
+        _rows[static_cast<size_t>(y)] = std::move(replacement);
     }
 };
 

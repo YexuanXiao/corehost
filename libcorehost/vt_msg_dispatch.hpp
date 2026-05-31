@@ -34,6 +34,7 @@
 #include "screen_buffer.hpp"
 #include "char_convert.hpp"
 #include "char_width.hpp"
+#include "perf_diag.hpp"
 
 namespace conpty
 {
@@ -191,6 +192,7 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
 
     // ── 文本输出 → screen_buffer（仅可打印字符，不含控制字符）──
     case vt_message_id::text: {
+        COREHOST_PERF_SCOPE_AMOUNT(apply_text_state, msg.text.size());
         // pos 是本地推进副本；完成后再写回 state.cursor.position。
         COORD pos = state.cursor.position;
         auto mode = state.text_measurement;
