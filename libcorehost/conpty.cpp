@@ -102,9 +102,9 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
 
     // vt_in 是终端到 corehost 的输入/控制字节流；VT 输出句柄由
     // vt_output_buffer 负责缓冲写入；server 用于 bridge 完成挂起 ConDrv I/O。
-    bridge.vt_in = vt_in.view();
+    bridge.set_server(server.view());
+    bridge.set_vt_input(vt_in.view());
     bridge.set_vt_output(vt_out.view());
-    bridge.server = server.view();
 
     // ── Layer 2: api router ──
     // api_router 把 USER_DEFINED Console API 分派给 api_handlers。传入主/备用

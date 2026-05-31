@@ -29,6 +29,7 @@
 #include "screen_buffer.hpp"
 #include "char_convert.hpp"
 #include "vt_output_buffer.hpp"
+#include "pipe_bridge_io.hpp"
 #include "conversion_buffers.hpp"
 #include "process_list_snapshot.hpp"
 #include "terminal_cursor_state.hpp"
@@ -45,12 +46,6 @@ struct pipe_bridge
     // 等待 pending VT 输入时的时间片。VT 输入和 signal shutdown 是两个独立
     // 条件，因此不能用无限等待。
     static constexpr DWORD pending_vt_input_wait_ms = 16;
-
-    // ── 管道句柄 ──
-    // vt_in 可读，server 用于 ConDrv READ_IO/COMPLETE_IO。VT 输出句柄由
-    // vt_output_buffer 封装，避免缓冲状态散落在 bridge 中。
-    win32::handle_view vt_in;
-    win32::handle_view server;
 
     // ── 子系统 ──
     input_buffer &inp;
@@ -80,6 +75,16 @@ struct pipe_bridge
         _vt_output.set_output(output);
     }
 
+    void set_server(win32::handle_view server) noexcept
+    {
+        _io.set_server(server);
+    }
+
+    void set_vt_input(win32::handle_view input) noexcept
+    {
+        _io.set_vt_input(input);
+    }
+
     void set_process_list(std::span<const DWORD> processes) noexcept
     {
         _processes.assign(processes);
@@ -96,9 +101,6 @@ struct pipe_bridge
     }
 
   private:
-    // 可为空。非空时 wait_for_signal_shutdown_slice 会把它作为关闭/轮询信号。
-    win32::handle_view _signal_shutdown_event;
-
     // ── Parser 外部缓冲：_raw_buf 记录全部字符，_cooked_buf 仅记录地面态文本 ──
     std::u32string _raw_buf;    // Parser 写入全部字符（供 msg.text 视图指向）
     std::u32string _write_raw_buf;
@@ -120,6 +122,7 @@ struct pipe_bridge
     DWORD _echo_start = 0;
     bool _line_found = false; // process_input 发现行终止符 → 跳过 scan_for_line 重复扫描
 
+    pipe_bridge_io _io;
     vt_output_buffer _vt_output;
     conversion_buffers _conversion;
     process_list_snapshot _processes;
@@ -170,23 +173,17 @@ struct pipe_bridge
 
     void set_signal_shutdown_event(win32::handle_view event) noexcept
     {
-        _signal_shutdown_event = event;
+        _io.set_shutdown_event(event);
     }
 
     [[nodiscard]] bool is_signal_shutdown_signaled() const noexcept
     {
-        return _signal_shutdown_event.valid() &&
-               ::WaitForSingleObject(_signal_shutdown_event.get(), 0) == WAIT_OBJECT_0;
+        return _io.shutdown_signaled();
     }
 
     [[nodiscard]] bool peek_vt_input(DWORD &avail) noexcept
     {
-        // avail 返回当前可无阻塞读取的字节数；失败通常表示 vt_in 已关闭。
-        if (::PeekNamedPipe(vt_in.get(), nullptr, 0, nullptr, &avail, nullptr))
-            return true;
-
-        LOG("[bridge] peek_vt_input: PeekNamedPipe failed err=%lu", ::GetLastError());
-        return false;
+        return _io.peek_available(avail);
     }
 
     enum class vt_read_status
@@ -199,13 +196,6 @@ struct pipe_bridge
 
     [[nodiscard]] vt_read_status read_available_vt_input()
     {
-        // avail==0 表示当前没有输入，不是 EOF。
-        DWORD avail = 0;
-        if (!peek_vt_input(avail))
-            return vt_read_status::eof;
-        if (avail == 0)
-            return vt_read_status::empty;
-
         // room==0 表示本次 pending 可返回的缓冲已满，调用方必须先完成它。
         auto limit = _readbuf.size();
         if (_pending.kind() == PendingKind::RawRead && _pending.raw_read())
@@ -214,18 +204,15 @@ struct pipe_bridge
         if (room == 0)
             return vt_read_status::full;
 
-        // 本函数服务于轮询路径，最多读取当前已经到达的数据；如果读满
-        // _readbuf，调用方会先解析并完成 pending，再决定是否继续等待。
-        auto to_read = avail < room ? avail : room;
         DWORD read = 0;
-        if (!::ReadFile(vt_in.get(), _readbuf.data() + _read_total, to_read, &read, nullptr) || read == 0)
+        auto result = _io.read_available(std::span{_readbuf}.subspan(_read_total, room), read);
+        if (result == vt_pipe_read_status::bytes)
         {
-            LOG("[bridge] read_available_vt_input: ReadFile failed read=%lu err=%lu", read, ::GetLastError());
-            return vt_read_status::eof;
+            _read_total += read;
+            return vt_read_status::bytes;
         }
 
-        _read_total += read;
-        return vt_read_status::bytes;
+        return result == vt_pipe_read_status::empty ? vt_read_status::empty : vt_read_status::eof;
     }
 
     [[nodiscard]] vt_read_status read_blocking_vt_input()
@@ -237,14 +224,14 @@ struct pipe_bridge
             return vt_read_status::full;
 
         DWORD read = 0;
-        if (!::ReadFile(vt_in.get(), _readbuf.data() + _read_total, room, &read, nullptr) || read == 0)
+        auto result = _io.read_blocking(std::span{_readbuf}.subspan(_read_total, room), read);
+        if (result == vt_pipe_read_status::bytes)
         {
-            LOG("[bridge] read_blocking_vt_input: ReadFile failed read=%lu err=%lu", read, ::GetLastError());
-            return vt_read_status::eof;
+            _read_total += read;
+            return vt_read_status::bytes;
         }
 
-        _read_total += read;
-        return vt_read_status::bytes;
+        return result == vt_pipe_read_status::empty ? vt_read_status::empty : vt_read_status::eof;
     }
 
     void process_new_vt_input(DWORD old_total)
@@ -267,11 +254,8 @@ struct pipe_bridge
 
     [[nodiscard]] bool wait_for_signal_shutdown_slice()
     {
-        if (!_signal_shutdown_event.valid())
-            return false;
-
         // shutdown event 只代表关闭/轮询时间片；VT 输入不会唤醒它。
-        return ::WaitForSingleObject(_signal_shutdown_event.get(), pending_vt_input_wait_ms) == WAIT_OBJECT_0;
+        return _io.wait_shutdown_slice(pending_vt_input_wait_ms);
     }
 
     // ── 持久转换缓冲区访问器 ──
@@ -1006,7 +990,7 @@ struct pipe_bridge
             complete_pending_with_eof();
             return;
         }
-        if (_signal_shutdown_event.valid())
+        if (_io.has_shutdown_event())
         {
             // 有 shutdown event 的模式不能进入阻塞 ReadFile；这里再试一次
             // 非阻塞 drain，没读到就把控制权还给 io_loop。
@@ -1099,18 +1083,14 @@ struct pipe_bridge
         {
             auto *ws = reinterpret_cast<const wchar_t *>(data);
             int wl = static_cast<int>(bytes / sizeof(wchar_t));
-            auto &u32 = _conversion.u32();
             auto &utf8 = _conversion.utf8();
-            convert_utf16_to_u32(std::wstring_view{ws, static_cast<size_t>(wl)}, u32);
-            convert_u32_to_utf8(u32, utf8);
+            convert_wstr_to_utf8(std::wstring_view{ws, static_cast<size_t>(wl)}, utf8);
             _vt_output.write(utf8.data(), utf8.size());
         }
         else
         {
-            auto &u32 = _conversion.u32();
             auto &utf8 = _conversion.utf8();
-            convert_ansi_to_u32(reinterpret_cast<const char *>(data), bytes, CP_ACP, u32, _conversion.wide());
-            convert_u32_to_utf8(u32, utf8);
+            convert_ansi_to_utf8(reinterpret_cast<const char *>(data), bytes, CP_ACP, utf8, _conversion.wide());
             _vt_output.write(utf8.data(), utf8.size());
         }
     }
@@ -2043,16 +2023,11 @@ struct pipe_bridge
                 // CR 位于本批次末尾时，LF 可能已经在管道中但尚未读入。只在
                 // 下一个字节确认为 LF 时消费它，避免吞掉下一行首字符。
                 BYTE nb = 0;
-                DWORD peeked = 0;
-                if (::PeekNamedPipe(vt_in.get(), &nb, 1, &peeked, nullptr, nullptr) && peeked > 0 && nb == '\n')
+                if (_io.try_consume_byte('\n', nb))
                 {
-                    DWORD r = 0;
-                    if (::ReadFile(vt_in.get(), &nb, 1, &r, nullptr) && r == 1)
-                    {
-                        if (_read_total < _readbuf.size())
-                            _readbuf[_read_total++] = '\n';
-                        has_lf = true;
-                    }
+                    if (_read_total < _readbuf.size())
+                        _readbuf[_read_total++] = nb;
+                    has_lf = true;
                 }
             }
 
@@ -2142,18 +2117,16 @@ struct pipe_bridge
         DWORD cp = 0;
         if (_pending.unicode())
         {
-            // ReadConsoleW 返回 UTF-16 字节数。内部 cooked buffer 是 UTF-32，
-            // 先转 UTF-8 只是复用现有转换器。
-            auto &utf8 = _conversion.utf8();
-            utf8.clear();
-            convert_u32_to_utf8(_cooked_buf, utf8);
-            utf8 += "\r\n";
-            auto *utf16_out = reinterpret_cast<char16_t *>(db);
-            auto max_chars = maxd / sizeof(char16_t);
-            size_t n = unicode::detail::convert_utf8_to_utf16(utf8.data(), utf8.size(), utf16_out);
-            if (n > max_chars)
-                n = max_chars;
-            cp = static_cast<DWORD>(n * sizeof(char16_t));
+            auto *utf16_out = reinterpret_cast<wchar_t *>(db);
+            auto max_chars = maxd / sizeof(wchar_t);
+            auto &wide = _conversion.wide();
+            convert_u32_to_wstr(_cooked_buf, wide);
+            wide.push_back(L'\r');
+            wide.push_back(L'\n');
+            size_t n = utf16_prefix_units(wide, max_chars);
+            if (n > 0)
+                std::memcpy(utf16_out, wide.data(), n * sizeof(wchar_t));
+            cp = static_cast<DWORD>(n * sizeof(wchar_t));
         }
         else
         {
@@ -2244,7 +2217,7 @@ struct pipe_bridge
             // 挂起请求已经从原始 READ_IO 返回 false，必须额外发送
             // CD_IO_COMPLETE；同步完成的请求则由 io_loop 直接带回。
             LOG("[bridge] complete_pending: sending CD_IO_COMPLETE");
-            miniio::complete_io(server, *comp_ptr);
+            _io.complete(*comp_ptr);
         }
     }
 
@@ -2271,7 +2244,7 @@ struct pipe_bridge
             auto comp = m.complete;
             _pending.clear();
 
-            miniio::complete_io(server, comp);
+            _io.complete(comp);
             return;
         }
 
@@ -2285,7 +2258,7 @@ struct pipe_bridge
         auto comp = m.complete;
         _pending.clear();
 
-        miniio::complete_io(server, comp);
+        _io.complete(comp);
     }
 
   public:
@@ -2385,12 +2358,14 @@ struct pipe_bridge
         std::string ansi;
         for (const auto &command : _history.commands())
         {
-            convert_u32_to_wstr(command, wide);
             if (unicode)
+            {
+                convert_u32_to_wstr(command, wide);
                 total += wide.size() + 1;
+            }
             else
             {
-                convert_wstr_to_ansi(wide, code_page, ansi);
+                convert_u32_to_ansi(command, code_page, ansi, wide);
                 total += ansi.size() + 1;
             }
         }
@@ -2404,9 +2379,9 @@ struct pipe_bridge
         std::string ansi;
         for (const auto &command : _history.commands())
         {
-            convert_u32_to_wstr(command, wide);
             if (unicode)
             {
+                convert_u32_to_wstr(command, wide);
                 auto need = (wide.size() + 1) * sizeof(wchar_t);
                 if (written + need > out_cap)
                     return written;
@@ -2418,7 +2393,7 @@ struct pipe_bridge
             }
             else
             {
-                convert_wstr_to_ansi(wide, code_page, ansi);
+                convert_u32_to_ansi(command, code_page, ansi, wide);
                 auto need = ansi.size() + 1;
                 if (written + need > out_cap)
                     return written;

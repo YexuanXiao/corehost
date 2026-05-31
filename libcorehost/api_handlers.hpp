@@ -1894,14 +1894,14 @@ inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buff
 
     auto *r = reinterpret_cast<CONSOLE_GETTITLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto &src = r->Original ? state.original_title : state.title;
-    std::wstring wstr;
-    convert_u32_to_wstr(src, wstr);
     const auto data_capacity = msg.descriptor.OutputSize > sizeof(CONSOLE_GETTITLE_MSG)
                                    ? msg.descriptor.OutputSize - sizeof(CONSOLE_GETTITLE_MSG)
                                    : 0;
 
     if (r->Unicode)
     {
+        std::wstring wstr;
+        convert_u32_to_wstr(src, wstr);
         // TitleLength 返回不含结尾 NUL 的字节数；completion size 包含写入的 NUL。
         auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
         auto maxc = std::min<size_t>(data_capacity,
@@ -1922,8 +1922,8 @@ inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buff
         auto maxb =
             std::min<size_t>(data_capacity, sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG));
         std::string encoded;
-        convert_wstr_to_ansi(std::wstring_view{wstr.data(), wstr.size()},
-                             state.input_code_page ? state.input_code_page : CP_ACP, encoded);
+        std::wstring wbuf;
+        convert_u32_to_ansi(src, state.input_code_page ? state.input_code_page : CP_ACP, encoded, wbuf);
         size_t written = 0;
         if (maxb >= encoded.size())
         {

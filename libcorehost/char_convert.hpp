@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <algorithm>
 #include <array>
 #include <optional>
 #include <libunicode/convert.h>
@@ -119,6 +120,22 @@ inline void convert_u32_to_utf8(std::u32string_view u32s, std::string &out)
     });
 }
 
+inline size_t utf16_prefix_units(std::wstring_view text, size_t max_units) noexcept
+{
+    auto count = std::min(text.size(), max_units);
+    if constexpr (sizeof(wchar_t) == 2)
+    {
+        if (count > 0 && count < text.size())
+        {
+            const auto last = static_cast<unsigned>(text[count - 1]);
+            const auto next = static_cast<unsigned>(text[count]);
+            if (last >= 0xD800 && last <= 0xDBFF && next >= 0xDC00 && next <= 0xDFFF)
+                --count;
+        }
+    }
+    return count;
+}
+
 inline void convert_utf8_to_wstr(std::string_view u8, std::wstring &out)
 {
     if (u8.empty())
@@ -205,21 +222,42 @@ inline void convert_wstr_to_ansi(std::wstring_view ws, UINT cp, std::string &out
     });
 }
 
-// wstring → ANSI 长度查询 (ConDrv 客户端需要精确值)
+inline void convert_ansi_to_utf8(const char *s, size_t len, UINT cp, std::string &out, std::wstring &wbuf)
+{
+    if (len == 0)
+    {
+        out.clear();
+        return;
+    }
+    if (cp == CP_UTF8 || cp == 65001)
+    {
+        out.assign(s, len);
+        return;
+    }
+    convert_ansi_to_wstr(s, len, cp, wbuf);
+    convert_wstr_to_utf8(std::wstring_view{wbuf.data(), wbuf.size()}, out);
+}
+
+// wstring → ANSI 字节数。非 UTF-8 ANSI 走 Windows 代码页长度查询；
+// UTF-8 分支禁止用 Win32 UTF 转换，只返回编码上界。
 inline size_t wstr_to_ansi_len(std::wstring_view ws, UINT cp) noexcept
 {
     if (ws.empty())
         return 0;
-    // 长度查询不包含结尾 NUL，调用者需要自己为 NUL 预留空间。
+    if (cp == CP_UTF8 || cp == 65001)
+        return wide_to_ansi_est(ws.size(), cp);
     int n = ::WideCharToMultiByte(cp, 0, ws.data(), static_cast<int>(ws.size()), nullptr, 0, nullptr, nullptr);
     return n > 0 ? static_cast<size_t>(n) : 0;
 }
 
-// ANSI → wstring 长度查询 (ConDrv 客户端需要精确值)
+// ANSI → wstring 字符数。非 UTF-8 ANSI 走 Windows 代码页长度查询；
+// UTF-8 分支只返回编码上界。
 inline size_t ansi_to_wstr_len(const char *s, size_t len, UINT cp) noexcept
 {
     if (len == 0)
         return 0;
+    if (cp == CP_UTF8 || cp == 65001)
+        return ansi_to_wide_est(len);
     int wl = ::MultiByteToWideChar(cp, 0, s, static_cast<int>(len), nullptr, 0);
     return wl > 0 ? static_cast<size_t>(wl) : 0;
 }
@@ -253,6 +291,11 @@ inline void convert_u32_to_ansi(std::u32string_view u32s, UINT cp, std::string &
         out.clear();
         return;
     }
+    if (cp == CP_UTF8 || cp == 65001)
+    {
+        convert_u32_to_utf8(u32s, out);
+        return;
+    }
     convert_u32_to_wstr(u32s, wbuf);
     convert_wstr_to_ansi(std::wstring_view{wbuf.data(), wbuf.size()}, cp, out);
 }
@@ -269,9 +312,9 @@ inline size_t convert_ansi_to_wide_raw(const char *s, size_t len, UINT cp, wchar
         return 0;
     if (cp == CP_UTF8 || cp == 65001)
     {
-        auto *p = reinterpret_cast<char16_t *>(out);
-        size_t n = unicode::detail::convert_utf8_to_utf16(s, len, p);
-        return n <= out_cap ? n : 0;
+        if (len > out_cap)
+            return 0;
+        return unicode::detail::convert_utf8_to_utf16(s, len, reinterpret_cast<char16_t *>(out));
     }
     int wl = ::MultiByteToWideChar(cp, 0, s, static_cast<int>(len), out, static_cast<int>(out_cap));
     return wl > 0 ? static_cast<size_t>(wl) : 0;
@@ -288,17 +331,16 @@ inline size_t convert_wide_to_ansi_raw(const wchar_t *s, size_t len, UINT cp, ch
     }
     if (cp == CP_UTF8 || cp == 65001)
     {
-        // raw 写入函数负责补 NUL；如果空间不足以容纳 NUL，返回 0 表示失败。
+        if (out_cap == 0 || wide_to_ansi_est(len, cp) >= out_cap)
+            return 0;
         auto *end = unicode::convert_to<char>(std::u16string_view{reinterpret_cast<const char16_t *>(s), len}, out);
-        size_t n = static_cast<size_t>(end - out);
-        if (n < out_cap)
-        {
-            out[n] = '\0';
-            return n;
-        }
-        return 0;
+        const auto written = static_cast<size_t>(end - out);
+        out[written] = '\0';
+        return written;
     }
-    int n = ::WideCharToMultiByte(cp, 0, s, static_cast<int>(len), out, static_cast<int>(out_cap), nullptr, nullptr);
+    if (out_cap == 0)
+        return 0;
+    int n = ::WideCharToMultiByte(cp, 0, s, static_cast<int>(len), out, static_cast<int>(out_cap - 1), nullptr, nullptr);
     if (n > 0)
     {
         out[n] = '\0';
