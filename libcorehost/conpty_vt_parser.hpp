@@ -9,7 +9,7 @@
 //     零拷贝，不产生额外的字符串内存分配。
 //   · parse() 返回 vt_message_id，continue_ 表示尚未完成，text 表示文本消息，
 //     unknown_sequence 表示未知/错误序列，其余为具体控制序列 id。
-//   · 提供 reset(id) 方法，根据已消费的消息类型精确重置受污染的字段，
+//   · 提供 reset<id>() 方法，根据已消费的消息类型精确重置受污染的字段，
 //     对于 text/unknown/title 消息还会清空内部缓冲区 _raw，兼顾性能与内存。
 //
 // 使用方式：
@@ -31,7 +31,7 @@
 //                   break;
 //               ...
 //           }
-//           p.reset(id);   // 消费后精确清理
+//           // case vt_message_id::text: p.reset<vt_message_id::text>();
 //       }
 //   }
 //
@@ -139,7 +139,7 @@ enum class vt_message_id
     set_scrolling_region,
     set_columns_132,
     set_columns_80,
-    resize_window, // \x1b[8;height;width t — terminal resize notification
+    resize_window,   // \x1b[8;height;width t — terminal resize notification
     win32_input_key, // \x1b[Vk;Sc;Uc;Kd;Cs;Rc_ — Win32 Input Mode 键盘事件
     cpr_response,    // \x1b[Pl;PcR — 终端对 DSR CPR 的应答
     sgr,
@@ -660,7 +660,8 @@ class vt_parser
 
   public:
     // 根据已消费的消息类型重置受污染的字段与解析器状态。
-    void reset(vt_message_id id)
+    template <vt_message_id id>
+    void reset()
     {
         switch (id)
         {
@@ -1506,8 +1507,7 @@ class vt_parser
             {
                 m.cpr_row = _clamp(_get_param(0, 1));
                 m.cpr_col = _clamp(_get_param(1, 1));
-                return (m.cpr_row > 0 && m.cpr_col > 0) ? vt_message_id::cpr_response
-                                                        : vt_message_id::continue_;
+                return (m.cpr_row > 0 && m.cpr_col > 0) ? vt_message_id::cpr_response : vt_message_id::continue_;
             }
             return vt_message_id::continue_;
 

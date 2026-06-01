@@ -426,6 +426,7 @@ inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg,
     const auto view = sb.viewport.rect();
     const auto origin = sb.viewport.origin();
     const auto count = static_cast<SHORT>(std::max<int>(1, msg.count));
+    // case 顺序与 vt_message_id 枚举声明顺序保持一致。
     switch (id)
     {
     case vt_message_id::text:
@@ -440,25 +441,15 @@ inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg,
     case vt_message_id::reverse_index:
         apply_terminal_reverse_index(state, sb);
         break;
-    case vt_message_id::cursor_position: {
-        auto adjusted = msg;
-        adjusted.row = static_cast<short>(msg.row + origin.Y);
-        adjusted.col = static_cast<short>(msg.col + origin.X);
-        vt_msg_apply_state(id, adjusted, state, sb);
+    case vt_message_id::horizontal_tab_set:
+        state.set_tab_stop(terminal_relative_column(state, sb));
         break;
-    }
-    case vt_message_id::cursor_horiz_absolute: {
-        auto adjusted = msg;
-        adjusted.col = static_cast<short>(msg.col + origin.X);
-        vt_msg_apply_state(id, adjusted, state, sb);
+    case vt_message_id::tab_clear_current:
+        state.clear_tab_stop(terminal_relative_column(state, sb));
         break;
-    }
-    case vt_message_id::cursor_vert_absolute: {
-        auto adjusted = msg;
-        adjusted.row = static_cast<short>(msg.row + origin.Y);
-        vt_msg_apply_state(id, adjusted, state, sb);
+    case vt_message_id::tab_clear_all:
+        state.clear_all_tab_stops();
         break;
-    }
     case vt_message_id::cursor_up:
         state.cursor.position.Y = std::max<SHORT>(view.Top, static_cast<SHORT>(state.cursor.position.Y - count));
         break;
@@ -470,12 +461,6 @@ inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg,
         break;
     case vt_message_id::cursor_backward:
         state.cursor.position.X = std::max<SHORT>(view.Left, static_cast<SHORT>(state.cursor.position.X - count));
-        break;
-    case vt_message_id::cursor_forward_tab:
-        apply_terminal_forward_tab(msg, state, sb);
-        break;
-    case vt_message_id::cursor_backward_tab:
-        apply_terminal_backward_tab(msg, state, sb);
         break;
     case vt_message_id::cursor_next_line:
         state.cursor.position.X = view.Left;
@@ -497,6 +482,15 @@ inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg,
                   state.default_attributes);
         break;
     }
+    case vt_message_id::insert_characters:
+        apply_terminal_insert_characters(msg, state, sb);
+        break;
+    case vt_message_id::delete_characters:
+        apply_terminal_delete_characters(msg, state, sb);
+        break;
+    case vt_message_id::erase_characters:
+        apply_terminal_erase_characters(msg, state, sb);
+        break;
     case vt_message_id::insert_lines: {
         const auto region = terminal_scroll_region(state, sb);
         if (state.cursor.position.Y >= region.Top && state.cursor.position.Y <= region.Bottom)
@@ -517,29 +511,36 @@ inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg,
         }
         break;
     }
-    case vt_message_id::insert_characters:
-        apply_terminal_insert_characters(msg, state, sb);
+    case vt_message_id::cursor_forward_tab:
+        apply_terminal_forward_tab(msg, state, sb);
         break;
-    case vt_message_id::delete_characters:
-        apply_terminal_delete_characters(msg, state, sb);
+    case vt_message_id::cursor_backward_tab:
+        apply_terminal_backward_tab(msg, state, sb);
         break;
-    case vt_message_id::erase_characters:
-        apply_terminal_erase_characters(msg, state, sb);
+    case vt_message_id::cursor_vert_absolute: {
+        auto adjusted = msg;
+        adjusted.row = static_cast<short>(msg.row + origin.Y);
+        vt_msg_apply_state(id, adjusted, state, sb);
         break;
+    }
+    case vt_message_id::cursor_horiz_absolute: {
+        auto adjusted = msg;
+        adjusted.col = static_cast<short>(msg.col + origin.X);
+        vt_msg_apply_state(id, adjusted, state, sb);
+        break;
+    }
+    case vt_message_id::cursor_position: {
+        auto adjusted = msg;
+        adjusted.row = static_cast<short>(msg.row + origin.Y);
+        adjusted.col = static_cast<short>(msg.col + origin.X);
+        vt_msg_apply_state(id, adjusted, state, sb);
+        break;
+    }
     case vt_message_id::erase_in_display:
         apply_terminal_erase_in_display(msg, state, sb);
         break;
     case vt_message_id::erase_in_line:
         apply_terminal_erase_in_line(msg, state, sb);
-        break;
-    case vt_message_id::horizontal_tab_set:
-        state.set_tab_stop(terminal_relative_column(state, sb));
-        break;
-    case vt_message_id::tab_clear_current:
-        state.clear_tab_stop(terminal_relative_column(state, sb));
-        break;
-    case vt_message_id::tab_clear_all:
-        state.clear_all_tab_stops();
         break;
     case vt_message_id::set_scrolling_region:
         apply_terminal_scrolling_region(msg, state, sb);
@@ -608,30 +609,303 @@ inline bool can_passthrough_write_console_vt(vt_message_id id) noexcept
     }
 }
 
-inline void consume_write_console_vt_message(vt_message_id id, vt_parser &parser, console_state &state,
-                                             screen_buffer &sb, pipe_bridge &bridge)
+template <vt_message_id id>
+inline void consume_write_console_vt_message(vt_parser &parser, console_state &state, screen_buffer &sb,
+                                             pipe_bridge &bridge)
 {
     auto &msg = parser.get();
-    if (id == vt_message_id::unknown_sequence)
+    if constexpr (id == vt_message_id::unknown_sequence)
     {
-        parser.reset(id);
+        parser.reset<vt_message_id::unknown_sequence>();
         return;
     }
 
     const auto raw = parser.raw_sequence();
     if (!raw.empty() && can_passthrough_write_console_vt(id))
-    {
         bridge.vt_append_raw_sequence(raw);
-    }
     else
-    {
-        bridge.vt_msg_send(id, msg);
-    }
-    if (id != vt_message_id::sgr)
+        bridge.vt_msg_send<id>(msg);
+
+    if constexpr (id != vt_message_id::sgr)
         vt_msg_apply_terminal_state(id, msg, state, sb);
-    parser.reset(id);
+    parser.reset<id>();
 }
 
+inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parser, console_state &state,
+                                              screen_buffer &sb, pipe_bridge &bridge)
+{
+    // case 顺序与 vt_message_id 枚举声明顺序保持一致。
+    switch (id)
+    {
+    case vt_message_id::continue_text:
+        consume_write_console_vt_message<vt_message_id::continue_text>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::continue_:
+        consume_write_console_vt_message<vt_message_id::continue_>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::text:
+        consume_write_console_vt_message<vt_message_id::text>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::unknown_sequence:
+        consume_write_console_vt_message<vt_message_id::unknown_sequence>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::carriage_return:
+        consume_write_console_vt_message<vt_message_id::carriage_return>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::line_feed:
+        consume_write_console_vt_message<vt_message_id::line_feed>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::reverse_index:
+        consume_write_console_vt_message<vt_message_id::reverse_index>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::save_cursor:
+        consume_write_console_vt_message<vt_message_id::save_cursor>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::restore_cursor:
+        consume_write_console_vt_message<vt_message_id::restore_cursor>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::horizontal_tab_set:
+        consume_write_console_vt_message<vt_message_id::horizontal_tab_set>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::keypad_app_mode:
+        consume_write_console_vt_message<vt_message_id::keypad_app_mode>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::keypad_numeric_mode:
+        consume_write_console_vt_message<vt_message_id::keypad_numeric_mode>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::designate_charset_line_drawing:
+        consume_write_console_vt_message<vt_message_id::designate_charset_line_drawing>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::designate_charset_ascii:
+        consume_write_console_vt_message<vt_message_id::designate_charset_ascii>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::ansi_save_cursor:
+        consume_write_console_vt_message<vt_message_id::ansi_save_cursor>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::ansi_restore_cursor:
+        consume_write_console_vt_message<vt_message_id::ansi_restore_cursor>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_enable_blinking:
+        consume_write_console_vt_message<vt_message_id::cursor_enable_blinking>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_disable_blinking:
+        consume_write_console_vt_message<vt_message_id::cursor_disable_blinking>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_show:
+        consume_write_console_vt_message<vt_message_id::cursor_show>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_hide:
+        consume_write_console_vt_message<vt_message_id::cursor_hide>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_keys_app_mode:
+        consume_write_console_vt_message<vt_message_id::cursor_keys_app_mode>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_keys_normal_mode:
+        consume_write_console_vt_message<vt_message_id::cursor_keys_normal_mode>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::report_cursor_position:
+        consume_write_console_vt_message<vt_message_id::report_cursor_position>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::device_attributes:
+        consume_write_console_vt_message<vt_message_id::device_attributes>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::tab_clear_current:
+        consume_write_console_vt_message<vt_message_id::tab_clear_current>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::tab_clear_all:
+        consume_write_console_vt_message<vt_message_id::tab_clear_all>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::set_window_title:
+        consume_write_console_vt_message<vt_message_id::set_window_title>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::use_alternate_buffer:
+        consume_write_console_vt_message<vt_message_id::use_alternate_buffer>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::use_main_buffer:
+        consume_write_console_vt_message<vt_message_id::use_main_buffer>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::soft_reset:
+        consume_write_console_vt_message<vt_message_id::soft_reset>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_up:
+        consume_write_console_vt_message<vt_message_id::key_up>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_down:
+        consume_write_console_vt_message<vt_message_id::key_down>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_right:
+        consume_write_console_vt_message<vt_message_id::key_right>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_left:
+        consume_write_console_vt_message<vt_message_id::key_left>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_home:
+        consume_write_console_vt_message<vt_message_id::key_home>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_end:
+        consume_write_console_vt_message<vt_message_id::key_end>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_insert:
+        consume_write_console_vt_message<vt_message_id::key_insert>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_delete:
+        consume_write_console_vt_message<vt_message_id::key_delete>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_page_up:
+        consume_write_console_vt_message<vt_message_id::key_page_up>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_page_down:
+        consume_write_console_vt_message<vt_message_id::key_page_down>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_f1:
+        consume_write_console_vt_message<vt_message_id::key_f1>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_f2:
+        consume_write_console_vt_message<vt_message_id::key_f2>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_f3:
+        consume_write_console_vt_message<vt_message_id::key_f3>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_f4:
+        consume_write_console_vt_message<vt_message_id::key_f4>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_f5:
+        consume_write_console_vt_message<vt_message_id::key_f5>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_f6:
+        consume_write_console_vt_message<vt_message_id::key_f6>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_f7:
+        consume_write_console_vt_message<vt_message_id::key_f7>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_f8:
+        consume_write_console_vt_message<vt_message_id::key_f8>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_f9:
+        consume_write_console_vt_message<vt_message_id::key_f9>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_f10:
+        consume_write_console_vt_message<vt_message_id::key_f10>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_f11:
+        consume_write_console_vt_message<vt_message_id::key_f11>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_f12:
+        consume_write_console_vt_message<vt_message_id::key_f12>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_ctrl_up:
+        consume_write_console_vt_message<vt_message_id::key_ctrl_up>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_ctrl_down:
+        consume_write_console_vt_message<vt_message_id::key_ctrl_down>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_ctrl_right:
+        consume_write_console_vt_message<vt_message_id::key_ctrl_right>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::key_ctrl_left:
+        consume_write_console_vt_message<vt_message_id::key_ctrl_left>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::char_del:
+        consume_write_console_vt_message<vt_message_id::char_del>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::char_sub:
+        consume_write_console_vt_message<vt_message_id::char_sub>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::char_esc:
+        consume_write_console_vt_message<vt_message_id::char_esc>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::char_nul:
+        consume_write_console_vt_message<vt_message_id::char_nul>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_up:
+        consume_write_console_vt_message<vt_message_id::cursor_up>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_down:
+        consume_write_console_vt_message<vt_message_id::cursor_down>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_forward:
+        consume_write_console_vt_message<vt_message_id::cursor_forward>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_backward:
+        consume_write_console_vt_message<vt_message_id::cursor_backward>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_next_line:
+        consume_write_console_vt_message<vt_message_id::cursor_next_line>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_prev_line:
+        consume_write_console_vt_message<vt_message_id::cursor_prev_line>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::scroll_up:
+        consume_write_console_vt_message<vt_message_id::scroll_up>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::scroll_down:
+        consume_write_console_vt_message<vt_message_id::scroll_down>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::insert_characters:
+        consume_write_console_vt_message<vt_message_id::insert_characters>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::delete_characters:
+        consume_write_console_vt_message<vt_message_id::delete_characters>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::erase_characters:
+        consume_write_console_vt_message<vt_message_id::erase_characters>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::insert_lines:
+        consume_write_console_vt_message<vt_message_id::insert_lines>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::delete_lines:
+        consume_write_console_vt_message<vt_message_id::delete_lines>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_forward_tab:
+        consume_write_console_vt_message<vt_message_id::cursor_forward_tab>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_backward_tab:
+        consume_write_console_vt_message<vt_message_id::cursor_backward_tab>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_vert_absolute:
+        consume_write_console_vt_message<vt_message_id::cursor_vert_absolute>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_horiz_absolute:
+        consume_write_console_vt_message<vt_message_id::cursor_horiz_absolute>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cursor_position:
+        consume_write_console_vt_message<vt_message_id::cursor_position>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::set_cursor_shape:
+        consume_write_console_vt_message<vt_message_id::set_cursor_shape>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::erase_in_display:
+        consume_write_console_vt_message<vt_message_id::erase_in_display>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::erase_in_line:
+        consume_write_console_vt_message<vt_message_id::erase_in_line>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::set_palette_color:
+        consume_write_console_vt_message<vt_message_id::set_palette_color>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::set_scrolling_region:
+        consume_write_console_vt_message<vt_message_id::set_scrolling_region>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::set_columns_132:
+        consume_write_console_vt_message<vt_message_id::set_columns_132>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::set_columns_80:
+        consume_write_console_vt_message<vt_message_id::set_columns_80>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::resize_window:
+        consume_write_console_vt_message<vt_message_id::resize_window>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::win32_input_key:
+        consume_write_console_vt_message<vt_message_id::win32_input_key>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::cpr_response:
+        consume_write_console_vt_message<vt_message_id::cpr_response>(parser, state, sb, bridge);
+        break;
+    case vt_message_id::sgr:
+        consume_write_console_vt_message<vt_message_id::sgr>(parser, state, sb, bridge);
+        break;
+    }
+}
 // ── completion 辅助 ──
 
 inline void ucomplete(miniio::io_msg &msg)
@@ -819,7 +1093,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             WORD attr = state.default_attributes;
             m = vt_message{};
             set_sgr_from_win32_attr(m, attr);
-            bridge.vt_msg_send(vt_message_id::sgr, m);
+            bridge.vt_msg_send<vt_message_id::sgr>(m);
             vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
 
             auto &output_parser = bridge.output_parser();
@@ -864,7 +1138,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
 
                     {
                         COREHOST_PERF_SCOPE(write_console_consume_msg);
-                        consume_write_console_vt_message(id, output_parser, state, sb, bridge);
+                        dispatch_write_console_vt_message(id, output_parser, state, sb, bridge);
                     }
                 }
             }
@@ -875,14 +1149,14 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                 if (auto id = output_parser.flush_text(); id != vt_message_id::continue_)
                 {
                     auto &pm = output_parser.get();
-                    bridge.vt_msg_send(id, pm);
+                    bridge.vt_msg_send<vt_message_id::text>(pm);
                     vt_msg_apply_terminal_state(id, pm, state, sb);
-                    output_parser.reset(id);
+                    output_parser.reset<vt_message_id::text>();
                 }
                 // 排空 parser 残留的 _pending_control，例如文本以单独 '\r' 结束。
                 if (auto id = output_parser.parse(U'\0');
                     id != vt_message_id::continue_ && id != vt_message_id::continue_text)
-                    consume_write_console_vt_message(id, output_parser, state, sb, bridge);
+                    dispatch_write_console_vt_message(id, output_parser, state, sb, bridge);
             }
 
             // VT 已写入宿主终端后，同步 bridge 的行编辑边界到新的 Console
@@ -1064,11 +1338,11 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
         bridge.reset_enter_newline();
         vt_message erase_display{};
         erase_display.erase_mode = 2;
-        bridge.vt_msg_send(vt_message_id::erase_in_display, erase_display);
+        bridge.vt_msg_send<vt_message_id::erase_in_display>(erase_display);
         vt_msg_apply_state(vt_message_id::erase_in_display, erase_display, state, sb);
         vt_message erase_scrollback{};
         erase_scrollback.erase_mode = 3;
-        bridge.vt_msg_send(vt_message_id::erase_in_display, erase_scrollback);
+        bridge.vt_msg_send<vt_message_id::erase_in_display>(erase_scrollback);
         vt_msg_apply_state(vt_message_id::erase_in_display, erase_scrollback, state, sb);
         bridge.vt_flush();
     }
@@ -1077,13 +1351,13 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
         // 局部填充不应改变应用可见光标。终端侧用 save/CUP/write/restore，
         // 本地 screen_buffer 已在上方 fill_* 完成。
         vt_message msg_save{};
-        bridge.vt_msg_send(vt_message_id::save_cursor, msg_save);
+        bridge.vt_msg_send<vt_message_id::save_cursor>(msg_save);
         vt_msg_apply_state(vt_message_id::save_cursor, msg_save, state, sb);
 
         vt_message msg_cup{};
         msg_cup.row = static_cast<short>(r->WriteCoord.Y + 1);
         msg_cup.col = static_cast<short>(r->WriteCoord.X + 1);
-        bridge.vt_msg_send(vt_message_id::cursor_position, msg_cup);
+        bridge.vt_msg_send<vt_message_id::cursor_position>(msg_cup);
         vt_msg_apply_state(vt_message_id::cursor_position, msg_cup, state, sb);
 
         if (r->ElementType == CONSOLE_ATTRIBUTE)
@@ -1103,8 +1377,8 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
                 vt_message row_cup{};
                 row_cup.row = static_cast<short>(y + 1);
                 row_cup.col = static_cast<short>(x + 1);
-                bridge.vt_msg_send(vt_message_id::cursor_position, row_cup);
-                bridge.vt_msg_send(vt_message_id::sgr, m_sgr);
+                bridge.vt_msg_send<vt_message_id::cursor_position>(row_cup);
+                bridge.vt_msg_send<vt_message_id::sgr>(m_sgr);
 
                 fill_text.clear();
                 fill_text.reserve(n);
@@ -1112,7 +1386,7 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
                     fill_text.push_back(sb.at_u32({static_cast<SHORT>(x + i), y}));
                 vt_message m_text{};
                 m_text.text = fill_text;
-                bridge.vt_msg_send(vt_message_id::text, m_text);
+                bridge.vt_msg_send<vt_message_id::text>(m_text);
 
                 remaining -= n;
                 x = 0;
@@ -1121,7 +1395,7 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
 
             vt_message restore_attr{};
             set_sgr_from_win32_attr(restore_attr, state.default_attributes);
-            bridge.vt_msg_send(vt_message_id::sgr, restore_attr);
+            bridge.vt_msg_send<vt_message_id::sgr>(restore_attr);
         }
         else
         {
@@ -1131,12 +1405,12 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
             fill_text.assign(static_cast<size_t>(r->Length), fill_char);
             vt_message m_text{};
             m_text.text = fill_text;
-            bridge.vt_msg_send(vt_message_id::text, m_text);
+            bridge.vt_msg_send<vt_message_id::text>(m_text);
             vt_msg_apply_state(vt_message_id::text, m_text, state, sb);
         }
 
         vt_message msg_restore{};
-        bridge.vt_msg_send(vt_message_id::restore_cursor, msg_restore);
+        bridge.vt_msg_send<vt_message_id::restore_cursor>(msg_restore);
         vt_msg_apply_state(vt_message_id::restore_cursor, msg_restore, state, sb);
         bridge.vt_flush();
     }
@@ -1232,7 +1506,10 @@ inline bool api_set_cursor(miniio::io_msg &msg, console_state &state, screen_buf
     state.cursor.size = r->CursorSize;
     state.cursor.visible = r->Visible != FALSE;
     vt_message m{};
-    bridge.vt_msg_send(state.cursor.visible ? vt_message_id::cursor_show : vt_message_id::cursor_hide, m);
+    if (state.cursor.visible)
+        bridge.vt_msg_send<vt_message_id::cursor_show>(m);
+    else
+        bridge.vt_msg_send<vt_message_id::cursor_hide>(m);
     vt_msg_apply_state(state.cursor.visible ? vt_message_id::cursor_show : vt_message_id::cursor_hide, m, state, sb);
     bridge.vt_flush();
     ucomplete(msg);
@@ -1454,7 +1731,7 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
     {
         // 局部滚动用临时 scroll region 约束终端影响范围，并在结束后恢复光标。
         vt_message m_save{};
-        bridge.vt_msg_send(vt_message_id::save_cursor, m_save);
+        bridge.vt_msg_send<vt_message_id::save_cursor>(m_save);
 
         SMALL_RECT cr = r->Clip
                             ? r->ClipRectangle
@@ -1462,13 +1739,13 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
         vt_message m_region{};
         m_region.scroll_top = static_cast<short>(cr.Top + 1);
         m_region.scroll_bottom = static_cast<short>(cr.Bottom + 1);
-        bridge.vt_msg_send(vt_message_id::set_scrolling_region, m_region);
+        bridge.vt_msg_send<vt_message_id::set_scrolling_region>(m_region);
         vt_msg_apply_state(vt_message_id::set_scrolling_region, m_region, state, sb);
 
         vt_message m_cup{};
         m_cup.row = static_cast<short>(sr.Bottom + 1);
         m_cup.col = static_cast<short>(sr.Left + 1);
-        bridge.vt_msg_send(vt_message_id::cursor_position, m_cup);
+        bridge.vt_msg_send<vt_message_id::cursor_position>(m_cup);
 
         SHORT dy = r->DestinationOrigin.Y - sr.Top;
         // dy<0 表示目标在上方，需要插入行把内容向下推；dy>0 则删除行。
@@ -1476,24 +1753,24 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
         {
             vt_message m_il{};
             m_il.count = -dy;
-            bridge.vt_msg_send(vt_message_id::insert_lines, m_il);
+            bridge.vt_msg_send<vt_message_id::insert_lines>(m_il);
             vt_msg_apply_state(vt_message_id::insert_lines, m_il, state, sb);
         }
         else if (dy > 0)
         {
             vt_message m_dl{};
             m_dl.count = dy;
-            bridge.vt_msg_send(vt_message_id::delete_lines, m_dl);
+            bridge.vt_msg_send<vt_message_id::delete_lines>(m_dl);
             vt_msg_apply_state(vt_message_id::delete_lines, m_dl, state, sb);
         }
 
         vt_message m_reset{};
         m_reset.scroll_top = 1;
         m_reset.scroll_bottom = 0;
-        bridge.vt_msg_send(vt_message_id::set_scrolling_region, m_reset);
+        bridge.vt_msg_send<vt_message_id::set_scrolling_region>(m_reset);
 
         vt_message m_restore{};
-        bridge.vt_msg_send(vt_message_id::restore_cursor, m_restore);
+        bridge.vt_msg_send<vt_message_id::restore_cursor>(m_restore);
         bridge.vt_flush();
     } // end else (!full_screen_scroll)
 
@@ -1522,7 +1799,7 @@ inline bool api_set_text_attr(miniio::io_msg &msg, console_state &state, screen_
     vt_message m{};
     WORD attr = r->Attributes;
     set_sgr_from_win32_attr(m, attr);
-    bridge.vt_msg_send(vt_message_id::sgr, m);
+    bridge.vt_msg_send<vt_message_id::sgr>(m);
     vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
     bridge.vt_flush();
     ucomplete(msg);
@@ -1777,14 +2054,14 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
     }
     // WriteConsoleOutput 不移动应用光标。终端侧保存光标后按格子重绘，再恢复。
     vt_message m{};
-    bridge.vt_msg_send(vt_message_id::save_cursor, m);
+    bridge.vt_msg_send<vt_message_id::save_cursor>(m);
 
     for (SHORT y = clipped.Top; y <= clipped.Bottom; ++y)
     {
         m = vt_message{};
         m.row = static_cast<short>(y + 1);
         m.col = static_cast<short>(clipped.Left + 1);
-        bridge.vt_msg_send(vt_message_id::cursor_position, m);
+        bridge.vt_msg_send<vt_message_id::cursor_position>(m);
 
         for (SHORT x = clipped.Left; x <= clipped.Right; ++x)
         {
@@ -1792,17 +2069,17 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
             // 后续可在这里合并连续相同属性的 run。
             m = vt_message{};
             set_sgr_from_win32_attr(m, sb.attr_at({x, y}));
-            bridge.vt_msg_send(vt_message_id::sgr, m);
+            bridge.vt_msg_send<vt_message_id::sgr>(m);
 
             char32_t ch = sb.at_u32({x, y});
             m = vt_message{};
             m.text = std::u32string_view{&ch, 1};
-            bridge.vt_msg_send(vt_message_id::text, m);
+            bridge.vt_msg_send<vt_message_id::text>(m);
         }
     }
 
     m = vt_message{};
-    bridge.vt_msg_send(vt_message_id::restore_cursor, m);
+    bridge.vt_msg_send<vt_message_id::restore_cursor>(m);
     bridge.vt_flush();
     bridge.sync_cursor_after_write(state.cursor.position);
     LOG("[api_write_console_output] done: tc_synced=(%d,%d)", state.cursor.position.X, state.cursor.position.Y);
@@ -1885,23 +2162,23 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
         {
             // 终端也要保持光标不动，因此使用 save/CUP/write/restore。
             vt_message m{};
-            bridge.vt_msg_send(vt_message_id::save_cursor, m);
+            bridge.vt_msg_send<vt_message_id::save_cursor>(m);
 
             m = vt_message{};
             m.row = static_cast<short>(r->WriteCoord.Y + 1);
             m.col = static_cast<short>(r->WriteCoord.X + 1);
-            bridge.vt_msg_send(vt_message_id::cursor_position, m);
+            bridge.vt_msg_send<vt_message_id::cursor_position>(m);
 
             m = vt_message{};
             set_sgr_from_win32_attr(m, state.default_attributes);
-            bridge.vt_msg_send(vt_message_id::sgr, m);
+            bridge.vt_msg_send<vt_message_id::sgr>(m);
 
             m = vt_message{};
             m.text = std::u32string_view{u32text.data(), written_u32};
-            bridge.vt_msg_send(vt_message_id::text, m);
+            bridge.vt_msg_send<vt_message_id::text>(m);
 
             m = vt_message{};
-            bridge.vt_msg_send(vt_message_id::restore_cursor, m);
+            bridge.vt_msg_send<vt_message_id::restore_cursor>(m);
             bridge.vt_flush();
         }
     }
@@ -2087,7 +2364,7 @@ inline bool api_set_title(miniio::io_msg &msg, console_state &state, screen_buff
     // 状态更新后立即用 OSC 0 同步宿主终端标题。
     vt_message m{};
     m.title = state.title;
-    bridge.vt_msg_send(vt_message_id::set_window_title, m);
+    bridge.vt_msg_send<vt_message_id::set_window_title>(m);
     bridge.vt_flush();
 
     ucomplete(msg);

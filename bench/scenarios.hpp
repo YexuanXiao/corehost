@@ -48,9 +48,9 @@ inline std::vector<scenario_result> run_worker_bench(std::string host_label, std
 
     if (should_run_scenario(scenario_filter, "large-mixed-vt-cjk-output"))
     {
-        append_worker_result(results, run_large_mixed_vt_cjk_output(host_label, "large-mixed-vt-cjk-output",
-                                                                    48ull * 1024ull * 1024ull,
-                                                                    std::chrono::seconds{15}));
+        append_worker_result(results,
+                             run_large_mixed_vt_cjk_output(host_label, "large-mixed-vt-cjk-output",
+                                                           48ull * 1024ull * 1024ull, std::chrono::seconds{15}));
     }
 
     if (const auto *test_case = filtered_sgr_case(scenario_filter))
@@ -67,8 +67,7 @@ inline std::vector<scenario_result> run_worker_bench(std::string host_label, std
             std::string name = "sgr-";
             name.append(test_case.name);
             append_worker_result(results, run_sgr_sequence_case(host_label, std::move(name), test_case.name,
-                                                                16ull * 1024ull * 1024ull,
-                                                                std::chrono::seconds{15}));
+                                                                16ull * 1024ull * 1024ull, std::chrono::seconds{15}));
         }
     }
 

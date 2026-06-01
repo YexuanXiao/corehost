@@ -463,9 +463,8 @@ struct screen_buffer
 
         // dx/dy 是源矩形相对目标位置的偏移。
         SHORT dx = dest.X - sr.Left, dy = dest.Y - sr.Top;
-        if (dx == 0 && dy != 0 && sr.Left == 0 && sr.Top == 0 && sr.Right == size.X - 1 &&
-            sr.Bottom == size.Y - 1 && clip.Left == 0 && clip.Top == 0 && clip.Right == size.X - 1 &&
-            clip.Bottom == size.Y - 1)
+        if (dx == 0 && dy != 0 && sr.Left == 0 && sr.Top == 0 && sr.Right == size.X - 1 && sr.Bottom == size.Y - 1 &&
+            clip.Left == 0 && clip.Top == 0 && clip.Right == size.X - 1 && clip.Bottom == size.Y - 1)
         {
             const auto height = static_cast<size_t>(size.Y);
             const auto count = std::min<size_t>(dy < 0 ? -static_cast<int>(dy) : static_cast<int>(dy), height);
@@ -649,7 +648,8 @@ struct screen_buffer
         if (_row_origin == 0 || _rows.empty())
             return;
 
-        std::rotate(_rows.begin(), _rows.begin() + static_cast<std::vector<screen_buffer_row>::difference_type>(_row_origin),
+        std::rotate(_rows.begin(),
+                    _rows.begin() + static_cast<std::vector<screen_buffer_row>::difference_type>(_row_origin),
                     _rows.end());
         _row_origin = 0;
     }

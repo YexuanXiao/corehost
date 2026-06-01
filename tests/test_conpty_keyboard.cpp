@@ -3,12 +3,14 @@
 // Tests VT parser -> vt_message -> INPUT_RECORD pipeline.
 #include "test_common.hpp"
 #include "conpty_vt_parser.hpp"
+#include "vt_parser_test_helpers.hpp"
 #include "conpty_vt_input_engine.hpp"
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
 #include "vt_msg_dispatch.hpp"
 
 using namespace conpty;
+using conpty::test::reset_test_vt_parser_message;
 
 struct input_collector
 {
@@ -292,7 +294,7 @@ struct test_bridge_stub
                 ir.Event.KeyEvent.dwControlKeyState = m.win32_cs;
                 events.push_back(ir);
             }
-            parser.reset(id);
+            reset_test_vt_parser_message(parser, id);
         }
     }
 

@@ -9,6 +9,7 @@
 //
 #include "test_common.hpp"
 #include "conpty_vt_parser.hpp"
+#include "vt_parser_test_helpers.hpp"
 #include "utility/crtdbg.hpp"
 
 #include <random>
@@ -19,6 +20,7 @@
 #include <cstring> // memcmp
 
 using namespace conpty;
+using conpty::test::reset_test_vt_parser_message;
 
 // ============================================================================
 // 随机数工具（种子固定，可重现
@@ -721,7 +723,7 @@ bool test_smoke()
     // ESC M reverse_index
     ASSERT(p.parse(U'\x1B') == vt_message_id::continue_);
     ASSERT(p.parse(U'M') == vt_message_id::reverse_index);
-    p.reset(vt_message_id::reverse_index);
+    p.reset<vt_message_id::reverse_index>();
 
     // ESC [ 1 A cursor_up
     ASSERT(p.parse(U'\x1B') == vt_message_id::continue_);
@@ -729,7 +731,7 @@ bool test_smoke()
     ASSERT(p.parse(U'1') == vt_message_id::continue_);
     ASSERT(p.parse(U'A') == vt_message_id::cursor_up);
     ASSERT(p.get().count == 1);
-    p.reset(vt_message_id::cursor_up);
+    p.reset<vt_message_id::cursor_up>();
 
     // ESC ] 0 ; hello BEL set_window_title
     ASSERT(p.parse(U'\x1B') == vt_message_id::continue_);
@@ -740,7 +742,7 @@ bool test_smoke()
     ASSERT(p.parse(U'i') == vt_message_id::continue_);
     ASSERT(p.parse(0x07) == vt_message_id::set_window_title);
     ASSERT(p.get().title == U"hi");
-    p.reset(vt_message_id::set_window_title);
+    p.reset<vt_message_id::set_window_title>();
 
     // Esc followed by text "ab"
     ASSERT(p.parse(U'a') == vt_message_id::continue_text);
@@ -768,7 +770,7 @@ bool test_positive_single()
                 got_message = true;
                 if (!gen.verify(id, parser.get()))
                     return false;
-                parser.reset(id); // 消费后精确清
+                reset_test_vt_parser_message(parser, id); // 消费后精确清
             }
         }
         ASSERT(got_message);
@@ -801,7 +803,7 @@ bool test_positive_concatenated()
                 ASSERT(parsed_idx < msg_count);
                 if (!gens[parsed_idx].verify(id, parser.get()))
                     return false;
-                parser.reset(id);
+                reset_test_vt_parser_message(parser, id);
                 ++parsed_idx;
             }
         }
@@ -852,7 +854,7 @@ bool test_positive_with_text()
                     if (!gen.verify(id, parser.get()))
                         return false;
                 }
-                parser.reset(id);
+                reset_test_vt_parser_message(parser, id);
             }
         }
         ASSERT(msg_received);
@@ -885,7 +887,7 @@ bool test_illegal_as_unknown_sequence(const raw_seq &seq)
             for (size_t j = 0; j < txt.size(); ++j)
                 ASSERT(txt[j] == seq.code_points[j]);
             produced = true;
-            parser.reset(id);
+            reset_test_vt_parser_message(parser, id);
             break; // 只期望一条消
         }
     }
@@ -1079,7 +1081,7 @@ bool test_illegal_mixed()
                 for (size_t j = 0; j < txt.size(); ++j)
                     ASSERT(txt[j] == c.seq.code_points[j]);
                 got = true;
-                parser.reset(id);
+                reset_test_vt_parser_message(parser, id);
                 break;
             }
         }
@@ -1106,7 +1108,7 @@ bool test_parse_resize_window_basic()
             ASSERT(p.get().resize_rows == 40);
             ASSERT(p.get().resize_cols == 100);
             got = true;
-            p.reset(id);
+            reset_test_vt_parser_message(p, id);
         }
     }
     ASSERT(got);
@@ -1126,7 +1128,7 @@ bool test_parse_resize_window_zero_invalid()
         {
             ASSERT(id == vt_message_id::unknown_sequence);
             got_text = true;
-            p.reset(id);
+            reset_test_vt_parser_message(p, id);
         }
     }
     ASSERT(got_text);
@@ -1146,7 +1148,7 @@ bool test_parse_resize_window_pixel_is_text()
         {
             ASSERT(id == vt_message_id::unknown_sequence);
             got_text = true;
-            p.reset(id);
+            reset_test_vt_parser_message(p, id);
         }
     }
     ASSERT(got_text);
@@ -1165,7 +1167,7 @@ bool test_parse_resize_window_fields_reset()
         if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
         {
             ASSERT(id == vt_message_id::resize_window);
-            p.reset(id);
+            reset_test_vt_parser_message(p, id);
         }
     }
     for (char32_t ch : U"hello")
@@ -1176,7 +1178,7 @@ bool test_parse_resize_window_fields_reset()
             continue;
         ASSERT(p.get().resize_rows == 0);
         ASSERT(p.get().resize_cols == 0);
-        p.reset(id);
+        reset_test_vt_parser_message(p, id);
     }
     return true;
 }
@@ -1199,14 +1201,14 @@ std::u32string feed_and_collect_text(const std::u32string &input)
         {
             if (id == vt_message_id::text)
                 collected.append(p.get().text);
-            p.reset(id);
+            reset_test_vt_parser_message(p, id);
 
             // drain 排队消息
             if (auto d_id = p.parse(U'\0'); d_id != vt_message_id::continue_ && d_id != vt_message_id::continue_text)
             {
                 if (d_id == vt_message_id::text)
                     collected.append(p.get().text);
-                p.reset(d_id);
+                reset_test_vt_parser_message(p, d_id);
             }
         }
     }
@@ -1215,7 +1217,7 @@ std::u32string feed_and_collect_text(const std::u32string &input)
     {
         if (id == vt_message_id::text)
             collected.append(p.get().text);
-        p.reset(id);
+        reset_test_vt_parser_message(p, id);
     }
     return collected;
 }
@@ -1249,7 +1251,7 @@ bool test_regression_bare_cr_produces_carriage_return()
         {
             ASSERT(p.get().text.empty());
             got_cr = true;
-            p.reset(id);
+            reset_test_vt_parser_message(p, id);
         }
     }
     ASSERT(got_cr);
@@ -1269,7 +1271,7 @@ bool test_regression_bare_lf_produces_line_feed()
         {
             ASSERT(p.get().text.empty());
             got_lf = true;
-            p.reset(id);
+            reset_test_vt_parser_message(p, id);
         }
     }
     ASSERT(got_lf);
@@ -1305,7 +1307,7 @@ bool test_regression_pending_control_survives_reset()
     id = p.parse(input[4]);
     ASSERT(id == vt_message_id::text);
     ASSERT(p.get().text == U"echo");
-    p.reset(vt_message_id::text); // reset 不应清除 _pending_control
+    p.reset<vt_message_id::text>(); // reset 不应清除 _pending_control
 
     // 下一个 parse() 应交付 carriage_return
     id = p.parse(U' '); // dummy char 触发 _pending_control 交付
@@ -1361,17 +1363,17 @@ bool test_regression_cr_then_nl_bridge_pairing()
     vt_message_id id = p.parse(U'\r');
     ASSERT(id == vt_message_id::text);
     ASSERT(p.get().text == U"hello");
-    p.reset(id);
+    reset_test_vt_parser_message(p, id);
 
     // "\n" → _pending_control 触发, 返回 carriage_return, 升级为 line_feed
     id = p.parse(U'\n');
     ASSERT(id == vt_message_id::carriage_return);
-    p.reset(id);
+    reset_test_vt_parser_message(p, id);
 
     // drain: parse(U'\0') → line_feed（_pending_control 升级后的延迟消息）
     id = p.parse(U'\0');
     ASSERT(id == vt_message_id::line_feed);
-    p.reset(id);
+    reset_test_vt_parser_message(p, id);
 
     // 再次 drain: 无 pending → continue_
     id = p.parse(U'\0');
@@ -1416,7 +1418,7 @@ bool test_regression_text_with_vt_then_cr()
             fprintf(stderr, "UNEXPECTED id=%d ch=U+%04X\n", static_cast<int>(id), static_cast<unsigned>(ch));
             ASSERT(false); // 不应出现其他消息
         }
-        p.reset(id);
+        reset_test_vt_parser_message(p, id);
     }
     ASSERT(collected == U"abcdef");
     ASSERT(got_cursor_up);
@@ -1439,7 +1441,7 @@ bool test_regression_multiline_input()
             continue;
         if (id == vt_message_id::text)
             collected.append(p.get().text);
-        p.reset(id);
+        reset_test_vt_parser_message(p, id);
 
         // 无条件 drain: _pending_control 最多一个排队消息
         if (auto drain_id = p.parse(U'\0');
@@ -1447,7 +1449,7 @@ bool test_regression_multiline_input()
         {
             if (drain_id == vt_message_id::text)
                 collected.append(p.get().text);
-            p.reset(drain_id);
+            reset_test_vt_parser_message(p, drain_id);
         }
     }
     // drain remaining
@@ -1455,7 +1457,7 @@ bool test_regression_multiline_input()
     {
         if (id == vt_message_id::text)
             collected.append(p.get().text);
-        p.reset(id);
+        reset_test_vt_parser_message(p, id);
     }
 
     ASSERT(collected == U"line1line2line3");
@@ -1487,16 +1489,16 @@ bool test_echo_ground_controls()
     vt_parser p{parser_raw};
     p.parse(U'\r');
     ASSERT(p.should_echo_last());
-    p.reset(vt_message_id::text);
+    p.reset<vt_message_id::text>();
     p.parse(U'\n');
     ASSERT(p.should_echo_last());
-    p.reset(vt_message_id::text);
+    p.reset<vt_message_id::text>();
     p.parse(U'\b');
     ASSERT(!p.should_echo_last());
-    p.reset(vt_message_id::char_del);
+    p.reset<vt_message_id::char_del>();
     p.parse(U'\t');
     ASSERT(p.should_echo_last());
-    p.reset(vt_message_id::cursor_forward_tab);
+    p.reset<vt_message_id::cursor_forward_tab>();
     return true;
 }
 
@@ -1509,7 +1511,7 @@ bool test_echo_esc_not_echoed()
     ASSERT(!p.should_echo_last());
     p.parse(U'M');
     ASSERT(!p.should_echo_last()); // reverse_index
-    p.reset(vt_message_id::reverse_index);
+    p.reset<vt_message_id::reverse_index>();
     return true;
 }
 
@@ -1526,13 +1528,13 @@ bool test_echo_csi_cursor_not_echoed()
     vt_message_id id = p.parse(0x1B);
     ASSERT(id == vt_message_id::text);
     ASSERT(!p.should_echo_last());
-    p.reset(vt_message_id::text);
+    p.reset<vt_message_id::text>();
     id = p.parse(U'[');
     ASSERT(id == vt_message_id::continue_);
     id = p.parse(U'D');
     ASSERT(id == vt_message_id::cursor_backward);
     ASSERT(!p.should_echo_last());
-    p.reset(vt_message_id::cursor_backward);
+    p.reset<vt_message_id::cursor_backward>();
     return true;
 }
 
@@ -1547,7 +1549,7 @@ bool test_echo_ss3_not_echoed()
     ASSERT(!p.should_echo_last());
     p.parse(U'D');
     ASSERT(!p.should_echo_last());
-    p.reset(vt_message_id::key_left);
+    p.reset<vt_message_id::key_left>();
     return true;
 }
 
@@ -1564,13 +1566,13 @@ bool test_echo_text_esc_transition()
     vt_message_id id = p.parse(0x1B);
     ASSERT(id == vt_message_id::text);
     ASSERT(!p.should_echo_last());
-    p.reset(vt_message_id::text);
+    p.reset<vt_message_id::text>();
     id = p.parse(U'[');
     ASSERT(id == vt_message_id::continue_);
     id = p.parse(U'D');
     ASSERT(id == vt_message_id::cursor_backward);
     ASSERT(!p.should_echo_last());
-    p.reset(vt_message_id::cursor_backward);
+    p.reset<vt_message_id::cursor_backward>();
     return true;
 }
 
@@ -1587,7 +1589,7 @@ bool test_echo_osc_not_echoed()
         p.parse(ch);
     p.parse(0x07);
     ASSERT(!p.should_echo_last());
-    p.reset(vt_message_id::set_window_title);
+    p.reset<vt_message_id::set_window_title>();
     return true;
 }
 
@@ -1602,7 +1604,7 @@ bool test_echo_sgr_not_echoed()
     p.parse(U'1');
     p.parse(U'm');
     ASSERT(!p.should_echo_last());
-    p.reset(vt_message_id::sgr);
+    p.reset<vt_message_id::sgr>();
     return true;
 }
 
@@ -1617,7 +1619,7 @@ bool test_echo_csi_tilde_not_echoed()
     p.parse(U'5');
     p.parse(U'~');
     ASSERT(!p.should_echo_last());
-    p.reset(vt_message_id::key_f5);
+    p.reset<vt_message_id::key_f5>();
     return true;
 }
 

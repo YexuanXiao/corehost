@@ -517,7 +517,8 @@ struct pipe_bridge
     // ── vt_msg_send: vt_message → UTF-8 序列化并追加到缓冲 ──
     // handler 调用此方法替代直接拼接原始 VT 字节。
     // 注意: 不会自动 flush，调用方负责在合适的时机 vt_flush()。
-    void vt_msg_send(vt_message_id id, const vt_message &msg)
+    template <vt_message_id id>
+    void vt_msg_send(const vt_message &msg)
     {
         COREHOST_PERF_SCOPE_AMOUNT(vt_msg_send, id == vt_message_id::text ? msg.text.size() : 0);
         // vt_message 是 parser 的结构化中间形态。这里把它重新序列化为宿主
@@ -1822,6 +1823,261 @@ struct pipe_bridge
         }
     }
 
+    bool process_input_win32_key(PendingKind pending_kind, DWORD i, DWORD len, const BYTE *bytes)
+    {
+        auto &m = _input_parser.get();
+        if (pending_kind == PendingKind::ConsoleRead)
+        {
+            // ConsoleRead 自己做本地行编辑，只处理 KEY_DOWN；KEY_UP 不应
+            // 改变 cooked buffer，也不应完成读取。
+            if (!m.win32_kd)
+                return false;
+
+            INPUT_RECORD record{};
+            record.EventType = KEY_EVENT;
+            record.Event.KeyEvent.bKeyDown = TRUE;
+            record.Event.KeyEvent.wVirtualKeyCode = static_cast<WORD>(m.win32_vk);
+            record.Event.KeyEvent.wVirtualScanCode = static_cast<WORD>(m.win32_sc);
+            record.Event.KeyEvent.uChar.UnicodeChar = static_cast<WCHAR>(m.win32_uc);
+            record.Event.KeyEvent.dwControlKeyState = m.win32_cs;
+            if (edit_key_event_for_console_read(record.Event.KeyEvent))
+            {
+                queue_unprocessed_vt_input(bytes, i + 1, len);
+                return true;
+            }
+            return false;
+        }
+
+        // Win32Input Enter 非 ConsoleRead: 设置换行标志 + 写终端 \r\n。
+        if (m.win32_kd && m.win32_vk == VK_RETURN)
+        {
+            const auto old_cursor = _terminal.cursor();
+            LOG("[bridge] ENTER_Win32Input was_tc=(%d,%d)", old_cursor.X, old_cursor.Y);
+            _line_found = true;
+            _terminal.crlf();
+            _terminal.mark_enter_newline_at_cursor();
+            vt_append_str("\r\n"sv);
+            const auto cursor = _terminal.cursor();
+            LOG("[bridge] ENTER_Win32Input done tc=(%d,%d)", cursor.X, cursor.Y);
+        }
+        else if (pending_kind != PendingKind::RawRead && m.win32_kd)
+        {
+            const auto cursor = _terminal.cursor();
+            LOG("[bridge] Win32Input write_input: vk=%d uc=0x%04X cs=0x%X tc=(%d,%d)", m.win32_vk, m.win32_uc,
+                m.win32_cs, cursor.X, cursor.Y);
+        }
+
+        if (pending_kind != PendingKind::RawRead)
+        {
+            INPUT_RECORD ir{};
+            ir.EventType = KEY_EVENT;
+            ir.Event.KeyEvent.bKeyDown = m.win32_kd ? TRUE : FALSE;
+            ir.Event.KeyEvent.wRepeatCount = m.win32_rc;
+            ir.Event.KeyEvent.wVirtualKeyCode = m.win32_vk;
+            ir.Event.KeyEvent.wVirtualScanCode = m.win32_sc;
+            ir.Event.KeyEvent.uChar.UnicodeChar = m.win32_uc;
+            ir.Event.KeyEvent.dwControlKeyState = m.win32_cs;
+            inp.write(&ir, 1);
+            complete_pending_console_input();
+        }
+        return false;
+    }
+
+    void process_input_move_left(PendingKind pending_kind, const vt_message &msg)
+    {
+        if (pending_kind == PendingKind::ConsoleRead)
+            _edit_move_left();
+        else
+        {
+            INPUT_RECORD ir;
+            if (_engine.convert(vt_message_id::key_left, msg, ir))
+                _write_key_event_pair(ir);
+        }
+    }
+
+    void process_input_move_right(PendingKind pending_kind, const vt_message &msg)
+    {
+        if (pending_kind == PendingKind::ConsoleRead)
+            _edit_move_right();
+        else
+        {
+            INPUT_RECORD ir;
+            if (_engine.convert(vt_message_id::key_right, msg, ir))
+                _write_key_event_pair(ir);
+        }
+    }
+
+    void process_input_home(PendingKind pending_kind, const vt_message &msg)
+    {
+        if (pending_kind == PendingKind::ConsoleRead)
+            _edit_home();
+        else
+        {
+            INPUT_RECORD ir;
+            if (_engine.convert(vt_message_id::key_home, msg, ir))
+                _write_key_event_pair(ir);
+        }
+    }
+
+    void process_input_end(PendingKind pending_kind, const vt_message &msg)
+    {
+        if (pending_kind == PendingKind::ConsoleRead)
+            _edit_end();
+        else
+        {
+            INPUT_RECORD ir;
+            if (_engine.convert(vt_message_id::key_end, msg, ir))
+                _write_key_event_pair(ir);
+        }
+    }
+
+    void process_input_delete(PendingKind pending_kind, const vt_message &msg)
+    {
+        if (pending_kind == PendingKind::ConsoleRead)
+            _edit_delete();
+        else
+        {
+            INPUT_RECORD ir;
+            if (_engine.convert(vt_message_id::key_delete, msg, ir))
+                _write_key_event_pair(ir);
+        }
+    }
+
+    void process_input_backspace(PendingKind pending_kind, const vt_message &msg)
+    {
+        if (pending_kind == PendingKind::ConsoleRead)
+            _edit_backspace();
+        else
+        {
+            INPUT_RECORD ir;
+            if (_engine.convert(vt_message_id::char_del, msg, ir))
+                _write_key_event_pair(ir);
+        }
+    }
+
+    void process_input_history_up(PendingKind pending_kind, const vt_message &msg)
+    {
+        if (pending_kind == PendingKind::ConsoleRead)
+            _edit_history_up();
+        else
+        {
+            INPUT_RECORD ir;
+            if (_engine.convert(vt_message_id::key_up, msg, ir))
+                _write_key_event_pair(ir);
+        }
+    }
+
+    void process_input_history_down(PendingKind pending_kind, const vt_message &msg)
+    {
+        if (pending_kind == PendingKind::ConsoleRead)
+            _edit_history_down();
+        else
+        {
+            INPUT_RECORD ir;
+            if (_engine.convert(vt_message_id::key_down, msg, ir))
+                _write_key_event_pair(ir);
+        }
+    }
+
+    template <vt_message_id key_id>
+    void process_input_key_event(const vt_message &msg)
+    {
+        INPUT_RECORD rec;
+        if (_engine.convert(key_id, msg, rec))
+            _write_key_event_pair(rec);
+    }
+
+    void process_input_cursor_position(const vt_message &msg)
+    {
+        // 某些终端把 Home 编码成 CUP 1;1。只有明确 1,1 时才作为 Home，
+        // 其他 CUP 输入在键盘路径中不产生事件。
+        if (msg.row == 1 && msg.col == 1)
+        {
+            INPUT_RECORD rec;
+            if (_engine.convert(vt_message_id::key_home, msg, rec))
+                _write_key_event_pair(rec);
+        }
+    }
+
+    void process_input_cpr_response()
+    {
+        auto &m = _input_parser.get();
+        if (_terminal.pending_inherit_cursor() && m.cpr_row > 0 && m.cpr_col > 0)
+        {
+            const COORD terminal_position{static_cast<SHORT>(m.cpr_col - 1), static_cast<SHORT>(m.cpr_row - 1)};
+            cstate.cursor.position = active_screen_buffer().viewport.absolute_position(terminal_position);
+            cstate.clamp_cursor_to_buffer();
+            _terminal.finish_inherit_cursor(terminal_position);
+            LOG("[bridge] cpr_response: inherit cursor (%d,%d)", cstate.cursor.position.X, cstate.cursor.position.Y);
+        }
+    }
+
+    void process_input_tab()
+    {
+        INPUT_RECORD ir{};
+        ir.EventType = KEY_EVENT;
+        ir.Event.KeyEvent.wRepeatCount = 1;
+        ir.Event.KeyEvent.wVirtualKeyCode = VK_TAB;
+        ir.Event.KeyEvent.uChar.UnicodeChar = L'\t';
+        _write_key_event_pair(ir);
+    }
+
+    void process_input_resize_window(const vt_message &msg)
+    {
+        COORD new_size{msg.resize_cols, msg.resize_rows};
+        if (new_size.X <= 0 || new_size.Y <= 0)
+            return;
+
+        LOG("[bridge] resize_window: old=(%d,%d) new=(%d,%d)", cstate.screen_buffer_size.X, cstate.screen_buffer_size.Y,
+            new_size.X, new_size.Y);
+        cstate.screen_buffer_size = new_size;
+        cstate.max_window_size = new_size;
+        auto &active_screen = active_screen_buffer();
+        active_screen.viewport.reset_to_buffer(cstate.screen_buffer_size);
+        active_screen.resize(new_size);
+
+        vt_flush();
+        vt_append_str("\x1b[8;"sv);
+        vt_append_int(new_size.Y);
+        vt_append_char(';');
+        vt_append_int(new_size.X);
+        vt_append_str("t"sv);
+        vt_append_str("\x1b[2J\x1b[H"sv);
+        WORD last_attr = 0xFFFF;
+        for (SHORT y = 0; y < new_size.Y; ++y)
+        {
+            vt_write_cup(y, 0);
+            for (SHORT x = 0; x < new_size.X; ++x)
+            {
+                WORD attr = active_screen.attr_at({x, y});
+                if (attr != last_attr)
+                {
+                    vt_write_attr(attr);
+                    last_attr = attr;
+                }
+                vt_write_cell(active_screen.at_u32({x, y}));
+            }
+        }
+        vt_write_cup_buffer(cstate.cursor.position);
+        vt_flush();
+    }
+
+    void process_input_text(PendingKind pending_kind)
+    {
+        auto &tm = _input_parser.get();
+        LOG(L"[in] TEXT_MSG len=%zu", tm.text.size());
+        for (char32_t tc : tm.text)
+        {
+            if (tc <= 0x1F || tc == 0x7F)
+                continue;
+            LOG(L"[in] TEXT_DISP ch=U+%04X", (unsigned)tc);
+            if (pending_kind == PendingKind::ConsoleRead)
+                edit_insert_codepoint(tc);
+            else
+                _write_char_key_event(tc, static_cast<BYTE>(tc & 0xFF));
+        }
+    }
+
     // ── process_input: 解码 → 解析 → echo → 分发 ──
     // 内部检测 \r/\n/Ctrl+Z 并设置 _line_found，消除 scan_for_line 的二次扫描
     void process_input(const BYTE *bytes, DWORD len)
@@ -1870,7 +2126,7 @@ struct pipe_bridge
                 {
                     _write_char_key_event(ch, b);
                 }
-                _input_parser.reset(vt_message_id::continue_text); // 清累积文本
+                _input_parser.reset<vt_message_id::continue_text>(); // 清累积文本
                 continue;
             }
 
@@ -1885,321 +2141,218 @@ struct pipe_bridge
             auto &msg = _input_parser.get();
             switch (id)
             {
-            case vt_message_id::carriage_return:
-                // 行终止符会完成当前 ReadConsole/RawRead；非 ConsoleRead 路径还
-                // 需要发 KEY_EVENT，供 PowerShell 这类应用自行处理提交。
+            case vt_message_id::carriage_return: {
                 if (pending_kind != PendingKind::ConsoleRead && pending_kind != PendingKind::RawRead)
                     _write_enter_key_event();
                 _on_line_terminator(true, i, len, bytes);
+                _input_parser.reset<vt_message_id::carriage_return>();
                 return;
-
-            case vt_message_id::line_feed:
+            }
+            case vt_message_id::line_feed: {
                 if (pending_kind != PendingKind::ConsoleRead && pending_kind != PendingKind::RawRead)
                     _write_char_key_event(U'\n', 0x0A);
                 _on_line_terminator(false, i, len, bytes);
+                _input_parser.reset<vt_message_id::line_feed>();
                 return;
-
-            // ── Win32 Input Mode 键盘事件: \x1b[Vk;Sc;Uc;Kd;Cs;Rc_ ──
+            }
             case vt_message_id::win32_input_key: {
-                auto &m = _input_parser.get();
-                if (pending_kind == PendingKind::ConsoleRead)
+                if (process_input_win32_key(pending_kind, i, len, bytes))
                 {
-                    // ConsoleRead 自己做本地行编辑，只处理 KEY_DOWN；KEY_UP 不应
-                    // 改变 cooked buffer，也不应完成读取。
-                    if (!m.win32_kd)
-                        break;
-
-                    INPUT_RECORD record{};
-                    record.EventType = KEY_EVENT;
-                    record.Event.KeyEvent.bKeyDown = TRUE;
-                    record.Event.KeyEvent.wVirtualKeyCode = static_cast<WORD>(m.win32_vk);
-                    record.Event.KeyEvent.wVirtualScanCode = static_cast<WORD>(m.win32_sc);
-                    record.Event.KeyEvent.uChar.UnicodeChar = static_cast<WCHAR>(m.win32_uc);
-                    record.Event.KeyEvent.dwControlKeyState = m.win32_cs;
-                    if (edit_key_event_for_console_read(record.Event.KeyEvent))
-                    {
-                        queue_unprocessed_vt_input(bytes, i + 1, len);
-                        return;
-                    }
-                    break;
+                    _input_parser.reset<vt_message_id::win32_input_key>();
+                    return;
                 }
-
-                // ── Win32Input Enter 非 ConsoleRead: 设置换行标志 + 写终端 \r\n ──
-                // 必须在 if(!inp) break 之前，因为 Enter 换行处理不需要 input_buffer，
-                // 只需要标记下一次输出前的换行目标并发出本地 CRLF。
-                if (m.win32_kd && m.win32_vk == VK_RETURN)
-                {
-                    // 非 ConsoleRead 下 Enter 的 CRLF 是终端本地回显；下一次应用
-                    // 输出前需要 consume_enter_newline 把 Console 光标追到同一行。
-                    const auto old_cursor = _terminal.cursor();
-                    LOG("[bridge] ENTER_Win32Input was_tc=(%d,%d)", old_cursor.X, old_cursor.Y);
-                    _line_found = true;
-                    _terminal.crlf();
-                    _terminal.mark_enter_newline_at_cursor();
-                    vt_append_str("\r\n"sv);
-                    const auto cursor = _terminal.cursor();
-                    LOG("[bridge] ENTER_Win32Input done tc=(%d,%d)", cursor.X, cursor.Y);
-                }
-                else if (pending_kind != PendingKind::RawRead && m.win32_kd)
-                {
-                    const auto cursor = _terminal.cursor();
-                    LOG("[bridge] Win32Input write_input: vk=%d uc=0x%04X cs=0x%X tc=(%d,%d)", m.win32_vk, m.win32_uc,
-                        m.win32_cs, cursor.X, cursor.Y);
-                }
-
-                if (pending_kind != PendingKind::RawRead)
-                {
-                    INPUT_RECORD ir{};
-                    ir.EventType = KEY_EVENT;
-                    ir.Event.KeyEvent.bKeyDown = m.win32_kd ? TRUE : FALSE;
-                    ir.Event.KeyEvent.wRepeatCount = m.win32_rc;
-                    ir.Event.KeyEvent.wVirtualKeyCode = m.win32_vk;
-                    ir.Event.KeyEvent.wVirtualScanCode = m.win32_sc;
-                    ir.Event.KeyEvent.uChar.UnicodeChar = m.win32_uc;
-                    ir.Event.KeyEvent.dwControlKeyState = m.win32_cs;
-                    inp.write(&ir, 1);
-                    complete_pending_console_input();
-                }
+                _input_parser.reset<vt_message_id::win32_input_key>();
                 break;
             }
-
-            // ── 方向键 / 编辑键 ──
-            // ConsoleRead 模式: 使用 _edit_* 编辑函数 (echo + _cooked_buf)
-            // 非 ConsoleRead 模式: 写 KEY_DOWN+KEY_UP 到 input_buffer
-            case vt_message_id::key_left:
-            case vt_message_id::cursor_backward: // CSI D
-                // 方向键在 ConsoleRead 中是本地编辑命令；在 Win32Input/事件模式中
-                // 是应用可见的 KEY_EVENT，不能同时改 cooked buffer。
-                if (pending_kind == PendingKind::ConsoleRead)
-                    _edit_move_left();
-                else
-                {
-                    INPUT_RECORD ir;
-                    if (_engine.convert(vt_message_id::key_left, msg, ir))
-                        _write_key_event_pair(ir);
-                }
-                break;
-            case vt_message_id::key_right:
-            case vt_message_id::cursor_forward: // CSI C
-                if (pending_kind == PendingKind::ConsoleRead)
-                    _edit_move_right();
-                else
-                {
-                    INPUT_RECORD ir;
-                    if (_engine.convert(vt_message_id::key_right, msg, ir))
-                        _write_key_event_pair(ir);
-                }
-                break;
-            case vt_message_id::key_home:
-            case vt_message_id::cursor_prev_line: // CSI F
-                if (pending_kind == PendingKind::ConsoleRead)
-                    _edit_home();
-                else
-                {
-                    INPUT_RECORD ir;
-                    if (_engine.convert(vt_message_id::key_home, msg, ir))
-                        _write_key_event_pair(ir);
-                }
-                break;
-            case vt_message_id::key_end:
-            case vt_message_id::cursor_next_line: // CSI E
-                if (pending_kind == PendingKind::ConsoleRead)
-                    _edit_end();
-                else
-                {
-                    INPUT_RECORD ir;
-                    if (_engine.convert(vt_message_id::key_end, msg, ir))
-                        _write_key_event_pair(ir);
-                }
-                break;
-
-            case vt_message_id::key_delete:
-                if (pending_kind == PendingKind::ConsoleRead)
-                    _edit_delete();
-                else
-                {
-                    INPUT_RECORD ir;
-                    if (_engine.convert(vt_message_id::key_delete, msg, ir))
-                        _write_key_event_pair(ir);
-                }
-                break;
-
-            case vt_message_id::char_del:
-                if (pending_kind == PendingKind::ConsoleRead)
-                    _edit_backspace();
-                else
-                {
-                    INPUT_RECORD ir;
-                    if (_engine.convert(vt_message_id::char_del, msg, ir))
-                        _write_key_event_pair(ir);
-                }
-                break;
-
-            // ── 上下键 ──
-            case vt_message_id::key_up:
-            case vt_message_id::key_down:
-            case vt_message_id::cursor_up:   // CSI A
-            case vt_message_id::cursor_down: // CSI B
-            {
-                if (pending_kind == PendingKind::ConsoleRead)
-                {
-                    if (id == vt_message_id::key_up || id == vt_message_id::cursor_up)
-                        _edit_history_up();
-                    else
-                        _edit_history_down();
-                }
-                else
-                {
-                    INPUT_RECORD ir;
-                    vt_message_id key_id = (id == vt_message_id::key_up || id == vt_message_id::cursor_up)
-                                               ? vt_message_id::key_up
-                                               : vt_message_id::key_down;
-                    if (_engine.convert(key_id, msg, ir))
-                        _write_key_event_pair(ir);
-                }
+            case vt_message_id::key_left: {
+                process_input_move_left(pending_kind, msg);
+                _input_parser.reset<vt_message_id::key_left>();
                 break;
             }
-            case vt_message_id::key_f3:
-            case vt_message_id::key_f4:
-            case vt_message_id::key_f5:
-            case vt_message_id::key_f6:
-            case vt_message_id::key_f7:
-            case vt_message_id::key_f8:
-            case vt_message_id::key_f9:
-            case vt_message_id::key_f10:
-            case vt_message_id::key_f11:
-            case vt_message_id::key_f12:
-            case vt_message_id::key_insert:
-            case vt_message_id::key_page_up:
+            case vt_message_id::cursor_backward: {
+                process_input_move_left(pending_kind, msg);
+                _input_parser.reset<vt_message_id::cursor_backward>();
+                break;
+            }
+            case vt_message_id::key_right: {
+                process_input_move_right(pending_kind, msg);
+                _input_parser.reset<vt_message_id::key_right>();
+                break;
+            }
+            case vt_message_id::cursor_forward: {
+                process_input_move_right(pending_kind, msg);
+                _input_parser.reset<vt_message_id::cursor_forward>();
+                break;
+            }
+            case vt_message_id::key_home: {
+                process_input_home(pending_kind, msg);
+                _input_parser.reset<vt_message_id::key_home>();
+                break;
+            }
+            case vt_message_id::cursor_prev_line: {
+                process_input_home(pending_kind, msg);
+                _input_parser.reset<vt_message_id::cursor_prev_line>();
+                break;
+            }
+            case vt_message_id::key_end: {
+                process_input_end(pending_kind, msg);
+                _input_parser.reset<vt_message_id::key_end>();
+                break;
+            }
+            case vt_message_id::cursor_next_line: {
+                process_input_end(pending_kind, msg);
+                _input_parser.reset<vt_message_id::cursor_next_line>();
+                break;
+            }
+            case vt_message_id::key_delete: {
+                process_input_delete(pending_kind, msg);
+                _input_parser.reset<vt_message_id::key_delete>();
+                break;
+            }
+            case vt_message_id::char_del: {
+                process_input_backspace(pending_kind, msg);
+                _input_parser.reset<vt_message_id::char_del>();
+                break;
+            }
+            case vt_message_id::key_up: {
+                process_input_history_up(pending_kind, msg);
+                _input_parser.reset<vt_message_id::key_up>();
+                break;
+            }
+            case vt_message_id::cursor_up: {
+                process_input_history_up(pending_kind, msg);
+                _input_parser.reset<vt_message_id::cursor_up>();
+                break;
+            }
+            case vt_message_id::key_down: {
+                process_input_history_down(pending_kind, msg);
+                _input_parser.reset<vt_message_id::key_down>();
+                break;
+            }
+            case vt_message_id::cursor_down: {
+                process_input_history_down(pending_kind, msg);
+                _input_parser.reset<vt_message_id::cursor_down>();
+                break;
+            }
+            case vt_message_id::key_f3: {
+                process_input_key_event<vt_message_id::key_f3>(msg);
+                _input_parser.reset<vt_message_id::key_f3>();
+                break;
+            }
+            case vt_message_id::key_f4: {
+                process_input_key_event<vt_message_id::key_f4>(msg);
+                _input_parser.reset<vt_message_id::key_f4>();
+                break;
+            }
+            case vt_message_id::key_f5: {
+                process_input_key_event<vt_message_id::key_f5>(msg);
+                _input_parser.reset<vt_message_id::key_f5>();
+                break;
+            }
+            case vt_message_id::key_f6: {
+                process_input_key_event<vt_message_id::key_f6>(msg);
+                _input_parser.reset<vt_message_id::key_f6>();
+                break;
+            }
+            case vt_message_id::key_f7: {
+                process_input_key_event<vt_message_id::key_f7>(msg);
+                _input_parser.reset<vt_message_id::key_f7>();
+                break;
+            }
+            case vt_message_id::key_f8: {
+                process_input_key_event<vt_message_id::key_f8>(msg);
+                _input_parser.reset<vt_message_id::key_f8>();
+                break;
+            }
+            case vt_message_id::key_f9: {
+                process_input_key_event<vt_message_id::key_f9>(msg);
+                _input_parser.reset<vt_message_id::key_f9>();
+                break;
+            }
+            case vt_message_id::key_f10: {
+                process_input_key_event<vt_message_id::key_f10>(msg);
+                _input_parser.reset<vt_message_id::key_f10>();
+                break;
+            }
+            case vt_message_id::key_f11: {
+                process_input_key_event<vt_message_id::key_f11>(msg);
+                _input_parser.reset<vt_message_id::key_f11>();
+                break;
+            }
+            case vt_message_id::key_f12: {
+                process_input_key_event<vt_message_id::key_f12>(msg);
+                _input_parser.reset<vt_message_id::key_f12>();
+                break;
+            }
+            case vt_message_id::key_insert: {
+                process_input_key_event<vt_message_id::key_insert>(msg);
+                _input_parser.reset<vt_message_id::key_insert>();
+                break;
+            }
+            case vt_message_id::key_page_up: {
+                process_input_key_event<vt_message_id::key_page_up>(msg);
+                _input_parser.reset<vt_message_id::key_page_up>();
+                break;
+            }
             case vt_message_id::key_page_down: {
-                // 功能键没有本地行编辑含义，始终转发给 input_buffer。
-                INPUT_RECORD rec;
-                if (_engine.convert(id, msg, rec))
-                    _write_key_event_pair(rec);
+                process_input_key_event<vt_message_id::key_page_down>(msg);
+                _input_parser.reset<vt_message_id::key_page_down>();
                 break;
             }
-
-            case vt_message_id::cursor_position:
-                // 某些终端把 Home 编码成 CUP 1;1。只有明确 1,1 时才作为 Home，
-                // 其他 CUP 输入在键盘路径中不产生事件。
-                if (msg.row == 1 && msg.col == 1)
-                {
-                    INPUT_RECORD rec;
-                    if (_engine.convert(vt_message_id::key_home, msg, rec))
-                        _write_key_event_pair(rec);
-                }
+            case vt_message_id::cursor_position: {
+                process_input_cursor_position(msg);
+                _input_parser.reset<vt_message_id::cursor_position>();
                 break;
-
-            case vt_message_id::cursor_horiz_absolute:
-            case vt_message_id::cursor_vert_absolute:
+            }
+            case vt_message_id::cursor_horiz_absolute: {
+                _input_parser.reset<vt_message_id::cursor_horiz_absolute>();
                 break;
-
-            // ── CPR 应答: 终端汇报真实光标位置 ──
+            }
+            case vt_message_id::cursor_vert_absolute: {
+                _input_parser.reset<vt_message_id::cursor_vert_absolute>();
+                break;
+            }
             case vt_message_id::cpr_response: {
-                auto &m = _input_parser.get();
-                if (_terminal.pending_inherit_cursor() && m.cpr_row > 0 && m.cpr_col > 0)
-                {
-                    // CPR 是 1-based 终端坐标。继承完成后要重设输入边界，
-                    // 让下一次 ReadConsole 从真实光标列开始编辑。
-                    const COORD terminal_position{static_cast<SHORT>(m.cpr_col - 1), static_cast<SHORT>(m.cpr_row - 1)};
-                    cstate.cursor.position = active_screen_buffer().viewport.absolute_position(terminal_position);
-                    cstate.clamp_cursor_to_buffer();
-                    _terminal.finish_inherit_cursor(terminal_position);
-                    LOG("[bridge] cpr_response: inherit cursor (%d,%d)", cstate.cursor.position.X,
-                        cstate.cursor.position.Y);
-                }
+                process_input_cpr_response();
+                _input_parser.reset<vt_message_id::cpr_response>();
                 break;
             }
-
             case vt_message_id::cursor_forward_tab: {
-                INPUT_RECORD ir{};
-                ir.EventType = KEY_EVENT;
-                ir.Event.KeyEvent.wRepeatCount = 1;
-                ir.Event.KeyEvent.wVirtualKeyCode = VK_TAB;
-                ir.Event.KeyEvent.uChar.UnicodeChar = L'\t';
-                _write_key_event_pair(ir);
+                process_input_tab();
+                _input_parser.reset<vt_message_id::cursor_forward_tab>();
                 break;
             }
-
-            case vt_message_id::char_sub:
+            case vt_message_id::char_sub: {
+                process_input_key_event<vt_message_id::char_sub>(msg);
+                _input_parser.reset<vt_message_id::char_sub>();
+                break;
+            }
             case vt_message_id::char_esc: {
-                INPUT_RECORD rec;
-                if (_engine.convert(id, msg, rec))
-                    _write_key_event_pair(rec);
+                process_input_key_event<vt_message_id::char_esc>(msg);
+                _input_parser.reset<vt_message_id::char_esc>();
                 break;
             }
-
             case vt_message_id::resize_window: {
-                COORD new_size{msg.resize_cols, msg.resize_rows};
-                if (new_size.X > 0 && new_size.Y > 0)
-                {
-                    // 终端 resize 是宿主主动改变窗口。内部状态先同步尺寸，再把
-                    // screen_buffer 当前内容整屏重绘到新视口。
-                    LOG("[bridge] resize_window: old=(%d,%d) new=(%d,%d)", cstate.screen_buffer_size.X,
-                        cstate.screen_buffer_size.Y, new_size.X, new_size.Y);
-                    cstate.screen_buffer_size = new_size;
-                    cstate.max_window_size = new_size;
-                    auto &active_screen = active_screen_buffer();
-                    active_screen.viewport.reset_to_buffer(cstate.screen_buffer_size);
-                    active_screen.resize(new_size);
-
-                    vt_flush();
-                    vt_append_str("\x1b[8;"sv);
-                    // CSI 8 ; rows ; cols t 是 xterm/WT 的窗口尺寸请求，参数顺序
-                    // 与 COORD 的 X/Y 相反。
-                    vt_append_int(new_size.Y);
-                    vt_append_char(';');
-                    vt_append_int(new_size.X);
-                    vt_append_str("t"sv);
-                    vt_append_str("\x1b[2J\x1b[H"sv);
-                    WORD last_attr = 0xFFFF;
-                    // last_attr 使用不可能的初始值，确保第一格一定写 SGR。
-                    for (SHORT y = 0; y < new_size.Y; ++y)
-                    {
-                        vt_write_cup(y, 0);
-                        for (SHORT x = 0; x < new_size.X; ++x)
-                        {
-                            WORD attr = active_screen.attr_at({x, y});
-                            if (attr != last_attr)
-                            {
-                                vt_write_attr(attr);
-                                last_attr = attr;
-                            }
-                            vt_write_cell(active_screen.at_u32({x, y}));
-                        }
-                    }
-                    vt_write_cup_buffer(cstate.cursor.position);
-                    vt_flush();
-                }
+                process_input_resize_window(msg);
+                _input_parser.reset<vt_message_id::resize_window>();
                 break;
             }
-
             case vt_message_id::text: {
-                auto &tm = _input_parser.get();
-                LOG(L"[in] TEXT_MSG len=%zu", tm.text.size());
-                // parser 聚合的 text 可能来自粘贴或一次性送达的 UTF-8 字符串；
-                // 控制字符已由专门消息处理，这里只分发可打印字符。
-                for (char32_t tc : tm.text)
-                {
-                    if (tc <= 0x1F || tc == 0x7F)
-                        continue;
-                    LOG(L"[in] TEXT_DISP ch=U+%04X", (unsigned)tc);
-                    if (pending_kind == PendingKind::ConsoleRead)
-                        edit_insert_codepoint(tc);
-                    else
-                        _write_char_key_event(tc, static_cast<BYTE>(tc & 0xFF));
-                }
+                process_input_text(pending_kind);
+                _input_parser.reset<vt_message_id::text>();
                 break;
             }
-
-            default:
+            case vt_message_id::unknown_sequence: {
+                _input_parser.reset<vt_message_id::unknown_sequence>();
                 break;
             }
-
-            _input_parser.reset(id);
+            default: {
+                _input_parser.reset<vt_message_id::continue_>();
+                break;
+            }
+            }
         }
     }
-
     void _on_line_terminator(bool is_cr, DWORD i, DWORD len, const BYTE *bytes)
     {
         // 行终止符处理只消费当前行；i/len/bytes 描述当前 process_input 批次，
