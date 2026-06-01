@@ -280,13 +280,13 @@ inline void apply_terminal_line_feed(console_state &state, screen_buffer &sb)
     state.cursor.position.X = view.Left;
 }
 
-inline void apply_terminal_text(const vt_message &msg, console_state &state, screen_buffer &sb)
+inline void apply_terminal_text(std::u32string_view text, console_state &state, screen_buffer &sb)
 {
     const auto view = sb.viewport.rect();
     state.cursor.position.X = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
     state.cursor.position.Y = std::clamp<SHORT>(state.cursor.position.Y, view.Top, view.Bottom);
 
-    auto remaining = msg.payload.text;
+    auto remaining = text;
     while (!remaining.empty())
     {
         const auto result = sb.write_text_row(state.cursor.position, remaining, state.default_attributes,
@@ -300,6 +300,24 @@ inline void apply_terminal_text(const vt_message &msg, console_state &state, scr
         if (result.consumed == 0)
             break;
     }
+}
+
+inline void apply_terminal_text(const vt_message &msg, console_state &state, screen_buffer &sb)
+{
+    apply_terminal_text(msg.payload.text, state, sb);
+}
+
+inline void consume_write_console_text_run(std::u32string_view text, console_state &state, screen_buffer &sb,
+                                           pipe_bridge &bridge)
+{
+    bridge.vt_write_text(text);
+    apply_terminal_text(text, state, sb);
+}
+
+inline void consume_write_console_line_feed(console_state &state, screen_buffer &sb, pipe_bridge &bridge)
+{
+    bridge.vt_write_crlf();
+    apply_terminal_line_feed(state, sb);
 }
 
 inline void clear_terminal_line_range(screen_buffer &sb, SHORT y, SHORT left, SHORT right, WORD attr)
@@ -909,31 +927,14 @@ inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parse
 
 [[nodiscard]] inline size_t simple_sgr_passthrough_length(std::u32string_view input) noexcept
 {
-    constexpr size_t max_sgr_params = 16;
-    constexpr int max_sgr_param_value = 32767;
-
     if (input.size() < 3 || input[0] != U'\x1b' || input[1] != U'[')
         return 0;
 
-    size_t param_count = 1;
-    int value = 0;
     for (size_t i = 2; i < input.size(); ++i)
     {
         const char32_t ch = input[i];
-        if (ch >= U'0' && ch <= U'9')
-        {
-            value = value * 10 + static_cast<int>(ch - U'0');
-            if (value > max_sgr_param_value)
-                return 0;
+        if ((ch >= U'0' && ch <= U'9') || ch == U';')
             continue;
-        }
-        if (ch == U';')
-        {
-            if (++param_count > max_sgr_params)
-                return 0;
-            value = 0;
-            continue;
-        }
         if (ch == U'm')
             return i + 1;
         return 0;
@@ -1105,7 +1106,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                     bridge.vt_write_cup_buffer(nl_pos);
                     start_pos = state.cursor.position;
 
-                    if (is_line_terminator_echo(u32s))
+                    if (is_line_terminator_echo(u32_view(u32s)))
                     {
                         // 这条 completion 仍由调用者报告原始字节数已写入；这里只是
                         // 抑制终端输出，避免 Enter 后多出空行。
@@ -1136,12 +1137,23 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
 
             {
                 COREHOST_PERF_SCOPE_AMOUNT(write_console_parser, u32s.size());
-                std::u32string_view input{u32s};
+                std::u32string_view input = u32_view(u32s);
                 for (size_t i = 0; i < u32s.size();)
                 {
-                    if (auto count = output_parser.consume_ground_text_run(input.substr(i)); count != 0)
+                    if (auto count = output_parser.direct_ground_text_run_length(input.substr(i)); count != 0)
                     {
+                        COREHOST_PERF_SCOPE(write_console_consume_msg);
+                        consume_write_console_text_run(input.substr(i, count), state, sb, bridge);
                         i += count;
+                        continue;
+                    }
+
+                    if (input[i] == U'\r' && i + 1 < u32s.size() && u32s[i + 1] == U'\n' &&
+                        output_parser.can_accept_direct_ground_text())
+                    {
+                        COREHOST_PERF_SCOPE(write_console_consume_msg);
+                        consume_write_console_line_feed(state, sb, bridge);
+                        i += 2;
                         continue;
                     }
 
@@ -1149,15 +1161,11 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                         output_parser.has_pending_text())
                     {
                         COREHOST_PERF_SCOPE(write_console_consume_msg);
-                        auto id = output_parser.flush_text();
+                        (void)output_parser.flush_text();
                         auto &pm = output_parser.get();
-                        bridge.vt_msg_send<vt_message_id::text>(pm);
-                        vt_msg_apply_terminal_state(id, pm, state, sb);
+                        consume_write_console_text_run(pm.payload.text, state, sb, bridge);
                         output_parser.reset<vt_message_id::text>();
-
-                        vt_message line_feed_msg{};
-                        bridge.vt_msg_send<vt_message_id::line_feed>(line_feed_msg);
-                        apply_terminal_line_feed(state, sb);
+                        consume_write_console_line_feed(state, sb, bridge);
                         i += 2;
                         continue;
                     }
@@ -1167,10 +1175,9 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                         if (auto count = simple_sgr_passthrough_length(input.substr(i)); count != 0)
                         {
                             COREHOST_PERF_SCOPE(write_console_consume_msg);
-                            auto id = output_parser.flush_text();
+                            (void)output_parser.flush_text();
                             auto &pm = output_parser.get();
-                            bridge.vt_msg_send<vt_message_id::text>(pm);
-                            vt_msg_apply_terminal_state(id, pm, state, sb);
+                            consume_write_console_text_run(pm.payload.text, state, sb, bridge);
                             output_parser.reset<vt_message_id::text>();
                             COREHOST_PERF_SCOPE_AMOUNT(write_console_sgr_passthrough, count);
                             bridge.vt_append_raw_sequence(input.substr(i, count));
@@ -1227,8 +1234,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                 if (auto id = output_parser.flush_text(); id != vt_message_id::continue_)
                 {
                     auto &pm = output_parser.get();
-                    bridge.vt_msg_send<vt_message_id::text>(pm);
-                    vt_msg_apply_terminal_state(id, pm, state, sb);
+                    consume_write_console_text_run(pm.payload.text, state, sb, bridge);
                     output_parser.reset<vt_message_id::text>();
                 }
                 // 排空 parser 残留的 _pending_control，例如文本以单独 '\r' 结束。
@@ -1459,7 +1465,7 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
                 for (ULONG i = 0; i < n; ++i)
                     fill_text.push_back(sb.at_u32({static_cast<SHORT>(x + i), y}));
                 vt_message m_text{};
-                m_text.payload.text = fill_text;
+                m_text.payload.text = u32_view(fill_text);
                 bridge.vt_msg_send<vt_message_id::text>(m_text);
 
                 remaining -= n;
@@ -1478,7 +1484,7 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
             auto &fill_text = bridge.conv_u32();
             fill_text.assign(static_cast<size_t>(r->Length), fill_char);
             vt_message m_text{};
-            m_text.payload.text = fill_text;
+            m_text.payload.text = u32_view(fill_text);
             bridge.vt_msg_send<vt_message_id::text>(m_text);
             vt_msg_apply_state(vt_message_id::text, m_text, state, sb);
         }
@@ -2212,17 +2218,16 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
             convert_utf16_to_u32(std::wstring_view{in_w, wlen}, u32text);
         }
         const auto written_u32 = sb.write_char32_linear(r->WriteCoord, u32text.data(), u32text.size());
+        const auto written_text = std::u32string_view{u32text.data(), written_u32};
         if (r->StringType == CONSOLE_ASCII)
         {
-            std::string encoded;
-            convert_u32_to_ansi(std::u32string_view{u32text.data(), written_u32},
-                                state.output_code_page ? state.output_code_page : CP_ACP, encoded, bridge.conv_wstr());
-            r->NumRecords = static_cast<ULONG>(encoded.size());
+            r->NumRecords =
+                static_cast<ULONG>(u32_to_ansi_exact_len(written_text,
+                                                         state.output_code_page ? state.output_code_page : CP_ACP));
         }
         else
         {
-            convert_u32_to_wstr(std::u32string_view{u32text.data(), written_u32}, bridge.conv_wstr());
-            r->NumRecords = static_cast<ULONG>(bridge.conv_wstr().size());
+            r->NumRecords = static_cast<ULONG>(u32_to_wide_exact_len(written_text));
         }
 
         if (!viewport_covers_screen_buffer(sb))
@@ -2360,18 +2365,15 @@ inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buff
 
     if (r->Unicode)
     {
-        std::wstring wstr;
-        convert_u32_to_wstr(src, wstr);
         // TitleLength 返回不含结尾 NUL 的字节数；completion size 包含写入的 NUL。
         auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
         auto maxc = std::min<size_t>(data_capacity,
                                      sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG)) /
                     sizeof(wchar_t);
-        auto cp = wstr.size() < maxc ? wstr.size() : maxc;
-        std::memcpy(out, wstr.data(), cp * sizeof(wchar_t));
+        auto cp = convert_u32_to_wide_raw(src, out, maxc);
         if (cp < maxc)
             out[cp] = L'\0';
-        r->TitleLength = static_cast<ULONG>(wstr.size() * sizeof(wchar_t));
+        r->TitleLength = static_cast<ULONG>(u32_to_wide_exact_len(src) * sizeof(wchar_t));
         const auto written = cp * sizeof(wchar_t) + (cp < maxc ? sizeof(wchar_t) : 0);
         ucomplete_sz(msg, static_cast<ULONG>(sizeof(CONSOLE_GETTITLE_MSG) + written));
     }
@@ -2381,17 +2383,15 @@ inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buff
         auto *out = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
         auto maxb = std::min<size_t>(data_capacity,
                                      sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG));
-        std::string encoded;
-        std::wstring wbuf;
-        convert_u32_to_ansi(src, state.input_code_page ? state.input_code_page : CP_ACP, encoded, wbuf);
+        const auto cp = state.input_code_page ? state.input_code_page : CP_ACP;
+        const auto encoded_size = u32_to_ansi_exact_len(src, cp);
         size_t written = 0;
-        if (maxb >= encoded.size())
+        if (maxb >= encoded_size)
         {
-            written = encoded.size();
-            std::memcpy(out, encoded.data(), written);
+            written = convert_u32_to_ansi_raw(src, cp, out, maxb);
             if (written < maxb)
                 out[written++] = '\0';
-            r->TitleLength = static_cast<ULONG>(encoded.size());
+            r->TitleLength = static_cast<ULONG>(encoded_size);
         }
         else
         {
@@ -2939,20 +2939,12 @@ inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &state, scr
 inline size_t command_history_buffer_length(const pipe_bridge &bridge, bool unicode, UINT code_page)
 {
     size_t total = 0;
-    std::wstring wide;
-    std::string ansi;
     for (const auto &command : bridge.history_commands())
     {
         if (unicode)
-        {
-            convert_u32_to_wstr(command, wide);
-            total += wide.size() + 1;
-        }
+            total += u32_to_wide_exact_len(command) + 1;
         else
-        {
-            convert_u32_to_ansi(command, code_page, ansi, wide);
-            total += ansi.size() + 1;
-        }
+            total += u32_to_ansi_exact_len(command, code_page) + 1;
     }
     return total * (unicode ? sizeof(wchar_t) : 1);
 }
@@ -2961,30 +2953,28 @@ inline size_t write_command_history_buffer(const pipe_bridge &bridge, bool unico
                                            size_t out_cap)
 {
     size_t written = 0;
-    std::wstring wide;
-    std::string ansi;
     for (const auto &command : bridge.history_commands())
     {
         if (unicode)
         {
-            convert_u32_to_wstr(command, wide);
-            const auto need = (wide.size() + 1) * sizeof(wchar_t);
+            const auto wide_len = u32_to_wide_exact_len(command);
+            const auto need = (wide_len + 1) * sizeof(wchar_t);
             if (written + need > out_cap)
                 return written;
-            std::memcpy(out + written, wide.data(), wide.size() * sizeof(wchar_t));
-            written += wide.size() * sizeof(wchar_t);
+            auto *wide_out = reinterpret_cast<wchar_t *>(out + written);
+            const auto chars = convert_u32_to_wide_raw(command, wide_out, wide_len);
+            written += chars * sizeof(wchar_t);
             const wchar_t terminator = L'\0';
             std::memcpy(out + written, &terminator, sizeof(terminator));
             written += sizeof(wchar_t);
         }
         else
         {
-            convert_u32_to_ansi(command, code_page, ansi, wide);
-            const auto need = ansi.size() + 1;
+            const auto ansi_len = u32_to_ansi_exact_len(command, code_page);
+            const auto need = ansi_len + 1;
             if (written + need > out_cap)
                 return written;
-            std::memcpy(out + written, ansi.data(), ansi.size());
-            written += ansi.size();
+            written += convert_u32_to_ansi_raw(command, code_page, reinterpret_cast<char *>(out + written), ansi_len);
             out[written++] = '\0';
         }
     }

@@ -17,6 +17,7 @@
 #include "char_convert.hpp"
 #include "char_width.hpp"
 #include "perf_diag.hpp"
+#include "utility/raw_byte_allocator.hpp"
 
 namespace conpty
 {
@@ -648,7 +649,7 @@ struct screen_buffer
   private:
     // _rows.size() 必须等于 size.Y，每行宽度必须等于 size.X。
     std::vector<screen_buffer_row> _rows;
-    std::vector<char8_t> _write_widths;
+    raw_u8_buffer _write_widths;
     size_t _row_origin = 0;
 
     void _ensure_rows()

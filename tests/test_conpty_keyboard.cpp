@@ -141,7 +141,7 @@ bool test_unknown_id_returns_false()
 
 bool test_full_pipeline_arrow_up()
 {
-    std::vector<char32_t> parser_raw;
+    raw_u32_buffer parser_raw;
     vt_parser parser{parser_raw};
     vt_input_engine engine;
 
@@ -164,7 +164,7 @@ bool test_full_pipeline_arrow_up()
 
 bool test_full_pipeline_arrow_down()
 {
-    std::vector<char32_t> parser_raw;
+    raw_u32_buffer parser_raw;
     vt_parser parser{parser_raw};
     vt_input_engine engine;
 
@@ -199,7 +199,7 @@ bool test_regression_cursor_updown_not_directly_convertible()
 
 bool test_full_pipeline_f5()
 {
-    std::vector<char32_t> parser_raw;
+    raw_u32_buffer parser_raw;
     vt_parser parser{parser_raw};
     vt_input_engine engine;
     (void)parser.parse(0x1B);
@@ -234,7 +234,7 @@ bool test_text_to_screen_buffer()
 
 bool test_unicode_through_parser()
 {
-    std::vector<char32_t> parser_raw;
+    raw_u32_buffer parser_raw;
     vt_parser parser{parser_raw};
 
     // Feed U+1F600 (??)
@@ -258,14 +258,9 @@ bool test_unicode_through_parser()
 
 struct test_bridge_stub
 {
-    std::u32string _raw; // Parser 外部缓冲
-    std::vector<char32_t> parser_raw;
+    raw_u32_buffer parser_raw;
     conpty::vt_parser parser{parser_raw};
     std::vector<INPUT_RECORD> events;
-
-    test_bridge_stub() : parser(_raw)
-    {
-    }
 
     // Simulate process_input for a Win32Input byte sequence
     void feed_win32(const BYTE *bytes, DWORD len)

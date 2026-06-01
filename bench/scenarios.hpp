@@ -58,7 +58,7 @@ inline std::vector<scenario_result> run_worker_bench(std::string host_label, std
     {
         append_worker_result(results,
                              run_long_line_three_vt_output(host_label, "long-line-three-vt-output",
-                                                           1ull * 1024ull * 1024ull, std::chrono::seconds{30}));
+                                                           8ull * 1024ull * 1024ull, std::chrono::seconds{30}));
     }
 
     if (const auto *test_case = filtered_sgr_case(scenario_filter))
@@ -66,7 +66,7 @@ inline std::vector<scenario_result> run_worker_bench(std::string host_label, std
         std::string name = "sgr-";
         name.append(test_case->name);
         append_worker_result(results, run_sgr_sequence_case(host_label, std::move(name), test_case->name,
-                                                            16ull * 1024ull * 1024ull, std::chrono::seconds{15}));
+                                                            64ull * 1024ull * 1024ull, std::chrono::seconds{30}));
     }
     else if (should_run_scenario(scenario_filter, "sgr-sequence-matrix"))
     {
@@ -75,13 +75,13 @@ inline std::vector<scenario_result> run_worker_bench(std::string host_label, std
             std::string name = "sgr-";
             name.append(test_case.name);
             append_worker_result(results, run_sgr_sequence_case(host_label, std::move(name), test_case.name,
-                                                                16ull * 1024ull * 1024ull, std::chrono::seconds{15}));
+                                                                64ull * 1024ull * 1024ull, std::chrono::seconds{30}));
         }
     }
 
     if (should_run_scenario(scenario_filter, "cjk-terminal-input"))
     {
-        append_worker_result(results, run_cjk_terminal_input(host_label, "cjk-terminal-input", 16ull * 1024ull,
+        append_worker_result(results, run_cjk_terminal_input(host_label, "cjk-terminal-input", 256ull * 1024ull,
                                                              std::chrono::seconds{30}));
     }
     return results;

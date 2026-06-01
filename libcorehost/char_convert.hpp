@@ -8,17 +8,76 @@
 //    MultiByteToWideChar/WideCharToMultiByte。
 #pragma once
 #include <windows.h>
+#include <cstring>
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 #include <algorithm>
 #include <array>
 #include <optional>
 #include <libunicode/convert.h>
 #include "gbk_table.hpp"
+#include "utility/raw_byte_allocator.hpp"
 
 namespace conpty
 {
+
+template <typename Buffer>
+[[nodiscard]] const char *byte_data(const Buffer &out) noexcept
+{
+    return reinterpret_cast<const char *>(out.data());
+}
+
+template <typename Char>
+[[nodiscard]] char *byte_pointer(Char *ptr) noexcept
+{
+    return reinterpret_cast<char *>(ptr);
+}
+
+template <typename Char, typename Traits, typename Alloc, typename Writer>
+inline void resize_for_overwrite(std::basic_string<Char, Traits, Alloc> &out, size_t capacity, Writer &&writer)
+{
+    out.resize_and_overwrite(capacity, [&](Char *data, size_t size) -> size_t {
+        return writer(data, size);
+    });
+}
+
+template <typename Char, typename Alloc, typename Writer>
+inline void resize_for_overwrite(std::vector<Char, Alloc> &out, size_t capacity, Writer &&writer)
+{
+    out.resize(capacity);
+    const auto written = writer(out.data(), out.size());
+    out.resize(written);
+}
+
+template <typename Traits, typename Alloc>
+inline void assign_bytes(std::basic_string<char, Traits, Alloc> &out, const char *data, size_t size)
+{
+    out.assign(data, size);
+}
+
+template <typename Alloc>
+inline void assign_bytes(std::vector<char8_t, Alloc> &out, const char *data, size_t size)
+{
+    out.resize(size);
+    std::memcpy(out.data(), data, size);
+}
+
+inline std::string_view byte_view(const raw_u8_buffer &buffer) noexcept
+{
+    return {byte_data(buffer), buffer.size()};
+}
+
+inline std::wstring_view wide_view(const raw_wide_buffer &buffer) noexcept
+{
+    return {buffer.data(), buffer.size()};
+}
+
+inline std::u32string_view u32_view(const raw_u32_buffer &buffer) noexcept
+{
+    return {buffer.data(), buffer.size()};
+}
 
 // ── 流式 UTF-8 → char32_t 解码器 ─────────────────────
 // 委托 libunicode::decoder<char>，非法字节返回 U+FFFD
@@ -63,61 +122,111 @@ inline int to_wchar(char32_t cp, wchar_t *out) noexcept
     return static_cast<int>(enc(cp, out) - out);
 }
 
-// ── 持久批量转换 (写入预分配引用, resize_and_overwrite 零分配) ──
+// ── 持久批量转换 (写入调用方提供的可复用缓冲) ──
 // 上界估计: 1char = 1wchar = 1char32 (UTF-8→/UTF-16→: 1input≤1output)
 //           *2 (UTF-32→UTF-16 代理对), *3 (UTF-16→UTF-8), *4 (UTF-32→UTF-8)
 // ════════════════════════════════════════════════════════
 
-inline void convert_utf16_to_u32(std::wstring_view ws, std::u32string &out)
+inline size_t utf16_to_u32_max_units(size_t utf16_units) noexcept
+{
+    return utf16_units;
+}
+
+inline size_t utf8_to_u32_max_units(size_t utf8_bytes) noexcept
+{
+    return utf8_bytes;
+}
+
+inline size_t u32_to_wide_max_units(size_t code_points) noexcept
+{
+    return code_points * 2;
+}
+
+inline size_t u32_to_utf8_max_bytes(size_t code_points) noexcept
+{
+    return code_points * 4;
+}
+
+inline size_t utf8_to_wide_max_units(size_t utf8_bytes) noexcept
+{
+    return utf8_bytes;
+}
+
+inline size_t wide_to_utf8_max_bytes(size_t utf16_units) noexcept
+{
+    return utf16_units * 3;
+}
+
+inline size_t gbk_to_utf8_max_bytes(size_t gbk_bytes) noexcept
+{
+    return gbk_bytes * 3;
+}
+
+inline size_t u32_to_gbk_max_bytes(size_t code_points) noexcept
+{
+    return code_points * 2;
+}
+
+inline size_t wide_to_gbk_max_bytes(size_t utf16_units) noexcept
+{
+    return utf16_units * 2;
+}
+
+template <typename U32Buffer>
+inline void convert_utf16_to_u32(std::wstring_view ws, U32Buffer &out)
 {
     if (ws.empty())
     {
         out.clear();
         return;
     }
-    out.resize_and_overwrite(ws.size(), [&](char32_t *p, size_t) -> size_t {
+    resize_for_overwrite(out, utf16_to_u32_max_units(ws.size()), [&](char32_t *p, size_t) -> size_t {
         // UTF-16 到 UTF-32 的输出 codepoint 数不会超过输入 code unit 数。
-        auto end = unicode::convert_to<char32_t>(
+        auto *end = unicode::convert_to<char32_t>(
             std::u16string_view{reinterpret_cast<const char16_t *>(ws.data()), ws.size()}, p);
         return static_cast<size_t>(end - p);
     });
 }
 
-inline void convert_utf8_to_u32(std::string_view utf8, std::u32string &out)
+template <typename U32Buffer>
+inline void convert_utf8_to_u32(std::string_view utf8, U32Buffer &out)
 {
     if (utf8.empty())
     {
         out.clear();
         return;
     }
-    out.resize_and_overwrite(utf8.size(), [&](char32_t *p, size_t) -> size_t {
+    resize_for_overwrite(out, utf8_to_u32_max_units(utf8.size()), [&](char32_t *p, size_t) -> size_t {
         return unicode::detail::convert_utf8_to_utf32(utf8.data(), utf8.size(), p);
     });
 }
 
-inline void convert_u32_to_wstr(std::u32string_view u32s, std::wstring &out)
+template <typename WideBuffer>
+inline void convert_u32_to_wstr(std::u32string_view u32s, WideBuffer &out)
 {
     if (u32s.empty())
     {
         out.clear();
         return;
     }
-    out.resize_and_overwrite(u32s.size() * 2, [&](wchar_t *p, size_t) -> size_t {
+    resize_for_overwrite(out, u32_to_wide_max_units(u32s.size()), [&](wchar_t *p, size_t) -> size_t {
         // Windows wchar_t 是 UTF-16，非 BMP codepoint 最多展开成两个 code unit。
-        auto end = unicode::convert_to<char16_t>(u32s, reinterpret_cast<char16_t *>(p));
+        auto *end = unicode::convert_to<char16_t>(u32s, reinterpret_cast<char16_t *>(p));
         return static_cast<size_t>(end - reinterpret_cast<char16_t *>(p));
     });
 }
 
-inline void convert_u32_to_utf8(std::u32string_view u32s, std::string &out)
+template <typename ByteBuffer>
+inline void convert_u32_to_utf8(std::u32string_view u32s, ByteBuffer &out)
 {
     if (u32s.empty())
     {
         out.clear();
         return;
     }
-    out.resize_and_overwrite(u32s.size() * 4, [&](char *p, size_t) -> size_t {
-        auto end = unicode::convert_to<char>(u32s, p);
+    resize_for_overwrite(out, u32_to_utf8_max_bytes(u32s.size()), [&](auto *data, size_t) -> size_t {
+        auto *p = byte_pointer(data);
+        auto *end = unicode::convert_to<char>(u32s, p);
         return static_cast<size_t>(end - p);
     });
 }
@@ -138,14 +247,15 @@ inline size_t utf16_prefix_units(std::wstring_view text, size_t max_units) noexc
     return count;
 }
 
-inline void convert_utf8_to_wstr(std::string_view u8, std::wstring &out)
+template <typename WideBuffer>
+inline void convert_utf8_to_wstr(std::string_view u8, WideBuffer &out)
 {
     if (u8.empty())
     {
         out.clear();
         return;
     }
-    out.resize_and_overwrite(u8.size(), [&](wchar_t *p, size_t) -> size_t {
+    resize_for_overwrite(out, utf8_to_wide_max_units(u8.size()), [&](wchar_t *p, size_t) -> size_t {
         if constexpr (sizeof(wchar_t) == 2)
             return unicode::detail::convert_utf8_to_utf16(u8.data(), u8.size(), reinterpret_cast<char16_t *>(p));
         else
@@ -153,15 +263,17 @@ inline void convert_utf8_to_wstr(std::string_view u8, std::wstring &out)
     });
 }
 
-inline void convert_wstr_to_utf8(std::wstring_view ws, std::string &out)
+template <typename ByteBuffer>
+inline void convert_wstr_to_utf8(std::wstring_view ws, ByteBuffer &out)
 {
     if (ws.empty())
     {
         out.clear();
         return;
     }
-    out.resize_and_overwrite(ws.size() * 3, [&](char *p, size_t) -> size_t {
-        auto end =
+    resize_for_overwrite(out, wide_to_utf8_max_bytes(ws.size()), [&](auto *data, size_t) -> size_t {
+        auto *p = byte_pointer(data);
+        auto *end =
             unicode::convert_to<char>(std::u16string_view{reinterpret_cast<const char16_t *>(ws.data()), ws.size()}, p);
         return static_cast<size_t>(end - p);
     });
@@ -266,15 +378,16 @@ inline uint16_t gbk_encode_codepoint(char32_t cp) noexcept
     return static_cast<uint16_t>(range->mapped_first + (static_cast<uint32_t>(cp) - range->first));
 }
 
-inline void gbk_append_code(uint16_t code, std::string &out, size_t &written) noexcept
+template <typename Byte>
+inline void gbk_append_code(uint16_t code, Byte *out, size_t &written) noexcept
 {
     if (code <= 0xFF)
     {
-        out[written++] = static_cast<char>(code);
+        out[written++] = static_cast<Byte>(code);
         return;
     }
-    out[written++] = static_cast<char>(code >> 8);
-    out[written++] = static_cast<char>(code & 0xFF);
+    out[written++] = static_cast<Byte>(code >> 8);
+    out[written++] = static_cast<Byte>(code & 0xFF);
 }
 
 inline bool gbk_append_code_raw(uint16_t code, char *out, size_t out_cap, size_t &written) noexcept
@@ -293,35 +406,42 @@ inline bool gbk_append_code_raw(uint16_t code, char *out, size_t out_cap, size_t
     return true;
 }
 
-inline void convert_gbk_to_u32(const char *s, size_t len, std::u32string &out)
+template <typename U32Buffer>
+inline void convert_gbk_to_u32(const char *s, size_t len, U32Buffer &out)
 {
-    out.resize(len);
-    size_t i = 0;
-    size_t written = 0;
-    while (i < len)
-        out[written++] = gbk_decode_next(s, len, i);
-    out.resize(written);
+    resize_for_overwrite(out, len, [&](char32_t *data, size_t) -> size_t {
+        size_t i = 0;
+        size_t written = 0;
+        while (i < len)
+            data[written++] = gbk_decode_next(s, len, i);
+        return written;
+    });
 }
 
-inline void convert_gbk_to_wstr(const char *s, size_t len, std::wstring &out)
+template <typename WideBuffer>
+inline void convert_gbk_to_wstr(const char *s, size_t len, WideBuffer &out)
 {
-    out.resize(len);
-    size_t i = 0;
-    size_t written = 0;
-    while (i < len)
-        out[written++] = static_cast<wchar_t>(gbk_decode_next(s, len, i));
-    out.resize(written);
+    resize_for_overwrite(out, len, [&](wchar_t *data, size_t) -> size_t {
+        size_t i = 0;
+        size_t written = 0;
+        while (i < len)
+            data[written++] = static_cast<wchar_t>(gbk_decode_next(s, len, i));
+        return written;
+    });
 }
 
-inline void convert_gbk_to_utf8(const char *s, size_t len, std::string &out)
+template <typename ByteBuffer>
+inline void convert_gbk_to_utf8(const char *s, size_t len, ByteBuffer &out)
 {
-    out.resize(len * 3);
-    unicode::encoder<char> enc;
-    char *p = out.data();
-    size_t i = 0;
-    while (i < len)
-        p = enc(gbk_decode_next(s, len, i), p);
-    out.resize(static_cast<size_t>(p - out.data()));
+    resize_for_overwrite(out, gbk_to_utf8_max_bytes(len), [&](auto *data, size_t) -> size_t {
+        unicode::encoder<char> enc;
+        char *p = byte_pointer(data);
+        char *first = p;
+        size_t i = 0;
+        while (i < len)
+            p = enc(gbk_decode_next(s, len, i), p);
+        return static_cast<size_t>(p - first);
+    });
 }
 
 inline bool convert_gbk_to_wide_raw(const char *s, size_t len, wchar_t *out, size_t out_cap, size_t &written) noexcept
@@ -337,35 +457,39 @@ inline bool convert_gbk_to_wide_raw(const char *s, size_t len, wchar_t *out, siz
     return true;
 }
 
-inline void convert_u32_to_gbk(std::u32string_view u32s, std::string &out)
+template <typename ByteBuffer>
+inline void convert_u32_to_gbk(std::u32string_view u32s, ByteBuffer &out)
 {
-    out.resize(u32s.size() * 2);
-    size_t written = 0;
-    for (char32_t cp : u32s)
-        gbk_append_code(gbk_encode_codepoint(cp), out, written);
-    out.resize(written);
+    resize_for_overwrite(out, u32_to_gbk_max_bytes(u32s.size()), [&](auto *data, size_t) -> size_t {
+        size_t written = 0;
+        for (char32_t cp : u32s)
+            gbk_append_code(gbk_encode_codepoint(cp), data, written);
+        return written;
+    });
 }
 
-inline void convert_wstr_to_gbk(std::wstring_view ws, std::string &out)
+template <typename ByteBuffer>
+inline void convert_wstr_to_gbk(std::wstring_view ws, ByteBuffer &out)
 {
-    out.resize(ws.size() * 2);
-    size_t written = 0;
-    for (size_t i = 0; i < ws.size(); ++i)
-    {
-        const auto wc = static_cast<char32_t>(ws[i]);
-        if (wc >= 0xD800 && wc <= 0xDBFF && i + 1 < ws.size())
+    resize_for_overwrite(out, wide_to_gbk_max_bytes(ws.size()), [&](auto *data, size_t) -> size_t {
+        size_t written = 0;
+        for (size_t i = 0; i < ws.size(); ++i)
         {
-            const auto next = static_cast<char32_t>(ws[i + 1]);
-            if (next >= 0xDC00 && next <= 0xDFFF)
+            const auto wc = static_cast<char32_t>(ws[i]);
+            if (wc >= 0xD800 && wc <= 0xDBFF && i + 1 < ws.size())
             {
-                gbk_append_code(static_cast<uint8_t>(gbk_default_byte), out, written);
-                ++i;
-                continue;
+                const auto next = static_cast<char32_t>(ws[i + 1]);
+                if (next >= 0xDC00 && next <= 0xDFFF)
+                {
+                    gbk_append_code(static_cast<uint8_t>(gbk_default_byte), data, written);
+                    ++i;
+                    continue;
+                }
             }
+            gbk_append_code(gbk_encode_codepoint(wc), data, written);
         }
-        gbk_append_code(gbk_encode_codepoint(wc), out, written);
-    }
-    out.resize(written);
+        return written;
+    });
 }
 
 inline bool convert_wide_to_gbk_raw(const wchar_t *s, size_t len, char *out, size_t out_cap, size_t &written) noexcept
@@ -424,17 +548,18 @@ inline size_t wstr_to_gbk_len(std::wstring_view ws) noexcept
     return bytes;
 }
 // ── 上界估计: 1char→1wchar， 1wchar→2char(ANSI) 或 3char(UTF-8) ──
-inline size_t ansi_to_wide_est(size_t ansi_bytes) noexcept
+inline size_t ansi_to_wide_max_units(size_t ansi_bytes) noexcept
 {
     return ansi_bytes;
 }
-inline size_t wide_to_ansi_est(size_t wlen, UINT cp) noexcept
+inline size_t wide_to_ansi_max_bytes(size_t wlen, UINT cp) noexcept
 {
     return (cp == CP_UTF8 || cp == 65001) ? wlen * 3 : wlen * 2;
 }
 
 // ANSI → wstring
-inline void convert_ansi_to_wstr(const char *s, size_t len, UINT cp, std::wstring &out)
+template <typename WideBuffer>
+inline void convert_ansi_to_wstr(const char *s, size_t len, UINT cp, WideBuffer &out)
 {
     if (len == 0)
     {
@@ -453,14 +578,15 @@ inline void convert_ansi_to_wstr(const char *s, size_t len, UINT cp, std::wstrin
         convert_gbk_to_wstr(s, len, out);
         return;
     }
-    out.resize_and_overwrite(ansi_to_wide_est(len), [&](wchar_t *p, size_t cap) -> size_t {
-        int wl = ::MultiByteToWideChar(cp, 0, s, static_cast<int>(len), p, static_cast<int>(cap));
+    resize_for_overwrite(out, ansi_to_wide_max_units(len), [&](wchar_t *data, size_t capacity) -> size_t {
+        int wl = ::MultiByteToWideChar(cp, 0, s, static_cast<int>(len), data, static_cast<int>(capacity));
         return wl > 0 ? static_cast<size_t>(wl) : 0;
     });
 }
 
 // wstring → ANSI
-inline void convert_wstr_to_ansi(std::wstring_view ws, UINT cp, std::string &out)
+template <typename ByteBuffer>
+inline void convert_wstr_to_ansi(std::wstring_view ws, UINT cp, ByteBuffer &out)
 {
     if (ws.empty())
     {
@@ -477,14 +603,15 @@ inline void convert_wstr_to_ansi(std::wstring_view ws, UINT cp, std::string &out
         convert_wstr_to_gbk(ws, out);
         return;
     }
-    out.resize_and_overwrite(wide_to_ansi_est(ws.size(), cp), [&](char *p, size_t cap) -> size_t {
-        int n = ::WideCharToMultiByte(cp, 0, ws.data(), static_cast<int>(ws.size()), p, static_cast<int>(cap), nullptr,
-                                      nullptr);
+    resize_for_overwrite(out, wide_to_ansi_max_bytes(ws.size(), cp), [&](auto *data, size_t capacity) -> size_t {
+        int n = ::WideCharToMultiByte(cp, 0, ws.data(), static_cast<int>(ws.size()), byte_pointer(data),
+                                      static_cast<int>(capacity), nullptr, nullptr);
         return n > 0 ? static_cast<size_t>(n) : 0;
     });
 }
 
-inline void convert_ansi_to_utf8(const char *s, size_t len, UINT cp, std::string &out, std::wstring &wbuf)
+template <typename ByteBuffer, typename WideBuffer>
+inline void convert_ansi_to_utf8(const char *s, size_t len, UINT cp, ByteBuffer &out, WideBuffer &wbuf)
 {
     if (len == 0)
     {
@@ -493,7 +620,7 @@ inline void convert_ansi_to_utf8(const char *s, size_t len, UINT cp, std::string
     }
     if (cp == CP_UTF8 || cp == 65001)
     {
-        out.assign(s, len);
+        assign_bytes(out, s, len);
         return;
     }
     if (cp == code_page_gbk)
@@ -512,7 +639,7 @@ inline size_t wstr_to_ansi_len(std::wstring_view ws, UINT cp) noexcept
     if (ws.empty())
         return 0;
     if (cp == CP_UTF8 || cp == 65001)
-        return wide_to_ansi_est(ws.size(), cp);
+        return wide_to_ansi_max_bytes(ws.size(), cp);
     if (cp == code_page_gbk)
         return wstr_to_gbk_len(ws);
     int n = ::WideCharToMultiByte(cp, 0, ws.data(), static_cast<int>(ws.size()), nullptr, 0, nullptr, nullptr);
@@ -526,7 +653,7 @@ inline size_t ansi_to_wstr_len(const char *s, size_t len, UINT cp) noexcept
     if (len == 0)
         return 0;
     if (cp == CP_UTF8 || cp == 65001)
-        return ansi_to_wide_est(len);
+        return ansi_to_wide_max_units(len);
     if (cp == code_page_gbk)
         return gbk_to_wstr_len(s, len);
     int wl = ::MultiByteToWideChar(cp, 0, s, static_cast<int>(len), nullptr, 0);
@@ -535,7 +662,8 @@ inline size_t ansi_to_wstr_len(const char *s, size_t len, UINT cp) noexcept
 
 // ANSI → UTF-32: CP_UTF8走libunicode SIMD路径, 否则 MultiByteToWideChar + UTF-16→UTF-32
 // wbuf: 调用方提供的持久 wchar_t 中间缓冲
-inline void convert_ansi_to_u32(const char *s, size_t len, UINT code_page, std::u32string &out, std::wstring &wbuf)
+template <typename U32Buffer, typename WideBuffer>
+inline void convert_ansi_to_u32(const char *s, size_t len, UINT code_page, U32Buffer &out, WideBuffer &wbuf)
 {
     if (len == 0)
     {
@@ -560,7 +688,8 @@ inline void convert_ansi_to_u32(const char *s, size_t len, UINT code_page, std::
 
 // UTF-32 → ANSI
 // wbuf: 调用方提供的持久 wchar_t 中间缓冲
-inline void convert_u32_to_ansi(std::u32string_view u32s, UINT cp, std::string &out, std::wstring &wbuf)
+template <typename ByteBuffer, typename WideBuffer>
+inline void convert_u32_to_ansi(std::u32string_view u32s, UINT cp, ByteBuffer &out, WideBuffer &wbuf)
 {
     if (u32s.empty())
     {
@@ -579,6 +708,112 @@ inline void convert_u32_to_ansi(std::u32string_view u32s, UINT cp, std::string &
     }
     convert_u32_to_wstr(u32s, wbuf);
     convert_wstr_to_ansi(std::wstring_view{wbuf.data(), wbuf.size()}, cp, out);
+}
+
+inline size_t convert_u32_to_wide_raw(std::u32string_view text, wchar_t *out, size_t out_cap) noexcept
+{
+    size_t written = 0;
+    for (char32_t cp : text)
+    {
+        wchar_t encoded[2];
+        const auto count = static_cast<size_t>(to_wchar(cp, encoded));
+        if (written + count > out_cap)
+            break;
+        std::memcpy(out + written, encoded, count * sizeof(wchar_t));
+        written += count;
+    }
+    return written;
+}
+
+inline size_t u32_to_wide_exact_len(std::u32string_view text) noexcept
+{
+    size_t length = 0;
+    for (char32_t cp : text)
+        length += cp > 0xFFFF ? 2 : 1;
+    return length;
+}
+
+inline size_t append_ascii_raw(char ch, char *out, size_t out_cap, size_t written) noexcept
+{
+    if (written < out_cap)
+        out[written++] = ch;
+    return written;
+}
+
+inline size_t convert_u32_to_ansi_raw(std::u32string_view text, UINT code_page, char *out, size_t out_cap) noexcept
+{
+    UINT cp = code_page ? code_page : CP_ACP;
+    size_t written = 0;
+    if (cp == CP_UTF8 || cp == 65001)
+    {
+        unicode::encoder<char> enc;
+        for (char32_t ch : text)
+        {
+            char bytes[4];
+            char *end = enc(ch, bytes);
+            const auto count = static_cast<size_t>(end - bytes);
+            if (written + count > out_cap)
+                break;
+            std::memcpy(out + written, bytes, count);
+            written += count;
+        }
+        return written;
+    }
+
+    if (cp == code_page_gbk)
+    {
+        for (char32_t ch : text)
+        {
+            if (!gbk_append_code_raw(gbk_encode_codepoint(ch), out, out_cap, written))
+                break;
+        }
+        return written;
+    }
+
+    for (char32_t ch : text)
+    {
+        if (written >= out_cap)
+            break;
+        wchar_t wide[2];
+        const auto wide_count = to_wchar(ch, wide);
+        int bytes = ::WideCharToMultiByte(cp, 0, wide, wide_count, out + written,
+                                          static_cast<int>(out_cap - written), nullptr, nullptr);
+        if (bytes <= 0)
+            break;
+        written += static_cast<size_t>(bytes);
+    }
+    return written;
+}
+
+inline size_t u32_to_ansi_exact_len(std::u32string_view text, UINT code_page) noexcept
+{
+    UINT cp = code_page ? code_page : CP_ACP;
+    size_t length = 0;
+    if (cp == CP_UTF8 || cp == 65001)
+    {
+        char bytes[4];
+        unicode::encoder<char> enc;
+        for (char32_t ch : text)
+            length += static_cast<size_t>(enc(ch, bytes) - bytes);
+        return length;
+    }
+
+    if (cp == code_page_gbk)
+    {
+        for (char32_t ch : text)
+            length += gbk_encode_codepoint(ch) <= 0xFF ? 1 : 2;
+        return length;
+    }
+
+    for (char32_t ch : text)
+    {
+        wchar_t wide[2];
+        const auto wide_count = to_wchar(ch, wide);
+        int bytes = ::WideCharToMultiByte(cp, 0, wide, wide_count, nullptr, 0, nullptr, nullptr);
+        if (bytes > 0)
+            length += static_cast<size_t>(bytes);
+    }
+    return length;
 }
 
 // ════════════════════════════════════════════════════════
@@ -617,7 +852,7 @@ inline size_t convert_wide_to_ansi_raw(const wchar_t *s, size_t len, UINT cp, ch
     }
     if (cp == CP_UTF8 || cp == 65001)
     {
-        if (out_cap == 0 || wide_to_ansi_est(len, cp) >= out_cap)
+        if (out_cap == 0 || wide_to_ansi_max_bytes(len, cp) >= out_cap)
             return 0;
         auto *end = unicode::convert_to<char>(std::u16string_view{reinterpret_cast<const char16_t *>(s), len}, out);
         const auto written = static_cast<size_t>(end - out);

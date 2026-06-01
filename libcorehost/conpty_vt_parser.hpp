@@ -13,7 +13,7 @@
 //     对于 text/unknown/title 消息还会清空内部缓冲区 _raw，兼顾性能与内存。
 //
 // 使用方式：
-//   std::vector<char32_t> raw;
+//   raw_u32_buffer raw;
 //   vt_parser p{raw};
 //   for (char32_t ch : code_points) {
 //       vt_message_id id = p.parse(ch);
@@ -42,6 +42,7 @@
 #include <string_view>
 #include <array>
 #include <vector>
+#include "utility/raw_byte_allocator.hpp"
 
 namespace conpty
 {
@@ -351,7 +352,7 @@ class vt_parser
     };
 
   public:
-    explicit vt_parser(std::vector<char32_t> &raw) : _raw(raw)
+    explicit vt_parser(raw_u32_buffer &raw) : _raw(raw)
     {
     }
 
@@ -384,21 +385,19 @@ class vt_parser
         return _ground_text_start != npos && !_raw.empty();
     }
 
-    [[nodiscard]] size_t consume_ground_text_run(std::u32string_view text)
+    [[nodiscard]] bool can_accept_direct_ground_text() const noexcept
     {
-        if (_pending_control != vt_message_id::continue_ || _mode != parser_mode::ground || text.empty())
+        return _pending_control == vt_message_id::continue_ && _mode == parser_mode::ground;
+    }
+
+    [[nodiscard]] size_t direct_ground_text_run_length(std::u32string_view text) const noexcept
+    {
+        if (!can_accept_direct_ground_text())
             return 0;
 
         size_t count = 0;
         while (count < text.size() && _is_ground_printable(text[count]))
             ++count;
-        if (count == 0)
-            return 0;
-
-        if (_ground_text_start == npos)
-            _ground_text_start = _raw.size();
-        _raw.insert(_raw.end(), text.data(), text.data() + count);
-        _should_echo = true;
         return count;
     }
 
@@ -950,7 +949,7 @@ class vt_parser
 
     // ── 中央缓冲区与视图位置 ──
     // _raw 保存当前未消费输入；message 里的 string_view 指向该缓冲。
-    std::vector<char32_t> &_raw;
+    raw_u32_buffer &_raw;
 
     // npos 表示没有有效偏移。
     static constexpr size_t npos = ~size_t{0};

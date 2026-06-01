@@ -112,12 +112,12 @@ struct pipe_bridge
     // _input_raw_buf 属于终端输入方向：vt_in 的 UTF-8 字节解码成 char32_t 后喂给
     // _input_parser。vt_parser 会把当前消息的原文写到这里，并让 vt_message::text /
     // title 指向其中的切片；调用方消费消息并 reset 后，该缓冲才能被清理或复用。
-    std::vector<char32_t> _input_raw_buf;
+    raw_u32_buffer _input_raw_buf;
 
     // _output_raw_buf 属于 Console API 输出方向：WriteConsole/RAW_WRITE 的文本
     // 也可能包含 VT 序列。它和 _input_raw_buf 分离，避免应用输出中的半条 ESC/CSI/OSC
     // 序列污染终端输入解析状态。
-    std::vector<char32_t> _output_raw_buf;
+    raw_u32_buffer _output_raw_buf;
 
     // _cooked_buf 保存当前 cooked ReadConsole 行编辑文本，只包含可以返回给
     // 控制台程序的地面态输入字符，不包含 ESC/CSI/OSC 控制序列原文。
@@ -147,7 +147,7 @@ struct pipe_bridge
     // ── 原始字节缓冲 ──
     // _read_total 是 _readbuf 中有效字节数。
     std::array<char8_t, sizeof(miniio::io_msg::body)> _readbuf{};
-    std::vector<char8_t> _input_payload_buffer;
+    raw_u8_buffer _input_payload_buffer;
     DWORD _read_total = 0;
     bool _line_found = false; // process_input 发现行终止符 → 跳过 scan_for_line 重复扫描
     bizwen::deque<char8_t> _queued_vt_input;
@@ -293,11 +293,11 @@ struct pipe_bridge
     }
 
     // ── 持久转换缓冲区访问器 ──
-    std::u32string &conv_u32() noexcept
+    raw_u32_buffer &conv_u32() noexcept
     {
         return _conversion.u32();
     }
-    std::wstring &conv_wstr() noexcept
+    raw_wide_buffer &conv_wstr() noexcept
     {
         return _conversion.wide();
     }
@@ -427,26 +427,7 @@ struct pipe_bridge
     void vt_append_raw_sequence(std::u32string_view text)
     {
         COREHOST_PERF_SCOPE_AMOUNT(vt_raw_passthrough, text.size());
-        if (text.empty())
-            return;
-
-        char ascii[256];
-        if (text.size() <= sizeof(ascii))
-        {
-            for (size_t i = 0; i < text.size(); ++i)
-            {
-                if (text[i] > 0x7F)
-                    goto convert;
-                ascii[i] = static_cast<char>(text[i]);
-            }
-            vt_append_str(std::string_view{ascii, text.size()});
-            return;
-        }
-
-    convert:
-        auto &utf8 = _conversion.utf8();
-        convert_u32_to_utf8(text, utf8);
-        vt_append_str(utf8);
+        _vt_output.append_utf32(text);
     }
 
     // ── 高层 VT 序列 ──
@@ -527,11 +508,20 @@ struct pipe_bridge
         // WT 接收 OSC 0/2 标题。这里使用 OSC 0 同时覆盖 icon/window title；
         // COM/defterm 的启动标题最终也会走到这条 VT 输出路径。
         vt_append_str("\x1b]0;"sv);
-        // char32_t → UTF-8 批量转换（复用转换缓冲）。
-        auto &utf8 = _conversion.utf8();
-        convert_u32_to_utf8(title, utf8);
-        vt_append_str(utf8);
+        _vt_output.append_utf32(title);
         vt_append_char('\x07');
+    }
+
+    void vt_write_text(std::u32string_view text)
+    {
+        COREHOST_PERF_SCOPE_AMOUNT(vt_msg_send_text, text.size());
+        _vt_output.append_utf32(text);
+    }
+
+    void vt_write_crlf()
+    {
+        vt_write_cell(U'\r');
+        vt_write_cell(U'\n');
     }
 
     // ── vt_msg_send: vt_message → UTF-8 序列化并追加到缓冲 ──
@@ -724,16 +714,11 @@ struct pipe_bridge
             break;
 
         case vt_message_id::line_feed:
-            vt_write_cell(U'\r');
-            vt_write_cell(U'\n');
+            vt_write_crlf();
             break;
 
         case vt_message_id::text: {
-            COREHOST_PERF_SCOPE_AMOUNT(vt_msg_send_text, msg.payload.text.size());
-            // 批量 char32_t → UTF-8 追加（复用转换缓冲）。
-            auto &utf8 = _conversion.utf8();
-            convert_u32_to_utf8(msg.payload.text, utf8);
-            vt_append_str(utf8);
+            vt_write_text(msg.payload.text);
             break;
         }
 
@@ -1238,21 +1223,33 @@ struct pipe_bridge
     {
         if (bytes == 0)
             return;
-        // Console API 写入可能是 UTF-16 或系统 ANSI 代码页。宿主终端只接收
-        // UTF-8 VT，因此所有文本最终都通过 char32_t 规范化后再编码。
+        // Console API 写入可能是 UTF-16 或控制台输出代码页的 ANSI 字节。
+        // 这里不能用 corehost 进程 ACP；客户端可通过 SetConsoleOutputCP
+        // 修改 console output CP，WriteFile/RAW_WRITE 应跟随该状态。
         if (uni)
         {
             auto *ws = reinterpret_cast<const wchar_t *>(data);
             int wl = static_cast<int>(bytes / sizeof(wchar_t));
-            auto &utf8 = _conversion.utf8();
-            convert_wstr_to_utf8(std::wstring_view{ws, static_cast<size_t>(wl)}, utf8);
-            vt_append_str(utf8);
+            _vt_output.append_utf16(std::wstring_view{ws, static_cast<size_t>(wl)});
         }
         else
         {
-            auto &utf8 = _conversion.utf8();
-            convert_ansi_to_utf8(reinterpret_cast<const char *>(data), bytes, CP_ACP, utf8, _conversion.wide());
-            vt_append_str(utf8);
+            auto *s = reinterpret_cast<const char *>(data);
+            const auto cp = cstate.output_code_page ? cstate.output_code_page : CP_ACP;
+            if (cp == CP_UTF8)
+            {
+                vt_append_str(std::string_view{s, bytes});
+                return;
+            }
+            if (cp == code_page_gbk)
+            {
+                _vt_output.append_gbk(std::string_view{s, bytes});
+                return;
+            }
+
+            auto &wide = _conversion.wide();
+            convert_ansi_to_wstr(s, bytes, cp, wide);
+            _vt_output.append_utf16(wide_view(wide));
         }
     }
 
@@ -1834,6 +1831,17 @@ struct pipe_bridge
         _terminal.apply_echo_byte(static_cast<BYTE>(b));
     }
 
+    bool raw_read_echo_enabled() const noexcept
+    {
+        return _pending.kind() == PendingKind::RawRead && (cstate.input_mode & ENABLE_ECHO_INPUT) != 0;
+    }
+
+    void echo_raw_read_text_byte(char8_t b)
+    {
+        if (raw_read_echo_enabled() && b != static_cast<char8_t>('\r') && b != static_cast<char8_t>('\n'))
+            vt_append_char(static_cast<char>(b));
+    }
+
     // ── accumulate_from_pipe: 缓冲后统一走 process_input 解析 ──
     // 返回 true 表示已发现行终止符并完成 pending（调用方应 return）
     bool accumulate_from_pipe()
@@ -2139,6 +2147,7 @@ struct pipe_bridge
         for (DWORD i = 0; i < len; ++i)
         {
             char8_t b = bytes[i];
+            echo_raw_read_text_byte(b);
 
             // ── Ctrl+Z 即时检测 ──
             if (_pending.process_control_z() && b == static_cast<char8_t>(0x1A)) [[unlikely]]
@@ -2432,9 +2441,12 @@ struct pipe_bridge
                 }
             }
 
-            if (!has_lf)
+            if (!has_lf && !raw_read_echo_enabled())
                 vt_append_char('\n');
         }
+
+        if (raw_read_echo_enabled())
+            vt_append_str("\r\n"sv);
 
         queue_unprocessed_vt_input(bytes, consumed, len);
 
@@ -2522,30 +2534,22 @@ struct pipe_bridge
         {
             auto *utf16_out = reinterpret_cast<wchar_t *>(db);
             auto max_chars = maxd / sizeof(wchar_t);
-            auto &wide = _conversion.wide();
-            convert_u32_to_wstr(_cooked_buf, wide);
-            wide.push_back(L'\r');
-            wide.push_back(L'\n');
-            size_t n = utf16_prefix_units(wide, max_chars);
-            if (n > 0)
-                std::memcpy(utf16_out, wide.data(), n * sizeof(wchar_t));
+            size_t n = convert_u32_to_wide_raw(_cooked_buf, utf16_out, max_chars);
+            if (n < max_chars)
+                utf16_out[n++] = L'\r';
+            if (n < max_chars)
+                utf16_out[n++] = L'\n';
             cp = static_cast<DWORD>(n * sizeof(wchar_t));
         }
         else
         {
             // ReadConsoleA 使用控制台输入代码页，而不是终端 UTF-8。否则
             // CJK 输入会以 UTF-8 字节交给期望 OEM/ANSI 的控制台程序。
-            auto &u32 = _conversion.u32();
-            auto &utf8 = _conversion.utf8();
-            u32 = _cooked_buf;
-            u32.push_back(U'\r');
-            u32.push_back(U'\n');
-            convert_u32_to_ansi(u32, cstate.input_code_page, utf8, _conversion.wide());
-            cp = static_cast<DWORD>(utf8.size());
-            if (cp > maxd)
-                cp = maxd;
-            if (cp > 0)
-                std::memcpy(db, utf8.data(), cp);
+            auto *ansi_out = reinterpret_cast<char *>(db);
+            size_t written = convert_u32_to_ansi_raw(_cooked_buf, cstate.input_code_page, ansi_out, maxd);
+            written = append_ascii_raw('\r', ansi_out, maxd, written);
+            written = append_ascii_raw('\n', ansi_out, maxd, written);
+            cp = static_cast<DWORD>(written);
         }
         req->NumBytes = cp;
         auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG) + cp);

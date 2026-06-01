@@ -1,5 +1,5 @@
 #pragma once
-#include <string>
+#include "utility/raw_byte_allocator.hpp"
 
 namespace conpty
 {
@@ -7,25 +7,25 @@ namespace conpty
 class conversion_buffers
 {
   public:
-    std::u32string &u32() noexcept
+    raw_u32_buffer &u32() noexcept
     {
         return _u32;
     }
 
-    std::string &utf8() noexcept
+    raw_u8_buffer &utf8() noexcept
     {
         return _utf8;
     }
 
-    std::wstring &wide() noexcept
+    raw_wide_buffer &wide() noexcept
     {
         return _wide;
     }
 
   private:
-    std::u32string _u32;
-    std::string _utf8;
-    std::wstring _wide;
+    raw_u32_buffer _u32;
+    raw_u8_buffer _utf8;
+    raw_wide_buffer _wide;
 };
 
 } // namespace conpty

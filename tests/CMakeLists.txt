@@ -47,6 +47,14 @@ target_link_libraries(test_char_convert PRIVATE test_common unicode::unicode)
 add_test(NAME Convert.Char COMMAND test_char_convert)
 set_tests_properties(Convert.Char PROPERTIES LABELS "convert" TIMEOUT 30)
 
+# ── test_raw_byte_allocator ────────────────────────
+add_executable(test_raw_byte_allocator
+    test_raw_byte_allocator.cpp
+)
+target_link_libraries(test_raw_byte_allocator PRIVATE test_common)
+add_test(NAME Utility.RawByteAllocator COMMAND test_raw_byte_allocator)
+set_tests_properties(Utility.RawByteAllocator PROPERTIES LABELS "utility" TIMEOUT 30)
+
 # ── test_screen_buffer ────────────────────────────
 add_executable(test_screen_buffer
     test_screen_buffer.cpp
