@@ -45,6 +45,21 @@ struct message_router
         bridge.on_idle();
     }
 
+    void flush_vt_output()
+    {
+        bridge.vt_flush();
+    }
+
+    [[nodiscard]] bool has_buffered_vt_output() const noexcept
+    {
+        return bridge.has_buffered_vt_output();
+    }
+
+    [[nodiscard]] bool should_flush_vt_output() const noexcept
+    {
+        return bridge.should_flush_vt_output();
+    }
+
     bool has_pending() const
     {
         // pending 状态只存在于 bridge：RawRead/ReadConsole/GetConsoleInput。
@@ -79,6 +94,7 @@ struct message_router
             return ok;
         }
         case CONSOLE_IO_DISCONNECT: {
+            bridge.vt_flush();
             bool ok = io.handle_disconnect(msg);
             sync_process_snapshot();
             return ok;

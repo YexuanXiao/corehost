@@ -45,13 +45,13 @@ class tab_stop_table
     class reference
     {
       public:
-        explicit reference(uint8_t &value) noexcept : _value(value)
+        explicit reference(char8_t &value) noexcept : _value(value)
         {
         }
 
         reference &operator=(bool value) noexcept
         {
-            _value = value ? 1 : 0;
+            _value = value ? char8_t{1} : char8_t{0};
             return *this;
         }
 
@@ -61,17 +61,17 @@ class tab_stop_table
         }
 
       private:
-        uint8_t &_value;
+        char8_t &_value;
     };
 
     void assign(size_t count, bool value)
     {
-        _values.assign(count, value ? 1 : 0);
+        _values.assign(count, value ? char8_t{1} : char8_t{0});
     }
 
     void resize(size_t count, bool value)
     {
-        _values.resize(count, value ? 1 : 0);
+        _values.resize(count, value ? char8_t{1} : char8_t{0});
     }
 
     size_t size() const noexcept
@@ -81,7 +81,7 @@ class tab_stop_table
 
     void fill(bool value) noexcept
     {
-        std::fill(_values.begin(), _values.end(), value ? 1 : 0);
+        std::fill(_values.begin(), _values.end(), value ? char8_t{1} : char8_t{0});
     }
 
     reference operator[](size_t index) noexcept
@@ -95,7 +95,7 @@ class tab_stop_table
     }
 
   private:
-    std::vector<uint8_t> _values;
+    std::vector<char8_t> _values;
 };
 
 struct console_state

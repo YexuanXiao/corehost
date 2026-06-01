@@ -112,12 +112,12 @@ struct pipe_bridge
     // _input_raw_buf 属于终端输入方向：vt_in 的 UTF-8 字节解码成 char32_t 后喂给
     // _input_parser。vt_parser 会把当前消息的原文写到这里，并让 vt_message::text /
     // title 指向其中的切片；调用方消费消息并 reset 后，该缓冲才能被清理或复用。
-    std::u32string _input_raw_buf;
+    std::vector<char32_t> _input_raw_buf;
 
     // _output_raw_buf 属于 Console API 输出方向：WriteConsole/RAW_WRITE 的文本
     // 也可能包含 VT 序列。它和 _input_raw_buf 分离，避免应用输出中的半条 ESC/CSI/OSC
     // 序列污染终端输入解析状态。
-    std::u32string _output_raw_buf;
+    std::vector<char32_t> _output_raw_buf;
 
     // _cooked_buf 保存当前 cooked ReadConsole 行编辑文本，只包含可以返回给
     // 控制台程序的地面态输入字符，不包含 ESC/CSI/OSC 控制序列原文。
@@ -146,10 +146,11 @@ struct pipe_bridge
 
     // ── 原始字节缓冲 ──
     // _read_total 是 _readbuf 中有效字节数。
-    std::array<BYTE, sizeof(miniio::io_msg::body)> _readbuf{};
+    std::array<char8_t, sizeof(miniio::io_msg::body)> _readbuf{};
+    std::vector<char8_t> _input_payload_buffer;
     DWORD _read_total = 0;
     bool _line_found = false; // process_input 发现行终止符 → 跳过 scan_for_line 重复扫描
-    bizwen::deque<BYTE> _queued_vt_input;
+    bizwen::deque<char8_t> _queued_vt_input;
 
     pipe_bridge_io _io;
     vt_output_buffer _vt_output;
@@ -309,10 +310,10 @@ struct pipe_bridge
         if (offset <= sizeof(msg.body) && size <= sizeof(msg.body) - offset)
             return {msg.body + offset, size};
 
-        auto &buffer = _conversion.utf8();
+        auto &buffer = _input_payload_buffer;
         buffer.resize(size);
         _io.read_input(msg.descriptor.Identifier, static_cast<ULONG>(offset),
-                       std::span{reinterpret_cast<BYTE *>(buffer.data()), buffer.size()});
+                       std::span{buffer.data(), buffer.size()});
         return {reinterpret_cast<const BYTE *>(buffer.data()), buffer.size()};
     }
 
@@ -376,6 +377,16 @@ struct pipe_bridge
     void vt_flush()
     {
         _vt_output.flush();
+    }
+
+    [[nodiscard]] bool has_buffered_vt_output() const noexcept
+    {
+        return _vt_output.buffered_size() != 0;
+    }
+
+    [[nodiscard]] bool should_flush_vt_output() const noexcept
+    {
+        return _vt_output.should_flush();
     }
 
     // ── 缓冲追加方法 ──
@@ -456,6 +467,15 @@ struct pipe_bridge
         vt_write_cup(terminal_position.Y, terminal_position.X);
     }
 
+    [[nodiscard]] bool terminal_cursor_matches_buffer(COORD buffer_position) const noexcept
+    {
+        if (!_terminal.cursor_valid())
+            return false;
+        const auto terminal_position = active_screen_buffer().viewport.clamped_relative_position(buffer_position);
+        const auto cursor = _terminal.cursor();
+        return cursor.X == terminal_position.X && cursor.Y == terminal_position.Y;
+    }
+
     void vt_write_attr(WORD attr)
     {
         // Console 属性低 4 位是前景 BGRI，高 4 位是背景 BGRI；映射表把
@@ -520,32 +540,32 @@ struct pipe_bridge
     template <vt_message_id id>
     void vt_msg_send(const vt_message &msg)
     {
-        COREHOST_PERF_SCOPE_AMOUNT(vt_msg_send, id == vt_message_id::text ? msg.text.size() : 0);
+        COREHOST_PERF_SCOPE_AMOUNT(vt_msg_send, id == vt_message_id::text ? msg.payload.text.size() : 0);
         // vt_message 是 parser 的结构化中间形态。这里把它重新序列化为宿主
         // 终端可理解的 VT，方便 API handler 与原始 VT 输入共用输出路径。
         switch (id)
         {
         case vt_message_id::cursor_position:
-            vt_write_cup(static_cast<SHORT>(msg.row - 1), static_cast<SHORT>(msg.col - 1));
+            vt_write_cup(static_cast<SHORT>(msg.payload.position.row - 1), static_cast<SHORT>(msg.payload.position.col - 1));
             break;
 
         case vt_message_id::cursor_horiz_absolute:
             vt_append_str("\x1b["sv);
-            vt_append_int(msg.col);
+            vt_append_int(msg.payload.position.col);
             vt_append_char('G');
             break;
 
         case vt_message_id::cursor_vert_absolute:
             vt_append_str("\x1b["sv);
-            vt_append_int(msg.row);
+            vt_append_int(msg.payload.position.row);
             vt_append_char('d');
             break;
 
         case vt_message_id::cursor_up:
-            if (msg.count > 1)
+            if (msg.payload.count.value > 1)
             {
                 vt_append_str("\x1b["sv);
-                vt_append_int(msg.count);
+                vt_append_int(msg.payload.count.value);
                 vt_append_char('A');
             }
             else
@@ -553,10 +573,10 @@ struct pipe_bridge
             break;
 
         case vt_message_id::cursor_down:
-            if (msg.count > 1)
+            if (msg.payload.count.value > 1)
             {
                 vt_append_str("\x1b["sv);
-                vt_append_int(msg.count);
+                vt_append_int(msg.payload.count.value);
                 vt_append_char('B');
             }
             else
@@ -564,10 +584,10 @@ struct pipe_bridge
             break;
 
         case vt_message_id::cursor_forward:
-            if (msg.count > 1)
+            if (msg.payload.count.value > 1)
             {
                 vt_append_str("\x1b["sv);
-                vt_append_int(msg.count);
+                vt_append_int(msg.payload.count.value);
                 vt_append_char('C');
             }
             else
@@ -575,10 +595,10 @@ struct pipe_bridge
             break;
 
         case vt_message_id::cursor_backward:
-            if (msg.count > 1)
+            if (msg.payload.count.value > 1)
             {
                 vt_append_str("\x1b["sv);
-                vt_append_int(msg.count);
+                vt_append_int(msg.payload.count.value);
                 vt_append_char('D');
             }
             else
@@ -586,10 +606,10 @@ struct pipe_bridge
             break;
 
         case vt_message_id::cursor_next_line:
-            if (msg.count > 1)
+            if (msg.payload.count.value > 1)
             {
                 vt_append_str("\x1b["sv);
-                vt_append_int(msg.count);
+                vt_append_int(msg.payload.count.value);
                 vt_append_char('E');
             }
             else
@@ -597,10 +617,10 @@ struct pipe_bridge
             break;
 
         case vt_message_id::cursor_prev_line:
-            if (msg.count > 1)
+            if (msg.payload.count.value > 1)
             {
                 vt_append_str("\x1b["sv);
-                vt_append_int(msg.count);
+                vt_append_int(msg.payload.count.value);
                 vt_append_char('F');
             }
             else
@@ -609,7 +629,7 @@ struct pipe_bridge
 
         case vt_message_id::sgr: {
             vt_append_str("\x1b["sv);
-            if (msg.sgr_reset)
+            if (msg.payload.sgr.has_reset())
             {
                 vt_append_char('0');
                 vt_append_char('m');
@@ -621,52 +641,79 @@ struct pipe_bridge
             // 重置 → 先发 0
             vt_append_sgr_param(first, 0);
 
-            if (msg.bold)
+            if (msg.payload.sgr.has(vt_sgr_flag::bold))
                 vt_append_sgr_param(first, 1);
-            if (msg.faint)
+            if (msg.payload.sgr.has(vt_sgr_flag::faint))
                 vt_append_sgr_param(first, 2);
-            if (msg.italic)
+            if (msg.payload.sgr.has(vt_sgr_flag::italic))
                 vt_append_sgr_param(first, 3);
-            if (msg.underline)
+            if (msg.payload.sgr.has(vt_sgr_flag::underline))
                 vt_append_sgr_param(first, 4);
-            if (msg.blink)
+            if (msg.payload.sgr.has(vt_sgr_flag::blink))
                 vt_append_sgr_param(first, 5);
-            if (msg.negative)
+            if (msg.payload.sgr.has(vt_sgr_flag::negative))
                 vt_append_sgr_param(first, 7);
-            if (msg.conceal)
+            if (msg.payload.sgr.has(vt_sgr_flag::conceal))
                 vt_append_sgr_param(first, 8);
-            if (msg.strikethrough)
+            if (msg.payload.sgr.has(vt_sgr_flag::strikethrough))
                 vt_append_sgr_param(first, 9);
 
-            if (msg.fg_is_default)
+            if (msg.payload.sgr.clears(vt_sgr_flag::bold) || msg.payload.sgr.clears(vt_sgr_flag::faint))
+                vt_append_sgr_param(first, 22);
+            if (msg.payload.sgr.clears(vt_sgr_flag::italic))
+                vt_append_sgr_param(first, 23);
+            if (msg.payload.sgr.clears(vt_sgr_flag::underline))
+                vt_append_sgr_param(first, 24);
+            if (msg.payload.sgr.clears(vt_sgr_flag::blink))
+                vt_append_sgr_param(first, 25);
+            if (msg.payload.sgr.clears(vt_sgr_flag::negative))
+                vt_append_sgr_param(first, 27);
+            if (msg.payload.sgr.clears(vt_sgr_flag::conceal))
+                vt_append_sgr_param(first, 28);
+            if (msg.payload.sgr.clears(vt_sgr_flag::strikethrough))
+                vt_append_sgr_param(first, 29);
+
+            if (msg.payload.sgr.fg.is_default())
                 vt_append_sgr_param(first, 39);
-            else if (msg.fg_is_rgb)
+            else if (msg.payload.sgr.fg.is_rgb())
             {
                 vt_append_sgr_param(first, 38);
                 vt_append_sgr_param(first, 2);
-                vt_append_sgr_param(first, msg.fg_r);
-                vt_append_sgr_param(first, msg.fg_g);
-                vt_append_sgr_param(first, msg.fg_b);
+                vt_append_sgr_param(first, msg.payload.sgr.fg.value);
+                vt_append_sgr_param(first, msg.payload.sgr.fg.g);
+                vt_append_sgr_param(first, msg.payload.sgr.fg.b);
             }
-            else if (msg.fg_color >= 0 && msg.fg_color <= 7)
-                vt_append_sgr_param(first, 30 + msg.fg_color);
-            else if (msg.fg_color >= 8 && msg.fg_color <= 15)
-                vt_append_sgr_param(first, 90 + (msg.fg_color - 8));
+            else if (msg.payload.sgr.fg.is_indexed() && msg.payload.sgr.fg.value <= 7)
+                vt_append_sgr_param(first, 30 + msg.payload.sgr.fg.value);
+            else if (msg.payload.sgr.fg.is_indexed() && msg.payload.sgr.fg.value <= 15)
+                vt_append_sgr_param(first, 90 + (msg.payload.sgr.fg.value - 8));
+            else if (msg.payload.sgr.fg.is_indexed())
+            {
+                vt_append_sgr_param(first, 38);
+                vt_append_sgr_param(first, 5);
+                vt_append_sgr_param(first, msg.payload.sgr.fg.value);
+            }
 
-            if (msg.bg_is_default)
+            if (msg.payload.sgr.bg.is_default())
                 vt_append_sgr_param(first, 49);
-            else if (msg.bg_is_rgb)
+            else if (msg.payload.sgr.bg.is_rgb())
             {
                 vt_append_sgr_param(first, 48);
                 vt_append_sgr_param(first, 2);
-                vt_append_sgr_param(first, msg.bg_r);
-                vt_append_sgr_param(first, msg.bg_g);
-                vt_append_sgr_param(first, msg.bg_b);
+                vt_append_sgr_param(first, msg.payload.sgr.bg.value);
+                vt_append_sgr_param(first, msg.payload.sgr.bg.g);
+                vt_append_sgr_param(first, msg.payload.sgr.bg.b);
             }
-            else if (msg.bg_color >= 0 && msg.bg_color <= 7)
-                vt_append_sgr_param(first, 40 + msg.bg_color);
-            else if (msg.bg_color >= 8 && msg.bg_color <= 15)
-                vt_append_sgr_param(first, 100 + (msg.bg_color - 8));
+            else if (msg.payload.sgr.bg.is_indexed() && msg.payload.sgr.bg.value <= 7)
+                vt_append_sgr_param(first, 40 + msg.payload.sgr.bg.value);
+            else if (msg.payload.sgr.bg.is_indexed() && msg.payload.sgr.bg.value <= 15)
+                vt_append_sgr_param(first, 100 + (msg.payload.sgr.bg.value - 8));
+            else if (msg.payload.sgr.bg.is_indexed())
+            {
+                vt_append_sgr_param(first, 48);
+                vt_append_sgr_param(first, 5);
+                vt_append_sgr_param(first, msg.payload.sgr.bg.value);
+            }
 
             vt_append_char('m');
             break;
@@ -682,10 +729,10 @@ struct pipe_bridge
             break;
 
         case vt_message_id::text: {
-            COREHOST_PERF_SCOPE_AMOUNT(vt_msg_send_text, msg.text.size());
+            COREHOST_PERF_SCOPE_AMOUNT(vt_msg_send_text, msg.payload.text.size());
             // 批量 char32_t → UTF-8 追加（复用转换缓冲）。
             auto &utf8 = _conversion.utf8();
-            convert_u32_to_utf8(msg.text, utf8);
+            convert_u32_to_utf8(msg.payload.text, utf8);
             vt_append_str(utf8);
             break;
         }
@@ -711,10 +758,10 @@ struct pipe_bridge
             break;
 
         case vt_message_id::scroll_up:
-            if (msg.count > 1)
+            if (msg.payload.count.value > 1)
             {
                 vt_append_str("\x1b["sv);
-                vt_append_int(msg.count);
+                vt_append_int(msg.payload.count.value);
                 vt_append_char('S');
             }
             else
@@ -722,10 +769,10 @@ struct pipe_bridge
             break;
 
         case vt_message_id::scroll_down:
-            if (msg.count > 1)
+            if (msg.payload.count.value > 1)
             {
                 vt_append_str("\x1b["sv);
-                vt_append_int(msg.count);
+                vt_append_int(msg.payload.count.value);
                 vt_append_char('T');
             }
             else
@@ -734,43 +781,43 @@ struct pipe_bridge
 
         case vt_message_id::insert_lines:
             vt_append_str("\x1b["sv);
-            vt_append_int(msg.count);
+            vt_append_int(msg.payload.count.value);
             vt_append_char('L');
             break;
 
         case vt_message_id::delete_lines:
             vt_append_str("\x1b["sv);
-            vt_append_int(msg.count);
+            vt_append_int(msg.payload.count.value);
             vt_append_char('M');
             break;
 
         case vt_message_id::erase_in_display:
             vt_append_str("\x1b["sv);
-            vt_append_int(msg.erase_mode);
+            vt_append_int(msg.payload.erase_mode);
             vt_append_char('J');
             break;
 
         case vt_message_id::erase_in_line:
             vt_append_str("\x1b["sv);
-            vt_append_int(msg.erase_mode);
+            vt_append_int(msg.payload.erase_mode);
             vt_append_char('K');
             break;
 
         case vt_message_id::set_scrolling_region:
             vt_append_str("\x1b["sv);
-            vt_append_int(msg.scroll_top);
+            vt_append_int(msg.payload.scroll_region.top);
             vt_append_char(';');
-            vt_append_int(msg.scroll_bottom);
+            vt_append_int(msg.payload.scroll_region.bottom);
             vt_append_char('r');
             break;
 
         case vt_message_id::set_window_title:
-            vt_write_window_title(msg.title);
+            vt_write_window_title(msg.payload.title);
             break;
 
         case vt_message_id::set_cursor_shape:
             vt_append_str("\x1b["sv);
-            vt_append_int(msg.cursor_shape);
+            vt_append_int(msg.payload.cursor_shape);
             vt_append_str(" q"sv);
             break;
 
@@ -807,32 +854,32 @@ struct pipe_bridge
         // ── 文本修改 (count 驱动) ──
         case vt_message_id::insert_characters:
             vt_append_str("\x1b["sv);
-            vt_append_int(msg.count);
+            vt_append_int(msg.payload.count.value);
             vt_append_char('@');
             break;
         case vt_message_id::delete_characters:
             vt_append_str("\x1b["sv);
-            vt_append_int(msg.count);
+            vt_append_int(msg.payload.count.value);
             vt_append_char('P');
             break;
         case vt_message_id::erase_characters:
             vt_append_str("\x1b["sv);
-            vt_append_int(msg.count);
+            vt_append_int(msg.payload.count.value);
             vt_append_char('X');
             break;
 
         // ── OSC 4 调色板 ──
         case vt_message_id::set_palette_color: {
             vt_append_str("\x1b]4;"sv);
-            vt_append_int(msg.palette_index);
+            vt_append_int(msg.payload.palette.index);
             vt_append_char(';');
             // rgb:RR/GG/BB 格式 (不使用 snprintf)
             vt_append_str("rgb:"sv);
-            vt_append_hex_byte(msg.palette_r);
+            vt_append_hex_byte(msg.payload.palette.r);
             vt_append_char('/');
-            vt_append_hex_byte(msg.palette_g);
+            vt_append_hex_byte(msg.payload.palette.g);
             vt_append_char('/');
-            vt_append_hex_byte(msg.palette_b);
+            vt_append_hex_byte(msg.payload.palette.b);
             vt_append_char('\x07');
             break;
         }
@@ -840,12 +887,12 @@ struct pipe_bridge
         // ── 制表符移动 ──
         case vt_message_id::cursor_forward_tab:
             vt_append_str("\x1b["sv);
-            vt_append_int(msg.count);
+            vt_append_int(msg.payload.count.value);
             vt_append_char('I');
             break;
         case vt_message_id::cursor_backward_tab:
             vt_append_str("\x1b["sv);
-            vt_append_int(msg.count);
+            vt_append_int(msg.payload.count.value);
             vt_append_char('Z');
             break;
 
@@ -1082,6 +1129,8 @@ struct pipe_bridge
 
     void wait_for_pending_vt_input()
     {
+        vt_flush();
+
         if (_pending.vt_eof() || !_pending.has_pending())
             return;
 
@@ -1133,6 +1182,8 @@ struct pipe_bridge
     // ── on_idle ──
     void on_idle()
     {
+        vt_flush();
+
         if (_pending.vt_eof())
             return;
 
@@ -1189,20 +1240,19 @@ struct pipe_bridge
             return;
         // Console API 写入可能是 UTF-16 或系统 ANSI 代码页。宿主终端只接收
         // UTF-8 VT，因此所有文本最终都通过 char32_t 规范化后再编码。
-        vt_flush();
         if (uni)
         {
             auto *ws = reinterpret_cast<const wchar_t *>(data);
             int wl = static_cast<int>(bytes / sizeof(wchar_t));
             auto &utf8 = _conversion.utf8();
             convert_wstr_to_utf8(std::wstring_view{ws, static_cast<size_t>(wl)}, utf8);
-            _vt_output.write(utf8.data(), utf8.size());
+            vt_append_str(utf8);
         }
         else
         {
             auto &utf8 = _conversion.utf8();
             convert_ansi_to_utf8(reinterpret_cast<const char *>(data), bytes, CP_ACP, utf8, _conversion.wide());
-            _vt_output.write(utf8.data(), utf8.size());
+            vt_append_str(utf8);
         }
     }
 
@@ -1753,7 +1803,7 @@ struct pipe_bridge
         return false;
     }
 
-    void queue_unprocessed_vt_input(const BYTE *bytes, DWORD consumed, DWORD len)
+    void queue_unprocessed_vt_input(const char8_t *bytes, DWORD consumed, DWORD len)
     {
         if (consumed >= len)
             return;
@@ -1776,12 +1826,12 @@ struct pipe_bridge
     }
 
     // ── _echo_byte: 向终端输出单个字节并跟踪光标（经 VT 缓冲批量写入）──
-    void _echo_byte(BYTE b)
+    void _echo_byte(char8_t b)
     {
         // should_echo_last 只用于控制字符/ESC 路径。普通文本由 edit_* 处理，
         // 否则同一字节会同时进入 echo 和 cooked line，造成重复显示。
         vt_append_char(static_cast<char>(b));
-        _terminal.apply_echo_byte(b);
+        _terminal.apply_echo_byte(static_cast<BYTE>(b));
     }
 
     // ── accumulate_from_pipe: 缓冲后统一走 process_input 解析 ──
@@ -1823,23 +1873,23 @@ struct pipe_bridge
         }
     }
 
-    bool process_input_win32_key(PendingKind pending_kind, DWORD i, DWORD len, const BYTE *bytes)
+    bool process_input_win32_key(PendingKind pending_kind, DWORD i, DWORD len, const char8_t *bytes)
     {
         auto &m = _input_parser.get();
         if (pending_kind == PendingKind::ConsoleRead)
         {
             // ConsoleRead 自己做本地行编辑，只处理 KEY_DOWN；KEY_UP 不应
             // 改变 cooked buffer，也不应完成读取。
-            if (!m.win32_kd)
+            if (!m.payload.win32_key.key_down)
                 return false;
 
             INPUT_RECORD record{};
             record.EventType = KEY_EVENT;
             record.Event.KeyEvent.bKeyDown = TRUE;
-            record.Event.KeyEvent.wVirtualKeyCode = static_cast<WORD>(m.win32_vk);
-            record.Event.KeyEvent.wVirtualScanCode = static_cast<WORD>(m.win32_sc);
-            record.Event.KeyEvent.uChar.UnicodeChar = static_cast<WCHAR>(m.win32_uc);
-            record.Event.KeyEvent.dwControlKeyState = m.win32_cs;
+            record.Event.KeyEvent.wVirtualKeyCode = static_cast<WORD>(m.payload.win32_key.vk);
+            record.Event.KeyEvent.wVirtualScanCode = static_cast<WORD>(m.payload.win32_key.sc);
+            record.Event.KeyEvent.uChar.UnicodeChar = static_cast<WCHAR>(m.payload.win32_key.uc);
+            record.Event.KeyEvent.dwControlKeyState = m.payload.win32_key.control_state;
             if (edit_key_event_for_console_read(record.Event.KeyEvent))
             {
                 queue_unprocessed_vt_input(bytes, i + 1, len);
@@ -1849,7 +1899,7 @@ struct pipe_bridge
         }
 
         // Win32Input Enter 非 ConsoleRead: 设置换行标志 + 写终端 \r\n。
-        if (m.win32_kd && m.win32_vk == VK_RETURN)
+        if (m.payload.win32_key.key_down && m.payload.win32_key.vk == VK_RETURN)
         {
             const auto old_cursor = _terminal.cursor();
             LOG("[bridge] ENTER_Win32Input was_tc=(%d,%d)", old_cursor.X, old_cursor.Y);
@@ -1860,23 +1910,23 @@ struct pipe_bridge
             const auto cursor = _terminal.cursor();
             LOG("[bridge] ENTER_Win32Input done tc=(%d,%d)", cursor.X, cursor.Y);
         }
-        else if (pending_kind != PendingKind::RawRead && m.win32_kd)
+        else if (pending_kind != PendingKind::RawRead && m.payload.win32_key.key_down)
         {
             const auto cursor = _terminal.cursor();
-            LOG("[bridge] Win32Input write_input: vk=%d uc=0x%04X cs=0x%X tc=(%d,%d)", m.win32_vk, m.win32_uc,
-                m.win32_cs, cursor.X, cursor.Y);
+            LOG("[bridge] Win32Input write_input: vk=%d uc=0x%04X cs=0x%X tc=(%d,%d)", m.payload.win32_key.vk, m.payload.win32_key.uc,
+                m.payload.win32_key.control_state, cursor.X, cursor.Y);
         }
 
         if (pending_kind != PendingKind::RawRead)
         {
             INPUT_RECORD ir{};
             ir.EventType = KEY_EVENT;
-            ir.Event.KeyEvent.bKeyDown = m.win32_kd ? TRUE : FALSE;
-            ir.Event.KeyEvent.wRepeatCount = m.win32_rc;
-            ir.Event.KeyEvent.wVirtualKeyCode = m.win32_vk;
-            ir.Event.KeyEvent.wVirtualScanCode = m.win32_sc;
-            ir.Event.KeyEvent.uChar.UnicodeChar = m.win32_uc;
-            ir.Event.KeyEvent.dwControlKeyState = m.win32_cs;
+            ir.Event.KeyEvent.bKeyDown = m.payload.win32_key.key_down ? TRUE : FALSE;
+            ir.Event.KeyEvent.wRepeatCount = m.payload.win32_key.repeat_count;
+            ir.Event.KeyEvent.wVirtualKeyCode = m.payload.win32_key.vk;
+            ir.Event.KeyEvent.wVirtualScanCode = m.payload.win32_key.sc;
+            ir.Event.KeyEvent.uChar.UnicodeChar = m.payload.win32_key.uc;
+            ir.Event.KeyEvent.dwControlKeyState = m.payload.win32_key.control_state;
             inp.write(&ir, 1);
             complete_pending_console_input();
         }
@@ -1991,7 +2041,7 @@ struct pipe_bridge
     {
         // 某些终端把 Home 编码成 CUP 1;1。只有明确 1,1 时才作为 Home，
         // 其他 CUP 输入在键盘路径中不产生事件。
-        if (msg.row == 1 && msg.col == 1)
+        if (msg.payload.position.row == 1 && msg.payload.position.col == 1)
         {
             INPUT_RECORD rec;
             if (_engine.convert(vt_message_id::key_home, msg, rec))
@@ -2002,9 +2052,9 @@ struct pipe_bridge
     void process_input_cpr_response()
     {
         auto &m = _input_parser.get();
-        if (_terminal.pending_inherit_cursor() && m.cpr_row > 0 && m.cpr_col > 0)
+        if (_terminal.pending_inherit_cursor() && m.payload.cpr.row > 0 && m.payload.cpr.col > 0)
         {
-            const COORD terminal_position{static_cast<SHORT>(m.cpr_col - 1), static_cast<SHORT>(m.cpr_row - 1)};
+            const COORD terminal_position{static_cast<SHORT>(m.payload.cpr.col - 1), static_cast<SHORT>(m.payload.cpr.row - 1)};
             cstate.cursor.position = active_screen_buffer().viewport.absolute_position(terminal_position);
             cstate.clamp_cursor_to_buffer();
             _terminal.finish_inherit_cursor(terminal_position);
@@ -2024,7 +2074,7 @@ struct pipe_bridge
 
     void process_input_resize_window(const vt_message &msg)
     {
-        COORD new_size{msg.resize_cols, msg.resize_rows};
+        COORD new_size{msg.payload.resize.cols, msg.payload.resize.rows};
         if (new_size.X <= 0 || new_size.Y <= 0)
             return;
 
@@ -2065,8 +2115,8 @@ struct pipe_bridge
     void process_input_text(PendingKind pending_kind)
     {
         auto &tm = _input_parser.get();
-        LOG(L"[in] TEXT_MSG len=%zu", tm.text.size());
-        for (char32_t tc : tm.text)
+        LOG(L"[in] TEXT_MSG len=%zu", tm.payload.text.size());
+        for (char32_t tc : tm.payload.text)
         {
             if (tc <= 0x1F || tc == 0x7F)
                 continue;
@@ -2080,7 +2130,7 @@ struct pipe_bridge
 
     // ── process_input: 解码 → 解析 → echo → 分发 ──
     // 内部检测 \r/\n/Ctrl+Z 并设置 _line_found，消除 scan_for_line 的二次扫描
-    void process_input(const BYTE *bytes, DWORD len)
+    void process_input(const char8_t *bytes, DWORD len)
     {
         if (len > 0)
             LOG_HEX("input", bytes, len);
@@ -2088,10 +2138,10 @@ struct pipe_bridge
         // 调用会产生 continuation，直到完整 codepoint 才交给 VT parser。
         for (DWORD i = 0; i < len; ++i)
         {
-            BYTE b = bytes[i];
+            char8_t b = bytes[i];
 
             // ── Ctrl+Z 即时检测 ──
-            if (_pending.process_control_z() && b == 0x1A) [[unlikely]]
+            if (_pending.process_control_z() && b == static_cast<char8_t>(0x1A)) [[unlikely]]
             {
                 LOG("[bridge] process_input: Ctrl+Z at offset %lu", i);
                 _line_found = true;
@@ -2111,20 +2161,21 @@ struct pipe_bridge
 
             if (id == vt_message_id::continue_text) [[likely]]
             {
-                // parser 把普通地面态文本累积在 msg.text，但交互输入需要逐字符
+                // parser 把普通地面态文本累积在 msg.payload.text，但交互输入需要逐字符
                 // 响应编辑键和回显，所以这里立即消费并重置文本累积。
                 const auto pending_kind = _pending.kind();
-                LOG(L"[in] TEXT ch=U+%04X raw=0x%02X kind=%d", (unsigned)ch, b, (int)pending_kind);
+                LOG(L"[in] TEXT ch=U+%04X raw=0x%02X kind=%d", (unsigned)ch, static_cast<unsigned>(b),
+                    (int)pending_kind);
                 if (pending_kind == PendingKind::ConsoleRead)
                 {
                     if (ch <= 0x7F)
-                        _edit_insert(ch, b);
+                        _edit_insert(ch, static_cast<BYTE>(b));
                     else
                         edit_insert_codepoint(ch);
                 }
                 else if (pending_kind != PendingKind::RawRead)
                 {
-                    _write_char_key_event(ch, b);
+                    _write_char_key_event(ch, static_cast<BYTE>(b));
                 }
                 _input_parser.reset<vt_message_id::continue_text>(); // 清累积文本
                 continue;
@@ -2353,7 +2404,7 @@ struct pipe_bridge
             }
         }
     }
-    void _on_line_terminator(bool is_cr, DWORD i, DWORD len, const BYTE *bytes)
+    void _on_line_terminator(bool is_cr, DWORD i, DWORD len, const char8_t *bytes)
     {
         // 行终止符处理只消费当前行；i/len/bytes 描述当前 process_input 批次，
         // 用于识别 CRLF 是否跨 ReadFile 边界。
@@ -2363,7 +2414,7 @@ struct pipe_bridge
         if (is_cr)
         {
             bool has_lf = false;
-            if (i + 1 < len && bytes[i + 1] == '\n')
+            if (i + 1 < len && bytes[i + 1] == static_cast<char8_t>('\n'))
             {
                 has_lf = true;
                 consumed = i + 2;
@@ -2372,8 +2423,8 @@ struct pipe_bridge
             {
                 // CR 位于本批次末尾时，LF 可能已经在管道中但尚未读入。只在
                 // 下一个字节确认为 LF 时消费它，避免吞掉下一行首字符。
-                BYTE nb = 0;
-                if (_io.try_consume_byte('\n', nb))
+                char8_t nb = {};
+                if (_io.try_consume_byte(static_cast<char8_t>('\n'), nb))
                 {
                     if (_read_total < _readbuf.size())
                         _readbuf[_read_total++] = nb;
@@ -2414,19 +2465,19 @@ struct pipe_bridge
         // ConDrv read-line 语义期望 CRLF。终端可能只送 CR 或只送 LF，
         // 因此 completion 前把行尾规范化为 CRLF；但绝不超过客户端
         // ReadFile 提供的 OutputSize。
-        if (data_bytes >= 1 && _readbuf[data_bytes - 1] == '\r')
+        if (data_bytes >= 1 && _readbuf[data_bytes - 1] == static_cast<char8_t>('\r'))
         {
             if (data_bytes < capacity)
-                _readbuf[data_bytes++] = '\n';
+                _readbuf[data_bytes++] = static_cast<char8_t>('\n');
         }
-        else if (data_bytes >= 1 && _readbuf[data_bytes - 1] == '\n')
+        else if (data_bytes >= 1 && _readbuf[data_bytes - 1] == static_cast<char8_t>('\n'))
         {
-            if (data_bytes < 2 || _readbuf[data_bytes - 2] != '\r')
+            if (data_bytes < 2 || _readbuf[data_bytes - 2] != static_cast<char8_t>('\r'))
             {
                 if (data_bytes < capacity)
                 {
-                    _readbuf[data_bytes] = '\n';
-                    _readbuf[data_bytes - 1] = '\r';
+                    _readbuf[data_bytes] = static_cast<char8_t>('\n');
+                    _readbuf[data_bytes - 1] = static_cast<char8_t>('\r');
                     data_bytes++;
                 }
             }

@@ -39,9 +39,9 @@ class pipe_bridge_io
         miniio::complete_io(_server, completion);
     }
 
-    void read_input(LUID identifier, ULONG offset, std::span<BYTE> destination) const
+    void read_input(LUID identifier, ULONG offset, std::span<char8_t> destination) const
     {
-        miniio::read_input(_server, identifier, offset, destination);
+        miniio::read_input(_server, identifier, offset, byte_span(destination));
     }
 
     [[nodiscard]] bool has_shutdown_event() const noexcept
@@ -69,7 +69,7 @@ class pipe_bridge_io
         return false;
     }
 
-    [[nodiscard]] vt_pipe_read_status read_available(std::span<BYTE> destination, DWORD &read_bytes) noexcept
+    [[nodiscard]] vt_pipe_read_status read_available(std::span<char8_t> destination, DWORD &read_bytes) noexcept
     {
         read_bytes = 0;
 
@@ -83,20 +83,20 @@ class pipe_bridge_io
         return read_from_vt_input(destination.first(to_read), read_bytes, "read_available");
     }
 
-    [[nodiscard]] vt_pipe_read_status read_blocking(std::span<BYTE> destination, DWORD &read_bytes) noexcept
+    [[nodiscard]] vt_pipe_read_status read_blocking(std::span<char8_t> destination, DWORD &read_bytes) noexcept
     {
         read_bytes = 0;
         return read_from_vt_input(destination, read_bytes, "read_blocking");
     }
 
-    [[nodiscard]] bool try_consume_byte(BYTE expected, BYTE &consumed) noexcept
+    [[nodiscard]] bool try_consume_byte(char8_t expected, char8_t &consumed) noexcept
     {
-        consumed = 0;
+        consumed = {};
 
         BYTE next = 0;
         DWORD peeked = 0;
         if (!::PeekNamedPipe(_vt_input.get(), &next, sizeof(next), &peeked, nullptr, nullptr) || peeked == 0 ||
-            next != expected)
+            next != static_cast<BYTE>(expected))
         {
             return false;
         }
@@ -105,19 +105,24 @@ class pipe_bridge_io
         if (!::ReadFile(_vt_input.get(), &next, sizeof(next), &read, nullptr) || read != sizeof(next))
             return false;
 
-        consumed = next;
+        consumed = static_cast<char8_t>(next);
         return true;
     }
 
   private:
-    [[nodiscard]] vt_pipe_read_status read_from_vt_input(std::span<BYTE> destination, DWORD &read_bytes,
+    [[nodiscard]] static std::span<BYTE> byte_span(std::span<char8_t> buffer) noexcept
+    {
+        return {reinterpret_cast<BYTE *>(buffer.data()), buffer.size()};
+    }
+
+    [[nodiscard]] vt_pipe_read_status read_from_vt_input(std::span<char8_t> destination, DWORD &read_bytes,
                                                          const char *operation) noexcept
     {
         if (destination.empty())
             return vt_pipe_read_status::empty;
 
-        if (!::ReadFile(_vt_input.get(), destination.data(), static_cast<DWORD>(destination.size()), &read_bytes,
-                        nullptr) ||
+        if (!::ReadFile(_vt_input.get(), byte_span(destination).data(), static_cast<DWORD>(destination.size()),
+                        &read_bytes, nullptr) ||
             read_bytes == 0)
         {
             LOG("[bridge_io] %s failed read=%lu err=%lu", operation, read_bytes, ::GetLastError());

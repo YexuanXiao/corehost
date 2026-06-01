@@ -146,6 +146,12 @@ class pipe_bridge_testable : public pipe_bridge
 
     void test_feed_raw_bytes(const BYTE *bytes, DWORD len)
     {
+        process_input(reinterpret_cast<const char8_t *>(bytes), len);
+        vt_flush();
+    }
+
+    void test_feed_raw_bytes(const char8_t *bytes, DWORD len)
+    {
         process_input(bytes, len);
         vt_flush();
     }

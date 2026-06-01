@@ -3,11 +3,13 @@ add_executable(conpty_bench
     common.hpp
     terminal_output_worker.hpp
     large_mixed_vt_cjk_output_worker.hpp
+    long_line_three_vt_output_worker.hpp
     cjk_terminal_input_worker.hpp
     sgr_sequence_matrix_cases.hpp
     sgr_sequence_matrix_worker.hpp
     conpty_session.hpp
     large_mixed_vt_cjk_output_test.hpp
+    long_line_three_vt_output_test.hpp
     cjk_terminal_input_test.hpp
     sgr_sequence_matrix_test.hpp
     scenarios.hpp

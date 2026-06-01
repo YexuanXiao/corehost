@@ -23,7 +23,7 @@
 //   scroll_up/down      → sb scroll
 //   erase_in_display    → sb clear region
 //   erase_in_line       → sb clear line
-//   set_window_title    → state.title = msg.title
+//   set_window_title    → state.title = msg.payload.title
 //   cursor_horiz_absolute→ state.cursor.position.X = col-1
 //   cursor_up/down/...  → adjust cursor
 //   其他               → 无状态影响
@@ -48,8 +48,8 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
     // ── 光标定位 ──
     case vt_message_id::cursor_position:
         // VT 坐标是 1-based；console_state 使用 0-based COORD。
-        state.cursor.position.X = static_cast<SHORT>(msg.col - 1);
-        state.cursor.position.Y = static_cast<SHORT>(msg.row - 1);
+        state.cursor.position.X = static_cast<SHORT>(msg.payload.position.col - 1);
+        state.cursor.position.Y = static_cast<SHORT>(msg.payload.position.row - 1);
         if (state.cursor.position.X < 0)
             state.cursor.position.X = 0;
         if (state.cursor.position.X >= state.screen_buffer_size.X)
@@ -61,7 +61,7 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
         break;
 
     case vt_message_id::cursor_horiz_absolute:
-        state.cursor.position.X = static_cast<SHORT>(msg.col - 1);
+        state.cursor.position.X = static_cast<SHORT>(msg.payload.position.col - 1);
         if (state.cursor.position.X < 0)
             state.cursor.position.X = 0;
         if (state.cursor.position.X >= state.screen_buffer_size.X)
@@ -69,7 +69,7 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
         break;
 
     case vt_message_id::cursor_vert_absolute:
-        state.cursor.position.Y = static_cast<SHORT>(msg.row - 1);
+        state.cursor.position.Y = static_cast<SHORT>(msg.payload.position.row - 1);
         if (state.cursor.position.Y < 0)
             state.cursor.position.Y = 0;
         if (state.cursor.position.Y >= state.screen_buffer_size.Y)
@@ -79,19 +79,19 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
     case vt_message_id::cursor_up:
         // 相对移动全部钳制在当前 screen_buffer_size 内；这里不考虑滚动区域，
         // 因为该本地模型主要服务 Console API 查询。
-        state.cursor.position.Y -= msg.count;
+        state.cursor.position.Y -= msg.payload.count.value;
         if (state.cursor.position.Y < 0)
             state.cursor.position.Y = 0;
         break;
 
     case vt_message_id::cursor_down:
-        state.cursor.position.Y += msg.count;
+        state.cursor.position.Y += msg.payload.count.value;
         if (state.cursor.position.Y >= state.screen_buffer_size.Y)
             state.cursor.position.Y = state.screen_buffer_size.Y - 1;
         break;
 
     case vt_message_id::cursor_forward:
-        state.cursor.position.X += msg.count;
+        state.cursor.position.X += msg.payload.count.value;
         if (state.cursor.position.X >= state.screen_buffer_size.X)
             state.cursor.position.X = state.screen_buffer_size.X - 1;
         break;
@@ -101,7 +101,7 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
         break;
 
     case vt_message_id::cursor_backward:
-        state.cursor.position.X -= msg.count;
+        state.cursor.position.X -= msg.payload.count.value;
         if (state.cursor.position.X < 0)
             state.cursor.position.X = 0;
         break;
@@ -112,14 +112,14 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
 
     case vt_message_id::cursor_next_line:
         state.cursor.position.X = 0;
-        state.cursor.position.Y += msg.count;
+        state.cursor.position.Y += msg.payload.count.value;
         if (state.cursor.position.Y >= state.screen_buffer_size.Y)
             state.cursor.position.Y = state.screen_buffer_size.Y - 1;
         break;
 
     case vt_message_id::cursor_prev_line:
         state.cursor.position.X = 0;
-        state.cursor.position.Y -= msg.count;
+        state.cursor.position.Y -= msg.payload.count.value;
         if (state.cursor.position.Y < 0)
             state.cursor.position.Y = 0;
         break;
@@ -139,7 +139,7 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
 
     // ── SGR 属性 → state.default_attributes ──
     case vt_message_id::sgr: {
-        if (msg.sgr_reset)
+        if (msg.payload.sgr.has_reset())
         {
             // 0x07 是传统白前景/黑背景属性。
             state.default_attributes = 0x07;
@@ -150,53 +150,59 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
         WORD &attr = state.default_attributes;
 
         // 前景色
-        if (msg.fg_is_default)
+        if (msg.payload.sgr.fg.is_default())
         {
             // 清除低 4 位后写入默认白色前景。
             attr &= 0xFFF0; /* fg = 7 (white) */
             attr |= 7;
         }
-        else if (msg.fg_is_rgb)
+        else if (msg.payload.sgr.fg.is_rgb())
         { /* 真彩色无法映射到 16 色, 忽略 */
         }
-        else if (msg.fg_color >= 0 && msg.fg_color <= 15)
+        else if (msg.payload.sgr.fg.is_indexed() && msg.payload.sgr.fg.value <= 15)
         {
-            attr = static_cast<WORD>((attr & 0xFFF0) | (msg.fg_color & 0x0F));
+            attr = static_cast<WORD>((attr & 0xFFF0) | (msg.payload.sgr.fg.value & 0x0F));
         }
 
         // 背景色
-        if (msg.bg_is_default)
+        if (msg.payload.sgr.bg.is_default())
         {
             // 清除背景半字节后写入当前实现使用的默认背景索引。这里保持既有
             // 语义：默认背景索引为 7，而不是传统黑色 0。
             attr &= 0xFF0F;
             attr |= (7 << 4);
         }
-        else if (msg.bg_is_rgb)
+        else if (msg.payload.sgr.bg.is_rgb())
         { /* 忽略 */
         }
-        else if (msg.bg_color >= 0 && msg.bg_color <= 15)
+        else if (msg.payload.sgr.bg.is_indexed() && msg.payload.sgr.bg.value <= 15)
         {
-            attr = static_cast<WORD>((attr & 0xFF0F) | ((msg.bg_color & 0x0F) << 4));
+            attr = static_cast<WORD>((attr & 0xFF0F) | ((msg.payload.sgr.bg.value & 0x0F) << 4));
         }
 
         // 属性标志 (对标 COMMON_LVB_*)
-        if (msg.bold)
+        if (msg.payload.sgr.clears(vt_sgr_flag::bold))
+            attr &= ~COMMON_LVB_GRID_HORIZONTAL;
+        if (msg.payload.sgr.clears(vt_sgr_flag::underline))
+            attr &= ~COMMON_LVB_UNDERSCORE;
+        if (msg.payload.sgr.clears(vt_sgr_flag::negative))
+            attr &= ~COMMON_LVB_REVERSE_VIDEO;
+        if (msg.payload.sgr.has(vt_sgr_flag::bold))
             attr |= COMMON_LVB_GRID_HORIZONTAL; // 简化映射
-        if (msg.underline)
+        if (msg.payload.sgr.has(vt_sgr_flag::underline))
             attr |= COMMON_LVB_UNDERSCORE;
-        if (msg.negative)
+        if (msg.payload.sgr.has(vt_sgr_flag::negative))
             attr |= COMMON_LVB_REVERSE_VIDEO;
         break;
     }
 
     // ── 文本输出 → screen_buffer（仅可打印字符，不含控制字符）──
     case vt_message_id::text: {
-        COREHOST_PERF_SCOPE_AMOUNT(apply_text_state, msg.text.size());
+        COREHOST_PERF_SCOPE_AMOUNT(apply_text_state, msg.payload.text.size());
         // pos 是本地推进副本；完成后再写回 state.cursor.position。
         COORD pos = state.cursor.position;
         auto mode = state.text_measurement;
-        for (char32_t ch : msg.text)
+        for (char32_t ch : msg.payload.text)
         {
             // 文本写入只处理当前缓冲区可见范围；到达底部后停止，不在本地模型
             // 中模拟 scrollback。
@@ -280,7 +286,7 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
         // 从当前光标行到缓冲区底部滚动；当前实现未应用 DECSTBM scroll margins。
         SMALL_RECT sr{0, state.cursor.position.Y, static_cast<SHORT>(state.screen_buffer_size.X - 1),
                       static_cast<SHORT>(state.screen_buffer_size.Y - 1)};
-        COORD dest{sr.Left, static_cast<SHORT>(sr.Top - msg.count)};
+        COORD dest{sr.Left, static_cast<SHORT>(sr.Top - msg.payload.count.value)};
         sb.scroll(sr, sr, false, dest, U' ', state.default_attributes);
         break;
     }
@@ -288,7 +294,7 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
     case vt_message_id::scroll_down: {
         SMALL_RECT sr{0, state.cursor.position.Y, static_cast<SHORT>(state.screen_buffer_size.X - 1),
                       static_cast<SHORT>(state.screen_buffer_size.Y - 1)};
-        COORD dest{sr.Left, static_cast<SHORT>(sr.Top + msg.count)};
+        COORD dest{sr.Left, static_cast<SHORT>(sr.Top + msg.payload.count.value)};
         sb.scroll(sr, sr, false, dest, U' ', state.default_attributes);
         break;
     }
@@ -296,7 +302,7 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
     case vt_message_id::insert_lines: {
         SMALL_RECT sr{0, state.cursor.position.Y, static_cast<SHORT>(state.screen_buffer_size.X - 1),
                       static_cast<SHORT>(state.screen_buffer_size.Y - 1)};
-        COORD dest{sr.Left, static_cast<SHORT>(sr.Top + msg.count)};
+        COORD dest{sr.Left, static_cast<SHORT>(sr.Top + msg.payload.count.value)};
         sb.scroll(sr, sr, false, dest, U' ', state.default_attributes);
         break;
     }
@@ -304,7 +310,7 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
     case vt_message_id::delete_lines: {
         SMALL_RECT sr{0, state.cursor.position.Y, static_cast<SHORT>(state.screen_buffer_size.X - 1),
                       static_cast<SHORT>(state.screen_buffer_size.Y - 1)};
-        COORD dest{sr.Left, static_cast<SHORT>(sr.Top - msg.count)};
+        COORD dest{sr.Left, static_cast<SHORT>(sr.Top - msg.payload.count.value)};
         sb.scroll(sr, sr, false, dest, U' ', state.default_attributes);
         break;
     }
@@ -312,7 +318,7 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
     // ── 擦除 ──
     case vt_message_id::erase_in_display: {
         // ED/EL 使用当前 default_attributes 清除，和 conhost 的属性继承行为一致。
-        switch (msg.erase_mode)
+        switch (msg.payload.erase_mode)
         {
         case 0: // ED0: 光标到屏幕尾
             for (SHORT x = state.cursor.position.X; x < state.screen_buffer_size.X; ++x)
@@ -337,7 +343,7 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
     }
 
     case vt_message_id::erase_in_line: {
-        switch (msg.erase_mode)
+        switch (msg.payload.erase_mode)
         {
         case 0: // EL0: 光标到行尾
             for (SHORT x = state.cursor.position.X; x < state.screen_buffer_size.X; ++x)
@@ -357,8 +363,8 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
 
     // ── 标题 ──
     case vt_message_id::set_window_title:
-        // msg.title 是 parser 内部缓冲视图；状态层必须复制保存。
-        state.title.assign(msg.title.data(), msg.title.size());
+        // msg.payload.title 是 parser 内部缓冲视图；状态层必须复制保存。
+        state.title.assign(msg.payload.title.data(), msg.payload.title.size());
         // original_title 由 api_set_title 首次设置时保存, 这里不处理
         break;
 
@@ -395,8 +401,8 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
 
     // ── 窗口 resize ──
     case vt_message_id::resize_window: {
-        SHORT rows = msg.resize_rows;
-        SHORT cols = msg.resize_cols;
+        SHORT rows = msg.payload.resize.rows;
+        SHORT cols = msg.payload.resize.cols;
         if (rows > 0 && cols > 0)
         {
             // 终端 resize 同时改变 buffer/window/max 三个尺寸字段。当前实现

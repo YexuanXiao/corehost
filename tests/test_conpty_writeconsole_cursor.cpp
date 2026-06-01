@@ -29,13 +29,13 @@ void sim_wc_with_cup(console_state &st, screen_buffer &sb, std::u32string_view t
 {
     // Step 1: CUP to align terminal cursor with state cursor (THE FIX)
     vt_message m{};
-    m.row = st.cursor.position.Y + 1;
-    m.col = st.cursor.position.X + 1;
+    m.payload.position.row = st.cursor.position.Y + 1;
+    m.payload.position.col = st.cursor.position.X + 1;
     vt_msg_apply_state(vt_message_id::cursor_position, m, st, sb);
 
     // Step 2: SGR
     m = vt_message{};
-    m.sgr_reset = true;
+    m.payload.sgr.set(vt_sgr_flag::reset);
     vt_msg_apply_state(vt_message_id::sgr, m, st, sb);
 
     // Step 3: text split at \r \n
@@ -47,7 +47,7 @@ void sim_wc_with_cup(console_state &st, screen_buffer &sb, std::u32string_view t
         {
             if (i > seg_start)
             {
-                m.text = text.substr(seg_start, i - seg_start);
+                m.payload.text = text.substr(seg_start, i - seg_start);
                 vt_msg_apply_state(vt_message_id::text, m, st, sb);
             }
             vt_msg_apply_state(vt_message_id::carriage_return, m, st, sb);
@@ -57,7 +57,7 @@ void sim_wc_with_cup(console_state &st, screen_buffer &sb, std::u32string_view t
         {
             if (i > seg_start)
             {
-                m.text = text.substr(seg_start, i - seg_start);
+                m.payload.text = text.substr(seg_start, i - seg_start);
                 vt_msg_apply_state(vt_message_id::text, m, st, sb);
             }
             vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
@@ -66,14 +66,14 @@ void sim_wc_with_cup(console_state &st, screen_buffer &sb, std::u32string_view t
     }
     if (seg_start < text.size())
     {
-        m.text = text.substr(seg_start);
+        m.payload.text = text.substr(seg_start);
         vt_msg_apply_state(vt_message_id::text, m, st, sb);
     }
 
     // Step 4: CUP to final position
     m = vt_message{};
-    m.row = st.cursor.position.Y + 1;
-    m.col = st.cursor.position.X + 1;
+    m.payload.position.row = st.cursor.position.Y + 1;
+    m.payload.position.col = st.cursor.position.X + 1;
     vt_msg_apply_state(vt_message_id::cursor_position, m, st, sb);
 }
 

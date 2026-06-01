@@ -102,4 +102,49 @@ inline int emit_repeated_output_line(std::string_view line, size_t target_bytes,
     return 0;
 }
 
+inline int emit_repeated_output_line_unbuffered(std::string_view line, size_t target_bytes, const wchar_t *marker,
+                                                const wchar_t *ready_marker, const wchar_t *trigger_event_name)
+{
+    configure_binary_vt_stdout();
+    wait_for_output_trigger(ready_marker, trigger_event_name);
+
+    const HANDLE output = ::GetStdHandle(STD_OUTPUT_HANDLE);
+
+    size_t written = 0;
+    while (written < target_bytes)
+    {
+        DWORD line_written = 0;
+        if (!::WriteFile(output, line.data(), static_cast<DWORD>(line.size()), &line_written, nullptr))
+        {
+            print_and_abort("WriteFile(output line) failed: %lu\n", ::GetLastError());
+        }
+        if (line_written != line.size())
+        {
+            print_and_abort("WriteFile(output line) wrote %lu of %zu bytes\n", line_written, line.size());
+        }
+        written += line.size();
+    }
+
+    if (marker && marker[0] != L'\0')
+    {
+        const auto marker_bytes = narrow(marker);
+        std::string marker_line;
+        marker_line.reserve(marker_bytes.size() + 4);
+        marker_line.append("\r\n", 2);
+        marker_line.append(marker_bytes);
+        marker_line.append("\r\n", 2);
+
+        DWORD marker_written = 0;
+        if (!::WriteFile(output, marker_line.data(), static_cast<DWORD>(marker_line.size()), &marker_written, nullptr))
+        {
+            print_and_abort("WriteFile(output marker) failed: %lu\n", ::GetLastError());
+        }
+        if (marker_written != marker_line.size())
+        {
+            print_and_abort("WriteFile(output marker) wrote %lu of %zu bytes\n", marker_written, marker_line.size());
+        }
+    }
+    return 0;
+}
+
 } // namespace bench

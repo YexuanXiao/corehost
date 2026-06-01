@@ -304,6 +304,78 @@ bool test_ansi_to_u32_persistent_wbuf()
     return true;
 }
 
+bool test_gbk_to_u32_chinese()
+{
+    std::u32string out;
+    std::wstring wbuf;
+    const char gbk[] = "\xCF\xB2\xBB\xB6\xC4\xE3";
+    convert_ansi_to_u32(gbk, sizeof(gbk) - 1, code_page_gbk, out, wbuf);
+    ASSERT(out == U"喜欢你");
+    return true;
+}
+
+bool test_u32_to_gbk_chinese()
+{
+    std::string out;
+    std::wstring wbuf;
+    convert_u32_to_ansi(U"喜欢你", code_page_gbk, out, wbuf);
+    ASSERT(out.size() == 6);
+    ASSERT(static_cast<unsigned char>(out[0]) == 0xCF);
+    ASSERT(static_cast<unsigned char>(out[1]) == 0xB2);
+    ASSERT(static_cast<unsigned char>(out[2]) == 0xBB);
+    ASSERT(static_cast<unsigned char>(out[3]) == 0xB6);
+    ASSERT(static_cast<unsigned char>(out[4]) == 0xC4);
+    ASSERT(static_cast<unsigned char>(out[5]) == 0xE3);
+    return true;
+}
+
+bool test_gbk_to_wstr_and_back()
+{
+    std::wstring wout;
+    std::string aout;
+    const char gbk[] = "A\xCF\xB2\xBB\xB6\xC4\xE3";
+    convert_ansi_to_wstr(gbk, sizeof(gbk) - 1, code_page_gbk, wout);
+    ASSERT(wout == L"A喜欢你");
+
+    convert_wstr_to_ansi(wout, code_page_gbk, aout);
+    ASSERT(aout.size() == sizeof(gbk) - 1);
+    ASSERT(static_cast<unsigned char>(aout[0]) == 'A');
+    ASSERT(static_cast<unsigned char>(aout[1]) == 0xCF);
+    return true;
+}
+
+bool test_gbk_euro_single_byte()
+{
+    std::u32string out;
+    std::wstring wbuf;
+    const char gbk[] = "\x80";
+    convert_ansi_to_u32(gbk, sizeof(gbk) - 1, code_page_gbk, out, wbuf);
+    ASSERT(out.size() == 1);
+    ASSERT(out[0] == 0x20AC);
+    return true;
+}
+
+bool test_gbk_invalid_bytes_use_replacement()
+{
+    std::u32string out;
+    std::wstring wbuf;
+    const char gbk[] = "\xCF ";
+    convert_ansi_to_u32(gbk, sizeof(gbk) - 1, code_page_gbk, out, wbuf);
+    ASSERT(out.size() == 2);
+    ASSERT(out[0] == 0xFFFD);
+    ASSERT(out[1] == U' ');
+    return true;
+}
+
+bool test_gbk_unmappable_unicode_uses_question()
+{
+    std::string out;
+    std::wstring wbuf;
+    convert_u32_to_ansi(U"\U0001F600", code_page_gbk, out, wbuf);
+    ASSERT(out == "?");
+    return true;
+}
+
 // ═══════════════════════════════════════════════════════
 // 单码点辅助函数
 // ═══════════════════════════════════════════════════════
@@ -360,6 +432,12 @@ int main()
     RUN_TEST(test_ansi_to_u32_ascii, L"ANSI→32 ASCII");
     RUN_TEST(test_ansi_to_u32_empty, L"ANSI→32 Empty");
     RUN_TEST(test_ansi_to_u32_persistent_wbuf, L"ANSI→32 Persistent");
+    RUN_TEST(test_gbk_to_u32_chinese, L"GBK→32 Chinese");
+    RUN_TEST(test_u32_to_gbk_chinese, L"UTF-32→GBK Chinese");
+    RUN_TEST(test_gbk_to_wstr_and_back, L"GBK↔WSTR Chinese");
+    RUN_TEST(test_gbk_euro_single_byte, L"GBK Euro Single Byte");
+    RUN_TEST(test_gbk_invalid_bytes_use_replacement, L"GBK Invalid Replacement");
+    RUN_TEST(test_gbk_unmappable_unicode_uses_question, L"GBK Unmappable Question");
 
     RUN_TEST(test_to_wchar_bmp, L"to_wchar BMP");
     RUN_TEST(test_to_wchar_surrogate, L"to_wchar Surrogate");

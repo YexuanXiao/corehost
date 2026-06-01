@@ -30,8 +30,8 @@ bool test_dispatch_cup()
     screen_buffer sb;
     setup(st, sb);
     vt_message m{};
-    m.row = 5;
-    m.col = 3;
+    m.payload.position.row = 5;
+    m.payload.position.col = 3;
     vt_msg_apply_state(vt_message_id::cursor_position, m, st, sb);
     ASSERT(st.cursor.position.X == 2); // 0-based
     ASSERT(st.cursor.position.Y == 4);
@@ -47,7 +47,7 @@ bool test_dispatch_cha()
     screen_buffer sb;
     setup(st, sb);
     vt_message m{};
-    m.col = 10;
+    m.payload.position.col = 10;
     vt_msg_apply_state(vt_message_id::cursor_horiz_absolute, m, st, sb);
     ASSERT(st.cursor.position.X == 9);
     ASSERT(st.cursor.position.Y == 0);
@@ -63,7 +63,7 @@ bool test_dispatch_vpa()
     screen_buffer sb;
     setup(st, sb);
     vt_message m{};
-    m.row = 8;
+    m.payload.position.row = 8;
     vt_msg_apply_state(vt_message_id::cursor_vert_absolute, m, st, sb);
     ASSERT(st.cursor.position.Y == 7);
     return true;
@@ -79,7 +79,7 @@ bool test_dispatch_cuu()
     setup(st, sb);
     st.cursor.position = {10, 10};
     vt_message m{};
-    m.count = 3;
+    m.payload.count.value = 3;
     vt_msg_apply_state(vt_message_id::cursor_up, m, st, sb);
     ASSERT(st.cursor.position.Y == 7);
     return true;
@@ -92,7 +92,7 @@ bool test_dispatch_cud()
     setup(st, sb);
     st.cursor.position = {10, 10};
     vt_message m{};
-    m.count = 5;
+    m.payload.count.value = 5;
     vt_msg_apply_state(vt_message_id::cursor_down, m, st, sb);
     ASSERT(st.cursor.position.Y == 15);
     return true;
@@ -105,7 +105,7 @@ bool test_dispatch_cuf()
     setup(st, sb);
     st.cursor.position = {10, 5};
     vt_message m{};
-    m.count = 8;
+    m.payload.count.value = 8;
     vt_msg_apply_state(vt_message_id::cursor_forward, m, st, sb);
     ASSERT(st.cursor.position.X == 18);
     return true;
@@ -118,7 +118,7 @@ bool test_dispatch_cub()
     setup(st, sb);
     st.cursor.position = {10, 5};
     vt_message m{};
-    m.count = 4;
+    m.payload.count.value = 4;
     vt_msg_apply_state(vt_message_id::cursor_backward, m, st, sb);
     ASSERT(st.cursor.position.X == 6);
     return true;
@@ -134,7 +134,7 @@ bool test_dispatch_cnl()
     setup(st, sb);
     st.cursor.position = {10, 5};
     vt_message m{};
-    m.count = 2;
+    m.payload.count.value = 2;
     vt_msg_apply_state(vt_message_id::cursor_next_line, m, st, sb);
     ASSERT(st.cursor.position.X == 0);
     ASSERT(st.cursor.position.Y == 7);
@@ -148,7 +148,7 @@ bool test_dispatch_cpl()
     setup(st, sb);
     st.cursor.position = {5, 10};
     vt_message m{};
-    m.count = 3;
+    m.payload.count.value = 3;
     vt_msg_apply_state(vt_message_id::cursor_prev_line, m, st, sb);
     ASSERT(st.cursor.position.X == 0);
     ASSERT(st.cursor.position.Y == 7);
@@ -207,8 +207,8 @@ bool test_dispatch_sgr_fg_bg()
     screen_buffer sb;
     setup(st, sb);
     vt_message m{};
-    m.fg_color = 4;  // blue
-    m.bg_color = 14; // yellow
+    m.payload.sgr.fg.set_index(4);  // blue
+    m.payload.sgr.bg.set_index(14); // yellow
     vt_msg_apply_state(vt_message_id::sgr, m, st, sb);
     ASSERT((st.default_attributes & 0x0F) == 4);
     ASSERT(((st.default_attributes >> 4) & 0x0F) == 14);
@@ -221,7 +221,7 @@ bool test_dispatch_sgr_bold()
     screen_buffer sb;
     setup(st, sb);
     vt_message m{};
-    m.bold = true;
+    m.payload.sgr.set(vt_sgr_flag::bold);
     vt_msg_apply_state(vt_message_id::sgr, m, st, sb);
     ASSERT(st.default_attributes & COMMON_LVB_LEADING_BYTE || true); // bold set
     return true;
@@ -234,7 +234,7 @@ bool test_dispatch_sgr_reset()
     setup(st, sb);
     st.default_attributes = 0x1F;
     vt_message m{};
-    m.sgr_reset = true;
+    m.payload.sgr.set(vt_sgr_flag::reset);
     vt_msg_apply_state(vt_message_id::sgr, m, st, sb);
     ASSERT(st.default_attributes == 0x07); // reset to default
     return true;
@@ -256,8 +256,10 @@ bool test_set_sgr_from_win32_attr_wrong_command_red()
 {
     vt_message m{};
     set_sgr_from_win32_attr(m, FOREGROUND_RED | FOREGROUND_INTENSITY);
-    ASSERT(m.fg_color == 9); // bright red → SGR 91, not bright blue (94)
-    ASSERT(m.bg_color == 0);
+    ASSERT(m.payload.sgr.fg.is_indexed());
+    ASSERT(m.payload.sgr.fg.value == 9); // bright red → SGR 91, not bright blue (94)
+    ASSERT(m.payload.sgr.bg.is_indexed());
+    ASSERT(m.payload.sgr.bg.value == 0);
     return true;
 }
 
@@ -270,7 +272,7 @@ bool test_dispatch_text_single()
     screen_buffer sb;
     setup(st, sb);
     vt_message m{};
-    m.text = U"A";
+    m.payload.text = U"A";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     ASSERT(sb.at_u32({0, 0}) == U'A');
     ASSERT(st.cursor.position.X == 1); // advanced
@@ -283,7 +285,7 @@ bool test_dispatch_text_multi()
     screen_buffer sb;
     setup(st, sb);
     vt_message m{};
-    m.text = U"Hello";
+    m.payload.text = U"Hello";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     ASSERT(sb.at_u32({0, 0}) == U'H');
     ASSERT(sb.at_u32({4, 0}) == U'o');
@@ -299,7 +301,7 @@ bool test_dispatch_text_wraps_to_next_line()
     st.cursor.position = {78, 0};
 
     vt_message m{};
-    m.text = U"ABCD"; // 4 chars from col 78
+    m.payload.text = U"ABCD"; // 4 chars from col 78
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     ASSERT(sb.at_u32({78, 0}) == U'A');
     ASSERT(sb.at_u32({79, 0}) == U'B');
@@ -319,7 +321,7 @@ bool test_dispatch_text_overflow_clamps_y()
 
     vt_message m{};
     // 写入 'A' 后换行到 Y=25（越界）
-    m.text = U"A";
+    m.payload.text = U"A";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT(st.cursor.position.Y == 24); // 钳制在 sb_height-1
@@ -346,7 +348,7 @@ bool test_dispatch_ed_0_cursor_to_end()
     st.cursor.position = {10, 5};
 
     vt_message m{};
-    m.erase_mode = 0; // ED 0: cursor to end
+    m.payload.erase_mode = 0; // ED 0: cursor to end
     vt_msg_apply_state(vt_message_id::erase_in_display, m, st, sb);
 
     ASSERT(sb.at_u32({9, 5}) == U'X');  // before cursor: unchanged
@@ -366,7 +368,7 @@ bool test_dispatch_ed_2_whole()
         sb.fill_char(U'X', {0, static_cast<SHORT>(y)}, 80);
 
     vt_message m{};
-    m.erase_mode = 2; // ED 2: entire display
+    m.payload.erase_mode = 2; // ED 2: entire display
     vt_msg_apply_state(vt_message_id::erase_in_display, m, st, sb);
 
     ASSERT(sb.at_u32({0, 0}) == U' ');
@@ -386,7 +388,7 @@ bool test_dispatch_el_0_cursor_to_end()
     st.cursor.position = {20, 0};
 
     vt_message m{};
-    m.erase_mode = 0;
+    m.payload.erase_mode = 0;
     vt_msg_apply_state(vt_message_id::erase_in_line, m, st, sb);
 
     ASSERT(sb.at_u32({19, 0}) == U'X'); // before cursor
@@ -405,7 +407,7 @@ bool test_dispatch_el_2_whole()
     st.cursor.position = {0, 5}; // << set cursor to row 5
 
     vt_message m{};
-    m.erase_mode = 2;
+    m.payload.erase_mode = 2;
     vt_msg_apply_state(vt_message_id::erase_in_line, m, st, sb);
 
     ASSERT(sb.at_u32({0, 5}) == U' ');
@@ -424,7 +426,7 @@ bool test_dispatch_scroll_up()
     st.cursor.position = {10, 5};
 
     vt_message m{};
-    m.count = 2;
+    m.payload.count.value = 2;
     vt_msg_apply_state(vt_message_id::scroll_up, m, st, sb);
 
     // After scroll_up, some rows shifted up from cursor row 5
@@ -443,7 +445,7 @@ bool test_dispatch_title()
     screen_buffer sb;
     setup(st, sb);
     vt_message m{};
-    m.title = U"Test Window";
+    m.payload.title = U"Test Window";
     vt_msg_apply_state(vt_message_id::set_window_title, m, st, sb);
     ASSERT(st.title == U"Test Window");
     return true;
@@ -493,8 +495,8 @@ bool test_dispatch_resize_sets_dimensions()
     st.screen_buffer_size = {120, 30};
 
     vt_message m{};
-    m.resize_rows = 40;
-    m.resize_cols = 100;
+    m.payload.resize.rows = 40;
+    m.payload.resize.cols = 100;
     vt_msg_apply_state(vt_message_id::resize_window, m, st, sb);
 
     ASSERT(st.screen_buffer_size.X == 100);
@@ -512,8 +514,8 @@ bool test_dispatch_resize_updates_state()
     st.max_window_size = {120, 30};
 
     vt_message m{};
-    m.resize_rows = 24;
-    m.resize_cols = 80;
+    m.payload.resize.rows = 24;
+    m.payload.resize.cols = 80;
     vt_msg_apply_state(vt_message_id::resize_window, m, st, sb);
 
     ASSERT(sb.viewport.size().X == 80);
@@ -531,8 +533,8 @@ bool test_dispatch_resize_clamps_cursor()
     st.cursor.position = {110, 28}; // near edge of old size
 
     vt_message m{};
-    m.resize_rows = 15;
-    m.resize_cols = 60; // cursor (110,28) would be OB
+    m.payload.resize.rows = 15;
+    m.payload.resize.cols = 60; // cursor (110,28) would be OB
     vt_msg_apply_state(vt_message_id::resize_window, m, st, sb);
 
     ASSERT(st.cursor.position.X == 59); // clamped to cols-1
@@ -547,8 +549,8 @@ bool test_dispatch_resize_noop_on_zero()
     st.screen_buffer_size = {80, 25};
 
     vt_message m{};
-    m.resize_rows = 0; // zero → invalid, should be no-op
-    m.resize_cols = 0;
+    m.payload.resize.rows = 0; // zero → invalid, should be no-op
+    m.payload.resize.cols = 0;
     vt_msg_apply_state(vt_message_id::resize_window, m, st, sb);
 
     ASSERT(st.screen_buffer_size.X == 80); // unchanged
@@ -566,8 +568,8 @@ bool test_dispatch_resize_tab_stops_reinit()
     ASSERT(st.tab_stops[100] == true);
 
     vt_message m{};
-    m.resize_rows = 30;
-    m.resize_cols = 60; // shrink: tab at 100 should be cleared
+    m.payload.resize.rows = 30;
+    m.payload.resize.cols = 60; // shrink: tab at 100 should be cleared
     vt_msg_apply_state(vt_message_id::resize_window, m, st, sb);
 
     // After resize, tab at 100 should be beyond bounds thus cleared
@@ -586,8 +588,8 @@ bool test_dispatch_cup_clamped_to_max()
     screen_buffer sb;
     setup(st, sb); // 80x25
     vt_message m{};
-    m.row = 200;
-    m.col = 500; // way beyond bounds
+    m.payload.position.row = 200;
+    m.payload.position.col = 500; // way beyond bounds
     vt_msg_apply_state(vt_message_id::cursor_position, m, st, sb);
     ASSERT(st.cursor.position.X == 79); // clamped to width-1
     ASSERT(st.cursor.position.Y == 24); // clamped to height-1
@@ -600,8 +602,8 @@ bool test_dispatch_cup_clamped_negative_to_zero()
     screen_buffer sb;
     setup(st, sb);
     vt_message m{};
-    m.row = -5;
-    m.col = -10; // negative → clamped to 0
+    m.payload.position.row = -5;
+    m.payload.position.col = -10; // negative → clamped to 0
     vt_msg_apply_state(vt_message_id::cursor_position, m, st, sb);
     ASSERT(st.cursor.position.X == 0);
     ASSERT(st.cursor.position.Y == 0);
@@ -614,7 +616,7 @@ bool test_dispatch_cha_clamped_to_max()
     screen_buffer sb;
     setup(st, sb); // 80 columns
     vt_message m{};
-    m.col = 999; // way beyond right edge
+    m.payload.position.col = 999; // way beyond right edge
     vt_msg_apply_state(vt_message_id::cursor_horiz_absolute, m, st, sb);
     ASSERT(st.cursor.position.X == 79); // clamped to width-1
     return true;
@@ -626,7 +628,7 @@ bool test_dispatch_vpa_clamped_to_max()
     screen_buffer sb;
     setup(st, sb); // 25 rows
     vt_message m{};
-    m.row = 999; // way beyond bottom
+    m.payload.position.row = 999; // way beyond bottom
     vt_msg_apply_state(vt_message_id::cursor_vert_absolute, m, st, sb);
     ASSERT(st.cursor.position.Y == 24); // clamped to height-1
     return true;
@@ -649,10 +651,10 @@ bool test_text_lf_resets_x()
     ASSERT(st.cursor.position.Y == 4); // Y incremented
 
     st.cursor.position = {5, 4};
-    m.text = U"ab";
+    m.payload.text = U"ab";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
-    m.text = U"cd";
+    m.payload.text = U"cd";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     ASSERT(st.cursor.position.X == 2); // LF reset to 0, cd=2
     ASSERT(st.cursor.position.Y == 5); // moved down one more row
@@ -669,19 +671,19 @@ bool test_wrong_command_multiline_indent()
     st.cursor.position = {0, 6};
     vt_message m{};
 
-    m.text = U"line1_80_chars_ending_at_col2_row7_xxx_yyy_zzz_aaa_bbb_ccc_ddd_eee_fff_ggg_hhh_iii_jjj";
+    m.payload.text = U"line1_80_chars_ending_at_col2_row7_xxx_yyy_zzz_aaa_bbb_ccc_ddd_eee_fff_ggg_hhh_iii_jjj";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT(st.cursor.position.X == 0);
     ASSERT(st.cursor.position.Y == 8);
 
-    m.text = U"line2_14_chars_";
+    m.payload.text = U"line2_14_chars_";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT(st.cursor.position.X == 0);
     ASSERT(st.cursor.position.Y == 9);
 
-    m.text = U"line3_14_chars_";
+    m.payload.text = U"line3_14_chars_";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
     ASSERT(st.cursor.position.X == 0);
@@ -716,7 +718,7 @@ bool test_text_cjk_boundary_wrap_before_write()
     vt_message m{};
     // ASCII 'A' (1 col) at col 78 → fits at 78
     // CJK '请' (2 cols) at col 79 → needs 79,80 → overflows → wrap to (0,6)
-    m.text = U"A\u8BF7"; // "A请"
+    m.payload.text = U"A\u8BF7"; // "A请"
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
 
     ASSERT(sb.at_u32({78, 5}) == U'A');     // 'A' at col 78, row 5
@@ -738,7 +740,7 @@ bool test_text_cjk_double_boundary_overflow()
     // 1st '請'(2) at col 78 → fits (78+2=80), pos wraps to (0,6) after write
     // 2nd '請'(2) at col 0, row 6 → (2,6)
     // 'A'(1) at col 2, row 6 → (3,6)
-    m.text = U"\u8BF7\u8BF7A";
+    m.payload.text = U"\u8BF7\u8BF7A";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
 
     ASSERT(sb.at_u32({78, 5}) == U'\u8BF7'); // first '請' at (78,5), fits
@@ -813,7 +815,7 @@ bool test_text_newline_after_cjk_wrap_does_not_double_advance()
     std::u32string msg(118, U'A');
     msg += U"\uFF0C"; // 全角逗号 width=2, X=118+2=120 → 折行
     vt_message m{};
-    m.text = msg;
+    m.payload.text = msg;
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
 
     // 断言: 全角逗号触发行尾折行 → cursor 已在下一行行首
@@ -845,7 +847,7 @@ bool test_text_newline_after_exact_fill_does_not_double_advance()
     // 填充 120 个 'A' → 恰好在 pos.X = 120 处触发 pos.X = 0; pos.Y++
     std::u32string fill(120, U'A');
     vt_message m{};
-    m.text = fill;
+    m.payload.text = fill;
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
 
     ASSERT_EQ(st.cursor.position.X, 0);
@@ -870,7 +872,7 @@ bool test_text_newline_normal_advances_one_line()
     sb = screen_buffer{{120, 30}};
 
     vt_message m{};
-    m.text = U"hello";
+    m.payload.text = U"hello";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     ASSERT_EQ(st.cursor.position.X, 15);
 
@@ -892,7 +894,7 @@ bool test_text_crlf_advances_one_line()
     sb = screen_buffer{{120, 30}};
 
     vt_message m{};
-    m.text = U"test";
+    m.payload.text = U"test";
     vt_msg_apply_state(vt_message_id::text, m, st, sb);
     vt_msg_apply_state(vt_message_id::carriage_return, m, st, sb);
     vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);

@@ -17,7 +17,7 @@ inline int consume_stdin_until_marker(const wchar_t *marker, const wchar_t *read
     const HANDLE input = ::GetStdHandle(STD_INPUT_HANDLE);
     DWORD mode = 0;
     if (::GetConsoleMode(input, &mode))
-        ::SetConsoleMode(input, ENABLE_PROCESSED_INPUT);
+        ::SetConsoleMode(input, ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
 
     const auto marker_bytes = narrow(marker);
     const auto ready_bytes = narrow(ready_marker);
@@ -34,7 +34,7 @@ inline int consume_stdin_until_marker(const wchar_t *marker, const wchar_t *read
     tail.reserve(marker_bytes.size() + 4096);
 
     size_t total = 0;
-    char buffer[64 * 1024];
+    char buffer[4 * 1024];
     for (;;)
     {
         DWORD read = 0;

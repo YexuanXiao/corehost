@@ -1,4 +1,4 @@
-// ── tests/test_vt_parser.cpp ──────────────────────────────
+// ── tests/test_vt_parser_utf32.cpp ─────────────────────────
 // VT/CSI/OSC 解析器测(基于 char32_t 的新版解析器)
 //
 // 与旧版测试的区别
@@ -112,7 +112,7 @@ struct msg_gen
     vt_message_id msg_id = vt_message_id::continue_; // 本次生成id
     vt_message msg;                                  // 期望的字段
 
-    // 用于持有 msg.title / msg.text 所指向的字符串数据 (u32string_view 需存活)
+    // 用于持有 msg.payload.title / msg.payload.text 所指向的字符串数据 (u32string_view 需存活)
     std::u32string _title_storage;
     std::u32string _text_storage;
 
@@ -177,78 +177,78 @@ struct msg_gen
         // ── CSI Cursor Movement ──
         case 8:
             msg_id = vt_message_id::cursor_up;
-            msg.count = rand_short(1, 99);
+            msg.payload.count.value = rand_short(1, 99);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'A');
             break;
         case 9:
             msg_id = vt_message_id::cursor_down;
-            msg.count = rand_short(1, 99);
+            msg.payload.count.value = rand_short(1, 99);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'B');
             break;
         case 10:
             msg_id = vt_message_id::cursor_forward;
-            msg.count = rand_short(1, 99);
+            msg.payload.count.value = rand_short(1, 99);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'C');
             break;
         case 11:
             msg_id = vt_message_id::cursor_backward;
-            msg.count = rand_short(1, 99);
+            msg.payload.count.value = rand_short(1, 99);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'D');
             break;
         case 12:
             msg_id = vt_message_id::cursor_next_line;
-            msg.count = rand_short(1, 99);
+            msg.payload.count.value = rand_short(1, 99);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'E');
             break;
         case 13:
             msg_id = vt_message_id::cursor_prev_line;
-            msg.count = rand_short(1, 99);
+            msg.payload.count.value = rand_short(1, 99);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'F');
             break;
         case 14:
             msg_id = vt_message_id::cursor_horiz_absolute;
-            msg.col = rand_short(1, 200);
+            msg.payload.position.col = rand_short(1, 200);
             r.add_csi();
-            r.add_number(msg.col);
+            r.add_number(msg.payload.position.col);
             r.add(U'G');
             break;
         case 15:
             msg_id = vt_message_id::cursor_vert_absolute;
-            msg.row = rand_short(1, 200);
+            msg.payload.position.row = rand_short(1, 200);
             r.add_csi();
-            r.add_number(msg.row);
+            r.add_number(msg.payload.position.row);
             r.add(U'd');
             break;
         case 16:
             msg_id = vt_message_id::cursor_position;
-            msg.row = rand_short(1, 200);
-            msg.col = rand_short(1, 200);
+            msg.payload.position.row = rand_short(1, 200);
+            msg.payload.position.col = rand_short(1, 200);
             r.add_csi();
-            r.add_number(msg.row);
+            r.add_number(msg.payload.position.row);
             r.add(U';');
-            r.add_number(msg.col);
+            r.add_number(msg.payload.position.col);
             r.add(U'H');
             break;
         case 17:
             msg_id = vt_message_id::cursor_position; // HVP variant
-            msg.row = rand_short(1, 200);
-            msg.col = rand_short(1, 200);
+            msg.payload.position.row = rand_short(1, 200);
+            msg.payload.position.col = rand_short(1, 200);
             r.add_csi();
-            r.add_number(msg.row);
+            r.add_number(msg.payload.position.row);
             r.add(U';');
-            r.add_number(msg.col);
+            r.add_number(msg.payload.position.col);
             r.add(U'f');
             break;
         case 18:
@@ -311,7 +311,7 @@ struct msg_gen
             r.add(U'?');
             r.add(U'3');
             r.add(U'h');
-            msg.window_width = 132;
+            msg.payload.window_width = 132;
             break;
         case 27:
             msg_id = vt_message_id::set_columns_80;
@@ -319,7 +319,7 @@ struct msg_gen
             r.add(U'?');
             r.add(U'3');
             r.add(U'l');
-            msg.window_width = 80;
+            msg.payload.window_width = 80;
             break;
         case 28:
             msg_id = vt_message_id::use_alternate_buffer;
@@ -339,9 +339,9 @@ struct msg_gen
         // ── Cursor Shape ──
         case 30:
             msg_id = vt_message_id::set_cursor_shape;
-            msg.cursor_shape = rand_short(0, 6);
+            msg.payload.cursor_shape = rand_short(0, 6);
             r.add_csi();
-            r.add_number(msg.cursor_shape);
+            r.add_number(msg.payload.cursor_shape);
             r.add(U' ');
             r.add(U'q');
             break;
@@ -349,67 +349,67 @@ struct msg_gen
         // ── Scroll ──
         case 31:
             msg_id = vt_message_id::scroll_up;
-            msg.count = rand_short(1, 99);
+            msg.payload.count.value = rand_short(1, 99);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'S');
             break;
         case 32:
             msg_id = vt_message_id::scroll_down;
-            msg.count = rand_short(1, 99);
+            msg.payload.count.value = rand_short(1, 99);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'T');
             break;
 
         // ── Text Modification ──
         case 33:
             msg_id = vt_message_id::insert_characters;
-            msg.count = rand_short(1, 50);
+            msg.payload.count.value = rand_short(1, 50);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'@');
             break;
         case 34:
             msg_id = vt_message_id::delete_characters;
-            msg.count = rand_short(1, 50);
+            msg.payload.count.value = rand_short(1, 50);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'P');
             break;
         case 35:
             msg_id = vt_message_id::erase_characters;
-            msg.count = rand_short(1, 50);
+            msg.payload.count.value = rand_short(1, 50);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'X');
             break;
         case 36:
             msg_id = vt_message_id::insert_lines;
-            msg.count = rand_short(1, 50);
+            msg.payload.count.value = rand_short(1, 50);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'L');
             break;
         case 37:
             msg_id = vt_message_id::delete_lines;
-            msg.count = rand_short(1, 50);
+            msg.payload.count.value = rand_short(1, 50);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'M');
             break;
         case 38:
             msg_id = vt_message_id::erase_in_display;
-            msg.erase_mode = rand_short(0, 2);
+            msg.payload.erase_mode = rand_short(0, 2);
             r.add_csi();
-            r.add_number(msg.erase_mode);
+            r.add_number(msg.payload.erase_mode);
             r.add(U'J');
             break;
         case 39:
             msg_id = vt_message_id::erase_in_line;
-            msg.erase_mode = rand_short(0, 2);
+            msg.payload.erase_mode = rand_short(0, 2);
             r.add_csi();
-            r.add_number(msg.erase_mode);
+            r.add_number(msg.payload.erase_mode);
             r.add(U'K');
             break;
 
@@ -430,65 +430,61 @@ struct msg_gen
                 {
                 case 0:
                     sgr_val = 0;
-                    msg.sgr_reset = true;
+                    msg.payload.sgr.set(vt_sgr_flag::reset);
                     break;
                 case 1:
                     sgr_val = 1;
-                    msg.bold = true;
+                    msg.payload.sgr.set(vt_sgr_flag::bold);
                     break;
                 case 2:
                     sgr_val = 4;
-                    msg.underline = true;
+                    msg.payload.sgr.set(vt_sgr_flag::underline);
                     break;
                 case 3:
                     sgr_val = 7;
-                    msg.negative = true;
+                    msg.payload.sgr.set(vt_sgr_flag::negative);
                     break;
                 case 4:
                     sgr_val = 22;
-                    msg.bold = false;
+                    msg.payload.sgr.clear(vt_sgr_flag::bold);
+                    msg.payload.sgr.clear(vt_sgr_flag::faint);
                     break;
                 case 5:
                     sgr_val = 24;
-                    msg.underline = false;
+                    msg.payload.sgr.clear(vt_sgr_flag::underline);
                     break;
                 case 6:
                     sgr_val = 27;
-                    msg.negative = false;
+                    msg.payload.sgr.clear(vt_sgr_flag::negative);
                     break;
                 case 7:
                     sgr_val = static_cast<short>(30 + rand_short(0, 7));
-                    msg.fg_color = sgr_val - 30;
+                    msg.payload.sgr.fg.set_index(static_cast<short>(sgr_val - 30));
                     break;
                 case 8:
                     sgr_val = static_cast<short>(40 + rand_short(0, 7));
-                    msg.bg_color = sgr_val - 40;
+                    msg.payload.sgr.bg.set_index(static_cast<short>(sgr_val - 40));
                     break;
                 case 9:
                     sgr_val = 39;
-                    msg.fg_is_default = true;
-                    msg.fg_color = -1;
+                    msg.payload.sgr.fg.set_default();
                     break;
                 case 10:
                     sgr_val = 49;
-                    msg.bg_is_default = true;
-                    msg.bg_color = -1;
+                    msg.payload.sgr.bg.set_default();
                     break;
                 case 11:
                     sgr_val = 48;
-                    msg.bg_is_rgb = true;
-                    msg.bg_r = rand_u8(0, 255);
-                    msg.bg_g = rand_u8(0, 255);
-                    msg.bg_b = rand_u8(0, 255);
+                    msg.payload.sgr.bg.set_rgb(rand_u8(0, 255), rand_u8(0, 255), rand_u8(0, 255));
                     r.add_number(sgr_val);
                     r.add(U';');
                     r.add(U'2');
                     r.add(U';');
-                    r.add_number(msg.bg_r);
+                    r.add_number(msg.payload.sgr.bg.value);
                     r.add(U';');
-                    r.add_number(msg.bg_g);
+                    r.add_number(msg.payload.sgr.bg.g);
                     r.add(U';');
-                    r.add_number(msg.bg_b);
+                    r.add_number(msg.payload.sgr.bg.b);
                     continue;
                 }
                 r.add_number(sgr_val);
@@ -503,7 +499,7 @@ struct msg_gen
             int len = rand_short(1, 30);
             for (int i = 0; i < len; ++i)
                 _title_storage += rand_ascii();
-            msg.title = _title_storage; // view into owned storage
+            msg.payload.title = _title_storage; // view into owned storage
             int osc_code = std::uniform_int_distribution<int>(0, 1)(rng) ? 0 : 2;
             r.add_osc();
             r.add(U'0' + osc_code);
@@ -516,18 +512,18 @@ struct msg_gen
         // ── OSC Palette ──
         case 42: {
             msg_id = vt_message_id::set_palette_color;
-            msg.palette_index = rand_short(0, 255);
-            msg.palette_r = rand_u8(0, 255);
-            msg.palette_g = rand_u8(0, 255);
-            msg.palette_b = rand_u8(0, 255);
+            msg.payload.palette.index = rand_short(0, 255);
+            msg.payload.palette.r = rand_u8(0, 255);
+            msg.payload.palette.g = rand_u8(0, 255);
+            msg.payload.palette.b = rand_u8(0, 255);
             r.add_osc();
             r.add(U'4');
             r.add(U';');
-            r.add_number(msg.palette_index);
+            r.add_number(msg.payload.palette.index);
             r.add(U';');
             // 构"rgb:RR/GG/BB" 字符
             char buf[32];
-            snprintf(buf, sizeof(buf), "rgb:%02x/%02x/%02x", msg.palette_r, msg.palette_g, msg.palette_b);
+            snprintf(buf, sizeof(buf), "rgb:%02x/%02x/%02x", msg.payload.palette.r, msg.payload.palette.g, msg.payload.palette.b);
             for (char *p = buf; *p; ++p)
                 r.add(static_cast<char32_t>(*p));
             r.add(0x07); // BEL terminator
@@ -537,16 +533,16 @@ struct msg_gen
         // ── Tabs ──
         case 43:
             msg_id = vt_message_id::cursor_forward_tab;
-            msg.count = rand_short(1, 20);
+            msg.payload.count.value = rand_short(1, 20);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'I');
             break;
         case 44:
             msg_id = vt_message_id::cursor_backward_tab;
-            msg.count = rand_short(1, 20);
+            msg.payload.count.value = rand_short(1, 20);
             r.add_csi();
-            r.add_number(msg.count);
+            r.add_number(msg.payload.count.value);
             r.add(U'Z');
             break;
         case 45:
@@ -565,12 +561,12 @@ struct msg_gen
         // ── Scrolling Margins ──
         case 47:
             msg_id = vt_message_id::set_scrolling_region;
-            msg.scroll_top = rand_short(1, 50);
-            msg.scroll_bottom = rand_short(1, 50);
+            msg.payload.scroll_region.top = rand_short(1, 50);
+            msg.payload.scroll_region.bottom = rand_short(1, 50);
             r.add_csi();
-            r.add_number(msg.scroll_top);
+            r.add_number(msg.payload.scroll_region.top);
             r.add(U';');
-            r.add_number(msg.scroll_bottom);
+            r.add_number(msg.payload.scroll_region.bottom);
             r.add(U'r');
             break;
 
@@ -654,54 +650,49 @@ struct msg_gen
         case vt_message_id::delete_lines:
         case vt_message_id::cursor_forward_tab:
         case vt_message_id::cursor_backward_tab:
-            ASSERT(parsed.count == msg.count);
+            ASSERT(parsed.payload.count.value == msg.payload.count.value);
             break;
         case vt_message_id::cursor_horiz_absolute:
-            ASSERT(parsed.col == msg.col);
+            ASSERT(parsed.payload.position.col == msg.payload.position.col);
             break;
         case vt_message_id::cursor_vert_absolute:
-            ASSERT(parsed.row == msg.row);
+            ASSERT(parsed.payload.position.row == msg.payload.position.row);
             break;
         case vt_message_id::cursor_position:
-            ASSERT(parsed.row == msg.row);
-            ASSERT(parsed.col == msg.col);
+            ASSERT(parsed.payload.position.row == msg.payload.position.row);
+            ASSERT(parsed.payload.position.col == msg.payload.position.col);
             break;
         case vt_message_id::set_cursor_shape:
-            ASSERT(parsed.cursor_shape == msg.cursor_shape);
+            ASSERT(parsed.payload.cursor_shape == msg.payload.cursor_shape);
             break;
         case vt_message_id::erase_in_display:
         case vt_message_id::erase_in_line:
-            ASSERT(parsed.erase_mode == msg.erase_mode);
+            ASSERT(parsed.payload.erase_mode == msg.payload.erase_mode);
             break;
         case vt_message_id::sgr:
-            ASSERT(parsed.sgr_reset == msg.sgr_reset);
-            ASSERT(parsed.bold == msg.bold);
-            ASSERT(parsed.underline == msg.underline);
-            ASSERT(parsed.negative == msg.negative);
-            ASSERT(parsed.fg_color == msg.fg_color);
-            ASSERT(parsed.bg_color == msg.bg_color);
-            ASSERT(parsed.fg_is_default == msg.fg_is_default);
-            ASSERT(parsed.bg_is_default == msg.bg_is_default);
-            if (msg.bg_is_rgb)
-            {
-                ASSERT(parsed.bg_is_rgb);
-                ASSERT(parsed.bg_r == msg.bg_r);
-                ASSERT(parsed.bg_g == msg.bg_g);
-                ASSERT(parsed.bg_b == msg.bg_b);
-            }
+            ASSERT(parsed.payload.sgr.set_flags == msg.payload.sgr.set_flags);
+            ASSERT(parsed.payload.sgr.clear_flags == msg.payload.sgr.clear_flags);
+            ASSERT(parsed.payload.sgr.fg.kind == msg.payload.sgr.fg.kind);
+            ASSERT(parsed.payload.sgr.fg.value == msg.payload.sgr.fg.value);
+            ASSERT(parsed.payload.sgr.fg.g == msg.payload.sgr.fg.g);
+            ASSERT(parsed.payload.sgr.fg.b == msg.payload.sgr.fg.b);
+            ASSERT(parsed.payload.sgr.bg.kind == msg.payload.sgr.bg.kind);
+            ASSERT(parsed.payload.sgr.bg.value == msg.payload.sgr.bg.value);
+            ASSERT(parsed.payload.sgr.bg.g == msg.payload.sgr.bg.g);
+            ASSERT(parsed.payload.sgr.bg.b == msg.payload.sgr.bg.b);
             break;
         case vt_message_id::set_window_title:
-            ASSERT(parsed.title == msg.title);
+            ASSERT(parsed.payload.title == msg.payload.title);
             break;
         case vt_message_id::set_palette_color:
-            ASSERT(parsed.palette_index == msg.palette_index);
-            ASSERT(parsed.palette_r == msg.palette_r);
-            ASSERT(parsed.palette_g == msg.palette_g);
-            ASSERT(parsed.palette_b == msg.palette_b);
+            ASSERT(parsed.payload.palette.index == msg.payload.palette.index);
+            ASSERT(parsed.payload.palette.r == msg.payload.palette.r);
+            ASSERT(parsed.payload.palette.g == msg.payload.palette.g);
+            ASSERT(parsed.payload.palette.b == msg.payload.palette.b);
             break;
         case vt_message_id::set_scrolling_region:
-            ASSERT(parsed.scroll_top == msg.scroll_top);
-            ASSERT(parsed.scroll_bottom == msg.scroll_bottom);
+            ASSERT(parsed.payload.scroll_region.top == msg.payload.scroll_region.top);
+            ASSERT(parsed.payload.scroll_region.bottom == msg.payload.scroll_region.bottom);
             break;
         default:
             break;
@@ -717,7 +708,7 @@ struct msg_gen
 // 冒烟测试: 确保最基本的序列能被解
 bool test_smoke()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
 
     // ESC M reverse_index
@@ -730,7 +721,7 @@ bool test_smoke()
     ASSERT(p.parse(U'[') == vt_message_id::continue_);
     ASSERT(p.parse(U'1') == vt_message_id::continue_);
     ASSERT(p.parse(U'A') == vt_message_id::cursor_up);
-    ASSERT(p.get().count == 1);
+    ASSERT(p.get().payload.count.value == 1);
     p.reset<vt_message_id::cursor_up>();
 
     // ESC ] 0 ; hello BEL set_window_title
@@ -741,7 +732,7 @@ bool test_smoke()
     ASSERT(p.parse(U'h') == vt_message_id::continue_);
     ASSERT(p.parse(U'i') == vt_message_id::continue_);
     ASSERT(p.parse(0x07) == vt_message_id::set_window_title);
-    ASSERT(p.get().title == U"hi");
+    ASSERT(p.get().payload.title == U"hi");
     p.reset<vt_message_id::set_window_title>();
 
     // Esc followed by text "ab"
@@ -754,7 +745,7 @@ bool test_smoke()
 // 测试单条随机消息的往
 bool test_positive_single()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser parser{parser_raw};
     for (int trial = 0; trial < 500; ++trial)
     {
@@ -781,7 +772,7 @@ bool test_positive_single()
 // 测试多条消息拼接后的连续解析
 bool test_positive_concatenated()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser parser{parser_raw};
     for (int trial = 0; trial < 200; ++trial)
     {
@@ -815,7 +806,7 @@ bool test_positive_concatenated()
 // 测试消息与文本穿
 bool test_positive_with_text()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser parser{parser_raw};
     for (int trial = 0; trial < 100; ++trial)
     {
@@ -869,7 +860,7 @@ bool test_positive_with_text()
 // 辅助函数：输入一组码点，应当产生 unknown_sequence，且 text 内容等于输入序列
 bool test_illegal_as_unknown_sequence(const raw_seq &seq)
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser parser{parser_raw};
     bool produced = false;
     for (size_t i = 0; i < seq.code_points.size(); ++i)
@@ -879,7 +870,7 @@ bool test_illegal_as_unknown_sequence(const raw_seq &seq)
         {
             ASSERT(id == vt_message_id::unknown_sequence);
             // 验证 text 视图等于原始非法序列
-            std::u32string_view txt = parser.get().text;
+            std::u32string_view txt = parser.get().payload.text;
             ASSERT(txt.size() == seq.code_points.size());
             // 由于原始序列可能在不同时机输出（如非法字符就在当前字符）
             // 但在此测试中我们故意构造完整的非法序列一次性输出（不包含控制中断）
@@ -1067,7 +1058,7 @@ bool test_illegal_mixed()
 
     for (auto &c : cases)
     {
-        std::u32string parser_raw;
+        std::vector<char32_t> parser_raw;
         vt_parser parser{parser_raw};
         bool got = false;
         for (size_t i = 0; i < c.seq.code_points.size(); ++i)
@@ -1076,7 +1067,7 @@ bool test_illegal_mixed()
             if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
             {
                 ASSERT(id == vt_message_id::unknown_sequence);
-                std::u32string_view txt = parser.get().text;
+                std::u32string_view txt = parser.get().payload.text;
                 ASSERT(txt.size() == c.seq.code_points.size());
                 for (size_t j = 0; j < txt.size(); ++j)
                     ASSERT(txt[j] == c.seq.code_points[j]);
@@ -1095,7 +1086,7 @@ bool test_illegal_mixed()
 // ============================================================================
 bool test_parse_resize_window_basic()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     bool got = false;
     char32_t seq[] = {0x1B, U'[', U'8', U';', U'4', U'0', U';', U'1', U'0', U'0', U't'};
@@ -1105,8 +1096,8 @@ bool test_parse_resize_window_basic()
         if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
         {
             ASSERT(id == vt_message_id::resize_window);
-            ASSERT(p.get().resize_rows == 40);
-            ASSERT(p.get().resize_cols == 100);
+            ASSERT(p.get().payload.resize.rows == 40);
+            ASSERT(p.get().payload.resize.cols == 100);
             got = true;
             reset_test_vt_parser_message(p, id);
         }
@@ -1117,7 +1108,7 @@ bool test_parse_resize_window_basic()
 
 bool test_parse_resize_window_zero_invalid()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     bool got_text = false;
     char32_t seq[] = {0x1B, U'[', U'8', U';', U'0', U';', U'0', U't'};
@@ -1137,7 +1128,7 @@ bool test_parse_resize_window_zero_invalid()
 
 bool test_parse_resize_window_pixel_is_text()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     bool got_text = false;
     char32_t seq[] = {0x1B, U'[', U'4', U';', U'4', U'8', U'0', U';', U'6', U'4', U'0', U't'};
@@ -1157,7 +1148,7 @@ bool test_parse_resize_window_pixel_is_text()
 
 bool test_parse_resize_window_fields_reset()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     // Use explicit code points to avoid any string-literal escape ambiguity
     char32_t seq[] = {0x1B, U'[', U'8', U';', U'3', U'0', U';', U'9', U'0', U't'};
@@ -1176,22 +1167,22 @@ bool test_parse_resize_window_fields_reset()
         // ground text may return continue_text (not text) since continue_text refactor
         if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
             continue;
-        ASSERT(p.get().resize_rows == 0);
-        ASSERT(p.get().resize_cols == 0);
+        ASSERT(p.get().payload.resize.rows == 0);
+        ASSERT(p.get().payload.resize.cols == 0);
         reset_test_vt_parser_message(p, id);
     }
     return true;
 }
 
 // ============================================================================
-// 回归测试: CR/LF 不覆盖累积文(fix: _handle_control 不再_msg.text)
+// 回归测试: CR/LF 不覆盖累积文(fix: _handle_control 不再_msg.payload.text)
 // ============================================================================
 
 // 模拟 pipe_bridge process_input 逻辑：char32_t 喂入 parser
 // 验证 text 消息的内容正确
 std::u32string feed_and_collect_text(const std::u32string &input)
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     std::u32string collected;
     for (char32_t ch : input)
@@ -1200,14 +1191,14 @@ std::u32string feed_and_collect_text(const std::u32string &input)
         if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
         {
             if (id == vt_message_id::text)
-                collected.append(p.get().text);
+                collected.append(p.get().payload.text);
             reset_test_vt_parser_message(p, id);
 
             // drain 排队消息
             if (auto d_id = p.parse(U'\0'); d_id != vt_message_id::continue_ && d_id != vt_message_id::continue_text)
             {
                 if (d_id == vt_message_id::text)
-                    collected.append(p.get().text);
+                    collected.append(p.get().payload.text);
                 reset_test_vt_parser_message(p, d_id);
             }
         }
@@ -1216,7 +1207,7 @@ std::u32string feed_and_collect_text(const std::u32string &input)
     if (auto id = p.parse(U'\0'); id != vt_message_id::continue_ && id != vt_message_id::continue_text)
     {
         if (id == vt_message_id::text)
-            collected.append(p.get().text);
+            collected.append(p.get().payload.text);
         reset_test_vt_parser_message(p, id);
     }
     return collected;
@@ -1241,7 +1232,7 @@ bool test_regression_lf_preserves_text()
 bool test_regression_bare_cr_produces_carriage_return()
 {
     // 单独\r → carriage_return
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     bool got_cr = false;
     for (char32_t ch : U"\r")
@@ -1249,7 +1240,7 @@ bool test_regression_bare_cr_produces_carriage_return()
         vt_message_id id = p.parse(ch);
         if (id == vt_message_id::carriage_return)
         {
-            ASSERT(p.get().text.empty());
+            ASSERT(p.get().payload.text.empty());
             got_cr = true;
             reset_test_vt_parser_message(p, id);
         }
@@ -1261,7 +1252,7 @@ bool test_regression_bare_cr_produces_carriage_return()
 bool test_regression_bare_lf_produces_line_feed()
 {
     // 单独\n → line_feed
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     bool got_lf = false;
     for (char32_t ch : U"\n")
@@ -1269,7 +1260,7 @@ bool test_regression_bare_lf_produces_line_feed()
         vt_message_id id = p.parse(ch);
         if (id == vt_message_id::line_feed)
         {
-            ASSERT(p.get().text.empty());
+            ASSERT(p.get().payload.text.empty());
             got_lf = true;
             reset_test_vt_parser_message(p, id);
         }
@@ -1292,7 +1283,7 @@ bool test_regression_crlf_full_pipeline()
 //   修复: reset() 不再清除 _pending_control。
 bool test_regression_pending_control_survives_reset()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     char32_t input[] = {U'e', U'c', U'h', U'o', U'\r'};
 
@@ -1306,13 +1297,13 @@ bool test_regression_pending_control_survives_reset()
     // 第 5 个 \r → parser 先交付 text，设 _pending_control=carriage_return
     id = p.parse(input[4]);
     ASSERT(id == vt_message_id::text);
-    ASSERT(p.get().text == U"echo");
+    ASSERT(p.get().payload.text == U"echo");
     p.reset<vt_message_id::text>(); // reset 不应清除 _pending_control
 
     // 下一个 parse() 应交付 carriage_return
     id = p.parse(U' '); // dummy char 触发 _pending_control 交付
     ASSERT(id == vt_message_id::carriage_return);
-    ASSERT(p.get().text.empty());
+    ASSERT(p.get().payload.text.empty());
     return true;
 }
 
@@ -1321,7 +1312,7 @@ bool test_regression_pending_control_survives_reset()
 //   修复: 新增 flush_text()，api_write_console 循环后调用。
 bool test_regression_flush_text_delivers_accumulated()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     char32_t input[] = {U'M', U'i', U'c', U'r', U'o'};
 
@@ -1337,7 +1328,7 @@ bool test_regression_flush_text_delivers_accumulated()
     // flush_text 应释放 "Micro"
     vt_message_id id = p.flush_text();
     ASSERT(id == vt_message_id::text);
-    ASSERT(p.get().text == U"Micro");
+    ASSERT(p.get().payload.text == U"Micro");
 
     // 再次 flush 无残留
     ASSERT(!p.has_pending_text());
@@ -1351,7 +1342,7 @@ bool test_regression_flush_text_delivers_accumulated()
 // → drain: parse(U'\0') 取出 line_feed。调用方只需在每次 reset 后无条件 drain。
 bool test_regression_cr_then_nl_bridge_pairing()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     char32_t hello[] = {U'h', U'e', U'l', U'l', U'o'};
     for (char32_t ch : hello)
@@ -1362,7 +1353,7 @@ bool test_regression_cr_then_nl_bridge_pairing()
     // "\r" → parser 产 text("hello")，_pending_control=carriage_return
     vt_message_id id = p.parse(U'\r');
     ASSERT(id == vt_message_id::text);
-    ASSERT(p.get().text == U"hello");
+    ASSERT(p.get().payload.text == U"hello");
     reset_test_vt_parser_message(p, id);
 
     // "\n" → _pending_control 触发, 返回 carriage_return, 升级为 line_feed
@@ -1386,7 +1377,7 @@ bool test_regression_text_with_vt_then_cr()
 {
     // 混合场景: "abc\x1b[Adef\r" text1="abc", cursor_up, text2="def"
     //  key_up remap pipe_bridge 中完成，parser 产出 cursor_up
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     std::u32string collected;
     bool got_cursor_up = false;
@@ -1410,7 +1401,7 @@ bool test_regression_text_with_vt_then_cr()
         if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
             continue;
         if (id == vt_message_id::text)
-            collected.append(p.get().text);
+            collected.append(p.get().payload.text);
         else if (id == vt_message_id::cursor_up)
             got_cursor_up = true;
         else
@@ -1429,7 +1420,7 @@ bool test_regression_multiline_input()
 {
     // _pending_control 触发时总会消费当前字符。调用方在每次 reset 后
     // 无条件 drain（parse(U'\0')），无 pending 时首次即返回 continue_。
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     std::u32string collected;
 
@@ -1440,7 +1431,7 @@ bool test_regression_multiline_input()
         if (id == vt_message_id::continue_text || id == vt_message_id::continue_)
             continue;
         if (id == vt_message_id::text)
-            collected.append(p.get().text);
+            collected.append(p.get().payload.text);
         reset_test_vt_parser_message(p, id);
 
         // 无条件 drain: _pending_control 最多一个排队消息
@@ -1448,7 +1439,7 @@ bool test_regression_multiline_input()
             drain_id != vt_message_id::continue_ && drain_id != vt_message_id::continue_text)
         {
             if (drain_id == vt_message_id::text)
-                collected.append(p.get().text);
+                collected.append(p.get().payload.text);
             reset_test_vt_parser_message(p, drain_id);
         }
     }
@@ -1456,7 +1447,7 @@ bool test_regression_multiline_input()
     if (auto id = p.parse(U'\0'); id != vt_message_id::continue_ && id != vt_message_id::continue_text)
     {
         if (id == vt_message_id::text)
-            collected.append(p.get().text);
+            collected.append(p.get().payload.text);
         reset_test_vt_parser_message(p, id);
     }
 
@@ -1471,7 +1462,7 @@ bool test_regression_multiline_input()
 // 地面态可打印字符应回
 bool test_echo_ground_printable()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     std::u32string_view chars = U"abc123";
     for (char32_t ch : chars)
@@ -1485,7 +1476,7 @@ bool test_echo_ground_printable()
 // 地面态可见控制字符应回显 (\r \n \b \t)
 bool test_echo_ground_controls()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     p.parse(U'\r');
     ASSERT(p.should_echo_last());
@@ -1505,7 +1496,7 @@ bool test_echo_ground_controls()
 // ESC 本身及普ESC 序列不应回显
 bool test_echo_esc_not_echoed()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     p.parse(0x1B);
     ASSERT(!p.should_echo_last());
@@ -1518,7 +1509,7 @@ bool test_echo_esc_not_echoed()
 // CSI 相对光标序列不应回显原始字节（dispatch 生成钳制 CUP
 bool test_echo_csi_cursor_not_echoed()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     for (char32_t ch : std::u32string_view(U"hello"))
     {
@@ -1541,7 +1532,7 @@ bool test_echo_csi_cursor_not_echoed()
 // SS3 键盘序列不应回显原始字节（dispatch 生成钳制 CUP
 bool test_echo_ss3_not_echoed()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     p.parse(0x1B);
     ASSERT(!p.should_echo_last());
@@ -1556,7 +1547,7 @@ bool test_echo_ss3_not_echoed()
 // text→ESC 过渡：ESC 触发 text flush parser 进入转义，CSI 不回
 bool test_echo_text_esc_transition()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     for (char32_t ch : std::u32string_view(U"echo "))
     {
@@ -1579,7 +1570,7 @@ bool test_echo_text_esc_transition()
 // OSC 标题不应回显
 bool test_echo_osc_not_echoed()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     p.parse(0x1B);
     p.parse(U']');
@@ -1596,7 +1587,7 @@ bool test_echo_osc_not_echoed()
 // SGR 序列不应回显
 bool test_echo_sgr_not_echoed()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     p.parse(0x1B);
     p.parse(U'[');
@@ -1611,7 +1602,7 @@ bool test_echo_sgr_not_echoed()
 // CSI ~ 扩展功能键不应回
 bool test_echo_csi_tilde_not_echoed()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser p{parser_raw};
     p.parse(0x1B);
     p.parse(U'[');

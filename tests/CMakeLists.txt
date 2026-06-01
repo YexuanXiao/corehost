@@ -27,22 +27,6 @@ if(MSVC)
     target_compile_options(test_common INTERFACE /utf-8)
 endif()
 
-# ── test_vt_parser ──────────────────────────────────
-# add_executable(test_vt_parser
-#     test_vt_parser.cpp
-# )
-# target_link_libraries(test_vt_parser PRIVATE test_common)
-# target_include_directories(test_vt_parser PRIVATE
-#     ${CMAKE_SOURCE_DIR}/libcorehost
-#     ${CMAKE_SOURCE_DIR}/third_parties/cstring_view/include/beman
-# )
-# add_test(NAME VT.Parser COMMAND test_vt_parser)
-# 
-# set_tests_properties(VT.Parser PROPERTIES
-#     LABELS "vt"
-#     TIMEOUT 30
-# )
-
 # ── test_vt_parser_utf32 ───────────────────────────
 add_executable(test_vt_parser_utf32
     test_vt_parser_utf32.cpp

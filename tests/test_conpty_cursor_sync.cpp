@@ -10,6 +10,8 @@
 #include "console_state.hpp"
 #include "api_handlers.hpp"
 #include <cstdio>
+#include <span>
+#include <vector>
 
 using namespace conpty;
 
@@ -1319,13 +1321,16 @@ bool test_history_saved_input_preserved_across_navigation()
 // 辅助：构造 Win32Input 序列的原始字节
 // 格式: \x1b[Vk;Sc;Uc;Kd;Cs;Rc_
 // Vk=虚拟键码, Sc=扫描码, Uc=Unicode, Kd=1按下/0释放, Cs=控制键状态, Rc=重复次数
-std::vector<BYTE> make_win32_seq(WORD vk, WORD sc, WCHAR uc, bool down, DWORD cs = 0, WORD rc = 1)
+std::vector<char8_t> make_win32_seq(WORD vk, WORD sc, WCHAR uc, bool down, DWORD cs = 0, WORD rc = 1)
 {
     char buf[64];
     int n =
         snprintf(buf, sizeof(buf), "\x1b[%u;%u;%u;%d;%lu;%u_", static_cast<unsigned>(vk), static_cast<unsigned>(sc),
                  static_cast<unsigned>(uc), down ? 1 : 0, static_cast<unsigned long>(cs), static_cast<unsigned>(rc));
-    return std::vector<BYTE>(reinterpret_cast<BYTE *>(buf), reinterpret_cast<BYTE *>(buf + n));
+    const auto bytes = std::span{reinterpret_cast<const char8_t *>(buf), static_cast<size_t>(n)};
+    std::vector<char8_t> result;
+    result.append_range(bytes);
+    return result;
 }
 
 // ── BUG #1 测试: Win32Input Enter → ConsoleRead 提交行 ──

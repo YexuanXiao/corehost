@@ -137,11 +137,11 @@ struct screen_buffer
             if (width_columns != 1)
             {
                 if (all_single_width)
-                    _write_widths.assign(result.consumed, uint8_t{1});
+                    _write_widths.assign(result.consumed, char8_t{1});
                 all_single_width = false;
             }
             if (!all_single_width)
-                _write_widths.push_back(static_cast<uint8_t>(width_columns));
+                _write_widths.push_back(static_cast<char8_t>(width_columns));
             cell_count = static_cast<uint16_t>(cell_count + width_columns);
             ++result.consumed;
         }
@@ -151,11 +151,16 @@ struct screen_buffer
             auto &target_row = row(cursor.Y);
             const auto target_col = static_cast<uint16_t>(cursor.X);
             const auto text_run = text.substr(0, result.consumed);
+            const bool full_row_replace = target_col == 0 && cell_count == target_row.width();
             if (all_single_width)
             {
-                if (!target_row.try_write_single_width_run(target_col, text_run, text_attribute{attr}))
+                if (full_row_replace)
                 {
-                    _write_widths.assign(result.consumed, uint8_t{1});
+                    target_row.write_measured_run(target_col, text_run, {}, cell_count, true, text_attribute{attr});
+                }
+                else if (!target_row.try_write_single_width_run(target_col, text_run, text_attribute{attr}))
+                {
+                    _write_widths.assign(result.consumed, char8_t{1});
                     target_row.write_measured_run(target_col, text_run, _write_widths, cell_count, false,
                                                   text_attribute{attr});
                 }
@@ -643,7 +648,7 @@ struct screen_buffer
   private:
     // _rows.size() 必须等于 size.Y，每行宽度必须等于 size.X。
     std::vector<screen_buffer_row> _rows;
-    std::vector<uint8_t> _write_widths;
+    std::vector<char8_t> _write_widths;
     size_t _row_origin = 0;
 
     void _ensure_rows()

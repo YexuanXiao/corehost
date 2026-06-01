@@ -141,7 +141,7 @@ bool test_unknown_id_returns_false()
 
 bool test_full_pipeline_arrow_up()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser parser{parser_raw};
     vt_input_engine engine;
 
@@ -164,7 +164,7 @@ bool test_full_pipeline_arrow_up()
 
 bool test_full_pipeline_arrow_down()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser parser{parser_raw};
     vt_input_engine engine;
 
@@ -199,7 +199,7 @@ bool test_regression_cursor_updown_not_directly_convertible()
 
 bool test_full_pipeline_f5()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser parser{parser_raw};
     vt_input_engine engine;
     (void)parser.parse(0x1B);
@@ -223,7 +223,7 @@ bool test_text_to_screen_buffer()
     state.cursor.position = {0, 0};
 
     vt_message msg{};
-    msg.text = U"Hello";
+    msg.payload.text = U"Hello";
     vt_msg_apply_state(vt_message_id::text, msg, state, sb);
 
     ASSERT(state.cursor.position.X == 5);
@@ -234,7 +234,7 @@ bool test_text_to_screen_buffer()
 
 bool test_unicode_through_parser()
 {
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     vt_parser parser{parser_raw};
 
     // Feed U+1F600 (??)
@@ -243,7 +243,7 @@ bool test_unicode_through_parser()
     // The parser may return text or continue_ depending on internal state
     if (id == vt_message_id::text)
     {
-        ASSERT(!parser.get().text.empty());
+        ASSERT(!parser.get().payload.text.empty());
     }
     else
     {
@@ -259,7 +259,7 @@ bool test_unicode_through_parser()
 struct test_bridge_stub
 {
     std::u32string _raw; // Parser 外部缓冲
-    std::u32string parser_raw;
+    std::vector<char32_t> parser_raw;
     conpty::vt_parser parser{parser_raw};
     std::vector<INPUT_RECORD> events;
 
@@ -286,12 +286,12 @@ struct test_bridge_stub
             {
                 INPUT_RECORD ir{};
                 ir.EventType = KEY_EVENT;
-                ir.Event.KeyEvent.bKeyDown = m.win32_kd ? TRUE : FALSE;
-                ir.Event.KeyEvent.wRepeatCount = m.win32_rc;
-                ir.Event.KeyEvent.wVirtualKeyCode = m.win32_vk;
-                ir.Event.KeyEvent.wVirtualScanCode = m.win32_sc;
-                ir.Event.KeyEvent.uChar.UnicodeChar = m.win32_uc;
-                ir.Event.KeyEvent.dwControlKeyState = m.win32_cs;
+                ir.Event.KeyEvent.bKeyDown = m.payload.win32_key.key_down ? TRUE : FALSE;
+                ir.Event.KeyEvent.wRepeatCount = m.payload.win32_key.repeat_count;
+                ir.Event.KeyEvent.wVirtualKeyCode = m.payload.win32_key.vk;
+                ir.Event.KeyEvent.wVirtualScanCode = m.payload.win32_key.sc;
+                ir.Event.KeyEvent.uChar.UnicodeChar = m.payload.win32_key.uc;
+                ir.Event.KeyEvent.dwControlKeyState = m.payload.win32_key.control_state;
                 events.push_back(ir);
             }
             reset_test_vt_parser_message(parser, id);

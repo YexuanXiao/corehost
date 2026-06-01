@@ -5,6 +5,7 @@
 
 #include "cjk_terminal_input_test.hpp"
 #include "large_mixed_vt_cjk_output_test.hpp"
+#include "long_line_three_vt_output_test.hpp"
 #include "sgr_sequence_matrix_test.hpp"
 
 namespace bench
@@ -53,6 +54,13 @@ inline std::vector<scenario_result> run_worker_bench(std::string host_label, std
                                                            48ull * 1024ull * 1024ull, std::chrono::seconds{15}));
     }
 
+    if (should_run_scenario(scenario_filter, "long-line-three-vt-output"))
+    {
+        append_worker_result(results,
+                             run_long_line_three_vt_output(host_label, "long-line-three-vt-output",
+                                                           1ull * 1024ull * 1024ull, std::chrono::seconds{30}));
+    }
+
     if (const auto *test_case = filtered_sgr_case(scenario_filter))
     {
         std::string name = "sgr-";
@@ -73,7 +81,7 @@ inline std::vector<scenario_result> run_worker_bench(std::string host_label, std
 
     if (should_run_scenario(scenario_filter, "cjk-terminal-input"))
     {
-        append_worker_result(results, run_cjk_terminal_input(host_label, "cjk-terminal-input", 64ull * 1024ull,
+        append_worker_result(results, run_cjk_terminal_input(host_label, "cjk-terminal-input", 16ull * 1024ull,
                                                              std::chrono::seconds{30}));
     }
     return results;

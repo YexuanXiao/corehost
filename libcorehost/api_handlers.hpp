@@ -149,14 +149,14 @@ inline void set_sgr_from_win32_attr(vt_message &m, WORD attr) noexcept
 {
     // 调用者传入的是完整 Win32 属性 WORD。本函数只填充 vt_message 中和 SGR
     // 有关的字段，其他字段保持调用前状态。
-    m.fg_color = win32_attr_color_to_sgr_index(attr & 0x0F);
-    m.bg_color = win32_attr_color_to_sgr_index((attr >> 4) & 0x0F);
+    m.payload.sgr.fg.set_index(win32_attr_color_to_sgr_index(attr & 0x0F));
+    m.payload.sgr.bg.set_index(win32_attr_color_to_sgr_index((attr >> 4) & 0x0F));
 
     auto fl = (attr >> 8) & 0xFF;
     if (fl & COMMON_LVB_UNDERSCORE)
-        m.underline = true;
+        m.payload.sgr.set(vt_sgr_flag::underline);
     if (fl & COMMON_LVB_REVERSE_VIDEO)
-        m.negative = true;
+        m.payload.sgr.set(vt_sgr_flag::negative);
 }
 
 inline bool is_line_terminator_echo(std::u32string_view text) noexcept
@@ -198,7 +198,7 @@ inline void apply_terminal_erase_in_display(const vt_message &msg, console_state
     const auto view = sb.viewport.rect();
     const auto cursor_x = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
     const auto cursor_y = std::clamp<SHORT>(state.cursor.position.Y, view.Top, view.Bottom);
-    switch (msg.erase_mode)
+    switch (msg.payload.erase_mode)
     {
     case 0:
         clear_viewport_rect(sb, state.default_attributes, {cursor_x, cursor_y, view.Right, cursor_y});
@@ -227,7 +227,7 @@ inline void apply_terminal_erase_in_line(const vt_message &msg, console_state &s
 
     const auto cursor_x = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
     const auto y = state.cursor.position.Y;
-    switch (msg.erase_mode)
+    switch (msg.payload.erase_mode)
     {
     case 0:
         clear_viewport_rect(sb, state.default_attributes, {cursor_x, y, view.Right, y});
@@ -286,7 +286,7 @@ inline void apply_terminal_text(const vt_message &msg, console_state &state, scr
     state.cursor.position.X = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
     state.cursor.position.Y = std::clamp<SHORT>(state.cursor.position.Y, view.Top, view.Bottom);
 
-    auto remaining = msg.text;
+    auto remaining = msg.payload.text;
     while (!remaining.empty())
     {
         const auto result = sb.write_text_row(state.cursor.position, remaining, state.default_attributes,
@@ -317,7 +317,7 @@ inline void apply_terminal_insert_characters(const vt_message &msg, console_stat
     const auto y = state.cursor.position.Y;
     const auto x = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
     const auto available = static_cast<SHORT>(view.Right - x + 1);
-    const auto count = std::min<SHORT>(available, static_cast<SHORT>(std::max<int>(1, msg.count)));
+    const auto count = std::min<SHORT>(available, static_cast<SHORT>(std::max<int>(1, msg.payload.count.value)));
     const auto saved = sb.row(y);
     const auto copy_count = static_cast<SHORT>(available - count);
     if (copy_count > 0)
@@ -335,7 +335,7 @@ inline void apply_terminal_delete_characters(const vt_message &msg, console_stat
     const auto y = state.cursor.position.Y;
     const auto x = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
     const auto available = static_cast<SHORT>(view.Right - x + 1);
-    const auto count = std::min<SHORT>(available, static_cast<SHORT>(std::max<int>(1, msg.count)));
+    const auto count = std::min<SHORT>(available, static_cast<SHORT>(std::max<int>(1, msg.payload.count.value)));
     const auto saved = sb.row(y);
     const auto copy_count = static_cast<SHORT>(available - count);
     if (copy_count > 0)
@@ -353,7 +353,7 @@ inline void apply_terminal_erase_characters(const vt_message &msg, console_state
     const auto y = state.cursor.position.Y;
     const auto x = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
     const auto count =
-        std::min<SHORT>(static_cast<SHORT>(view.Right - x + 1), static_cast<SHORT>(std::max<int>(1, msg.count)));
+        std::min<SHORT>(static_cast<SHORT>(view.Right - x + 1), static_cast<SHORT>(std::max<int>(1, msg.payload.count.value)));
     clear_terminal_line_range(sb, y, x, static_cast<SHORT>(x + count - 1), state.default_attributes);
 }
 
@@ -384,7 +384,7 @@ inline void apply_terminal_forward_tab(const vt_message &msg, console_state &sta
 {
     const auto view = sb.viewport.rect();
     auto relative_x = terminal_relative_column(state, sb);
-    const auto count = std::max<int>(1, msg.count);
+    const auto count = std::max<int>(1, msg.payload.count.value);
     for (int i = 0; i < count; ++i)
         relative_x = state.next_tab_stop(relative_x);
     state.cursor.position.X = std::clamp<SHORT>(static_cast<SHORT>(view.Left + relative_x), view.Left, view.Right);
@@ -394,7 +394,7 @@ inline void apply_terminal_backward_tab(const vt_message &msg, console_state &st
 {
     const auto view = sb.viewport.rect();
     auto relative_x = terminal_relative_column(state, sb);
-    const auto count = std::max<int>(1, msg.count);
+    const auto count = std::max<int>(1, msg.payload.count.value);
     for (int i = 0; i < count; ++i)
         relative_x = state.prev_tab_stop(relative_x);
     state.cursor.position.X = std::clamp<SHORT>(static_cast<SHORT>(view.Left + relative_x), view.Left, view.Right);
@@ -404,8 +404,8 @@ inline void apply_terminal_scrolling_region(const vt_message &msg, console_state
 {
     const auto view = sb.viewport.rect();
     const auto height = static_cast<SHORT>(view.Bottom - view.Top + 1);
-    const auto top = std::clamp<SHORT>(msg.scroll_top, 1, height);
-    const auto bottom = msg.scroll_bottom <= 0 ? height : std::clamp<SHORT>(msg.scroll_bottom, 1, height);
+    const auto top = std::clamp<SHORT>(msg.payload.scroll_region.top, 1, height);
+    const auto bottom = msg.payload.scroll_region.bottom <= 0 ? height : std::clamp<SHORT>(msg.payload.scroll_region.bottom, 1, height);
     if (top < bottom)
     {
         state.scroll_region_top = top;
@@ -425,7 +425,7 @@ inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg,
 {
     const auto view = sb.viewport.rect();
     const auto origin = sb.viewport.origin();
-    const auto count = static_cast<SHORT>(std::max<int>(1, msg.count));
+    const auto count = static_cast<SHORT>(std::max<int>(1, msg.payload.count.value));
     // case 顺序与 vt_message_id 枚举声明顺序保持一致。
     switch (id)
     {
@@ -519,20 +519,20 @@ inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg,
         break;
     case vt_message_id::cursor_vert_absolute: {
         auto adjusted = msg;
-        adjusted.row = static_cast<short>(msg.row + origin.Y);
+        adjusted.payload.position.row = static_cast<short>(msg.payload.position.row + origin.Y);
         vt_msg_apply_state(id, adjusted, state, sb);
         break;
     }
     case vt_message_id::cursor_horiz_absolute: {
         auto adjusted = msg;
-        adjusted.col = static_cast<short>(msg.col + origin.X);
+        adjusted.payload.position.col = static_cast<short>(msg.payload.position.col + origin.X);
         vt_msg_apply_state(id, adjusted, state, sb);
         break;
     }
     case vt_message_id::cursor_position: {
         auto adjusted = msg;
-        adjusted.row = static_cast<short>(msg.row + origin.Y);
-        adjusted.col = static_cast<short>(msg.col + origin.X);
+        adjusted.payload.position.row = static_cast<short>(msg.payload.position.row + origin.Y);
+        adjusted.payload.position.col = static_cast<short>(msg.payload.position.col + origin.X);
         vt_msg_apply_state(id, adjusted, state, sb);
         break;
     }
@@ -906,6 +906,41 @@ inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parse
         break;
     }
 }
+
+[[nodiscard]] inline size_t simple_sgr_passthrough_length(std::u32string_view input) noexcept
+{
+    constexpr size_t max_sgr_params = 16;
+    constexpr int max_sgr_param_value = 32767;
+
+    if (input.size() < 3 || input[0] != U'\x1b' || input[1] != U'[')
+        return 0;
+
+    size_t param_count = 1;
+    int value = 0;
+    for (size_t i = 2; i < input.size(); ++i)
+    {
+        const char32_t ch = input[i];
+        if (ch >= U'0' && ch <= U'9')
+        {
+            value = value * 10 + static_cast<int>(ch - U'0');
+            if (value > max_sgr_param_value)
+                return 0;
+            continue;
+        }
+        if (ch == U';')
+        {
+            if (++param_count > max_sgr_params)
+                return 0;
+            value = 0;
+            continue;
+        }
+        if (ch == U'm')
+            return i + 1;
+        return 0;
+    }
+    return 0;
+}
+
 // ── completion 辅助 ──
 
 inline void ucomplete(miniio::io_msg &msg)
@@ -1074,7 +1109,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                     {
                         // 这条 completion 仍由调用者报告原始字节数已写入；这里只是
                         // 抑制终端输出，避免 Enter 后多出空行。
-                        bridge.vt_flush();
                         bridge.sync_cursor_after_write(state.cursor.position);
                         LOG("[api_write_console] swallowed enter echo newline");
                         return;
@@ -1083,10 +1117,12 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                 else
                 {
                     // 真实 conhost 的 WriteConsole 从当前 Console 光标输出；宿主
-                    // 终端光标可能因本地 echo 不同，所以每次文本输出前都发送 CUP。
+                    // 终端光标可能因本地 echo 不同；若 bridge 已确认二者同步，
+                    // 则跳过重复 CUP，避免按行小写入产生大量无意义 VT。
                     if (sb.viewport.snap_to_cursor(state.cursor.position, state.screen_buffer_size))
                         render_visible_viewport(state, sb, bridge);
-                    bridge.vt_write_cup_buffer(start_pos);
+                    if (!bridge.terminal_cursor_matches_buffer(start_pos))
+                        bridge.vt_write_cup_buffer(start_pos);
                 }
             }
 
@@ -1105,6 +1141,48 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                 {
                     if (auto count = output_parser.consume_ground_text_run(input.substr(i)); count != 0)
                     {
+                        i += count;
+                        continue;
+                    }
+
+                    if (input[i] == U'\r' && i + 1 < u32s.size() && u32s[i + 1] == U'\n' &&
+                        output_parser.has_pending_text())
+                    {
+                        COREHOST_PERF_SCOPE(write_console_consume_msg);
+                        auto id = output_parser.flush_text();
+                        auto &pm = output_parser.get();
+                        bridge.vt_msg_send<vt_message_id::text>(pm);
+                        vt_msg_apply_terminal_state(id, pm, state, sb);
+                        output_parser.reset<vt_message_id::text>();
+
+                        vt_message line_feed_msg{};
+                        bridge.vt_msg_send<vt_message_id::line_feed>(line_feed_msg);
+                        apply_terminal_line_feed(state, sb);
+                        i += 2;
+                        continue;
+                    }
+
+                    if (input[i] == U'\x1b' && output_parser.has_pending_text())
+                    {
+                        if (auto count = simple_sgr_passthrough_length(input.substr(i)); count != 0)
+                        {
+                            COREHOST_PERF_SCOPE(write_console_consume_msg);
+                            auto id = output_parser.flush_text();
+                            auto &pm = output_parser.get();
+                            bridge.vt_msg_send<vt_message_id::text>(pm);
+                            vt_msg_apply_terminal_state(id, pm, state, sb);
+                            output_parser.reset<vt_message_id::text>();
+                            COREHOST_PERF_SCOPE_AMOUNT(write_console_sgr_passthrough, count);
+                            bridge.vt_append_raw_sequence(input.substr(i, count));
+                            i += count;
+                            continue;
+                        }
+                    }
+
+                    if (auto count = simple_sgr_passthrough_length(input.substr(i)); count != 0)
+                    {
+                        COREHOST_PERF_SCOPE_AMOUNT(write_console_sgr_passthrough, count);
+                        bridge.vt_append_raw_sequence(input.substr(i, count));
                         i += count;
                         continue;
                     }
@@ -1159,12 +1237,8 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                     dispatch_write_console_vt_message(id, output_parser, state, sb, bridge);
             }
 
-            // VT 已写入宿主终端后，同步 bridge 的行编辑边界到新的 Console
-            // 光标位置，供下一次 ReadConsole 使用。
-            {
-                COREHOST_PERF_SCOPE(write_console_vt_flush);
-                bridge.vt_flush();
-            }
+            // VT 可能仍在 bridge 缓冲中等待批量刷新；本地 cursor 状态必须在
+            // completion 前同步，供下一次 ReadConsole 使用。
             {
                 COREHOST_PERF_SCOPE(write_console_sync_cursor);
                 bridge.sync_cursor_after_write(state.cursor.position);
@@ -1337,11 +1411,11 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
         // Windows Terminal 同时清 scrollback，避免滚动条拖回旧内容。
         bridge.reset_enter_newline();
         vt_message erase_display{};
-        erase_display.erase_mode = 2;
+        erase_display.payload.erase_mode = 2;
         bridge.vt_msg_send<vt_message_id::erase_in_display>(erase_display);
         vt_msg_apply_state(vt_message_id::erase_in_display, erase_display, state, sb);
         vt_message erase_scrollback{};
-        erase_scrollback.erase_mode = 3;
+        erase_scrollback.payload.erase_mode = 3;
         bridge.vt_msg_send<vt_message_id::erase_in_display>(erase_scrollback);
         vt_msg_apply_state(vt_message_id::erase_in_display, erase_scrollback, state, sb);
         bridge.vt_flush();
@@ -1355,8 +1429,8 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
         vt_msg_apply_state(vt_message_id::save_cursor, msg_save, state, sb);
 
         vt_message msg_cup{};
-        msg_cup.row = static_cast<short>(r->WriteCoord.Y + 1);
-        msg_cup.col = static_cast<short>(r->WriteCoord.X + 1);
+        msg_cup.payload.position.row = static_cast<short>(r->WriteCoord.Y + 1);
+        msg_cup.payload.position.col = static_cast<short>(r->WriteCoord.X + 1);
         bridge.vt_msg_send<vt_message_id::cursor_position>(msg_cup);
         vt_msg_apply_state(vt_message_id::cursor_position, msg_cup, state, sb);
 
@@ -1375,8 +1449,8 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
             {
                 const auto n = std::min<ULONG>(remaining, static_cast<ULONG>(static_cast<ULONG>(sb.size.X) - x));
                 vt_message row_cup{};
-                row_cup.row = static_cast<short>(y + 1);
-                row_cup.col = static_cast<short>(x + 1);
+                row_cup.payload.position.row = static_cast<short>(y + 1);
+                row_cup.payload.position.col = static_cast<short>(x + 1);
                 bridge.vt_msg_send<vt_message_id::cursor_position>(row_cup);
                 bridge.vt_msg_send<vt_message_id::sgr>(m_sgr);
 
@@ -1385,7 +1459,7 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
                 for (ULONG i = 0; i < n; ++i)
                     fill_text.push_back(sb.at_u32({static_cast<SHORT>(x + i), y}));
                 vt_message m_text{};
-                m_text.text = fill_text;
+                m_text.payload.text = fill_text;
                 bridge.vt_msg_send<vt_message_id::text>(m_text);
 
                 remaining -= n;
@@ -1404,7 +1478,7 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
             auto &fill_text = bridge.conv_u32();
             fill_text.assign(static_cast<size_t>(r->Length), fill_char);
             vt_message m_text{};
-            m_text.text = fill_text;
+            m_text.payload.text = fill_text;
             bridge.vt_msg_send<vt_message_id::text>(m_text);
             vt_msg_apply_state(vt_message_id::text, m_text, state, sb);
         }
@@ -1737,14 +1811,14 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
                             ? r->ClipRectangle
                             : SMALL_RECT{0, 0, static_cast<SHORT>(sb.size.X - 1), static_cast<SHORT>(sb.size.Y - 1)};
         vt_message m_region{};
-        m_region.scroll_top = static_cast<short>(cr.Top + 1);
-        m_region.scroll_bottom = static_cast<short>(cr.Bottom + 1);
+        m_region.payload.scroll_region.top = static_cast<short>(cr.Top + 1);
+        m_region.payload.scroll_region.bottom = static_cast<short>(cr.Bottom + 1);
         bridge.vt_msg_send<vt_message_id::set_scrolling_region>(m_region);
         vt_msg_apply_state(vt_message_id::set_scrolling_region, m_region, state, sb);
 
         vt_message m_cup{};
-        m_cup.row = static_cast<short>(sr.Bottom + 1);
-        m_cup.col = static_cast<short>(sr.Left + 1);
+        m_cup.payload.position.row = static_cast<short>(sr.Bottom + 1);
+        m_cup.payload.position.col = static_cast<short>(sr.Left + 1);
         bridge.vt_msg_send<vt_message_id::cursor_position>(m_cup);
 
         SHORT dy = r->DestinationOrigin.Y - sr.Top;
@@ -1752,21 +1826,21 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
         if (dy < 0)
         {
             vt_message m_il{};
-            m_il.count = -dy;
+            m_il.payload.count.value = -dy;
             bridge.vt_msg_send<vt_message_id::insert_lines>(m_il);
             vt_msg_apply_state(vt_message_id::insert_lines, m_il, state, sb);
         }
         else if (dy > 0)
         {
             vt_message m_dl{};
-            m_dl.count = dy;
+            m_dl.payload.count.value = dy;
             bridge.vt_msg_send<vt_message_id::delete_lines>(m_dl);
             vt_msg_apply_state(vt_message_id::delete_lines, m_dl, state, sb);
         }
 
         vt_message m_reset{};
-        m_reset.scroll_top = 1;
-        m_reset.scroll_bottom = 0;
+        m_reset.payload.scroll_region.top = 1;
+        m_reset.payload.scroll_region.bottom = 0;
         bridge.vt_msg_send<vt_message_id::set_scrolling_region>(m_reset);
 
         vt_message m_restore{};
@@ -2059,8 +2133,8 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
     for (SHORT y = clipped.Top; y <= clipped.Bottom; ++y)
     {
         m = vt_message{};
-        m.row = static_cast<short>(y + 1);
-        m.col = static_cast<short>(clipped.Left + 1);
+        m.payload.position.row = static_cast<short>(y + 1);
+        m.payload.position.col = static_cast<short>(clipped.Left + 1);
         bridge.vt_msg_send<vt_message_id::cursor_position>(m);
 
         for (SHORT x = clipped.Left; x <= clipped.Right; ++x)
@@ -2073,7 +2147,7 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
 
             char32_t ch = sb.at_u32({x, y});
             m = vt_message{};
-            m.text = std::u32string_view{&ch, 1};
+            m.payload.text = std::u32string_view{&ch, 1};
             bridge.vt_msg_send<vt_message_id::text>(m);
         }
     }
@@ -2165,8 +2239,8 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
             bridge.vt_msg_send<vt_message_id::save_cursor>(m);
 
             m = vt_message{};
-            m.row = static_cast<short>(r->WriteCoord.Y + 1);
-            m.col = static_cast<short>(r->WriteCoord.X + 1);
+            m.payload.position.row = static_cast<short>(r->WriteCoord.Y + 1);
+            m.payload.position.col = static_cast<short>(r->WriteCoord.X + 1);
             bridge.vt_msg_send<vt_message_id::cursor_position>(m);
 
             m = vt_message{};
@@ -2174,7 +2248,7 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
             bridge.vt_msg_send<vt_message_id::sgr>(m);
 
             m = vt_message{};
-            m.text = std::u32string_view{u32text.data(), written_u32};
+            m.payload.text = std::u32string_view{u32text.data(), written_u32};
             bridge.vt_msg_send<vt_message_id::text>(m);
 
             m = vt_message{};
@@ -2363,7 +2437,7 @@ inline bool api_set_title(miniio::io_msg &msg, console_state &state, screen_buff
 
     // 状态更新后立即用 OSC 0 同步宿主终端标题。
     vt_message m{};
-    m.title = state.title;
+    m.payload.title = state.title;
     bridge.vt_msg_send<vt_message_id::set_window_title>(m);
     bridge.vt_flush();
 

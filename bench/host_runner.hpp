@@ -7,6 +7,7 @@
 #include "scenarios.hpp"
 #include "cjk_terminal_input_worker.hpp"
 #include "large_mixed_vt_cjk_output_worker.hpp"
+#include "long_line_three_vt_output_worker.hpp"
 #include "sgr_sequence_matrix_worker.hpp"
 
 #include <charconv>
@@ -274,6 +275,11 @@ inline int run(int argc, wchar_t **argv)
         return emit_mixed_vt_cjk_to_stdout(static_cast<size_t>(_wcstoui64(argv[2], nullptr, 10)),
                                            argc >= 4 ? argv[3] : L"", argc >= 5 ? argv[4] : L"",
                                            argc == 6 ? argv[5] : L"");
+
+    if ((argc >= 3 && argc <= 6) && wcscmp(argv[1], L"--emit-long-line-3vt") == 0)
+        return emit_long_line_three_vt_to_stdout(static_cast<size_t>(_wcstoui64(argv[2], nullptr, 10)),
+                                                 argc >= 4 ? argv[3] : L"", argc >= 5 ? argv[4] : L"",
+                                                 argc == 6 ? argv[5] : L"");
 
     if ((argc >= 4 && argc <= 7) && wcscmp(argv[1], L"--emit-sgr-case") == 0)
         return emit_sgr_sequence_case_to_stdout(argv[2], static_cast<size_t>(_wcstoui64(argv[3], nullptr, 10)),

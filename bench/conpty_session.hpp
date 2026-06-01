@@ -170,6 +170,64 @@ class conpty_session
         write_all(_input_write.get(), bytes);
     }
 
+    bool write_for(std::string_view bytes, std::chrono::milliseconds timeout)
+    {
+        struct write_state
+        {
+            std::mutex mutex;
+            std::condition_variable cv;
+            bool done = false;
+            DWORD error = ERROR_SUCCESS;
+        };
+
+        write_state state;
+        std::thread writer([&] {
+            auto remaining = bytes;
+            while (!remaining.empty())
+            {
+                DWORD written = 0;
+                const auto chunk = static_cast<DWORD>(std::min<size_t>(remaining.size(), 4 * 1024));
+                if (!::WriteFile(_input_write.get(), remaining.data(), chunk, &written, nullptr))
+                {
+                    std::scoped_lock lock{state.mutex};
+                    state.error = ::GetLastError();
+                    state.done = true;
+                    state.cv.notify_all();
+                    return;
+                }
+                if (written == 0)
+                {
+                    std::scoped_lock lock{state.mutex};
+                    state.error = ERROR_WRITE_FAULT;
+                    state.done = true;
+                    state.cv.notify_all();
+                    return;
+                }
+                remaining.remove_prefix(written);
+            }
+
+            std::scoped_lock lock{state.mutex};
+            state.done = true;
+            state.cv.notify_all();
+        });
+
+        bool completed = false;
+        DWORD error = ERROR_SUCCESS;
+        {
+            std::unique_lock lock{state.mutex};
+            completed = state.cv.wait_for(lock, timeout, [&] { return state.done; });
+            error = state.error;
+        }
+
+        if (!completed)
+        {
+            ::CancelSynchronousIo(writer.native_handle());
+            _input_write.clear();
+        }
+        writer.join();
+        return completed && error == ERROR_SUCCESS;
+    }
+
     [[nodiscard]] size_t bytes_read() const
     {
         return _reader->bytes_read();

@@ -4,7 +4,7 @@
 // 设计目标：
 //   · 完全以 Unicode 码点 (char32_t) 作为输入，调用方负责 UTF-8 解码。
 //   · 不丢弃任何输入字符；无法识别的序列以 unknown_sequence 返回，
-//     msg.text 指向完整原文。
+//     msg.payload.text 指向完整原文。
 //   · vt_message 中的 title / text 为 std::u32string_view，指向内部缓冲区，
 //     零拷贝，不产生额外的字符串内存分配。
 //   · parse() 返回 vt_message_id，continue_ 表示尚未完成，text 表示文本消息，
@@ -13,7 +13,7 @@
 //     对于 text/unknown/title 消息还会清空内部缓冲区 _raw，兼顾性能与内存。
 //
 // 使用方式：
-//   std::u32string raw;
+//   std::vector<char32_t> raw;
 //   vt_parser p{raw};
 //   for (char32_t ch : code_points) {
 //       vt_message_id id = p.parse(ch);
@@ -21,13 +21,13 @@
 //           auto &m = p.get();
 //           switch (id) {
 //               case vt_message_id::text:
-//                   // 使用 m.text (u32string_view)
+//                   // 使用 m.payload.text (u32string_view)
 //                   break;
 //               case vt_message_id::unknown_sequence:
-//                   // 使用 m.text (完整未知序列)
+//                   // 使用 m.payload.text (完整未知序列)
 //                   break;
 //               case vt_message_id::set_window_title:
-//                   // 使用 m.title (u32string_view)
+//                   // 使用 m.payload.title (u32string_view)
 //                   break;
 //               ...
 //           }
@@ -41,6 +41,7 @@
 #include <string>
 #include <string_view>
 #include <array>
+#include <vector>
 
 namespace conpty
 {
@@ -55,7 +56,7 @@ enum class vt_message_id
     continue_text = 0, // 可打印字符 → echo + 插入行缓冲
     continue_ = 1,     // 转义内部状态 → 无操作
     text = 2,          // 纯可打印文本消息（不含控制字符）
-    unknown_sequence,  // 无法识别或语法错误的 ESC/CSI/OSC/SS3 序列，msg.text 为完整原文
+    unknown_sequence,  // 无法识别或语法错误的 ESC/CSI/OSC/SS3 序列，msg.payload.text 为完整原文
     carriage_return,   // \r
     line_feed,         // \n
     reverse_index,
@@ -145,62 +146,179 @@ enum class vt_message_id
     sgr,
 };
 
+struct vt_count_payload
+{
+    short value = 1;
+};
+
+struct vt_position_payload
+{
+    short row = 1;
+    short col = 1;
+};
+
+struct vt_scroll_region_payload
+{
+    short top = 1;
+    short bottom = 0;
+};
+
+struct vt_resize_payload
+{
+    short rows = 0;
+    short cols = 0;
+};
+
+struct vt_palette_payload
+{
+    short index = 0;
+    uint8_t r = 0;
+    uint8_t g = 0;
+    uint8_t b = 0;
+};
+
+enum class vt_sgr_flag : uint16_t
+{
+    reset = 1 << 0,
+    bold = 1 << 1,
+    faint = 1 << 2,
+    italic = 1 << 3,
+    underline = 1 << 4,
+    blink = 1 << 5,
+    negative = 1 << 6,
+    conceal = 1 << 7,
+    strikethrough = 1 << 8,
+};
+
+[[nodiscard]] constexpr uint16_t vt_sgr_flag_bit(vt_sgr_flag flag) noexcept
+{
+    return static_cast<uint16_t>(flag);
+}
+
+enum class vt_sgr_color_kind : uint8_t
+{
+    none,
+    default_,
+    indexed,
+    rgb,
+};
+
+struct vt_sgr_color_payload
+{
+    vt_sgr_color_kind kind = vt_sgr_color_kind::none;
+    uint8_t value = 0;
+    uint8_t g = 0;
+    uint8_t b = 0;
+
+    void set_default() noexcept
+    {
+        kind = vt_sgr_color_kind::default_;
+        value = g = b = 0;
+    }
+
+    void set_index(short index) noexcept
+    {
+        kind = vt_sgr_color_kind::indexed;
+        value = static_cast<uint8_t>(index);
+        g = b = 0;
+    }
+
+    void set_rgb(uint8_t r, uint8_t green, uint8_t blue) noexcept
+    {
+        kind = vt_sgr_color_kind::rgb;
+        value = r;
+        g = green;
+        b = blue;
+    }
+
+    [[nodiscard]] bool is_default() const noexcept
+    {
+        return kind == vt_sgr_color_kind::default_;
+    }
+
+    [[nodiscard]] bool is_indexed() const noexcept
+    {
+        return kind == vt_sgr_color_kind::indexed;
+    }
+
+    [[nodiscard]] bool is_rgb() const noexcept
+    {
+        return kind == vt_sgr_color_kind::rgb;
+    }
+};
+
+struct vt_sgr_payload
+{
+    uint16_t set_flags = 0;
+    uint16_t clear_flags = 0;
+    vt_sgr_color_payload fg;
+    vt_sgr_color_payload bg;
+
+    void set(vt_sgr_flag flag) noexcept
+    {
+        const auto bit = vt_sgr_flag_bit(flag);
+        set_flags |= bit;
+        clear_flags &= static_cast<uint16_t>(~bit);
+    }
+
+    void clear(vt_sgr_flag flag) noexcept
+    {
+        const auto bit = vt_sgr_flag_bit(flag);
+        clear_flags |= bit;
+        set_flags &= static_cast<uint16_t>(~bit);
+    }
+
+    [[nodiscard]] bool has(vt_sgr_flag flag) const noexcept
+    {
+        return (set_flags & vt_sgr_flag_bit(flag)) != 0;
+    }
+
+    [[nodiscard]] bool clears(vt_sgr_flag flag) const noexcept
+    {
+        return (clear_flags & vt_sgr_flag_bit(flag)) != 0;
+    }
+
+    [[nodiscard]] bool has_reset() const noexcept
+    {
+        return has(vt_sgr_flag::reset);
+    }
+};
+
+struct vt_win32_key_payload
+{
+    unsigned short vk = 0;
+    unsigned short sc = 0;
+    wchar_t uc = 0;
+    bool key_down = false;
+    unsigned long control_state = 0;
+    unsigned short repeat_count = 1;
+};
+
+union vt_message_payload
+{
+    std::u32string_view text;
+    std::u32string_view title;
+    vt_count_payload count;
+    vt_position_payload position;
+    short erase_mode;
+    vt_scroll_region_payload scroll_region;
+    short cursor_shape;
+    short window_width;
+    vt_resize_payload resize;
+    vt_palette_payload palette;
+    vt_position_payload cpr;
+    vt_sgr_payload sgr;
+    vt_win32_key_payload win32_key;
+
+    constexpr vt_message_payload() noexcept : sgr{} {}
+};
+
 // ── vt_message ───────────────────────────────────────
-// 解析出的单条消息。所有字段均为值语义或指向内部缓冲区的视图。
-// 视图仅在下一次 parse() 调用或 reset() 前有效。
+// 解析出的单条消息。payload 成员由 vt_message_id 决定；视图仅在下一次
+// parse() 调用或 reset() 前有效。
 struct vt_message
 {
-    // ── bool 标志组 ──
-    bool sgr_reset = false;     // SGR 复位
-    bool bold = false;          // 粗体
-    bool faint = false;         // 弱化
-    bool italic = false;        // 斜体
-    bool underline = false;     // 下划线
-    bool blink = false;         // 闪烁
-    bool negative = false;      // 反显
-    bool conceal = false;       // 隐藏
-    bool strikethrough = false; // 删除线
-    bool fg_is_default = false; // 前景色为默认
-    bool bg_is_default = false; // 背景色为默认
-    bool fg_is_rgb = false;     // 前景色为 RGB 直接色
-    bool bg_is_rgb = false;     // 背景色为 RGB 直接色
-    bool ctrl_mod = false;      // Ctrl 修饰键（键盘输入）
-
-    // ── short 数值参数组 ──
-    short count = 1;         // 重复次数（移动、删除、插入等）
-    short row = 1;           // 行号 (1-based, CUP/HVP/VPA)
-    short col = 1;           // 列号 (1-based, CUP/HVP/CHA)
-    short erase_mode = 0;    // 擦除模式 (ED/EL)
-    short scroll_top = 1;    // 滚动区域上边距
-    short scroll_bottom = 0; // 滚动区域下边距 (0 = 视口底部)
-    short fg_color = -1;     // 前景色索引 (-1 = 未设置)
-    short bg_color = -1;     // 背景色索引
-    short cursor_shape = 0;  // 光标形状 (DECSCUSR)
-    short palette_index = 0; // 调色板索引 (OSC 4)
-    short window_width = 0;  // 屏幕宽度 (80 或 132)
-    short resize_rows = 0;   // \x1b[8;rows;cols t 的 rows
-    short resize_cols = 0;   // \x1b[8;rows;cols t 的 cols
-
-    // ── uint8_t RGB 分量组 ──
-    uint8_t fg_r = 0, fg_g = 0, fg_b = 0;                // 前景 RGB 颜色
-    uint8_t bg_r = 0, bg_g = 0, bg_b = 0;                // 背景 RGB 颜色
-    uint8_t palette_r = 0, palette_g = 0, palette_b = 0; // 调色板 RGB
-
-    // ── 字符串视图（零拷贝） ──
-    std::u32string_view title; // 窗口标题内容 (仅 set_window_title 时有效)
-    std::u32string_view text;  // 普通文本 / 非法序列原文
-
-    // ── Win32 Input Mode 键盘字段 (win32_input_key) ──
-    unsigned short win32_vk = 0; // 虚拟键码
-    unsigned short win32_sc = 0; // 扫描码
-    wchar_t win32_uc = 0;        // Unicode 字符
-    bool win32_kd = false;       // TRUE=按下, FALSE=释放
-    unsigned long win32_cs = 0;  // ControlKeyState
-    unsigned short win32_rc = 1; // 重复次数
-
-    // ── CPR 应答字段 (cpr_response) ──
-    short cpr_row = 0; // 终端汇报的行号 (1-based)
-    short cpr_col = 0; // 终端汇报的列号 (1-based)
+    vt_message_payload payload;
 };
 
 enum class vt_parse_consumption
@@ -233,7 +351,7 @@ class vt_parser
     };
 
   public:
-    explicit vt_parser(std::u32string &raw) : _raw(raw)
+    explicit vt_parser(std::vector<char32_t> &raw) : _raw(raw)
     {
     }
 
@@ -279,7 +397,7 @@ class vt_parser
 
         if (_ground_text_start == npos)
             _ground_text_start = _raw.size();
-        _raw.append(text.data(), count);
+        _raw.insert(_raw.end(), text.data(), text.data() + count);
         _should_echo = true;
         return count;
     }
@@ -291,7 +409,7 @@ class vt_parser
         // 来强行结束序列，否则非法序列会丢失原文。
         if (_ground_text_start == npos || _raw.empty())
             return vt_message_id::continue_;
-        _msg.text = {_raw.data() + _ground_text_start, _raw.size() - _ground_text_start};
+        _msg.payload.text = {_raw.data() + _ground_text_start, _raw.size() - _ground_text_start};
         _ground_text_start = npos;
         return vt_message_id::text;
     }
@@ -307,9 +425,9 @@ class vt_parser
         {
             auto id = _pending_control;
             _pending_control = vt_message_id::continue_;
-            _msg.text = {};
+            _msg.payload.text = {};
             if (id == vt_message_id::cursor_forward_tab)
-                _msg.count = 1;
+                _msg.payload.count.value = 1;
             return {id, vt_parse_consumption::retry};
         }
 
@@ -348,14 +466,14 @@ class vt_parser
         {
             // 上次在普通文本后遇到 ESC，为了先返回 text 曾把 ESC 从 _raw 弹出。
             // 现在恢复它并进入 ESC 状态，保证序列原文从 ESC 开始。
-            _raw += U'\x1B';
+            _raw.push_back(U'\x1B');
             _seq_start = _raw.size() - 1;
             _mode = parser_mode::esc;
         }
 
         // 所有字符先写入 _raw。合法序列用结构化字段返回；非法序列则用
         // _raw 的切片作为 text 透传，避免吞字节。
-        _raw += ch;
+        _raw.push_back(ch);
 
         // ── echo 判定：仅地面态可打印字符及有视觉效果的 C0 字符回显 ──
         _should_echo = false;
@@ -441,7 +559,7 @@ class vt_parser
             {
                 // 调色板等参数：ASCII 写入窄缓冲供解析，非 ASCII 仅保留在 raw 中
                 if (_osc_len < _osc_buf.size() - 1 && ch < 0x80)
-                    _osc_buf[_osc_len++] = static_cast<char>(ch);
+                    _osc_buf[_osc_len++] = static_cast<char8_t>(ch);
             }
             return vt_message_id::continue_;
         }
@@ -587,7 +705,7 @@ class vt_parser
                 {
                     // 普通文本后紧跟 ESC 时，先交付 ESC 前的文本。ESC 留给下次
                     // parse 处理，避免一个返回值同时表示 text 和控制序列。
-                    _msg.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
+                    _msg.payload.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
                     _raw.pop_back(); // 弹出 ESC，下次 parse 再还原
                     _mode = parser_mode::pending_esc;
                     _ground_text_start = npos;
@@ -607,12 +725,12 @@ class vt_parser
                 vt_message_id cid = (ch == U'\r') ? vt_message_id::carriage_return : vt_message_id::line_feed;
                 if (has_text)
                 {
-                    _msg.text = {_raw.data() + _ground_text_start, _raw.size() - _ground_text_start};
+                    _msg.payload.text = {_raw.data() + _ground_text_start, _raw.size() - _ground_text_start};
                     _ground_text_start = npos;
                     _pending_control = cid;
                     return vt_message_id::text;
                 }
-                _msg.text = {};
+                _msg.payload.text = {};
                 _ground_text_start = npos;
                 return cid;
             }
@@ -624,15 +742,14 @@ class vt_parser
                 // 有前导文本时同样先返回 text，再延迟交付 tab。
                 if (has_text)
                 {
-                    _msg.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
+                    _msg.payload.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
                     _raw.pop_back(); // 去掉 \\t，下次交付
                     _ground_text_start = npos;
                     _pending_control = vt_message_id::cursor_forward_tab;
                     return vt_message_id::text;
                 }
                 _raw.pop_back();
-                _msg.count = 1;
-                _msg.text = {};
+                _msg.payload.count.value = 1;
                 _ground_text_start = npos;
                 return vt_message_id::cursor_forward_tab;
             }
@@ -641,7 +758,7 @@ class vt_parser
             // 有前导文本时先交付文本，控制字符延迟
             if (has_text)
             {
-                _msg.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
+                _msg.payload.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
                 _raw.pop_back();
                 _ground_text_start = npos;
                 // 延迟交付控制字符
@@ -650,7 +767,7 @@ class vt_parser
             }
             _raw.pop_back();
             _ground_text_start = npos;
-            _msg.text = {};
+            _msg.payload.text = {};
             return _classify_control(ch);
         }
 
@@ -746,93 +863,77 @@ class vt_parser
   private:
     void _reset_count() noexcept
     {
-        _msg.count = 1;
+        _msg.payload.count.value = 1;
     }
 
     void _reset_row() noexcept
     {
-        _msg.row = 1;
+        _msg.payload.position.row = 1;
     }
 
     void _reset_col() noexcept
     {
-        _msg.col = 1;
+        _msg.payload.position.col = 1;
     }
 
     void _reset_position() noexcept
     {
-        _msg.row = 1;
-        _msg.col = 1;
+        _msg.payload.position.row = 1;
+        _msg.payload.position.col = 1;
     }
 
     void _reset_cursor_shape() noexcept
     {
-        _msg.cursor_shape = 0;
+        _msg.payload.cursor_shape = 0;
     }
 
     void _reset_erase_mode() noexcept
     {
-        _msg.erase_mode = 0;
+        _msg.payload.erase_mode = 0;
     }
 
     void _reset_palette_color() noexcept
     {
-        _msg.palette_index = 0;
-        _msg.palette_r = _msg.palette_g = _msg.palette_b = 0;
+        _msg.payload.palette.index = 0;
+        _msg.payload.palette.r = _msg.payload.palette.g = _msg.payload.palette.b = 0;
     }
 
     void _reset_scrolling_region() noexcept
     {
-        _msg.scroll_top = 1;
-        _msg.scroll_bottom = 0;
+        _msg.payload.scroll_region.top = 1;
+        _msg.payload.scroll_region.bottom = 0;
     }
 
     void _reset_window_width() noexcept
     {
-        _msg.window_width = 0;
+        _msg.payload.window_width = 0;
     }
 
     void _reset_resize_window() noexcept
     {
-        _msg.resize_rows = 0;
-        _msg.resize_cols = 0;
+        _msg.payload.resize.rows = 0;
+        _msg.payload.resize.cols = 0;
     }
 
     void _reset_win32_input_key() noexcept
     {
-        _msg.win32_vk = 0;
-        _msg.win32_sc = 0;
-        _msg.win32_uc = 0;
-        _msg.win32_kd = false;
-        _msg.win32_cs = 0;
-        _msg.win32_rc = 1;
+        _msg.payload.win32_key.vk = 0;
+        _msg.payload.win32_key.sc = 0;
+        _msg.payload.win32_key.uc = 0;
+        _msg.payload.win32_key.key_down = false;
+        _msg.payload.win32_key.control_state = 0;
+        _msg.payload.win32_key.repeat_count = 1;
     }
 
     void _reset_cpr_response() noexcept
     {
-        _msg.cpr_row = 0;
-        _msg.cpr_col = 0;
+        _msg.payload.cpr.row = 0;
+        _msg.payload.cpr.col = 0;
     }
 
     void _reset_sgr() noexcept
     {
-        _msg.sgr_reset = false;
-        _msg.bold = false;
-        _msg.faint = false;
-        _msg.italic = false;
-        _msg.underline = false;
-        _msg.blink = false;
-        _msg.negative = false;
-        _msg.conceal = false;
-        _msg.strikethrough = false;
-        _msg.fg_color = -1;
-        _msg.bg_color = -1;
-        _msg.fg_is_default = false;
-        _msg.bg_is_default = false;
-        _msg.fg_is_rgb = false;
-        _msg.bg_is_rgb = false;
-        _msg.fg_r = _msg.fg_g = _msg.fg_b = 0;
-        _msg.bg_r = _msg.bg_g = _msg.bg_b = 0;
+        _msg.payload.sgr = {};
     }
 
     void _reset_parser_state_after_message()
@@ -849,7 +950,7 @@ class vt_parser
 
     // ── 中央缓冲区与视图位置 ──
     // _raw 保存当前未消费输入；message 里的 string_view 指向该缓冲。
-    std::u32string &_raw;
+    std::vector<char32_t> &_raw;
 
     // npos 表示没有有效偏移。
     static constexpr size_t npos = ~size_t{0};
@@ -879,7 +980,7 @@ class vt_parser
 
     // ── OSC 参数收集 ──
     short _osc_code = 0;             // OSC 操作码；0 表示尚未解析
-    std::array<char, 32> _osc_buf{}; // OSC 4 调色板参数窄字符缓冲
+    std::array<char8_t, 32> _osc_buf{}; // OSC 4 调色板参数窄字符缓冲
     size_t _osc_len = 0;             // _osc_buf 的有效长度，范围 0.._osc_buf.size()
     bool _osc_had_semi = false;      // true 表示已进入 payload
 
@@ -924,7 +1025,7 @@ class vt_parser
 
     void _set_unknown_sequence(size_t start)
     {
-        _msg.text = {_raw.data() + start, _raw.size() - start};
+        _msg.payload.text = {_raw.data() + start, _raw.size() - start};
         _ground_text_start = _raw.size();
     }
 
@@ -933,7 +1034,6 @@ class vt_parser
     {
         if (id != vt_message_id::continue_)
         {
-            _msg.text = {};            // 成功时 text 留空
             _ground_text_start = npos; // 无累积文本
         }
         else
@@ -1150,13 +1250,13 @@ class vt_parser
         case 0:
         case 2:
             // OSC 0 和 OSC 2 都作为窗口标题处理；icon title 不单独建模。
-            m.title = payload; // 直接指向原始缓冲区
+            m.payload.title = payload; // 直接指向原始缓冲区
             return vt_message_id::set_window_title;
 
         case 4: {
             // 设置调色板颜色：索引;rgb:r/g/b
             size_t p = 0;
-            m.palette_index = _parse_osc_decimal_8(payload, p);
+            m.payload.palette.index = _parse_osc_decimal_8(payload, p);
             // 跳过分号（如果存在）
             if (p < payload.size() && payload[p] == U';')
                 ++p;
@@ -1167,9 +1267,9 @@ class vt_parser
             {
                 p += 4;
                 size_t p_before = p;
-                m.palette_r = _parse_osc_hex_8(payload, p);
-                m.palette_g = _parse_osc_hex_8(payload, p);
-                m.palette_b = _parse_osc_hex_8(payload, p);
+                m.payload.palette.r = _parse_osc_hex_8(payload, p);
+                m.payload.palette.g = _parse_osc_hex_8(payload, p);
+                m.payload.palette.b = _parse_osc_hex_8(payload, p);
                 // 至少有一个颜色分量被成功解析才认为成功
                 if (p == p_before)
                     return vt_message_id::continue_;
@@ -1201,58 +1301,58 @@ class vt_parser
         case U'A':
             if (priv)
                 return vt_message_id::continue_;
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             _should_echo = false;
             return vt_message_id::cursor_up;
         case U'B':
             if (priv)
                 return vt_message_id::continue_;
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             _should_echo = false;
             return vt_message_id::cursor_down;
         case U'C':
             if (priv)
                 return vt_message_id::continue_;
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             _should_echo = false;
             return vt_message_id::cursor_forward;
         case U'D':
             if (priv)
                 return vt_message_id::continue_;
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             _should_echo = false;
             return vt_message_id::cursor_backward;
         case U'E':
             if (priv)
                 return vt_message_id::continue_;
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             _should_echo = false;
             return vt_message_id::cursor_next_line;
         case U'F':
             if (priv)
                 return vt_message_id::continue_;
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             _should_echo = false;
             return vt_message_id::cursor_prev_line;
         // 绝对/坐标型光标定位（来自应用程序输出），不回显原始字节：dispatch 生成钳制后的 CUP
         case U'G':
             if (priv)
                 return vt_message_id::continue_;
-            m.col = _clamp(_get_param(0, 1));
+            m.payload.position.col = _clamp(_get_param(0, 1));
             _should_echo = false;
             return vt_message_id::cursor_horiz_absolute;
         case U'd':
             if (priv)
                 return vt_message_id::continue_;
-            m.row = _clamp(_get_param(0, 1));
+            m.payload.position.row = _clamp(_get_param(0, 1));
             _should_echo = false;
             return vt_message_id::cursor_vert_absolute;
         case U'H':
         case U'f':
             if (priv)
                 return vt_message_id::continue_;
-            m.row = _clamp(_get_param(0, 1));
-            m.col = _clamp(_get_param(1, 1));
+            m.payload.position.row = _clamp(_get_param(0, 1));
+            m.payload.position.col = _clamp(_get_param(1, 1));
             _should_echo = false;
             return vt_message_id::cursor_position;
         case U's':
@@ -1304,10 +1404,10 @@ class vt_parser
 
         // 滚动
         case U'S':
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             return vt_message_id::scroll_up;
         case U'T':
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             return vt_message_id::scroll_down;
 
         // 窗口操作 (CSI … t)
@@ -1316,9 +1416,9 @@ class vt_parser
             auto p0 = _get_param(0);
             if (p0 == 8)
             {
-                m.resize_rows = _clamp(_get_param(1));
-                m.resize_cols = _clamp(_get_param(2));
-                return (m.resize_rows > 0 && m.resize_cols > 0) ? vt_message_id::resize_window
+                m.payload.resize.rows = _clamp(_get_param(1));
+                m.payload.resize.cols = _clamp(_get_param(2));
+                return (m.payload.resize.rows > 0 && m.payload.resize.cols > 0) ? vt_message_id::resize_window
                                                                 : vt_message_id::continue_;
             }
             // CSI 4 ; height ; width t — resize in pixels (not supported, become text)
@@ -1327,136 +1427,112 @@ class vt_parser
 
         // 文本修改
         case U'@':
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             return vt_message_id::insert_characters;
         case U'P':
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             return vt_message_id::delete_characters;
         case U'X':
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             return vt_message_id::erase_characters;
         case U'L':
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             return vt_message_id::insert_lines;
         case U'M':
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             return vt_message_id::delete_lines;
         case U'J':
-            m.erase_mode = _clamp(_get_param(0));
+            m.payload.erase_mode = _clamp(_get_param(0));
             return vt_message_id::erase_in_display;
         case U'K':
-            m.erase_mode = _clamp(_get_param(0));
+            m.payload.erase_mode = _clamp(_get_param(0));
             return vt_message_id::erase_in_line;
 
         // SGR
         case U'm':
-            m.sgr_reset = false;
-            m.bold = false;
-            m.faint = false;
-            m.italic = false;
-            m.underline = false;
-            m.blink = false;
-            m.negative = false;
-            m.conceal = false;
-            m.strikethrough = false;
-            m.fg_color = -1;
-            m.bg_color = -1;
-            m.fg_is_default = false;
-            m.bg_is_default = false;
-            m.fg_is_rgb = false;
-            m.bg_is_rgb = false;
+            m.payload.sgr = {};
             for (size_t i = 0; i < _param_index; ++i)
             {
                 short v = _params[i];
                 if (v == 0)
-                    m.sgr_reset = true;
+                    m.payload.sgr.set(vt_sgr_flag::reset);
                 else if (v == 1)
-                    m.bold = true;
+                    m.payload.sgr.set(vt_sgr_flag::bold);
                 else if (v == 2)
-                    m.faint = true;
+                    m.payload.sgr.set(vt_sgr_flag::faint);
                 else if (v == 3)
-                    m.italic = true;
+                    m.payload.sgr.set(vt_sgr_flag::italic);
                 else if (v == 4)
-                    m.underline = true;
+                    m.payload.sgr.set(vt_sgr_flag::underline);
                 else if (v == 5)
-                    m.blink = true;
+                    m.payload.sgr.set(vt_sgr_flag::blink);
                 else if (v == 7)
-                    m.negative = true;
+                    m.payload.sgr.set(vt_sgr_flag::negative);
                 else if (v == 8)
-                    m.conceal = true;
+                    m.payload.sgr.set(vt_sgr_flag::conceal);
                 else if (v == 9)
-                    m.strikethrough = true;
+                    m.payload.sgr.set(vt_sgr_flag::strikethrough);
                 else if (v == 22)
                 {
-                    m.bold = false;
-                    m.faint = false;
+                    m.payload.sgr.clear(vt_sgr_flag::bold);
+                    m.payload.sgr.clear(vt_sgr_flag::faint);
                 }
                 else if (v == 23)
-                    m.italic = false;
+                    m.payload.sgr.clear(vt_sgr_flag::italic);
                 else if (v == 24)
-                    m.underline = false;
+                    m.payload.sgr.clear(vt_sgr_flag::underline);
                 else if (v == 25)
-                    m.blink = false;
+                    m.payload.sgr.clear(vt_sgr_flag::blink);
                 else if (v == 27)
-                    m.negative = false;
+                    m.payload.sgr.clear(vt_sgr_flag::negative);
                 else if (v == 28)
-                    m.conceal = false;
+                    m.payload.sgr.clear(vt_sgr_flag::conceal);
                 else if (v == 29)
-                    m.strikethrough = false;
+                    m.payload.sgr.clear(vt_sgr_flag::strikethrough);
                 else if (v >= 30 && v <= 37)
-                    m.fg_color = v - 30;
+                    m.payload.sgr.fg.set_index(static_cast<short>(v - 30));
                 else if (v == 38 && i + 1 < _param_index)
                 {
                     if (_params[i + 1] == 5 && i + 2 < _param_index)
                     {
-                        m.fg_color = _params[i + 2];
+                        m.payload.sgr.fg.set_index(_params[i + 2]);
                         i += 2;
                     }
                     else if (_params[i + 1] == 2 && i + 4 < _param_index)
                     {
-                        m.fg_is_rgb = true;
-                        m.fg_r = static_cast<uint8_t>(_params[i + 2]);
-                        m.fg_g = static_cast<uint8_t>(_params[i + 3]);
-                        m.fg_b = static_cast<uint8_t>(_params[i + 4]);
+                        m.payload.sgr.fg.set_rgb(static_cast<uint8_t>(_params[i + 2]), static_cast<uint8_t>(_params[i + 3]),
+                                                  static_cast<uint8_t>(_params[i + 4]));
                         i += 4;
                     }
                     else
                         return vt_message_id::continue_;
                 }
                 else if (v == 39)
-                {
-                    m.fg_is_default = true;
-                    m.fg_color = -1;
-                }
+                    m.payload.sgr.fg.set_default();
                 else if (v >= 40 && v <= 47)
-                    m.bg_color = v - 40;
+                    m.payload.sgr.bg.set_index(static_cast<short>(v - 40));
                 else if (v == 48 && i + 1 < _param_index)
                 {
                     if (_params[i + 1] == 5 && i + 2 < _param_index)
                     {
-                        m.bg_color = _params[i + 2];
+                        m.payload.sgr.bg.set_index(_params[i + 2]);
                         i += 2;
                     }
                     else if (_params[i + 1] == 2 && i + 4 < _param_index)
                     {
-                        m.bg_is_rgb = true;
-                        m.bg_r = static_cast<uint8_t>(_params[i + 2]);
-                        m.bg_g = static_cast<uint8_t>(_params[i + 3]);
-                        m.bg_b = static_cast<uint8_t>(_params[i + 4]);
+                        m.payload.sgr.bg.set_rgb(static_cast<uint8_t>(_params[i + 2]), static_cast<uint8_t>(_params[i + 3]),
+                                                  static_cast<uint8_t>(_params[i + 4]));
                         i += 4;
                     }
                     else
                         return vt_message_id::continue_;
                 }
                 else if (v == 49)
-                {
-                    m.bg_is_default = true;
-                    m.bg_color = -1;
-                }
+                    m.payload.sgr.bg.set_default();
                 else if (v >= 90 && v <= 97)
-                    m.fg_color = v - 90 + 8;
+                    m.payload.sgr.fg.set_index(static_cast<short>(v - 90 + 8));
                 else if (v >= 100 && v <= 107)
-                    m.bg_color = v - 100 + 8;
+                    m.payload.sgr.bg.set_index(static_cast<short>(v - 100 + 8));
             }
             return vt_message_id::sgr;
 
@@ -1464,17 +1540,17 @@ class vt_parser
         case U'q':
             if (_intermediate == ' ')
             {
-                m.cursor_shape = _clamp(_get_param(0));
+                m.payload.cursor_shape = _clamp(_get_param(0));
                 return vt_message_id::set_cursor_shape;
             }
             return vt_message_id::continue_;
 
         // 制表符
         case U'I':
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             return vt_message_id::cursor_forward_tab;
         case U'Z':
-            m.count = _clamp(n);
+            m.payload.count.value = _clamp(n);
             return vt_message_id::cursor_backward_tab;
         case U'g':
             switch (_get_param(0))
@@ -1489,8 +1565,8 @@ class vt_parser
 
         // 滚动边距
         case U'r':
-            m.scroll_top = _clamp(_get_param(0, 1));
-            m.scroll_bottom = _clamp(_get_param(1, 0));
+            m.payload.scroll_region.top = _clamp(_get_param(0, 1));
+            m.payload.scroll_region.bottom = _clamp(_get_param(1, 0));
             return vt_message_id::set_scrolling_region;
 
         // 查询
@@ -1505,9 +1581,9 @@ class vt_parser
         case U'R':
             if (!priv)
             {
-                m.cpr_row = _clamp(_get_param(0, 1));
-                m.cpr_col = _clamp(_get_param(1, 1));
-                return (m.cpr_row > 0 && m.cpr_col > 0) ? vt_message_id::cpr_response : vt_message_id::continue_;
+                m.payload.cpr.row = _clamp(_get_param(0, 1));
+                m.payload.cpr.col = _clamp(_get_param(1, 1));
+                return (m.payload.cpr.row > 0 && m.payload.cpr.col > 0) ? vt_message_id::cpr_response : vt_message_id::continue_;
             }
             return vt_message_id::continue_;
 
@@ -1521,14 +1597,14 @@ class vt_parser
         case U'_': {
             // 参数格式: CSI params _  其中 params = Vk;Sc;Uc;Kd;Cs;Rc
             // 至少需要 Vk + KeyDown (2 个参数), 其余使用默认值
-            m.win32_vk = static_cast<unsigned short>(_clamp(_get_param(0, 0)));
-            m.win32_sc = static_cast<unsigned short>(_clamp(_get_param(1, 0)));
-            m.win32_uc = static_cast<wchar_t>(_clamp(_get_param(2, 0)));
-            m.win32_kd = _get_param(3, 0) != 0;
-            m.win32_cs = static_cast<unsigned long>(_clamp(_get_param(4, 0)));
-            m.win32_rc = static_cast<unsigned short>(_clamp(_get_param(5, 1)));
-            if (m.win32_rc == 0)
-                m.win32_rc = 1;
+            m.payload.win32_key.vk = static_cast<unsigned short>(_clamp(_get_param(0, 0)));
+            m.payload.win32_key.sc = static_cast<unsigned short>(_clamp(_get_param(1, 0)));
+            m.payload.win32_key.uc = static_cast<wchar_t>(_clamp(_get_param(2, 0)));
+            m.payload.win32_key.key_down = _get_param(3, 0) != 0;
+            m.payload.win32_key.control_state = static_cast<unsigned long>(_clamp(_get_param(4, 0)));
+            m.payload.win32_key.repeat_count = static_cast<unsigned short>(_clamp(_get_param(5, 1)));
+            if (m.payload.win32_key.repeat_count == 0)
+                m.payload.win32_key.repeat_count = 1;
             return vt_message_id::win32_input_key;
         }
 

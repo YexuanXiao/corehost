@@ -1,8 +1,10 @@
 #pragma once
 #include <windows.h>
-#include <array>
-#include <cstring>
+#include <cassert>
+#include <charconv>
+#include <span>
 #include <string_view>
+#include <vector>
 #include "win32/handle.hpp"
 #include "char_convert.hpp"
 #include "perf_diag.hpp"
@@ -13,6 +15,11 @@ namespace conpty
 class vt_output_buffer
 {
   public:
+    vt_output_buffer()
+    {
+        _buffer.reserve(flush_threshold);
+    }
+
     void set_output(win32::handle_view output) noexcept
     {
         _output = output;
@@ -20,96 +27,61 @@ class vt_output_buffer
 
     size_t buffered_size() const noexcept
     {
-        return _length;
+        return _buffer.size();
+    }
+
+    bool should_flush() const noexcept
+    {
+        return _buffer.size() >= flush_threshold;
     }
 
     void flush()
     {
-        COREHOST_PERF_SCOPE_AMOUNT(vt_output_flush, _length);
-        if (_length == 0)
+        COREHOST_PERF_SCOPE_AMOUNT(vt_output_flush, _buffer.size());
+        if (_buffer.empty())
             return;
         DWORD written = 0;
         {
-            COREHOST_PERF_SCOPE_AMOUNT(vt_output_write_file, _length);
-            ::WriteFile(_output.get(), _buffer.data(), static_cast<DWORD>(_length), &written, nullptr);
+            COREHOST_PERF_SCOPE_AMOUNT(vt_output_write_file, _buffer.size());
+            ::WriteFile(_output.get(), _buffer.data(), static_cast<DWORD>(_buffer.size()), &written, nullptr);
         }
-        _length = 0;
-    }
-
-    void write(const char *data, size_t length)
-    {
-        if (length == 0)
-            return;
-        flush();
-        DWORD written = 0;
-        {
-            COREHOST_PERF_SCOPE_AMOUNT(vt_output_write_file, length);
-            ::WriteFile(_output.get(), data, static_cast<DWORD>(length), &written, nullptr);
-        }
+        _buffer.clear();
     }
 
     void append(std::string_view text)
     {
-        const auto length = text.size();
-        if (length > _buffer.size())
-        {
-            write(text.data(), length);
-            return;
-        }
-        if (_length + length > _buffer.size())
-            flush();
-        std::memcpy(_buffer.data() + _length, text.data(), length);
-        _length += length;
+        const auto bytes = std::span{reinterpret_cast<const char8_t *>(text.data()), text.size()};
+        _buffer.append_range(bytes);
     }
 
     void append(char ch)
     {
-        if (_length >= _buffer.size())
-            flush();
-        _buffer[_length++] = ch;
+        _buffer.push_back(static_cast<char8_t>(static_cast<unsigned char>(ch)));
     }
 
     void append_int(int value)
     {
-        if (value == 0)
-        {
-            append('0');
-            return;
-        }
-        if (value < 0)
-        {
-            append('-');
-            value = -value;
-        }
-        char digits[16];
-        size_t count = 0;
-        while (value > 0)
-        {
-            digits[count++] = static_cast<char>('0' + (value % 10));
-            value /= 10;
-        }
-        if (_length + count > _buffer.size())
-            flush();
-        while (count > 0)
-            _buffer[_length++] = digits[--count];
+        constexpr size_t max_int_chars = 16;
+        const auto offset = _buffer.size();
+        _buffer.resize(offset + max_int_chars);
+        auto *first = reinterpret_cast<char *>(_buffer.data() + offset);
+        const auto [end, ec] = std::to_chars(first, first + max_int_chars, value);
+        assert(ec == std::errc{});
+        _buffer.resize(offset + static_cast<size_t>(end - first));
     }
 
     void append_cell(char32_t ch)
     {
         char bytes[8];
         const auto length = to_utf8_bytes(ch, bytes);
-        if (_length + length > _buffer.size())
-            flush();
-        std::memcpy(_buffer.data() + _length, bytes, static_cast<size_t>(length));
-        _length += static_cast<size_t>(length);
+        append(std::string_view{bytes, static_cast<size_t>(length)});
     }
 
   private:
-    static constexpr size_t buffer_capacity = 8192;
+    static constexpr size_t flush_threshold = 64 * 1024;
 
     win32::handle_view _output;
-    std::array<char, buffer_capacity> _buffer{};
-    size_t _length = 0;
+    std::vector<char8_t> _buffer;
 };
 
 } // namespace conpty
