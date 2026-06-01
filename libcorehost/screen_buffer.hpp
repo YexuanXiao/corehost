@@ -23,6 +23,12 @@ namespace conpty
 
 struct screen_buffer
 {
+    struct text_row_write_result
+    {
+        size_t consumed = 0;
+        bool row_end = false;
+    };
+
     // 字符列/行数，必须保持 >= 1。resize 会修正非法输入。
     COORD size{default_console_size};
     console_viewport viewport{default_console_size};
@@ -70,20 +76,27 @@ struct screen_buffer
         return _rows[static_cast<size_t>(y)];
     }
 
-    // ── 单 glyph 读写 (char32_t) ──
-    void set_u32(COORD c, char32_t cp, WORD attr = 0x07)
+    // ── 单 glyph 读写 ──
+    // write_glyph 用于调用者已经完成宽度测量的路径，避免同一个 codepoint 在
+    // 上层排版和底层写入时重复计算宽度。
+    void write_glyph(COORD c, std::u32string_view text, int width_columns, WORD attr = 0x07)
     {
         COREHOST_PERF_SCOPE(screen_set_u32);
-        if (!_valid(c))
+        if (!_valid(c) || text.empty())
             return;
+        if (width_columns < 1)
+            width_columns = 1;
+        if (width_columns > 2)
+            width_columns = 2;
+        row(c.Y).write_glyph(static_cast<uint16_t>(c.X), text, width_columns, text_attribute{attr});
+    }
+
+    void set_u32(COORD c, char32_t cp, WORD attr = 0x07)
+    {
         // Console 模式只区分 1/2 列宽；组合字符和控制字符在这里至少占一列，
         // 防止屏幕模型出现 0 宽单元格。
         int cw = char_width_for_mode(cp, text_measurement_mode::console);
-        if (cw < 1)
-            cw = 1;
-        if (cw > 2)
-            cw = 2;
-        row(c.Y).write_glyph(static_cast<uint16_t>(c.X), std::u32string_view{&cp, 1}, cw, text_attribute{attr});
+        write_glyph(c, std::u32string_view{&cp, 1}, cw, attr);
     }
 
     bool try_write_single_width_run(COORD c, std::u32string_view text, WORD attr = 0x07)
@@ -91,6 +104,48 @@ struct screen_buffer
         if (!_valid(c))
             return false;
         return row(c.Y).try_write_single_width_run(static_cast<uint16_t>(c.X), text, text_attribute{attr});
+    }
+
+    text_row_write_result write_text_row(COORD &cursor, std::u32string_view text, WORD attr,
+                                         text_measurement_mode measurement, bool ambiguous_is_wide)
+    {
+        text_row_write_result result;
+        if (text.empty())
+            return result;
+
+        const auto view = viewport.rect();
+        cursor.X = std::clamp<SHORT>(cursor.X, view.Left, view.Right);
+        cursor.Y = std::clamp<SHORT>(cursor.Y, view.Top, view.Bottom);
+
+        _write_widths.clear();
+        uint16_t cell_count = 0;
+        while (result.consumed < text.size())
+        {
+            const auto ch = text[result.consumed];
+            int width_columns = char_width_for_mode(ch, measurement, ambiguous_is_wide);
+            if (width_columns < 1)
+                width_columns = 1;
+            if (width_columns > 2)
+                width_columns = 2;
+
+            if (cursor.X + cell_count + width_columns - 1 > view.Right)
+                break;
+
+            _write_widths.push_back(static_cast<uint8_t>(width_columns));
+            cell_count = static_cast<uint16_t>(cell_count + width_columns);
+            ++result.consumed;
+        }
+
+        if (result.consumed != 0)
+        {
+            row(cursor.Y).write_measured_run(static_cast<uint16_t>(cursor.X), text.substr(0, result.consumed),
+                                             _write_widths, text_attribute{attr});
+            cursor.X = static_cast<SHORT>(cursor.X + cell_count);
+        }
+
+        if (cursor.X > view.Right || result.consumed < text.size())
+            result.row_end = true;
+        return result;
     }
 
     char32_t at_u32(COORD c) const noexcept
@@ -372,6 +427,7 @@ struct screen_buffer
     // ── scroll (纯 char32_t + WORD) ──
     void scroll(SMALL_RECT sr, SMALL_RECT clip, bool use_clip, COORD dest, char32_t fill_char, WORD fill_attr)
     {
+        COREHOST_PERF_SCOPE(screen_scroll);
         // sr 是源矩形；clip 为可写区域；dest 是源矩形左上角移动后的目标位置。
         _clamp(sr);
         if (!_rvalid(sr))
@@ -408,15 +464,35 @@ struct screen_buffer
             const auto count = std::min<int>(dy < 0 ? -static_cast<int>(dy) : static_cast<int>(dy), height);
             if (dy < 0)
             {
-                for (SHORT y = sr.Top; y <= static_cast<SHORT>(sr.Bottom - count); ++y)
-                    _rows[static_cast<size_t>(y)] = std::move(_rows[static_cast<size_t>(y + count)]);
+                if (count == 1)
+                {
+                    auto reusable = std::move(_rows[static_cast<size_t>(sr.Top)]);
+                    for (SHORT y = sr.Top; y < sr.Bottom; ++y)
+                        _rows[static_cast<size_t>(y)] = std::move(_rows[static_cast<size_t>(y + 1)]);
+                    _rows[static_cast<size_t>(sr.Bottom)] = std::move(reusable);
+                }
+                else
+                {
+                    for (SHORT y = sr.Top; y <= static_cast<SHORT>(sr.Bottom - count); ++y)
+                        _rows[static_cast<size_t>(y)] = std::move(_rows[static_cast<size_t>(y + count)]);
+                }
                 for (SHORT y = static_cast<SHORT>(sr.Bottom - count + 1); y <= sr.Bottom; ++y)
                     _fill_row(y, fill_char, fill_attr);
             }
             else
             {
-                for (SHORT y = sr.Bottom; y >= static_cast<SHORT>(sr.Top + count); --y)
-                    _rows[static_cast<size_t>(y)] = std::move(_rows[static_cast<size_t>(y - count)]);
+                if (count == 1)
+                {
+                    auto reusable = std::move(_rows[static_cast<size_t>(sr.Bottom)]);
+                    for (SHORT y = sr.Bottom; y > sr.Top; --y)
+                        _rows[static_cast<size_t>(y)] = std::move(_rows[static_cast<size_t>(y - 1)]);
+                    _rows[static_cast<size_t>(sr.Top)] = std::move(reusable);
+                }
+                else
+                {
+                    for (SHORT y = sr.Bottom; y >= static_cast<SHORT>(sr.Top + count); --y)
+                        _rows[static_cast<size_t>(y)] = std::move(_rows[static_cast<size_t>(y - count)]);
+                }
                 for (SHORT y = sr.Top; y < static_cast<SHORT>(sr.Top + count); ++y)
                     _fill_row(y, fill_char, fill_attr);
             }
@@ -512,6 +588,7 @@ struct screen_buffer
   private:
     // _rows.size() 必须等于 size.Y，每行宽度必须等于 size.X。
     std::vector<screen_buffer_row> _rows;
+    std::vector<uint8_t> _write_widths;
 
     void _ensure_rows()
     {
@@ -560,10 +637,7 @@ struct screen_buffer
 
     void _fill_row(SHORT y, char32_t cp, WORD attr)
     {
-        auto replacement = screen_buffer_row(static_cast<uint16_t>(size.X), attr);
-        if (cp != U' ')
-            replacement.fill(std::u32string_view{&cp, 1}, text_attribute{attr});
-        _rows[static_cast<size_t>(y)] = std::move(replacement);
+        _rows[static_cast<size_t>(y)].reset_fill(static_cast<uint16_t>(size.X), cp, text_attribute{attr});
     }
 };
 

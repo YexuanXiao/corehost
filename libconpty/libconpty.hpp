@@ -257,11 +257,9 @@ HRESULT CreateSignalPipe(win32::handle &readPipe, win32::handle &writePipe) noex
     return S_OK;
 }
 
-HRESULT BuildStartupInfoEx(win32::handle_view serverHandle, win32::handle_view signalPipeRead, HANDLE hInput,
-                           HANDLE hOutput, proc_thread_attribute_list &attrList, STARTUPINFOEXW &siEx) noexcept
+HRESULT BuildStartupInfoEx(HANDLE (&inherited)[kInheritedHandlesCount], proc_thread_attribute_list &attrList,
+                           STARTUPINFOEXW &siEx) noexcept
 {
-    HANDLE inherited[4] = {serverHandle.get(), hInput, hOutput, signalPipeRead.get()};
-
     if (HRESULT hr = attrList.initialize(1); FAILED(hr))
         return hr;
 
@@ -271,9 +269,9 @@ HRESULT BuildStartupInfoEx(win32::handle_view serverHandle, win32::handle_view s
 
     siEx = {};
     siEx.StartupInfo.cb = sizeof(STARTUPINFOEXW);
-    siEx.StartupInfo.hStdInput = hInput;
-    siEx.StartupInfo.hStdOutput = hOutput;
-    siEx.StartupInfo.hStdError = hOutput;
+    siEx.StartupInfo.hStdInput = inherited[1];
+    siEx.StartupInfo.hStdOutput = inherited[2];
+    siEx.StartupInfo.hStdError = inherited[2];
     siEx.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
     siEx.lpAttributeList = attrList.get();
     return S_OK;
@@ -305,7 +303,8 @@ HRESULT CreatePseudoConsoleImpl(HANDLE hToken, COORD size, HANDLE hInput, HANDLE
 
     proc_thread_attribute_list attrList;
     STARTUPINFOEXW siEx;
-    if (HRESULT hr = BuildStartupInfoEx(serverHandle, signalPipeRead, hInput, hOutput, attrList, siEx); FAILED(hr))
+    HANDLE inherited[kInheritedHandlesCount] = {serverHandle.get(), hInput, hOutput, signalPipeRead.get()};
+    if (HRESULT hr = BuildStartupInfoEx(inherited, attrList, siEx); FAILED(hr))
         return hr;
 
     win32::process_information pi;

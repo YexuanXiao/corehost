@@ -28,8 +28,11 @@ enum class counter_id : size_t
     vt_output_flush,
     vt_output_write_file,
     apply_text_state,
+    apply_line_feed,
     screen_set_u32,
+    screen_scroll,
     row_write_glyph,
+    row_write_measured_run,
     count,
 };
 
@@ -55,8 +58,11 @@ inline std::array<counter, static_cast<size_t>(counter_id::count)> counters = {{
     {"vt_output_flush"},
     {"vt_output_write_file"},
     {"apply_text_state"},
+    {"apply_line_feed"},
     {"screen_set_u32"},
+    {"screen_scroll"},
     {"row_write_glyph"},
+    {"row_write_measured_run"},
 }};
 
 inline long long qpc_now() noexcept

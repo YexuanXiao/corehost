@@ -49,9 +49,10 @@ std::wstring temp_directory()
 FILE *init_log_file()
 {
     std::wstring exe_dir = shell::get_module_dir_path();
-    std::ranges::transform(exe_dir, exe_dir.begin(),
+    auto lower_exe_dir = exe_dir;
+    std::ranges::transform(lower_exe_dir, lower_exe_dir.begin(),
                            [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
-    if (exe_dir.find(L"\\system32") != std::wstring::npos)
+    if (lower_exe_dir.find(L"\\system32") != std::wstring::npos)
         exe_dir = temp_directory();
 
     const auto now = std::time(nullptr);

@@ -257,6 +257,7 @@ inline SMALL_RECT terminal_scroll_region(console_state &state, screen_buffer &sb
 
 inline void apply_terminal_line_feed(console_state &state, screen_buffer &sb)
 {
+    COREHOST_PERF_SCOPE(apply_line_feed);
     const auto view = sb.viewport.rect();
     const auto scroll_region = terminal_scroll_region(state, sb);
     if (state.cursor.position.Y == scroll_region.Bottom && state.cursor.position.Y >= scroll_region.Top)
@@ -278,43 +279,19 @@ inline void apply_terminal_text(const vt_message &msg, console_state &state, scr
     state.cursor.position.X = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
     state.cursor.position.Y = std::clamp<SHORT>(state.cursor.position.Y, view.Top, view.Bottom);
 
-    auto slow_text = msg.text;
-    if (is_printable_ascii_text(msg.text))
+    auto remaining = msg.text;
+    while (!remaining.empty())
     {
-        auto remaining = msg.text;
-        while (!remaining.empty())
+        const auto result = sb.write_text_row(state.cursor.position, remaining, state.default_attributes,
+                                              state.text_measurement, state.ambiguous_is_wide);
+        remaining.remove_prefix(result.consumed);
+        if (result.row_end)
         {
-            const auto available = static_cast<size_t>(view.Right - state.cursor.position.X + 1);
-            const auto count = std::min(remaining.size(), available);
-            const auto line_text = remaining.substr(0, count);
-            if (!sb.try_write_single_width_run(state.cursor.position, line_text, state.default_attributes))
-                break;
-
-            state.cursor.position.X = static_cast<SHORT>(state.cursor.position.X + count);
-            remaining.remove_prefix(count);
-            if (state.cursor.position.X > view.Right)
-                apply_terminal_line_feed(state, sb);
+            apply_terminal_line_feed(state, sb);
+            continue;
         }
-        if (remaining.empty())
-            return;
-        slow_text = remaining;
-    }
-
-    for (char32_t ch : slow_text)
-    {
-        int cw = char_width_for_mode(ch, state.text_measurement, state.ambiguous_is_wide);
-        if (cw < 1)
-            cw = 1;
-        if (cw > 2)
-            cw = 2;
-
-        if (state.cursor.position.X + cw - 1 > view.Right)
-            apply_terminal_line_feed(state, sb);
-
-        sb.set_u32(state.cursor.position, ch, state.default_attributes);
-        state.cursor.position.X = static_cast<SHORT>(state.cursor.position.X + cw);
-        if (state.cursor.position.X > view.Right)
-            apply_terminal_line_feed(state, sb);
+        if (result.consumed == 0)
+            break;
     }
 }
 

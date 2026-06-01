@@ -21,6 +21,7 @@
 // CHAR_INFO 仅在 API 边界 (read_rect/write_rect) 转换。
 #pragma once
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 #include <string_view>
@@ -78,10 +79,15 @@ struct screen_buffer_row
     // ── 构造: 填充 width 列 (默认空格, 默认属性) ──
     explicit screen_buffer_row(uint16_t width, WORD default_attr = 0x07)
     {
+        reset_fill(width, U' ', text_attribute{default_attr});
+    }
+
+    void reset_fill(uint16_t width, char32_t cp, text_attribute attr)
+    {
         _columns.resize(static_cast<size_t>(width) + 1);
-        _attrs.resize(width, text_attribute{default_attr});
-        // 初始状态每一列都是独立空格，偏移等于列号。
-        _text.assign(static_cast<size_t>(width), U' ');
+        _attrs.resize(width);
+        std::fill(_attrs.begin(), _attrs.end(), attr);
+        _text.assign(static_cast<size_t>(width), cp);
         for (uint16_t i = 0; i <= width; ++i)
             _columns[i] = i;
     }
@@ -275,6 +281,72 @@ struct screen_buffer_row
             set_attr(static_cast<uint16_t>(col + w), attr);
 
         // 修复 past-the-end 偏移
+        _columns[width()] = static_cast<uint16_t>(_text.size());
+    }
+
+    void write_measured_run(uint16_t col, std::u32string_view text, std::span<const uint8_t> widths,
+                            text_attribute attr)
+    {
+        COREHOST_PERF_SCOPE_AMOUNT(row_write_measured_run, text.size());
+        if (text.empty() || text.size() != widths.size() || col >= width())
+            return;
+
+        uint16_t total_columns = 0;
+        bool all_single_width = true;
+        for (auto width_columns : widths)
+        {
+            if (width_columns == 0)
+                return;
+            if (width_columns != 1)
+                all_single_width = false;
+            total_columns = static_cast<uint16_t>(total_columns + width_columns);
+        }
+        if (total_columns == 0)
+            return;
+        if (col + total_columns > width())
+            total_columns = static_cast<uint16_t>(width() - col);
+
+        if (all_single_width && try_write_single_width_run(col, text, attr))
+            return;
+
+        _unwrap_glyph(col);
+        const auto end_col = static_cast<uint16_t>(col + total_columns);
+        if (end_col < width())
+            _unwrap_glyph(end_col);
+
+        const auto old_start = col_offset(col);
+        const auto old_end = end_col <= width() ? col_offset(end_col) : static_cast<uint16_t>(_text.size());
+        const auto old_len = static_cast<uint16_t>(old_end >= old_start ? old_end - old_start : 0);
+        const auto new_len = static_cast<uint16_t>(text.size());
+
+        _text.replace(old_start, old_len, text.data(), new_len);
+        const auto delta = static_cast<int16_t>(new_len) - static_cast<int16_t>(old_len);
+
+        for (uint16_t c = end_col; c <= width(); ++c)
+        {
+            if (c == width() || !is_trailing(c))
+            {
+                auto &off = _columns[c];
+                uint16_t raw = off & OFFSET_MASK;
+                if (raw >= old_end)
+                    raw = static_cast<uint16_t>(raw + delta);
+                off = (off & TRAILING_FLAG) | raw;
+            }
+        }
+
+        uint16_t cell = col;
+        uint16_t text_offset = old_start;
+        for (size_t i = 0; i < text.size() && cell < width(); ++i, ++text_offset)
+        {
+            const auto width_columns = widths[i];
+            _columns[cell] = text_offset;
+            for (uint8_t w = 1; w < width_columns && cell + w < width(); ++w)
+                _columns[static_cast<uint16_t>(cell + w)] = text_offset | TRAILING_FLAG;
+            for (uint8_t w = 0; w < width_columns && cell + w < width(); ++w)
+                set_attr(static_cast<uint16_t>(cell + w), attr);
+            cell = static_cast<uint16_t>(cell + width_columns);
+        }
+
         _columns[width()] = static_cast<uint16_t>(_text.size());
     }
 

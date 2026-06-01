@@ -9,26 +9,19 @@
 // 3. 挂起请求：handler 返回 false 时进入 wait_for_pending_input，直到
 //    bridge 用 VT 输入完成挂起的 ReadConsole/RawRead/GetConsoleInput。
 //
-// Handler 需提供:
-//   bool on_connect(miniio::io_msg &msg, connect_completion &completion)
-//                                           — CONNECT 处理，并说明 completion
-//                                             是否已由 CompleteIo 显式提交
-//   bool on_message(miniio::io_msg &msg)  — 非 CONNECT 消息
-//   void on_idle()                         — 空闲时调用
-//   bool has_pending() const               — 检查是否有挂起 I/O
-//   void wait_for_pending_input()          — 等待/服务终端输入直到 pending 可能完成
-//   bool should_exit() const               — I/O 循环退出条件
+// message_router 提供 loop 需要的完整会话操作：ConDrv 消息分派、VT idle
+// 输入服务、pending 请求等待和退出条件判断。
 
 #pragma once
 #include "connect_completion.hpp"
+#include "message_router.hpp"
 #include "miniio/io_thread.hpp"
 #include "utility/log.hpp"
 
 namespace conpty
 {
 
-template <typename Handler>
-inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view ev, Handler &handler)
+inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view ev, message_router &router)
 {
     LOG("run_io_loop_no_setup: enter");
 
@@ -51,14 +44,14 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
     {
         // 只有在没有 pending 请求、也没有 completion 待提交时才允许等待。
         // prev_done 非空时必须立即 READ_IO，把 completion 交回 ConDrv。
-        if (!handler.has_pending() && prev_done == nullptr)
+        if (!router.has_pending() && prev_done == nullptr)
         {
-            // on_idle 会主动读取 vt_in；键盘输入不会唤醒 server，所以等待前
+            // router.on_idle 会主动读取 vt_in；键盘输入不会唤醒 server，所以等待前
             // 必须先服务一次终端输入。
-            handler.on_idle();
-            if (handler.should_exit())
+            router.on_idle();
+            if (router.should_exit())
                 break;
-            if (!handler.has_pending())
+            if (!router.has_pending())
                 // 1ms 只是空闲节流；不能无限等待，因为 vt_in 不会唤醒 server。
                 ::WaitForSingleObject(server.get(), 1);
         }
@@ -84,10 +77,10 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
 
             // 0ms 只触发一次非阻塞等待，让 ConDrv 消化 pending 状态。
             ::WaitForSingleObject(server.get(), 0);
-            handler.on_idle();
-            if (handler.should_exit())
+            router.on_idle();
+            if (router.should_exit())
                 break;
-            if (!handler.has_pending())
+            if (!router.has_pending())
                 // 1ms 只是空闲节流；pending VT 输入仍由 on_idle/handler 处理。
                 ::WaitForSingleObject(server.get(), 1);
             continue;
@@ -97,32 +90,32 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         if (cur->descriptor.Function == 0)
         {
             // Function==0 是空 descriptor，不对应可完成的 Console I/O。
-            handler.on_idle();
-            if (handler.should_exit())
+            router.on_idle();
+            if (router.should_exit())
                 break;
             continue;
         }
 
         if (cur->descriptor.Function != CONSOLE_IO_CONNECT)
         {
-            // true 表示 handler 已经填好 cur->complete，下一轮 READ_IO 提交。
-            // false 表示请求挂起，handler 会在后续 VT 输入到达时显式完成。
-            if (handler.on_message(*cur))
+            // true 表示 router 已经填好 cur->complete，下一轮 READ_IO 提交。
+            // false 表示请求挂起，router 会在后续 VT 输入到达时显式完成。
+            if (router.on_message(*cur))
             {
                 prev_done = cur;
-                handler.on_idle();
-                if (handler.should_exit())
+                router.on_idle();
+                if (router.should_exit())
                     break;
             }
             else
             {
                 // pending 期间只等待终端输入或关闭信号。继续等 server 会在
                 // 没有终端输入时重复唤醒，造成空转。
-                while (handler.has_pending())
+                while (router.has_pending())
                 {
-                    handler.wait_for_pending_input();
+                    router.wait_for_pending_input();
                 }
-                if (handler.should_exit())
+                if (router.should_exit())
                     break;
             }
             cur = (cur == &msgA) ? &msgB : &msgA;
@@ -130,7 +123,7 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         }
 
         connect_completion connect_result = connect_completion::explicit_complete;
-        if (!handler.on_connect(*cur, connect_result))
+        if (!router.on_connect(*cur, connect_result))
             return;
 
         // inline_complete 说明 handler 只填了 cur->complete，仍需要下一轮 READ_IO

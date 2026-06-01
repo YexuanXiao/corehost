@@ -88,7 +88,19 @@ inline bool create_conpty(conpty_instance &ci, COORD size = {80, 25}, DWORD flag
 inline bool write_input(HANDLE hInput, const void *data, DWORD len)
 {
     DWORD written = 0;
-    return ::WriteFile(hInput, data, len, &written, nullptr) && written == len;
+    if (!::WriteFile(hInput, data, len, &written, nullptr))
+    {
+        std::fprintf(stderr, "WriteFile(input) failed: GLE=%lu len=%lu written=%lu\n", ::GetLastError(),
+                     static_cast<unsigned long>(len), static_cast<unsigned long>(written));
+        return false;
+    }
+    if (written != len)
+    {
+        std::fprintf(stderr, "WriteFile(input) short write: len=%lu written=%lu\n", static_cast<unsigned long>(len),
+                     static_cast<unsigned long>(written));
+        return false;
+    }
+    return true;
 }
 
 inline bool write_input_string(HANDLE hInput, std::string_view sv)

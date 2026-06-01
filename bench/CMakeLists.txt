@@ -1,5 +1,17 @@
 add_executable(conpty_bench
     main.cpp
+    common.hpp
+    terminal_output_worker.hpp
+    large_mixed_vt_cjk_output_worker.hpp
+    cjk_terminal_input_worker.hpp
+    sgr_sequence_matrix_cases.hpp
+    sgr_sequence_matrix_worker.hpp
+    conpty_session.hpp
+    large_mixed_vt_cjk_output_test.hpp
+    cjk_terminal_input_test.hpp
+    sgr_sequence_matrix_test.hpp
+    scenarios.hpp
+    host_runner.hpp
 )
 
 target_link_libraries(conpty_bench PRIVATE
@@ -13,4 +25,3 @@ target_include_directories(conpty_bench PRIVATE
 if(MSVC)
     target_compile_options(conpty_bench PRIVATE /utf-8 /permissive-)
 endif()
-
