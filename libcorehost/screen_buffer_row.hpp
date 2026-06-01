@@ -326,16 +326,17 @@ struct screen_buffer_row
 
         uint16_t cell = col;
         uint16_t text_offset = old_start;
-        for (size_t i = 0; i < text.size() && cell < width(); ++i, ++text_offset)
+        for (size_t i = 0; i < text.size(); ++i, ++text_offset)
         {
             const auto width_columns = widths[i];
             _columns[cell] = text_offset;
-            for (uint8_t w = 1; w < width_columns && cell + w < width(); ++w)
+            for (uint8_t w = 1; w < width_columns; ++w)
                 _columns[static_cast<uint16_t>(cell + w)] = text_offset | TRAILING_FLAG;
-            for (uint8_t w = 0; w < width_columns && cell + w < width(); ++w)
-                set_attr(static_cast<uint16_t>(cell + w), attr);
+            for (uint8_t w = 0; w < width_columns; ++w)
+                _attrs[static_cast<uint16_t>(cell + w)] = attr;
             cell = static_cast<uint16_t>(cell + width_columns);
         }
+        assert(cell == end_col);
 
         _columns[width()] = static_cast<uint16_t>(_text.size());
     }

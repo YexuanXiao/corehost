@@ -135,16 +135,36 @@ struct screen_buffer
                 break;
 
             if (width_columns != 1)
+            {
+                if (all_single_width)
+                    _write_widths.assign(result.consumed, uint8_t{1});
                 all_single_width = false;
-            _write_widths.push_back(static_cast<uint8_t>(width_columns));
+            }
+            if (!all_single_width)
+                _write_widths.push_back(static_cast<uint8_t>(width_columns));
             cell_count = static_cast<uint16_t>(cell_count + width_columns);
             ++result.consumed;
         }
 
         if (result.consumed != 0)
         {
-            row(cursor.Y).write_measured_run(static_cast<uint16_t>(cursor.X), text.substr(0, result.consumed),
-                                             _write_widths, cell_count, all_single_width, text_attribute{attr});
+            auto &target_row = row(cursor.Y);
+            const auto target_col = static_cast<uint16_t>(cursor.X);
+            const auto text_run = text.substr(0, result.consumed);
+            if (all_single_width)
+            {
+                if (!target_row.try_write_single_width_run(target_col, text_run, text_attribute{attr}))
+                {
+                    _write_widths.assign(result.consumed, uint8_t{1});
+                    target_row.write_measured_run(target_col, text_run, _write_widths, cell_count, false,
+                                                  text_attribute{attr});
+                }
+            }
+            else
+            {
+                target_row.write_measured_run(target_col, text_run, _write_widths, cell_count, false,
+                                              text_attribute{attr});
+            }
             cursor.X = static_cast<SHORT>(cursor.X + cell_count);
         }
 
