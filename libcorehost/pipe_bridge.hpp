@@ -413,6 +413,31 @@ struct pipe_bridge
         vt_append_char(hex_digits[value & 15]);
     }
 
+    void vt_append_raw_sequence(std::u32string_view text)
+    {
+        COREHOST_PERF_SCOPE_AMOUNT(vt_raw_passthrough, text.size());
+        if (text.empty())
+            return;
+
+        char ascii[256];
+        if (text.size() <= sizeof(ascii))
+        {
+            for (size_t i = 0; i < text.size(); ++i)
+            {
+                if (text[i] > 0x7F)
+                    goto convert;
+                ascii[i] = static_cast<char>(text[i]);
+            }
+            vt_append_str(std::string_view{ascii, text.size()});
+            return;
+        }
+
+    convert:
+        auto &utf8 = _conversion.utf8();
+        convert_u32_to_utf8(text, utf8);
+        vt_append_str(utf8);
+    }
+
     // ── 高层 VT 序列 ──
 
     void vt_write_cup(SHORT row, SHORT col)

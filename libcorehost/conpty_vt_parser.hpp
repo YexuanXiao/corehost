@@ -66,49 +66,22 @@ enum class vt_message_id
     keypad_numeric_mode,
     designate_charset_line_drawing,
     designate_charset_ascii,
-    cursor_up,
-    cursor_down,
-    cursor_forward,
-    cursor_backward,
-    cursor_next_line,
-    cursor_prev_line,
-    cursor_horiz_absolute,
-    cursor_vert_absolute,
-    cursor_position,
     ansi_save_cursor,
     ansi_restore_cursor,
     cursor_enable_blinking,
     cursor_disable_blinking,
     cursor_show,
     cursor_hide,
-    set_cursor_shape,
-    scroll_up,
-    scroll_down,
-    insert_characters,
-    delete_characters,
-    erase_characters,
-    insert_lines,
-    delete_lines,
-    erase_in_display,
-    erase_in_line,
-    sgr,
-    set_palette_color,
     cursor_keys_app_mode,
     cursor_keys_normal_mode,
     report_cursor_position,
     device_attributes,
-    cursor_forward_tab,
-    cursor_backward_tab,
     tab_clear_current,
     tab_clear_all,
-    set_scrolling_region,
     set_window_title,
     use_alternate_buffer,
     use_main_buffer,
-    set_columns_132,
-    set_columns_80,
     soft_reset,
-    resize_window, // \x1b[8;height;width t — terminal resize notification
     key_up,
     key_down,
     key_right,
@@ -139,8 +112,37 @@ enum class vt_message_id
     char_sub,
     char_esc,
     char_nul,
+
+    cursor_up,
+    cursor_down,
+    cursor_forward,
+    cursor_backward,
+    cursor_next_line,
+    cursor_prev_line,
+    scroll_up,
+    scroll_down,
+    insert_characters,
+    delete_characters,
+    erase_characters,
+    insert_lines,
+    delete_lines,
+    cursor_forward_tab,
+    cursor_backward_tab,
+
+    cursor_vert_absolute,
+    cursor_horiz_absolute,
+    cursor_position,
+    set_cursor_shape,
+    erase_in_display,
+    erase_in_line,
+    set_palette_color,
+    set_scrolling_region,
+    set_columns_132,
+    set_columns_80,
+    resize_window, // \x1b[8;height;width t — terminal resize notification
     win32_input_key, // \x1b[Vk;Sc;Uc;Kd;Cs;Rc_ — Win32 Input Mode 键盘事件
     cpr_response,    // \x1b[Pl;PcR — 终端对 DSR CPR 的应答
+    sgr,
 };
 
 // ── vt_message ───────────────────────────────────────
@@ -201,11 +203,34 @@ struct vt_message
     short cpr_col = 0; // 终端汇报的列号 (1-based)
 };
 
+enum class vt_parse_consumption
+{
+    consumed,
+    retry,
+};
+
+struct vt_parse_result
+{
+    vt_message_id id = vt_message_id::continue_;
+    vt_parse_consumption consumption = vt_parse_consumption::consumed;
+};
+
 // ── vt_parser ────────────────────────────────────────
 class vt_parser
 {
     // CSI 参数数量上限。超过该数量时标记 overflow，整条序列按文本处理。
     static constexpr size_t MAX_PARAMS = 16;
+
+    enum class parser_mode
+    {
+        ground,
+        esc,
+        csi,
+        osc,
+        ss3,
+        osc_st,
+        pending_esc,
+    };
 
   public:
     explicit vt_parser(std::u32string &raw) : _raw(raw)
@@ -228,10 +253,35 @@ class vt_parser
         return _should_echo;
     }
 
+    [[nodiscard]] std::u32string_view raw_sequence() const noexcept
+    {
+        if (_seq_start >= _raw.size() || _raw[_seq_start] != U'\x1b')
+            return {};
+        return {_raw.data() + _seq_start, _raw.size() - _seq_start};
+    }
+
     // 是否有未交付的累积文本（纯可打印字符无控制字符终止时残留）
     [[nodiscard]] bool has_pending_text() const noexcept
     {
         return _ground_text_start != npos && !_raw.empty();
+    }
+
+    [[nodiscard]] size_t consume_ground_text_run(std::u32string_view text)
+    {
+        if (_pending_control != vt_message_id::continue_ || _mode != parser_mode::ground || text.empty())
+            return 0;
+
+        size_t count = 0;
+        while (count < text.size() && _is_ground_printable(text[count]))
+            ++count;
+        if (count == 0)
+            return 0;
+
+        if (_ground_text_start == npos)
+            _ground_text_start = _raw.size();
+        _raw.append(text.data(), count);
+        _should_echo = true;
+        return count;
     }
 
     // 释放累积文本为 text 消息并返回 text id；无残留文本时返回 continue_
@@ -242,51 +292,65 @@ class vt_parser
         if (_ground_text_start == npos || _raw.empty())
             return vt_message_id::continue_;
         _msg.text = {_raw.data() + _ground_text_start, _raw.size() - _ground_text_start};
-        _msg_id = vt_message_id::text;
         _ground_text_start = npos;
         return vt_message_id::text;
     }
 
-    // 解析单个码点，返回当前产生的消息 id，continue_ 表示尚未完成
-    [[nodiscard]] vt_message_id parse(char32_t ch)
+    [[nodiscard]] vt_parse_result parse_with_consumption(char32_t ch)
     {
-        // ── 上次因 has_text + 控制字符而延迟的消息优先交付 ──
+        // parse() 的旧接口只能返回一个 message id。当前一个输入字符同时结束
+        // text 并代表控制消息时，parser 会先交付 text，把控制消息放入
+        // _pending_control。这个接口把“交付 pending control”和“消费新字符”
+        // 分开表达：pending control 先返回，retry 要求调用者下一轮
+        // 重新提交同一个 ch。
         if (_pending_control != vt_message_id::continue_)
         {
-            // 文本和控制字符不能在同一次返回里同时交付。上一次 parse 先返回
-            // text，这里再返回被延迟的 CR/LF/TAB/控制键消息。
             auto id = _pending_control;
-            // \r\n 配对：将 CR 升级为 LF（\n 被吞掉但 LF 会在下一次排空时交付）
-            if (id == vt_message_id::carriage_return && ch == U'\n')
-            {
-                // CRLF 被拆成两次交付：本次返回 CR，下次 drain sentinel 或后续
-                // 字符再返回 LF，调用方可按自己的行尾策略决定是否消费 LF。
-                _pending_control = vt_message_id::line_feed;
-                _msg_id = id; // 本次交付 carriage_return
-                _msg.text = {};
-                return id;
-            }
             _pending_control = vt_message_id::continue_;
-            _msg_id = id;
             _msg.text = {};
             if (id == vt_message_id::cursor_forward_tab)
                 _msg.count = 1;
-            return id;
+            return {id, vt_parse_consumption::retry};
         }
 
+        return {_parse_consuming(ch), vt_parse_consumption::consumed};
+    }
+
+    // 兼容旧调用方：只返回 message id，pending control 会像旧实现一样消费
+    // 传入字符。需要知道字符是否被消费的新路径应使用 parse_with_consumption。
+    [[nodiscard]] vt_message_id parse(char32_t ch)
+    {
+        auto result = parse_with_consumption(ch);
+        if (result.consumption == vt_parse_consumption::retry)
+        {
+            if (result.id == vt_message_id::carriage_return && ch == U'\n')
+                _pending_control = vt_message_id::line_feed;
+            return result.id;
+        }
+        return result.id;
+    }
+
+  private:
+    [[nodiscard]] static constexpr bool _is_ground_printable(char32_t ch) noexcept
+    {
+        return ch > 0x1F && ch != 0x7F;
+    }
+
+    // 解析单个码点，返回当前产生的消息 id，continue_ 表示尚未完成
+    [[nodiscard]] vt_message_id _parse_consuming(char32_t ch)
+    {
         // U'\0' 是 drain sentinel：无排队消息时立即返回 continue_，不产 char_nul
         if (ch == U'\0')
             return vt_message_id::continue_;
 
-        // 如果上次因 text→ESC 过渡而暂存了 ESC，先还原
-        if (_pending_esc)
+        // 如果上次因 text→ESC 过渡而暂存了 ESC，先还原。
+        if (_mode == parser_mode::pending_esc)
         {
             // 上次在普通文本后遇到 ESC，为了先返回 text 曾把 ESC 从 _raw 弹出。
             // 现在恢复它并进入 ESC 状态，保证序列原文从 ESC 开始。
-            _pending_esc = false;
             _raw += U'\x1B';
             _seq_start = _raw.size() - 1;
-            _esc = true;
+            _mode = parser_mode::esc;
         }
 
         // 所有字符先写入 _raw。合法序列用结构化字段返回；非法序列则用
@@ -295,9 +359,9 @@ class vt_parser
 
         // ── echo 判定：仅地面态可打印字符及有视觉效果的 C0 字符回显 ──
         _should_echo = false;
-        if (!_esc && !_csi && !_ss3 && !_osc)
+        if (_mode == parser_mode::ground)
         {
-            if (ch > 0x1F && ch != 0x7F)
+            if (_is_ground_printable(ch))
                 _should_echo = true; // 可打印
             // ground-state printable: echo, bridge inserts into _cooked_buf at cursor
             else if (ch == U'\r' || ch == U'\n' || ch == U'\t')
@@ -306,7 +370,7 @@ class vt_parser
         }
 
         // 根据当前状态更新文本起点或跳过
-        if (_esc || _csi || _ss3 || _osc)
+        if (_mode != parser_mode::ground)
         {
             // 已在某个序列内部，无需额外操作
         }
@@ -318,7 +382,7 @@ class vt_parser
         }
 
         // ── OSC 字符串模式 ──
-        if (_osc)
+        if (_mode == parser_mode::osc)
         {
             // 控制字符（BEL 和 ESC 除外）中断 OSC
             if (ch <= 0x1F || ch == 0x7F)
@@ -327,22 +391,20 @@ class vt_parser
                 {
                     // OSC 以 BEL 结束时，BEL 本身保留在 _raw 里，dispatch 通过
                     // 终止符位置计算 payload 范围。
-                    bool ok = _dispatch_osc();
-                    _osc = false;
-                    return _finish_seq(ok);
+                    auto id = _dispatch_osc();
+                    _mode = parser_mode::ground;
+                    return _finish_seq(id);
                 }
                 if (ch == 0x1B) // ST 的开始 (ESC \)
                 {
                     // ESC 可能是 OSC ST 的第一字节，也可能是非法中断。先切换到
                     // ESC 状态，下一字符为 '\' 时才完成 OSC。
-                    _osc = false;
-                    _esc = true;
-                    _osc_st = true; // 标记：此 ESC 来自 OSC，期待 ST
+                    _mode = parser_mode::osc_st;
                     return vt_message_id::continue_;
                 }
                 // 其他控制字符：OSC 被打断，序列转为文本，再处理该控制字符
                 _set_unknown_sequence(_seq_start);
-                _osc = false;
+                _mode = parser_mode::ground;
                 _osc_code = 0;
                 _osc_len = 0;
                 _osc_had_semi = false;
@@ -385,25 +447,24 @@ class vt_parser
         }
 
         // ST 终止符检测 (ESC \) — 仅当 ESC 来自 OSC 终止时触发
-        if (_osc_st)
+        if (_mode == parser_mode::osc_st)
         {
             if (ch == U'\\')
             {
-                _osc_st = false;
-                bool ok = _dispatch_osc();
-                _esc = false;
-                return _finish_seq(ok);
+                auto id = _dispatch_osc();
+                _mode = parser_mode::ground;
+                return _finish_seq(id);
             }
             // 不是 \：ESC 退化为普通序列（如 OSC 被非 ST 字符打断）
-            _osc_st = false;
+            _mode = parser_mode::esc;
         }
-        if (_csi)
+        if (_mode == parser_mode::csi)
         {
             // 控制字符中断 CSI
             if (ch <= 0x1F || ch == 0x7F)
             {
                 _set_unknown_sequence(_seq_start);
-                _csi = false;
+                _mode = parser_mode::ground;
                 _reset_params();
                 return vt_message_id::unknown_sequence;
             }
@@ -435,81 +496,73 @@ class vt_parser
             if (ch >= 0x40 && ch <= 0x7E)
             {
                 _add_param();
-                bool ok = _dispatch_csi(ch);
-                _csi = false;
+                auto id = _dispatch_csi(ch);
+                _mode = parser_mode::ground;
                 _reset_params();
-                return _finish_seq(ok);
+                return _finish_seq(id);
             }
             // 非法 CSI 字符：整段作为文本输出
             _set_unknown_sequence(_seq_start);
-            _csi = false;
+            _mode = parser_mode::ground;
             _reset_params();
             return vt_message_id::unknown_sequence;
         }
 
         // ── SS3 模式 (ESC O) ──
-        if (_ss3)
+        if (_mode == parser_mode::ss3)
         {
             if (ch <= 0x1F || ch == 0x7F)
             {
                 _set_unknown_sequence(_seq_start);
-                _ss3 = false;
+                _mode = parser_mode::ground;
                 return vt_message_id::unknown_sequence;
             }
             if (ch >= 0x40 && ch <= 0x7E)
             {
-                bool ok = _dispatch_ss3(ch);
-                _ss3 = false;
-                return _finish_seq(ok);
+                auto id = _dispatch_ss3(ch);
+                _mode = parser_mode::ground;
+                return _finish_seq(id);
             }
             // 非法 SS3 终态
             _set_unknown_sequence(_seq_start);
-            _ss3 = false;
+            _mode = parser_mode::ground;
             return vt_message_id::unknown_sequence;
         }
 
         // ── ESC 状态 ──
-        if (_esc)
+        if (_mode == parser_mode::esc)
         {
             if (ch <= 0x1F || ch == 0x7F)
             {
                 _set_unknown_sequence(_seq_start);
-                _esc = false;
-                _osc_st = false;
+                _mode = parser_mode::ground;
                 return vt_message_id::unknown_sequence;
             }
             switch (ch)
             {
             case U'[':
-                _esc = false;
-                _osc_st = false;
-                _csi = true;
+                _mode = parser_mode::csi;
                 _reset_params();
                 return vt_message_id::continue_;
             case U']':
-                _esc = false;
-                _osc_st = false; // OSC 入口，清除可能的残留 ST 标记
-                _osc = true;
+                _mode = parser_mode::osc;
                 _osc_code = 0;
                 _osc_len = 0;
                 _osc_had_semi = false;
                 return vt_message_id::continue_;
             case U'O':
-                _esc = false;
-                _osc_st = false;
-                _ss3 = true;
+                _mode = parser_mode::ss3;
                 return vt_message_id::continue_;
             case U'(':
                 _intermediate = '(';
                 return vt_message_id::continue_; // 等待字符集终态
             default:
-                _esc = false;
-                _osc_st = false;
+                _mode = parser_mode::ground;
                 if (_intermediate == '(')
                 {
                     _intermediate = 0;
-                    bool ok = _dispatch_charset(ch);
-                    return _finish_seq(ok);
+                    auto id = _dispatch_charset(ch);
+                    return _finish_seq(id);
                 }
                 if (_intermediate != 0)
                 {
@@ -518,8 +571,8 @@ class vt_parser
                     return vt_message_id::unknown_sequence;
                 }
                 // 普通 ESC 序列
-                bool ok = _dispatch_esc(ch);
-                return _finish_seq(ok);
+                auto id = _dispatch_esc(ch);
+                return _finish_seq(id);
             }
         }
 
@@ -536,14 +589,12 @@ class vt_parser
                     // parse 处理，避免一个返回值同时表示 text 和控制序列。
                     _msg.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
                     _raw.pop_back(); // 弹出 ESC，下次 parse 再还原
-                    _pending_esc = true;
-                    _msg_id = vt_message_id::text;
+                    _mode = parser_mode::pending_esc;
                     _ground_text_start = npos;
                     return vt_message_id::text;
                 }
                 _seq_start = _raw.size() - 1;
-                _esc = true;
-                _msg_id = vt_message_id::text;
+                _mode = parser_mode::esc;
                 _ground_text_start = npos;
                 return vt_message_id::continue_;
             }
@@ -557,12 +608,10 @@ class vt_parser
                 if (has_text)
                 {
                     _msg.text = {_raw.data() + _ground_text_start, _raw.size() - _ground_text_start};
-                    _msg_id = vt_message_id::text;
                     _ground_text_start = npos;
                     _pending_control = cid;
                     return vt_message_id::text;
                 }
-                _msg_id = cid;
                 _msg.text = {};
                 _ground_text_start = npos;
                 return cid;
@@ -576,14 +625,12 @@ class vt_parser
                 if (has_text)
                 {
                     _msg.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
-                    _msg_id = vt_message_id::text;
                     _raw.pop_back(); // 去掉 \\t，下次交付
                     _ground_text_start = npos;
                     _pending_control = vt_message_id::cursor_forward_tab;
                     return vt_message_id::text;
                 }
                 _raw.pop_back();
-                _msg_id = vt_message_id::cursor_forward_tab;
                 _msg.count = 1;
                 _msg.text = {};
                 _ground_text_start = npos;
@@ -595,7 +642,6 @@ class vt_parser
             if (has_text)
             {
                 _msg.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
-                _msg_id = vt_message_id::text;
                 _raw.pop_back();
                 _ground_text_start = npos;
                 // 延迟交付控制字符
@@ -604,111 +650,20 @@ class vt_parser
             }
             _raw.pop_back();
             _ground_text_start = npos;
-            _msg_id = _classify_control(ch);
             _msg.text = {};
-            return _msg_id;
+            return _classify_control(ch);
         }
 
         // 可打印字符，继续累积
         return vt_message_id::continue_text;
     }
 
+  public:
     // 根据已消费的消息类型重置受污染的字段与解析器状态。
     void reset(vt_message_id id)
     {
-        // reset 只清理刚刚交付消息污染过的字段。没有出现在该消息类型中的
-        // 字段保持默认值，避免下一条消息读到陈旧参数。
-        // 根据消息类型重置受污染的数值字段
         switch (id)
         {
-        // ── continue_text: 清除累积但未交付的单字符文本 ──
-        case vt_message_id::continue_text:
-            // continue_text 是 bridge 立即消费的单字符文本；消费后可清空 raw，
-            // 否则每个可打印字符都会累积到后续消息视图里。
-            _raw.clear();
-            _ground_text_start = npos;
-            break;
-
-        // ── 文本 / 未知序列 / 标题 ──
-        case vt_message_id::text:
-        case vt_message_id::unknown_sequence:
-        case vt_message_id::set_window_title:
-            // text/unknown/title 的 view 指向 _raw；调用者必须在 reset 前使用或复制。
-            // 本 switch 后的公共清理会释放该 view。
-            break;
-
-        // ── 换行/回车：无字段需重置 ──
-        case vt_message_id::carriage_return:
-        case vt_message_id::line_feed:
-            break;
-
-        // ── 以下序列不修改任何数值字段 ──
-        case vt_message_id::reverse_index:
-        case vt_message_id::save_cursor:
-        case vt_message_id::restore_cursor:
-        case vt_message_id::horizontal_tab_set:
-        case vt_message_id::keypad_app_mode:
-        case vt_message_id::keypad_numeric_mode:
-        case vt_message_id::designate_charset_line_drawing:
-        case vt_message_id::designate_charset_ascii:
-        case vt_message_id::ansi_save_cursor:
-        case vt_message_id::ansi_restore_cursor:
-        case vt_message_id::cursor_enable_blinking:
-        case vt_message_id::cursor_disable_blinking:
-        case vt_message_id::cursor_show:
-        case vt_message_id::cursor_hide:
-        case vt_message_id::cursor_keys_app_mode:
-        case vt_message_id::cursor_keys_normal_mode:
-        case vt_message_id::use_alternate_buffer:
-        case vt_message_id::use_main_buffer:
-        case vt_message_id::soft_reset:
-        case vt_message_id::report_cursor_position:
-        case vt_message_id::device_attributes:
-        case vt_message_id::tab_clear_current:
-        case vt_message_id::tab_clear_all:
-        case vt_message_id::key_up:
-        case vt_message_id::key_down:
-        case vt_message_id::key_right:
-        case vt_message_id::key_left:
-        case vt_message_id::key_home:
-        case vt_message_id::key_end:
-        case vt_message_id::key_insert:
-        case vt_message_id::key_delete:
-        case vt_message_id::key_page_up:
-        case vt_message_id::key_page_down:
-        case vt_message_id::key_f1:
-        case vt_message_id::key_f2:
-        case vt_message_id::key_f3:
-        case vt_message_id::key_f4:
-        case vt_message_id::key_f5:
-        case vt_message_id::key_f6:
-        case vt_message_id::key_f7:
-        case vt_message_id::key_f8:
-        case vt_message_id::key_f9:
-        case vt_message_id::key_f10:
-        case vt_message_id::key_f11:
-        case vt_message_id::key_f12:
-        case vt_message_id::key_ctrl_up:
-        case vt_message_id::key_ctrl_down:
-        case vt_message_id::key_ctrl_right:
-        case vt_message_id::key_ctrl_left:
-        case vt_message_id::char_del:
-        case vt_message_id::char_sub:
-        case vt_message_id::char_esc:
-        case vt_message_id::char_nul:
-            break;
-
-        // ── Win32 Input 键盘事件 ──
-        case vt_message_id::win32_input_key:
-            _msg.win32_vk = 0;
-            _msg.win32_sc = 0;
-            _msg.win32_uc = 0;
-            _msg.win32_kd = false;
-            _msg.win32_cs = 0;
-            _msg.win32_rc = 1;
-            break;
-
-        // ── count 相关序列 ──
         case vt_message_id::cursor_up:
         case vt_message_id::cursor_down:
         case vt_message_id::cursor_forward:
@@ -724,95 +679,172 @@ class vt_parser
         case vt_message_id::delete_lines:
         case vt_message_id::cursor_forward_tab:
         case vt_message_id::cursor_backward_tab:
-            _msg.count = 1;
-            break;
-
-        case vt_message_id::cursor_horiz_absolute:
-            _msg.col = 1;
+            _reset_count();
             break;
 
         case vt_message_id::cursor_vert_absolute:
-            _msg.row = 1;
+            _reset_row();
+            break;
+
+        case vt_message_id::cursor_horiz_absolute:
+            _reset_col();
             break;
 
         case vt_message_id::cursor_position:
-            _msg.row = 1;
-            _msg.col = 1;
+            _reset_position();
             break;
 
         case vt_message_id::set_cursor_shape:
-            _msg.cursor_shape = 0;
+            _reset_cursor_shape();
             break;
 
         case vt_message_id::erase_in_display:
         case vt_message_id::erase_in_line:
-            _msg.erase_mode = 0;
-            break;
-
-        case vt_message_id::sgr:
-            _msg.sgr_reset = false;
-            _msg.bold = false;
-            _msg.faint = false;
-            _msg.italic = false;
-            _msg.underline = false;
-            _msg.blink = false;
-            _msg.negative = false;
-            _msg.conceal = false;
-            _msg.strikethrough = false;
-            _msg.fg_color = -1;
-            _msg.bg_color = -1;
-            _msg.fg_is_default = false;
-            _msg.bg_is_default = false;
-            _msg.fg_is_rgb = false;
-            _msg.bg_is_rgb = false;
-            _msg.fg_r = _msg.fg_g = _msg.fg_b = 0;
-            _msg.bg_r = _msg.bg_g = _msg.bg_b = 0;
+            _reset_erase_mode();
             break;
 
         case vt_message_id::set_palette_color:
-            _msg.palette_index = 0;
-            _msg.palette_r = _msg.palette_g = _msg.palette_b = 0;
+            _reset_palette_color();
             break;
 
         case vt_message_id::set_scrolling_region:
-            _msg.scroll_top = 1;
-            _msg.scroll_bottom = 0;
+            _reset_scrolling_region();
             break;
 
         case vt_message_id::set_columns_132:
         case vt_message_id::set_columns_80:
-            _msg.window_width = 0;
+            _reset_window_width();
             break;
 
         case vt_message_id::resize_window:
-            _msg.resize_rows = 0;
-            _msg.resize_cols = 0;
+            _reset_resize_window();
+            break;
+
+        case vt_message_id::win32_input_key:
+            _reset_win32_input_key();
             break;
 
         case vt_message_id::cpr_response:
-            _msg.cpr_row = 0;
-            _msg.cpr_col = 0;
+            _reset_cpr_response();
             break;
 
-        // 理论上不会到达
+        case vt_message_id::sgr:
+            _reset_sgr();
+            break;
+
         default:
             break;
         }
 
-        // 清空中央缓冲区。_pending_esc 已标记 text→ESC 过渡，
-        // 下次 parse() 开头会 push ESC + 设 _esc=true，无需在此保留任何状态。
-        _raw.clear();
-        _ground_text_start = npos;
-        _seq_start = 0;
-        _esc = _csi = _osc = _ss3 = false;
-        _osc_st = false;
+        // 清空中央缓冲区。pending_esc 表示 text→ESC 过渡，下一次 parse()
+        // 会先补回 ESC；其它模式在消息交付后都回到 ground。
+        _reset_parser_state_after_message();
         // _pending_control 必须保留—延迟交付的 CR/LF/TAB 由下次 parse() 开头消费
     }
 
   private:
-    // 解析出的消息体；消息类型由 _msg_id 或 parse() 返回值给出。
+    void _reset_count() noexcept
+    {
+        _msg.count = 1;
+    }
+
+    void _reset_row() noexcept
+    {
+        _msg.row = 1;
+    }
+
+    void _reset_col() noexcept
+    {
+        _msg.col = 1;
+    }
+
+    void _reset_position() noexcept
+    {
+        _msg.row = 1;
+        _msg.col = 1;
+    }
+
+    void _reset_cursor_shape() noexcept
+    {
+        _msg.cursor_shape = 0;
+    }
+
+    void _reset_erase_mode() noexcept
+    {
+        _msg.erase_mode = 0;
+    }
+
+    void _reset_palette_color() noexcept
+    {
+        _msg.palette_index = 0;
+        _msg.palette_r = _msg.palette_g = _msg.palette_b = 0;
+    }
+
+    void _reset_scrolling_region() noexcept
+    {
+        _msg.scroll_top = 1;
+        _msg.scroll_bottom = 0;
+    }
+
+    void _reset_window_width() noexcept
+    {
+        _msg.window_width = 0;
+    }
+
+    void _reset_resize_window() noexcept
+    {
+        _msg.resize_rows = 0;
+        _msg.resize_cols = 0;
+    }
+
+    void _reset_win32_input_key() noexcept
+    {
+        _msg.win32_vk = 0;
+        _msg.win32_sc = 0;
+        _msg.win32_uc = 0;
+        _msg.win32_kd = false;
+        _msg.win32_cs = 0;
+        _msg.win32_rc = 1;
+    }
+
+    void _reset_cpr_response() noexcept
+    {
+        _msg.cpr_row = 0;
+        _msg.cpr_col = 0;
+    }
+
+    void _reset_sgr() noexcept
+    {
+        _msg.sgr_reset = false;
+        _msg.bold = false;
+        _msg.faint = false;
+        _msg.italic = false;
+        _msg.underline = false;
+        _msg.blink = false;
+        _msg.negative = false;
+        _msg.conceal = false;
+        _msg.strikethrough = false;
+        _msg.fg_color = -1;
+        _msg.bg_color = -1;
+        _msg.fg_is_default = false;
+        _msg.bg_is_default = false;
+        _msg.fg_is_rgb = false;
+        _msg.bg_is_rgb = false;
+        _msg.fg_r = _msg.fg_g = _msg.fg_b = 0;
+        _msg.bg_r = _msg.bg_g = _msg.bg_b = 0;
+    }
+
+    void _reset_parser_state_after_message()
+    {
+        _raw.clear();
+        _ground_text_start = npos;
+        _seq_start = 0;
+        if (_mode != parser_mode::pending_esc)
+            _mode = parser_mode::ground;
+    }
+
+    // 解析出的消息体；消息类型由 parse() 返回值给出。
     vt_message _msg;
-    vt_message_id _msg_id = vt_message_id::continue_;
 
     // ── 中央缓冲区与视图位置 ──
     // _raw 保存当前未消费输入；message 里的 string_view 指向该缓冲。
@@ -827,14 +859,9 @@ class vt_parser
     // 当前 ESC/CSI/OSC 序列在 _raw 中的起始偏移。
     size_t _seq_start = 0;
 
-    // ── 解析状态标志 ──
-    bool _esc = false;            // 已收到 ESC，等待后续字符
-    bool _csi = false;            // 已收到 CSI 引入符 '['
-    bool _osc = false;            // 已收到 OSC 引入符 ']'
-    bool _ss3 = false;            // 已收到 SS3 引入符 'O'
+    // ── 解析状态 ──
+    parser_mode _mode = parser_mode::ground;
     bool _private_marker = false; // true 表示 CSI '?' private marker
-    bool _pending_esc = false;    // text→ESC 过渡：下次 parse 先 push ESC
-    bool _osc_st = false;         // ESC 来自 OSC 终止（等待 ST），非地面态裸 ESC
     bool _should_echo = false;    // 最近一次 parse() 的字符是否该回显
 
     // ── 延迟交付：has_text+控制字符时先交付文本，控制消息下次返回 ──
@@ -897,14 +924,13 @@ class vt_parser
     void _set_unknown_sequence(size_t start)
     {
         _msg.text = {_raw.data() + start, _raw.size() - start};
-        _msg_id = vt_message_id::unknown_sequence;
         _ground_text_start = _raw.size();
     }
 
-    // 完成一个序列（合法或非法），设置 text/id，返回最终的消息 id
-    vt_message_id _finish_seq(bool ok)
+    // 完成一个序列；continue_ 表示 dispatch 未识别，整段序列按 unknown 返回。
+    vt_message_id _finish_seq(vt_message_id id)
     {
-        if (ok)
+        if (id != vt_message_id::continue_)
         {
             _msg.text = {};            // 成功时 text 留空
             _ground_text_start = npos; // 无累积文本
@@ -913,9 +939,10 @@ class vt_parser
         {
             // 未识别/非法序列按独立消息返回，调用方可以选择透传或丢弃。
             _set_unknown_sequence(_seq_start);
+            id = vt_message_id::unknown_sequence;
         }
         _seq_start = 0;
-        return _msg_id;
+        return id;
     }
 
     // 处理 Ground 状态下遇到的控制字符（C0 和 DEL），返回对应的消息 id。
@@ -946,97 +973,75 @@ class vt_parser
     // ── 分发函数 ──
 
     // 普通 ESC 序列（ESC + 单个字符）
-    bool _dispatch_esc(char32_t code)
+    vt_message_id _dispatch_esc(char32_t code)
     {
         switch (code)
         {
         case U'M':
-            _msg_id = vt_message_id::reverse_index;
-            return true;
+            return vt_message_id::reverse_index;
         case U'7':
-            _msg_id = vt_message_id::save_cursor;
-            return true;
+            return vt_message_id::save_cursor;
         case U'8':
-            _msg_id = vt_message_id::restore_cursor;
-            return true;
+            return vt_message_id::restore_cursor;
         case U'H':
-            _msg_id = vt_message_id::horizontal_tab_set;
-            return true;
+            return vt_message_id::horizontal_tab_set;
         case U'=':
-            _msg_id = vt_message_id::keypad_app_mode;
-            return true;
+            return vt_message_id::keypad_app_mode;
         case U'>':
-            _msg_id = vt_message_id::keypad_numeric_mode;
-            return true;
+            return vt_message_id::keypad_numeric_mode;
         default:
-            return false;
+            return vt_message_id::continue_;
         }
     }
 
     // SS3 键盘序列（ESC O + 一个字符），不回显原始字节：dispatch 生成钳制 CUP
-    bool _dispatch_ss3(char32_t code)
+    vt_message_id _dispatch_ss3(char32_t code)
     {
         switch (code)
         {
         case U'A':
-            _msg_id = vt_message_id::key_up;
             _should_echo = false;
-            return true;
+            return vt_message_id::key_up;
         case U'B':
-            _msg_id = vt_message_id::key_down;
             _should_echo = false;
-            return true;
+            return vt_message_id::key_down;
         case U'C':
-            _msg_id = vt_message_id::key_right;
             _should_echo = false;
-            return true;
+            return vt_message_id::key_right;
         case U'D':
-            _msg_id = vt_message_id::key_left;
             _should_echo = false;
-            return true;
+            return vt_message_id::key_left;
         case U'H':
-            _msg_id = vt_message_id::key_home;
             _should_echo = false;
-            return true;
+            return vt_message_id::key_home;
         case U'F':
-            _msg_id = vt_message_id::key_end;
             _should_echo = false;
-            return true;
+            return vt_message_id::key_end;
         case U'P':
-            _msg_id = vt_message_id::key_f1;
             _should_echo = false;
-            return true;
+            return vt_message_id::key_f1;
         case U'Q':
-            _msg_id = vt_message_id::key_f2;
             _should_echo = false;
-            return true;
+            return vt_message_id::key_f2;
         case U'R':
-            _msg_id = vt_message_id::key_f3;
             _should_echo = false;
-            return true;
+            return vt_message_id::key_f3;
         case U'S':
-            _msg_id = vt_message_id::key_f4;
             _should_echo = false;
-            return true;
+            return vt_message_id::key_f4;
         default:
-            return false;
+            return vt_message_id::continue_;
         }
     }
 
     // 字符集选择 (ESC ( ...)
-    bool _dispatch_charset(char32_t final)
+    vt_message_id _dispatch_charset(char32_t final)
     {
         if (final == U'0')
-        {
-            _msg_id = vt_message_id::designate_charset_line_drawing;
-            return true;
-        }
+            return vt_message_id::designate_charset_line_drawing;
         if (final == U'B')
-        {
-            _msg_id = vt_message_id::designate_charset_ascii;
-            return true;
-        }
-        return false;
+            return vt_message_id::designate_charset_ascii;
+        return vt_message_id::continue_;
     }
 
     // ── OSC 载荷解析辅助函数（接受 u32string_view，无异常） ──
@@ -1095,14 +1100,14 @@ class vt_parser
     }
 
     // ── OSC 序列分发 ──
-    bool _dispatch_osc()
+    vt_message_id _dispatch_osc()
     {
         auto &m = _msg;
         // seq 覆盖完整 OSC 序列，包括 ESC ] 和终止符；payload 在后面根据
         // 操作码后的分号与终止符位置切片出来。
         std::u32string_view seq(_raw.data() + _seq_start, _raw.size() - _seq_start);
         if (seq.size() < 3 || seq[0] != U'\x1B' || seq[1] != U']')
-            return false;
+            return vt_message_id::continue_;
 
         // 解析操作码（数字）
         size_t pos = 2;
@@ -1113,7 +1118,7 @@ class vt_parser
             ++pos;
         }
         if (pos >= seq.size() || seq[pos] != U';')
-            return false;
+            return vt_message_id::continue_;
         ++pos; // 跳过分号
 
         // 查找终止符：BEL (0x07) 或 ST (ESC \)
@@ -1132,7 +1137,7 @@ class vt_parser
             }
         }
         if (end_pos == std::u32string_view::npos)
-            return false;
+            return vt_message_id::continue_;
 
         // payload 在 _raw 中的绝对位置和长度
         size_t payload_start = _seq_start + pos;
@@ -1144,9 +1149,8 @@ class vt_parser
         case 0:
         case 2:
             // OSC 0 和 OSC 2 都作为窗口标题处理；icon title 不单独建模。
-            _msg_id = vt_message_id::set_window_title;
             m.title = payload; // 直接指向原始缓冲区
-            return true;
+            return vt_message_id::set_window_title;
 
         case 4: {
             // 设置调色板颜色：索引;rgb:r/g/b
@@ -1167,23 +1171,22 @@ class vt_parser
                 m.palette_b = _parse_osc_hex_8(payload, p);
                 // 至少有一个颜色分量被成功解析才认为成功
                 if (p == p_before)
-                    return false;
-                _msg_id = vt_message_id::set_palette_color;
-                return true;
+                    return vt_message_id::continue_;
+                return vt_message_id::set_palette_color;
             }
-            return false;
+            return vt_message_id::continue_;
         }
         default:
-            return false;
+            return vt_message_id::continue_;
         }
     }
 
     // ── CSI 终态分发 ──
-    bool _dispatch_csi(char32_t terminator)
+    vt_message_id _dispatch_csi(char32_t terminator)
     {
         auto &m = _msg;
         if (_csi_overflow)
-            return false; // 参数溢出，序列非法
+            return vt_message_id::continue_; // 参数溢出，序列非法
         bool priv = _private_marker;
 
         // 默认 count = 第一个参数，若未提供则为 1，0 也视为 1
@@ -1196,142 +1199,115 @@ class vt_parser
         // 相对光标移动（来自终端键盘），不回显原始字节：dispatch 生成钳制 CUP
         case U'A':
             if (priv)
-                return false;
-            _msg_id = vt_message_id::cursor_up;
+                return vt_message_id::continue_;
             m.count = _clamp(n);
             _should_echo = false;
-            return true;
+            return vt_message_id::cursor_up;
         case U'B':
             if (priv)
-                return false;
-            _msg_id = vt_message_id::cursor_down;
+                return vt_message_id::continue_;
             m.count = _clamp(n);
             _should_echo = false;
-            return true;
+            return vt_message_id::cursor_down;
         case U'C':
             if (priv)
-                return false;
-            _msg_id = vt_message_id::cursor_forward;
+                return vt_message_id::continue_;
             m.count = _clamp(n);
             _should_echo = false;
-            return true;
+            return vt_message_id::cursor_forward;
         case U'D':
             if (priv)
-                return false;
-            _msg_id = vt_message_id::cursor_backward;
+                return vt_message_id::continue_;
             m.count = _clamp(n);
             _should_echo = false;
-            return true;
+            return vt_message_id::cursor_backward;
         case U'E':
             if (priv)
-                return false;
-            _msg_id = vt_message_id::cursor_next_line;
+                return vt_message_id::continue_;
             m.count = _clamp(n);
             _should_echo = false;
-            return true;
+            return vt_message_id::cursor_next_line;
         case U'F':
             if (priv)
-                return false;
-            _msg_id = vt_message_id::cursor_prev_line;
+                return vt_message_id::continue_;
             m.count = _clamp(n);
             _should_echo = false;
-            return true;
+            return vt_message_id::cursor_prev_line;
         // 绝对/坐标型光标定位（来自应用程序输出），不回显原始字节：dispatch 生成钳制后的 CUP
         case U'G':
             if (priv)
-                return false;
-            _msg_id = vt_message_id::cursor_horiz_absolute;
+                return vt_message_id::continue_;
             m.col = _clamp(_get_param(0, 1));
             _should_echo = false;
-            return true;
+            return vt_message_id::cursor_horiz_absolute;
         case U'd':
             if (priv)
-                return false;
-            _msg_id = vt_message_id::cursor_vert_absolute;
+                return vt_message_id::continue_;
             m.row = _clamp(_get_param(0, 1));
             _should_echo = false;
-            return true;
+            return vt_message_id::cursor_vert_absolute;
         case U'H':
         case U'f':
             if (priv)
-                return false;
-            _msg_id = vt_message_id::cursor_position;
+                return vt_message_id::continue_;
             m.row = _clamp(_get_param(0, 1));
             m.col = _clamp(_get_param(1, 1));
             _should_echo = false;
-            return true;
+            return vt_message_id::cursor_position;
         case U's':
             if (!priv)
-            {
-                _msg_id = vt_message_id::ansi_save_cursor;
-                return true;
-            }
-            return false;
+                return vt_message_id::ansi_save_cursor;
+            return vt_message_id::continue_;
         case U'u':
             if (!priv)
-            {
-                _msg_id = vt_message_id::ansi_restore_cursor;
-                return true;
-            }
-            return false;
+                return vt_message_id::ansi_restore_cursor;
+            return vt_message_id::continue_;
 
         // DEC private h/l
         case U'h':
             if (!priv)
-                return false;
+                return vt_message_id::continue_;
             switch (_get_param(0))
             {
             case 12:
-                _msg_id = vt_message_id::cursor_enable_blinking;
-                return true;
+                return vt_message_id::cursor_enable_blinking;
             case 25:
-                _msg_id = vt_message_id::cursor_show;
-                return true;
+                return vt_message_id::cursor_show;
             case 1:
-                _msg_id = vt_message_id::cursor_keys_app_mode;
-                return true;
+                return vt_message_id::cursor_keys_app_mode;
             case 3:
-                _msg_id = vt_message_id::set_columns_132;
-                return true;
+                return vt_message_id::set_columns_132;
             case 1049:
-                _msg_id = vt_message_id::use_alternate_buffer;
-                return true;
+                return vt_message_id::use_alternate_buffer;
             default:
-                return false;
+                return vt_message_id::continue_;
             }
         case U'l':
             if (!priv)
-                return false;
+                return vt_message_id::continue_;
             switch (_get_param(0))
             {
             case 12:
-                _msg_id = vt_message_id::cursor_disable_blinking;
-                return true;
+                return vt_message_id::cursor_disable_blinking;
             case 25:
-                _msg_id = vt_message_id::cursor_hide;
-                return true;
+                return vt_message_id::cursor_hide;
             case 1:
-                _msg_id = vt_message_id::cursor_keys_normal_mode;
-                return true;
+                return vt_message_id::cursor_keys_normal_mode;
             case 3:
-                _msg_id = vt_message_id::set_columns_80;
-                return true;
+                return vt_message_id::set_columns_80;
             case 1049:
-                _msg_id = vt_message_id::use_main_buffer;
-                return true;
+                return vt_message_id::use_main_buffer;
             default:
-                return false;
+                return vt_message_id::continue_;
             }
 
         // 滚动
         case U'S':
-            _msg_id = vt_message_id::scroll_up;
             m.count = _clamp(n);
-            return true;
+            return vt_message_id::scroll_up;
         case U'T':
-            _msg_id = vt_message_id::scroll_down;
             m.count = _clamp(n);
-            return true;
+            return vt_message_id::scroll_down;
 
         // 窗口操作 (CSI … t)
         case U't': {
@@ -1341,46 +1317,38 @@ class vt_parser
             {
                 m.resize_rows = _clamp(_get_param(1));
                 m.resize_cols = _clamp(_get_param(2));
-                _msg_id = vt_message_id::resize_window;
-                return (m.resize_rows > 0 && m.resize_cols > 0);
+                return (m.resize_rows > 0 && m.resize_cols > 0) ? vt_message_id::resize_window
+                                                                : vt_message_id::continue_;
             }
             // CSI 4 ; height ; width t — resize in pixels (not supported, become text)
-            return false;
+            return vt_message_id::continue_;
         }
 
         // 文本修改
         case U'@':
-            _msg_id = vt_message_id::insert_characters;
             m.count = _clamp(n);
-            return true;
+            return vt_message_id::insert_characters;
         case U'P':
-            _msg_id = vt_message_id::delete_characters;
             m.count = _clamp(n);
-            return true;
+            return vt_message_id::delete_characters;
         case U'X':
-            _msg_id = vt_message_id::erase_characters;
             m.count = _clamp(n);
-            return true;
+            return vt_message_id::erase_characters;
         case U'L':
-            _msg_id = vt_message_id::insert_lines;
             m.count = _clamp(n);
-            return true;
+            return vt_message_id::insert_lines;
         case U'M':
-            _msg_id = vt_message_id::delete_lines;
             m.count = _clamp(n);
-            return true;
+            return vt_message_id::delete_lines;
         case U'J':
-            _msg_id = vt_message_id::erase_in_display;
             m.erase_mode = _clamp(_get_param(0));
-            return true;
+            return vt_message_id::erase_in_display;
         case U'K':
-            _msg_id = vt_message_id::erase_in_line;
             m.erase_mode = _clamp(_get_param(0));
-            return true;
+            return vt_message_id::erase_in_line;
 
         // SGR
         case U'm':
-            _msg_id = vt_message_id::sgr;
             m.sgr_reset = false;
             m.bold = false;
             m.faint = false;
@@ -1452,7 +1420,7 @@ class vt_parser
                         i += 4;
                     }
                     else
-                        return false;
+                        return vt_message_id::continue_;
                 }
                 else if (v == 39)
                 {
@@ -1477,7 +1445,7 @@ class vt_parser
                         i += 4;
                     }
                     else
-                        return false;
+                        return vt_message_id::continue_;
                 }
                 else if (v == 49)
                 {
@@ -1489,58 +1457,48 @@ class vt_parser
                 else if (v >= 100 && v <= 107)
                     m.bg_color = v - 100 + 8;
             }
-            return true;
+            return vt_message_id::sgr;
 
         // 光标形状
         case U'q':
             if (_intermediate == ' ')
             {
-                _msg_id = vt_message_id::set_cursor_shape;
                 m.cursor_shape = _clamp(_get_param(0));
-                return true;
+                return vt_message_id::set_cursor_shape;
             }
-            return false;
+            return vt_message_id::continue_;
 
         // 制表符
         case U'I':
-            _msg_id = vt_message_id::cursor_forward_tab;
             m.count = _clamp(n);
-            return true;
+            return vt_message_id::cursor_forward_tab;
         case U'Z':
-            _msg_id = vt_message_id::cursor_backward_tab;
             m.count = _clamp(n);
-            return true;
+            return vt_message_id::cursor_backward_tab;
         case U'g':
             switch (_get_param(0))
             {
             case 0:
-                _msg_id = vt_message_id::tab_clear_current;
-                return true;
+                return vt_message_id::tab_clear_current;
             case 3:
-                _msg_id = vt_message_id::tab_clear_all;
-                return true;
+                return vt_message_id::tab_clear_all;
             default:
-                return false;
+                return vt_message_id::continue_;
             }
 
         // 滚动边距
         case U'r':
-            _msg_id = vt_message_id::set_scrolling_region;
             m.scroll_top = _clamp(_get_param(0, 1));
             m.scroll_bottom = _clamp(_get_param(1, 0));
-            return true;
+            return vt_message_id::set_scrolling_region;
 
         // 查询
         case U'n':
             if (_get_param(0) == 6)
-            {
-                _msg_id = vt_message_id::report_cursor_position;
-                return true;
-            }
-            return false;
+                return vt_message_id::report_cursor_position;
+            return vt_message_id::continue_;
         case U'c':
-            _msg_id = vt_message_id::device_attributes;
-            return true;
+            return vt_message_id::device_attributes;
 
         // CPR 应答: CSI Pl ; Pc R — 终端对 DSR CPR (\x1b[6n) 的应答
         case U'R':
@@ -1548,19 +1506,16 @@ class vt_parser
             {
                 m.cpr_row = _clamp(_get_param(0, 1));
                 m.cpr_col = _clamp(_get_param(1, 1));
-                _msg_id = vt_message_id::cpr_response;
-                return (m.cpr_row > 0 && m.cpr_col > 0);
+                return (m.cpr_row > 0 && m.cpr_col > 0) ? vt_message_id::cpr_response
+                                                        : vt_message_id::continue_;
             }
-            return false;
+            return vt_message_id::continue_;
 
         // 软复位
         case U'p':
             if (_intermediate == '!')
-            {
-                _msg_id = vt_message_id::soft_reset;
-                return true;
-            }
-            return false;
+                return vt_message_id::soft_reset;
+            return vt_message_id::continue_;
 
         // Win32 Input Mode 键盘事件: \x1b[Vk;Sc;Uc;Kd;Cs;Rc_
         case U'_': {
@@ -1574,8 +1529,7 @@ class vt_parser
             m.win32_rc = static_cast<unsigned short>(_clamp(_get_param(5, 1)));
             if (m.win32_rc == 0)
                 m.win32_rc = 1;
-            _msg_id = vt_message_id::win32_input_key;
-            return true;
+            return vt_message_id::win32_input_key;
         }
 
         // 终端键盘功能键
@@ -1583,46 +1537,34 @@ class vt_parser
             switch (_get_param(0))
             {
             case 2:
-                _msg_id = vt_message_id::key_insert;
-                return true;
+                return vt_message_id::key_insert;
             case 3:
-                _msg_id = vt_message_id::key_delete;
-                return true;
+                return vt_message_id::key_delete;
             case 5:
-                _msg_id = vt_message_id::key_page_up;
-                return true;
+                return vt_message_id::key_page_up;
             case 6:
-                _msg_id = vt_message_id::key_page_down;
-                return true;
+                return vt_message_id::key_page_down;
             case 15:
-                _msg_id = vt_message_id::key_f5;
-                return true;
+                return vt_message_id::key_f5;
             case 17:
-                _msg_id = vt_message_id::key_f6;
-                return true;
+                return vt_message_id::key_f6;
             case 18:
-                _msg_id = vt_message_id::key_f7;
-                return true;
+                return vt_message_id::key_f7;
             case 19:
-                _msg_id = vt_message_id::key_f8;
-                return true;
+                return vt_message_id::key_f8;
             case 20:
-                _msg_id = vt_message_id::key_f9;
-                return true;
+                return vt_message_id::key_f9;
             case 21:
-                _msg_id = vt_message_id::key_f10;
-                return true;
+                return vt_message_id::key_f10;
             case 23:
-                _msg_id = vt_message_id::key_f11;
-                return true;
+                return vt_message_id::key_f11;
             case 24:
-                _msg_id = vt_message_id::key_f12;
-                return true;
+                return vt_message_id::key_f12;
             default:
-                return false;
+                return vt_message_id::continue_;
             }
         default:
-            return false;
+            return vt_message_id::continue_;
         }
     }
 };

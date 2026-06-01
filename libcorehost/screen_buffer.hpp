@@ -52,6 +52,8 @@ struct screen_buffer
         if (new_size.X == size.X && new_size.Y == size.Y)
             return;
 
+        _linearize_rows();
+
         // old_rows 保存 resize 前内容。resize 是本地模型变更，不主动发 VT；
         // 调用者若需要终端同步，必须在 API handler 中重绘或发 resize 序列。
         auto old_rows = std::move(_rows);
@@ -69,11 +71,11 @@ struct screen_buffer
     // ── 行访问 ──
     screen_buffer_row &row(SHORT y) noexcept
     {
-        return _rows[static_cast<size_t>(y)];
+        return _rows[_physical_row_index(y)];
     }
     const screen_buffer_row &row(SHORT y) const noexcept
     {
-        return _rows[static_cast<size_t>(y)];
+        return _rows[_physical_row_index(y)];
     }
 
     // ── 单 glyph 读写 ──
@@ -119,6 +121,7 @@ struct screen_buffer
 
         _write_widths.clear();
         uint16_t cell_count = 0;
+        bool all_single_width = true;
         while (result.consumed < text.size())
         {
             const auto ch = text[result.consumed];
@@ -131,6 +134,8 @@ struct screen_buffer
             if (cursor.X + cell_count + width_columns - 1 > view.Right)
                 break;
 
+            if (width_columns != 1)
+                all_single_width = false;
             _write_widths.push_back(static_cast<uint8_t>(width_columns));
             cell_count = static_cast<uint16_t>(cell_count + width_columns);
             ++result.consumed;
@@ -139,7 +144,7 @@ struct screen_buffer
         if (result.consumed != 0)
         {
             row(cursor.Y).write_measured_run(static_cast<uint16_t>(cursor.X), text.substr(0, result.consumed),
-                                             _write_widths, text_attribute{attr});
+                                             _write_widths, cell_count, all_single_width, text_attribute{attr});
             cursor.X = static_cast<SHORT>(cursor.X + cell_count);
         }
 
@@ -420,6 +425,7 @@ struct screen_buffer
     void clear(WORD attr = 0x07)
     {
         // 0x07 是传统白前景/黑背景属性。
+        _row_origin = 0;
         for (auto &r : _rows)
             r = screen_buffer_row(static_cast<uint16_t>(size.X), attr);
     }
@@ -457,6 +463,36 @@ struct screen_buffer
 
         // dx/dy 是源矩形相对目标位置的偏移。
         SHORT dx = dest.X - sr.Left, dy = dest.Y - sr.Top;
+        if (dx == 0 && dy != 0 && sr.Left == 0 && sr.Top == 0 && sr.Right == size.X - 1 &&
+            sr.Bottom == size.Y - 1 && clip.Left == 0 && clip.Top == 0 && clip.Right == size.X - 1 &&
+            clip.Bottom == size.Y - 1)
+        {
+            const auto height = static_cast<size_t>(size.Y);
+            const auto count = std::min<size_t>(dy < 0 ? -static_cast<int>(dy) : static_cast<int>(dy), height);
+            if (count == height)
+            {
+                _row_origin = 0;
+                for (SHORT y = 0; y < size.Y; ++y)
+                    _fill_row(y, fill_char, fill_attr);
+                return;
+            }
+
+            if (dy < 0)
+            {
+                _row_origin = (_row_origin + count) % height;
+                for (SHORT y = static_cast<SHORT>(size.Y - count); y < size.Y; ++y)
+                    _fill_row(y, fill_char, fill_attr);
+            }
+            else
+            {
+                _row_origin = (_row_origin + height - count) % height;
+                for (SHORT y = 0; y < static_cast<SHORT>(count); ++y)
+                    _fill_row(y, fill_char, fill_attr);
+            }
+            return;
+        }
+
+        _linearize_rows();
         if (dx == 0 && dy != 0 && sr.Left == 0 && sr.Right == size.X - 1 && clip.Left == sr.Left &&
             clip.Right == sr.Right && clip.Top == sr.Top && clip.Bottom == sr.Bottom)
         {
@@ -589,15 +625,33 @@ struct screen_buffer
     // _rows.size() 必须等于 size.Y，每行宽度必须等于 size.X。
     std::vector<screen_buffer_row> _rows;
     std::vector<uint8_t> _write_widths;
+    size_t _row_origin = 0;
 
     void _ensure_rows()
     {
         // _ensure_rows 重建所有行，不保留旧内容；需要保留内容的 resize 会在
         // 调用前先保存 old_rows 并按交集复制回来。
+        _row_origin = 0;
         _rows.clear();
         _rows.reserve(static_cast<size_t>(size.Y));
         for (SHORT y = 0; y < size.Y; ++y)
             _rows.emplace_back(static_cast<uint16_t>(size.X));
+    }
+
+    size_t _physical_row_index(SHORT y) const noexcept
+    {
+        const auto row_count = _rows.size();
+        return row_count == 0 ? 0 : (_row_origin + static_cast<size_t>(y)) % row_count;
+    }
+
+    void _linearize_rows()
+    {
+        if (_row_origin == 0 || _rows.empty())
+            return;
+
+        std::rotate(_rows.begin(), _rows.begin() + static_cast<std::vector<screen_buffer_row>::difference_type>(_row_origin),
+                    _rows.end());
+        _row_origin = 0;
     }
 
     bool _valid(COORD c) const noexcept

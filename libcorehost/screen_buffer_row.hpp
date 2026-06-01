@@ -26,6 +26,7 @@
 #include <vector>
 #include <string_view>
 #include <algorithm>
+#include <cassert>
 #include "perf_diag.hpp"
 
 namespace conpty
@@ -285,26 +286,15 @@ struct screen_buffer_row
     }
 
     void write_measured_run(uint16_t col, std::u32string_view text, std::span<const uint8_t> widths,
-                            text_attribute attr)
+                            uint16_t total_columns, bool all_single_width, text_attribute attr)
     {
         COREHOST_PERF_SCOPE_AMOUNT(row_write_measured_run, text.size());
-        if (text.empty() || text.size() != widths.size() || col >= width())
+        assert(text.size() == widths.size());
+        assert(col < width());
+        assert(total_columns > 0);
+        assert(col + total_columns <= width());
+        if (text.empty())
             return;
-
-        uint16_t total_columns = 0;
-        bool all_single_width = true;
-        for (auto width_columns : widths)
-        {
-            if (width_columns == 0)
-                return;
-            if (width_columns != 1)
-                all_single_width = false;
-            total_columns = static_cast<uint16_t>(total_columns + width_columns);
-        }
-        if (total_columns == 0)
-            return;
-        if (col + total_columns > width())
-            total_columns = static_cast<uint16_t>(width() - col);
 
         if (all_single_width && try_write_single_width_run(col, text, attr))
             return;

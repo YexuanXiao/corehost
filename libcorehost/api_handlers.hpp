@@ -243,9 +243,11 @@ inline void apply_terminal_erase_in_line(const vt_message &msg, console_state &s
     }
 }
 
-inline SMALL_RECT terminal_scroll_region(console_state &state, screen_buffer &sb) noexcept
+inline SMALL_RECT terminal_scroll_region(const console_state &state, SMALL_RECT view) noexcept
 {
-    const auto view = sb.viewport.rect();
+    if (state.scroll_region_top == 1 && state.scroll_region_bottom <= 0)
+        return view;
+
     const auto height = static_cast<SHORT>(view.Bottom - view.Top + 1);
     const auto top = std::clamp<SHORT>(state.scroll_region_top, 1, height);
     const auto bottom =
@@ -255,11 +257,16 @@ inline SMALL_RECT terminal_scroll_region(console_state &state, screen_buffer &sb
     return {view.Left, static_cast<SHORT>(view.Top + top - 1), view.Right, static_cast<SHORT>(view.Top + bottom - 1)};
 }
 
+inline SMALL_RECT terminal_scroll_region(const console_state &state, screen_buffer &sb) noexcept
+{
+    return terminal_scroll_region(state, sb.viewport.rect());
+}
+
 inline void apply_terminal_line_feed(console_state &state, screen_buffer &sb)
 {
     COREHOST_PERF_SCOPE(apply_line_feed);
     const auto view = sb.viewport.rect();
-    const auto scroll_region = terminal_scroll_region(state, sb);
+    const auto scroll_region = terminal_scroll_region(state, view);
     if (state.cursor.position.Y == scroll_region.Bottom && state.cursor.position.Y >= scroll_region.Top)
     {
         sb.scroll(scroll_region, scroll_region, true, {scroll_region.Left, static_cast<SHORT>(scroll_region.Top - 1)},
@@ -543,6 +550,64 @@ inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg,
     }
 }
 
+inline bool can_passthrough_write_console_vt(vt_message_id id) noexcept
+{
+    switch (id)
+    {
+    case vt_message_id::cursor_up:
+    case vt_message_id::cursor_down:
+    case vt_message_id::cursor_forward:
+    case vt_message_id::cursor_backward:
+    case vt_message_id::cursor_next_line:
+    case vt_message_id::cursor_prev_line:
+    case vt_message_id::cursor_horiz_absolute:
+    case vt_message_id::cursor_vert_absolute:
+    case vt_message_id::cursor_position:
+    case vt_message_id::ansi_save_cursor:
+    case vt_message_id::ansi_restore_cursor:
+    case vt_message_id::cursor_enable_blinking:
+    case vt_message_id::cursor_disable_blinking:
+    case vt_message_id::cursor_show:
+    case vt_message_id::cursor_hide:
+    case vt_message_id::scroll_up:
+    case vt_message_id::scroll_down:
+    case vt_message_id::insert_characters:
+    case vt_message_id::delete_characters:
+    case vt_message_id::erase_characters:
+    case vt_message_id::insert_lines:
+    case vt_message_id::delete_lines:
+    case vt_message_id::erase_in_display:
+    case vt_message_id::erase_in_line:
+    case vt_message_id::sgr:
+    case vt_message_id::set_palette_color:
+    case vt_message_id::cursor_keys_app_mode:
+    case vt_message_id::cursor_keys_normal_mode:
+    case vt_message_id::report_cursor_position:
+    case vt_message_id::device_attributes:
+    case vt_message_id::cursor_forward_tab:
+    case vt_message_id::cursor_backward_tab:
+    case vt_message_id::tab_clear_current:
+    case vt_message_id::tab_clear_all:
+    case vt_message_id::set_scrolling_region:
+    case vt_message_id::set_window_title:
+    case vt_message_id::use_alternate_buffer:
+    case vt_message_id::use_main_buffer:
+    case vt_message_id::set_columns_132:
+    case vt_message_id::set_columns_80:
+    case vt_message_id::reverse_index:
+    case vt_message_id::save_cursor:
+    case vt_message_id::restore_cursor:
+    case vt_message_id::horizontal_tab_set:
+    case vt_message_id::keypad_app_mode:
+    case vt_message_id::keypad_numeric_mode:
+    case vt_message_id::designate_charset_line_drawing:
+    case vt_message_id::designate_charset_ascii:
+        return true;
+    default:
+        return false;
+    }
+}
+
 inline void consume_write_console_vt_message(vt_message_id id, vt_parser &parser, console_state &state,
                                              screen_buffer &sb, pipe_bridge &bridge)
 {
@@ -553,7 +618,15 @@ inline void consume_write_console_vt_message(vt_message_id id, vt_parser &parser
         return;
     }
 
-    bridge.vt_msg_send(id, msg);
+    const auto raw = parser.raw_sequence();
+    if (!raw.empty() && can_passthrough_write_console_vt(id))
+    {
+        bridge.vt_append_raw_sequence(raw);
+    }
+    else
+    {
+        bridge.vt_msg_send(id, msg);
+    }
     if (id != vt_message_id::sgr)
         vt_msg_apply_terminal_state(id, msg, state, sb);
     parser.reset(id);
@@ -753,21 +826,45 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
 
             {
                 COREHOST_PERF_SCOPE_AMOUNT(write_console_parser, u32s.size());
-                for (char32_t ch : u32s)
+                std::u32string_view input{u32s};
+                for (size_t i = 0; i < u32s.size();)
                 {
-                    auto id = output_parser.parse(ch);
-                    if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
+                    if (auto count = output_parser.consume_ground_text_run(input.substr(i)); count != 0)
+                    {
+                        i += count;
                         continue;
+                    }
+
+                    const char32_t ch = u32s[i];
+                    auto parsed = output_parser.parse_with_consumption(ch);
+                    auto id = parsed.id;
+                    if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
+                    {
+                        if (parsed.consumption == vt_parse_consumption::consumed)
+                            ++i;
+                        continue;
+                    }
+
+                    if (parsed.consumption == vt_parse_consumption::retry && id == vt_message_id::carriage_return &&
+                        ch == U'\n')
+                    {
+                        id = vt_message_id::line_feed;
+                        ++i;
+                    }
+                    else if (parsed.consumption == vt_parse_consumption::consumed &&
+                             id == vt_message_id::carriage_return && i + 1 < u32s.size() && u32s[i + 1] == U'\n')
+                    {
+                        id = vt_message_id::line_feed;
+                        i += 2;
+                    }
+                    else if (parsed.consumption == vt_parse_consumption::consumed)
+                    {
+                        ++i;
+                    }
+
                     {
                         COREHOST_PERF_SCOPE(write_console_consume_msg);
                         consume_write_console_vt_message(id, output_parser, state, sb, bridge);
-                    }
-
-                    if (auto id2 = output_parser.parse(U'\0');
-                        id2 != vt_message_id::continue_ && id2 != vt_message_id::continue_text)
-                    {
-                        COREHOST_PERF_SCOPE(write_console_consume_msg);
-                        consume_write_console_vt_message(id2, output_parser, state, sb, bridge);
                     }
                 }
             }
