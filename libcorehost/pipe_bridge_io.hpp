@@ -4,6 +4,7 @@
 #include <span>
 #include "win32/handle.hpp"
 #include "miniio/io_thread.hpp"
+#include "perf_diag.hpp"
 #include "utility/log.hpp"
 
 namespace conpty
@@ -62,6 +63,7 @@ class pipe_bridge_io
     [[nodiscard]] bool peek_available(DWORD &available) const noexcept
     {
         available = 0;
+        COREHOST_PERF_SCOPE(vt_input_peek);
         if (::PeekNamedPipe(_vt_input.get(), nullptr, 0, nullptr, &available, nullptr))
             return true;
 
@@ -95,6 +97,7 @@ class pipe_bridge_io
 
         BYTE next = 0;
         DWORD peeked = 0;
+        COREHOST_PERF_SCOPE(vt_input_peek);
         if (!::PeekNamedPipe(_vt_input.get(), &next, sizeof(next), &peeked, nullptr, nullptr) || peeked == 0 ||
             next != static_cast<BYTE>(expected))
         {
@@ -102,8 +105,11 @@ class pipe_bridge_io
         }
 
         DWORD read = 0;
-        if (!::ReadFile(_vt_input.get(), &next, sizeof(next), &read, nullptr) || read != sizeof(next))
-            return false;
+        {
+            COREHOST_PERF_SCOPE_AMOUNT(vt_input_read_file, sizeof(next));
+            if (!::ReadFile(_vt_input.get(), &next, sizeof(next), &read, nullptr) || read != sizeof(next))
+                return false;
+        }
 
         consumed = static_cast<char8_t>(next);
         return true;
@@ -121,12 +127,15 @@ class pipe_bridge_io
         if (destination.empty())
             return vt_pipe_read_status::empty;
 
-        if (!::ReadFile(_vt_input.get(), byte_span(destination).data(), static_cast<DWORD>(destination.size()),
-                        &read_bytes, nullptr) ||
-            read_bytes == 0)
         {
-            LOG("[bridge_io] %s failed read=%lu err=%lu", operation, read_bytes, ::GetLastError());
-            return vt_pipe_read_status::eof;
+            COREHOST_PERF_SCOPE_AMOUNT(vt_input_read_file, destination.size());
+            if (!::ReadFile(_vt_input.get(), byte_span(destination).data(), static_cast<DWORD>(destination.size()),
+                            &read_bytes, nullptr) ||
+                read_bytes == 0)
+            {
+                LOG("[bridge_io] %s failed read=%lu err=%lu", operation, read_bytes, ::GetLastError());
+                return vt_pipe_read_status::eof;
+            }
         }
 
         return vt_pipe_read_status::bytes;

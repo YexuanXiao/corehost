@@ -2675,6 +2675,52 @@ inline bool api_l3_add_alias(miniio::io_msg &msg, console_state &state, screen_b
     return true;
 }
 
+inline void alias_ansi_to_wstring(const char *text, size_t bytes, UINT code_page, std::wstring &out)
+{
+    out.clear();
+    if (bytes == 0)
+        return;
+
+    const UINT cp = code_page ? code_page : CP_ACP;
+    const int chars = ::MultiByteToWideChar(cp, 0, text, static_cast<int>(bytes), nullptr, 0);
+    assert(chars >= 0);
+    if (chars == 0)
+        return;
+
+    out.resize(static_cast<size_t>(chars));
+    const int written = ::MultiByteToWideChar(cp, 0, text, static_cast<int>(bytes), out.data(), chars);
+    assert(written == chars);
+}
+
+[[nodiscard]] inline size_t alias_wstring_to_ansi_length(std::wstring_view text, UINT code_page) noexcept
+{
+    if (text.empty())
+        return 0;
+
+    const UINT cp = code_page ? code_page : CP_ACP;
+    const int bytes =
+        ::WideCharToMultiByte(cp, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+    assert(bytes >= 0);
+    return static_cast<size_t>(bytes);
+}
+
+inline size_t alias_wstring_to_ansi(std::wstring_view text, UINT code_page, char *out, size_t out_cap) noexcept
+{
+    if (text.empty())
+        return 0;
+
+    const auto needed = alias_wstring_to_ansi_length(text, code_page);
+    assert(needed <= out_cap);
+    if (needed == 0)
+        return 0;
+
+    const UINT cp = code_page ? code_page : CP_ACP;
+    const int written = ::WideCharToMultiByte(cp, 0, text.data(), static_cast<int>(text.size()), out,
+                                              static_cast<int>(out_cap), nullptr, nullptr);
+    assert(written == static_cast<int>(needed));
+    return needed;
+}
+
 // ── 0x13 GetAlias ──
 inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &)
 {
@@ -2743,8 +2789,8 @@ inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_b
         {
             std::wstring exe_key;
             std::wstring key;
-            convert_ansi_to_wstr(exe_a, exe_len_bytes, state.input_code_page, exe_key);
-            convert_ansi_to_wstr(src_a, src_len_bytes, state.input_code_page, key);
+            alias_ansi_to_wstring(exe_a, exe_len_bytes, state.input_code_page, exe_key);
+            alias_ansi_to_wstring(src_a, src_len_bytes, state.input_code_page, key);
             if (!key.empty())
             {
                 if (auto *wval = find_alias_value(state, exe_key, key))
@@ -2753,17 +2799,19 @@ inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_b
                     auto available_bytes = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIAS_MSG));
                     available_bytes = available_bytes > exe_len_bytes ? available_bytes - exe_len_bytes : 0;
                     auto needed =
-                        wstr_to_ansi_len(std::wstring_view{wval->data(), wval->size()}, state.input_code_page) + 1;
+                        alias_wstring_to_ansi_length(std::wstring_view{wval->data(), wval->size()}, state.input_code_page) +
+                        1;
                     if (needed <= available_bytes)
                     {
-                        auto n = convert_wide_to_ansi_raw(wval->data(), wval->size(), state.input_code_page, tgt_out,
-                                                          available_bytes);
+                        auto n = alias_wstring_to_ansi(std::wstring_view{wval->data(), wval->size()},
+                                                       state.input_code_page, tgt_out, available_bytes);
+                        tgt_out[n] = '\0';
                         r->TargetLength = static_cast<USHORT>(n + 1);
                         ucomplete_sz(msg, sizeof(CONSOLE_GETALIAS_MSG) + r->TargetLength);
                     }
                     else
                     {
-                        r->TargetLength = static_cast<USHORT>(available_bytes * sizeof(wchar_t));
+                        r->TargetLength = static_cast<USHORT>(available_bytes);
                         ucomplete_status_sz(msg, status_buffer_too_small, sizeof(CONSOLE_GETALIAS_MSG));
                     }
                     return true;
@@ -2796,7 +2844,7 @@ inline bool api_l3_get_aliases_length(miniio::io_msg &msg, console_state &state,
     }
     else
     {
-        convert_ansi_to_wstr(reinterpret_cast<const char *>(db), exe_len_bytes, state.input_code_page, exe_name);
+        alias_ansi_to_wstring(reinterpret_cast<const char *>(db), exe_len_bytes, state.input_code_page, exe_name);
     }
 
     const auto *aliases = &state.aliases;
@@ -2815,10 +2863,11 @@ inline bool api_l3_get_aliases_length(miniio::io_msg &msg, console_state &state,
     {
         for (const auto &[k, v] : *aliases)
         {
-            auto k_len = wstr_to_ansi_len(std::wstring_view{k.data(), k.size()}, state.input_code_page);
-            auto v_len = wstr_to_ansi_len(std::wstring_view{v.data(), v.size()}, state.input_code_page);
-            if (k_len > 0 && v_len > 0)
-                total += static_cast<ULONG>(k_len + 1 + v_len + 1);
+            const auto k_len = alias_wstring_to_ansi_length(std::wstring_view{k.data(), k.size()},
+                                                            state.input_code_page);
+            const auto v_len = alias_wstring_to_ansi_length(std::wstring_view{v.data(), v.size()},
+                                                            state.input_code_page);
+            total += static_cast<ULONG>(k_len + 1 + v_len + 1);
         }
     }
     r->AliasesLength = total;
@@ -2866,7 +2915,7 @@ inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen
     if (r->Unicode)
         exe_name.assign(reinterpret_cast<const wchar_t *>(db), exe_len_bytes / sizeof(wchar_t));
     else
-        convert_ansi_to_wstr(reinterpret_cast<const char *>(db), exe_len_bytes, state.input_code_page, exe_name);
+        alias_ansi_to_wstring(reinterpret_cast<const char *>(db), exe_len_bytes, state.input_code_page, exe_name);
 
     const auto *aliases = &state.aliases;
     auto exe_key = lower_wstring(exe_name);
@@ -2898,19 +2947,22 @@ inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen
     {
         auto *out = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG));
         auto maxb = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIASES_MSG));
-        std::wstring entry;
-        std::string converted;
         for (const auto &[k, v] : *aliases)
         {
-            entry.assign(k);
-            entry.push_back(L'=');
-            entry.append(v);
-            convert_wstr_to_ansi(entry, state.input_code_page, converted);
-            ULONG need = static_cast<ULONG>(converted.size() + 1);
+            const auto k_len = alias_wstring_to_ansi_length(std::wstring_view{k.data(), k.size()},
+                                                            state.input_code_page);
+            const auto v_len = alias_wstring_to_ansi_length(std::wstring_view{v.data(), v.size()},
+                                                            state.input_code_page);
+            ULONG need = static_cast<ULONG>(k_len + 1 + v_len + 1);
             if (written + need > maxb)
                 break;
-            std::memcpy(out + written, converted.data(), converted.size());
-            written += static_cast<ULONG>(converted.size());
+            written += static_cast<ULONG>(
+                alias_wstring_to_ansi(std::wstring_view{k.data(), k.size()}, state.input_code_page, out + written,
+                                      maxb - written));
+            out[written++] = '=';
+            written += static_cast<ULONG>(
+                alias_wstring_to_ansi(std::wstring_view{v.data(), v.size()}, state.input_code_page, out + written,
+                                      maxb - written));
             out[written++] = '\0';
         }
         r->AliasesBufferLength = written;

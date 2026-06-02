@@ -16,18 +16,22 @@
 #include "connect_completion.hpp"
 #include "message_router.hpp"
 #include "miniio/io_thread.hpp"
+#include "perf_diag.hpp"
 #include "utility/log.hpp"
 
 namespace conpty
 {
 
+inline constexpr DWORD io_loop_idle_wait_ms = 16;
+
 inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view ev, message_router &router)
 {
     LOG("run_io_loop_no_setup: enter");
 
-    // server 是 READ_IO/COMPLETE_IO 的等待对象。ev 是 ConDrv InputAvailableEvent，
-    // 本循环不等待 ev：ev 只通知客户端输入可用，不能作为服务端消息节流信号。
-    (void)ev;
+    // server 是 READ_IO/COMPLETE_IO 的等待对象。ev 是 ConDrv InputAvailableEvent。
+    // 本循环不把 ev 当作主要等待对象；这里只在提交上一条 completion 前做
+    // 0ms 探测，用来判断小块 VT 输出是否需要先刷给终端，避免客户端输出
+    // ready/prompt 后等待输入时卡在 READ_IO 里。
 
     // READ_IO 会在同一次调用中提交上一条 completion 并读取下一条消息。
     // 双缓冲保证 completion 中指向的 body 不会被下一条消息覆盖。
@@ -40,12 +44,6 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
     // 其 completion 必须作为下一轮 READ_IO 的输入。
     miniio::io_msg *prev_done = nullptr;
 
-    // 连续输出时 ConDrv 会立刻提供下一条消息。每条消息后都轮询 vt_in 会把
-    // 输出热路径变成 PeekNamedPipe 风暴；批量处理一小段消息后再 idle，仍把
-    // 输入延迟限制在很短的消息窗口内。
-    constexpr unsigned idle_poll_message_interval = 64;
-    unsigned messages_since_idle = 0;
-
     for (;;)
     {
         // 只有在没有 pending 请求、也没有 completion 待提交时才允许等待。
@@ -55,23 +53,37 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             // router.on_idle 会主动读取 vt_in；键盘输入不会唤醒 server，所以等待前
             // 必须先服务一次终端输入。
             router.on_idle();
-            messages_since_idle = 0;
             if (router.should_exit())
                 break;
             if (!router.has_pending())
-                // 1ms 只是空闲节流；不能无限等待，因为 vt_in 不会唤醒 server。
-                ::WaitForSingleObject(server.get(), 1);
+            {
+                // 16ms 只在已经主动服务过一次 vt_in 后用于空闲节流；新的
+                // ConDrv 消息会唤醒 server，终端输入由下一轮 on_idle 轮询。
+                COREHOST_PERF_SCOPE(io_server_idle_wait);
+                ::WaitForSingleObject(server.get(), io_loop_idle_wait_ms);
+            }
         }
 
         // prev_comp 非空时由 ConDrv 消费；read_io_try 返回 no_message 后也不
         // 能再次提交同一个 completion。
         CD_IO_COMPLETE *prev_comp = prev_done ? &prev_done->complete : nullptr;
+        const bool submitting_previous_completion = prev_comp != nullptr;
+        if (submitting_previous_completion && router.has_buffered_vt_output() && ev.valid())
+        {
+            COREHOST_PERF_SCOPE(io_server_wait_0);
+            if (::WaitForSingleObject(ev.get(), 0) != WAIT_OBJECT_0)
+                router.flush_vt_output();
+        }
 
         // read_io_try 的三个结果含义：
         // disconnected: server 已断开，本循环结束。
         // no_message   : completion 已提交，但暂时没有新消息。
         // message      : cur 中已有一条新的 ConDrv 消息。
-        auto read_result = miniio::read_io_try(server, prev_comp, *cur);
+        auto read_result = miniio::read_io_result::no_message;
+        {
+            COREHOST_PERF_SCOPE(io_read_io_try);
+            read_result = miniio::read_io_try(server, prev_comp, *cur);
+        }
         if (read_result == miniio::read_io_result::disconnected)
         {
             router.flush_vt_output();
@@ -83,24 +95,32 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             // no_message 仍可能已经消费 prev_comp，因此必须清空 prev_done。
             prev_done = nullptr;
 
+            router.flush_vt_output();
+
             // 0ms 只触发一次非阻塞等待，让 ConDrv 消化 pending 状态。
-            ::WaitForSingleObject(server.get(), 0);
+            {
+                COREHOST_PERF_SCOPE(io_server_wait_0);
+                ::WaitForSingleObject(server.get(), 0);
+            }
             router.on_idle();
-            messages_since_idle = 0;
             if (router.should_exit())
                 break;
             if (!router.has_pending())
-                // 1ms 只是空闲节流；pending VT 输入仍由 on_idle/handler 处理。
-                ::WaitForSingleObject(server.get(), 1);
+            {
+                // 16ms 只在 READ_IO 已确认暂时无消息后让步。
+                COREHOST_PERF_SCOPE(io_server_idle_wait);
+                ::WaitForSingleObject(server.get(), io_loop_idle_wait_ms);
+            }
             continue;
         }
         prev_done = nullptr; // completion 已被 read_io 消费
+        if (submitting_previous_completion && router.should_flush_vt_output())
+            router.flush_vt_output();
 
         if (cur->descriptor.Function == 0)
         {
             // Function==0 是空 descriptor，不对应可完成的 Console I/O。
             router.on_idle();
-            messages_since_idle = 0;
             if (router.should_exit())
                 break;
             continue;
@@ -112,27 +132,11 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             // false 表示请求挂起，router 会在后续 VT 输入到达时显式完成。
             if (router.on_message(*cur))
             {
-                if (router.has_buffered_vt_output())
-                {
-                    // 输出热路径需要允许客户端继续提交后续 WriteConsole，而 VT
-                    // 字节仍留在 bridge 缓冲中批量刷新。显式 COMPLETE_IO 可以把
-                    // 本次 API 调用完成和下一次 READ_IO 解耦。
-                    miniio::complete_io(server, cur->complete);
-                    prev_done = nullptr;
-                    if (router.should_flush_vt_output())
-                        router.flush_vt_output();
-                }
-                else
-                {
-                    prev_done = cur;
-                }
-                if (++messages_since_idle >= idle_poll_message_interval)
-                {
-                    router.on_idle();
-                    messages_since_idle = 0;
-                    if (router.should_exit())
-                        break;
-                }
+                // 下一轮 READ_IO 会在读取下一条消息的同时提交本条 completion。
+                // 即使 VT 输出暂存在 bridge 缓冲中，也不需要额外 COMPLETE_IO；
+                // 当 READ_IO 已提交 completion 后再按阈值刷新 VT，可同时减少
+                // ConDrv IOCTL 和终端管道 WriteFile 次数。
+                prev_done = cur;
             }
             else
             {

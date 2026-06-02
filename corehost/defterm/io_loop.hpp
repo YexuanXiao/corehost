@@ -21,6 +21,8 @@
 namespace defterm
 {
 
+inline constexpr DWORD io_loop_idle_wait_ms = 16;
+
 enum class connect_completion
 {
     explicit_complete,
@@ -56,15 +58,14 @@ inline void run_io_loop(win32::handle_view server, win32::handle_view ev, Handle
         // 若在提交 completion 前先等待，会把每个 Console API 往返都人为延迟。
         //
         // 另外，终端键盘数据走 vt_in 管道，不会触发 ConDrv 的 ev。
-        // 因此空闲时必须先 on_idle() 扫 vt_in，再短等待 ConDrv 事件；否则键入只能被
-        // 16ms 轮询发现，PowerShell/PSReadLine 多轮小 API 会把延迟放大成明显卡顿。
+        // 因此空闲时必须先 on_idle() 扫 vt_in，再短等待 ConDrv 事件。
         if (!handler.has_pending() && prev_done == nullptr)
         {
             handler.on_idle();
             if (handler.should_exit())
                 break;
             if (!handler.has_pending())
-                ::WaitForSingleObject(ev.get(), 1);
+                ::WaitForSingleObject(ev.get(), io_loop_idle_wait_ms);
         }
 
         CD_IO_COMPLETE *prev_comp = prev_done ? &prev_done->complete : nullptr;

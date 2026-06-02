@@ -145,31 +145,38 @@ inline void copy_host_tree(const std::filesystem::path &host_path, const std::fi
     }
 }
 
-inline void copy_realistic_build_output_file(const std::filesystem::path &worker_dir)
+inline constexpr wchar_t powershell_type_input_file_name[] = L"corehost-bench-realistic-type-vt.txt";
+
+inline void generate_powershell_type_input_file(const std::filesystem::path &worker_dir)
 {
-    constexpr auto file_name = L"realistic-build-output-vt.txt";
-    const auto exe_dir = std::filesystem::path{current_exe_path()}.parent_path();
-    const auto repo_root = exe_dir.parent_path().parent_path();
-    const std::array<std::filesystem::path, 3> candidates{
-        exe_dir / file_name,
-        exe_dir.parent_path() / file_name,
-        repo_root / L"build" / file_name,
-    };
+    const auto path = worker_dir / powershell_type_input_file_name;
+    FILE *file = nullptr;
+    if (_wfopen_s(&file, path.c_str(), L"wb") != 0 || !file)
+        print_and_abort("create PowerShell type input file failed\n");
 
-    std::error_code ec;
-    for (const auto &candidate : candidates)
+    constexpr size_t line_count = 12000;
+    for (size_t i = 0; i < line_count; ++i)
     {
-        if (!std::filesystem::is_regular_file(candidate, ec))
-            continue;
+        const char *prefix = "\x1b[32m[build]\x1b[0m ";
+        if (i % 17 == 0)
+            prefix = "\x1b[33mwarning\x1b[0m ";
+        else if (i % 53 == 0)
+            prefix = "\x1b[31merror\x1b[0m ";
+        else if (i % 7 == 0)
+            prefix = "\x1b[36mcompile\x1b[0m ";
 
-        std::filesystem::copy_file(candidate, worker_dir / file_name, std::filesystem::copy_options::overwrite_existing,
-                                   ec);
-        if (ec)
-            print_and_abort("copy realistic build output file failed: %d\n", ec.value());
-        return;
+        if (std::fprintf(file,
+                         "%sproject\\module\\target_%05zu.cpp : ASCII abcdefghijklmnopqrstuvwxyz 0123456789 "
+                         "\x1b[1m喜欢你 核心终端性能测试\x1b[22m payload payload payload payload\r\n",
+                         prefix, i) < 0)
+        {
+            std::fclose(file);
+            print_and_abort("write PowerShell type input file failed\n");
+        }
     }
 
-    print_and_abort("realistic build output file not found; expected build\\realistic-build-output-vt.txt\n");
+    if (std::fclose(file) != 0)
+        print_and_abort("close PowerShell type input file failed\n");
 }
 
 // Launches the worker process and mirrors its stdout/stderr to this process.
@@ -245,7 +252,7 @@ inline void copy_realistic_build_output_file(const std::filesystem::path &worker
 
     std::filesystem::copy_file(current_exe_path(), worker_exe, std::filesystem::copy_options::overwrite_existing);
     copy_host_tree(host_path, worker_dir);
-    copy_realistic_build_output_file(worker_dir);
+    generate_powershell_type_input_file(worker_dir);
 
     auto output = run_worker_process(worker_exe, worker_dir, label, scenario_filter);
     auto scenarios = parse_worker_results(output);

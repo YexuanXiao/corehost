@@ -1167,8 +1167,6 @@ struct pipe_bridge
     // ── on_idle ──
     void on_idle()
     {
-        vt_flush();
-
         if (_pending.vt_eof())
             return;
 

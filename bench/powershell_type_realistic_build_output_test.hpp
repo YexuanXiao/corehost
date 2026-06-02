@@ -1,9 +1,8 @@
 #pragma once
 
-// Parent-side runner for the realistic PowerShell `type` workload. In
-// PowerShell, `type` is an alias for Get-Content, so this scenario exercises the
-// line/object-oriented shell output path rather than the direct fwrite worker
-// used by the synthetic throughput tests.
+// Parent-side runner for the realistic PowerShell `type` workload. The worker
+// directory contains a generated build-output file; PowerShell reads it through
+// Get-Content so this scenario exercises the shell's line/object output path.
 
 #include "conpty_session.hpp"
 
@@ -18,7 +17,7 @@ inline constexpr std::string_view powershell_type_marker = "__COREHOST_BENCH_POW
     const auto command =
         L"powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "
         L"\"$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8; "
-        L"Get-Content -LiteralPath '.\\realistic-build-output-vt.txt' -Encoding UTF8; "
+        L"Get-Content -LiteralPath '.\\corehost-bench-realistic-type-vt.txt' -Encoding UTF8 -TotalCount 12000; "
         L"Write-Output '__COREHOST_BENCH_POWERSHELL_TYPE_DONE__'\"";
 
     const auto begin = perf_counter();
