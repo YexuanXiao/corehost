@@ -6,6 +6,7 @@
 #include "cjk_terminal_input_test.hpp"
 #include "large_mixed_vt_cjk_output_test.hpp"
 #include "long_line_three_vt_output_test.hpp"
+#include "powershell_type_realistic_build_output_test.hpp"
 #include "sgr_sequence_matrix_test.hpp"
 
 namespace bench
@@ -59,6 +60,13 @@ inline std::vector<scenario_result> run_worker_bench(std::string host_label, std
         append_worker_result(results,
                              run_long_line_three_vt_output(host_label, "long-line-three-vt-output",
                                                            8ull * 1024ull * 1024ull, std::chrono::seconds{30}));
+    }
+
+    if (should_run_scenario(scenario_filter, "powershell-type-realistic-build-output"))
+    {
+        append_worker_result(results,
+                             run_powershell_type_realistic_build_output(
+                                 host_label, "powershell-type-realistic-build-output", std::chrono::seconds{120}));
     }
 
     if (const auto *test_case = filtered_sgr_case(scenario_filter))

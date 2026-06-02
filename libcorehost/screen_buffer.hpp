@@ -717,7 +717,7 @@ struct screen_buffer
 
     void _fill_row(SHORT y, char32_t cp, WORD attr)
     {
-        _rows[static_cast<size_t>(y)].reset_fill(static_cast<uint16_t>(size.X), cp, text_attribute{attr});
+        row(y).reset_fill(static_cast<uint16_t>(size.X), cp, text_attribute{attr});
     }
 };
 

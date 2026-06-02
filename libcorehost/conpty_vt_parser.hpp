@@ -396,8 +396,13 @@ class vt_parser
             return 0;
 
         size_t count = 0;
-        while (count < text.size() && _is_ground_printable(text[count]))
+        while (count < text.size())
+        {
+            const auto ch = text[count];
+            if (ch <= 0x1F || ch == 0x7F)
+                break;
             ++count;
+        }
         return count;
     }
 

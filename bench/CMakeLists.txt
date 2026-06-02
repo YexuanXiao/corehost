@@ -11,6 +11,7 @@ add_executable(conpty_bench
     large_mixed_vt_cjk_output_test.hpp
     long_line_three_vt_output_test.hpp
     cjk_terminal_input_test.hpp
+    powershell_type_realistic_build_output_test.hpp
     sgr_sequence_matrix_test.hpp
     scenarios.hpp
     host_runner.hpp

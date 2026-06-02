@@ -2546,7 +2546,8 @@ struct pipe_bridge
             // ReadConsoleA 使用控制台输入代码页，而不是终端 UTF-8。否则
             // CJK 输入会以 UTF-8 字节交给期望 OEM/ANSI 的控制台程序。
             auto *ansi_out = reinterpret_cast<char *>(db);
-            size_t written = convert_u32_to_ansi_raw(_cooked_buf, cstate.input_code_page, ansi_out, maxd);
+            size_t written =
+                convert_u32_to_ansi_raw(_cooked_buf, cstate.input_code_page, ansi_out, maxd, _conversion.wide());
             written = append_ascii_raw('\r', ansi_out, maxd, written);
             written = append_ascii_raw('\n', ansi_out, maxd, written);
             cp = static_cast<DWORD>(written);

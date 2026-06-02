@@ -8,6 +8,7 @@
 //    MultiByteToWideChar/WideCharToMultiByte。
 #pragma once
 #include <windows.h>
+#include <cassert>
 #include <cstring>
 #include <cstdint>
 #include <string>
@@ -710,27 +711,20 @@ inline void convert_u32_to_ansi(std::u32string_view u32s, UINT cp, ByteBuffer &o
     convert_wstr_to_ansi(std::wstring_view{wbuf.data(), wbuf.size()}, cp, out);
 }
 
-inline size_t convert_u32_to_wide_raw(std::u32string_view text, wchar_t *out, size_t out_cap) noexcept
-{
-    size_t written = 0;
-    for (char32_t cp : text)
-    {
-        wchar_t encoded[2];
-        const auto count = static_cast<size_t>(to_wchar(cp, encoded));
-        if (written + count > out_cap)
-            break;
-        std::memcpy(out + written, encoded, count * sizeof(wchar_t));
-        written += count;
-    }
-    return written;
-}
-
 inline size_t u32_to_wide_exact_len(std::u32string_view text) noexcept
 {
     size_t length = 0;
     for (char32_t cp : text)
         length += cp > 0xFFFF ? 2 : 1;
     return length;
+}
+
+inline size_t convert_u32_to_wide_raw(std::u32string_view text, wchar_t *out, size_t out_cap) noexcept
+{
+    const auto needed = u32_to_wide_exact_len(text);
+    assert(needed <= out_cap);
+    auto *end = unicode::convert_to<char16_t>(text, reinterpret_cast<char16_t *>(out));
+    return static_cast<size_t>(end - reinterpret_cast<char16_t *>(out));
 }
 
 inline size_t append_ascii_raw(char ch, char *out, size_t out_cap, size_t written) noexcept
@@ -740,81 +734,59 @@ inline size_t append_ascii_raw(char ch, char *out, size_t out_cap, size_t writte
     return written;
 }
 
-inline size_t convert_u32_to_ansi_raw(std::u32string_view text, UINT code_page, char *out, size_t out_cap) noexcept
+inline size_t u32_to_utf8_exact_len(std::u32string_view text) noexcept
 {
-    UINT cp = code_page ? code_page : CP_ACP;
-    size_t written = 0;
-    if (cp == CP_UTF8 || cp == 65001)
-    {
-        unicode::encoder<char> enc;
-        for (char32_t ch : text)
-        {
-            char bytes[4];
-            char *end = enc(ch, bytes);
-            const auto count = static_cast<size_t>(end - bytes);
-            if (written + count > out_cap)
-                break;
-            std::memcpy(out + written, bytes, count);
-            written += count;
-        }
-        return written;
-    }
-
-    if (cp == code_page_gbk)
-    {
-        for (char32_t ch : text)
-        {
-            if (!gbk_append_code_raw(gbk_encode_codepoint(ch), out, out_cap, written))
-                break;
-        }
-        return written;
-    }
-
-    for (char32_t ch : text)
-    {
-        if (written >= out_cap)
-            break;
-        wchar_t wide[2];
-        const auto wide_count = to_wchar(ch, wide);
-        int bytes = ::WideCharToMultiByte(cp, 0, wide, wide_count, out + written,
-                                          static_cast<int>(out_cap - written), nullptr, nullptr);
-        if (bytes <= 0)
-            break;
-        written += static_cast<size_t>(bytes);
-    }
-    return written;
+    size_t bytes = 0;
+    for (const auto ch : text)
+        bytes += ch <= 0x7F ? 1 : (ch <= 0x7FF ? 2 : (ch <= 0xFFFF ? 3 : 4));
+    return bytes;
 }
 
-inline size_t u32_to_ansi_exact_len(std::u32string_view text, UINT code_page) noexcept
+template <typename WideBuffer>
+inline size_t convert_u32_to_ansi_raw(std::u32string_view text, UINT code_page, char *out, size_t out_cap,
+                                      WideBuffer &wbuf) noexcept
 {
+    if (text.empty())
+        return 0;
+
     UINT cp = code_page ? code_page : CP_ACP;
-    size_t length = 0;
     if (cp == CP_UTF8 || cp == 65001)
     {
-        char bytes[4];
-        unicode::encoder<char> enc;
-        for (char32_t ch : text)
-            length += static_cast<size_t>(enc(ch, bytes) - bytes);
-        return length;
+        assert(u32_to_utf8_exact_len(text) <= out_cap);
+        auto *end = unicode::convert_to<char>(text, out);
+        return static_cast<size_t>(end - out);
     }
 
-    if (cp == code_page_gbk)
-    {
-        for (char32_t ch : text)
-            length += gbk_encode_codepoint(ch) <= 0xFF ? 1 : 2;
-        return length;
-    }
-
-    for (char32_t ch : text)
-    {
-        wchar_t wide[2];
-        const auto wide_count = to_wchar(ch, wide);
-        int bytes = ::WideCharToMultiByte(cp, 0, wide, wide_count, nullptr, 0, nullptr, nullptr);
-        if (bytes > 0)
-            length += static_cast<size_t>(bytes);
-    }
-    return length;
+    convert_u32_to_wstr(text, wbuf);
+    auto wide = std::wstring_view{wbuf.data(), wbuf.size()};
+    const int bytes = ::WideCharToMultiByte(cp, 0, wide.data(), static_cast<int>(wide.size()), out,
+                                            static_cast<int>(out_cap), nullptr, nullptr);
+    assert(bytes > 0);
+    return static_cast<size_t>(bytes);
 }
+
+template <typename WideBuffer>
+inline size_t u32_to_ansi_exact_len(std::u32string_view text, UINT code_page, WideBuffer &wbuf) noexcept
+{
+    if (text.empty())
+        return 0;
+
+    UINT cp = code_page ? code_page : CP_ACP;
+    if (cp == CP_UTF8 || cp == 65001)
+        return u32_to_utf8_exact_len(text);
+
+    convert_u32_to_wstr(text, wbuf);
+    auto wide = std::wstring_view{wbuf.data(), wbuf.size()};
+    const int bytes = ::WideCharToMultiByte(cp, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr,
+                                            nullptr);
+    assert(bytes > 0);
+    return static_cast<size_t>(bytes);
+}
+
+inline size_t convert_u32_to_ansi_raw(std::u32string_view text, UINT code_page, char *out, size_t out_cap) noexcept =
+    delete;
+
+inline size_t u32_to_ansi_exact_len(std::u32string_view text, UINT code_page) noexcept = delete;
 
 // ════════════════════════════════════════════════════════
 // 原始缓冲区写入（用于 ConDrv 消息体直接写入）

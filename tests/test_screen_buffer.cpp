@@ -158,9 +158,10 @@ bool test_scroll_up()
     for (SHORT y = 0; y < 25; ++y)
         sb.set_u32({0, y}, static_cast<char32_t>(U'A' + y), 0x07);
     SMALL_RECT sr{0, 0, 79, 24};
-    sb.scroll(sr, sr, false, {0, 1}, U' ', 0x07);
-    // Scroll completed without crash; some content shifted
-    ASSERT(true);
+    sb.scroll(sr, sr, false, {0, -1}, U'Z', 0x0A);
+    ASSERT_EQ(sb.at_u32({0, 0}), U'B');
+    ASSERT_EQ(sb.at_u32({0, 24}), U'Z');
+    ASSERT_EQ(sb.attr_at({0, 24}), (WORD)0x0A);
     return true;
 }
 
@@ -170,8 +171,10 @@ bool test_scroll_down()
     for (SHORT y = 0; y < 25; ++y)
         sb.set_u32({0, y}, static_cast<char32_t>(U'A' + y), 0x07);
     SMALL_RECT sr{0, 0, 79, 24};
-    sb.scroll(sr, sr, false, {0, -1}, U' ', 0x07);
-    ASSERT(true);
+    sb.scroll(sr, sr, false, {0, 1}, U'Z', 0x0A);
+    ASSERT_EQ(sb.at_u32({0, 0}), U'Z');
+    ASSERT_EQ(sb.attr_at({0, 0}), (WORD)0x0A);
+    ASSERT_EQ(sb.at_u32({0, 24}), U'X');
     return true;
 }
 

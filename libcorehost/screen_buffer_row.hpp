@@ -74,6 +74,12 @@ struct screen_buffer_row
 
     // 大小为 width。trailing 列也保存属性，便于 CHAR_INFO 导出。
     std::vector<text_attribute> _attrs;
+    bool _single_width_layout = false;
+    bool _filled = false;
+    char32_t _fill_char = U' ';
+    text_attribute _fill_attr{};
+    bool _attrs_uniform = false;
+    text_attribute _uniform_attr{};
 
     screen_buffer_row() = default;
 
@@ -87,10 +93,12 @@ struct screen_buffer_row
     {
         _columns.resize(static_cast<size_t>(width) + 1);
         _attrs.resize(width);
-        std::fill(_attrs.begin(), _attrs.end(), attr);
-        _text.assign(static_cast<size_t>(width), cp);
-        for (uint16_t i = 0; i <= width; ++i)
-            _columns[i] = i;
+        _fill_char = cp;
+        _fill_attr = attr;
+        _filled = true;
+        _single_width_layout = true;
+        _attrs_uniform = true;
+        _uniform_attr = attr;
     }
 
     // ── 基本信息 ──
@@ -104,11 +112,15 @@ struct screen_buffer_row
     {
         // 返回值已经去掉 trailing 标志；越界列按 0 处理，调用者通常会先用
         // width() 做边界检查。
+        if (_filled)
+            return col <= width() ? col : 0;
         return (col < _columns.size()) ? (_columns[col] & OFFSET_MASK) : 0;
     }
 
     bool is_trailing(uint16_t col) const noexcept
     {
+        if (_filled)
+            return false;
         return (col < _columns.size()) && (_columns[col] & TRAILING_FLAG);
     }
 
@@ -117,6 +129,8 @@ struct screen_buffer_row
     {
         if (col >= width())
             return {};
+        if (_filled)
+            return std::u32string_view{&_fill_char, 1};
         uint16_t start = col_offset(col);
         // trailing 列与 leading 列共享 start。end_col 找到下一个非 trailing
         // 列或 past-the-end sentinel，以便得到完整 glyph 的 codepoint 范围。
@@ -149,17 +163,29 @@ struct screen_buffer_row
     // ── 属性 ──
     text_attribute attr_at(uint16_t col) const noexcept
     {
+        if (_attrs_uniform && col < width())
+            return _uniform_attr;
         return (col < _attrs.size()) ? _attrs[col] : text_attribute{};
     }
 
     void set_attr(uint16_t col, text_attribute a) noexcept
     {
+        materialize_filled();
+        materialize_attrs();
         if (col < _attrs.size())
             _attrs[col] = a;
     }
 
     void fill_attrs(uint16_t start, uint16_t end_excl, text_attribute a) noexcept
     {
+        materialize_filled();
+        if (start == 0 && end_excl >= width())
+        {
+            _attrs_uniform = true;
+            _uniform_attr = a;
+            return;
+        }
+        materialize_attrs();
         // end_excl 是半开区间右边界；超过行宽的部分静默截断，匹配控制台 API
         // 对短写的容忍行为。
         if (start >= _attrs.size())
@@ -170,6 +196,7 @@ struct screen_buffer_row
 
     bool try_write_single_width_run(uint16_t col, std::u32string_view text, text_attribute attr)
     {
+        materialize_filled();
         if (text.empty())
             return true;
         if (col >= width() || text.size() > static_cast<size_t>(width() - col))
@@ -194,8 +221,8 @@ struct screen_buffer_row
         {
             const auto cell = static_cast<uint16_t>(col + i);
             _text[col_offset(cell)] = text[i];
-            _attrs[cell] = attr;
         }
+        write_attr_range(col, static_cast<uint16_t>(col + count), attr);
         return true;
     }
 
@@ -209,6 +236,7 @@ struct screen_buffer_row
             return;
         if (col + width_columns > width())
             width_columns = width() - col;
+        materialize_filled();
 
         if (width_columns == 1 && text.size() == 1 && !is_trailing(col))
         {
@@ -225,6 +253,7 @@ struct screen_buffer_row
                 }
             }
         }
+        _single_width_layout = false;
         // 如果 col 落在旧双宽 glyph 的 trailing 半列，必须先解除旧宽字符的列
         // 关系，否则新 glyph 会和旧 leading 列共享偏移。
         _unwrap_glyph(col);
@@ -286,6 +315,127 @@ struct screen_buffer_row
         _columns[width()] = static_cast<uint16_t>(_text.size());
     }
 
+    bool try_overwrite_matching_measured_run(uint16_t col, std::u32string_view text, std::span<const char8_t> widths,
+                                             uint16_t total_columns, text_attribute attr)
+    {
+        const auto end_col = static_cast<uint16_t>(col + total_columns);
+        if (_filled)
+            return false;
+        if (text.empty() || col >= width() || end_col > width() || is_trailing(col))
+            return false;
+
+        const auto old_start = col_offset(col);
+        if (old_start + text.size() > _text.size())
+            return false;
+
+        uint16_t cell = col;
+        for (size_t i = 0; i < text.size(); ++i)
+        {
+            if (cell >= width() || is_trailing(cell) || col_offset(cell) != old_start + i)
+                return false;
+
+            const auto width_columns = static_cast<uint8_t>(widths[i]);
+            if (width_columns == 0 || cell + width_columns > width())
+                return false;
+
+            for (uint8_t w = 1; w < width_columns; ++w)
+            {
+                const auto trailing_cell = static_cast<uint16_t>(cell + w);
+                if (!is_trailing(trailing_cell) || col_offset(trailing_cell) != old_start + i)
+                    return false;
+            }
+            cell = static_cast<uint16_t>(cell + width_columns);
+        }
+
+        if (cell != end_col || col_offset(end_col) != old_start + text.size())
+            return false;
+
+        COREHOST_PERF_SCOPE_AMOUNT(row_write_matching_layout, text.size());
+        std::copy(text.begin(), text.end(), _text.begin() + old_start);
+        write_attr_range(col, end_col, attr);
+        return true;
+    }
+
+    bool try_write_measured_run_on_filled_row(uint16_t col, std::u32string_view text, std::span<const char8_t> widths,
+                                              uint16_t total_columns, bool all_single_width, text_attribute attr)
+    {
+        const auto row_width = width();
+        const auto end_col = static_cast<uint16_t>(col + total_columns);
+        if (!_filled || text.empty() || col >= row_width || end_col > row_width)
+            return false;
+        assert(all_single_width || text.size() == widths.size());
+        COREHOST_PERF_SCOPE_AMOUNT(row_write_filled, text.size());
+
+        _text.clear();
+        _text.reserve(static_cast<size_t>(row_width) - total_columns + text.size());
+        _text.append(static_cast<size_t>(col), _fill_char);
+        _text.append(text.data(), text.size());
+        _text.append(static_cast<size_t>(row_width - end_col), _fill_char);
+
+        for (uint16_t c = 0; c < col; ++c)
+            _columns[c] = c;
+
+        uint16_t cell = col;
+        uint16_t text_offset = col;
+        for (size_t i = 0; i < text.size(); ++i, ++text_offset)
+        {
+            const auto width_columns = all_single_width ? uint8_t{1} : static_cast<uint8_t>(widths[i]);
+            _columns[cell] = text_offset;
+            for (uint8_t w = 1; w < width_columns; ++w)
+                _columns[static_cast<uint16_t>(cell + w)] = text_offset | TRAILING_FLAG;
+            cell = static_cast<uint16_t>(cell + width_columns);
+        }
+        assert(cell == end_col);
+
+        const auto suffix_offset = static_cast<uint16_t>(col + text.size());
+        for (uint16_t c = end_col; c <= row_width; ++c)
+            _columns[c] = static_cast<uint16_t>(suffix_offset + c - end_col);
+
+        _attrs_uniform = true;
+        _uniform_attr = _fill_attr;
+        write_attr_range(col, end_col, attr);
+        _filled = false;
+        _single_width_layout = all_single_width;
+        return true;
+    }
+
+    bool try_write_measured_run_on_single_width_layout(uint16_t col, std::u32string_view text,
+                                                       std::span<const char8_t> widths, uint16_t total_columns,
+                                                       text_attribute attr)
+    {
+        const auto row_width = width();
+        const auto end_col = static_cast<uint16_t>(col + total_columns);
+        if (text.empty() || col >= row_width || end_col > row_width || text.size() != widths.size())
+            return false;
+        if (_filled || !_single_width_layout)
+            return false;
+        assert(_text.size() == row_width);
+        COREHOST_PERF_SCOPE_AMOUNT(row_write_single_layout, text.size());
+
+        _text.replace(col, total_columns, text.data(), text.size());
+
+        uint16_t cell = col;
+        auto text_offset = col;
+        for (size_t i = 0; i < text.size(); ++i, ++text_offset)
+        {
+            const auto width_columns = static_cast<uint8_t>(widths[i]);
+            _columns[cell] = static_cast<uint16_t>(text_offset);
+            for (uint8_t w = 1; w < width_columns; ++w)
+                _columns[static_cast<uint16_t>(cell + w)] =
+                    static_cast<uint16_t>(text_offset) | TRAILING_FLAG;
+            cell = static_cast<uint16_t>(cell + width_columns);
+        }
+        assert(cell == end_col);
+
+        const auto suffix_offset = static_cast<uint16_t>(col + text.size());
+        for (uint16_t c = end_col; c <= row_width; ++c)
+            _columns[c] = static_cast<uint16_t>(suffix_offset + c - end_col);
+
+        write_attr_range(col, end_col, attr);
+        _single_width_layout = false;
+        return true;
+    }
+
     void write_measured_run(uint16_t col, std::u32string_view text, std::span<const char8_t> widths,
                             uint16_t total_columns, bool all_single_width, text_attribute attr)
     {
@@ -297,8 +447,13 @@ struct screen_buffer_row
         if (text.empty())
             return;
 
+        if (try_write_measured_run_on_filled_row(col, text, widths, total_columns, all_single_width, attr))
+            return;
+
         if (col == 0 && total_columns == width())
         {
+            COREHOST_PERF_SCOPE_AMOUNT(row_write_full_row, text.size());
+            _filled = false;
             _text.assign(text.data(), text.size());
             uint16_t cell = 0;
             for (uint16_t text_offset = 0; text_offset < text.size(); ++text_offset)
@@ -312,13 +467,20 @@ struct screen_buffer_row
             }
             assert(cell == width());
             _columns[width()] = static_cast<uint16_t>(_text.size());
-            std::fill(_attrs.begin(), _attrs.end(), attr);
+            _attrs_uniform = true;
+            _uniform_attr = attr;
+            _single_width_layout = all_single_width;
             return;
         }
 
         if (all_single_width && try_write_single_width_run(col, text, attr))
             return;
+        if (!all_single_width && try_write_measured_run_on_single_width_layout(col, text, widths, total_columns, attr))
+            return;
+        if (!all_single_width && try_overwrite_matching_measured_run(col, text, widths, total_columns, attr))
+            return;
 
+        COREHOST_PERF_SCOPE_AMOUNT(row_write_generic, text.size());
         _unwrap_glyph(col);
         const auto end_col = static_cast<uint16_t>(col + total_columns);
         if (end_col < width())
@@ -354,10 +516,11 @@ struct screen_buffer_row
                 _columns[static_cast<uint16_t>(cell + w)] = text_offset | TRAILING_FLAG;
             cell = static_cast<uint16_t>(cell + width_columns);
         }
-        std::fill(_attrs.begin() + col, _attrs.begin() + end_col, attr);
+        write_attr_range(col, end_col, attr);
         assert(cell == end_col);
 
         _columns[width()] = static_cast<uint16_t>(_text.size());
+        _single_width_layout = false;
     }
 
     // ── 清除指定列 ──
@@ -427,6 +590,7 @@ struct screen_buffer_row
     // ── 从 CHAR_INFO 数组导入 ──
     void from_char_info(const CHAR_INFO *src, uint16_t count, uint16_t dst_col = 0)
     {
+        materialize_filled();
         for (uint16_t i = 0; i < count && dst_col + i < width(); ++i)
         {
             wchar_t wch = src[i].Char.UnicodeChar;
@@ -442,6 +606,49 @@ struct screen_buffer_row
     }
 
   private:
+    void materialize_filled()
+    {
+        if (!_filled)
+            return;
+
+        const auto row_width = width();
+        _text.assign(row_width, _fill_char);
+        for (uint16_t i = 0; i <= row_width; ++i)
+            _columns[i] = i;
+        _attrs_uniform = true;
+        _uniform_attr = _fill_attr;
+        _filled = false;
+        _single_width_layout = true;
+    }
+
+    void materialize_attrs()
+    {
+        if (!_attrs_uniform)
+            return;
+
+        std::fill(_attrs.begin(), _attrs.end(), _uniform_attr);
+        _attrs_uniform = false;
+    }
+
+    void write_attr_range(uint16_t start, uint16_t end_excl, text_attribute attr)
+    {
+        if (start == 0 && end_excl >= width())
+        {
+            _attrs_uniform = true;
+            _uniform_attr = attr;
+            return;
+        }
+        if (_attrs_uniform && attr == _uniform_attr)
+            return;
+
+        materialize_attrs();
+        if (start >= _attrs.size())
+            return;
+
+        const auto end = std::min<size_t>(end_excl, _attrs.size());
+        std::fill(_attrs.begin() + start, _attrs.begin() + end, attr);
+    }
+
     // 清除 col 处 glyph 的 trailing 部分 (解除宽字符的后半列标记)
     void _unwrap_glyph(uint16_t col)
     {

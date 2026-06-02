@@ -10,6 +10,7 @@
 #include "long_line_three_vt_output_worker.hpp"
 #include "sgr_sequence_matrix_worker.hpp"
 
+#include <array>
 #include <charconv>
 
 namespace bench
@@ -144,6 +145,33 @@ inline void copy_host_tree(const std::filesystem::path &host_path, const std::fi
     }
 }
 
+inline void copy_realistic_build_output_file(const std::filesystem::path &worker_dir)
+{
+    constexpr auto file_name = L"realistic-build-output-vt.txt";
+    const auto exe_dir = std::filesystem::path{current_exe_path()}.parent_path();
+    const auto repo_root = exe_dir.parent_path().parent_path();
+    const std::array<std::filesystem::path, 3> candidates{
+        exe_dir / file_name,
+        exe_dir.parent_path() / file_name,
+        repo_root / L"build" / file_name,
+    };
+
+    std::error_code ec;
+    for (const auto &candidate : candidates)
+    {
+        if (!std::filesystem::is_regular_file(candidate, ec))
+            continue;
+
+        std::filesystem::copy_file(candidate, worker_dir / file_name, std::filesystem::copy_options::overwrite_existing,
+                                   ec);
+        if (ec)
+            print_and_abort("copy realistic build output file failed: %d\n", ec.value());
+        return;
+    }
+
+    print_and_abort("realistic build output file not found; expected build\\realistic-build-output-vt.txt\n");
+}
+
 // Launches the worker process and mirrors its stdout/stderr to this process.
 // The returned string is parsed after the worker exits.
 [[nodiscard]] inline std::string run_worker_process(const std::filesystem::path &worker_exe,
@@ -217,6 +245,7 @@ inline void copy_host_tree(const std::filesystem::path &host_path, const std::fi
 
     std::filesystem::copy_file(current_exe_path(), worker_exe, std::filesystem::copy_options::overwrite_existing);
     copy_host_tree(host_path, worker_dir);
+    copy_realistic_build_output_file(worker_dir);
 
     auto output = run_worker_process(worker_exe, worker_dir, label, scenario_filter);
     auto scenarios = parse_worker_results(output);

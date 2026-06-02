@@ -34,6 +34,11 @@ enum class counter_id : size_t
     screen_scroll,
     row_write_glyph,
     row_write_measured_run,
+    row_write_filled,
+    row_write_single_layout,
+    row_write_matching_layout,
+    row_write_full_row,
+    row_write_generic,
     count,
 };
 
@@ -65,6 +70,11 @@ inline std::array<counter, static_cast<size_t>(counter_id::count)> counters = {{
     {"screen_scroll"},
     {"row_write_glyph"},
     {"row_write_measured_run"},
+    {"row_write_filled"},
+    {"row_write_single_layout"},
+    {"row_write_matching_layout"},
+    {"row_write_full_row"},
+    {"row_write_generic"},
 }};
 
 inline long long qpc_now() noexcept
