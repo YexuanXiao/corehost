@@ -6,6 +6,7 @@
 #include "miniio/io_thread.hpp"
 #include "perf_diag.hpp"
 #include "utility/log.hpp"
+#include "win32/io.hpp"
 #include "win32/wait.hpp"
 
 namespace conpty
@@ -110,10 +111,12 @@ class pipe_bridge_io
         // available 返回 vt_in 当前可同步读取的字节数；失败时调用方按 EOF 处理。
         available = 0;
         COREHOST_PERF_SCOPE(vt_input_peek);
-        if (::PeekNamedPipe(_vt_input.get(), nullptr, 0, nullptr, &available, nullptr))
+        const auto result = win32::peek_named_pipe(_vt_input, available);
+        if (result.success() || result.empty())
             return true;
 
-        LOG("[bridge_io] PeekNamedPipe failed err=%lu", ::GetLastError());
+        LOG("[bridge_io] PeekNamedPipe failed status=%u err=%u", static_cast<unsigned>(result.status),
+            static_cast<unsigned>(result.error));
         return false;
     }
 
@@ -152,11 +155,18 @@ class pipe_bridge_io
         // 只有下一个字节正好等于 expected 才读取；否则不改变 vt_in。
         consumed = {};
 
-        BYTE next = 0;
+        char8_t next = {};
         DWORD peeked = 0;
+        DWORD available = 0;
         COREHOST_PERF_SCOPE(vt_input_peek);
-        if (!::PeekNamedPipe(_vt_input.get(), &next, sizeof(next), &peeked, nullptr, nullptr) || peeked == 0 ||
-            next != static_cast<BYTE>(expected))
+        const auto peek_result = win32::peek_named_pipe(_vt_input, std::span{&next, size_t{1}}, peeked, available);
+        if (peek_result.closed() || peek_result.failed())
+        {
+            LOG("[bridge_io] try_consume_byte peek failed status=%u err=%u", static_cast<unsigned>(peek_result.status),
+                static_cast<unsigned>(peek_result.error));
+            return false;
+        }
+        if (!peek_result.success() || peeked == 0 || next != expected)
         {
             return false;
         }
@@ -164,11 +174,18 @@ class pipe_bridge_io
         DWORD read = 0;
         {
             COREHOST_PERF_SCOPE_AMOUNT(vt_input_read_file, sizeof(next));
-            if (!::ReadFile(_vt_input.get(), &next, sizeof(next), &read, nullptr) || read != sizeof(next))
+            const auto read_result = win32::read_some(_vt_input, std::span{&next, size_t{1}});
+            read = read_result.bytes;
+            if (!read_result.success() || read != sizeof(next))
+            {
+                LOG("[bridge_io] try_consume_byte read failed status=%u err=%u read=%zu",
+                    static_cast<unsigned>(read_result.status), static_cast<unsigned>(read_result.error),
+                    read_result.bytes);
                 return false;
+            }
         }
 
-        consumed = static_cast<char8_t>(next);
+        consumed = next;
         return true;
     }
 
@@ -189,11 +206,12 @@ class pipe_bridge_io
 
         {
             COREHOST_PERF_SCOPE_AMOUNT(vt_input_read_file, destination.size());
-            if (!::ReadFile(_vt_input.get(), byte_span(destination).data(), static_cast<DWORD>(destination.size()),
-                            &read_bytes, nullptr) ||
-                read_bytes == 0)
+            const auto result = win32::read_some(_vt_input, destination);
+            read_bytes = result.bytes;
+            if (!result.success())
             {
-                LOG("[bridge_io] %s failed read=%lu err=%lu", operation, read_bytes, ::GetLastError());
+                LOG("[bridge_io] %s failed read=%lu status=%u err=%u", operation, read_bytes,
+                    static_cast<unsigned>(result.status), static_cast<unsigned>(result.error));
                 return vt_pipe_read_status::eof;
             }
         }

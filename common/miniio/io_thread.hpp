@@ -30,6 +30,7 @@
 #include <span>
 #include "win32/handle.hpp"
 #include "win32/error.hpp"
+#include "win32/io.hpp"
 #include "win32/string.hpp"
 #include "os/Console/condrv.h"
 #include "ntapi/condrv.hpp"
@@ -108,10 +109,7 @@ inline read_io_result read_io_try(win32::handle_view server, CD_IO_COMPLETE *pre
 // defterm::signal_thread_proc 和 conpty::pty_signal_thread_proc 共用。
 inline bool read_exact(win32::handle_view p, void *b, DWORD s)
 {
-    DWORD r = 0;
-    if (!::ReadFile(p.get(), b, s, &r, nullptr))
-        return false;
-    return r == s;
+    return win32::read_exact(p, std::span{static_cast<std::byte *>(b), s});
 }
 
 inline void complete_io(win32::handle_view server, CD_IO_COMPLETE &comp)

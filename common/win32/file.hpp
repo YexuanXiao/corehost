@@ -3,6 +3,7 @@
 #include <windows.h>
 #include "win32/error.hpp"
 #include "win32/handle.hpp"
+#include "win32/io.hpp"
 #include <span>
 #include <string>
 
@@ -19,11 +20,14 @@ template <typename T>
     requires std::is_scalar_v<T>
 inline void read(win32::handle_view file, std::span<T> buffer)
 {
-    if (auto size = buffer.size(); size != 0)
+    auto bytes = std::as_writable_bytes(buffer);
+    while (!bytes.empty())
     {
-        DWORD bytes_read = 0;
-        auto res = ::ReadFile(file.get(), buffer.data(), size * sizeof(T), &bytes_read, nullptr);
-        win32::throw_last_error(res == 0 || bytes_read != size * sizeof(T));
+        const auto result = win32::read_some(file, bytes);
+        if (result.failed() || result.closed())
+            win32::throw_last_error(result.error);
+        win32::throw_last_error(result.empty(), win32::error::invalid_data);
+        bytes = bytes.subspan(result.bytes);
     }
 }
 [[nodiscard]] inline bool is_missing_file_error(win32::error error) noexcept

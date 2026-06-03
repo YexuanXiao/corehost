@@ -6,8 +6,10 @@
 #include <string_view>
 #include <vector>
 #include "win32/handle.hpp"
+#include "win32/io.hpp"
 #include "char_convert.hpp"
 #include "perf_diag.hpp"
+#include "utility/log.hpp"
 #include "utility/raw_byte_allocator.hpp"
 
 namespace conpty
@@ -43,7 +45,8 @@ class vt_output_buffer
         return _buffer.size() >= flush_threshold;
     }
 
-    // 把缓存内容一次性写入 vt_out；写入后无论 WriteFile 是否完整成功都清空缓存。
+    // 把缓存内容写入 vt_out；写入后无论 pipe 是否仍可用都清空缓存，避免在
+    // 终端关闭后反复写同一批数据。
     void flush()
     {
         // flush 是唯一真正写 vt_out 的位置；调用方负责选择 completion 前后
@@ -51,10 +54,11 @@ class vt_output_buffer
         COREHOST_PERF_SCOPE_AMOUNT(vt_output_flush, _buffer.size());
         if (_buffer.empty())
             return;
-        DWORD written = 0;
         {
             COREHOST_PERF_SCOPE_AMOUNT(vt_output_write_file, _buffer.size());
-            ::WriteFile(_output.get(), _buffer.data(), static_cast<DWORD>(_buffer.size()), &written, nullptr);
+            const auto result = win32::write_all(_output, std::span<const char8_t>{_buffer.data(), _buffer.size()});
+            LOG_IF(result.failed(), "vt_output_buffer: write failed err=%u", static_cast<unsigned>(result.error));
+            LOG_IF(result.closed(), "vt_output_buffer: output pipe closed err=%u", static_cast<unsigned>(result.error));
         }
         _buffer.clear();
     }

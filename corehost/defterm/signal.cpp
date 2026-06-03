@@ -8,6 +8,7 @@
 #include "ntapi/conwinuserrefs.h"
 #include "ntapi/consolecontrol.hpp"
 #include "utility/log.hpp"
+#include "win32/io.hpp"
 
 namespace defterm
 {
@@ -18,17 +19,18 @@ static_assert(sizeof(CONSOLEENDTASKDATA) == 16);
 
 bool skip_bytes(win32::handle_view p, DWORD n)
 {
-    BYTE buf[256];
+    std::byte buf[4096];
     while (n)
     {
-        auto s = std::min(n, 256ul);
-        DWORD r = 0;
-        if (!::ReadFile(p.get(), buf, s, &r, nullptr))
+        auto s = std::min<DWORD>(n, static_cast<DWORD>(std::size(buf)));
+        const auto result = win32::read_some(p, std::span{buf}.first(s));
+        if (!result.success())
         {
-            LOG("signal skip_bytes: ReadFile failed err=%lu remaining=%lu", ::GetLastError(), n);
+            LOG("signal skip_bytes: read failed status=%u err=%u remaining=%lu", static_cast<unsigned>(result.status),
+                static_cast<unsigned>(result.error), n);
             return false;
         }
-        n -= s;
+        n -= result.bytes;
     }
     return true;
 }
