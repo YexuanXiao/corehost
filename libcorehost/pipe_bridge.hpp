@@ -24,7 +24,7 @@
 #include <string_view>
 #include <vector>
 #include "win32/handle.hpp"
-#include "miniio/io_thread.hpp"
+#include "condrv_io.hpp"
 #include "os/Console/ntcon.h"
 #include "os/Console/conmsgl1.h"
 #include "os/Console/conmsgl2.h"
@@ -202,10 +202,10 @@ struct pipe_bridge
     // ── 原始字节缓冲 ──
     // _readbuf 保存本轮 pending 读取已经从 vt_in 取得的原始字节；RawRead
     // completion 直接从这里返回，ReadConsole 则同时把它解码进 _cooked_buf。
-    std::array<char8_t, sizeof(miniio::io_msg::body)> _readbuf{};
-    // 保存 USER_DEFINED 消息中超过 miniio::io_msg::body 的输入尾部。
+    std::array<char8_t, sizeof(corehost::condrv_io::io_msg::body)> _readbuf{};
+    // 保存 USER_DEFINED 消息中超过 corehost::condrv_io::io_msg::body 的输入尾部。
     raw_u8_buffer _input_payload_buffer;
-    // GetConsoleInput 的输出可能远大于 miniio::io_msg::body。同步完成时
+    // GetConsoleInput 的输出可能远大于 corehost::condrv_io::io_msg::body。同步完成时
     // completion 会在下一轮 READ_IO 提交，因此该缓冲必须作为 bridge 成员
     // 保持稳定，直到 ConDrv 消费 Write.Data。
     raw_byte_vector<BYTE> _console_input_output_buffer;
@@ -233,7 +233,7 @@ struct pipe_bridge
 
     // 计算 GetConsoleInput completion 可返回的 INPUT_RECORD 上限。OutputSize
     // 不含 CONSOLE_MSG_HEADER，记录数组前还要扣掉 L1 描述符。
-    size_t console_input_max_records(const miniio::io_msg &msg) const noexcept
+    size_t console_input_max_records(const corehost::condrv_io::io_msg &msg) const noexcept
     {
         const auto output_buffer = msg.descriptor.OutputSize > sizeof(CONSOLE_GETCONSOLEINPUT_MSG)
                                        ? msg.descriptor.OutputSize - sizeof(CONSOLE_GETCONSOLEINPUT_MSG)
@@ -242,13 +242,13 @@ struct pipe_bridge
     }
 
     // 计算 RAW_READ 可以直接写入 completion 的最大字节数。
-    size_t raw_read_capacity(const miniio::io_msg &msg) const noexcept
+    size_t raw_read_capacity(const corehost::condrv_io::io_msg &msg) const noexcept
     {
         // RAW_READ completion 只写客户端缓冲区字节，不附加 API 描述符。
         return std::min<size_t>(msg.descriptor.OutputSize, sizeof(msg.body));
     }
 
-    void prepare_console_input_completion(miniio::io_msg &msg, CONSOLE_GETCONSOLEINPUT_MSG *req, bool peek,
+    void prepare_console_input_completion(corehost::condrv_io::io_msg &msg, CONSOLE_GETCONSOLEINPUT_MSG *req, bool peek,
                                           size_t max_count)
     {
         const auto records_to_copy = std::min(inp.available(), max_count);
@@ -269,14 +269,14 @@ struct pipe_bridge
                 inp.read(out_records, records_to_copy);
         }
 
-        miniio::prepare_completion(msg, 0, size);
+        corehost::condrv_io::prepare_completion(msg, 0, size);
         msg.complete.Write.Data = _console_input_output_buffer.data();
         msg.complete.Write.Size = static_cast<ULONG>(size);
     }
 
     // 计算 ReadConsole 文本输出区容量。返回值只包含用户文本字节，不包含
     // CONSOLE_READCONSOLE_MSG descriptor。
-    size_t console_read_data_capacity(const miniio::io_msg &msg) const noexcept
+    size_t console_read_data_capacity(const corehost::condrv_io::io_msg &msg) const noexcept
     {
         // USER_DEFINED ReadConsole completion 先返回 CONSOLE_READCONSOLE_MSG，
         // 随后的文本才是客户端 lpBuffer。OutputSize 不含
@@ -440,7 +440,7 @@ struct pipe_bridge
     }
     // 读取 USER_DEFINED 消息中 descriptor 后的变长输入。小载荷直接返回 msg.body
     // 切片；超过 body 的部分通过 READ_INPUT 读入 _input_payload_buffer。
-    std::span<const BYTE> read_input_payload(const miniio::io_msg &msg, size_t offset)
+    std::span<const BYTE> read_input_payload(const corehost::condrv_io::io_msg &msg, size_t offset)
     {
         if (offset >= msg.descriptor.InputSize)
             return {};
@@ -1100,13 +1100,13 @@ struct pipe_bridge
 
     // ── RAW_READ (挂起模式) ──
     // 建立 RAW_READ pending，并尽量同步消费已经到达的 vt_in 字节。
-    bool handle_raw_read(miniio::io_msg &msg)
+    bool handle_raw_read(corehost::condrv_io::io_msg &msg)
     {
         // RAW_READ 是 ANSI/raw byte read；Ctrl+Z 只在 ENABLE_PROCESSED_INPUT
         // 下代表 EOF。
         if (_pending.vt_eof())
         {
-            miniio::prepare_completion(msg, 0, 0);
+            corehost::condrv_io::prepare_completion(msg, 0, 0);
             return true;
         }
 
@@ -1122,7 +1122,7 @@ struct pipe_bridge
     }
 
     // ── ReadConsole ──
-    bool handle_console_read(miniio::io_msg &msg, bool proc_z, const BYTE *init_data, DWORD init_bytes)
+    bool handle_console_read(corehost::condrv_io::io_msg &msg, bool proc_z, const BYTE *init_data, DWORD init_bytes)
     {
         // USER_DEFINED ReadConsole body 位于 CONSOLE_MSG_HEADER 后。返回时只写
         // CONSOLE_READCONSOLE_MSG 和后续文本，不把 header 回传给客户端。
@@ -1133,7 +1133,7 @@ struct pipe_bridge
             req->NumBytes = 0;
             req->ControlKeyState = 0;
             auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
-            miniio::prepare_completion(msg, 0, sz);
+            corehost::condrv_io::prepare_completion(msg, 0, sz);
             msg.complete.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
             msg.complete.Write.Size = sz;
             return true;
@@ -1177,7 +1177,7 @@ struct pipe_bridge
 
     // GetConsoleInput 路径：先把可用 VT 输入准备成 INPUT_RECORD，再按 READ/PEEK/
     // NOWAIT 标志从 input_buffer 返回；可等待且无记录时进入 ConsoleInput pending。
-    bool handle_console_input(miniio::io_msg &msg)
+    bool handle_console_input(corehost::condrv_io::io_msg &msg)
     {
         // GetConsoleInput 直接服务于 input_buffer。PEEK 不消费记录；NOWAIT
         // 在没有记录时必须同步返回 0，而不是挂起。
@@ -1186,7 +1186,7 @@ struct pipe_bridge
         auto *req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
         if ((req->Flags & ~CONSOLE_READ_VALID) != 0)
         {
-            miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+            corehost::condrv_io::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
             return true;
         }
 
@@ -1194,7 +1194,7 @@ struct pipe_bridge
         if (max_count == 0)
         {
             req->NumRecords = 0;
-            miniio::prepare_completion(msg, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+            corehost::condrv_io::prepare_completion(msg, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
             msg.complete.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
             msg.complete.Write.Size = sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
             return true;
@@ -2824,7 +2824,7 @@ struct pipe_bridge
 
     // 为 pending RAW_READ 构造 completion。它返回 _readbuf 中的原始字节，
     // 并在容量允许时把单独 CR/LF 规范化为 ConDrv 期望的 CRLF。
-    void prepare_raw_read_completion(miniio::io_msg &m)
+    void prepare_raw_read_completion(corehost::condrv_io::io_msg &m)
     {
         // RawRead 返回 _readbuf 原始字节；它不使用 cooked line 编辑结果。
         auto capacity = static_cast<DWORD>(raw_read_capacity(m));
@@ -2854,20 +2854,20 @@ struct pipe_bridge
         if (_pending.vt_eof() && _read_total == 0)
         {
             // EOF 且没有已读数据时返回空读取；这是会话退出的可观察信号。
-            miniio::prepare_completion(m, 0, 0);
+            corehost::condrv_io::prepare_completion(m, 0, 0);
             return;
         }
 
         if (data_bytes > 0)
             std::memcpy(m.body, _readbuf.data(), data_bytes);
-        miniio::prepare_completion(m, 0, data_bytes);
+        corehost::condrv_io::prepare_completion(m, 0, data_bytes);
         m.complete.Write.Data = m.body;
         m.complete.Write.Size = data_bytes;
     }
 
     // 为 pending ReadConsole 构造 completion。函数把 _cooked_buf 转成调用者
     // 请求的 Unicode/ANSI 格式，并追加 CRLF；不会清理 pending 状态。
-    void prepare_console_read_completion(miniio::io_msg &m)
+    void prepare_console_read_completion(corehost::condrv_io::io_msg &m)
     {
         auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(m.body + sizeof(CONSOLE_MSG_HEADER));
         req->ControlKeyState = 0;
@@ -2876,7 +2876,7 @@ struct pipe_bridge
         {
             req->NumBytes = 0;
             auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
-            miniio::prepare_completion(m, 0, sz);
+            corehost::condrv_io::prepare_completion(m, 0, sz);
             m.complete.Write.Data = m.body + sizeof(CONSOLE_MSG_HEADER);
             m.complete.Write.Size = sz;
             return;
@@ -2918,7 +2918,7 @@ struct pipe_bridge
         }
         req->NumBytes = cp;
         auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG) + cp);
-        miniio::prepare_completion(m, 0, sz);
+        corehost::condrv_io::prepare_completion(m, 0, sz);
         m.complete.Write.Data = m.body + sizeof(CONSOLE_MSG_HEADER);
         m.complete.Write.Size = sz;
     }
@@ -3011,7 +3011,7 @@ struct pipe_bridge
             auto *out_req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(_console_input_output_buffer.data());
             *out_req = *req;
             out_req->NumRecords = 0;
-            miniio::prepare_completion(m, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+            corehost::condrv_io::prepare_completion(m, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
             m.complete.Write.Data = _console_input_output_buffer.data();
             m.complete.Write.Size = sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
 

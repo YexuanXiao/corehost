@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <span>
 #include "win32/handle.hpp"
-#include "miniio/io_thread.hpp"
+#include "condrv_io.hpp"
 #include "perf_diag.hpp"
 #include "utility/log.hpp"
 #include "win32/io.hpp"
@@ -51,7 +51,7 @@ class pipe_bridge_io
     void complete(CD_IO_COMPLETE &completion) const
     {
         // completion 是 bridge 构造好的 ConDrv 完成结果；这里仅把它提交给 server。
-        miniio::complete_io(_server, completion);
+        corehost::condrv_io::complete_io(_server, completion);
     }
 
     // true 表示当前绑定了真实 ConDrv server，可以提交 COMPLETE_IO。
@@ -65,7 +65,7 @@ class pipe_bridge_io
     {
         // identifier/offset 来自原始 io_msg descriptor，用于读取 body 之外的
         // 大输入载荷；destination 是 bridge 的持久输入 payload 缓冲。
-        miniio::read_input(_server, identifier, offset, byte_span(destination));
+        corehost::condrv_io::read_input(_server, identifier, offset, byte_span(destination));
     }
 
     // true 表示 pending 输入等待可以被 shutdown event 打断。
@@ -190,7 +190,7 @@ class pipe_bridge_io
     }
 
   private:
-    // 把 char8_t 缓冲转换成 Win32 ReadFile/miniio 需要的 BYTE span。
+    // 把 char8_t 缓冲转换成 Win32 ReadFile/condrv_io 需要的 BYTE span。
     [[nodiscard]] static std::span<BYTE> byte_span(std::span<char8_t> buffer) noexcept
     {
         return {reinterpret_cast<BYTE *>(buffer.data()), buffer.size()};

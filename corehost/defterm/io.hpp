@@ -2,7 +2,7 @@
 
 #include <windows.h>
 #include <utility>
-#include "miniio/io_thread.hpp"
+#include "condrv_io.hpp"
 #include "ntapi/condrv.hpp"
 #include "os/Console/conmsgl1.h"
 #include "os/Console/condrv.h"
@@ -20,10 +20,10 @@ inline constexpr LONG ntstatus_unsuccessful = static_cast<LONG>(0xC0000001);
 // 只表示当前读取结果没有业务消息需要处理。
 inline constexpr ULONG no_console_io_function = 0;
 
-inline void dispatch_console(win32::handle_view server, miniio::io_msg &msg, win32::handle &input,
+inline void dispatch_console(win32::handle_view server, corehost::condrv_io::io_msg &msg, win32::handle &input,
                              win32::handle &output)
 {
-    LOG3("mini IO dispatch: func=%lu id=%08lx:%08lx pid=%llu object=%llu input=%p output=%p", msg.descriptor.Function,
+    LOG3("ConDrv IO dispatch: func=%lu id=%08lx:%08lx pid=%llu object=%llu input=%p output=%p", msg.descriptor.Function,
          msg.descriptor.Identifier.HighPart, msg.descriptor.Identifier.LowPart,
          static_cast<unsigned long long>(msg.descriptor.Process),
          static_cast<unsigned long long>(msg.descriptor.Object), input.get(), output.get());
@@ -36,7 +36,7 @@ inline void dispatch_console(win32::handle_view server, miniio::io_msg &msg, win
     case CONSOLE_IO_DISCONNECT:
         input.clear();
         output.clear();
-        miniio::prepare_completion(msg);
+        corehost::condrv_io::prepare_completion(msg);
         break;
     case CONSOLE_IO_CREATE_OBJECT: {
         // request 指向 ConDrv 消息体中的 CD_CREATE_OBJECT_INFORMATION。
@@ -68,26 +68,26 @@ inline void dispatch_console(win32::handle_view server, miniio::io_msg &msg, win
             new_handle = condrv::create_client_handle(server, L"\\Output");
             break;
         default:
-            miniio::prepare_completion(msg, ntstatus_unsuccessful);
+            corehost::condrv_io::prepare_completion(msg, ntstatus_unsuccessful);
             return;
         }
-        miniio::prepare_completion(msg, 0, reinterpret_cast<ULONG_PTR>(new_handle.release()));
+        corehost::condrv_io::prepare_completion(msg, 0, reinterpret_cast<ULONG_PTR>(new_handle.release()));
         break;
     }
     case CONSOLE_IO_CLOSE_OBJECT:
-        miniio::prepare_completion(msg);
+        corehost::condrv_io::prepare_completion(msg);
         break;
     case CONSOLE_IO_RAW_WRITE:
-        miniio::prepare_completion(msg, 0, msg.descriptor.InputSize);
+        corehost::condrv_io::prepare_completion(msg, 0, msg.descriptor.InputSize);
         break;
     case CONSOLE_IO_RAW_READ:
-        miniio::prepare_completion(msg);
+        corehost::condrv_io::prepare_completion(msg);
         break;
     case CONSOLE_IO_USER_DEFINED:
-        miniio::prepare_completion(msg, ntstatus_unsuccessful);
+        corehost::condrv_io::prepare_completion(msg, ntstatus_unsuccessful);
         break;
     case CONSOLE_IO_RAW_FLUSH:
-        miniio::prepare_completion(msg);
+        corehost::condrv_io::prepare_completion(msg);
         break;
     default:
         std::unreachable();

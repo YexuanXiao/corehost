@@ -4,7 +4,7 @@
 #include "signal.hpp"
 #include <memory>
 #include <mutex>
-#include "miniio/io_thread.hpp"
+#include "condrv_io.hpp"
 #include "ntapi/conwinuserrefs.h"
 #include "ntapi/consolecontrol.hpp"
 #include "utility/log.hpp"
@@ -38,7 +38,7 @@ bool skip_bytes(win32::handle_view p, DWORD n)
 template <typename T>
 bool read_remote_console_payload(win32::handle_view pipe, T &payload)
 {
-    if (!miniio::read_exact(pipe, &payload, sizeof(payload)))
+    if (!corehost::condrv_io::read_exact(pipe, &payload, sizeof(payload)))
     {
         LOG("signal_thread_proc: failed payload read size=%zu err=%lu", sizeof(payload), ::GetLastError());
         return false;
@@ -69,7 +69,7 @@ DWORD WINAPI signal_thread_proc(LPVOID param)
     for (;;)
     {
         std::uint8_t code = 0;
-        if (!miniio::read_exact(hp.view(), &code, 1))
+        if (!corehost::condrv_io::read_exact(hp.view(), &code, 1))
         {
             LOG("signal_thread_proc: pipe closed err=%lu", ::GetLastError());
             return 0;

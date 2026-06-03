@@ -11,7 +11,7 @@
 #include "comserver/com_server.hpp"
 #include "conpty.hpp"
 #include "client/client.hpp"
-#include "miniio/io_thread.hpp"
+#include "condrv_io.hpp"
 #include "win32/error.hpp"
 #include "win32/com_apartment.hpp"
 #include "utility/crtdbg.hpp"
@@ -64,7 +64,7 @@ try
         auto ev = win32::handle{::CreateEventW(nullptr, TRUE, FALSE, nullptr)};
         if (!ev.valid())
             win32::throw_last_error();
-        miniio::set_server_info(server.view(), ev.view());
+        corehost::condrv_io::set_server_info(server.view(), ev.view());
 
         // 如果有--signal <handle>, 传递给信号线程
         win32::handle sig_pipe;

@@ -1,6 +1,6 @@
 #pragma once
 #include <windows.h>
-#include "miniio/io_thread.hpp"
+#include "condrv_io.hpp"
 
 namespace corehost::conpty
 {
@@ -35,7 +35,7 @@ class pending_io_state
         return _kind != PendingKind::None;
     }
 
-    void begin_raw_read(miniio::io_msg &msg, bool process_control_z) noexcept
+    void begin_raw_read(corehost::condrv_io::io_msg &msg, bool process_control_z) noexcept
     {
         // msg 是 READ_IO 提供的原始请求缓冲。返回 false 的 handler 会让
         // io_loop 停止提交它；complete_pending 后必须用 COMPLETE_IO 显式完成。
@@ -47,7 +47,7 @@ class pending_io_state
         _process_control_z = process_control_z;
     }
 
-    void begin_console_read(miniio::io_msg &msg, bool process_control_z) noexcept
+    void begin_console_read(corehost::condrv_io::io_msg &msg, bool process_control_z) noexcept
     {
         // msg 指向 USER_DEFINED ReadConsole 请求；completion 编码由 msg.body 中
         // CONSOLE_READCONSOLE_MSG::Unicode 决定，不在 pending 状态里重复保存。
@@ -60,7 +60,7 @@ class pending_io_state
         _process_control_z = process_control_z;
     }
 
-    void begin_console_input(miniio::io_msg &msg) noexcept
+    void begin_console_input(corehost::condrv_io::io_msg &msg) noexcept
     {
         // GetConsoleInput 等待 INPUT_RECORD；普通文本输入会先转换为 KEY_EVENT
         // 写入 input_buffer，再由 complete_pending 拷贝到 msg。
@@ -72,19 +72,19 @@ class pending_io_state
 
     // 返回当前 RAW_READ 请求消息；仅当 kind()==RawRead 时非空。pending_io_state
     // 不拥有该消息，生命周期由 io_loop 的请求缓冲保证。
-    miniio::io_msg *raw_read() const noexcept
+    corehost::condrv_io::io_msg *raw_read() const noexcept
     {
         return _raw_read;
     }
 
     // 返回当前 ReadConsole 请求消息；仅当 kind()==ConsoleRead 时非空。
-    miniio::io_msg *console_read() const noexcept
+    corehost::condrv_io::io_msg *console_read() const noexcept
     {
         return _console_read;
     }
 
     // 返回当前 GetConsoleInput 请求消息；仅当 kind()==ConsoleInput 时非空。
-    miniio::io_msg *console_input() const noexcept
+    corehost::condrv_io::io_msg *console_input() const noexcept
     {
         return _console_input;
     }
@@ -125,9 +125,9 @@ class pending_io_state
     PendingKind _kind = PendingKind::None;
     // RawRead/ConsoleRead/ConsoleInput 三者互斥；非空指针指向仍由 io_loop
     // 双缓冲持有的请求消息，complete_pending 会在完成前复制 completion 数据。
-    miniio::io_msg *_raw_read = nullptr;
-    miniio::io_msg *_console_read = nullptr;
-    miniio::io_msg *_console_input = nullptr;
+    corehost::condrv_io::io_msg *_raw_read = nullptr;
+    corehost::condrv_io::io_msg *_console_read = nullptr;
+    corehost::condrv_io::io_msg *_console_input = nullptr;
     // vt_in 已关闭或 signal 线程确认终端关闭；用于让后续读请求直接 EOF。
     bool _vt_eof = false;
     // 当前读取是否把 Ctrl+Z 当作 EOF；每次 begin_* 根据 API/input mode 重设。

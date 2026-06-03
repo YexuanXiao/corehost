@@ -9,7 +9,7 @@
 #include "IConsoleHandoff.h"
 #include "com/clsid.hpp"
 #include "com/com_ptr.hpp"
-#include "miniio/io_thread.hpp"
+#include "condrv_io.hpp"
 #include "utility/log.hpp"
 #include "win32/com_apartment.hpp"
 #include "win32/error.hpp"
@@ -22,7 +22,8 @@
 namespace corehost::defterm
 {
 
-[[nodiscard]] inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const miniio::io_msg &msg) noexcept
+[[nodiscard]] inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(
+    const corehost::condrv_io::io_msg &msg) noexcept
 {
     // CONSOLE_PORTABLE_ATTACH_MSG 是默认终端 COM 协议可跨进程传输的
     // CD_IO_DESCRIPTOR 子集。它不包含 CONNECT body，因此标题/showWindow

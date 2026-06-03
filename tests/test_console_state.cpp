@@ -241,7 +241,7 @@ struct api_test_context
 
 api_test_context api_ctx;
 
-void mock_get_console_input_msg(miniio::io_msg &msg, USHORT flags)
+void mock_get_console_input_msg(corehost::condrv_io::io_msg &msg, USHORT flags)
 {
     std::memset(&msg, 0, sizeof(msg));
     msg.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + sizeof(INPUT_RECORD);
@@ -255,12 +255,12 @@ void mock_get_console_input_msg(miniio::io_msg &msg, USHORT flags)
     input->Unicode = TRUE;
 }
 
-CONSOLE_GETCONSOLEINPUT_MSG *get_console_input_completion(miniio::io_msg &msg)
+CONSOLE_GETCONSOLEINPUT_MSG *get_console_input_completion(corehost::condrv_io::io_msg &msg)
 {
     return reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.complete.Write.Data);
 }
 
-INPUT_RECORD *get_console_input_completion_records(miniio::io_msg &msg)
+INPUT_RECORD *get_console_input_completion_records(corehost::condrv_io::io_msg &msg)
 {
     return reinterpret_cast<INPUT_RECORD *>(static_cast<BYTE *>(msg.complete.Write.Data) +
                                             sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
@@ -282,7 +282,8 @@ std::u32string read_key_down_chars(input_buffer &inp)
 }
 
 // 辅助: 构造模拟 ConDrv AddAlias 消息 (Unicode)
-void mock_add_alias_msg(miniio::io_msg &msg, const std::wstring &exe, const std::wstring &src, const std::wstring &tgt)
+void mock_add_alias_msg(corehost::condrv_io::io_msg &msg, const std::wstring &exe, const std::wstring &src,
+                        const std::wstring &tgt)
 {
     std::memset(&msg, 0, sizeof(msg));
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
@@ -309,7 +310,7 @@ void mock_add_alias_msg(miniio::io_msg &msg, const std::wstring &exe, const std:
 bool test_regression_add_alias_msg_layout()
 {
     console_state st;
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
 
     mock_add_alias_msg(msg, L"cmd.exe", L"hello", L"echo hello");
     api_l3_add_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
@@ -323,7 +324,7 @@ bool test_regression_add_alias_msg_layout()
 
 bool test_regression_get_console_input_nowait_empty()
 {
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -339,7 +340,7 @@ bool test_regression_get_console_input_nowait_empty()
 
 bool test_regression_get_console_input_waits_when_empty()
 {
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -353,7 +354,7 @@ bool test_regression_get_console_input_waits_when_empty()
 
 bool test_regression_get_console_input_ready_event()
 {
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -376,7 +377,7 @@ bool test_regression_get_console_input_ready_event()
 
 bool test_regression_get_console_input_output_size_excludes_header()
 {
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -403,7 +404,7 @@ bool test_regression_get_console_input_output_size_excludes_header()
 
 bool test_regression_get_console_input_output_size_without_record()
 {
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -428,7 +429,7 @@ bool test_regression_get_console_input_output_size_without_record()
 
 bool test_regression_get_console_input_uses_completion_buffer_for_large_output()
 {
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -483,7 +484,7 @@ bool test_regression_signal_shutdown_requests_exit_only_without_pending()
 
 bool test_regression_get_console_input_rejects_invalid_flags()
 {
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -498,7 +499,7 @@ bool test_regression_get_console_input_rejects_invalid_flags()
 
 bool test_regression_raw_write_decodes_output_codepage()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -520,7 +521,7 @@ bool test_regression_raw_write_decodes_output_codepage()
 
 bool test_regression_raw_read_completion_writes_only_bytes()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -539,7 +540,7 @@ bool test_regression_raw_read_completion_writes_only_bytes()
 
 bool test_regression_raw_read_completion_respects_output_size()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -557,7 +558,7 @@ bool test_regression_raw_read_completion_respects_output_size()
 
 bool test_regression_read_console_a_uses_input_codepage()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -580,7 +581,7 @@ bool test_regression_read_console_a_uses_input_codepage()
 
 bool test_regression_read_console_initial_bytes_check_output_capacity()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -600,7 +601,7 @@ bool test_regression_read_console_initial_bytes_check_output_capacity()
 
 bool test_regression_write_console_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -614,7 +615,7 @@ bool test_regression_write_console_rejects_short_message()
 
 bool test_regression_write_console_w_reports_complete_utf16_units()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -677,7 +678,7 @@ bool test_regression_write_console_cpr_response_uses_viewport_relative_cursor()
 
 bool test_regression_deprecated_l1_returns_not_implemented()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -690,7 +691,7 @@ bool test_regression_deprecated_l1_returns_not_implemented()
 
 bool test_regression_get_langid_matches_original_gate()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -719,7 +720,7 @@ bool test_regression_get_langid_matches_original_gate()
 
 bool test_regression_fill_console_output_a_uses_output_codepage()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -741,7 +742,7 @@ bool test_regression_fill_console_output_a_uses_output_codepage()
 
 bool test_regression_fill_console_output_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -755,7 +756,7 @@ bool test_regression_fill_console_output_rejects_short_message()
 
 bool test_regression_fill_console_output_attr_preserves_current_attr()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -780,7 +781,7 @@ bool test_regression_fill_console_output_attr_preserves_current_attr()
 
 bool test_regression_ctrl_event_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -794,7 +795,7 @@ bool test_regression_ctrl_event_rejects_short_message()
 
 bool test_regression_set_console_cp_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -808,7 +809,7 @@ bool test_regression_set_console_cp_rejects_short_message()
 
 bool test_regression_set_console_cp_updates_selected_codepage()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -834,7 +835,7 @@ bool test_regression_set_console_cp_updates_selected_codepage()
 
 bool test_regression_cursor_info_rejects_short_messages()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -853,7 +854,7 @@ bool test_regression_cursor_info_rejects_short_messages()
 
 bool test_regression_get_screen_buffer_info_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -867,7 +868,7 @@ bool test_regression_get_screen_buffer_info_rejects_short_message()
 
 bool test_regression_set_screen_buffer_info_validation()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -889,7 +890,7 @@ bool test_regression_set_screen_buffer_info_validation()
 
 bool test_regression_set_screen_buffer_size_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -903,7 +904,7 @@ bool test_regression_set_screen_buffer_size_rejects_short_message()
 
 bool test_regression_set_cursor_position_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -917,7 +918,7 @@ bool test_regression_set_cursor_position_rejects_short_message()
 
 bool test_regression_largest_window_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -931,7 +932,7 @@ bool test_regression_largest_window_rejects_short_message()
 
 bool test_regression_scroll_screen_buffer_validation_and_ansi_fill()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -960,7 +961,7 @@ bool test_regression_scroll_screen_buffer_validation_and_ansi_fill()
 
 bool test_regression_set_text_attribute_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -974,7 +975,7 @@ bool test_regression_set_text_attribute_rejects_short_message()
 
 bool test_regression_set_window_info_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -988,7 +989,7 @@ bool test_regression_set_window_info_rejects_short_message()
 
 bool test_viewport_set_window_info_absolute_updates_origin_without_resizing_buffer()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1012,7 +1013,7 @@ bool test_viewport_set_window_info_absolute_updates_origin_without_resizing_buff
 
 bool test_viewport_set_window_info_relative_offsets_current_rect()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1036,7 +1037,7 @@ bool test_viewport_set_window_info_relative_offsets_current_rect()
 
 bool test_viewport_set_cursor_position_snaps_cursor_into_view()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1060,7 +1061,7 @@ bool test_viewport_set_cursor_position_snaps_cursor_into_view()
 
 bool test_viewport_set_screen_buffer_info_resizes_view_without_moving_origin()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1439,7 +1440,7 @@ bool test_viewport_vt_scrolling_region_is_viewport_relative()
 
 bool test_regression_read_output_string_output_size_and_linear_read()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb{{2, 2}};
     input_buffer inp;
@@ -1473,7 +1474,7 @@ bool test_regression_read_output_string_output_size_and_linear_read()
 
 bool test_regression_write_console_input_a_uses_input_codepage()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1510,7 +1511,7 @@ bool test_regression_write_console_input_a_uses_input_codepage()
 
 bool test_regression_write_console_output_validation_and_clipping()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb{{2, 1}};
     input_buffer inp;
@@ -1544,7 +1545,7 @@ bool test_regression_write_console_output_validation_and_clipping()
 
 bool test_regression_write_output_string_linear_and_ansi_count()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb{{2, 2}};
     input_buffer inp;
@@ -1591,7 +1592,7 @@ bool test_regression_write_output_string_linear_and_ansi_count()
 
 bool test_regression_read_console_output_output_size_and_clipping()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb{{2, 1}};
     input_buffer inp;
@@ -1621,7 +1622,7 @@ bool test_regression_read_console_output_output_size_and_clipping()
 
 bool test_regression_get_title_output_size_limits_copy()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1651,7 +1652,7 @@ bool test_regression_get_title_output_size_limits_copy()
 
 bool test_regression_set_title_a_uses_input_codepage()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1678,7 +1679,7 @@ bool test_regression_set_title_a_uses_input_codepage()
 
 bool test_regression_l3_mouse_info_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1692,7 +1693,7 @@ bool test_regression_l3_mouse_info_rejects_short_message()
 
 bool test_regression_l3_font_size_validation()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1716,7 +1717,7 @@ bool test_regression_l3_font_size_validation()
 
 bool test_regression_l3_current_font_validation_and_maximum_window()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1739,7 +1740,7 @@ bool test_regression_l3_current_font_validation_and_maximum_window()
 
 bool test_regression_l3_set_display_mode_validation_and_size_output()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1772,7 +1773,7 @@ bool test_regression_l3_set_display_mode_validation_and_size_output()
 
 bool test_regression_l3_get_display_mode_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1793,7 +1794,7 @@ bool test_regression_l3_get_display_mode_rejects_short_message()
 
 bool test_regression_l3_add_alias_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG) - 1;
@@ -1804,7 +1805,7 @@ bool test_regression_l3_add_alias_rejects_short_message()
 
 bool test_regression_l3_get_alias_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIAS_MSG) - 1;
@@ -1815,7 +1816,7 @@ bool test_regression_l3_get_alias_rejects_short_message()
 
 bool test_regression_l3_get_aliases_length_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASESLENGTH_MSG) - 1;
@@ -1826,7 +1827,7 @@ bool test_regression_l3_get_aliases_length_rejects_short_message()
 
 bool test_regression_l3_get_alias_exes_length_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXESLENGTH_MSG) - 1;
@@ -1837,7 +1838,7 @@ bool test_regression_l3_get_alias_exes_length_rejects_short_message()
 
 bool test_regression_l3_get_aliases_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG) - 1;
@@ -1848,7 +1849,7 @@ bool test_regression_l3_get_aliases_rejects_short_message()
 
 bool test_regression_l3_get_alias_exes_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
 
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG) - 1;
@@ -1859,7 +1860,7 @@ bool test_regression_l3_get_alias_exes_rejects_short_message()
 
 bool test_regression_l3_expunge_history_rejects_short_message_and_clears_history()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1883,7 +1884,7 @@ bool test_regression_l3_expunge_history_rejects_short_message_and_clears_history
 
 bool test_regression_l3_set_num_commands_validation_and_trim()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1913,7 +1914,7 @@ bool test_regression_l3_set_num_commands_validation_and_trim()
 
 bool test_regression_l3_get_history_length_validation_and_bytes()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1940,7 +1941,7 @@ bool test_regression_l3_get_history_length_validation_and_bytes()
 
 bool test_regression_l3_get_history_validation_output_size_and_serialization()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -1985,7 +1986,7 @@ bool test_regression_l3_get_history_validation_output_size_and_serialization()
 
 bool test_regression_l3_get_console_window_rejects_short_message()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -2004,7 +2005,7 @@ bool test_regression_l3_get_console_window_rejects_short_message()
 
 bool test_regression_l3_selection_info_validation_and_copy()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -2031,7 +2032,7 @@ bool test_regression_l3_selection_info_validation_and_copy()
 
 bool test_regression_l3_process_list_validation_and_output_size()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -2061,7 +2062,7 @@ bool test_regression_l3_process_list_validation_and_output_size()
 
 bool test_regression_l3_history_info_validation_get_set()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -2099,7 +2100,7 @@ bool test_regression_l3_history_info_validation_get_set()
 
 bool test_regression_l3_set_current_font_validation_and_store()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -2130,7 +2131,7 @@ bool test_regression_l3_set_current_font_validation_and_store()
 
 bool test_regression_raw_flush_clears_input_events()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer main_sb;
     screen_buffer alt_sb;
@@ -2155,7 +2156,7 @@ bool test_regression_raw_flush_clears_input_events()
 
 bool test_regression_user_defined_router_matches_api_sorter_validation()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer main_sb;
     screen_buffer alt_sb;
@@ -2196,7 +2197,7 @@ bool test_regression_user_defined_router_matches_api_sorter_validation()
 
 bool test_regression_connect_disconnect_syncs_process_snapshot()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer main_sb;
     screen_buffer alt_sb;
@@ -2249,7 +2250,7 @@ bool test_regression_connect_disconnect_syncs_process_snapshot()
 
 bool test_regression_create_object_rejects_malformed_or_unknown_type()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     io_state io;
 
     msg.descriptor.InputSize = sizeof(CD_CREATE_OBJECT_INFORMATION) - 1;
@@ -2267,7 +2268,7 @@ bool test_regression_create_object_rejects_malformed_or_unknown_type()
 
 bool test_regression_new_output_screen_buffer_can_be_activated()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer main_sb;
     screen_buffer alt_sb;
@@ -2311,7 +2312,7 @@ bool test_regression_new_output_screen_buffer_can_be_activated()
 
 bool test_regression_write_console_escape_sequence_without_vt_mode_updates_state()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -2332,7 +2333,7 @@ bool test_regression_write_console_escape_sequence_without_vt_mode_updates_state
 
 bool test_regression_write_console_parser_sgr_updates_attributes()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -2355,7 +2356,7 @@ bool test_regression_write_console_parser_sgr_updates_attributes()
 
 bool test_regression_write_console_parser_sgr_applies_params_in_order()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -2378,7 +2379,7 @@ bool test_regression_write_console_parser_sgr_applies_params_in_order()
 
 bool test_regression_set_console_mode_validation()
 {
-    miniio::io_msg msg{};
+    corehost::condrv_io::io_msg msg{};
     console_state st;
     screen_buffer sb;
     input_buffer inp;
@@ -2404,7 +2405,7 @@ bool test_regression_set_console_mode_validation()
 bool test_regression_add_alias_zero_exe()
 {
     console_state st;
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
 
     mock_add_alias_msg(msg, L"", L"x", L"exit");
     api_l3_add_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
@@ -2418,7 +2419,7 @@ bool test_regression_add_alias_zero_exe()
 bool test_regression_alias_expand_after_store()
 {
     console_state st;
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
 
     mock_add_alias_msg(msg, L"cmd.exe", L"hello", L"echo hello");
     api_l3_add_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
@@ -2438,7 +2439,7 @@ bool test_regression_alias_expand_after_store()
 bool test_regression_alias_msg_wrong_key()
 {
     console_state st;
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
 
     mock_add_alias_msg(msg, L"cmd.exe", L"hello", L"echo hello");
     api_l3_add_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
@@ -2458,7 +2459,7 @@ bool test_regression_alias_msg_wrong_key()
 bool test_regression_add_alias_ansi_ignored()
 {
     console_state st;
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     std::memset(&msg, 0, sizeof(msg));
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepAddAlias);
@@ -2477,7 +2478,7 @@ bool test_regression_add_alias_ansi_ignored()
 }
 
 // ── 辅助: 构造模拟 ConDrv GetAlias 消息 ──
-void mock_get_alias_msg(miniio::io_msg &msg, const std::wstring &exe, const std::wstring &src)
+void mock_get_alias_msg(corehost::condrv_io::io_msg &msg, const std::wstring &exe, const std::wstring &src)
 {
     std::memset(&msg, 0, sizeof(msg));
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
@@ -2505,7 +2506,7 @@ bool test_regression_get_alias_skips_exe()
     console_state st;
     st.aliases[L"hello"] = L"echo hello";
 
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     mock_get_alias_msg(msg, L"cmd.exe", L"hello");
 
     api_l3_get_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
@@ -2528,7 +2529,7 @@ bool test_regression_get_alias_missing_key()
     console_state st;
     st.aliases[L"hello"] = L"echo hello";
 
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     mock_get_alias_msg(msg, L"cmd.exe", L"world");
 
     api_l3_get_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
@@ -2545,7 +2546,7 @@ bool test_regression_get_aliases_buffer_length_bytes()
     st.aliases[L"ls"] = L"dir";
     st.aliases[L"cl"] = L"cls";
 
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     std::memset(&msg, 0, sizeof(msg));
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetAliases);
@@ -2570,7 +2571,7 @@ bool test_regression_get_aliases_length_ansi()
     console_state st;
     st.aliases[L"x"] = L"exit";
 
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     std::memset(&msg, 0, sizeof(msg));
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetAliasesLength);
@@ -2590,7 +2591,7 @@ bool test_regression_get_aliases_length_ansi()
 // 回归: GetCommandHistoryLength 返回 0 (ConPTY 不暴露历史)
 bool test_regression_get_history_length_zero()
 {
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     std::memset(&msg, 0, sizeof(msg));
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetCommandHistoryLength);
@@ -2608,7 +2609,7 @@ bool test_regression_get_history_length_zero()
 // 回归: GetCommandHistory 返回 CommandBufferLength=0 (ConPTY 不暴露历史)
 bool test_regression_get_history_zero()
 {
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     std::memset(&msg, 0, sizeof(msg));
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetCommandHistory);
@@ -2632,7 +2633,7 @@ bool test_regression_get_title_length_bytes()
     convert_utf16_to_u32(std::wstring_view{L"test"}, u32title);
     st.title = u32title;
 
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     std::memset(&msg, 0, sizeof(msg));
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetTitle);
@@ -2652,7 +2653,7 @@ bool test_regression_get_title_length_bytes()
 }
 
 // ── 辅助: 构造模拟 ConDrv AddAlias ANSI 消息 ──
-void mock_add_alias_msg_ansi(miniio::io_msg &msg, const std::string &exe, const std::string &src,
+void mock_add_alias_msg_ansi(corehost::condrv_io::io_msg &msg, const std::string &exe, const std::string &src,
                              const std::string &tgt)
 {
     std::memset(&msg, 0, sizeof(msg));
@@ -2680,7 +2681,7 @@ void mock_add_alias_msg_ansi(miniio::io_msg &msg, const std::string &exe, const 
 bool test_regression_add_alias_ansi_ascii()
 {
     console_state st;
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
 
     mock_add_alias_msg_ansi(msg, "cmd.exe", "hello", "echo hello");
     api_l3_add_alias(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
@@ -2696,7 +2697,7 @@ bool test_regression_get_alias_ansi_output()
     console_state st;
     st.aliases[L"ls"] = L"dir";
 
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     std::memset(&msg, 0, sizeof(msg));
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetAlias);
@@ -2735,7 +2736,7 @@ bool test_regression_get_aliases_ansi_output()
     console_state st;
     st.aliases[L"x"] = L"exit";
 
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     std::memset(&msg, 0, sizeof(msg));
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetAliases);
@@ -2764,7 +2765,7 @@ bool test_regression_get_title_ansi_output()
     convert_utf16_to_u32(std::wstring_view{L"cmd"}, u32title);
     st.title = u32title;
 
-    miniio::io_msg msg;
+    corehost::condrv_io::io_msg msg;
     std::memset(&msg, 0, sizeof(msg));
     auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
     hdr->ApiNumber = static_cast<ULONG>(ConsolepGetTitle);

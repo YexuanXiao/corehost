@@ -7,7 +7,7 @@ namespace corehost::conpty
 class pipe_bridge_testable : public pipe_bridge
 {
   public:
-    miniio::io_msg _test_console_read_msg{};
+    corehost::condrv_io::io_msg _test_console_read_msg{};
 
     using pipe_bridge::pipe_bridge;
 
@@ -161,7 +161,8 @@ class pipe_bridge_testable : public pipe_bridge
         vt_flush();
     }
 
-    void test_prepare_raw_read_completion(miniio::io_msg &msg, const BYTE *bytes, DWORD len, bool eof = false)
+    void test_prepare_raw_read_completion(corehost::condrv_io::io_msg &msg, const BYTE *bytes, DWORD len,
+                                          bool eof = false)
     {
         _pending.begin_raw_read(msg, false);
         _pending.set_vt_eof(eof);
@@ -171,7 +172,7 @@ class pipe_bridge_testable : public pipe_bridge
         prepare_raw_read_completion(msg);
     }
 
-    void test_prepare_console_read_completion(miniio::io_msg &msg, std::u32string_view line, bool unicode)
+    void test_prepare_console_read_completion(corehost::condrv_io::io_msg &msg, std::u32string_view line, bool unicode)
     {
         auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
         req->Unicode = unicode ? TRUE : FALSE;

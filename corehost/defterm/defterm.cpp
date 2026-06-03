@@ -8,7 +8,7 @@
 #include "terminal_handoff.hpp"
 #include "vt_handles.hpp"
 #include "conpty.hpp"
-#include "miniio/io_thread.hpp"
+#include "condrv_io.hpp"
 #include "os/Console/conmsgl1.h"
 #include "utility/env.hpp"
 #include "utility/log.hpp"
@@ -44,7 +44,7 @@ struct connect_handler
     // 用于初始化 libcorehost 的进程列表，保证 GetConsoleProcessList 可见。
     DWORD attached_process_id = 0;
 
-    // miniio::accept_connection 打开的 ConDrv 客户端句柄。它们必须在
+    // corehost::condrv_io::accept_connection 打开的 ConDrv 客户端句柄。它们必须在
     // conpty/mini fallback 生命周期内保持有效，否则客户端 ReadFile/WriteFile
     // 会收到断开。
     win32::handle condrv_input;
@@ -55,7 +55,7 @@ struct connect_handler
     win32::handle_view server;
     win32::handle_view input_event;
 
-    bool on_connect(miniio::io_msg &msg, initial_connect_completion &completion)
+    bool on_connect(corehost::condrv_io::io_msg &msg, initial_connect_completion &completion)
     {
         // explicit_complete 表示本函数不在当前 READ_IO 返回体中填 completion；
         // 需要 inline 完成的分支会覆盖它。
@@ -86,7 +86,7 @@ struct connect_handler
             width = connect_info.ScreenBufferSize.X > 0 ? connect_info.ScreenBufferSize.X : 0;
             height = connect_info.ScreenBufferSize.Y > 0 ? connect_info.ScreenBufferSize.Y : 0;
             attached_process_id = client_pid;
-            miniio::accept_connection(server, msg, condrv_input, condrv_output);
+            corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
             start_conpty = true;
             return false;
         }
@@ -99,7 +99,7 @@ struct connect_handler
             auto image_path = query_process_image_path(client_pid);
             LOG(L"elevated client image path: %ls", image_path.c_str());
             env::show_elevated_notification(image_path);
-            miniio::accept_connection(server, msg, condrv_input, condrv_output);
+            corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
 
             // ProcessGroupId 为 0 时没有显式进程组，只能用 pid 作为
             // GenerateConsoleCtrlEvent 的目标。
@@ -119,13 +119,13 @@ struct connect_handler
 
         LOG("no terminal accepted handoff; notification and CTRL_BREAK are expected fallback");
         env::show_not_found_notification();
-        miniio::accept_connection(server, msg, condrv_input, condrv_output);
+        corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
         // 没有可用终端时立即打断客户端进程组，避免它永久等待不可见控制台。
         ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, client_pid);
         return true;
     }
 
-    bool on_message(miniio::io_msg &msg)
+    bool on_message(corehost::condrv_io::io_msg &msg)
     {
         LOG3("fallback message: func=%lu", msg.descriptor.Function);
         dispatch_console(server, msg, condrv_input, condrv_output);
@@ -153,20 +153,20 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
 {
     LOG3("initial CONNECT loop started; waiting for ConDrv messages server=%p event=%p", server.get(),
          input_event.get());
-    miniio::set_server_info(server, input_event);
+    corehost::condrv_io::set_server_info(server, input_event);
 
     // ConDrv 的 READ_IO 同时提交上一条 completion 并读取下一条消息。
     // 因此需要双缓冲，避免 completion 的 Write.Data 指向的 body 被下一条
     // 读取覆盖。
-    miniio::io_msg message_a{};
-    miniio::io_msg message_b{};
+    corehost::condrv_io::io_msg message_a{};
+    corehost::condrv_io::io_msg message_b{};
 
     // current 指向本轮接收缓冲，只能是 message_a 或 message_b。
-    miniio::io_msg *current = &message_a;
+    corehost::condrv_io::io_msg *current = &message_a;
 
     // nullptr 表示本轮 READ_IO 不提交 completion；非 nullptr 指向上一条
     // 已由 handler 填好 complete 字段的消息。
-    miniio::io_msg *completed_previous = nullptr;
+    corehost::condrv_io::io_msg *completed_previous = nullptr;
 
     for (;;)
     {
@@ -202,13 +202,13 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
             LOG3("reading next message without completion");
         }
 
-        const auto read_result = miniio::read_io_try(server, completion, *current);
-        if (read_result == miniio::read_io_result::disconnected)
+        const auto read_result = corehost::condrv_io::read_io_try(server, completion, *current);
+        if (read_result == corehost::condrv_io::read_io_result::disconnected)
         {
             LOG3("ConDrv disconnected; initial loop will exit");
             break;
         }
-        if (read_result == miniio::read_io_result::no_message)
+        if (read_result == corehost::condrv_io::read_io_result::no_message)
         {
             completed_previous = nullptr;
             handler.on_idle();

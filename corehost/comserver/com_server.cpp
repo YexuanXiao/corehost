@@ -18,7 +18,7 @@
 #include "IConsoleHandoff.h"
 #include "ITerminalHandoff.h"
 #include "ntapi/condrv.hpp"
-#include "miniio/io_thread.hpp"
+#include "condrv_io.hpp"
 #include "os/Console/conmsgl1.h"
 #include "default_console_size.hpp"
 #include "win32/thread.hpp"
@@ -29,11 +29,11 @@ namespace corehost::comserver
 {
 
 // 从 COM 便携连接消息填充 io_msg 描述符（供 accept_connection 和 read_input 使用）。
-inline miniio::io_msg make_connect_msg(PCCONSOLE_PORTABLE_ATTACH_MSG msg)
+inline corehost::condrv_io::io_msg make_connect_msg(PCCONSOLE_PORTABLE_ATTACH_MSG msg)
 {
     // m.body 在这里保持为空；portable attach 消息只携带 descriptor 字段。
     // 需要 CONNECT body 时必须再通过 READ_INPUT 以 Identifier 为键读取。
-    miniio::io_msg m{};
+    corehost::condrv_io::io_msg m{};
     m.descriptor.Identifier.LowPart = msg->IdLowPart;
     m.descriptor.Identifier.HighPart = msg->IdHighPart;
     m.descriptor.Process = static_cast<decltype(m.descriptor.Process)>(msg->Process);
@@ -46,7 +46,8 @@ inline miniio::io_msg make_connect_msg(PCCONSOLE_PORTABLE_ATTACH_MSG msg)
 
 // 读取指定 IO 的输入载荷。CONNECT 的 CONSOLE_SERVER_MSG 不一定在
 // read_io 的短包 body 中完整呈现，从驱动按 Identifier 重新取完整载荷。
-inline void read_input(win32::handle_view server, const miniio::io_msg &msg, ULONG offset, void *buffer, ULONG size)
+inline void read_input(win32::handle_view server, const corehost::condrv_io::io_msg &msg, ULONG offset, void *buffer,
+                       ULONG size)
 {
     // op.Identifier 必须来自 READ_IO/portable attach 的同一条请求；ConDrv 用它
     // 定位原始输入缓冲。offset/size 需落在该输入缓冲范围内。
@@ -59,7 +60,8 @@ inline void read_input(win32::handle_view server, const miniio::io_msg &msg, ULO
     // r 是 DeviceIoControl 的 bytes-returned。IOCTL_READ_INPUT 不通过该值
     // 返回 payload 大小，成功条件只看 BOOL。
     DWORD r = 0;
-    if (!::DeviceIoControl(server.get(), miniio::IOCTL_READ_INPUT, &op, sizeof(op), nullptr, 0, &r, nullptr))
+    if (!::DeviceIoControl(server.get(), corehost::condrv_io::IOCTL_READ_INPUT, &op, sizeof(op), nullptr, 0, &r,
+                           nullptr))
         win32::throw_last_error();
 }
 
@@ -67,7 +69,7 @@ inline void read_input(win32::handle_view server, const miniio::io_msg &msg, ULO
 // 终端移交子流程
 // ============================================================================
 
-// 从便携 attach 描述符恢复一条 miniio 消息，再按原版 OpenConsole 的做法
+// 从便携 attach 描述符恢复一条 condrv_io 消息，再按原版 OpenConsole 的做法
 // 使用 IOCTL_CONDRV_READ_INPUT 读取完整的 CONSOLE_SERVER_MSG。COM 传来的
 // PCCONSOLE_PORTABLE_ATTACH_MSG 只保存 CD_IO_DESCRIPTOR 的关键字段，不能
 // 直接包含标题、ShowWindow 等 connect 输入载荷。
@@ -169,7 +171,7 @@ void accept_condrv_connection(win32::handle_view condrv_server, PCCONSOLE_PORTAB
     // accept_connection 会完成 CONNECT，并把 \Input/\Output 客户端句柄写入
     // 出参；失败时出参保持空句柄并抛出 Win32 错误。
     auto connect_io = make_connect_msg(attach_msg);
-    miniio::accept_connection(condrv_server, connect_io, condrv_input, condrv_output);
+    corehost::condrv_io::accept_connection(condrv_server, connect_io, condrv_input, condrv_output);
     LOG("ConDrv CONNECT accepted input=%p output=%p", condrv_input.get(), condrv_output.get());
 }
 

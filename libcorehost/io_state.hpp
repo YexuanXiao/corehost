@@ -15,7 +15,7 @@
 #include <cstddef>
 #include "connect_completion.hpp"
 #include "win32/handle.hpp"
-#include "miniio/io_thread.hpp"
+#include "condrv_io.hpp"
 #include "ntapi/condrv.hpp"
 #include "utility/log.hpp"
 
@@ -96,7 +96,7 @@ struct io_state
         process_list[process_count] = 0;
     }
 
-    bool handle_connect(miniio::io_msg &msg, connect_completion &completion)
+    bool handle_connect(corehost::condrv_io::io_msg &msg, connect_completion &completion)
     {
         // msg 的 body 对 CONNECT 不由本层解析；accept_connection 会使用
         // descriptor.Identifier 完成首个连接并创建 input/output 句柄。
@@ -117,7 +117,7 @@ struct io_state
         {
             // 首个 CONNECT 需要创建 \Input/\Output，并由 accept_connection
             // 直接调用 COMPLETE_IO。调用方下一轮不能再次提交这个 completion。
-            miniio::accept_connection(server, msg, condrv_input, condrv_output);
+            corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
             input_id = reinterpret_cast<ULONG_PTR>(condrv_input.get());
             output_id = reinterpret_cast<ULONG_PTR>(condrv_output.get());
             completion = connect_completion::explicit_complete;
@@ -128,14 +128,14 @@ struct io_state
         {
             // 后续 CONNECT 只代表子进程加入现有控制台。它共享首个连接的
             // \Input/\Output，因此只填 completion，交给下一轮 READ_IO 提交。
-            miniio::prepare_completion(msg);
+            corehost::condrv_io::prepare_completion(msg);
             completion = connect_completion::inline_complete;
             LOG2("CONNECT joined existing console processCount=%zu", process_count);
         }
         return true;
     }
 
-    bool handle_disconnect(miniio::io_msg &msg)
+    bool handle_disconnect(corehost::condrv_io::io_msg &msg)
     {
         // msg.descriptor.Process 是要从当前控制台进程列表删除的 pid；ConDrv
         // 对象句柄不随单个进程 DISCONNECT 释放。
@@ -144,18 +144,18 @@ struct io_state
         LOG2("DISCONNECT pid=%lu processCount=%zu", pid, process_count);
 
         // DISCONNECT 没有输出载荷，成功 completion 足以让 ConDrv 继续派发消息。
-        miniio::prepare_completion(msg);
+        corehost::condrv_io::prepare_completion(msg);
         return true;
     }
 
-    bool handle_create_object(miniio::io_msg &msg)
+    bool handle_create_object(corehost::condrv_io::io_msg &msg)
     {
         // CREATE_OBJECT body 是 CD_CREATE_OBJECT_INFORMATION；它描述客户端
         // 想打开当前 Input/Output 还是新 Output，以及访问掩码。
         if (msg.descriptor.InputSize < sizeof(CD_CREATE_OBJECT_INFORMATION))
         {
             LOG2("CREATE_OBJECT short input=%lu", msg.descriptor.InputSize);
-            miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+            corehost::condrv_io::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
             return true;
         }
 
@@ -198,14 +198,14 @@ struct io_state
             break;
         default:
             LOG2("CREATE_OBJECT unsupported type=%lu access=0x%08lx", req->ObjectType, req->DesiredAccess);
-            miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+            corehost::condrv_io::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
             return true;
         }
-        miniio::prepare_completion(msg, 0, reinterpret_cast<ULONG_PTR>(nh.release()));
+        corehost::condrv_io::prepare_completion(msg, 0, reinterpret_cast<ULONG_PTR>(nh.release()));
         return true;
     }
 
-    bool handle_close_object(miniio::io_msg &msg)
+    bool handle_close_object(corehost::condrv_io::io_msg &msg)
     {
         // msg.descriptor.Object 是客户端传回的句柄值，不一定仍然对应一个
         // 当前对象；不匹配时也按成功完成，避免关闭未知句柄阻塞客户端。
@@ -218,7 +218,7 @@ struct io_state
             alternate_output_id = 0;
         LOG2("CLOSE_OBJECT object=%llu inputId=%llu outputId=%llu altOutputId=%llu", id, input_id, output_id,
              alternate_output_id);
-        miniio::prepare_completion(msg);
+        corehost::condrv_io::prepare_completion(msg);
         return true;
     }
 
@@ -237,10 +237,10 @@ struct io_state
 
     // 完成 RAW_FLUSH 对象消息。input_buffer 的清空由 message_router 负责，
     // 这里只准备 ConDrv completion。
-    void handle_raw_flush(miniio::io_msg &msg)
+    void handle_raw_flush(corehost::condrv_io::io_msg &msg)
     {
         // RAW_FLUSH 本身没有额外载荷；input_buffer 已由 message_router 清空。
-        miniio::prepare_completion(msg);
+        corehost::condrv_io::prepare_completion(msg);
     }
 };
 

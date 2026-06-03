@@ -8,7 +8,7 @@
 //    screen_buffer 快照重绘到终端。
 #pragma once
 #include <windows.h>
-#include "miniio/io_thread.hpp"
+#include "condrv_io.hpp"
 #include "os/Console/conmsgl1.h"
 #include "api_handlers.hpp"
 #include "screen_buffer.hpp"
@@ -80,7 +80,7 @@ struct api_router
 
     // 分派一条 CONSOLE_IO_USER_DEFINED 消息。返回 false 表示具体 handler
     // 挂起了请求，后续由 pipe_bridge 显式 COMPLETE_IO。
-    bool handle_user_defined(miniio::io_msg &msg)
+    bool handle_user_defined(corehost::condrv_io::io_msg &msg)
     {
         // msg 是 message_router 确认 Function==CONSOLE_IO_USER_DEFINED 后交进来的
         // 原始请求；本函数只解析 CONSOLE_MSG_HEADER 和 L1/L2/L3 API 描述符。
@@ -90,7 +90,7 @@ struct api_router
         {
             LOG2("USER_DEFINED rejected: inputSize=%lu headerSize=%zu", msg.descriptor.InputSize,
                  sizeof(CONSOLE_MSG_HEADER));
-            miniio::prepare_completion(msg, status_illegal_function);
+            corehost::condrv_io::prepare_completion(msg, status_illegal_function);
             return true;
         }
 
@@ -112,7 +112,7 @@ struct api_router
         {
             LOG2("USER_DEFINED rejected: layer=%lu api=%lu descriptorSize=%lu required=%zu inputSize=%lu", layer, api,
                  hdr->ApiDescriptorSize, required_size, msg.descriptor.InputSize);
-            miniio::prepare_completion(msg, status_illegal_function);
+            corehost::condrv_io::prepare_completion(msg, status_illegal_function);
             return true;
         }
 
@@ -132,7 +132,7 @@ struct api_router
             break;
         default:
             LOG2("USER_DEFINED rejected: unsupported layer=%lu api=%lu", layer, api);
-            miniio::prepare_completion(msg, status_illegal_function);
+            corehost::condrv_io::prepare_completion(msg, status_illegal_function);
             return true;
         }
         LOG2("USER_DEFINED consumed layer=%lu api=%lu completedInline=%d status=0x%08lx information=%llu", layer, api,
@@ -324,7 +324,7 @@ struct api_router
 
     // 分派 L1 API，并根据 descriptor.Object 判断 Get/SetConsoleMode 操作输入
     // 还是输出句柄。返回 false 表示 ReadConsole/GetConsoleInput 类请求已挂起。
-    bool dispatch_L1(miniio::io_msg &msg, DWORD api)
+    bool dispatch_L1(corehost::condrv_io::io_msg &msg, DWORD api)
     {
         // L1 包含代码页、模式、输入读取和 WriteConsole 等基础 API。
         auto &sb = active_screen_buffer();
@@ -357,14 +357,14 @@ struct api_router
         case 9:
             return api_deprecated_l1(msg, state, sb, inp, bridge);
         default:
-            miniio::prepare_completion(msg, status_illegal_function);
+            corehost::condrv_io::prepare_completion(msg, status_illegal_function);
             return true;
         }
     }
 
     // 分派 L2 API。所有 handler 都操作当前 active_screen_buffer，因此备用
     // 缓冲区激活时 Read/WriteConsoleOutput 会自然落到 sb_alt。
-    bool dispatch_L2(miniio::io_msg &msg, DWORD api)
+    bool dispatch_L2(corehost::condrv_io::io_msg &msg, DWORD api)
     {
         // L2 包含屏幕缓冲区、窗口、光标和标题等 API。
         auto &sb = active_screen_buffer();
@@ -387,7 +387,7 @@ struct api_router
                 switch_active_screen_buffer(true);
                 return api_set_active_sb(msg, state, active_screen_buffer(), inp, bridge);
             default:
-                miniio::prepare_completion(msg, status_invalid_parameter);
+                corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
                 return true;
             }
         case 3:
@@ -429,14 +429,14 @@ struct api_router
         case 21:
             return api_set_title(msg, state, sb, inp, bridge);
         default:
-            miniio::prepare_completion(msg, status_illegal_function);
+            corehost::condrv_io::prepare_completion(msg, status_illegal_function);
             return true;
         }
     }
 
     // 分派 L3 扩展 API。活跃 API 读写 console_state、bridge 历史/别名/进程
     // 快照；废弃 API 返回兼容 completion，不维护额外内部状态。
-    bool dispatch_L3(miniio::io_msg &msg, DWORD api)
+    bool dispatch_L3(corehost::condrv_io::io_msg &msg, DWORD api)
     {
         // L3 覆盖鼠标、字体、别名、历史、进程列表等扩展 API。
         auto &sb = active_screen_buffer();
@@ -519,7 +519,7 @@ struct api_router
             return api_l3_deprecated(msg, state, sb, inp, bridge);
 
         default:
-            miniio::prepare_completion(msg, status_illegal_function);
+            corehost::condrv_io::prepare_completion(msg, status_illegal_function);
             return true;
         }
     }

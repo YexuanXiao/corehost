@@ -3,7 +3,7 @@
 #include "signal.hpp"
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
-#include "miniio/io_thread.hpp"
+#include "condrv_io.hpp"
 #include "utility/log.hpp"
 #include <algorithm>
 #include <memory>
@@ -28,7 +28,7 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
     {
         // sig 是 PtySignal 的 16-bit wire id；短读表示管道关闭或协议损坏。
         unsigned short sig = 0;
-        if (!miniio::read_exact(hp.view(), &sig, sizeof(sig)))
+        if (!corehost::condrv_io::read_exact(hp.view(), &sig, sizeof(sig)))
         {
             LOG("pty_signal_thread_proc: failed to read signal id err=%lu", ::GetLastError());
             break;
@@ -40,7 +40,7 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
             // 当前不管理真实窗口，但必须消费 show payload；否则下一次读到的
             // payload 会被误当作信号 id，破坏协议同步。
             unsigned short show = 0;
-            if (!miniio::read_exact(hp.view(), &show, sizeof(show)))
+            if (!corehost::condrv_io::read_exact(hp.view(), &show, sizeof(show)))
             {
                 LOG("pty_signal_thread_proc: ShowHideWindow payload short read err=%lu", ::GetLastError());
                 return 0;
@@ -57,7 +57,7 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
             // WT 按 ULONG_PTR 发送 HWND；corehost 不重新设置父窗口，只消费字段
             // 保持后续信号边界正确。
             ULONG_PTR hwnd = 0;
-            if (!miniio::read_exact(hp.view(), &hwnd, sizeof(hwnd)))
+            if (!corehost::condrv_io::read_exact(hp.view(), &hwnd, sizeof(hwnd)))
             {
                 LOG("pty_signal_thread_proc: SetParent payload short read err=%lu", ::GetLastError());
                 return 0;
@@ -69,7 +69,7 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
             // ResizeWindow 是 WT 主动通知的可见尺寸。state 中三个尺寸保持一致，
             // 因为当前 ConPTY 模型没有独立 scrollback buffer。
             COORD sz{0, 0};
-            if (!miniio::read_exact(hp.view(), &sz, sizeof(sz)))
+            if (!corehost::condrv_io::read_exact(hp.view(), &sz, sizeof(sz)))
             {
                 LOG("pty_signal_thread_proc: ResizeWindow payload short read err=%lu", ::GetLastError());
                 return 0;

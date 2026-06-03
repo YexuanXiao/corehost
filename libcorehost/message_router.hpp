@@ -8,7 +8,7 @@
 #pragma once
 #include <windows.h>
 #include <span>
-#include "miniio/io_thread.hpp"
+#include "condrv_io.hpp"
 #include "io_state.hpp"
 #include "pipe_bridge.hpp"
 #include "api_router.hpp"
@@ -33,7 +33,7 @@ struct message_router
 
     // 消费 CONNECT 消息，并把 io_state 的进程列表同步给 pipe_bridge。completion
     // 返回首个 CONNECT 是显式完成还是可由下一轮 READ_IO 内联提交。
-    bool on_connect(miniio::io_msg &msg, connect_completion &completion)
+    bool on_connect(corehost::condrv_io::io_msg &msg, connect_completion &completion)
     {
         // msg 是 ConDrv 的 CONNECT 请求；completion 返回给 io_loop，说明
         // handle_connect 是已经显式 COMPLETE_IO，还是只填好 msg.complete。
@@ -53,7 +53,7 @@ struct message_router
 
     // 消费一条非首个 CONNECT 的 ConDrv 消息。返回 true 表示 msg.complete 可由
     // io_loop 提交；false 表示 bridge 已持有该请求等待 VT 输入。
-    bool on_message(miniio::io_msg &msg)
+    bool on_message(corehost::condrv_io::io_msg &msg)
     {
         // msg 是除首个 CONNECT 外的一条 ConDrv 消息。返回 true 表示 msg.complete
         // 已准备好，可由下一轮 READ_IO 提交；false 表示 bridge 挂起了请求。
@@ -150,7 +150,7 @@ struct message_router
   private:
     // 记录 ConDrv descriptor 的路由关键字段，用于诊断消息进入 router 时的
     // 原始状态。
-    static void log_descriptor(const char *label, const miniio::io_msg &msg)
+    static void log_descriptor(const char *label, const corehost::condrv_io::io_msg &msg)
     {
         // label 标识消息进入 router 的阶段；msg.descriptor 是 ConDrv 给
         // corehost 的原始路由数据，后续 dispatch 只依据这些字段决定消费路径。
@@ -160,7 +160,7 @@ struct message_router
     }
 
     // 记录 corehost 准备交回 ConDrv 的 completion 状态。
-    static void log_completion(const char *label, const miniio::io_msg &msg)
+    static void log_completion(const char *label, const corehost::condrv_io::io_msg &msg)
     {
         // label 标识 completion 的来源；msg.complete 是 corehost 回给 ConDrv
         // 的结果，io_loop 可能同步提交，也可能由 bridge 显式 COMPLETE_IO。
@@ -170,7 +170,7 @@ struct message_router
 
     // 按 descriptor.Function 选择 io_state、pipe_bridge 或 api_router 处理消息。
     // 返回 false 只表示请求被挂起，不表示失败。
-    bool dispatch(miniio::io_msg &msg)
+    bool dispatch(corehost::condrv_io::io_msg &msg)
     {
         // msg.body 的解释权由 Function 决定：对象管理消息由 io_state 解释，
         // RAW_* 由 bridge/API raw 路径解释，USER_DEFINED 由 api_router 解释。
@@ -229,7 +229,7 @@ struct message_router
         default:
             // 未实现的 Function 不能阻塞客户端；按空成功完成。
             LOG2("dispatch consumes unknown function as empty completion func=%lu", msg.descriptor.Function);
-            miniio::prepare_completion(msg);
+            corehost::condrv_io::prepare_completion(msg);
             return true;
         }
     }

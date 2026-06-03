@@ -1,4 +1,4 @@
-// ── miniio/io_thread.hpp ─────────────────────────────────
+// ── libcorehost/condrv_io.hpp ───────────────────────────────
 // ConDrv 驱动通信 — IOCTL 原语
 //
 // ConDrv (condrv.sys) 是 Windows 内核控制台驱动。
@@ -36,7 +36,7 @@
 #include "ntapi/condrv.hpp"
 #include "utility/log.hpp"
 
-namespace miniio
+namespace corehost::condrv_io
 {
 
 inline constexpr DWORD IOCTL_READ_IO = CTL_CODE(FILE_DEVICE_CONSOLE, 1, METHOD_OUT_DIRECT, FILE_ANY_ACCESS);
@@ -193,4 +193,4 @@ inline void accept_connection(win32::handle_view server, io_msg &msg, win32::han
     complete_io(server, msg.complete);
 }
 
-} // namespace miniio
+} // namespace corehost::condrv_io
