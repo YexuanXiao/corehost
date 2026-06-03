@@ -7,7 +7,7 @@
 #pragma once
 #include <windows.h>
 #include <string>
-#include "conpty_vt_parser.hpp"
+#include "vt_parser.hpp"
 
 namespace conpty
 {

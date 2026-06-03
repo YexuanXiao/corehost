@@ -19,7 +19,7 @@
 #include "input_buffer.hpp"
 #include "pipe_bridge.hpp"
 #include "viewport_render.hpp"
-#include "conpty_vt_parser.hpp"
+#include "vt_parser.hpp"
 #include "vt_msg_dispatch.hpp"
 #include "char_convert.hpp"
 #include "char_width.hpp"

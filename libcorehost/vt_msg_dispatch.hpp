@@ -29,7 +29,7 @@
 //   其他               → 无状态影响
 #pragma once
 #include <windows.h>
-#include "conpty_vt_parser.hpp"
+#include "vt_parser.hpp"
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
 #include "char_convert.hpp"

@@ -6,7 +6,7 @@
 // api_handlers and the keyboard input path.
 
 #include "test_common.hpp"
-#include "conpty_vt_parser.hpp"
+#include "vt_parser.hpp"
 #include "vt_parser_test_helpers.hpp"
 #include "utility/crtdbg.hpp"
 

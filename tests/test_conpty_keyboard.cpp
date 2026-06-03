@@ -2,9 +2,9 @@
 // Component-level keyboard input test.
 // Tests VT parser -> vt_message -> INPUT_RECORD pipeline.
 #include "test_common.hpp"
-#include "conpty_vt_parser.hpp"
+#include "vt_parser.hpp"
 #include "vt_parser_test_helpers.hpp"
-#include "conpty_vt_input_engine.hpp"
+#include "vt_input_engine.hpp"
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
 #include "vt_msg_dispatch.hpp"

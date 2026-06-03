@@ -1,4 +1,4 @@
-// ── conpty/conpty_vt_parser.hpp ──────────────────────────
+// ── conpty/vt_parser.hpp ──────────────────────────
 // Layer 2: VT/CSI/OSC 序列解析器 (char32_t 输入, 零分配视图)
 //
 // 设计目标：
@@ -24,16 +24,18 @@
 //           switch (result.id) {
 //               case vt_message_id::text:
 //                   // 使用 result.message.payload.text (u32string_view)
+//                   // p.reset<vt_message_id::text>();
 //                   break;
 //               case vt_message_id::unknown_sequence:
 //                   // 使用 result.message.payload.text (完整未知序列)
+//                   // p.reset<vt_message_id::unknown_sequence>();
 //                   break;
 //               case vt_message_id::set_window_title:
 //                   // 使用 result.message.payload.title (u32string_view)
+//                   // p.reset<vt_message_id::set_window_title>();
 //                   break;
 //               ...
 //           }
-//           // case vt_message_id::text: p.reset<vt_message_id::text>();
 //       }
 //   }
 //

@@ -2,7 +2,7 @@
 // Reproduces the "welcome message all on first line" bug.
 // Tests that multiple WriteConsole calls with \r\n properly advance cursor.
 #include "test_common.hpp"
-#include "conpty_vt_parser.hpp"
+#include "vt_parser.hpp"
 #include "vt_msg_dispatch.hpp"
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
