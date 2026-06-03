@@ -5,29 +5,31 @@
 //   · 完全以 Unicode 码点 (char32_t) 作为输入，调用方负责 UTF-8 解码。
 //   · 不丢弃任何输入字符；无法识别的序列以 unknown_sequence 返回，
 //     msg.payload.text 指向完整原文。
-//   · vt_message 中的 title / text 为 std::u32string_view，指向内部缓冲区，
-//     零拷贝，不产生额外的字符串内存分配。
-//   · parse() 返回 vt_message_id，continue_ 表示尚未完成，text 表示文本消息，
-//     unknown_sequence 表示未知/错误序列，其余为具体控制序列 id。
+//   · vt_message 中的 title/text 为 std::u32string_view。continue_text 指向
+//     本次 parse 输入范围；text/unknown_sequence/set_window_title 指向内部
+//     _raw，因为这些消息需要跨字符累计或保留完整控制序列原文。
+//   · parse(range) 返回 vt_parse_result，continue_ 表示没有可消费消息，
+//     continue_text/text 表示普通文本，unknown_sequence 表示未知/错误序列，
+//     其余为具体控制序列 id。
 //   · 提供 reset<id>() 方法，根据已消费的消息类型精确重置受污染的字段，
 //     对于 text/unknown/title 消息还会清空内部缓冲区 _raw，兼顾性能与内存。
 //
 // 使用方式：
 //   raw_u32_buffer raw;
 //   vt_parser p{raw};
-//   for (char32_t ch : code_points) {
-//       vt_message_id id = p.parse(ch);
-//       if (id != vt_message_id::continue_) {
-//           auto &m = p.get();
-//           switch (id) {
+//   while (!code_points.empty()) {
+//       vt_parse_result result = p.parse(code_points);
+//       code_points.remove_prefix(result.consumed);
+//       if (result.id != vt_message_id::continue_) {
+//           switch (result.id) {
 //               case vt_message_id::text:
-//                   // 使用 m.payload.text (u32string_view)
+//                   // 使用 result.message.payload.text (u32string_view)
 //                   break;
 //               case vt_message_id::unknown_sequence:
-//                   // 使用 m.payload.text (完整未知序列)
+//                   // 使用 result.message.payload.text (完整未知序列)
 //                   break;
 //               case vt_message_id::set_window_title:
-//                   // 使用 m.payload.title (u32string_view)
+//                   // 使用 result.message.payload.title (u32string_view)
 //                   break;
 //               ...
 //           }
@@ -358,7 +360,8 @@ struct vt_win32_key_payload
 };
 
 union vt_message_payload {
-    // text/unknown_sequence 的字符视图，指向 parser raw 缓冲。
+    // continue_text/text/unknown_sequence 的字符视图；continue_text 指向
+    // 本次 parse 输入，其它文本消息指向 parser raw 缓冲。
     std::u32string_view text;
     // OSC 0/2 标题视图，指向 parser raw 缓冲。
     std::u32string_view title;
@@ -393,26 +396,25 @@ union vt_message_payload {
 
 // ── vt_message ───────────────────────────────────────
 // 解析出的单条消息。payload 成员由 vt_message_id 决定；视图仅在下一次
-// parse() 调用或 reset() 前有效。
+// parse(range) 调用或 reset() 前有效。
 struct vt_message
 {
     vt_message_payload payload;
-};
-
-enum class vt_parse_consumption
-{
-    // 本次 parse_with_consumption 已消费传入 codepoint。
-    consumed,
-    // 本次只交付上次延迟的控制消息；调用方必须用同一个 codepoint 重试。
-    retry,
 };
 
 struct vt_parse_result
 {
     // 本次产出的消息类型；continue_ 表示还没有完整消息。
     vt_message_id id = vt_message_id::continue_;
-    // 指示调用方当前 codepoint 是否已经进入 parser 状态机。
-    vt_parse_consumption consumption = vt_parse_consumption::consumed;
+    // 本次从输入范围中实际消费的 codepoint 数。continue_ 时可能等于输入
+    // 长度；其它消息表示该消息结束位置。
+    size_t consumed = 0;
+    // 可透传的完整原始 ESC/CSI/OSC/SS3 序列。只有已完成的控制序列可能非空；
+    // 普通 text/ground 控制字符为空。它和 message 中的 string_view 生命周期一致。
+    std::u32string_view raw_sequence;
+    // 当前 result 对应的结构化 payload。continue_ 时内容无效。调用方必须在
+    // 下一次 parse/reset 前消费其中的 string_view。
+    vt_message message;
 };
 
 // ── vt_parser ────────────────────────────────────────
@@ -435,8 +437,6 @@ class vt_parser
         ss3,
         // OSC 中读到 ESC，等待 '\' 确认 ST。
         osc_st,
-        // 普通文本后遇到 ESC 时使用的临时状态；先交付文本，下次恢复 ESC。
-        pending_esc,
     };
 
   public:
@@ -445,429 +445,403 @@ class vt_parser
     {
     }
 
-    // 访问最后产出的消息。调用方只能按最近一次 parse 返回的 id 读取对应
-    // payload 分支，并且必须在下一次 reset/parse 改写 raw 缓冲前消费完。
-    const vt_message &get() const noexcept
+    [[nodiscard]] vt_parse_result parse(std::u32string_view input)
     {
-        return _msg;
-    }
-    vt_message &get() noexcept
-    {
-        return _msg;
+        if (input.empty())
+            return {};
+
+        size_t i = 0;
+        if (_mode == parser_mode::ground)
+        {
+            if (const auto text_run = _direct_ground_text_run_length(input); text_run != 0)
+            {
+                _msg.payload.text = input.substr(0, text_run);
+                return _make_result(vt_message_id::continue_text, text_run);
+            }
+
+            auto id = _parse_ground_control(input[0]);
+            if (id != vt_message_id::continue_)
+                return _make_result(id, 1);
+            i = 1;
+        }
+
+        for (; i != input.size(); ++i)
+        {
+            auto id = _parse_sequence_char(input[i]);
+            if (id != vt_message_id::continue_)
+                return _make_result(id, i + 1);
+        }
+        return {vt_message_id::continue_, input.size()};
     }
 
-    // 返回最近一次输入字符是否应由 ConsoleRead 路径本地 echo。该值只描述
-    // 输入方向的“用户可见字符”，不表示 parser 已经产出文本消息。
-    [[nodiscard]] bool should_echo_last() const noexcept
+  private:
+    // 返回输入开头可直接作为 ground 文本消费的 codepoint 数。调用点已经
+    // 确认 parser 处于 ground；函数只负责找到首个 C0/DEL 控制字符。
+    [[nodiscard]] size_t _direct_ground_text_run_length(std::u32string_view text) const noexcept
     {
-        return _should_echo;
+        const auto it = std::ranges::find_if(text, [](char32_t ch) { return ch <= 0x1F || ch == 0x7F; });
+        return static_cast<size_t>(it - text.begin());
     }
 
     // 返回当前正在解析的 ESC 序列原文；不在 ESC 序列内时返回空 view。
-    [[nodiscard]] std::u32string_view raw_sequence() const noexcept
+    [[nodiscard]] std::u32string_view _raw_sequence() const noexcept
     {
         if (_seq_start >= _raw.size() || _raw[_seq_start] != U'\x1b')
             return {};
         return {_raw.data() + _seq_start, _raw.size() - _seq_start};
     }
 
-    // true 表示 ground 状态已累积普通文本但尚未以 text 消息交付。输出方向
-    // 在 WriteConsole 批次结束时用它 flush 尾部文本。
-    [[nodiscard]] bool has_pending_text() const noexcept
+    [[nodiscard]] vt_parse_result _make_result(vt_message_id id, size_t consumed) const noexcept
     {
-        return _ground_text_start != npos && !_raw.empty();
-    }
-
-    // true 表示 parser 处于 ground 且没有延迟控制消息，调用方可走纯文本快路径。
-    [[nodiscard]] bool can_accept_direct_ground_text() const noexcept
-    {
-        return _pending_control == vt_message_id::continue_ && _mode == parser_mode::ground;
-    }
-
-    // 计算 text 开头连续普通文本长度；返回 0 表示当前状态或首字符不能直写。
-    [[nodiscard]] size_t direct_ground_text_run_length(std::u32string_view text) const noexcept
-    {
-        if (!can_accept_direct_ground_text())
-            return 0;
-
-        const auto it = std::ranges::find_if(text, [](char32_t ch) { return ch <= 0x1F || ch == 0x7F; });
-        return static_cast<size_t>(it - text.begin());
-    }
-
-    // 释放 ground 状态累积文本为 text 消息。它只用于批次边界；正在解析
-    // ESC/CSI/OSC 时调用会返回 continue_，不会截断半条控制序列。
-    [[nodiscard]] vt_message_id flush_text()
-    {
-        // flush_text 只交付地面态累积文本；正在解析 ESC/CSI/OSC 时不能调用它
-        // 来强行结束序列，否则非法序列会丢失原文。
-        if (_ground_text_start == npos || _raw.empty())
-            return vt_message_id::continue_;
-        _msg.payload.text = {_raw.data() + _ground_text_start, _raw.size() - _ground_text_start};
-        _ground_text_start = npos;
-        return vt_message_id::text;
-    }
-
-    [[nodiscard]] vt_parse_result parse_with_consumption(char32_t ch)
-    {
-        // parse() 的旧接口只能返回一个 message id。当前一个输入字符同时结束
-        // text 并代表控制消息时，parser 会先交付 text，把控制消息放入
-        // _pending_control。这个接口把“交付 pending control”和“消费新字符”
-        // 分开表达：pending control 先返回，retry 要求调用者下一轮
-        // 重新提交同一个 ch。
-        if (_pending_control != vt_message_id::continue_)
+        auto message = vt_message{};
+        auto raw_sequence = std::u32string_view{};
+        if (id != vt_message_id::continue_)
         {
-            auto id = _pending_control;
-            _pending_control = vt_message_id::continue_;
-            _msg.payload.text = {};
-            if (id == vt_message_id::cursor_forward_tab)
-                _msg.payload.count.value = 1;
-            return {id, vt_parse_consumption::retry};
+            message = _msg;
+            raw_sequence = _raw_sequence();
         }
-
-        return {_parse_consuming(ch), vt_parse_consumption::consumed};
+        return {
+            id,
+            consumed,
+            raw_sequence,
+            message,
+        };
     }
 
-    // 兼容旧调用方：只返回 message id，pending control 会像旧实现一样消费
-    // 传入字符。需要知道字符是否被消费的新路径应使用 parse_with_consumption。
-    [[nodiscard]] vt_message_id parse(char32_t ch)
+    enum class ground_char_kind
     {
-        auto result = parse_with_consumption(ch);
-        if (result.consumption == vt_parse_consumption::retry)
+        printable,
+        esc,
+        carriage_return,
+        line_feed,
+        tab,
+        nul,
+        backspace,
+        sub,
+        del,
+        other_control,
+    };
+
+    enum class csi_char_kind
+    {
+        control,
+        digit,
+        semicolon,
+        private_marker,
+        intermediate,
+        final,
+        invalid,
+    };
+
+    [[nodiscard]] static constexpr bool _is_c0_or_del(char32_t ch) noexcept
+    {
+        return ch <= 0x1F || ch == 0x7F;
+    }
+
+    // Ground 状态只分类一次，结果同时服务 echo、文本累计和控制消息生成。
+    [[nodiscard]] static constexpr ground_char_kind _classify_ground_char(char32_t ch) noexcept
+    {
+        if (ch > 0x1F && ch != 0x7F)
+            return ground_char_kind::printable;
+        switch (ch)
         {
-            if (result.id == vt_message_id::carriage_return && ch == U'\n')
-                _pending_control = vt_message_id::line_feed;
-            return result.id;
+        case 0x00:
+            return ground_char_kind::nul;
+        case 0x08:
+            return ground_char_kind::backspace;
+        case U'\t':
+            return ground_char_kind::tab;
+        case U'\n':
+            return ground_char_kind::line_feed;
+        case U'\r':
+            return ground_char_kind::carriage_return;
+        case U'\x1b':
+            return ground_char_kind::esc;
+        case 0x1A:
+            return ground_char_kind::sub;
+        case 0x7F:
+            return ground_char_kind::del;
+        default:
+            return ground_char_kind::other_control;
         }
-        return result.id;
     }
 
-  private:
-    // 判断 ch 是否属于 ground 状态下可累计为普通文本的码点。
-    [[nodiscard]] static constexpr bool _is_ground_printable(char32_t ch) noexcept
+    [[nodiscard]] static constexpr vt_message_id _control_id_from_ground_kind(ground_char_kind kind) noexcept
     {
-        return ch > 0x1F && ch != 0x7F;
-    }
-
-    // 消费一个 codepoint 并推进 VT 状态机。返回 continue_text 表示普通文本
-    // 已经累积但尚未最终交付；返回其他 id 时调用方必须消费并 reset<id>()。
-    [[nodiscard]] vt_message_id _parse_consuming(char32_t ch)
-    {
-        // U'\0' 是 drain sentinel：无排队消息时立即返回 continue_，不产 char_nul
-        if (ch == U'\0')
-            return vt_message_id::continue_;
-
-        // 如果上次因 text→ESC 过渡而暂存了 ESC，先还原。
-        if (_mode == parser_mode::pending_esc)
+        switch (kind)
         {
-            // 上次在普通文本后遇到 ESC，为了先返回 text 曾把 ESC 从 _raw 弹出。
-            // 现在恢复它并进入 ESC 状态，保证序列原文从 ESC 开始。
-            _raw.push_back(U'\x1B');
-            _seq_start = _raw.size() - 1;
-            _mode = parser_mode::esc;
+        case ground_char_kind::nul:
+            return vt_message_id::char_nul;
+        case ground_char_kind::backspace:
+        case ground_char_kind::del:
+            return vt_message_id::char_del;
+        case ground_char_kind::sub:
+            return vt_message_id::char_sub;
+        case ground_char_kind::tab:
+            return vt_message_id::cursor_forward_tab;
+        case ground_char_kind::carriage_return:
+            return vt_message_id::carriage_return;
+        case ground_char_kind::line_feed:
+            return vt_message_id::line_feed;
+        default:
+            return vt_message_id::text;
         }
+    }
 
-        // 所有字符先写入 _raw。合法序列用结构化字段返回；非法序列则用
-        // _raw 的切片作为 text 透传，避免吞字节。
+    // CSI 状态下的字符类别互斥。dispatch 只在 final 类别发生，参数收集只在
+    // digit/semicolon/private/intermediate 类别发生。
+    [[nodiscard]] static constexpr csi_char_kind _classify_csi_char(char32_t ch) noexcept
+    {
+        if (_is_c0_or_del(ch))
+            return csi_char_kind::control;
+        if (ch >= U'0' && ch <= U'9')
+            return csi_char_kind::digit;
+        if (ch == U';')
+            return csi_char_kind::semicolon;
+        if (ch == U'?')
+            return csi_char_kind::private_marker;
+        if (ch >= 0x20 && ch <= 0x2F)
+            return csi_char_kind::intermediate;
+        if (ch >= 0x40 && ch <= 0x7E)
+            return csi_char_kind::final;
+        return csi_char_kind::invalid;
+    }
+
+    // 消费 ESC/CSI/OSC/SS3 序列中的一个 codepoint。_raw 只保存控制序列
+    // 原文，ground 文本和 ground 控制字符不进入该缓冲。
+    [[nodiscard]] vt_message_id _parse_sequence_char(char32_t ch)
+    {
+        // 合法序列用结构化字段返回；非法序列则用 _raw 切片作为 text
+        // 透传，避免吞字节。
         _raw.push_back(ch);
 
-        // ── echo 判定：仅地面态可打印字符及有视觉效果的 C0 字符回显 ──
-        _should_echo = false;
-        if (_mode == parser_mode::ground)
+        // 每个输入字符只按当前 mode 分派一次；各 mode helper 内部再做
+        // 互斥字符分类，避免同一个位置反复检查 parser 状态。
+        switch (_mode)
         {
-            if (_is_ground_printable(ch))
-                _should_echo = true; // 可打印
-            // ground-state printable: echo, bridge inserts into _cooked_buf at cursor
-            else if (ch == U'\r' || ch == U'\n' || ch == U'\t')
-                _should_echo = true; // 可见控制字符
-            // \b ESC 及其他 C0/DEL：不回显（Bridge 在 char_del 中处理 echo）
+        case parser_mode::esc:
+            return _parse_esc(ch);
+        case parser_mode::csi:
+            return _parse_csi(ch);
+        case parser_mode::osc:
+            return _parse_osc(ch);
+        case parser_mode::osc_st:
+            return _parse_osc_st(ch);
+        case parser_mode::ss3:
+            return _parse_ss3(ch);
         }
+        std::unreachable();
+    }
 
-        // 根据当前状态更新文本起点或跳过
-        if (_mode != parser_mode::ground)
+    [[nodiscard]] vt_message_id _parse_osc(char32_t ch)
+    {
+        const bool control = _is_c0_or_del(ch);
+        if (control)
         {
-            // 已在某个序列内部，无需额外操作
-        }
-        else
-        {
-            // 处于 Ground 状态，记录普通文本的起点
-            if (_ground_text_start == npos)
-                _ground_text_start = _raw.size() - 1;
-        }
-
-        // ── OSC 字符串模式 ──
-        if (_mode == parser_mode::osc)
-        {
-            // 控制字符（BEL 和 ESC 除外）中断 OSC
-            if (ch <= 0x1F || ch == 0x7F)
+            if (ch == 0x07) // BEL 正常结束 OSC
             {
-                if (ch == 0x07) // BEL 正常结束 OSC
-                {
-                    // OSC 以 BEL 结束时，BEL 本身保留在 _raw 里，dispatch 通过
-                    // 终止符位置计算 payload 范围。
-                    auto id = _dispatch_osc();
-                    _mode = parser_mode::ground;
-                    return _finish_seq(id);
-                }
-                if (ch == 0x1B) // ST 的开始 (ESC \)
-                {
-                    // ESC 可能是 OSC ST 的第一字节，也可能是非法中断。先切换到
-                    // ESC 状态，下一字符为 '\' 时才完成 OSC。
-                    _mode = parser_mode::osc_st;
-                    return vt_message_id::continue_;
-                }
-                // 其他控制字符：OSC 被打断，序列转为文本，再处理该控制字符
-                _set_unknown_sequence(_seq_start);
-                _mode = parser_mode::ground;
-                _osc_code = 0;
-                _osc_len = 0;
-                _osc_had_semi = false;
-                // 控制字符中断序列，文本已设，返回 text 供透传
-                return vt_message_id::unknown_sequence;
-            }
-
-            // 尚未遇到分号，解析 OSC 数字操作码
-            if (!_osc_had_semi)
-            {
-                // OSC 操作码只解析分号前的十进制数字。未知操作码也继续收集，
-                // 最终 dispatch 失败后作为 text 透传。
-                if (ch >= U'0' && ch <= U'9')
-                {
-                    _osc_code = static_cast<short>(_osc_code * 10 + (ch - U'0'));
-                    return vt_message_id::continue_;
-                }
-                if (ch == U';')
-                {
-                    _osc_had_semi = true;
-                    return vt_message_id::continue_;
-                }
-                return vt_message_id::continue_; // 忽略其他字符（如空格）
-            }
-
-            // 已进入 payload 区域
-            if (_osc_code == 0 || _osc_code == 2)
-            {
-                // 标题 payload 可能包含非 ASCII，直接保留在 _raw，最终返回
-                // u32string_view。
-                // 标题内容直接留在 raw 中，dispatch 时再定位
-            }
-            else
-            {
-                // 调色板等参数：ASCII 写入窄缓冲供解析，非 ASCII 仅保留在 raw 中
-                if (_osc_len < _osc_buf.size() - 1 && ch < 0x80)
-                    _osc_buf[_osc_len++] = static_cast<char8_t>(ch);
-            }
-            return vt_message_id::continue_;
-        }
-
-        // ST 终止符检测 (ESC \) — 仅当 ESC 来自 OSC 终止时触发
-        if (_mode == parser_mode::osc_st)
-        {
-            if (ch == U'\\')
-            {
+                // OSC 以 BEL 结束时，BEL 本身保留在 _raw 里，dispatch 通过
+                // 终止符位置计算 payload 范围。
                 auto id = _dispatch_osc();
                 _mode = parser_mode::ground;
                 return _finish_seq(id);
             }
-            // 不是 \：ESC 退化为普通序列（如 OSC 被非 ST 字符打断）
-            _mode = parser_mode::esc;
-        }
-        if (_mode == parser_mode::csi)
-        {
-            // 控制字符中断 CSI
-            if (ch <= 0x1F || ch == 0x7F)
+            if (ch == 0x1B) // ST 的开始 (ESC \)
             {
-                _set_unknown_sequence(_seq_start);
-                _mode = parser_mode::ground;
-                _reset_params();
-                return vt_message_id::unknown_sequence;
+                // ESC 可能是 OSC ST 的第一字节，也可能是非法中断。先切换到
+                // ESC 状态，下一字符为 '\' 时才完成 OSC。
+                _mode = parser_mode::osc_st;
+                return vt_message_id::continue_;
             }
+            // 其他控制字符：OSC 被打断，序列转为文本。
+            _set_unknown_sequence(_seq_start);
+            _mode = parser_mode::ground;
+            _osc_code = 0;
+            _osc_len = 0;
+            _osc_had_semi = false;
+            return vt_message_id::unknown_sequence;
+        }
+
+        // 尚未遇到分号，解析 OSC 数字操作码。未知操作码也继续收集，
+        // 最终 dispatch 失败后作为 text 透传。
+        if (!_osc_had_semi)
+        {
             if (ch >= U'0' && ch <= U'9')
             {
-                // CSI 参数按 short 存储；异常大的数字会在 dispatch/default 逻辑中
-                // 被截断或导致序列按文本处理。
-                _current_param = static_cast<short>(_current_param * 10 + (ch - U'0'));
-                _has_param = true;
+                _osc_code = static_cast<short>(_osc_code * 10 + (ch - U'0'));
                 return vt_message_id::continue_;
             }
             if (ch == U';')
             {
-                _add_param();
+                _osc_had_semi = true;
                 return vt_message_id::continue_;
             }
-            if (ch == U'?')
-            {
-                _private_marker = true;
-                return vt_message_id::continue_;
-            }
-            if (ch >= 0x20 && ch <= 0x2F)
-            {
-                // intermediate 只保留最后一个字节；当前支持的序列都只需要一个
-                // intermediate，例如 DECSTR 的 '!p'。
-                _intermediate = static_cast<char>(ch);
-                return vt_message_id::continue_;
-            }
-            if (ch >= 0x40 && ch <= 0x7E)
-            {
-                _add_param();
-                auto id = _dispatch_csi(ch);
-                _mode = parser_mode::ground;
-                _reset_params();
-                return _finish_seq(id);
-            }
-            // 非法 CSI 字符：整段作为文本输出
+            return vt_message_id::continue_; // 忽略其他字符（如空格）
+        }
+
+        // 标题内容直接留在 raw 中，dispatch 时再定位。调色板等参数需要窄
+        // ASCII 缓冲供解析，非 ASCII 仅保留在 raw 中。
+        if (_osc_code != 0 && _osc_code != 2 && _osc_len < _osc_buf.size() - 1 && ch < 0x80)
+            _osc_buf[_osc_len++] = static_cast<char8_t>(ch);
+        return vt_message_id::continue_;
+    }
+
+    // ST 终止符检测 (ESC \) — 仅当 ESC 来自 OSC 终止时触发。若不是 ST，
+    // 同一个字符立刻按普通 ESC final 处理，不回到 parse 主入口重复分派。
+    [[nodiscard]] vt_message_id _parse_osc_st(char32_t ch)
+    {
+        if (ch == U'\\')
+        {
+            auto id = _dispatch_osc();
+            _mode = parser_mode::ground;
+            return _finish_seq(id);
+        }
+
+        // 不是 \：ESC 退化为普通序列（如 OSC 被非 ST 字符打断）。
+        _mode = parser_mode::esc;
+        return _parse_esc(ch);
+    }
+
+    [[nodiscard]] vt_message_id _parse_csi(char32_t ch)
+    {
+        switch (_classify_csi_char(ch))
+        {
+        case csi_char_kind::control:
+            _set_unknown_sequence(_seq_start);
+            _mode = parser_mode::ground;
+            _reset_params();
+            return vt_message_id::unknown_sequence;
+        case csi_char_kind::digit:
+            // CSI 参数按 short 存储；异常大的数字会在 dispatch/default 逻辑中
+            // 被截断或导致序列按文本处理。
+            _current_param = static_cast<short>(_current_param * 10 + (ch - U'0'));
+            _has_param = true;
+            return vt_message_id::continue_;
+        case csi_char_kind::semicolon:
+            _add_param();
+            return vt_message_id::continue_;
+        case csi_char_kind::private_marker:
+            _private_marker = true;
+            return vt_message_id::continue_;
+        case csi_char_kind::intermediate:
+            // intermediate 只保留最后一个字节；当前支持的序列都只需要一个
+            // intermediate，例如 DECSTR 的 '!p'。
+            _intermediate = static_cast<char>(ch);
+            return vt_message_id::continue_;
+        case csi_char_kind::final: {
+            _add_param();
+            auto id = _dispatch_csi(ch);
+            _mode = parser_mode::ground;
+            _reset_params();
+            return _finish_seq(id);
+        }
+        case csi_char_kind::invalid:
             _set_unknown_sequence(_seq_start);
             _mode = parser_mode::ground;
             _reset_params();
             return vt_message_id::unknown_sequence;
         }
+        std::unreachable();
+    }
 
-        // ── SS3 模式 (ESC O) ──
-        if (_mode == parser_mode::ss3)
+    [[nodiscard]] vt_message_id _parse_ss3(char32_t ch)
+    {
+        if (_is_c0_or_del(ch))
         {
-            if (ch <= 0x1F || ch == 0x7F)
-            {
-                _set_unknown_sequence(_seq_start);
-                _mode = parser_mode::ground;
-                return vt_message_id::unknown_sequence;
-            }
-            if (ch >= 0x40 && ch <= 0x7E)
-            {
-                auto id = _dispatch_ss3(ch);
-                _mode = parser_mode::ground;
-                return _finish_seq(id);
-            }
-            // 非法 SS3 终态
+            _set_unknown_sequence(_seq_start);
+            _mode = parser_mode::ground;
+            return vt_message_id::unknown_sequence;
+        }
+        if (ch >= 0x40 && ch <= 0x7E)
+        {
+            auto id = _dispatch_ss3(ch);
+            _mode = parser_mode::ground;
+            return _finish_seq(id);
+        }
+        // 非法 SS3 终态
+        _set_unknown_sequence(_seq_start);
+        _mode = parser_mode::ground;
+        return vt_message_id::unknown_sequence;
+    }
+
+    [[nodiscard]] vt_message_id _parse_esc(char32_t ch)
+    {
+        if (_is_c0_or_del(ch))
+        {
             _set_unknown_sequence(_seq_start);
             _mode = parser_mode::ground;
             return vt_message_id::unknown_sequence;
         }
 
-        // ── ESC 状态 ──
-        if (_mode == parser_mode::esc)
+        switch (ch)
         {
-            if (ch <= 0x1F || ch == 0x7F)
+        case U'[':
+            _mode = parser_mode::csi;
+            _reset_params();
+            return vt_message_id::continue_;
+        case U']':
+            _mode = parser_mode::osc;
+            _osc_code = 0;
+            _osc_len = 0;
+            _osc_had_semi = false;
+            return vt_message_id::continue_;
+        case U'O':
+            _mode = parser_mode::ss3;
+            return vt_message_id::continue_;
+        case U'(':
+            _intermediate = '(';
+            return vt_message_id::continue_; // 等待字符集终态
+        default:
+            _mode = parser_mode::ground;
+            if (_intermediate == '(')
             {
-                _set_unknown_sequence(_seq_start);
-                _mode = parser_mode::ground;
-                return vt_message_id::unknown_sequence;
-            }
-            switch (ch)
-            {
-            case U'[':
-                _mode = parser_mode::csi;
-                _reset_params();
-                return vt_message_id::continue_;
-            case U']':
-                _mode = parser_mode::osc;
-                _osc_code = 0;
-                _osc_len = 0;
-                _osc_had_semi = false;
-                return vt_message_id::continue_;
-            case U'O':
-                _mode = parser_mode::ss3;
-                return vt_message_id::continue_;
-            case U'(':
-                _intermediate = '(';
-                return vt_message_id::continue_; // 等待字符集终态
-            default:
-                _mode = parser_mode::ground;
-                if (_intermediate == '(')
-                {
-                    _intermediate = 0;
-                    auto id = _dispatch_charset(ch);
-                    return _finish_seq(id);
-                }
-                if (_intermediate != 0)
-                {
-                    _set_unknown_sequence(_seq_start);
-                    _intermediate = 0;
-                    return vt_message_id::unknown_sequence;
-                }
-                // 普通 ESC 序列
-                auto id = _dispatch_esc(ch);
+                _intermediate = 0;
+                auto id = _dispatch_charset(ch);
                 return _finish_seq(id);
             }
+            if (_intermediate != 0)
+            {
+                _set_unknown_sequence(_seq_start);
+                _intermediate = 0;
+                return vt_message_id::unknown_sequence;
+            }
+            // 普通 ESC 序列
+            auto id = _dispatch_esc(ch);
+            return _finish_seq(id);
         }
+    }
 
-        // ── Ground：普通文本 / 控制字符 ──
-        if (ch <= 0x1F || ch == 0x7F)
+    [[nodiscard]] vt_message_id _parse_ground_control(char32_t ch)
+    {
+        const auto kind = _classify_ground_char(ch);
+        if (kind == ground_char_kind::printable)
+            std::unreachable();
+
+        if (kind == ground_char_kind::esc)
         {
-            bool has_text = (_ground_text_start != npos && _raw.size() > 1);
-
-            if (ch == 0x1B)
-            {
-                if (has_text)
-                {
-                    // 普通文本后紧跟 ESC 时，先交付 ESC 前的文本。ESC 留给下次
-                    // parse 处理，避免一个返回值同时表示 text 和控制序列。
-                    _msg.payload.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
-                    _raw.pop_back(); // 弹出 ESC，下次 parse 再还原
-                    _mode = parser_mode::pending_esc;
-                    _ground_text_start = npos;
-                    return vt_message_id::text;
-                }
-                _seq_start = _raw.size() - 1;
-                _mode = parser_mode::esc;
-                _ground_text_start = npos;
-                return vt_message_id::continue_;
-            }
-
-            // ── \r \n：专用消息，前导文本先交付 ──
-            if (ch == U'\r' || ch == U'\n')
-            {
-                // CR/LF 不进入 _raw 文本视图；它们作为独立控制消息交付。
-                _raw.pop_back(); // 控制字符不进入 raw
-                vt_message_id cid = (ch == U'\r') ? vt_message_id::carriage_return : vt_message_id::line_feed;
-                if (has_text)
-                {
-                    _msg.payload.text = {_raw.data() + _ground_text_start, _raw.size() - _ground_text_start};
-                    _ground_text_start = npos;
-                    _pending_control = cid;
-                    return vt_message_id::text;
-                }
-                _msg.payload.text = {};
-                _ground_text_start = npos;
-                return cid;
-            }
-
-            // ── \\t：cursor_forward_tab；有前导文本时先交付文本，tab 延迟 ──
-            if (ch == U'\t')
-            {
-                // Tab 在状态层表现为 cursor_forward_tab，在输入层表现为 VK_TAB。
-                // 有前导文本时同样先返回 text，再延迟交付 tab。
-                if (has_text)
-                {
-                    _msg.payload.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
-                    _raw.pop_back(); // 去掉 \\t，下次交付
-                    _ground_text_start = npos;
-                    _pending_control = vt_message_id::cursor_forward_tab;
-                    return vt_message_id::text;
-                }
-                _raw.pop_back();
-                _msg.payload.count.value = 1;
-                _ground_text_start = npos;
-                return vt_message_id::cursor_forward_tab;
-            }
-
-            // ── 其他控制字符（BS→char_del, NUL→char_nul, SUB→char_sub, DEL→char_del）──
-            // 有前导文本时先交付文本，控制字符延迟
-            if (has_text)
-            {
-                _msg.payload.text = {_raw.data() + _ground_text_start, _raw.size() - 1 - _ground_text_start};
-                _raw.pop_back();
-                _ground_text_start = npos;
-                // 延迟交付控制字符
-                _pending_control = _classify_control(ch);
-                return vt_message_id::text;
-            }
-            _raw.pop_back();
-            _ground_text_start = npos;
-            _msg.payload.text = {};
-            return _classify_control(ch);
+            _raw.push_back(ch);
+            _seq_start = _raw.size() - 1;
+            _mode = parser_mode::esc;
+            return vt_message_id::continue_;
         }
 
-        // 可打印字符，继续累积
-        return vt_message_id::continue_text;
+        const auto control_id = _control_id_from_ground_kind(kind);
+        if (kind == ground_char_kind::carriage_return || kind == ground_char_kind::line_feed)
+        {
+            _msg.payload.text = {};
+            return control_id;
+        }
+
+        if (kind == ground_char_kind::tab)
+        {
+            // Tab 在状态层表现为 cursor_forward_tab，在输入层表现为 VK_TAB。
+            _msg.payload.count.value = 1;
+            return control_id;
+        }
+
+        // 其他 C0/DEL 控制字符。
+        _msg.payload.text = {};
+        return control_id;
     }
 
   public:
@@ -950,10 +924,9 @@ class vt_parser
             break;
         }
 
-        // 清空中央缓冲区。pending_esc 表示 text→ESC 过渡，下一次 parse()
-        // 会先补回 ESC；其它模式在消息交付后都回到 ground。
+        // 消息交付后，当前 raw 序列已经被调用方消费；下一次 parse(range)
+        // 从 ground 重新开始，除非调用方继续喂入未完成控制序列。
         _reset_parser_state_after_message();
-        // _pending_control 必须保留—延迟交付的 CR/LF/TAB 由下次 parse() 开头消费
     }
 
   private:
@@ -1045,49 +1018,32 @@ class vt_parser
         _msg.payload.sgr = {};
     }
 
-    // 消息被消费后清理中央 raw/text 起点，并把非 pending_esc 模式拉回 ground。
+    // 消息被消费后清理中央 raw 序列，并把 parser 拉回 ground。
     void _reset_parser_state_after_message()
     {
         _raw.clear();
-        _ground_text_start = npos;
         _seq_start = 0;
-        if (_mode != parser_mode::pending_esc)
-            _mode = parser_mode::ground;
+        _mode = parser_mode::ground;
     }
 
-    // 解析出的消息体；消息类型由 parse()/parse_with_consumption() 返回值给出。
+    // 解析出的消息体；消息类型由 parse(range) 返回的 vt_parse_result::id 给出。
     // union payload 中只有与该 id 对应的分支有效，reset<id>() 会清理该分支。
     vt_message _msg;
 
     // ── 中央缓冲区与视图位置 ──
-    // _raw 保存当前未消费输入；message 里的 string_view 指向该缓冲。调用方
-    // 消费 message 后必须 reset，否则下一次 parse 可能让旧 view 失效。
+    // _raw 保存当前跨字符累计的文本或控制序列；text-before-control、
+    // unknown_sequence、OSC title 的 view 指向该缓冲。continue_text 不使用它。
     raw_u32_buffer &_raw;
 
-    // npos 表示没有有效偏移。
-    static constexpr size_t npos = ~size_t{0};
-
-    // 当前普通文本段在 _raw 中的起始偏移；npos 表示没有累积文本。
-    size_t _ground_text_start = npos;
-
-    // 当前 ESC/CSI/OSC 序列在 _raw 中的起始偏移。raw_sequence() 和
-    // unknown_sequence 都依赖它返回完整原文。
+    // 当前 ESC/CSI/OSC 序列在 _raw 中的起始偏移。vt_parse_result::raw_sequence
+    // 和 unknown_sequence 都依赖它返回完整原文。
     size_t _seq_start = 0;
 
     // ── 解析状态 ──
-    // 当前 VT 状态机模式。ground 表示可接收普通文本；pending_esc 表示刚刚
-    // 为了先交付文本临时延后了一个 ESC。
+    // 当前 VT 状态机模式。ground 表示可接收普通文本。
     parser_mode _mode = parser_mode::ground;
     // true 表示当前 CSI 使用 '?' private marker；只在 _mode==csi 时有意义。
     bool _private_marker = false;
-    // 最近一次 parse() 的字符是否适合本地 echo；bridge 用它判断 ConsoleRead
-    // 是否需要回显原始字节。
-    bool _should_echo = false;
-
-    // ── 延迟交付：has_text+控制字符时先交付文本，控制消息下次返回 ──
-    // continue_ 表示没有排队消息。
-    vt_message_id _pending_control = vt_message_id::continue_;
-
     // ── CSI 参数收集 ──
     // _params 保存已经被 ';' 结束的参数；_current_param 保存正在累积的参数。
     // _param_index 是已提交参数数量，范围 0..MAX_PARAMS。
@@ -1145,8 +1101,15 @@ class vt_parser
         return (i < _param_index) ? _params[i] : d;
     }
 
+    // VT 的 1-based 位置参数把缺省值和显式 0 都解释为默认位置。
+    short _get_positive_param(size_t i, short d) const
+    {
+        const auto value = _get_param(i, d);
+        return value == 0 ? d : _clamp(value);
+    }
+
     // 把解析出的 short 参数限制在 VT handler 可接受的正数范围内。
-    short _clamp(short v)
+    static short _clamp(short v)
     {
         return v > 32767 ? static_cast<short>(32767) : v;
     }
@@ -1155,17 +1118,12 @@ class vt_parser
     void _set_unknown_sequence(size_t start)
     {
         _msg.payload.text = {_raw.data() + start, _raw.size() - start};
-        _ground_text_start = _raw.size();
     }
 
     // 完成一个序列；continue_ 表示 dispatch 未识别，整段序列按 unknown 返回。
     vt_message_id _finish_seq(vt_message_id id)
     {
-        if (id != vt_message_id::continue_)
-        {
-            _ground_text_start = npos; // 无累积文本
-        }
-        else
+        if (id == vt_message_id::continue_)
         {
             // 未识别/非法序列按独立消息返回，调用方可以选择透传或丢弃。
             _set_unknown_sequence(_seq_start);
@@ -1173,31 +1131,6 @@ class vt_parser
         }
         _seq_start = 0;
         return id;
-    }
-
-    // 处理 Ground 状态下遇到的控制字符（C0 和 DEL），返回对应的消息 id。
-    // 注意：\\r \\n \\t 和 ESC 已在调用方分流，不会进入此函数。
-    vt_message_id _classify_control(char32_t ch)
-    {
-        switch (ch)
-        {
-        case 0x00:
-            return vt_message_id::char_nul;
-        case 0x08:
-            return vt_message_id::char_del; // BS
-        case 0x09:
-            return vt_message_id::cursor_forward_tab; // \\t (fallback)
-        case 0x0A:
-            return vt_message_id::line_feed;
-        case 0x0D:
-            return vt_message_id::carriage_return;
-        case 0x1A:
-            return vt_message_id::char_sub;
-        case 0x7F:
-            return vt_message_id::char_del; // DEL
-        default:
-            return vt_message_id::text; // 其他 C0：透明化为空 text
-        }
     }
 
     // ── 分发函数 ──
@@ -1224,40 +1157,30 @@ class vt_parser
         }
     }
 
-    // 分发 SS3 键盘序列（ESC O + final）；这些输入应转换为键事件而非回显。
+    // 分发 SS3 键盘序列（ESC O + final）；这些输入应转换为结构化键消息。
     vt_message_id _dispatch_ss3(char32_t code)
     {
         switch (code)
         {
         case U'A':
-            _should_echo = false;
             return vt_message_id::key_up;
         case U'B':
-            _should_echo = false;
             return vt_message_id::key_down;
         case U'C':
-            _should_echo = false;
             return vt_message_id::key_right;
         case U'D':
-            _should_echo = false;
             return vt_message_id::key_left;
         case U'H':
-            _should_echo = false;
             return vt_message_id::key_home;
         case U'F':
-            _should_echo = false;
             return vt_message_id::key_end;
         case U'P':
-            _should_echo = false;
             return vt_message_id::key_f1;
         case U'Q':
-            _should_echo = false;
             return vt_message_id::key_f2;
         case U'R':
-            _should_echo = false;
             return vt_message_id::key_f3;
         case U'S':
-            _should_echo = false;
             return vt_message_id::key_f4;
         default:
             return vt_message_id::continue_;
@@ -1419,63 +1342,54 @@ class vt_parser
 
         switch (terminator)
         {
-        // 相对光标移动（来自终端键盘），不回显原始字节：dispatch 生成钳制 CUP
+        // 相对光标移动；dispatch 生成钳制后的 count payload。
         case U'A':
             if (priv)
                 return vt_message_id::continue_;
             m.payload.count.value = _clamp(n);
-            _should_echo = false;
             return vt_message_id::cursor_up;
         case U'B':
             if (priv)
                 return vt_message_id::continue_;
             m.payload.count.value = _clamp(n);
-            _should_echo = false;
             return vt_message_id::cursor_down;
         case U'C':
             if (priv)
                 return vt_message_id::continue_;
             m.payload.count.value = _clamp(n);
-            _should_echo = false;
             return vt_message_id::cursor_forward;
         case U'D':
             if (priv)
                 return vt_message_id::continue_;
             m.payload.count.value = _clamp(n);
-            _should_echo = false;
             return vt_message_id::cursor_backward;
         case U'E':
             if (priv)
                 return vt_message_id::continue_;
             m.payload.count.value = _clamp(n);
-            _should_echo = false;
             return vt_message_id::cursor_next_line;
         case U'F':
             if (priv)
                 return vt_message_id::continue_;
             m.payload.count.value = _clamp(n);
-            _should_echo = false;
             return vt_message_id::cursor_prev_line;
-        // 绝对/坐标型光标定位（来自应用程序输出），不回显原始字节：dispatch 生成钳制后的 CUP
+        // 绝对/坐标型光标定位；dispatch 生成钳制后的 position payload。
         case U'G':
             if (priv)
                 return vt_message_id::continue_;
-            m.payload.position.col = _clamp(_get_param(0, 1));
-            _should_echo = false;
+            m.payload.position.col = _get_positive_param(0, 1);
             return vt_message_id::cursor_horiz_absolute;
         case U'd':
             if (priv)
                 return vt_message_id::continue_;
-            m.payload.position.row = _clamp(_get_param(0, 1));
-            _should_echo = false;
+            m.payload.position.row = _get_positive_param(0, 1);
             return vt_message_id::cursor_vert_absolute;
         case U'H':
         case U'f':
             if (priv)
                 return vt_message_id::continue_;
-            m.payload.position.row = _clamp(_get_param(0, 1));
-            m.payload.position.col = _clamp(_get_param(1, 1));
-            _should_echo = false;
+            m.payload.position.row = _get_positive_param(0, 1);
+            m.payload.position.col = _get_positive_param(1, 1);
             return vt_message_id::cursor_position;
         case U's':
             if (!priv)

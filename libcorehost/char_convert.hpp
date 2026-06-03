@@ -838,6 +838,25 @@ inline size_t u32_to_ansi_exact_len(std::u32string_view text, UINT code_page, Wi
     return static_cast<size_t>(bytes);
 }
 
+template <typename WideBuffer>
+// 返回可完整编码进 max_bytes 的 UTF-32 前缀长度。调用方用于有限 ConDrv
+// 输出缓冲，避免把一条多字节字符截断在中间。
+inline size_t u32_prefix_for_ansi_bytes(std::u32string_view text, UINT code_page, size_t max_bytes,
+                                        WideBuffer &wbuf) noexcept
+{
+    size_t first = 0;
+    size_t last = text.size();
+    while (first < last)
+    {
+        const size_t mid = first + (last - first + 1) / 2;
+        if (u32_to_ansi_exact_len(text.substr(0, mid), code_page, wbuf) <= max_bytes)
+            first = mid;
+        else
+            last = mid - 1;
+    }
+    return first;
+}
+
 // 禁止不带 wbuf 的重载，避免非 UTF-8/GBK 代码页在热路径里临时分配。
 inline size_t convert_u32_to_ansi_raw(std::u32string_view text, UINT code_page, char *out,
                                       size_t out_cap) noexcept = delete;

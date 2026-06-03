@@ -10,6 +10,7 @@
 #include "vt_msg_dispatch.hpp"
 
 using namespace conpty;
+using conpty::test::parse_one;
 using conpty::test::reset_test_vt_parser_message;
 
 struct input_collector
@@ -146,9 +147,10 @@ bool test_full_pipeline_arrow_up()
     vt_input_engine engine;
 
     // ESC [ A = Arrow Up (CSI → cursor_up in parser)
-    (void)parser.parse(0x1B);
-    (void)parser.parse(U'[');
-    auto id = parser.parse(U'A');
+    (void)parse_one(parser, 0x1B);
+    (void)parse_one(parser, U'[');
+    const auto parsed = parse_one(parser, U'A');
+    auto id = parsed.id;
 
     ASSERT((id == vt_message_id::key_up || id == vt_message_id::cursor_up));
 
@@ -157,7 +159,7 @@ bool test_full_pipeline_arrow_up()
     if (kid == vt_message_id::cursor_up)
         kid = vt_message_id::key_up;
     INPUT_RECORD rec{};
-    ASSERT(engine.convert(kid, parser.get(), rec));
+    ASSERT(engine.convert(kid, parsed.message, rec));
     ASSERT(rec.Event.KeyEvent.wVirtualKeyCode == VK_UP);
     return true;
 }
@@ -169,9 +171,10 @@ bool test_full_pipeline_arrow_down()
     vt_input_engine engine;
 
     // ESC [ B = Arrow Down (CSI → cursor_down in parser)
-    (void)parser.parse(0x1B);
-    (void)parser.parse(U'[');
-    auto id = parser.parse(U'B');
+    (void)parse_one(parser, 0x1B);
+    (void)parse_one(parser, U'[');
+    const auto parsed = parse_one(parser, U'B');
+    auto id = parsed.id;
 
     ASSERT((id == vt_message_id::key_down || id == vt_message_id::cursor_down));
 
@@ -180,7 +183,7 @@ bool test_full_pipeline_arrow_down()
     if (kid == vt_message_id::cursor_down)
         kid = vt_message_id::key_down;
     INPUT_RECORD rec{};
-    ASSERT(engine.convert(kid, parser.get(), rec));
+    ASSERT(engine.convert(kid, parsed.message, rec));
     ASSERT(rec.Event.KeyEvent.wVirtualKeyCode == VK_DOWN);
     return true;
 }
@@ -202,14 +205,14 @@ bool test_full_pipeline_f5()
     raw_u32_buffer parser_raw;
     vt_parser parser{parser_raw};
     vt_input_engine engine;
-    (void)parser.parse(0x1B);
-    (void)parser.parse(U'[');
-    (void)parser.parse(U'1');
-    (void)parser.parse(U'5');
-    auto id = parser.parse(U'~');
-    ASSERT(id == vt_message_id::key_f5);
+    (void)parse_one(parser, 0x1B);
+    (void)parse_one(parser, U'[');
+    (void)parse_one(parser, U'1');
+    (void)parse_one(parser, U'5');
+    const auto parsed = parse_one(parser, U'~');
+    ASSERT(parsed.id == vt_message_id::key_f5);
     INPUT_RECORD rec{};
-    ASSERT(engine.convert(id, parser.get(), rec));
+    ASSERT(engine.convert(parsed.id, parsed.message, rec));
     ASSERT(rec.Event.KeyEvent.wVirtualKeyCode == VK_F5);
     return true;
 }
@@ -238,16 +241,15 @@ bool test_unicode_through_parser()
     vt_parser parser{parser_raw};
 
     // Feed U+1F600 (??)
-    auto id = parser.parse(0x1F600);
+    const auto parsed = parse_one(parser, 0x1F600);
 
-    // The parser may return text or continue_ depending on internal state
-    if (id == vt_message_id::text)
+    if (parsed.id == vt_message_id::text || parsed.id == vt_message_id::continue_text)
     {
-        ASSERT(!parser.get().payload.text.empty());
+        ASSERT(!parsed.message.payload.text.empty());
     }
     else
     {
-        ASSERT(id == vt_message_id::continue_text);
+        ASSERT(parsed.id == vt_message_id::continue_);
     }
     return true;
 }
@@ -272,11 +274,12 @@ struct test_bridge_stub
             auto ch = dec(static_cast<uint8_t>(b));
             if (!ch)
                 continue;
-            auto id = parser.parse(*ch);
+            const auto parsed = parse_one(parser, *ch);
+            auto id = parsed.id;
             if (id == vt_message_id::continue_text || id == vt_message_id::continue_)
                 continue;
 
-            auto &m = parser.get();
+            auto &m = parsed.message;
             if (id == vt_message_id::win32_input_key)
             {
                 INPUT_RECORD ir{};

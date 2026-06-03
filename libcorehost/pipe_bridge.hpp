@@ -2044,7 +2044,7 @@ struct pipe_bridge
     // ── _echo_byte: 向终端输出单个字节并跟踪光标（经 VT 缓冲批量写入）──
     void _echo_byte(char8_t b)
     {
-        // should_echo_last 只用于控制字符/ESC 路径。普通文本由 edit_* 处理，
+        // parse result 的 echo 只用于控制字符/ESC 路径。普通文本由 edit_* 处理，
         // 否则同一字节会同时进入 echo 和 cooked line，造成重复显示。
         vt_append_char(static_cast<char>(b));
         _terminal.apply_echo_byte(static_cast<BYTE>(b));
@@ -2107,9 +2107,9 @@ struct pipe_bridge
     // 处理终端 Win32 Input Mode 产生的键盘事件。ConsoleRead 使用事件驱动
     // cooked 行编辑；其他模式把事件写入 input_buffer。返回 true 表示事件
     // 已完成当前 pending，调用者应停止处理本批剩余字节。
-    bool process_input_win32_key(PendingKind pending_kind, DWORD i, DWORD len, const char8_t *bytes)
+    bool process_input_win32_key(PendingKind pending_kind, const vt_message &m, DWORD i, DWORD len,
+                                 const char8_t *bytes)
     {
-        auto &m = _input_parser.get();
         if (pending_kind == PendingKind::ConsoleRead)
         {
             // ConsoleRead 自己做本地行编辑，只处理 KEY_DOWN；KEY_UP 不应
@@ -2301,9 +2301,8 @@ struct pipe_bridge
 
     // 处理终端 CPR 响应。只有 pending inherit cursor 时才用响应更新
     // cstate.cursor；普通 CPR 响应不是用户输入。
-    void process_input_cpr_response()
+    void process_input_cpr_response(const vt_message &m)
     {
-        auto &m = _input_parser.get();
         if (_terminal.pending_inherit_cursor() && m.payload.cpr.row > 0 && m.payload.cpr.col > 0)
         {
             const COORD terminal_position{static_cast<SHORT>(m.payload.cpr.col - 1),
@@ -2370,9 +2369,8 @@ struct pipe_bridge
 
     // 处理 parser 累积出的文本消息。ConsoleRead 写入 cooked line；其他非
     // RawRead 模式写入 KEY_EVENT。
-    void process_input_text(PendingKind pending_kind)
+    void process_input_text(PendingKind pending_kind, const vt_message &tm)
     {
-        auto &tm = _input_parser.get();
         LOG3(L"[in] TEXT_MSG len=%zu", tm.payload.text.size());
         for (char32_t tc : tm.payload.text)
         {
@@ -2416,7 +2414,9 @@ struct pipe_bridge
             char32_t ch = *decoded;
 
             // ── 2. 解析 ──
-            vt_message_id id = _input_parser.parse(ch);
+            // parse() 接收一个 codepoint 范围。这里输入路径仍按单字符交互处理。
+            const auto parsed = _input_parser.parse({&ch, 1});
+            vt_message_id id = parsed.id;
 
             if (id == vt_message_id::continue_text) [[likely]]
             {
@@ -2444,11 +2444,13 @@ struct pipe_bridge
                 continue;
 
             const auto pending_kind = _pending.kind();
-            LOG3(L"[in] MSG id=%d echo=%d kind=%d", (int)id, (int)_input_parser.should_echo_last(), (int)pending_kind);
-            if (_input_parser.should_echo_last() && pending_kind == PendingKind::ConsoleRead)
+            LOG3(L"[in] MSG id=%d kind=%d", (int)id, (int)pending_kind);
+            if ((id == vt_message_id::carriage_return || id == vt_message_id::line_feed ||
+                 id == vt_message_id::cursor_forward_tab) &&
+                pending_kind == PendingKind::ConsoleRead)
                 _echo_byte(b);
 
-            auto &msg = _input_parser.get();
+            const auto &msg = parsed.message;
             switch (id)
             {
             // 行终止符直接完成 pending 读取，并把同批次剩余字节退回队列。
@@ -2469,7 +2471,7 @@ struct pipe_bridge
             // Windows Terminal Win32 Input Mode 已经携带完整 KEY_EVENT 字段，
             // 不需要再通过 vt_input_engine 猜测 VK/修饰键。
             case vt_message_id::win32_input_key: {
-                if (process_input_win32_key(pending_kind, i, len, bytes))
+                if (process_input_win32_key(pending_kind, msg, i, len, bytes))
                 {
                     _input_parser.reset<vt_message_id::win32_input_key>();
                     return;
@@ -2631,7 +2633,7 @@ struct pipe_bridge
                 break;
             }
             case vt_message_id::cpr_response: {
-                process_input_cpr_response();
+                process_input_cpr_response(msg);
                 _input_parser.reset<vt_message_id::cpr_response>();
                 break;
             }
@@ -2657,7 +2659,7 @@ struct pipe_bridge
                 break;
             }
             case vt_message_id::text: {
-                process_input_text(pending_kind);
+                process_input_text(pending_kind, msg);
                 _input_parser.reset<vt_message_id::text>();
                 break;
             }
@@ -2674,39 +2676,14 @@ struct pipe_bridge
             }
         }
     }
-    // 处理 CR/LF 行终止符：完成当前 pending 读取、保留同批次未消费输入、
-    // 同步终端光标，并为非 ConsoleRead shell 设置下一次输出前的 CUP 修正。
-    void _on_line_terminator(bool is_cr, DWORD i, DWORD len, const char8_t *bytes)
+    // 行终止符公共收尾。consumed 是当前 ReadFile 批次中已经属于本次读取的
+    // 字节数；剩余字节会退回队列，供下一次 pending 读取继续消费。
+    void _finish_line_terminator(bool is_cr, bool has_lf, DWORD consumed, DWORD len, const char8_t *bytes)
     {
-        // 行终止符处理只消费当前行；i/len/bytes 描述当前 process_input 批次，
-        // 用于识别 CRLF 是否跨 ReadFile 边界。
         _line_found = true;
-        auto consumed = i + 1;
 
-        if (is_cr)
-        {
-            bool has_lf = false;
-            if (i + 1 < len && bytes[i + 1] == static_cast<char8_t>('\n'))
-            {
-                has_lf = true;
-                consumed = i + 2;
-            }
-            else if (i + 1 == len)
-            {
-                // CR 位于本批次末尾时，LF 可能已经在管道中但尚未读入。只在
-                // 下一个字节确认为 LF 时消费它，避免吞掉下一行首字符。
-                char8_t nb = {};
-                if (_io.try_consume_byte(static_cast<char8_t>('\n'), nb))
-                {
-                    if (_read_total < _readbuf.size())
-                        _readbuf[_read_total++] = nb;
-                    has_lf = true;
-                }
-            }
-
-            if (!has_lf && !raw_read_echo_enabled())
-                vt_append_char('\n');
-        }
+        if (is_cr && !has_lf && !raw_read_echo_enabled())
+            vt_append_char('\n');
 
         if (raw_read_echo_enabled())
             vt_append_str("\r\n"sv);
@@ -2729,6 +2706,39 @@ struct pipe_bridge
         LOG3(L"[in] LINE_TERM cooked=[%.*ls]", static_cast<int>(_cooked_buf.size() < 200 ? _cooked_buf.size() : 200),
              _cooked_buf.data());
         complete_pending();
+    }
+
+    // 处理 CR/LF 行终止符：完成当前 pending 读取、保留同批次未消费输入、
+    // 同步终端光标，并为非 ConsoleRead shell 设置下一次输出前的 CUP 修正。
+    void _on_line_terminator(bool is_cr, DWORD i, DWORD len, const char8_t *bytes)
+    {
+        // 行终止符处理只消费当前行；i/len/bytes 描述当前 process_input 批次，
+        // 用于识别 CRLF 是否跨 ReadFile 边界。
+        auto consumed = i + 1;
+        bool has_lf = false;
+
+        if (is_cr)
+        {
+            if (i + 1 < len && bytes[i + 1] == static_cast<char8_t>('\n'))
+            {
+                has_lf = true;
+                consumed = i + 2;
+            }
+            else if (i + 1 == len)
+            {
+                // CR 位于本批次末尾时，LF 可能已经在管道中但尚未读入。只在
+                // 下一个字节确认为 LF 时消费它，避免吞掉下一行首字符。
+                char8_t nb = {};
+                if (_io.try_consume_byte(static_cast<char8_t>('\n'), nb))
+                {
+                    if (_read_total < _readbuf.size())
+                        _readbuf[_read_total++] = nb;
+                    has_lf = true;
+                }
+            }
+        }
+
+        _finish_line_terminator(is_cr, has_lf, consumed, len, bytes);
     }
 
     // 为 pending RAW_READ 构造 completion。它返回 _readbuf 中的原始字节，
@@ -2815,8 +2825,12 @@ struct pipe_bridge
             // ReadConsoleA 使用控制台输入代码页，而不是终端 UTF-8。否则
             // CJK 输入会以 UTF-8 字节交给期望 OEM/ANSI 的控制台程序。
             auto *ansi_out = reinterpret_cast<char *>(db);
-            size_t written =
-                convert_u32_to_ansi_raw(_cooked_buf, cstate.input_code_page, ansi_out, maxd, _conversion.wide());
+            const auto text_capacity = maxd >= 2 ? static_cast<size_t>(maxd - 2) : size_t{0};
+            const auto copied_text =
+                std::u32string_view{_cooked_buf.data(), u32_prefix_for_ansi_bytes(_cooked_buf, cstate.input_code_page,
+                                                                                  text_capacity, _conversion.wide())};
+            size_t written = convert_u32_to_ansi_raw(copied_text, cstate.input_code_page, ansi_out, text_capacity,
+                                                     _conversion.wide());
             written = append_ascii_raw('\r', ansi_out, maxd, written);
             written = append_ascii_raw('\n', ansi_out, maxd, written);
             cp = static_cast<DWORD>(written);
@@ -2888,7 +2902,7 @@ struct pipe_bridge
         LOG3("[bridge] complete_pending: done kind=%d cooked_len=%zu vt_eof=%d", static_cast<int>(_pending.kind()),
              _cooked_buf.size(), _pending.vt_eof());
 
-        if (comp_ptr)
+        if (comp_ptr && _io.can_complete())
         {
             // 挂起请求已经从原始 READ_IO 返回 false，必须额外发送
             // CD_IO_COMPLETE；同步完成的请求则由 io_loop 直接带回。
@@ -2922,7 +2936,8 @@ struct pipe_bridge
             auto comp = m.complete;
             _pending.clear();
 
-            _io.complete(comp);
+            if (_io.can_complete())
+                _io.complete(comp);
             return;
         }
 
@@ -2936,7 +2951,8 @@ struct pipe_bridge
         auto comp = m.complete;
         _pending.clear();
 
-        _io.complete(comp);
+        if (_io.can_complete())
+            _io.complete(comp);
     }
 
     friend class pipe_bridge_testable;

@@ -1,1680 +1,620 @@
 // ── tests/test_vt_parser_utf32.cpp ─────────────────────────
-// VT/CSI/OSC 解析器测(基于 char32_t 的新版解析器)
+// Unit tests for the char32_t VT parser public API.
 //
-// 与旧版测试的区别
-//   旧版：输入字节流，有 bad_state，文本消id=none
-//   新版：输char32_t 码点，无 bad_state，任何非法序列原样输出为
-//         text 消息（id 返回 vt_message_id::text）
-//   因此反向测试改为验证非法序列被无损地输出text 消息
-//
+// These tests exercise the parser through vt_parse_result only. They do not
+// inspect parser internals, so they protect the contract used by pipe_bridge,
+// api_handlers and the keyboard input path.
+
 #include "test_common.hpp"
 #include "conpty_vt_parser.hpp"
 #include "vt_parser_test_helpers.hpp"
 #include "utility/crtdbg.hpp"
 
-#include <random>
+#include <array>
 #include <string>
+#include <string_view>
 #include <vector>
-#include <sstream>
-#include <iomanip>
-#include <cstring> // memcmp
 
 using namespace conpty;
+using conpty::test::is_parse_continue;
+using conpty::test::parse_one;
 using conpty::test::reset_test_vt_parser_message;
 
-// ============================================================================
-// 随机数工具（种子固定，可重现
-// ============================================================================
-std::mt19937 rng(42);
-
-short rand_short(short lo, short hi)
+struct expected_sequence
 {
-    return static_cast<short>(std::uniform_int_distribution<int>(lo, hi)(rng));
-}
-
-uint8_t rand_u8(uint8_t lo = 0, uint8_t hi = 255)
-{
-    return static_cast<uint8_t>(std::uniform_int_distribution<int>(lo, hi)(rng));
-}
-
-// 生成可打ASCII 字符 (码点 0x20-0x7E)
-char32_t rand_ascii()
-{
-    return static_cast<char32_t>(rand_u8(0x20, 0x7E));
-}
-
-// ============================================================================
-// 1. 序列化：vt_message 转为 char32_t 序列
-// ============================================================================
-
-// 序列的载体：直接存储 char32_t 码点
-struct raw_seq
-{
-    std::vector<char32_t> code_points;
-
-    void add(char32_t c)
-    {
-        code_points.push_back(c);
-    }
-    void add_str(std::u32string_view sv)
-    {
-        for (auto c : sv)
-            add(c);
-    }
-    void add_number(short n)
-    {
-        if (n == 0)
-        {
-            add(U'0');
-            return;
-        }
-        std::u32string s;
-        while (n > 0)
-        {
-            s.insert(s.begin(), static_cast<char32_t>(U'0' + (n % 10)));
-            n /= 10;
-        }
-        add_str(s);
-    }
-    void add_esc()
-    {
-        add(0x1B);
-    }
-    void add_csi()
-    {
-        add_esc();
-        add(U'[');
-    }
-    void add_osc()
-    {
-        add_esc();
-        add(U']');
-    }
-    void add_st()
-    {
-        add_esc();
-        add(U'\\');
-    }
-    // 直接添加 u32string，用于标
-    void add_u32string(const std::u32string &s)
-    {
-        add_str(s);
-    }
-    void add_u32string(std::u32string_view sv)
-    {
-        add_str(sv);
-    }
+    std::u32string_view sequence;
+    vt_message_id id;
 };
 
-// ── 随机消息生成──
-struct msg_gen
+vt_parse_result parse_complete(vt_parser &parser, std::u32string_view input)
 {
-    vt_message_id msg_id = vt_message_id::continue_; // 本次生成id
-    vt_message msg;                                  // 期望的字段
-
-    // 用于持有 msg.payload.title / msg.payload.text 所指向的字符串数据 (u32string_view 需存活)
-    std::u32string _title_storage;
-    std::u32string _text_storage;
-
-    // 生成随机消息并填msg msg_id，返回序列化码点
-    raw_seq serialize()
+    while (!input.empty())
     {
-        raw_seq r;
-        msg = vt_message{};
-        _title_storage.clear();
-        _text_storage.clear();
-
-        // 随机选择消息类型（共 52 种，与旧版一致）
-        int choice = std::uniform_int_distribution<int>(0, 51)(rng);
-        switch (choice)
-        {
-        // ── Simple ESC ──
-        case 0:
-            msg_id = vt_message_id::reverse_index;
-            r.add_esc();
-            r.add(U'M');
-            break;
-        case 1:
-            msg_id = vt_message_id::save_cursor;
-            r.add_esc();
-            r.add(U'7');
-            break;
-        case 2:
-            msg_id = vt_message_id::restore_cursor;
-            r.add_esc();
-            r.add(U'8');
-            break;
-        case 3:
-            msg_id = vt_message_id::horizontal_tab_set;
-            r.add_esc();
-            r.add(U'H');
-            break;
-        case 4:
-            msg_id = vt_message_id::keypad_app_mode;
-            r.add_esc();
-            r.add(U'=');
-            break;
-        case 5:
-            msg_id = vt_message_id::keypad_numeric_mode;
-            r.add_esc();
-            r.add(U'>');
-            break;
-
-        // ── Character Set ──
-        case 6:
-            msg_id = vt_message_id::designate_charset_line_drawing;
-            r.add_esc();
-            r.add(U'(');
-            r.add(U'0');
-            break;
-        case 7:
-            msg_id = vt_message_id::designate_charset_ascii;
-            r.add_esc();
-            r.add(U'(');
-            r.add(U'B');
-            break;
-
-        // ── CSI Cursor Movement ──
-        case 8:
-            msg_id = vt_message_id::cursor_up;
-            msg.payload.count.value = rand_short(1, 99);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'A');
-            break;
-        case 9:
-            msg_id = vt_message_id::cursor_down;
-            msg.payload.count.value = rand_short(1, 99);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'B');
-            break;
-        case 10:
-            msg_id = vt_message_id::cursor_forward;
-            msg.payload.count.value = rand_short(1, 99);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'C');
-            break;
-        case 11:
-            msg_id = vt_message_id::cursor_backward;
-            msg.payload.count.value = rand_short(1, 99);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'D');
-            break;
-        case 12:
-            msg_id = vt_message_id::cursor_next_line;
-            msg.payload.count.value = rand_short(1, 99);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'E');
-            break;
-        case 13:
-            msg_id = vt_message_id::cursor_prev_line;
-            msg.payload.count.value = rand_short(1, 99);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'F');
-            break;
-        case 14:
-            msg_id = vt_message_id::cursor_horiz_absolute;
-            msg.payload.position.col = rand_short(1, 200);
-            r.add_csi();
-            r.add_number(msg.payload.position.col);
-            r.add(U'G');
-            break;
-        case 15:
-            msg_id = vt_message_id::cursor_vert_absolute;
-            msg.payload.position.row = rand_short(1, 200);
-            r.add_csi();
-            r.add_number(msg.payload.position.row);
-            r.add(U'd');
-            break;
-        case 16:
-            msg_id = vt_message_id::cursor_position;
-            msg.payload.position.row = rand_short(1, 200);
-            msg.payload.position.col = rand_short(1, 200);
-            r.add_csi();
-            r.add_number(msg.payload.position.row);
-            r.add(U';');
-            r.add_number(msg.payload.position.col);
-            r.add(U'H');
-            break;
-        case 17:
-            msg_id = vt_message_id::cursor_position; // HVP variant
-            msg.payload.position.row = rand_short(1, 200);
-            msg.payload.position.col = rand_short(1, 200);
-            r.add_csi();
-            r.add_number(msg.payload.position.row);
-            r.add(U';');
-            r.add_number(msg.payload.position.col);
-            r.add(U'f');
-            break;
-        case 18:
-            msg_id = vt_message_id::ansi_save_cursor;
-            r.add_csi();
-            r.add(U's');
-            break;
-        case 19:
-            msg_id = vt_message_id::ansi_restore_cursor;
-            r.add_csi();
-            r.add(U'u');
-            break;
-
-        // ── DEC Private h/l ──
-        case 20:
-            msg_id = vt_message_id::cursor_enable_blinking;
-            r.add_csi();
-            r.add(U'?');
-            r.add_str(U"12");
-            r.add(U'h');
-            break;
-        case 21:
-            msg_id = vt_message_id::cursor_disable_blinking;
-            r.add_csi();
-            r.add(U'?');
-            r.add_str(U"12");
-            r.add(U'l');
-            break;
-        case 22:
-            msg_id = vt_message_id::cursor_show;
-            r.add_csi();
-            r.add(U'?');
-            r.add_str(U"25");
-            r.add(U'h');
-            break;
-        case 23:
-            msg_id = vt_message_id::cursor_hide;
-            r.add_csi();
-            r.add(U'?');
-            r.add_str(U"25");
-            r.add(U'l');
-            break;
-        case 24:
-            msg_id = vt_message_id::cursor_keys_app_mode;
-            r.add_csi();
-            r.add(U'?');
-            r.add(U'1');
-            r.add(U'h');
-            break;
-        case 25:
-            msg_id = vt_message_id::cursor_keys_normal_mode;
-            r.add_csi();
-            r.add(U'?');
-            r.add(U'1');
-            r.add(U'l');
-            break;
-        case 26:
-            msg_id = vt_message_id::set_columns_132;
-            r.add_csi();
-            r.add(U'?');
-            r.add(U'3');
-            r.add(U'h');
-            msg.payload.window_width = 132;
-            break;
-        case 27:
-            msg_id = vt_message_id::set_columns_80;
-            r.add_csi();
-            r.add(U'?');
-            r.add(U'3');
-            r.add(U'l');
-            msg.payload.window_width = 80;
-            break;
-        case 28:
-            msg_id = vt_message_id::use_alternate_buffer;
-            r.add_csi();
-            r.add(U'?');
-            r.add_str(U"1049");
-            r.add(U'h');
-            break;
-        case 29:
-            msg_id = vt_message_id::use_main_buffer;
-            r.add_csi();
-            r.add(U'?');
-            r.add_str(U"1049");
-            r.add(U'l');
-            break;
-
-        // ── Cursor Shape ──
-        case 30:
-            msg_id = vt_message_id::set_cursor_shape;
-            msg.payload.cursor_shape = rand_short(0, 6);
-            r.add_csi();
-            r.add_number(msg.payload.cursor_shape);
-            r.add(U' ');
-            r.add(U'q');
-            break;
-
-        // ── Scroll ──
-        case 31:
-            msg_id = vt_message_id::scroll_up;
-            msg.payload.count.value = rand_short(1, 99);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'S');
-            break;
-        case 32:
-            msg_id = vt_message_id::scroll_down;
-            msg.payload.count.value = rand_short(1, 99);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'T');
-            break;
-
-        // ── Text Modification ──
-        case 33:
-            msg_id = vt_message_id::insert_characters;
-            msg.payload.count.value = rand_short(1, 50);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'@');
-            break;
-        case 34:
-            msg_id = vt_message_id::delete_characters;
-            msg.payload.count.value = rand_short(1, 50);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'P');
-            break;
-        case 35:
-            msg_id = vt_message_id::erase_characters;
-            msg.payload.count.value = rand_short(1, 50);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'X');
-            break;
-        case 36:
-            msg_id = vt_message_id::insert_lines;
-            msg.payload.count.value = rand_short(1, 50);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'L');
-            break;
-        case 37:
-            msg_id = vt_message_id::delete_lines;
-            msg.payload.count.value = rand_short(1, 50);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'M');
-            break;
-        case 38:
-            msg_id = vt_message_id::erase_in_display;
-            msg.payload.erase_mode = rand_short(0, 2);
-            r.add_csi();
-            r.add_number(msg.payload.erase_mode);
-            r.add(U'J');
-            break;
-        case 39:
-            msg_id = vt_message_id::erase_in_line;
-            msg.payload.erase_mode = rand_short(0, 2);
-            r.add_csi();
-            r.add_number(msg.payload.erase_mode);
-            r.add(U'K');
-            break;
-
-        // ── SGR ──
-        case 40: {
-            msg_id = vt_message_id::sgr;
-            r.add_csi();
-            int n_params = std::uniform_int_distribution<int>(1, 8)(rng);
-            bool first = true;
-            for (int i = 0; i < n_params; ++i)
-            {
-                if (!first)
-                    r.add(U';');
-                first = false;
-                int p = std::uniform_int_distribution<int>(0, 11)(rng);
-                short sgr_val = 0;
-                switch (p)
-                {
-                case 0:
-                    sgr_val = 0;
-                    msg.payload.sgr.set(vt_sgr_flag::reset);
-                    break;
-                case 1:
-                    sgr_val = 1;
-                    msg.payload.sgr.set(vt_sgr_flag::bold);
-                    break;
-                case 2:
-                    sgr_val = 4;
-                    msg.payload.sgr.set(vt_sgr_flag::underline);
-                    break;
-                case 3:
-                    sgr_val = 7;
-                    msg.payload.sgr.set(vt_sgr_flag::negative);
-                    break;
-                case 4:
-                    sgr_val = 22;
-                    msg.payload.sgr.clear(vt_sgr_flag::bold);
-                    msg.payload.sgr.clear(vt_sgr_flag::faint);
-                    break;
-                case 5:
-                    sgr_val = 24;
-                    msg.payload.sgr.clear(vt_sgr_flag::underline);
-                    break;
-                case 6:
-                    sgr_val = 27;
-                    msg.payload.sgr.clear(vt_sgr_flag::negative);
-                    break;
-                case 7:
-                    sgr_val = static_cast<short>(30 + rand_short(0, 7));
-                    msg.payload.sgr.fg.set_index(static_cast<short>(sgr_val - 30));
-                    break;
-                case 8:
-                    sgr_val = static_cast<short>(40 + rand_short(0, 7));
-                    msg.payload.sgr.bg.set_index(static_cast<short>(sgr_val - 40));
-                    break;
-                case 9:
-                    sgr_val = 39;
-                    msg.payload.sgr.fg.set_default();
-                    break;
-                case 10:
-                    sgr_val = 49;
-                    msg.payload.sgr.bg.set_default();
-                    break;
-                case 11:
-                    sgr_val = 48;
-                    msg.payload.sgr.bg.set_rgb(rand_u8(0, 255), rand_u8(0, 255), rand_u8(0, 255));
-                    r.add_number(sgr_val);
-                    r.add(U';');
-                    r.add(U'2');
-                    r.add(U';');
-                    r.add_number(msg.payload.sgr.bg.value);
-                    r.add(U';');
-                    r.add_number(msg.payload.sgr.bg.g);
-                    r.add(U';');
-                    r.add_number(msg.payload.sgr.bg.b);
-                    continue;
-                }
-                r.add_number(sgr_val);
-            }
-            r.add(U'm');
-        }
-        break;
-
-        // ── OSC Window Title ──
-        case 41: {
-            msg_id = vt_message_id::set_window_title;
-            int len = rand_short(1, 30);
-            for (int i = 0; i < len; ++i)
-                _title_storage += rand_ascii();
-            msg.payload.title = _title_storage; // view into owned storage
-            int osc_code = std::uniform_int_distribution<int>(0, 1)(rng) ? 0 : 2;
-            r.add_osc();
-            r.add(U'0' + osc_code);
-            r.add(U';');
-            r.add_str(_title_storage);
-            r.add(0x07); // BEL terminator
-        }
-        break;
-
-        // ── OSC Palette ──
-        case 42: {
-            msg_id = vt_message_id::set_palette_color;
-            msg.payload.palette.index = rand_short(0, 255);
-            msg.payload.palette.r = rand_u8(0, 255);
-            msg.payload.palette.g = rand_u8(0, 255);
-            msg.payload.palette.b = rand_u8(0, 255);
-            r.add_osc();
-            r.add(U'4');
-            r.add(U';');
-            r.add_number(msg.payload.palette.index);
-            r.add(U';');
-            // 构"rgb:RR/GG/BB" 字符
-            char buf[32];
-            snprintf(buf, sizeof(buf), "rgb:%02x/%02x/%02x", msg.payload.palette.r, msg.payload.palette.g,
-                     msg.payload.palette.b);
-            for (char *p = buf; *p; ++p)
-                r.add(static_cast<char32_t>(*p));
-            r.add(0x07); // BEL terminator
-        }
-        break;
-
-        // ── Tabs ──
-        case 43:
-            msg_id = vt_message_id::cursor_forward_tab;
-            msg.payload.count.value = rand_short(1, 20);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'I');
-            break;
-        case 44:
-            msg_id = vt_message_id::cursor_backward_tab;
-            msg.payload.count.value = rand_short(1, 20);
-            r.add_csi();
-            r.add_number(msg.payload.count.value);
-            r.add(U'Z');
-            break;
-        case 45:
-            msg_id = vt_message_id::tab_clear_current;
-            r.add_csi();
-            r.add(U'0');
-            r.add(U'g');
-            break;
-        case 46:
-            msg_id = vt_message_id::tab_clear_all;
-            r.add_csi();
-            r.add(U'3');
-            r.add(U'g');
-            break;
-
-        // ── Scrolling Margins ──
-        case 47:
-            msg_id = vt_message_id::set_scrolling_region;
-            msg.payload.scroll_region.top = rand_short(1, 50);
-            msg.payload.scroll_region.bottom = rand_short(1, 50);
-            r.add_csi();
-            r.add_number(msg.payload.scroll_region.top);
-            r.add(U';');
-            r.add_number(msg.payload.scroll_region.bottom);
-            r.add(U'r');
-            break;
-
-        // ── Query ──
-        case 48:
-            msg_id = vt_message_id::report_cursor_position;
-            r.add_csi();
-            r.add(U'6');
-            r.add(U'n');
-            break;
-        case 49:
-            msg_id = vt_message_id::device_attributes;
-            r.add_csi();
-            r.add(U'0');
-            r.add(U'c');
-            break;
-
-        // ── Soft Reset ──
-        case 50:
-            msg_id = vt_message_id::soft_reset;
-            r.add_csi();
-            r.add(U'!');
-            r.add(U'p');
-            break;
-
-        // ── SS3 / CSI Input ──
-        case 51: {
-            if (std::uniform_int_distribution<int>(0, 1)(rng))
-            {
-                // SS3: ESC O X
-                const char32_t s_keys[] = {U'A', U'B', U'C', U'D', U'H', U'F', U'P', U'Q', U'R', U'S'};
-                const vt_message_id s_ids[] = {
-                    vt_message_id::key_up,   vt_message_id::key_down, vt_message_id::key_right, vt_message_id::key_left,
-                    vt_message_id::key_home, vt_message_id::key_end,  vt_message_id::key_f1,    vt_message_id::key_f2,
-                    vt_message_id::key_f3,   vt_message_id::key_f4};
-                int ki = rand_short(0, 9);
-                msg_id = s_ids[ki];
-                r.add_esc();
-                r.add(U'O');
-                r.add(s_keys[ki]);
-            }
-            else
-            {
-                // CSI ~
-                const short c_codes[] = {2, 3, 5, 6, 15, 17, 18, 19, 20, 21, 23, 24};
-                const vt_message_id c_ids[] = {
-                    vt_message_id::key_insert,    vt_message_id::key_delete, vt_message_id::key_page_up,
-                    vt_message_id::key_page_down, vt_message_id::key_f5,     vt_message_id::key_f6,
-                    vt_message_id::key_f7,        vt_message_id::key_f8,     vt_message_id::key_f9,
-                    vt_message_id::key_f10,       vt_message_id::key_f11,    vt_message_id::key_f12};
-                int ki = rand_short(0, 11);
-                msg_id = c_ids[ki];
-                r.add_csi();
-                r.add_number(c_codes[ki]);
-                r.add(U'~');
-            }
-        }
-        break;
-        }
-        return r;
+        auto result = parser.parse(input);
+        input.remove_prefix(result.consumed);
+        if (!is_parse_continue(result))
+            return result;
     }
+    return {};
+}
 
-    // 验证解析出的消息和返回的 id 与期望一
-    bool verify(vt_message_id id, const vt_message &parsed) const
-    {
-        ASSERT(id == msg_id);
-        switch (msg_id)
-        {
-        case vt_message_id::cursor_up:
-        case vt_message_id::cursor_down:
-        case vt_message_id::cursor_forward:
-        case vt_message_id::cursor_backward:
-        case vt_message_id::cursor_next_line:
-        case vt_message_id::cursor_prev_line:
-        case vt_message_id::scroll_up:
-        case vt_message_id::scroll_down:
-        case vt_message_id::insert_characters:
-        case vt_message_id::delete_characters:
-        case vt_message_id::erase_characters:
-        case vt_message_id::insert_lines:
-        case vt_message_id::delete_lines:
-        case vt_message_id::cursor_forward_tab:
-        case vt_message_id::cursor_backward_tab:
-            ASSERT(parsed.payload.count.value == msg.payload.count.value);
-            break;
-        case vt_message_id::cursor_horiz_absolute:
-            ASSERT(parsed.payload.position.col == msg.payload.position.col);
-            break;
-        case vt_message_id::cursor_vert_absolute:
-            ASSERT(parsed.payload.position.row == msg.payload.position.row);
-            break;
-        case vt_message_id::cursor_position:
-            ASSERT(parsed.payload.position.row == msg.payload.position.row);
-            ASSERT(parsed.payload.position.col == msg.payload.position.col);
-            break;
-        case vt_message_id::set_cursor_shape:
-            ASSERT(parsed.payload.cursor_shape == msg.payload.cursor_shape);
-            break;
-        case vt_message_id::erase_in_display:
-        case vt_message_id::erase_in_line:
-            ASSERT(parsed.payload.erase_mode == msg.payload.erase_mode);
-            break;
-        case vt_message_id::sgr:
-            ASSERT(parsed.payload.sgr.set_flags == msg.payload.sgr.set_flags);
-            ASSERT(parsed.payload.sgr.clear_flags == msg.payload.sgr.clear_flags);
-            ASSERT(parsed.payload.sgr.fg.kind == msg.payload.sgr.fg.kind);
-            ASSERT(parsed.payload.sgr.fg.value == msg.payload.sgr.fg.value);
-            ASSERT(parsed.payload.sgr.fg.g == msg.payload.sgr.fg.g);
-            ASSERT(parsed.payload.sgr.fg.b == msg.payload.sgr.fg.b);
-            ASSERT(parsed.payload.sgr.bg.kind == msg.payload.sgr.bg.kind);
-            ASSERT(parsed.payload.sgr.bg.value == msg.payload.sgr.bg.value);
-            ASSERT(parsed.payload.sgr.bg.g == msg.payload.sgr.bg.g);
-            ASSERT(parsed.payload.sgr.bg.b == msg.payload.sgr.bg.b);
-            break;
-        case vt_message_id::set_window_title:
-            ASSERT(parsed.payload.title == msg.payload.title);
-            break;
-        case vt_message_id::set_palette_color:
-            ASSERT(parsed.payload.palette.index == msg.payload.palette.index);
-            ASSERT(parsed.payload.palette.r == msg.payload.palette.r);
-            ASSERT(parsed.payload.palette.g == msg.payload.palette.g);
-            ASSERT(parsed.payload.palette.b == msg.payload.palette.b);
-            break;
-        case vt_message_id::set_scrolling_region:
-            ASSERT(parsed.payload.scroll_region.top == msg.payload.scroll_region.top);
-            ASSERT(parsed.payload.scroll_region.bottom == msg.payload.scroll_region.bottom);
-            break;
-        default:
-            break;
-        }
-        return true;
-    }
-};
-
-// ============================================================================
-// 正向测试
-// ============================================================================
-
-// 冒烟测试: 确保最基本的序列能被解
-bool test_smoke()
+bool expect_id_and_raw(std::u32string_view sequence, vt_message_id id)
 {
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
 
-    // ESC M reverse_index
-    ASSERT(p.parse(U'\x1B') == vt_message_id::continue_);
-    ASSERT(p.parse(U'M') == vt_message_id::reverse_index);
-    p.reset<vt_message_id::reverse_index>();
-
-    // ESC [ 1 A cursor_up
-    ASSERT(p.parse(U'\x1B') == vt_message_id::continue_);
-    ASSERT(p.parse(U'[') == vt_message_id::continue_);
-    ASSERT(p.parse(U'1') == vt_message_id::continue_);
-    ASSERT(p.parse(U'A') == vt_message_id::cursor_up);
-    ASSERT(p.get().payload.count.value == 1);
-    p.reset<vt_message_id::cursor_up>();
-
-    // ESC ] 0 ; hello BEL set_window_title
-    ASSERT(p.parse(U'\x1B') == vt_message_id::continue_);
-    ASSERT(p.parse(U']') == vt_message_id::continue_);
-    ASSERT(p.parse(U'0') == vt_message_id::continue_);
-    ASSERT(p.parse(U';') == vt_message_id::continue_);
-    ASSERT(p.parse(U'h') == vt_message_id::continue_);
-    ASSERT(p.parse(U'i') == vt_message_id::continue_);
-    ASSERT(p.parse(0x07) == vt_message_id::set_window_title);
-    ASSERT(p.get().payload.title == U"hi");
-    p.reset<vt_message_id::set_window_title>();
-
-    // Esc followed by text "ab"
-    ASSERT(p.parse(U'a') == vt_message_id::continue_text);
-    ASSERT(p.parse(U'b') == vt_message_id::continue_text);
-
+    const auto result = parse_complete(parser, sequence);
+    ASSERT(result.id == id);
+    ASSERT(result.consumed == sequence.size());
+    if (sequence.starts_with(U"\x1b"))
+        ASSERT(result.raw_sequence == sequence);
+    else
+        ASSERT(result.raw_sequence.empty());
     return true;
 }
 
-// 测试单条随机消息的往
-bool test_positive_single()
+bool expect_unknown(std::u32string_view sequence)
 {
-    raw_u32_buffer parser_raw;
-    vt_parser parser{parser_raw};
-    for (int trial = 0; trial < 500; ++trial)
-    {
-        msg_gen gen;
-        raw_seq seq = gen.serialize();
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
 
-        bool got_message = false;
-        for (size_t i = 0; i < seq.code_points.size(); ++i)
-        {
-            vt_message_id id = parser.parse(seq.code_points[i]);
-            if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
-            {
-                got_message = true;
-                if (!gen.verify(id, parser.get()))
-                    return false;
-                reset_test_vt_parser_message(parser, id); // 消费后精确清
-            }
-        }
-        ASSERT(got_message);
-    }
+    const auto result = parse_complete(parser, sequence);
+    ASSERT(result.id == vt_message_id::unknown_sequence);
+    ASSERT(result.consumed == sequence.size());
+    ASSERT(result.raw_sequence == sequence);
+    ASSERT(result.message.payload.text == sequence);
     return true;
 }
 
-// 测试多条消息拼接后的连续解析
-bool test_positive_concatenated()
+bool test_ground_text_range()
 {
-    raw_u32_buffer parser_raw;
-    vt_parser parser{parser_raw};
-    for (int trial = 0; trial < 200; ++trial)
-    {
-        int msg_count = rand_short(2, 6);
-        std::vector<msg_gen> gens(msg_count);
-        raw_seq seq;
-        for (int i = 0; i < msg_count; ++i)
-        {
-            raw_seq part = gens[i].serialize();
-            seq.code_points.insert(seq.code_points.end(), part.code_points.begin(), part.code_points.end());
-        }
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
 
-        int parsed_idx = 0;
-        for (size_t i = 0; i < seq.code_points.size(); ++i)
-        {
-            vt_message_id id = parser.parse(seq.code_points[i]);
-            if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
-            {
-                ASSERT(parsed_idx < msg_count);
-                if (!gens[parsed_idx].verify(id, parser.get()))
-                    return false;
-                reset_test_vt_parser_message(parser, id);
-                ++parsed_idx;
-            }
-        }
-        ASSERT(parsed_idx == msg_count);
-    }
+    const auto result = parser.parse(U"hello world");
+    ASSERT(result.id == vt_message_id::continue_text);
+    ASSERT(result.consumed == 11);
+    ASSERT(result.raw_sequence.empty());
+    ASSERT(result.message.payload.text == U"hello world");
     return true;
 }
 
-// 测试消息与文本穿
-bool test_positive_with_text()
+bool test_ground_text_stops_before_control()
 {
-    raw_u32_buffer parser_raw;
-    vt_parser parser{parser_raw};
-    for (int trial = 0; trial < 100; ++trial)
-    {
-        msg_gen gen;
-        raw_seq seq = gen.serialize();
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
 
-        // 随机生成前后文本
-        std::u32string prefix, suffix;
-        int pre_len = rand_short(1, 10);
-        int suf_len = rand_short(1, 10);
-        for (int i = 0; i < pre_len; ++i)
-            prefix += rand_ascii();
-        for (int i = 0; i < suf_len; ++i)
-            suffix += rand_ascii();
+    auto input = std::u32string_view{U"hello\rworld"};
+    auto result = parser.parse(input);
+    ASSERT(result.id == vt_message_id::continue_text);
+    ASSERT(result.consumed == 5);
+    ASSERT(result.message.payload.text == U"hello");
+    parser.reset<vt_message_id::continue_text>();
 
-        raw_seq full;
-        full.add_u32string(prefix);
-        full.code_points.insert(full.code_points.end(), seq.code_points.begin(), seq.code_points.end());
-        full.add_u32string(suffix);
+    input.remove_prefix(result.consumed);
+    result = parser.parse(input);
+    ASSERT(result.id == vt_message_id::carriage_return);
+    ASSERT(result.consumed == 1);
+    ASSERT(result.raw_sequence.empty());
+    reset_test_vt_parser_message(parser, result.id);
 
-        bool text_received = false;
-        bool msg_received = false;
-        for (size_t i = 0; i < full.code_points.size(); ++i)
-        {
-            vt_message_id id = parser.parse(full.code_points[i]);
-            if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
-            {
-                if (id == vt_message_id::text)
-                {
-                    text_received = true;
-                    // 文本内容可以是前缀、后缀或非法序
-                }
-                else
-                {
-                    msg_received = true;
-                    if (!gen.verify(id, parser.get()))
-                        return false;
-                }
-                reset_test_vt_parser_message(parser, id);
-            }
-        }
-        ASSERT(msg_received);
-    }
+    input.remove_prefix(result.consumed);
+    result = parser.parse(input);
+    ASSERT(result.id == vt_message_id::continue_text);
+    ASSERT(result.consumed == 5);
+    ASSERT(result.message.payload.text == U"world");
     return true;
 }
 
-// ============================================================================
-// 反向测试（非法序列产生 unknown_sequence，内容与原输入一致）
-// ============================================================================
-
-// 辅助函数：输入一组码点，应当产生 unknown_sequence，且 text 内容等于输入序列
-bool test_illegal_as_unknown_sequence(const raw_seq &seq)
+bool test_ground_controls()
 {
-    raw_u32_buffer parser_raw;
-    vt_parser parser{parser_raw};
-    bool produced = false;
-    for (size_t i = 0; i < seq.code_points.size(); ++i)
-    {
-        vt_message_id id = parser.parse(seq.code_points[i]);
-        if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
-        {
-            ASSERT(id == vt_message_id::unknown_sequence);
-            // 验证 text 视图等于原始非法序列
-            std::u32string_view txt = parser.get().payload.text;
-            ASSERT(txt.size() == seq.code_points.size());
-            // 由于原始序列可能在不同时机输出（如非法字符就在当前字符）
-            // 但在此测试中我们故意构造完整的非法序列一次性输出（不包含控制中断）
-            // 所以直接比较即可
-            for (size_t j = 0; j < txt.size(); ++j)
-                ASSERT(txt[j] == seq.code_points[j]);
-            produced = true;
-            reset_test_vt_parser_message(parser, id);
-            break; // 只期望一条消
-        }
-    }
-    ASSERT(produced);
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
+
+    auto result = parse_one(parser, U'\r');
+    ASSERT(result.id == vt_message_id::carriage_return);
+    ASSERT(result.consumed == 1);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parse_one(parser, U'\n');
+    ASSERT(result.id == vt_message_id::line_feed);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parse_one(parser, U'\t');
+    ASSERT(result.id == vt_message_id::cursor_forward_tab);
+    ASSERT(result.message.payload.count.value == 1);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parse_one(parser, U'\b');
+    ASSERT(result.id == vt_message_id::char_del);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parse_one(parser, 0x7f);
+    ASSERT(result.id == vt_message_id::char_del);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parse_one(parser, 0x1a);
+    ASSERT(result.id == vt_message_id::char_sub);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parse_one(parser, 0x00);
+    ASSERT(result.id == vt_message_id::char_nul);
     return true;
 }
 
-// 各种典型非法序列的测
-
-bool test_illegal_esc_unknown_final()
+bool test_esc_sequences()
 {
-    raw_seq seq;
-    seq.add_esc();
-    seq.add(U'X');
-    return test_illegal_as_unknown_sequence(seq);
-}
-
-bool test_illegal_charset_unknown()
-{
-    raw_seq seq;
-    seq.add_esc();
-    seq.add(U'(');
-    seq.add(U'C');
-    return test_illegal_as_unknown_sequence(seq);
-}
-
-bool test_illegal_csi_unknown_final()
-{
-    // CSI 参数 + 非法终态字
-    raw_seq seq;
-    seq.add_csi();
-    seq.add(U'1');
-    seq.add(U'<'); // '<' 不是合法中间或终
-    return test_illegal_as_unknown_sequence(seq);
-}
-
-bool test_illegal_csi_private_cursor()
-{
-    raw_seq seq;
-    seq.add_csi();
-    seq.add(U'?');
-    seq.add(U'3');
-    seq.add(U'A');
-    return test_illegal_as_unknown_sequence(seq);
-}
-
-bool test_illegal_csi_private_unknown()
-{
-    raw_seq seq;
-    seq.add_csi();
-    seq.add(U'?');
-    seq.add_str(U"99");
-    seq.add(U'h');
-    return test_illegal_as_unknown_sequence(seq);
-}
-
-bool test_illegal_ss3_unknown_final()
-{
-    raw_seq seq;
-    seq.add_esc();
-    seq.add(U'O');
-    seq.add(U'X');
-    return test_illegal_as_unknown_sequence(seq);
-}
-
-bool test_illegal_decscusr_missing_sp()
-{
-    raw_seq seq;
-    seq.add_csi();
-    seq.add(U'3');
-    seq.add(U'q');
-    return test_illegal_as_unknown_sequence(seq);
-}
-
-bool test_illegal_decstr_missing_bang()
-{
-    raw_seq seq;
-    seq.add_csi();
-    seq.add(U'p');
-    return test_illegal_as_unknown_sequence(seq);
-}
-
-bool test_illegal_decfnk_unknown_code()
-{
-    raw_seq seq;
-    seq.add_csi();
-    seq.add_str(U"99");
-    seq.add(U'~');
-    return test_illegal_as_unknown_sequence(seq);
-}
-
-bool test_illegal_sgr_extended_truncated()
-{
-    raw_seq seq;
-    seq.add_csi();
-    seq.add_str(U"38;5");
-    seq.add(U'm');
-    return test_illegal_as_unknown_sequence(seq);
-}
-
-bool test_illegal_osc_unknown_code()
-{
-    raw_seq seq;
-    seq.add_osc();
-    seq.add(U'9');
-    seq.add(U';');
-    seq.add_str(U"test");
-    seq.add(0x07);
-    return test_illegal_as_unknown_sequence(seq);
-}
-
-// OSC 缓冲区溢出现在也不丢弃，只是忽略超出部分？在旧版中设osc_buf_overflow 错误
-// 非法 OSC 应产生 unknown_sequence，调用方可决定丢弃或透传。
-bool test_illegal_osc_buf_overflow()
-{
-    raw_seq seq;
-    seq.add_osc();
-    seq.add(U'4');
-    seq.add(U';');
-    for (int i = 0; i < 40; ++i)
-        seq.add(U'x');
-    seq.add(0x07);
-    return test_illegal_as_unknown_sequence(seq);
-}
-
-bool test_illegal_osc_palette_no_rgb()
-{
-    raw_seq seq;
-    seq.add_osc();
-    seq.add(U'4');
-    seq.add(U';');
-    seq.add(U'0');
-    seq.add(U';');
-    seq.add_str(U"norgb:ff/00/ff");
-    seq.add(0x07);
-    return test_illegal_as_unknown_sequence(seq);
-}
-
-// 组合测试：多种非法序列连续输入，各自产生 unknown_sequence
-bool test_illegal_mixed()
-{
-    // 构造多个非法序列拼接，每个都应产生 unknown_sequence，内容等于该序列原文
-    struct
-    {
-        raw_seq seq;
-    } cases[] = {
-        {[]() {
-            raw_seq r;
-            r.add_esc();
-            r.add(U'Y');
-            return r;
-        }()},
-        {[]() {
-            raw_seq r;
-            r.add_esc();
-            r.add(U'(');
-            r.add(U'9');
-            return r;
-        }()},
-        {[]() {
-            raw_seq r;
-            r.add_csi();
-            r.add(U'?');
-            r.add(U'5');
-            r.add(U'h');
-            return r;
-        }()},
-        {[]() {
-            raw_seq r;
-            r.add_csi();
-            r.add(U'?');
-            r.add(U'2');
-            r.add(U'A');
-            return r;
-        }()},
+    constexpr std::array cases{
+        expected_sequence{U"\x1bM", vt_message_id::reverse_index},
+        expected_sequence{U"\x1b"
+                          "7",
+                          vt_message_id::save_cursor},
+        expected_sequence{U"\x1b"
+                          "8",
+                          vt_message_id::restore_cursor},
+        expected_sequence{U"\x1bH", vt_message_id::horizontal_tab_set},
+        expected_sequence{U"\x1b=", vt_message_id::keypad_app_mode},
+        expected_sequence{U"\x1b>", vt_message_id::keypad_numeric_mode},
+        expected_sequence{U"\x1b(0", vt_message_id::designate_charset_line_drawing},
+        expected_sequence{U"\x1b(B", vt_message_id::designate_charset_ascii},
     };
 
-    for (auto &c : cases)
+    for (const auto &item : cases)
+        ASSERT(expect_id_and_raw(item.sequence, item.id));
+    return true;
+}
+
+bool test_csi_cursor_and_edit_sequences()
+{
+    constexpr std::array cases{
+        expected_sequence{U"\x1b[12A", vt_message_id::cursor_up},
+        expected_sequence{U"\x1b[2B", vt_message_id::cursor_down},
+        expected_sequence{U"\x1b[3C", vt_message_id::cursor_forward},
+        expected_sequence{U"\x1b[4D", vt_message_id::cursor_backward},
+        expected_sequence{U"\x1b[5E", vt_message_id::cursor_next_line},
+        expected_sequence{U"\x1b[6F", vt_message_id::cursor_prev_line},
+        expected_sequence{U"\x1b[7S", vt_message_id::scroll_up},
+        expected_sequence{U"\x1b[8T", vt_message_id::scroll_down},
+        expected_sequence{U"\x1b[9@", vt_message_id::insert_characters},
+        expected_sequence{U"\x1b[10P", vt_message_id::delete_characters},
+        expected_sequence{U"\x1b[11X", vt_message_id::erase_characters},
+        expected_sequence{U"\x1b[12L", vt_message_id::insert_lines},
+        expected_sequence{U"\x1b[13M", vt_message_id::delete_lines},
+        expected_sequence{U"\x1b[14I", vt_message_id::cursor_forward_tab},
+        expected_sequence{U"\x1b[15Z", vt_message_id::cursor_backward_tab},
+    };
+
+    for (const auto &item : cases)
     {
-        raw_u32_buffer parser_raw;
-        vt_parser parser{parser_raw};
-        bool got = false;
-        for (size_t i = 0; i < c.seq.code_points.size(); ++i)
+        raw_u32_buffer raw;
+        vt_parser parser{raw};
+        const auto result = parse_complete(parser, item.sequence);
+        ASSERT(result.id == item.id);
+        ASSERT(result.raw_sequence == item.sequence);
+        ASSERT(result.message.payload.count.value >= 1);
+    }
+    return true;
+}
+
+bool test_csi_position_sequences()
+{
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
+
+    auto result = parser.parse(U"\x1b[5;9H");
+    ASSERT(result.id == vt_message_id::cursor_position);
+    ASSERT(result.message.payload.position.row == 5);
+    ASSERT(result.message.payload.position.col == 9);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[6;10f");
+    ASSERT(result.id == vt_message_id::cursor_position);
+    ASSERT(result.message.payload.position.row == 6);
+    ASSERT(result.message.payload.position.col == 10);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[42G");
+    ASSERT(result.id == vt_message_id::cursor_horiz_absolute);
+    ASSERT(result.message.payload.position.col == 42);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[7d");
+    ASSERT(result.id == vt_message_id::cursor_vert_absolute);
+    ASSERT(result.message.payload.position.row == 7);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[0;0H");
+    ASSERT(result.id == vt_message_id::cursor_position);
+    ASSERT(result.message.payload.position.row == 1);
+    ASSERT(result.message.payload.position.col == 1);
+    return true;
+}
+
+bool test_csi_erase_tabs_scroll_region_and_shape()
+{
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
+
+    auto result = parser.parse(U"\x1b[2J");
+    ASSERT(result.id == vt_message_id::erase_in_display);
+    ASSERT(result.message.payload.erase_mode == 2);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[1K");
+    ASSERT(result.id == vt_message_id::erase_in_line);
+    ASSERT(result.message.payload.erase_mode == 1);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[3;20r");
+    ASSERT(result.id == vt_message_id::set_scrolling_region);
+    ASSERT(result.message.payload.scroll_region.top == 3);
+    ASSERT(result.message.payload.scroll_region.bottom == 20);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[4 q");
+    ASSERT(result.id == vt_message_id::set_cursor_shape);
+    ASSERT(result.message.payload.cursor_shape == 4);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[0g");
+    ASSERT(result.id == vt_message_id::tab_clear_current);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[3g");
+    ASSERT(result.id == vt_message_id::tab_clear_all);
+    return true;
+}
+
+bool test_csi_modes_queries_and_buffers()
+{
+    constexpr std::array cases{
+        expected_sequence{U"\x1b[s", vt_message_id::ansi_save_cursor},
+        expected_sequence{U"\x1b[u", vt_message_id::ansi_restore_cursor},
+        expected_sequence{U"\x1b[?12h", vt_message_id::cursor_enable_blinking},
+        expected_sequence{U"\x1b[?12l", vt_message_id::cursor_disable_blinking},
+        expected_sequence{U"\x1b[?25h", vt_message_id::cursor_show},
+        expected_sequence{U"\x1b[?25l", vt_message_id::cursor_hide},
+        expected_sequence{U"\x1b[?1h", vt_message_id::cursor_keys_app_mode},
+        expected_sequence{U"\x1b[?1l", vt_message_id::cursor_keys_normal_mode},
+        expected_sequence{U"\x1b[?3h", vt_message_id::set_columns_132},
+        expected_sequence{U"\x1b[?3l", vt_message_id::set_columns_80},
+        expected_sequence{U"\x1b[?1049h", vt_message_id::use_alternate_buffer},
+        expected_sequence{U"\x1b[?1049l", vt_message_id::use_main_buffer},
+        expected_sequence{U"\x1b[6n", vt_message_id::report_cursor_position},
+        expected_sequence{U"\x1b[0c", vt_message_id::device_attributes},
+        expected_sequence{U"\x1b[!p", vt_message_id::soft_reset},
+    };
+
+    for (const auto &item : cases)
+        ASSERT(expect_id_and_raw(item.sequence, item.id));
+    return true;
+}
+
+bool test_sgr_flags_clear_and_colors()
+{
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
+
+    auto result = parser.parse(U"\x1b[0;1;2;3;4;5;7;8;9m");
+    ASSERT(result.id == vt_message_id::sgr);
+    const auto &set_sgr = result.message.payload.sgr;
+    ASSERT(set_sgr.has_reset());
+    ASSERT(set_sgr.has(vt_sgr_flag::bold));
+    ASSERT(set_sgr.has(vt_sgr_flag::faint));
+    ASSERT(set_sgr.has(vt_sgr_flag::italic));
+    ASSERT(set_sgr.has(vt_sgr_flag::underline));
+    ASSERT(set_sgr.has(vt_sgr_flag::blink));
+    ASSERT(set_sgr.has(vt_sgr_flag::negative));
+    ASSERT(set_sgr.has(vt_sgr_flag::conceal));
+    ASSERT(set_sgr.has(vt_sgr_flag::strikethrough));
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[22;23;24;25;27;28;29m");
+    ASSERT(result.id == vt_message_id::sgr);
+    const auto &clear_sgr = result.message.payload.sgr;
+    ASSERT(clear_sgr.clears(vt_sgr_flag::bold));
+    ASSERT(clear_sgr.clears(vt_sgr_flag::faint));
+    ASSERT(clear_sgr.clears(vt_sgr_flag::italic));
+    ASSERT(clear_sgr.clears(vt_sgr_flag::underline));
+    ASSERT(clear_sgr.clears(vt_sgr_flag::blink));
+    ASSERT(clear_sgr.clears(vt_sgr_flag::negative));
+    ASSERT(clear_sgr.clears(vt_sgr_flag::conceal));
+    ASSERT(clear_sgr.clears(vt_sgr_flag::strikethrough));
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[31;94;48;5;123m");
+    ASSERT(result.id == vt_message_id::sgr);
+    ASSERT(result.message.payload.sgr.fg.is_indexed());
+    ASSERT(result.message.payload.sgr.fg.value == 12);
+    ASSERT(result.message.payload.sgr.bg.is_indexed());
+    ASSERT(result.message.payload.sgr.bg.value == 123);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[38;2;10;20;30;48;2;40;50;60m");
+    ASSERT(result.id == vt_message_id::sgr);
+    ASSERT(result.message.payload.sgr.fg.is_rgb());
+    ASSERT(result.message.payload.sgr.fg.value == 10);
+    ASSERT(result.message.payload.sgr.fg.g == 20);
+    ASSERT(result.message.payload.sgr.fg.b == 30);
+    ASSERT(result.message.payload.sgr.bg.is_rgb());
+    ASSERT(result.message.payload.sgr.bg.value == 40);
+    ASSERT(result.message.payload.sgr.bg.g == 50);
+    ASSERT(result.message.payload.sgr.bg.b == 60);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[39;49m");
+    ASSERT(result.id == vt_message_id::sgr);
+    ASSERT(result.message.payload.sgr.fg.is_default());
+    ASSERT(result.message.payload.sgr.bg.is_default());
+    return true;
+}
+
+bool test_osc_title_bel_and_st()
+{
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
+
+    auto result = parser.parse(U"\x1b]0;PowerShell\x07");
+    ASSERT(result.id == vt_message_id::set_window_title);
+    ASSERT(result.message.payload.title == U"PowerShell");
+    ASSERT(result.raw_sequence == U"\x1b]0;PowerShell\x07");
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b]2;corehost\x1b\\");
+    ASSERT(result.id == vt_message_id::set_window_title);
+    ASSERT(result.message.payload.title == U"corehost");
+    ASSERT(result.raw_sequence == U"\x1b]2;corehost\x1b\\");
+    return true;
+}
+
+bool test_osc_palette()
+{
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
+
+    const auto result = parser.parse(U"\x1b]4;12;rgb:0a/14/1e\x07");
+    ASSERT(result.id == vt_message_id::set_palette_color);
+    ASSERT(result.message.payload.palette.index == 12);
+    ASSERT(result.message.payload.palette.r == 0x0a);
+    ASSERT(result.message.payload.palette.g == 0x14);
+    ASSERT(result.message.payload.palette.b == 0x1e);
+    return true;
+}
+
+bool test_ss3_keys()
+{
+    constexpr std::array cases{
+        expected_sequence{U"\x1bOA", vt_message_id::key_up},    expected_sequence{U"\x1bOB", vt_message_id::key_down},
+        expected_sequence{U"\x1bOC", vt_message_id::key_right}, expected_sequence{U"\x1bOD", vt_message_id::key_left},
+        expected_sequence{U"\x1bOH", vt_message_id::key_home},  expected_sequence{U"\x1bOF", vt_message_id::key_end},
+        expected_sequence{U"\x1bOP", vt_message_id::key_f1},    expected_sequence{U"\x1bOQ", vt_message_id::key_f2},
+        expected_sequence{U"\x1bOR", vt_message_id::key_f3},    expected_sequence{U"\x1bOS", vt_message_id::key_f4},
+    };
+
+    for (const auto &item : cases)
+        ASSERT(expect_id_and_raw(item.sequence, item.id));
+    return true;
+}
+
+bool test_csi_tilde_keys()
+{
+    constexpr std::array cases{
+        expected_sequence{U"\x1b[2~", vt_message_id::key_insert},
+        expected_sequence{U"\x1b[3~", vt_message_id::key_delete},
+        expected_sequence{U"\x1b[5~", vt_message_id::key_page_up},
+        expected_sequence{U"\x1b[6~", vt_message_id::key_page_down},
+        expected_sequence{U"\x1b[15~", vt_message_id::key_f5},
+        expected_sequence{U"\x1b[17~", vt_message_id::key_f6},
+        expected_sequence{U"\x1b[18~", vt_message_id::key_f7},
+        expected_sequence{U"\x1b[19~", vt_message_id::key_f8},
+        expected_sequence{U"\x1b[20~", vt_message_id::key_f9},
+        expected_sequence{U"\x1b[21~", vt_message_id::key_f10},
+        expected_sequence{U"\x1b[23~", vt_message_id::key_f11},
+        expected_sequence{U"\x1b[24~", vt_message_id::key_f12},
+    };
+
+    for (const auto &item : cases)
+        ASSERT(expect_id_and_raw(item.sequence, item.id));
+    return true;
+}
+
+bool test_resize_cpr_and_win32_input()
+{
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
+
+    auto result = parser.parse(U"\x1b[8;30;120t");
+    ASSERT(result.id == vt_message_id::resize_window);
+    ASSERT(result.message.payload.resize.rows == 30);
+    ASSERT(result.message.payload.resize.cols == 120);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[24;80R");
+    ASSERT(result.id == vt_message_id::cpr_response);
+    ASSERT(result.message.payload.cpr.row == 24);
+    ASSERT(result.message.payload.cpr.col == 80);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[13;28;20320;1;32;2_");
+    ASSERT(result.id == vt_message_id::win32_input_key);
+    const auto &key = result.message.payload.win32_key;
+    ASSERT(key.vk == 13);
+    ASSERT(key.sc == 28);
+    ASSERT(key.uc == 20320);
+    ASSERT(key.key_down);
+    ASSERT(key.control_state == 32);
+    ASSERT(key.repeat_count == 2);
+    return true;
+}
+
+bool test_unknown_sequences_preserve_raw()
+{
+    constexpr std::array cases{
+        U"\x1bX",           U"\x1b(Z",        U"\x1b[?2A", U"\x1b[999~",           U"\x1b[38;2;1m",
+        U"\x1b[4;480;640t", U"\x1b[8;0;120t", U"\x1b[4q",  U"\x1b]99;ignored\x07", U"\x1b]4;12;not-rgb\x07",
+        U"\x1bOZ",
+    };
+
+    for (const auto sequence : cases)
+        ASSERT(expect_unknown(sequence));
+    return true;
+}
+
+bool test_incomplete_sequences_continue_across_calls()
+{
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
+
+    auto result = parser.parse(U"\x1b[38;2;1");
+    ASSERT(result.id == vt_message_id::continue_);
+    ASSERT(result.consumed == 8);
+
+    result = parser.parse(U";2;3m");
+    ASSERT(result.id == vt_message_id::sgr);
+    ASSERT(result.consumed == 5);
+    ASSERT(result.raw_sequence == U"\x1b[38;2;1;2;3m");
+    ASSERT(result.message.payload.sgr.fg.is_rgb());
+    ASSERT(result.message.payload.sgr.fg.value == 1);
+    ASSERT(result.message.payload.sgr.fg.g == 2);
+    ASSERT(result.message.payload.sgr.fg.b == 3);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b]0;split");
+    ASSERT(result.id == vt_message_id::continue_);
+    result = parser.parse(U" title\x1b\\");
+    ASSERT(result.id == vt_message_id::set_window_title);
+    ASSERT(result.message.payload.title == U"split title");
+    ASSERT(result.raw_sequence == U"\x1b]0;split title\x1b\\");
+    return true;
+}
+
+bool test_parse_range_consumes_one_complete_message()
+{
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
+
+    auto input = std::u32string_view{U"\x1b[2Jrest"};
+    auto result = parser.parse(input);
+    ASSERT(result.id == vt_message_id::erase_in_display);
+    ASSERT(result.consumed == 4);
+    ASSERT(result.message.payload.erase_mode == 2);
+    reset_test_vt_parser_message(parser, result.id);
+
+    input.remove_prefix(result.consumed);
+    result = parser.parse(input);
+    ASSERT(result.id == vt_message_id::continue_text);
+    ASSERT(result.consumed == 4);
+    ASSERT(result.message.payload.text == U"rest");
+    return true;
+}
+
+bool test_text_before_vt_sequence_is_delivered_first()
+{
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
+
+    auto input = std::u32string_view{U"abc\x1b[Adef"};
+    auto result = parser.parse(input);
+    ASSERT(result.id == vt_message_id::continue_text);
+    ASSERT(result.consumed == 3);
+    ASSERT(result.message.payload.text == U"abc");
+    parser.reset<vt_message_id::continue_text>();
+
+    input.remove_prefix(result.consumed);
+    result = parser.parse(input);
+    ASSERT(result.id == vt_message_id::cursor_up);
+    ASSERT(result.consumed == 3);
+    ASSERT(result.raw_sequence == U"\x1b[A");
+    reset_test_vt_parser_message(parser, result.id);
+
+    input.remove_prefix(result.consumed);
+    result = parser.parse(input);
+    ASSERT(result.id == vt_message_id::continue_text);
+    ASSERT(result.message.payload.text == U"def");
+    return true;
+}
+
+bool test_reset_clears_payload_for_next_message()
+{
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
+
+    auto result = parser.parse(U"\x1b[8;30;120t");
+    ASSERT(result.id == vt_message_id::resize_window);
+    ASSERT(result.message.payload.resize.rows == 30);
+    ASSERT(result.message.payload.resize.cols == 120);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[2J");
+    ASSERT(result.id == vt_message_id::erase_in_display);
+    ASSERT(result.message.payload.erase_mode == 2);
+    reset_test_vt_parser_message(parser, result.id);
+
+    result = parser.parse(U"\x1b[8;25;80t");
+    ASSERT(result.id == vt_message_id::resize_window);
+    ASSERT(result.message.payload.resize.rows == 25);
+    ASSERT(result.message.payload.resize.cols == 80);
+    return true;
+}
+
+bool test_all_supported_sequences_parse_from_one_byte_steps()
+{
+    constexpr std::array cases{
+        expected_sequence{U"\x1bM", vt_message_id::reverse_index},
+        expected_sequence{U"\x1b[12A", vt_message_id::cursor_up},
+        expected_sequence{U"\x1b[5;9H", vt_message_id::cursor_position},
+        expected_sequence{U"\x1b[2J", vt_message_id::erase_in_display},
+        expected_sequence{U"\x1b[31m", vt_message_id::sgr},
+        expected_sequence{U"\x1b]0;title\x07", vt_message_id::set_window_title},
+        expected_sequence{U"\x1bOD", vt_message_id::key_left},
+        expected_sequence{U"\x1b[15~", vt_message_id::key_f5},
+        expected_sequence{U"\x1b[8;30;120t", vt_message_id::resize_window},
+    };
+
+    for (const auto &item : cases)
+    {
+        raw_u32_buffer raw;
+        vt_parser parser{raw};
+        vt_parse_result result{};
+        for (const auto ch : item.sequence)
         {
-            vt_message_id id = parser.parse(c.seq.code_points[i]);
-            if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
-            {
-                ASSERT(id == vt_message_id::unknown_sequence);
-                std::u32string_view txt = parser.get().payload.text;
-                ASSERT(txt.size() == c.seq.code_points.size());
-                for (size_t j = 0; j < txt.size(); ++j)
-                    ASSERT(txt[j] == c.seq.code_points[j]);
-                got = true;
-                reset_test_vt_parser_message(parser, id);
+            result = parse_one(parser, ch);
+            if (!is_parse_continue(result))
                 break;
-            }
         }
-        ASSERT(got);
+        ASSERT(result.id == item.id);
+        ASSERT(result.raw_sequence == item.sequence);
     }
     return true;
 }
-
-// ============================================================================
-// Resize window parser tests (\x1b[8;height;width t)
-// ============================================================================
-bool test_parse_resize_window_basic()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    bool got = false;
-    char32_t seq[] = {0x1B, U'[', U'8', U';', U'4', U'0', U';', U'1', U'0', U'0', U't'};
-    for (char32_t ch : seq)
-    {
-        vt_message_id id = p.parse(ch);
-        if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
-        {
-            ASSERT(id == vt_message_id::resize_window);
-            ASSERT(p.get().payload.resize.rows == 40);
-            ASSERT(p.get().payload.resize.cols == 100);
-            got = true;
-            reset_test_vt_parser_message(p, id);
-        }
-    }
-    ASSERT(got);
-    return true;
-}
-
-bool test_parse_resize_window_zero_invalid()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    bool got_text = false;
-    char32_t seq[] = {0x1B, U'[', U'8', U';', U'0', U';', U'0', U't'};
-    for (char32_t ch : seq)
-    {
-        vt_message_id id = p.parse(ch);
-        if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
-        {
-            ASSERT(id == vt_message_id::unknown_sequence);
-            got_text = true;
-            reset_test_vt_parser_message(p, id);
-        }
-    }
-    ASSERT(got_text);
-    return true;
-}
-
-bool test_parse_resize_window_pixel_is_text()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    bool got_text = false;
-    char32_t seq[] = {0x1B, U'[', U'4', U';', U'4', U'8', U'0', U';', U'6', U'4', U'0', U't'};
-    for (char32_t ch : seq)
-    {
-        vt_message_id id = p.parse(ch);
-        if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
-        {
-            ASSERT(id == vt_message_id::unknown_sequence);
-            got_text = true;
-            reset_test_vt_parser_message(p, id);
-        }
-    }
-    ASSERT(got_text);
-    return true;
-}
-
-bool test_parse_resize_window_fields_reset()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    // Use explicit code points to avoid any string-literal escape ambiguity
-    char32_t seq[] = {0x1B, U'[', U'8', U';', U'3', U'0', U';', U'9', U'0', U't'};
-    for (char32_t ch : seq)
-    {
-        vt_message_id id = p.parse(ch);
-        if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
-        {
-            ASSERT(id == vt_message_id::resize_window);
-            reset_test_vt_parser_message(p, id);
-        }
-    }
-    for (char32_t ch : U"hello")
-    {
-        vt_message_id id = p.parse(ch);
-        // ground text may return continue_text (not text) since continue_text refactor
-        if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
-            continue;
-        ASSERT(p.get().payload.resize.rows == 0);
-        ASSERT(p.get().payload.resize.cols == 0);
-        reset_test_vt_parser_message(p, id);
-    }
-    return true;
-}
-
-// ============================================================================
-// 回归测试: CR/LF 不覆盖累积文(fix: _handle_control 不再_msg.payload.text)
-// ============================================================================
-
-// 模拟 pipe_bridge process_input 逻辑：char32_t 喂入 parser
-// 验证 text 消息的内容正确
-std::u32string feed_and_collect_text(const std::u32string &input)
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    std::u32string collected;
-    for (char32_t ch : input)
-    {
-        vt_message_id id = p.parse(ch);
-        if ((id != vt_message_id::continue_ && id != vt_message_id::continue_text))
-        {
-            if (id == vt_message_id::text)
-                collected.append(p.get().payload.text);
-            reset_test_vt_parser_message(p, id);
-
-            // drain 排队消息
-            if (auto d_id = p.parse(U'\0'); d_id != vt_message_id::continue_ && d_id != vt_message_id::continue_text)
-            {
-                if (d_id == vt_message_id::text)
-                    collected.append(p.get().payload.text);
-                reset_test_vt_parser_message(p, d_id);
-            }
-        }
-    }
-    // 排空末尾残留的 _pending_control
-    if (auto id = p.parse(U'\0'); id != vt_message_id::continue_ && id != vt_message_id::continue_text)
-    {
-        if (id == vt_message_id::text)
-            collected.append(p.get().payload.text);
-        reset_test_vt_parser_message(p, id);
-    }
-    return collected;
-}
-
-bool test_regression_cr_preserves_text()
-{
-    // \r 是专用 carriage_return，前导文本作为 text 先产出
-    auto result = feed_and_collect_text(U"echo hello\r");
-    ASSERT(result == U"echo hello");
-    return true;
-}
-
-bool test_regression_lf_preserves_text()
-{
-    // \n 是专用 line_feed，前导文本作为 text 先产出
-    auto result = feed_and_collect_text(U"echo hello\n");
-    ASSERT(result == U"echo hello");
-    return true;
-}
-
-bool test_regression_bare_cr_produces_carriage_return()
-{
-    // 单独\r → carriage_return
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    bool got_cr = false;
-    for (char32_t ch : U"\r")
-    {
-        vt_message_id id = p.parse(ch);
-        if (id == vt_message_id::carriage_return)
-        {
-            ASSERT(p.get().payload.text.empty());
-            got_cr = true;
-            reset_test_vt_parser_message(p, id);
-        }
-    }
-    ASSERT(got_cr);
-    return true;
-}
-
-bool test_regression_bare_lf_produces_line_feed()
-{
-    // 单独\n → line_feed
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    bool got_lf = false;
-    for (char32_t ch : U"\n")
-    {
-        vt_message_id id = p.parse(ch);
-        if (id == vt_message_id::line_feed)
-        {
-            ASSERT(p.get().payload.text.empty());
-            got_lf = true;
-            reset_test_vt_parser_message(p, id);
-        }
-    }
-    ASSERT(got_lf);
-    return true;
-}
-
-bool test_regression_crlf_full_pipeline()
-{
-    // text + carriage_return + line_feed: 文本段不含 \r \n
-    auto result = feed_and_collect_text(U"echo hello\r\n");
-    ASSERT(result == U"echo hello");
-    return true;
-}
-
-// ── 回归 BUG: reset() 清除了 _pending_control ──
-//   "echo hello" (可打印字符) + \r (CR) → reset(text) 后
-//   _pending_control 被清除，\r 被丢弃，行终止符丢失。
-//   修复: reset() 不再清除 _pending_control。
-bool test_regression_pending_control_survives_reset()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    char32_t input[] = {U'e', U'c', U'h', U'o', U'\r'};
-
-    // 前 4 个字符 → text 消息
-    vt_message_id id = vt_message_id::continue_;
-    for (int i = 0; i < 4; ++i)
-    {
-        id = p.parse(input[i]);
-        ASSERT(id == vt_message_id::continue_text);
-    }
-    // 第 5 个 \r → parser 先交付 text，设 _pending_control=carriage_return
-    id = p.parse(input[4]);
-    ASSERT(id == vt_message_id::text);
-    ASSERT(p.get().payload.text == U"echo");
-    p.reset<vt_message_id::text>(); // reset 不应清除 _pending_control
-
-    // 下一个 parse() 应交付 carriage_return
-    id = p.parse(U' '); // dummy char 触发 _pending_control 交付
-    ASSERT(id == vt_message_id::carriage_return);
-    ASSERT(p.get().payload.text.empty());
-    return true;
-}
-
-// ── 回归 BUG: 纯文本无控制字符终止时永远不交付 ──
-//   38 个可打印字符积累在 _raw 中，无 \r \n \t ESC 触发交付。
-//   修复: 新增 flush_text()，api_write_console 循环后调用。
-bool test_regression_flush_text_delivers_accumulated()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    char32_t input[] = {U'M', U'i', U'c', U'r', U'o'};
-
-    for (char32_t ch : input)
-    {
-        vt_message_id id = p.parse(ch);
-        ASSERT(id == vt_message_id::continue_text);
-    }
-
-    // 所有字符都是 continue_text，无消息交付
-    ASSERT(p.has_pending_text());
-
-    // flush_text 应释放 "Micro"
-    vt_message_id id = p.flush_text();
-    ASSERT(id == vt_message_id::text);
-    ASSERT(p.get().payload.text == U"Micro");
-
-    // 再次 flush 无残留
-    ASSERT(!p.has_pending_text());
-    ASSERT(p.flush_text() == vt_message_id::continue_);
-    return true;
-}
-
-// ── \r\n 配对由 parser 内部处理，调用方无需额外标志 ──
-// "hello\r\n" 流程: parse('h'..'o') 累积 → parse('\r') 产 text, _pending_control=carriage_return
-// → parse('\n') 触发 _pending_control, 返回 carriage_return 并将 pending 升级为 line_feed
-// → drain: parse(U'\0') 取出 line_feed。调用方只需在每次 reset 后无条件 drain。
-bool test_regression_cr_then_nl_bridge_pairing()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    char32_t hello[] = {U'h', U'e', U'l', U'l', U'o'};
-    for (char32_t ch : hello)
-    {
-        vt_message_id id = p.parse(ch);
-        ASSERT(id == vt_message_id::continue_text);
-    }
-    // "\r" → parser 产 text("hello")，_pending_control=carriage_return
-    vt_message_id id = p.parse(U'\r');
-    ASSERT(id == vt_message_id::text);
-    ASSERT(p.get().payload.text == U"hello");
-    reset_test_vt_parser_message(p, id);
-
-    // "\n" → _pending_control 触发, 返回 carriage_return, 升级为 line_feed
-    id = p.parse(U'\n');
-    ASSERT(id == vt_message_id::carriage_return);
-    reset_test_vt_parser_message(p, id);
-
-    // drain: parse(U'\0') → line_feed（_pending_control 升级后的延迟消息）
-    id = p.parse(U'\0');
-    ASSERT(id == vt_message_id::line_feed);
-    reset_test_vt_parser_message(p, id);
-
-    // 再次 drain: 无 pending → continue_
-    id = p.parse(U'\0');
-    ASSERT(id == vt_message_id::continue_);
-
-    return true;
-}
-
-bool test_regression_text_with_vt_then_cr()
-{
-    // 混合场景: "abc\x1b[Adef\r" text1="abc", cursor_up, text2="def"
-    //  key_up remap pipe_bridge 中完成，parser 产出 cursor_up
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    std::u32string collected;
-    bool got_cursor_up = false;
-
-    // 显式构造码点，避免字符串字面量转义歧义
-    std::u32string input;
-    input += U'a';
-    input += U'b';
-    input += U'c';
-    input += 0x1B; // ESC
-    input += U'[';
-    input += U'A';
-    input += U'd';
-    input += U'e';
-    input += U'f';
-    input += U'\r';
-
-    for (char32_t ch : input)
-    {
-        vt_message_id id = p.parse(ch);
-        if (id == vt_message_id::continue_ || id == vt_message_id::continue_text)
-            continue;
-        if (id == vt_message_id::text)
-            collected.append(p.get().payload.text);
-        else if (id == vt_message_id::cursor_up)
-            got_cursor_up = true;
-        else
-        {
-            fprintf(stderr, "UNEXPECTED id=%d ch=U+%04X\n", static_cast<int>(id), static_cast<unsigned>(ch));
-            ASSERT(false); // 不应出现其他消息
-        }
-        reset_test_vt_parser_message(p, id);
-    }
-    ASSERT(collected == U"abcdef");
-    ASSERT(got_cursor_up);
-    return true;
-}
-
-bool test_regression_multiline_input()
-{
-    // _pending_control 触发时总会消费当前字符。调用方在每次 reset 后
-    // 无条件 drain（parse(U'\0')），无 pending 时首次即返回 continue_。
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    std::u32string collected;
-
-    std::u32string input = U"line1\r\nline2\r\nline3\r\n";
-    for (char32_t ch : input)
-    {
-        vt_message_id id = p.parse(ch);
-        if (id == vt_message_id::continue_text || id == vt_message_id::continue_)
-            continue;
-        if (id == vt_message_id::text)
-            collected.append(p.get().payload.text);
-        reset_test_vt_parser_message(p, id);
-
-        // 无条件 drain: _pending_control 最多一个排队消息
-        if (auto drain_id = p.parse(U'\0');
-            drain_id != vt_message_id::continue_ && drain_id != vt_message_id::continue_text)
-        {
-            if (drain_id == vt_message_id::text)
-                collected.append(p.get().payload.text);
-            reset_test_vt_parser_message(p, drain_id);
-        }
-    }
-    // drain remaining
-    if (auto id = p.parse(U'\0'); id != vt_message_id::continue_ && id != vt_message_id::continue_text)
-    {
-        if (id == vt_message_id::text)
-            collected.append(p.get().payload.text);
-        reset_test_vt_parser_message(p, id);
-    }
-
-    ASSERT(collected == U"line1line2line3");
-    return true;
-}
-
-// ============================================================================
-// Echo 判定测试: should_echo_last() 正确
-// ============================================================================
-
-// 地面态可打印字符应回
-bool test_echo_ground_printable()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    std::u32string_view chars = U"abc123";
-    for (char32_t ch : chars)
-    {
-        p.parse(ch);
-        ASSERT(p.should_echo_last());
-    }
-    return true;
-}
-
-// 地面态可见控制字符应回显 (\r \n \b \t)
-bool test_echo_ground_controls()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    p.parse(U'\r');
-    ASSERT(p.should_echo_last());
-    p.reset<vt_message_id::text>();
-    p.parse(U'\n');
-    ASSERT(p.should_echo_last());
-    p.reset<vt_message_id::text>();
-    p.parse(U'\b');
-    ASSERT(!p.should_echo_last());
-    p.reset<vt_message_id::char_del>();
-    p.parse(U'\t');
-    ASSERT(p.should_echo_last());
-    p.reset<vt_message_id::cursor_forward_tab>();
-    return true;
-}
-
-// ESC 本身及普ESC 序列不应回显
-bool test_echo_esc_not_echoed()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    p.parse(0x1B);
-    ASSERT(!p.should_echo_last());
-    p.parse(U'M');
-    ASSERT(!p.should_echo_last()); // reverse_index
-    p.reset<vt_message_id::reverse_index>();
-    return true;
-}
-
-// CSI 相对光标序列不应回显原始字节（dispatch 生成钳制 CUP
-bool test_echo_csi_cursor_not_echoed()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    for (char32_t ch : std::u32string_view(U"hello"))
-    {
-        p.parse(ch);
-        ASSERT(p.should_echo_last());
-    }
-    vt_message_id id = p.parse(0x1B);
-    ASSERT(id == vt_message_id::text);
-    ASSERT(!p.should_echo_last());
-    p.reset<vt_message_id::text>();
-    id = p.parse(U'[');
-    ASSERT(id == vt_message_id::continue_);
-    id = p.parse(U'D');
-    ASSERT(id == vt_message_id::cursor_backward);
-    ASSERT(!p.should_echo_last());
-    p.reset<vt_message_id::cursor_backward>();
-    return true;
-}
-
-// SS3 键盘序列不应回显原始字节（dispatch 生成钳制 CUP
-bool test_echo_ss3_not_echoed()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    p.parse(0x1B);
-    ASSERT(!p.should_echo_last());
-    p.parse(U'O');
-    ASSERT(!p.should_echo_last());
-    p.parse(U'D');
-    ASSERT(!p.should_echo_last());
-    p.reset<vt_message_id::key_left>();
-    return true;
-}
-
-// text→ESC 过渡：ESC 触发 text flush parser 进入转义，CSI 不回
-bool test_echo_text_esc_transition()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    for (char32_t ch : std::u32string_view(U"echo "))
-    {
-        p.parse(ch);
-        ASSERT(p.should_echo_last());
-    }
-    vt_message_id id = p.parse(0x1B);
-    ASSERT(id == vt_message_id::text);
-    ASSERT(!p.should_echo_last());
-    p.reset<vt_message_id::text>();
-    id = p.parse(U'[');
-    ASSERT(id == vt_message_id::continue_);
-    id = p.parse(U'D');
-    ASSERT(id == vt_message_id::cursor_backward);
-    ASSERT(!p.should_echo_last());
-    p.reset<vt_message_id::cursor_backward>();
-    return true;
-}
-
-// OSC 标题不应回显
-bool test_echo_osc_not_echoed()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    p.parse(0x1B);
-    p.parse(U']');
-    p.parse(U'0');
-    p.parse(U';');
-    for (char32_t ch : std::u32string_view(U"mytitle"))
-        p.parse(ch);
-    p.parse(0x07);
-    ASSERT(!p.should_echo_last());
-    p.reset<vt_message_id::set_window_title>();
-    return true;
-}
-
-// SGR 序列不应回显
-bool test_echo_sgr_not_echoed()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    p.parse(0x1B);
-    p.parse(U'[');
-    p.parse(U'3');
-    p.parse(U'1');
-    p.parse(U'm');
-    ASSERT(!p.should_echo_last());
-    p.reset<vt_message_id::sgr>();
-    return true;
-}
-
-// CSI ~ 扩展功能键不应回
-bool test_echo_csi_tilde_not_echoed()
-{
-    raw_u32_buffer parser_raw;
-    vt_parser p{parser_raw};
-    p.parse(0x1B);
-    p.parse(U'[');
-    p.parse(U'1');
-    p.parse(U'5');
-    p.parse(U'~');
-    ASSERT(!p.should_echo_last());
-    p.reset<vt_message_id::key_f5>();
-    return true;
-}
-
-// ============================================================================
-// 入口
-// ============================================================================
 
 int main()
 {
     utility::suppress_crt_error_dialogs();
-    std::wcout << L"VT Parser Positive Tests (char32_t)\n";
-    RUN_TEST(test_smoke, L"Smoke test (basic sequences)");
-    RUN_TEST(test_positive_single, L"Random single message roundtrip");
-    RUN_TEST(test_positive_concatenated, L"Random concatenated messages");
-    RUN_TEST(test_positive_with_text, L"Messages with intervening text");
+    std::wcout << L"VT Parser Tests (vt_parse_result API)\n";
 
-    std::wcout << L"\nVT Parser Negative Tests (illegal -> unknown_sequence)\n";
-    RUN_TEST(test_illegal_esc_unknown_final, L"ESC unknown final -> unknown_sequence");
-    RUN_TEST(test_illegal_charset_unknown, L"Charset unknown final -> unknown_sequence");
-    RUN_TEST(test_illegal_csi_unknown_final, L"CSI unknown final -> unknown_sequence");
-    RUN_TEST(test_illegal_csi_private_cursor, L"CSI private cursor -> unknown_sequence");
-    RUN_TEST(test_illegal_csi_private_unknown, L"CSI private unknown -> unknown_sequence");
-    RUN_TEST(test_illegal_ss3_unknown_final, L"SS3 unknown final -> unknown_sequence");
-    RUN_TEST(test_illegal_decscusr_missing_sp, L"DECSCUSR missing SP -> unknown_sequence");
-    RUN_TEST(test_illegal_decstr_missing_bang, L"DECSTR missing bang -> unknown_sequence");
-    RUN_TEST(test_illegal_decfnk_unknown_code, L"DECFNK unknown code -> unknown_sequence");
-    RUN_TEST(test_illegal_sgr_extended_truncated, L"SGR extended truncated -> unknown_sequence");
-    RUN_TEST(test_illegal_osc_unknown_code, L"OSC unknown code -> unknown_sequence");
-    RUN_TEST(test_illegal_osc_buf_overflow, L"OSC buffer overflow -> unknown_sequence");
-    RUN_TEST(test_illegal_osc_palette_no_rgb, L"OSC palette missing rgb prefix -> unknown_sequence");
-    RUN_TEST(test_illegal_mixed, L"Multiple illegal sequences -> unknown_sequence");
-
-    std::wcout << L"\nVT Parser Resize Window Tests:\n";
-    RUN_TEST(test_parse_resize_window_basic, L"Resize window 40x100");
-    RUN_TEST(test_parse_resize_window_zero_invalid, L"Resize window 0x0->unknown_sequence");
-    RUN_TEST(test_parse_resize_window_pixel_is_text, L"Pixel resize 4;...->unknown_sequence");
-    RUN_TEST(test_parse_resize_window_fields_reset, L"Resize fields reset after");
-
-    std::wcout << L"\nVT Parser Regression Tests (CR/LF text preservation)\n";
-    RUN_TEST(test_regression_cr_preserves_text, L"CR preserves preceding text");
-    RUN_TEST(test_regression_lf_preserves_text, L"LF preserves preceding text");
-    RUN_TEST(test_regression_bare_cr_produces_carriage_return, L"Bare CR produces carriage_return");
-    RUN_TEST(test_regression_bare_lf_produces_line_feed, L"Bare LF produces line_feed");
-    RUN_TEST(test_regression_crlf_full_pipeline, L"CRLF full pipeline");
-    RUN_TEST(test_regression_flush_text_delivers_accumulated, L"Flush text delivers accumulated");
-    RUN_TEST(test_regression_pending_control_survives_reset, L"Pending control survives reset");
-    RUN_TEST(test_regression_cr_then_nl_bridge_pairing, L"CR then NL bridge pairing");
-    RUN_TEST(test_regression_text_with_vt_then_cr, L"Text+VT+CR preserves all");
-    RUN_TEST(test_regression_multiline_input, L"Multiline input");
-
-    std::wcout << L"\nVT Parser Echo Tests (should_echo_last)\n";
-    RUN_TEST(test_echo_ground_printable, L"Ground printable chars echoed");
-    RUN_TEST(test_echo_ground_controls, L"Ground controls (\\r\\n\\b\\t) echoed");
-    RUN_TEST(test_echo_esc_not_echoed, L"ESC / reverse_index not echoed");
-    RUN_TEST(test_echo_csi_cursor_not_echoed, L"CSI D cursor_backward NOT echoed");
-    RUN_TEST(test_echo_ss3_not_echoed, L"SS3 D key_left NOT echoed");
-    RUN_TEST(test_echo_text_esc_transition, L"Text→ESC transition preserves echo state");
-    RUN_TEST(test_echo_osc_not_echoed, L"OSC title not echoed");
-    RUN_TEST(test_echo_sgr_not_echoed, L"SGR not echoed");
-    RUN_TEST(test_echo_csi_tilde_not_echoed, L"CSI ~ extended key not echoed");
+    RUN_TEST(test_ground_text_range, L"Ground text range");
+    RUN_TEST(test_ground_text_stops_before_control, L"Ground text stops before control");
+    RUN_TEST(test_ground_controls, L"Ground controls");
+    RUN_TEST(test_esc_sequences, L"ESC and charset sequences");
+    RUN_TEST(test_csi_cursor_and_edit_sequences, L"CSI cursor/edit sequences");
+    RUN_TEST(test_csi_position_sequences, L"CSI position sequences");
+    RUN_TEST(test_csi_erase_tabs_scroll_region_and_shape, L"CSI erase/tabs/region/shape");
+    RUN_TEST(test_csi_modes_queries_and_buffers, L"CSI modes/queries/buffers");
+    RUN_TEST(test_sgr_flags_clear_and_colors, L"SGR flags/colors");
+    RUN_TEST(test_osc_title_bel_and_st, L"OSC title BEL/ST");
+    RUN_TEST(test_osc_palette, L"OSC palette");
+    RUN_TEST(test_ss3_keys, L"SS3 keys");
+    RUN_TEST(test_csi_tilde_keys, L"CSI tilde keys");
+    RUN_TEST(test_resize_cpr_and_win32_input, L"Resize/CPR/Win32 input");
+    RUN_TEST(test_unknown_sequences_preserve_raw, L"Unknown sequences preserve raw");
+    RUN_TEST(test_incomplete_sequences_continue_across_calls, L"Incomplete sequences continue");
+    RUN_TEST(test_parse_range_consumes_one_complete_message, L"Range consumes one message");
+    RUN_TEST(test_text_before_vt_sequence_is_delivered_first, L"Text before VT delivered first");
+    RUN_TEST(test_reset_clears_payload_for_next_message, L"Reset clears payload");
+    RUN_TEST(test_all_supported_sequences_parse_from_one_byte_steps, L"One-byte step parsing");
 
     std::wcout << L"\nTotal: " << (tests_passed + tests_failed) << L" | Passed: " << tests_passed << L" | Failed: "
                << tests_failed << std::endl;
-
     return tests_failed == 0 ? 0 : 1;
 }

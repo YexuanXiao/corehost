@@ -52,6 +52,12 @@ class pipe_bridge_io
         miniio::complete_io(_server, completion);
     }
 
+    // true 表示当前绑定了真实 ConDrv server，可以提交 COMPLETE_IO。
+    [[nodiscard]] bool can_complete() const noexcept
+    {
+        return _server.valid();
+    }
+
     // 从 ConDrv 读取 msg.body 容量之外的输入载荷到调用方提供的缓冲。
     void read_input(LUID identifier, ULONG offset, std::span<char8_t> destination) const
     {
