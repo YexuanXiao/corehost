@@ -9,6 +9,7 @@
 #include "large_mixed_vt_cjk_output_worker.hpp"
 #include "long_line_three_vt_output_worker.hpp"
 #include "sgr_sequence_matrix_worker.hpp"
+#include "win32/wait.hpp"
 
 #include <array>
 #include <charconv>
@@ -231,7 +232,16 @@ inline void generate_powershell_type_input_file(const std::filesystem::path &wor
         std::fflush(stdout);
     }
 
-    ::WaitForSingleObject(process.get(), INFINITE);
+    try
+    {
+        const auto wait = win32::wait_one(process, INFINITE);
+        if (wait.abandoned())
+            print_and_abort("worker process wait abandoned\n");
+    }
+    catch (win32::error err)
+    {
+        print_and_abort("worker process wait failed: %u\n", static_cast<unsigned>(err));
+    }
     DWORD exit_code = 1;
     ::GetExitCodeProcess(process.get(), &exit_code);
     if (exit_code != 0)

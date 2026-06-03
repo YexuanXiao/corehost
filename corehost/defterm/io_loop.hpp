@@ -17,6 +17,7 @@
 #pragma once
 #include "miniio/io_thread.hpp"
 #include "utility/log.hpp"
+#include "win32/wait.hpp"
 
 namespace defterm
 {
@@ -65,7 +66,14 @@ inline void run_io_loop(win32::handle_view server, win32::handle_view ev, Handle
             if (handler.should_exit())
                 break;
             if (!handler.has_pending())
-                ::WaitForSingleObject(ev.get(), io_loop_idle_wait_ms);
+            {
+                const auto wait = win32::wait_one(ev, io_loop_idle_wait_ms);
+                if (wait.abandoned())
+                {
+                    LOG("run_io_loop: idle event wait abandoned");
+                    return;
+                }
+            }
         }
 
         CD_IO_COMPLETE *prev_comp = prev_done ? &prev_done->complete : nullptr;
@@ -143,7 +151,14 @@ inline void run_io_loop(win32::handle_view server, win32::handle_view ev, Handle
                 {
                     handler.on_idle();
                     if (handler.has_pending())
-                        ::WaitForSingleObject(ev.get(), 16);
+                    {
+                        const auto wait = win32::wait_one(ev, 16);
+                        if (wait.abandoned())
+                        {
+                            LOG("run_io_loop: pending event wait abandoned");
+                            return;
+                        }
+                    }
                 }
                 LOG("run_io_loop: pending message completed");
                 if (handler.should_exit())

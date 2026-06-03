@@ -6,6 +6,7 @@
 #include "miniio/io_thread.hpp"
 #include "perf_diag.hpp"
 #include "utility/log.hpp"
+#include "win32/wait.hpp"
 
 namespace conpty
 {
@@ -73,15 +74,33 @@ class pipe_bridge_io
     }
 
     // 非阻塞检查 shutdown event；用于轮询路径决定是否退出等待。
-    [[nodiscard]] bool shutdown_signaled() const noexcept
+    [[nodiscard]] bool shutdown_signaled() const
     {
-        return _shutdown_event.valid() && ::WaitForSingleObject(_shutdown_event.get(), 0) == WAIT_OBJECT_0;
+        if (!_shutdown_event.valid())
+            return false;
+
+        const auto wait = win32::wait_one(_shutdown_event, 0);
+        if (wait.abandoned())
+        {
+            LOG("[bridge_io] shutdown event wait abandoned");
+            return true;
+        }
+        return wait.signaled();
     }
 
     // 等待一个短时间片；返回 true 表示 shutdown event 已触发。
-    [[nodiscard]] bool wait_shutdown_slice(DWORD timeout_ms) const noexcept
+    [[nodiscard]] bool wait_shutdown_slice(DWORD timeout_ms) const
     {
-        return _shutdown_event.valid() && ::WaitForSingleObject(_shutdown_event.get(), timeout_ms) == WAIT_OBJECT_0;
+        if (!_shutdown_event.valid())
+            return false;
+
+        const auto wait = win32::wait_one(_shutdown_event, timeout_ms);
+        if (wait.abandoned())
+        {
+            LOG("[bridge_io] shutdown slice wait abandoned");
+            return true;
+        }
+        return wait.signaled();
     }
 
     // 查询 vt_in 当前可读字节数。返回 false 表示 pipe 已不可用，bridge 会把

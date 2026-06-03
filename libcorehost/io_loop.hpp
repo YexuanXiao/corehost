@@ -18,6 +18,7 @@
 #include "miniio/io_thread.hpp"
 #include "perf_diag.hpp"
 #include "utility/log.hpp"
+#include "win32/wait.hpp"
 
 namespace conpty
 {
@@ -62,7 +63,13 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
                 // 16ms 只在已经主动服务过一次 vt_in 后用于空闲节流；新的
                 // ConDrv 消息会唤醒 server，终端输入由下一轮 on_idle 轮询。
                 COREHOST_PERF_SCOPE(io_server_idle_wait);
-                ::WaitForSingleObject(server.get(), io_loop_idle_wait_ms);
+                const auto wait = win32::wait_one(server, io_loop_idle_wait_ms);
+                if (wait.abandoned())
+                {
+                    LOG("run_io_loop_no_setup: server idle wait abandoned");
+                    router.flush_vt_output();
+                    return;
+                }
             }
         }
 
@@ -76,7 +83,14 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         if (submitting_previous_completion && router.has_buffered_vt_output() && ev.valid())
         {
             COREHOST_PERF_SCOPE(io_server_wait_0);
-            if (::WaitForSingleObject(ev.get(), 0) != WAIT_OBJECT_0)
+            const auto wait = win32::wait_one(ev, 0);
+            if (wait.abandoned())
+            {
+                LOG("run_io_loop_no_setup: input event wait abandoned");
+                router.flush_vt_output();
+                return;
+            }
+            if (!wait.signaled())
                 router.flush_vt_output();
         }
 
@@ -106,7 +120,13 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             // 0ms 只触发一次非阻塞等待，让 ConDrv 消化 pending 状态。
             {
                 COREHOST_PERF_SCOPE(io_server_wait_0);
-                ::WaitForSingleObject(server.get(), 0);
+                const auto wait = win32::wait_one(server, 0);
+                if (wait.abandoned())
+                {
+                    LOG("run_io_loop_no_setup: server pending wait abandoned");
+                    router.flush_vt_output();
+                    return;
+                }
             }
             router.on_idle();
             if (router.should_exit())
@@ -115,7 +135,13 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             {
                 // 16ms 只在 READ_IO 已确认暂时无消息后让步。
                 COREHOST_PERF_SCOPE(io_server_idle_wait);
-                ::WaitForSingleObject(server.get(), io_loop_idle_wait_ms);
+                const auto wait = win32::wait_one(server, io_loop_idle_wait_ms);
+                if (wait.abandoned())
+                {
+                    LOG("run_io_loop_no_setup: server no-message wait abandoned");
+                    router.flush_vt_output();
+                    return;
+                }
             }
             continue;
         }

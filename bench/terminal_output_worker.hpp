@@ -4,6 +4,7 @@
 // ready marker, waits for one input trigger, then writes complete repeated lines.
 
 #include "common.hpp"
+#include "win32/wait.hpp"
 
 #include <fcntl.h>
 #include <io.h>
@@ -41,9 +42,16 @@ inline void wait_for_output_trigger(const wchar_t *ready_marker, const wchar_t *
         win32::handle trigger{::OpenEventW(SYNCHRONIZE, FALSE, trigger_event_name)};
         if (!trigger.valid())
             print_and_abort("OpenEvent(output trigger) failed: %lu\n", ::GetLastError());
-        const DWORD wait = ::WaitForSingleObject(trigger.get(), INFINITE);
-        if (wait != WAIT_OBJECT_0)
-            print_and_abort("WaitForSingleObject(output trigger) failed: %lu\n", wait);
+        try
+        {
+            const auto wait = win32::wait_one(trigger, INFINITE);
+            if (wait.abandoned())
+                print_and_abort("output trigger wait abandoned\n");
+        }
+        catch (win32::error err)
+        {
+            print_and_abort("output trigger wait failed: %u\n", static_cast<unsigned>(err));
+        }
         return;
     }
 

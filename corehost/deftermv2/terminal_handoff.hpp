@@ -17,6 +17,7 @@
 #include "win32/handle.hpp"
 #include "win32/hresult.hpp"
 #include "win32/thread.hpp"
+#include "win32/wait.hpp"
 
 namespace deftermv2
 {
@@ -111,18 +112,19 @@ namespace deftermv2
     LOG("signal thread started tid=%lu handle=%p shutdown=%p", signal_thread_id, signal_thread.get(),
         shutdown_event.get());
 
-    // WAIT_OBJECT_0     : 终端进程退出。
-    // WAIT_OBJECT_0 + 1 : 信号管道断开，等价于终端侧停止服务。
-    std::array<HANDLE, 2> wait_handles{terminal_process.get(), shutdown_event.get()};
+    // index 0 表示终端进程退出；index 1 表示信号管道断开，
+    // 等价于终端侧停止服务。
     LOG("waiting for terminal process or signal pipe close terminal=%p shutdown=%p", terminal_process.get(),
         shutdown_event.get());
-    const auto wait_result =
-        ::WaitForMultipleObjects(static_cast<DWORD>(wait_handles.size()), wait_handles.data(), FALSE, INFINITE);
-    if (wait_result == WAIT_FAILED)
-        win32::throw_last_error();
+    const auto wait_result = win32::wait_any(terminal_process, shutdown_event, INFINITE);
+    if (wait_result.abandoned())
+    {
+        LOG("terminal handoff wait abandoned index=%zu", wait_result.index);
+        return true;
+    }
 
-    LOG("terminal handoff wait completed result=%lu source=%ls", wait_result,
-        wait_result == WAIT_OBJECT_0 ? L"process" : L"signal");
+    LOG("terminal handoff wait completed index=%zu source=%ls", wait_result.index,
+        wait_result.index == 0 ? L"process" : L"signal");
     return true;
 }
 

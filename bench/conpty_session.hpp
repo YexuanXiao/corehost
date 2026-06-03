@@ -6,6 +6,7 @@
 
 #include "common.hpp"
 #include "libconpty/libconpty.hpp"
+#include "win32/wait.hpp"
 
 #include <condition_variable>
 #include <memory>
@@ -252,7 +253,16 @@ class conpty_session
         if (_process.valid())
         {
             ::TerminateProcess(_process.get(), 0);
-            ::WaitForSingleObject(_process.get(), 3000);
+            try
+            {
+                const auto wait = win32::wait_one(_process, 3000);
+                if (wait.abandoned())
+                    print_and_abort("child process wait abandoned\n");
+            }
+            catch (win32::error err)
+            {
+                print_and_abort("child process wait failed: %u\n", static_cast<unsigned>(err));
+            }
         }
 
         if (_hpc)

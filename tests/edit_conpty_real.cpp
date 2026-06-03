@@ -4,6 +4,7 @@
 
 #include "libconpty/libconpty.hpp"
 #include "win32/handle.hpp"
+#include "win32/wait.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -289,7 +290,18 @@ struct conpty_edit_session
 
     bool wait_for_exit(std::chrono::milliseconds timeout)
     {
-        return ::WaitForSingleObject(child_process.get(), static_cast<DWORD>(timeout.count())) == 0;
+        try
+        {
+            const auto wait = win32::wait_one(child_process, static_cast<DWORD>(timeout.count()));
+            if (wait.abandoned())
+                fail("Wait for edit.exe exit was abandoned");
+            return wait.signaled();
+        }
+        catch (win32::error err)
+        {
+            std::fprintf(stderr, "Wait for edit.exe exit failed: %u\n", static_cast<unsigned>(err));
+            std::exit(1);
+        }
     }
 
     void send_ctrl_q()
@@ -342,10 +354,36 @@ struct conpty_edit_session
             ConptyClosePseudoConsole(hpc);
             hpc = nullptr;
         }
-        if (child_process.valid() && ::WaitForSingleObject(child_process.get(), 1000) != 0)
+        bool child_exited = true;
+        if (child_process.valid())
+        {
+            try
+            {
+                const auto wait = win32::wait_one(child_process, 1000);
+                if (wait.abandoned())
+                    fail("Wait for edit.exe shutdown was abandoned");
+                child_exited = wait.signaled();
+            }
+            catch (win32::error err)
+            {
+                std::fprintf(stderr, "Wait for edit.exe shutdown failed: %u\n", static_cast<unsigned>(err));
+                std::exit(1);
+            }
+        }
+        if (child_process.valid() && !child_exited)
         {
             ::TerminateProcess(child_process.get(), 1);
-            ::WaitForSingleObject(child_process.get(), 3000);
+            try
+            {
+                const auto wait = win32::wait_one(child_process, 3000);
+                if (wait.abandoned())
+                    fail("Wait for terminated edit.exe was abandoned");
+            }
+            catch (win32::error err)
+            {
+                std::fprintf(stderr, "Wait for terminated edit.exe failed: %u\n", static_cast<unsigned>(err));
+                std::exit(1);
+            }
         }
     }
 };

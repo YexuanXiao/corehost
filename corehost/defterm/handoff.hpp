@@ -20,7 +20,7 @@
 //   6. EstablishHandoff(server, inputEvent, msg, signalPipe, ourProcess, &clientProcess)
 //      — 服务器句柄 + 输入事件 + 便携连接消息 + 信号管道 + 自身进程
 //        -> WT 接管整个控制台会话，返回客户端进程句柄。
-//   7. WaitForSingleObject(clientProcess, INFINITE)
+//   7. Wait for clientProcess until the terminal exits
 //      — 阻塞直到 WT 退出。在此期间信号线程转发控制事件。
 //
 // 句柄所有权：
@@ -41,6 +41,7 @@
 #include "win32/error.hpp"
 #include "win32/com_apartment.hpp"
 #include "win32/hresult.hpp"
+#include "win32/wait.hpp"
 #include "IConsoleHandoff.h"
 #include "com/clsid.hpp"
 #include "os/Console/conmsgl1.h"
@@ -187,8 +188,7 @@ namespace defterm
     auto our_proc = win32::duplicate_self();
     LOG("attempt_handoff: duplicated self process=%p", our_proc.get());
 
-    // EstablishHandoff 移交：server + inputEvent + portableMsg + signalPipe + ourProc -> WT 返回 clientProc 供
-    // WaitForSingleObject
+    // EstablishHandoff 移交：server + inputEvent + portableMsg + signalPipe + ourProc -> WT 返回 clientProc 供等待
     LOG("attempt_handoff: calling EstablishHandoff server=%p event=%p signalWrite=%p self=%p id=%08lx:%08lx",
         server_handle.get(), input_event.get(), sw.get(), our_proc.get(), portable_msg.IdHighPart,
         portable_msg.IdLowPart);
@@ -217,15 +217,16 @@ namespace defterm
     // 但实际窗口关闭时更可靠的退出信号是 WT 关闭 signal pipe。
     // 原版 HostSignalInputThread 在管道断开时 RundownAndExit；
     // corehost 没有全局 rundown 体系，因此这里同时等待二者。
-    std::array<HANDLE, 2> wait_handles{client.get(), shutdown_event.get()};
     LOG("attempt_handoff: waiting for handoff process=%p or signal shutdown=%p", client.get(), shutdown_event.get());
-    const auto wait_result =
-        ::WaitForMultipleObjects(static_cast<DWORD>(wait_handles.size()), wait_handles.data(), FALSE, INFINITE);
-    if (wait_result == WAIT_FAILED)
-        win32::throw_last_error();
+    const auto wait_result = win32::wait_any(client, shutdown_event, INFINITE);
+    if (wait_result.abandoned())
+    {
+        LOG("attempt_handoff: wait abandoned index=%zu", wait_result.index);
+        return true;
+    }
 
-    LOG("attempt_handoff: wait completed result=%lu source=%ls", wait_result,
-        wait_result == WAIT_OBJECT_0 ? L"process" : L"signal");
+    LOG("attempt_handoff: wait completed index=%zu source=%ls", wait_result.index,
+        wait_result.index == 0 ? L"process" : L"signal");
     return true;
 }
 

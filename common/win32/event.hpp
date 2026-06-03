@@ -18,6 +18,7 @@
 #include "win32/error.hpp"
 #include "win32/string.hpp"
 #include "win32/tags.hpp"
+#include "win32/wait.hpp"
 
 #include <Windows.h>
 
@@ -116,14 +117,12 @@ class event
         }
     }
 
-    // Wait for the event to be signaled (WaitForSingleObject, infinite).
+    // Wait until this event is signaled.
     void wait() const
     {
-        const auto result = ::WaitForSingleObject(_handle.get(), INFINITE);
-        if (result == WAIT_FAILED)
-        {
-            win32::throw_last_error();
-        }
+        const auto result = win32::wait_one(*this, INFINITE);
+        if (result.abandoned())
+            win32::throw_last_error(win32::error::invalid_state);
     }
 
     void lock()

@@ -295,7 +295,7 @@ struct pipe_bridge
         return _pending.has_pending();
     }
     // 会话可退出条件：终端输入已经 EOF，并且没有仍需完成给 ConDrv 的请求。
-    bool should_exit() const noexcept
+    bool should_exit() const
     {
         return (_pending.vt_eof() || _io.shutdown_signaled()) && !_pending.has_pending();
     }
@@ -308,7 +308,7 @@ struct pipe_bridge
     }
 
     // 检查 shutdown event 是否已触发；触发后 pending read 应按 EOF 完成。
-    [[nodiscard]] bool is_signal_shutdown_signaled() const noexcept
+    [[nodiscard]] bool is_signal_shutdown_signaled() const
     {
         return _io.shutdown_signaled();
     }

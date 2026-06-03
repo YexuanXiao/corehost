@@ -14,6 +14,7 @@
 #include "utility/log.hpp"
 #include "win32/event.hpp"
 #include "win32/handle.hpp"
+#include "win32/wait.hpp"
 
 namespace deftermv2
 {
@@ -175,8 +176,15 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
             if (handler.should_exit())
                 break;
             if (!handler.has_pending())
+            {
                 // 16ms 只用于空闲节流，避免没有消息时空转。
-                ::WaitForSingleObject(input_event.get(), 16);
+                const auto wait = win32::wait_one(input_event, 16);
+                if (wait.abandoned())
+                {
+                    LOG3("initial CONNECT loop idle wait abandoned");
+                    return;
+                }
+            }
         }
 
         // completion 为 nullptr 或 completed_previous->complete。READ_IO 返回
@@ -250,8 +258,15 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
             {
                 handler.on_idle();
                 if (handler.has_pending())
+                {
                     // 16ms 约等于一帧；只在 handler 自己仍有 pending 工作时让步。
-                    ::WaitForSingleObject(input_event.get(), 16);
+                    const auto wait = win32::wait_one(input_event, 16);
+                    if (wait.abandoned())
+                    {
+                        LOG3("initial CONNECT loop pending wait abandoned");
+                        return;
+                    }
+                }
             }
             if (handler.should_exit())
                 break;

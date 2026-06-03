@@ -9,14 +9,14 @@
 //     — 读取下一条消息。lpInBuffer 传入上一轮的 CD_IO_COMPLETE
 //       （首次为 null）。lpOutBuffer 接收 CD_IO_DESCRIPTOR + body。
 //     返回 FALSE + ERROR_IO_PENDING 表示暂无消息，
-//     调用方应 WaitForSingleObject(server, 0) 后再试。
+//     调用方应先对 server 做一次非阻塞等待后再试。
 //     ERROR_PIPE_NOT_CONNECTED / BROKEN_PIPE / NO_DATA
 //     表示客户端全部断开，应退出循环。
 //   IOCTL_COMPLETE_IO (2, METHOD_NEITHER)
 //     — 提交完成结果。CONNECT 消息的完成包含 CD_CONNECTION_INFO。
 //   IOCTL_SET_SERVER (7, METHOD_NEITHER)
 //     — 注册 InputAvailableEvent。驱动在消息就绪时 SetEvent，
-//       使 WaitForSingleObject(server, 0) 可唤醒。
+//       使 server 的非阻塞等待可唤醒。
 //
 // 异步完成模型：不立即 complete_io 非 CONNECT 消息——填充
 //   msg.complete，在下一轮 read_io 作为 lpInBuffer 提交。

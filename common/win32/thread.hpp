@@ -85,17 +85,6 @@ class basic_thread
 
     // ── Operations ───────────────────────────────────────────
 
-    // Waits for the thread to exit.
-    DWORD wait(DWORD timeout_ms = INFINITE) const
-    {
-        const auto result = ::WaitForSingleObject(get(), timeout_ms);
-        if (result == WAIT_FAILED)
-        {
-            win32::throw_last_error();
-        }
-        return result;
-    }
-
     void *release() noexcept
     {
         return _handle.release();
