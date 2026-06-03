@@ -24,8 +24,8 @@ inline constexpr std::string_view long_line_three_vt_output_line =
     "\r\n";
 
 // --emit-long-line-3vt <target-bytes> [marker] [ready-marker] [trigger-event]
-inline int emit_long_line_three_vt_to_stdout(size_t target_bytes, const wchar_t *marker,
-                                             const wchar_t *ready_marker, const wchar_t *trigger_event_name)
+inline int emit_long_line_three_vt_to_stdout(size_t target_bytes, const wchar_t *marker, const wchar_t *ready_marker,
+                                             const wchar_t *trigger_event_name)
 {
     return emit_repeated_output_line_unbuffered(long_line_three_vt_output_line, target_bytes, marker, ready_marker,
                                                 trigger_event_name);

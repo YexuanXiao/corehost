@@ -424,8 +424,7 @@ struct pipe_bridge
 
         auto &buffer = _input_payload_buffer;
         buffer.resize(size);
-        _io.read_input(msg.descriptor.Identifier, static_cast<ULONG>(offset),
-                       std::span{buffer.data(), buffer.size()});
+        _io.read_input(msg.descriptor.Identifier, static_cast<ULONG>(offset), std::span{buffer.data(), buffer.size()});
         return {reinterpret_cast<const BYTE *>(buffer.data()), buffer.size()};
     }
 
@@ -481,8 +480,8 @@ struct pipe_bridge
         const auto terminal_pos = active_screen_buffer().viewport.relative_position(pos);
         const auto old_cursor = _terminal.cursor();
         LOG3("[bridge] sync_cursor_after_write: pos=(%d,%d) was_tc=(%d,%d) was_col_start=%d was_col_end=%d enter_nl=%d",
-            pos.X, pos.Y, old_cursor.X, old_cursor.Y, _terminal.input_column_start(), _terminal.input_column_end(),
-            _terminal.enter_newline_pending());
+             pos.X, pos.Y, old_cursor.X, old_cursor.Y, _terminal.input_column_start(), _terminal.input_column_end(),
+             _terminal.enter_newline_pending());
         term_cursor_set(terminal_pos);
         bounds_reset(terminal_pos.X);
     }
@@ -670,7 +669,8 @@ struct pipe_bridge
         switch (id)
         {
         case vt_message_id::cursor_position:
-            vt_write_cup(static_cast<SHORT>(msg.payload.position.row - 1), static_cast<SHORT>(msg.payload.position.col - 1));
+            vt_write_cup(static_cast<SHORT>(msg.payload.position.row - 1),
+                         static_cast<SHORT>(msg.payload.position.col - 1));
             break;
 
         case vt_message_id::cursor_horiz_absolute:
@@ -1554,7 +1554,7 @@ struct pipe_bridge
         }
         const auto cursor = _terminal.cursor();
         LOG3("[history] repaint_full_line: cup_to(%d,%d) cooked_sz=%zu", cursor.Y, _terminal.input_column_start(),
-            _cooked_buf.size());
+             _cooked_buf.size());
         cup_to(cursor.Y, _terminal.input_column_start());
         vt_append_str("\x1b[K"sv);
         for (char32_t cp : _cooked_buf)
@@ -1571,7 +1571,7 @@ struct pipe_bridge
         _terminal.set_bounds_end_for_length(_cooked_buf.size());
         const auto cursor = _terminal.cursor();
         LOG3("[history] load_history_line: tc=(%d,%d) col_start=%d col_end=%d cooked_sz=%zu", cursor.X, cursor.Y,
-            _terminal.input_column_start(), _terminal.input_column_end(), _cooked_buf.size());
+             _terminal.input_column_start(), _terminal.input_column_end(), _cooked_buf.size());
         repaint_full_line();
         const auto done_cursor = _terminal.cursor();
         LOG3("[history] load_history_line: done tc=(%d,%d)", done_cursor.X, done_cursor.Y);
@@ -1811,7 +1811,7 @@ struct pipe_bridge
     {
         const auto cursor = _terminal.cursor();
         LOG3("[history] history_up: tc=(%d,%d) col_start=%d col_end=%d history_sz=%zu idx=%zu", cursor.X, cursor.Y,
-            _terminal.input_column_start(), _terminal.input_column_end(), _history.size(), _history.browse_index());
+             _terminal.input_column_start(), _terminal.input_column_end(), _history.size(), _history.browse_index());
         if (!_history.browse_up(_cooked_buf, _cooked_buf))
         {
             LOG3("[history] history_up: empty, return");
@@ -1839,9 +1839,8 @@ struct pipe_bridge
         auto &wk = _conversion.wide();
         wk.clear();
         wk.reserve(we);
-        std::transform(_cooked_buf.begin(), word_end, std::back_inserter(wk), [](char32_t ch) {
-            return static_cast<wchar_t>(ch);
-        });
+        std::transform(_cooked_buf.begin(), word_end, std::back_inserter(wk),
+                       [](char32_t ch) { return static_cast<wchar_t>(ch); });
         auto it = cstate.aliases.find(std::wstring_view{wk.data(), wk.size()});
         if (it == cstate.aliases.end())
         {
@@ -1851,9 +1850,8 @@ struct pipe_bridge
         auto &ex = _conversion.u32();
         ex.clear();
         ex.reserve(it->second.size() + _cooked_buf.size() - we);
-        std::transform(it->second.begin(), it->second.end(), std::back_inserter(ex), [](wchar_t wc) {
-            return static_cast<char32_t>(wc);
-        });
+        std::transform(it->second.begin(), it->second.end(), std::back_inserter(ex),
+                       [](wchar_t wc) { return static_cast<char32_t>(wc); });
         if (we < _cooked_buf.size())
             ex.append_range(std::u32string_view{_cooked_buf}.substr(we));
         _cooked_buf.clear();
@@ -1951,7 +1949,8 @@ struct pipe_bridge
     {
         const auto cursor = _terminal.cursor();
         LOG3("[history] _edit_history_up: tc=(%d,%d) col_start=%d col_end=%d cook_sz=%zu cook_pos=%zu", cursor.X,
-            cursor.Y, _terminal.input_column_start(), _terminal.input_column_end(), _cooked_buf.size(), _cooked_cursor);
+             cursor.Y, _terminal.input_column_start(), _terminal.input_column_end(), _cooked_buf.size(),
+             _cooked_cursor);
         history_up();
     }
     // Down 包装：浏览下一条历史或恢复进入浏览前的输入。
@@ -1995,8 +1994,7 @@ struct pipe_bridge
 
         const auto count = std::min<size_t>(room, _queued_vt_input.size());
         std::copy_n(_queued_vt_input.begin(), count, _readbuf.data() + _read_total);
-        _queued_vt_input.erase(_queued_vt_input.begin(),
-                               _queued_vt_input.begin() + static_cast<std::ptrdiff_t>(count));
+        _queued_vt_input.erase(_queued_vt_input.begin(), _queued_vt_input.begin() + static_cast<std::ptrdiff_t>(count));
         _read_total += static_cast<DWORD>(count);
         LOG3("[bridge] consume_queued_vt_input: consumed=%zu remaining=%zu", count, _queued_vt_input.size());
         return true;
@@ -2149,8 +2147,8 @@ struct pipe_bridge
         else if (pending_kind != PendingKind::RawRead && m.payload.win32_key.key_down)
         {
             const auto cursor = _terminal.cursor();
-            LOG3("[bridge] Win32Input write_input: vk=%d uc=0x%04X cs=0x%X tc=(%d,%d)", m.payload.win32_key.vk, m.payload.win32_key.uc,
-                m.payload.win32_key.control_state, cursor.X, cursor.Y);
+            LOG3("[bridge] Win32Input write_input: vk=%d uc=0x%04X cs=0x%X tc=(%d,%d)", m.payload.win32_key.vk,
+                 m.payload.win32_key.uc, m.payload.win32_key.control_state, cursor.X, cursor.Y);
         }
 
         if (pending_kind != PendingKind::RawRead)
@@ -2308,7 +2306,8 @@ struct pipe_bridge
         auto &m = _input_parser.get();
         if (_terminal.pending_inherit_cursor() && m.payload.cpr.row > 0 && m.payload.cpr.col > 0)
         {
-            const COORD terminal_position{static_cast<SHORT>(m.payload.cpr.col - 1), static_cast<SHORT>(m.payload.cpr.row - 1)};
+            const COORD terminal_position{static_cast<SHORT>(m.payload.cpr.col - 1),
+                                          static_cast<SHORT>(m.payload.cpr.row - 1)};
             cstate.cursor.position = active_screen_buffer().viewport.absolute_position(terminal_position);
             cstate.clamp_cursor_to_buffer();
             _terminal.finish_inherit_cursor(terminal_position);
@@ -2335,8 +2334,8 @@ struct pipe_bridge
         if (new_size.X <= 0 || new_size.Y <= 0)
             return;
 
-        LOG3("[bridge] resize_window: old=(%d,%d) new=(%d,%d)", cstate.screen_buffer_size.X, cstate.screen_buffer_size.Y,
-            new_size.X, new_size.Y);
+        LOG3("[bridge] resize_window: old=(%d,%d) new=(%d,%d)", cstate.screen_buffer_size.X,
+             cstate.screen_buffer_size.Y, new_size.X, new_size.Y);
         cstate.screen_buffer_size = new_size;
         cstate.max_window_size = new_size;
         auto &active_screen = active_screen_buffer();
@@ -2425,7 +2424,7 @@ struct pipe_bridge
                 // 响应编辑键和回显，所以这里立即消费并重置文本累积。
                 const auto pending_kind = _pending.kind();
                 LOG3(L"[in] TEXT ch=U+%04X raw=0x%02X kind=%d", (unsigned)ch, static_cast<unsigned>(b),
-                    (int)pending_kind);
+                     (int)pending_kind);
                 if (pending_kind == PendingKind::ConsoleRead)
                 {
                     if (ch <= 0x7F)
@@ -2728,7 +2727,7 @@ struct pipe_bridge
         }
 
         LOG3(L"[in] LINE_TERM cooked=[%.*ls]", static_cast<int>(_cooked_buf.size() < 200 ? _cooked_buf.size() : 200),
-            _cooked_buf.data());
+             _cooked_buf.data());
         complete_pending();
     }
 
@@ -2802,7 +2801,8 @@ struct pipe_bridge
         {
             auto *utf16_out = reinterpret_cast<wchar_t *>(db);
             auto max_chars = maxd / sizeof(wchar_t);
-            auto copied_text = std::u32string_view{_cooked_buf.data(), u32_prefix_for_wide_units(_cooked_buf, max_chars)};
+            auto copied_text =
+                std::u32string_view{_cooked_buf.data(), u32_prefix_for_wide_units(_cooked_buf, max_chars)};
             size_t n = convert_u32_to_wide_raw(copied_text, utf16_out, max_chars);
             if (n < max_chars)
                 utf16_out[n++] = L'\r';
@@ -2834,8 +2834,8 @@ struct pipe_bridge
         // complete_pending 是所有挂起读的唯一出口。它先构造 CD_IO_COMPLETE
         // 的副本，再清空 pending 状态，最后显式通知 ConDrv。
         LOG3(L"[bridge] complete_pending: kind=%d total=%lu cooked_len=%zu vt_eof=%d cooked=[%.*ls]",
-            static_cast<int>(_pending.kind()), _read_total, _cooked_buf.size(), _pending.vt_eof(),
-            static_cast<int>(_cooked_buf.size() < 200 ? _cooked_buf.size() : 200), _cooked_buf.data());
+             static_cast<int>(_pending.kind()), _read_total, _cooked_buf.size(), _pending.vt_eof(),
+             static_cast<int>(_cooked_buf.size() < 200 ? _cooked_buf.size() : 200), _cooked_buf.data());
         if (!_pending.has_pending())
             return;
 
@@ -2886,7 +2886,7 @@ struct pipe_bridge
         }
 
         LOG3("[bridge] complete_pending: done kind=%d cooked_len=%zu vt_eof=%d", static_cast<int>(_pending.kind()),
-            _cooked_buf.size(), _pending.vt_eof());
+             _cooked_buf.size(), _pending.vt_eof());
 
         if (comp_ptr)
         {
@@ -2964,4 +2964,3 @@ struct pipe_bridge
 };
 
 } // namespace conpty
-

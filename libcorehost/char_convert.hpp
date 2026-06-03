@@ -44,9 +44,7 @@ template <typename Char>
 template <typename Char, typename Traits, typename Alloc, typename Writer>
 inline void resize_for_overwrite(std::basic_string<Char, Traits, Alloc> &out, size_t capacity, Writer &&writer)
 {
-    out.resize_and_overwrite(capacity, [&](Char *data, size_t size) -> size_t {
-        return writer(data, size);
-    });
+    out.resize_and_overwrite(capacity, [&](Char *data, size_t size) -> size_t { return writer(data, size); });
 }
 
 // 为 vector 分配 capacity 个元素并让 writer 直接写入；适配不需要 NUL 结尾的缓冲。
@@ -754,9 +752,8 @@ inline void convert_u32_to_ansi(std::u32string_view u32s, UINT cp, ByteBuffer &o
 // 返回 UTF-32 文本转 UTF-16 后的精确 code unit 数。
 inline size_t u32_to_wide_exact_len(std::u32string_view text) noexcept
 {
-    return std::transform_reduce(text.begin(), text.end(), size_t{0}, std::plus<>{}, [](char32_t cp) {
-        return cp > 0xFFFF ? size_t{2} : size_t{1};
-    });
+    return std::transform_reduce(text.begin(), text.end(), size_t{0}, std::plus<>{},
+                                 [](char32_t cp) { return cp > 0xFFFF ? size_t{2} : size_t{1}; });
 }
 
 // 返回不超过 max_units 的 UTF-32 前缀长度，避免输出半个 UTF-16 surrogate pair。
@@ -835,15 +832,15 @@ inline size_t u32_to_ansi_exact_len(std::u32string_view text, UINT code_page, Wi
 
     convert_u32_to_wstr(text, wbuf);
     auto wide = std::wstring_view{wbuf.data(), wbuf.size()};
-    const int bytes = ::WideCharToMultiByte(cp, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr,
-                                            nullptr);
+    const int bytes =
+        ::WideCharToMultiByte(cp, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
     assert(bytes > 0);
     return static_cast<size_t>(bytes);
 }
 
 // 禁止不带 wbuf 的重载，避免非 UTF-8/GBK 代码页在热路径里临时分配。
-inline size_t convert_u32_to_ansi_raw(std::u32string_view text, UINT code_page, char *out, size_t out_cap) noexcept =
-    delete;
+inline size_t convert_u32_to_ansi_raw(std::u32string_view text, UINT code_page, char *out,
+                                      size_t out_cap) noexcept = delete;
 
 // 禁止不带 wbuf 的长度查询，避免调用方漏掉必要的 UTF-16 中间缓冲。
 inline size_t u32_to_ansi_exact_len(std::u32string_view text, UINT code_page) noexcept = delete;

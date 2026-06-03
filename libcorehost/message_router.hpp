@@ -90,7 +90,8 @@ struct message_router
     {
         // vt_out 由 bridge 内部批量缓冲；router 在 completion 前后根据 I/O
         // loop 时序调用这里，避免应用已完成但终端仍看不到输出。
-        LOG2_IF(bridge.buffered_vt_output_bytes() != 0, "flushing VT output bytes=%zu", bridge.buffered_vt_output_bytes());
+        LOG2_IF(bridge.buffered_vt_output_bytes() != 0, "flushing VT output bytes=%zu",
+                bridge.buffered_vt_output_bytes());
         bridge.vt_flush();
     }
 

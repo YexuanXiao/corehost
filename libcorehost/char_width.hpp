@@ -205,14 +205,15 @@ inline int grapheme_cluster_width_u32(std::u32string_view cluster, bool ambiguou
 
     // width 是 cluster 内各码点宽度累计值，最后钳制到终端单个 cluster
     // 能占据的最大 2 列。
-    const auto width = std::transform_reduce(cluster.begin(), cluster.end(), 0, std::plus<>{}, [ambiguous_is_wide](char32_t cp) {
-        // cluster 内组合标记通常为 0 宽；emoji variation selector 需要覆盖
-        // 默认 width，使整个 cluster 最终按宽 emoji 显示。
-        auto w = char_width_unicode(cp, ambiguous_is_wide);
-        // 对标原始 CodepointWidthDetector::_graphemeNext:
-        // VS16 会把 emoji presentation 强制为宽字符，最终 cluster 宽度再 clamp 到 2。
-        return cp == 0xFE0F ? 2 : w;
-    });
+    const auto width =
+        std::transform_reduce(cluster.begin(), cluster.end(), 0, std::plus<>{}, [ambiguous_is_wide](char32_t cp) {
+            // cluster 内组合标记通常为 0 宽；emoji variation selector 需要覆盖
+            // 默认 width，使整个 cluster 最终按宽 emoji 显示。
+            auto w = char_width_unicode(cp, ambiguous_is_wide);
+            // 对标原始 CodepointWidthDetector::_graphemeNext:
+            // VS16 会把 emoji presentation 强制为宽字符，最终 cluster 宽度再 clamp 到 2。
+            return cp == 0xFE0F ? 2 : w;
+        });
     return width > 2 ? 2 : width;
 }
 

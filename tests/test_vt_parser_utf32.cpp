@@ -523,7 +523,8 @@ struct msg_gen
             r.add(U';');
             // 构"rgb:RR/GG/BB" 字符
             char buf[32];
-            snprintf(buf, sizeof(buf), "rgb:%02x/%02x/%02x", msg.payload.palette.r, msg.payload.palette.g, msg.payload.palette.b);
+            snprintf(buf, sizeof(buf), "rgb:%02x/%02x/%02x", msg.payload.palette.r, msg.payload.palette.g,
+                     msg.payload.palette.b);
             for (char *p = buf; *p; ++p)
                 r.add(static_cast<char32_t>(*p));
             r.add(0x07); // BEL terminator

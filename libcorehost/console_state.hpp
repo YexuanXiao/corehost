@@ -40,9 +40,7 @@ struct ascii_case_insensitive_less
     bool operator()(std::wstring_view lhs, std::wstring_view rhs) const noexcept
     {
         return std::lexicographical_compare(lhs.begin(), lhs.end(), rhs.begin(), rhs.end(),
-                                            [](wchar_t a, wchar_t b) {
-                                                return lower(a) < lower(b);
-                                            });
+                                            [](wchar_t a, wchar_t b) { return lower(a) < lower(b); });
     }
 };
 

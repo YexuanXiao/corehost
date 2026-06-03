@@ -114,9 +114,9 @@ inline std::vector<scenario_result> run_worker_bench(std::string host_label, std
             {
                 std::string name = "sgr-";
                 name.append(test_case.name);
-                append_worker_sample(results, run_sgr_sequence_case(host_label, std::move(name), test_case.name,
-                                                                    4ull * 1024ull * 1024ull,
-                                                                    std::chrono::seconds{10}));
+                append_worker_sample(results,
+                                     run_sgr_sequence_case(host_label, std::move(name), test_case.name,
+                                                           4ull * 1024ull * 1024ull, std::chrono::seconds{10}));
             }
         }
 

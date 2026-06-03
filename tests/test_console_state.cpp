@@ -2178,8 +2178,7 @@ bool test_regression_write_console_parser_sgr_updates_attributes()
         static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) + sizeof(payload) - 1);
     auto *write = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     write->Unicode = FALSE;
-    std::memcpy(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG), payload,
-                sizeof(payload) - 1);
+    std::memcpy(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG), payload, sizeof(payload) - 1);
 
     ASSERT(api_write_console(msg, st, sb, inp, bridge));
     ASSERT(msg.complete.IoStatus.Status == 0);
@@ -2202,8 +2201,7 @@ bool test_regression_write_console_parser_sgr_applies_params_in_order()
         static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) + sizeof(payload) - 1);
     auto *write = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     write->Unicode = FALSE;
-    std::memcpy(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG), payload,
-                sizeof(payload) - 1);
+    std::memcpy(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG), payload, sizeof(payload) - 1);
 
     ASSERT(api_write_console(msg, st, sb, inp, bridge));
     ASSERT(msg.complete.IoStatus.Status == 0);

@@ -137,7 +137,8 @@ class pipe_bridge_testable : public pipe_bridge
 
     void test_enter_console_read_mode(SHORT prompt_col = 13)
     {
-        auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(_test_console_read_msg.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *req =
+            reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(_test_console_read_msg.body + sizeof(CONSOLE_MSG_HEADER));
         req->Unicode = FALSE;
         _pending.begin_console_read(_test_console_read_msg, false);
         _read_total = 0;

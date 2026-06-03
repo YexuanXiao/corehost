@@ -171,9 +171,7 @@ inline bool is_line_terminator_echo(std::u32string_view text) noexcept
 
 inline bool is_printable_ascii_text(std::u32string_view text) noexcept
 {
-    return std::ranges::all_of(text, [](char32_t ch) {
-        return ch >= U' ' && ch < U'\x7f';
-    });
+    return std::ranges::all_of(text, [](char32_t ch) { return ch >= U' ' && ch < U'\x7f'; });
 }
 
 // 判断当前 viewport 是否覆盖整个 screen_buffer。覆盖时清屏/滚动可以用更
@@ -285,8 +283,7 @@ inline void apply_terminal_line_feed(console_state &state, screen_buffer &sb)
     {
         if (state.cursor.position.Y == view.Bottom)
         {
-            sb.scroll(view, view, true, {view.Left, static_cast<SHORT>(view.Top - 1)}, U' ',
-                      state.default_attributes);
+            sb.scroll(view, view, true, {view.Left, static_cast<SHORT>(view.Top - 1)}, U' ', state.default_attributes);
             state.cursor.position.Y = view.Bottom;
         }
         else
@@ -416,8 +413,8 @@ inline void apply_terminal_erase_characters(const vt_message &msg, console_state
 
     const auto y = state.cursor.position.Y;
     const auto x = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
-    const auto count =
-        std::min<SHORT>(static_cast<SHORT>(view.Right - x + 1), static_cast<SHORT>(std::max<int>(1, msg.payload.count.value)));
+    const auto count = std::min<SHORT>(static_cast<SHORT>(view.Right - x + 1),
+                                       static_cast<SHORT>(std::max<int>(1, msg.payload.count.value)));
     clear_terminal_line_range(sb, y, x, static_cast<SHORT>(x + count - 1), state.default_attributes);
 }
 
@@ -476,7 +473,8 @@ inline void apply_terminal_scrolling_region(const vt_message &msg, console_state
     const auto view = sb.viewport.rect();
     const auto height = static_cast<SHORT>(view.Bottom - view.Top + 1);
     const auto top = std::clamp<SHORT>(msg.payload.scroll_region.top, 1, height);
-    const auto bottom = msg.payload.scroll_region.bottom <= 0 ? height : std::clamp<SHORT>(msg.payload.scroll_region.bottom, 1, height);
+    const auto bottom =
+        msg.payload.scroll_region.bottom <= 0 ? height : std::clamp<SHORT>(msg.payload.scroll_region.bottom, 1, height);
     if (top < bottom)
     {
         state.scroll_region_top = top;
@@ -757,7 +755,8 @@ inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parse
         consume_write_console_vt_message<vt_message_id::keypad_numeric_mode>(parser, state, sb, bridge, emit_vt);
         break;
     case vt_message_id::designate_charset_line_drawing:
-        consume_write_console_vt_message<vt_message_id::designate_charset_line_drawing>(parser, state, sb, bridge, emit_vt);
+        consume_write_console_vt_message<vt_message_id::designate_charset_line_drawing>(parser, state, sb, bridge,
+                                                                                        emit_vt);
         break;
     case vt_message_id::designate_charset_ascii:
         consume_write_console_vt_message<vt_message_id::designate_charset_ascii>(parser, state, sb, bridge, emit_vt);
@@ -1136,8 +1135,8 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             COORD start_pos = state.cursor.position;
             auto preview_len = static_cast<int>(std::min<size_t>(60, u32s.size()));
             LOG2("[api_write_console] start: u32s_len=%zu sbytes=%lu start=(%d,%d) first=%.*ls", u32s.size(),
-                static_cast<unsigned long>(bytes), static_cast<int>(start_pos.X), static_cast<int>(start_pos.Y),
-                preview_len, reinterpret_cast<const wchar_t *>(u32s.data()));
+                 static_cast<unsigned long>(bytes), static_cast<int>(start_pos.X), static_cast<int>(start_pos.Y),
+                 preview_len, reinterpret_cast<const wchar_t *>(u32s.data()));
 
             if (state.dec_line_drawing_mode)
             {
@@ -1154,7 +1153,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                 COREHOST_PERF_SCOPE(write_console_position);
                 bool need_cup = bridge.consume_enter_newline();
                 LOG2("[api_write_console] need_cup=%d state_start=(%d,%d)", need_cup, state.cursor.position.X,
-                    state.cursor.position.Y);
+                     state.cursor.position.Y);
                 if (need_cup)
                 {
                     // 输入桥接已经本地回显 Enter。这里把应用输出起点移动到当时锁定
@@ -1218,8 +1217,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                         COREHOST_PERF_SCOPE(write_console_consume_msg);
                         consume_write_console_text_run(input.substr(i, count), state, sb, bridge,
                                                        !replay_utf8_to_terminal);
-                        if (i + count + 1 < u32s.size() && input[i + count] == U'\r' &&
-                            input[i + count + 1] == U'\n')
+                        if (i + count + 1 < u32s.size() && input[i + count] == U'\r' && input[i + count + 1] == U'\n')
                         {
                             consume_write_console_line_feed(state, sb, bridge, !replay_utf8_to_terminal);
                             i += count + 2;
@@ -1301,8 +1299,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                 // 排空 parser 残留的 _pending_control，例如文本以单独 '\r' 结束。
                 if (auto id = output_parser.parse(U'\0');
                     id != vt_message_id::continue_ && id != vt_message_id::continue_text)
-                    dispatch_write_console_vt_message(id, output_parser, state, sb, bridge,
-                                                      !replay_utf8_to_terminal);
+                    dispatch_write_console_vt_message(id, output_parser, state, sb, bridge, !replay_utf8_to_terminal);
             }
 
             // VT 可能仍在 bridge 缓冲中等待批量刷新；本地 cursor 状态必须在
@@ -1313,8 +1310,8 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             }
 
             LOG2("[api_write_console] done: u32s_len=%zu sbytes=%lu end_cursor=(%d,%d) synced", u32s.size(),
-                static_cast<unsigned long>(bytes), static_cast<int>(state.cursor.position.X),
-                static_cast<int>(state.cursor.position.Y));
+                 static_cast<unsigned long>(bytes), static_cast<int>(state.cursor.position.X),
+                 static_cast<int>(state.cursor.position.Y));
         }
     }
 }
@@ -1477,9 +1474,9 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
              static_cast<ULONG>(state.screen_buffer_size.X) * static_cast<ULONG>(state.screen_buffer_size.Y));
 
     LOG2("[api_fill_output] at=(%d,%d) len=%lu elem='%c'(%d) type=%d fullscreen=%d", r->WriteCoord.X, r->WriteCoord.Y,
-        orig_length,
-        (r->ElementType != CONSOLE_ATTRIBUTE && r->Element >= 32 && r->Element < 127) ? (char)r->Element : '?',
-        r->Element, r->ElementType, is_fullscreen_space ? 1 : 0);
+         orig_length,
+         (r->ElementType != CONSOLE_ATTRIBUTE && r->Element >= 32 && r->Element < 127) ? (char)r->Element : '?',
+         r->Element, r->ElementType, is_fullscreen_space ? 1 : 0);
     if (!viewport_covers_screen_buffer(sb))
     {
         render_visible_viewport(state, sb, bridge);
@@ -1804,7 +1801,7 @@ inline bool api_set_cursor_pos(miniio::io_msg &msg, console_state &state, screen
     }
 
     LOG2("[api_set_cursor_pos] to=(%d,%d) was=(%d,%d)", new_pos.X, new_pos.Y, state.cursor.position.X,
-        state.cursor.position.Y);
+         state.cursor.position.Y);
     if (new_pos.X == 0 && new_pos.Y == 0)
         // 清屏序列常先 SetCursorPos(0,0)，这时 Enter 的一次性换行标志已过期。
         bridge.reset_enter_newline();
@@ -1851,9 +1848,9 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
     // 客户端原始请求，而不是 screen_buffer.scroll 内部裁剪后的区域。
     auto &sr = r->ScrollRectangle;
     LOG2("[api_scroll_sb] sr=(%d,%d,%d,%d) clip=(%d,%d,%d,%d) dest=(%d,%d) fill_char=0x%X fill_attr=0x%X", sr.Left,
-        sr.Top, sr.Right, sr.Bottom, r->ClipRectangle.Left, r->ClipRectangle.Top, r->ClipRectangle.Right,
-        r->ClipRectangle.Bottom, r->DestinationOrigin.X, r->DestinationOrigin.Y, r->Fill.Char.UnicodeChar,
-        r->Fill.Attributes);
+         sr.Top, sr.Right, sr.Bottom, r->ClipRectangle.Left, r->ClipRectangle.Top, r->ClipRectangle.Right,
+         r->ClipRectangle.Bottom, r->DestinationOrigin.X, r->DestinationOrigin.Y, r->Fill.Char.UnicodeChar,
+         r->Fill.Attributes);
     if ((sr.Left == r->DestinationOrigin.X && sr.Top == r->DestinationOrigin.Y) || sr.Left > sr.Right ||
         sr.Top > sr.Bottom)
     {
@@ -1887,7 +1884,7 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
         (sr.Left <= 0 && sr.Top <= 0 && sr.Right >= sb.size.X - 1 && sr.Bottom >= buf_height - 1 &&
          r->DestinationOrigin.X == 0 && r->DestinationOrigin.Y <= -buf_height && r->Clip == FALSE);
     LOG2("[api_scroll_sb] full_screen=%d buf_h=%d sr.Bottom=%d fill_char=0x%X", full_screen_scroll, buf_height,
-        sr.Bottom, static_cast<unsigned>(fill_char));
+         sr.Bottom, static_cast<unsigned>(fill_char));
     if (!viewport_covers_screen_buffer(sb))
     {
         render_visible_viewport(state, sb, bridge);
@@ -2341,9 +2338,8 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
         const auto written_text = std::u32string_view{u32text.data(), written_u32};
         if (r->StringType == CONSOLE_ASCII)
         {
-            r->NumRecords = static_cast<ULONG>(
-                u32_to_ansi_exact_len(written_text, state.output_code_page ? state.output_code_page : CP_ACP,
-                                      bridge.conv_wstr()));
+            r->NumRecords = static_cast<ULONG>(u32_to_ansi_exact_len(
+                written_text, state.output_code_page ? state.output_code_page : CP_ACP, bridge.conv_wstr()));
         }
         else
         {
@@ -2476,7 +2472,8 @@ inline bool api_read_console_output(miniio::io_msg &msg, console_state &state, s
 // ── GetTitle / SetTitle (char32_t ↔ wchar_t 边界) ──
 
 // GetConsoleTitle/GetConsoleOriginalTitle：从 console_state 标题字段转码返回。
-inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &bridge)
+inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                          pipe_bridge &bridge)
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG))
     {
@@ -2908,9 +2905,9 @@ inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_b
                     auto *tgt_out = reinterpret_cast<char *>(db + exe_len_bytes);
                     auto available_bytes = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIAS_MSG));
                     available_bytes = available_bytes > exe_len_bytes ? available_bytes - exe_len_bytes : 0;
-                    auto needed =
-                        alias_wstring_to_ansi_length(std::wstring_view{wval->data(), wval->size()}, state.input_code_page) +
-                        1;
+                    auto needed = alias_wstring_to_ansi_length(std::wstring_view{wval->data(), wval->size()},
+                                                               state.input_code_page) +
+                                  1;
                     if (needed <= available_bytes)
                     {
                         auto n = alias_wstring_to_ansi(std::wstring_view{wval->data(), wval->size()},
@@ -2980,10 +2977,10 @@ inline bool api_l3_get_aliases_length(miniio::io_msg &msg, console_state &state,
     {
         total = std::accumulate(aliases->begin(), aliases->end(), ULONG{0}, [&](ULONG sum, const auto &alias) -> ULONG {
             const auto &[k, v] = alias;
-            const auto k_len = alias_wstring_to_ansi_length(std::wstring_view{k.data(), k.size()},
-                                                            state.input_code_page);
-            const auto v_len = alias_wstring_to_ansi_length(std::wstring_view{v.data(), v.size()},
-                                                            state.input_code_page);
+            const auto k_len =
+                alias_wstring_to_ansi_length(std::wstring_view{k.data(), k.size()}, state.input_code_page);
+            const auto v_len =
+                alias_wstring_to_ansi_length(std::wstring_view{v.data(), v.size()}, state.input_code_page);
             return sum + static_cast<ULONG>(k_len + 1 + v_len + 1);
         });
     }
@@ -3004,13 +3001,13 @@ inline bool api_l3_get_alias_exes_length(miniio::io_msg &msg, console_state &sta
     }
 
     auto *r = reinterpret_cast<CONSOLE_GETALIASEXESLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    const auto total = std::accumulate(state.aliases_by_exe.begin(), state.aliases_by_exe.end(), ULONG{0},
-                                       [&](ULONG sum, const auto &entry) -> ULONG {
-        const auto &[exe, _] = entry;
-        auto len = r->Unicode ? exe.size()
-                              : wstr_to_ansi_len(std::wstring_view{exe.data(), exe.size()}, state.input_code_page);
-        return sum + static_cast<ULONG>(len + 1) * (r->Unicode ? sizeof(wchar_t) : 1);
-    });
+    const auto total = std::accumulate(
+        state.aliases_by_exe.begin(), state.aliases_by_exe.end(), ULONG{0}, [&](ULONG sum, const auto &entry) -> ULONG {
+            const auto &[exe, _] = entry;
+            auto len = r->Unicode ? exe.size()
+                                  : wstr_to_ansi_len(std::wstring_view{exe.data(), exe.size()}, state.input_code_page);
+            return sum + static_cast<ULONG>(len + 1) * (r->Unicode ? sizeof(wchar_t) : 1);
+        });
     r->AliasExesLength = total;
     ucomplete_sz(msg, sizeof(CONSOLE_GETALIASEXESLENGTH_MSG));
     return true;
@@ -3074,20 +3071,18 @@ inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen
         auto maxb = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIASES_MSG));
         for (const auto &[k, v] : *aliases)
         {
-            const auto k_len = alias_wstring_to_ansi_length(std::wstring_view{k.data(), k.size()},
-                                                            state.input_code_page);
-            const auto v_len = alias_wstring_to_ansi_length(std::wstring_view{v.data(), v.size()},
-                                                            state.input_code_page);
+            const auto k_len =
+                alias_wstring_to_ansi_length(std::wstring_view{k.data(), k.size()}, state.input_code_page);
+            const auto v_len =
+                alias_wstring_to_ansi_length(std::wstring_view{v.data(), v.size()}, state.input_code_page);
             ULONG need = static_cast<ULONG>(k_len + 1 + v_len + 1);
             if (written + need > maxb)
                 break;
-            written += static_cast<ULONG>(
-                alias_wstring_to_ansi(std::wstring_view{k.data(), k.size()}, state.input_code_page, out + written,
-                                      maxb - written));
+            written += static_cast<ULONG>(alias_wstring_to_ansi(std::wstring_view{k.data(), k.size()},
+                                                                state.input_code_page, out + written, maxb - written));
             out[written++] = '=';
-            written += static_cast<ULONG>(
-                alias_wstring_to_ansi(std::wstring_view{v.data(), v.size()}, state.input_code_page, out + written,
-                                      maxb - written));
+            written += static_cast<ULONG>(alias_wstring_to_ansi(std::wstring_view{v.data(), v.size()},
+                                                                state.input_code_page, out + written, maxb - written));
             out[written++] = '\0';
         }
         r->AliasesBufferLength = written;
@@ -3152,19 +3147,19 @@ inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &state, scr
 // UTF-16 NUL 结尾；否则按 input code page 转为 ANSI 后 NUL 结尾。
 inline size_t command_history_buffer_length(pipe_bridge &bridge, bool unicode, UINT code_page)
 {
-    const auto total = std::accumulate(bridge.history_commands().begin(), bridge.history_commands().end(), size_t{0},
-                                       [&](size_t sum, const auto &command) {
-        if (unicode)
-            return sum + u32_to_wide_exact_len(command) + 1;
-        return sum + u32_to_ansi_exact_len(command, code_page, bridge.conv_wstr()) + 1;
-    });
+    const auto total =
+        std::accumulate(bridge.history_commands().begin(), bridge.history_commands().end(), size_t{0},
+                        [&](size_t sum, const auto &command) {
+                            if (unicode)
+                                return sum + u32_to_wide_exact_len(command) + 1;
+                            return sum + u32_to_ansi_exact_len(command, code_page, bridge.conv_wstr()) + 1;
+                        });
     return total * (unicode ? sizeof(wchar_t) : 1);
 }
 
 // 将 bridge 当前命令历史写入调用方输出缓冲。返回实际写入字节数；容量不足
 // 时停止在命令边界，不输出截断的单条命令。
-inline size_t write_command_history_buffer(pipe_bridge &bridge, bool unicode, UINT code_page, BYTE *out,
-                                           size_t out_cap)
+inline size_t write_command_history_buffer(pipe_bridge &bridge, bool unicode, UINT code_page, BYTE *out, size_t out_cap)
 {
     size_t written = 0;
     for (const auto &command : bridge.history_commands())

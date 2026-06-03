@@ -497,8 +497,7 @@ struct screen_buffer_row
             const auto width_columns = static_cast<uint8_t>(widths[i]);
             _columns[cell] = static_cast<uint16_t>(text_offset);
             for (uint8_t w = 1; w < width_columns; ++w)
-                _columns[static_cast<uint16_t>(cell + w)] =
-                    static_cast<uint16_t>(text_offset) | TRAILING_FLAG;
+                _columns[static_cast<uint16_t>(cell + w)] = static_cast<uint16_t>(text_offset) | TRAILING_FLAG;
             cell = static_cast<uint16_t>(cell + width_columns);
         }
         assert(cell == end_col);

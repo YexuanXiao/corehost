@@ -63,8 +63,8 @@ enum class vt_message_id
 
     // C0/ESC 基础控制。输入方向用于行编辑和 RAW_READ 行终止判断；输出方向
     // 会更新本地 cursor/screen 并序列化为对应 VT。
-    carriage_return,   // \r
-    line_feed,         // \n
+    carriage_return, // \r
+    line_feed,       // \n
     reverse_index,
     save_cursor,
     restore_cursor,
@@ -357,8 +357,7 @@ struct vt_win32_key_payload
     unsigned short repeat_count = 1;
 };
 
-union vt_message_payload
-{
+union vt_message_payload {
     // text/unknown_sequence 的字符视图，指向 parser raw 缓冲。
     std::u32string_view text;
     // OSC 0/2 标题视图，指向 parser raw 缓冲。
@@ -387,7 +386,9 @@ union vt_message_payload
     vt_win32_key_payload win32_key;
 
     // 默认构造为 sgr 分支，使 union 内含对象处于可析构/可赋值的平凡状态。
-    constexpr vt_message_payload() noexcept : sgr{} {}
+    constexpr vt_message_payload() noexcept : sgr{}
+    {
+    }
 };
 
 // ── vt_message ───────────────────────────────────────
@@ -489,9 +490,7 @@ class vt_parser
         if (!can_accept_direct_ground_text())
             return 0;
 
-        const auto it = std::ranges::find_if(text, [](char32_t ch) {
-            return ch <= 0x1F || ch == 0x7F;
-        });
+        const auto it = std::ranges::find_if(text, [](char32_t ch) { return ch <= 0x1F || ch == 0x7F; });
         return static_cast<size_t>(it - text.begin());
     }
 
@@ -1281,25 +1280,20 @@ class vt_parser
     short _parse_osc_decimal_8(std::u32string_view s, size_t &pos) const
     {
         // 跳过前导空格
-        auto first = std::ranges::find_if(s.begin() + pos, s.end(), [](char32_t ch) {
-            return ch != U' ';
-        });
+        auto first = std::ranges::find_if(s.begin() + pos, s.end(), [](char32_t ch) { return ch != U' '; });
         pos = static_cast<size_t>(first - s.begin());
         size_t start = pos;
         // 收集连续的数字字符，最多 5 个（保证不溢出 short）
         const auto digits_last = s.begin() + std::min(s.size(), start + size_t{5});
-        auto digits_end = std::ranges::find_if(s.begin() + start, digits_last, [](char32_t ch) {
-            return ch < U'0' || ch > U'9';
-        });
+        auto digits_end =
+            std::ranges::find_if(s.begin() + start, digits_last, [](char32_t ch) { return ch < U'0' || ch > U'9'; });
         pos = static_cast<size_t>(digits_end - s.begin());
         if (pos == start)
             return 0; // 无数字
 
         // 转换为窄字符数组供 std::from_chars 使用
         char numbuf[6]{};
-        std::transform(s.begin() + start, digits_end, numbuf, [](char32_t ch) {
-            return static_cast<char>(ch);
-        });
+        std::transform(s.begin() + start, digits_end, numbuf, [](char32_t ch) { return static_cast<char>(ch); });
 
         short value = 0;
         auto res = std::from_chars(numbuf, numbuf + (pos - start), value, 10);
@@ -1323,14 +1317,10 @@ class vt_parser
 
         // 转换为窄字符数组
         char hexbuf[3]{};
-        std::transform(buf.begin() + start, digits_end, hexbuf, [](char32_t ch) {
-            return static_cast<char>(ch);
-        });
+        std::transform(buf.begin() + start, digits_end, hexbuf, [](char32_t ch) { return static_cast<char>(ch); });
 
         // 跳过可能存在的分隔符 '/'
-        auto slash_end = std::ranges::find_if(buf.begin() + pos, buf.end(), [](char32_t ch) {
-            return ch != U'/';
-        });
+        auto slash_end = std::ranges::find_if(buf.begin() + pos, buf.end(), [](char32_t ch) { return ch != U'/'; });
         pos = static_cast<size_t>(slash_end - buf.begin());
 
         uint8_t value = 0;
@@ -1551,7 +1541,7 @@ class vt_parser
                 m.payload.resize.rows = _clamp(_get_param(1));
                 m.payload.resize.cols = _clamp(_get_param(2));
                 return (m.payload.resize.rows > 0 && m.payload.resize.cols > 0) ? vt_message_id::resize_window
-                                                                : vt_message_id::continue_;
+                                                                                : vt_message_id::continue_;
             }
             // CSI 4 ; height ; width t — resize in pixels (not supported, become text)
             return vt_message_id::continue_;
@@ -1632,8 +1622,9 @@ class vt_parser
                     }
                     else if (_params[i + 1] == 2 && i + 4 < _param_index)
                     {
-                        m.payload.sgr.fg.set_rgb(static_cast<uint8_t>(_params[i + 2]), static_cast<uint8_t>(_params[i + 3]),
-                                                  static_cast<uint8_t>(_params[i + 4]));
+                        m.payload.sgr.fg.set_rgb(static_cast<uint8_t>(_params[i + 2]),
+                                                 static_cast<uint8_t>(_params[i + 3]),
+                                                 static_cast<uint8_t>(_params[i + 4]));
                         i += 4;
                     }
                     else
@@ -1652,8 +1643,9 @@ class vt_parser
                     }
                     else if (_params[i + 1] == 2 && i + 4 < _param_index)
                     {
-                        m.payload.sgr.bg.set_rgb(static_cast<uint8_t>(_params[i + 2]), static_cast<uint8_t>(_params[i + 3]),
-                                                  static_cast<uint8_t>(_params[i + 4]));
+                        m.payload.sgr.bg.set_rgb(static_cast<uint8_t>(_params[i + 2]),
+                                                 static_cast<uint8_t>(_params[i + 3]),
+                                                 static_cast<uint8_t>(_params[i + 4]));
                         i += 4;
                     }
                     else
@@ -1715,7 +1707,8 @@ class vt_parser
             {
                 m.payload.cpr.row = _clamp(_get_param(0, 1));
                 m.payload.cpr.col = _clamp(_get_param(1, 1));
-                return (m.payload.cpr.row > 0 && m.payload.cpr.col > 0) ? vt_message_id::cpr_response : vt_message_id::continue_;
+                return (m.payload.cpr.row > 0 && m.payload.cpr.col > 0) ? vt_message_id::cpr_response
+                                                                        : vt_message_id::continue_;
             }
             return vt_message_id::continue_;
 

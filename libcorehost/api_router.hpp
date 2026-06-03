@@ -102,7 +102,8 @@ struct api_router
         // required_size 是当前实现理解的最小 descriptor 大小；客户端可以带
         // 更大的输入载荷，但 descriptor 本身不能短于该 API 的固定头。
         auto required_size = api_descriptor_required_size(layer, api);
-        LOG2("USER_DEFINED enter apiNumber=0x%08lx layer=%lu api=%lu descriptorSize=%lu required=%zu inputSize=%lu outputSize=%lu",
+        LOG2("USER_DEFINED enter apiNumber=0x%08lx layer=%lu api=%lu descriptorSize=%lu required=%zu inputSize=%lu "
+             "outputSize=%lu",
              hdr->ApiNumber, layer, api, hdr->ApiDescriptorSize, required_size, msg.descriptor.InputSize,
              msg.descriptor.OutputSize);
         if (required_size == invalid_api_descriptor_size || hdr->ApiDescriptorSize > sizeof(msg.body) ||
