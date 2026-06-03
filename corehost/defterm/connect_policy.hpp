@@ -8,7 +8,7 @@
 #include "win32/handle.hpp"
 #include "win32/process.hpp"
 
-namespace deftermv2
+namespace defterm
 {
 
 [[nodiscard]] inline bool is_interactive_user_session() noexcept
@@ -68,7 +68,7 @@ namespace deftermv2
 
     if (msg.StartupFlags & STARTF_USESHOWWINDOW)
     {
-        // 这些 ShowWindow 值表示调用方明确要求隐藏或最小化；deftermv2
+        // 这些 ShowWindow 值表示调用方明确要求隐藏或最小化；defterm
         // 不主动弹出终端窗口，后续会走 conpty/headless 路径。
         switch (msg.ShowWindow)
         {
@@ -116,4 +116,4 @@ namespace deftermv2
     return win32::query_full_process_image_name(process);
 }
 
-} // namespace deftermv2
+} // namespace defterm

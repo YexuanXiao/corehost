@@ -5,7 +5,7 @@
 #include <memory>
 #include <objbase.h>
 #include <ranges>
-#include "defterm/signal.hpp"
+#include "signal.hpp"
 #include "IConsoleHandoff.h"
 #include "com/clsid.hpp"
 #include "com/com_ptr.hpp"
@@ -19,7 +19,7 @@
 #include "win32/thread.hpp"
 #include "win32/wait.hpp"
 
-namespace deftermv2
+namespace defterm
 {
 
 [[nodiscard]] inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const miniio::io_msg &msg) noexcept
@@ -105,10 +105,10 @@ namespace deftermv2
     auto signal_shutdown_event = win32::event{win32::duplicate_handle(shutdown_event.view())};
 
     // thread_params release 后归 signal_thread_proc 所有；线程退出时释放。
-    auto thread_params = std::make_unique<defterm::signal_thread_params>(
-        defterm::signal_thread_params{std::move(signal_read), std::move(signal_shutdown_event)});
+    auto thread_params = std::make_unique<signal_thread_params>(
+        signal_thread_params{std::move(signal_read), std::move(signal_shutdown_event)});
     DWORD signal_thread_id = 0;
-    auto signal_thread = win32::basic_thread{defterm::signal_thread_proc, thread_params.release(), &signal_thread_id};
+    auto signal_thread = win32::basic_thread{signal_thread_proc, thread_params.release(), &signal_thread_id};
     LOG("signal thread started tid=%lu handle=%p shutdown=%p", signal_thread_id, signal_thread.get(),
         shutdown_event.get());
 
@@ -155,4 +155,4 @@ namespace deftermv2
     return false;
 }
 
-} // namespace deftermv2
+} // namespace defterm

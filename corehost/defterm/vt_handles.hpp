@@ -5,13 +5,13 @@
 #include "win32/error.hpp"
 #include "win32/handle.hpp"
 
-namespace deftermv2
+namespace defterm
 {
 
 inline win32::handle valid_std_handle(DWORD std_handle_id) noexcept
 {
     // GetStdHandle 可返回 nullptr、INVALID_HANDLE_VALUE 或真实句柄。
-    // 前两者都表示当前 deftermv2 进程没有可用标准句柄，调用方需要兜底。
+    // 前两者都表示当前 defterm 进程没有可用标准句柄，调用方需要兜底。
     auto handle = ::GetStdHandle(std_handle_id);
     if (handle == nullptr || handle == INVALID_HANDLE_VALUE)
         return {};
@@ -50,4 +50,4 @@ inline void initialize_vt_handles(win32::handle &input, win32::handle &output, w
     }
 }
 
-} // namespace deftermv2
+} // namespace defterm

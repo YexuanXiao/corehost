@@ -42,7 +42,7 @@ class pipe_bridge_io
     // 绑定可选 shutdown event；有效时 pending 输入等待会按时间片检查它。
     void set_shutdown_event(win32::handle_view event) noexcept
     {
-        // event 由 PtySignal 线程或 deftermv2 轮询路径提供，用来打断 pending
+        // event 由 PtySignal 线程或 defterm 轮询路径提供，用来打断 pending
         // input 等待；本类不拥有该事件。
         _shutdown_event = event;
     }

@@ -92,7 +92,7 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
 
     // ── Layer 2: I/O 状态 ──
     // io_state 管理 ConDrv 连接对象和进程列表。condrv_input/output 可能已经
-    // 由 deftermv2 headless 路径提前 accept；为空时首个 CONNECT 会创建它们。
+    // 由 defterm headless 路径提前 accept；为空时首个 CONNECT 会创建它们。
     io_state io;
     io.set_server(server.view());
     io.condrv_input = std::move(condrv_input);
@@ -177,7 +177,7 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
 
     if (config.attached_process_id != 0)
     {
-        // deftermv2 headless 路径在进入 libcorehost 前已经 accept 首个 CONNECT。
+        // defterm headless 路径在进入 libcorehost 前已经 accept 首个 CONNECT。
         // 该 pid 不会再经过 io_state::handle_connect，因此这里手动补进列表。
         io.add_process(config.attached_process_id);
         copy_process_list(io, bridge);

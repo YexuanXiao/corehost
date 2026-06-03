@@ -36,7 +36,7 @@ struct conpty_session_config
 // server: ConDrv \Server 句柄，READ_IO/COMPLETE_IO 和创建客户端 \Input/\Output 都通过它完成。
 // event: ConDrv InputAvailableEvent；corehost 不把它当作键盘输入事件，只用它判断
 //        completion 提交前是否需要先刷新 VT 输出。
-// condrv_input/condrv_output: 已 accept 的 \Input/\Output 连接句柄。deftermv2
+// condrv_input/condrv_output: 已 accept 的 \Input/\Output 连接句柄。defterm
 //        headless 路径可能提前填入；普通 conpty/comserver 路径传空句柄，让首个 CONNECT 创建。
 // vt_in: 终端到 corehost 的 UTF-8/VT 输入流，包含键盘输入、CPR、resize 等终端回应。
 // vt_out: corehost 到终端的 UTF-8/VT 输出流，所有 Console API 输出最终写到这里。

@@ -8,7 +8,6 @@
 
 #include "console_arguments.hpp"
 #include "defterm/defterm.hpp"
-#include "deftermv2/deftermv2.hpp"
 #include "comserver/com_server.hpp"
 #include "conpty.hpp"
 #include "client/client.hpp"
@@ -50,9 +49,9 @@ try
     // 如果第一个参数是句柄，那么开始默认终端握手
     if (auto ch = args.condrv_handle(); ch != 0)
     {
-        LOG("entering deftermv2_entry, handle=0x%Ix", ch);
-        deftermv2::deftermv2_entry(ch);
-        LOG("deftermv2_entry returned");
+        LOG("entering defterm_entry, handle=0x%Ix", ch);
+        defterm::defterm_entry(ch);
+        LOG("defterm_entry returned");
         return 0;
     }
 

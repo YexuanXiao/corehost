@@ -72,7 +72,7 @@ struct io_state
     // 新 pid，避免破坏已有 GetConsoleProcessList 快照。
     void add_process(DWORD pid)
     {
-        // pid 来自 CONNECT descriptor.Process 或 deftermv2 预附加进程；同一
+        // pid 来自 CONNECT descriptor.Process 或 defterm 预附加进程；同一
         // 进程重复 CONNECT 时只保留一份，匹配 GetConsoleProcessList 语义。
         const auto end = process_list.begin() + static_cast<std::ptrdiff_t>(process_count);
         if (std::find(process_list.begin(), end, pid) != end)
