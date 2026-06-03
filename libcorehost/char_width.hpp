@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <string_view>
 #include <array>
+#include <numeric>
 #include "../third_parties/libunicode/src/libunicode/grapheme_segmenter.h"
 #ifdef COREHOST_USE_SYSTEM_ICU
 #include <icu.h>
@@ -200,18 +201,14 @@ inline int grapheme_cluster_width_u32(std::u32string_view cluster, bool ambiguou
 
     // width 是 cluster 内各码点宽度累计值，最后钳制到终端单个 cluster
     // 能占据的最大 2 列。
-    int width = 0;
-    for (char32_t cp : cluster)
-    {
+    const auto width = std::transform_reduce(cluster.begin(), cluster.end(), 0, std::plus<>{}, [ambiguous_is_wide](char32_t cp) {
         // cluster 内组合标记通常为 0 宽；emoji variation selector 需要覆盖
         // 默认 width，使整个 cluster 最终按宽 emoji 显示。
-        int w = char_width_unicode(cp, ambiguous_is_wide);
+        auto w = char_width_unicode(cp, ambiguous_is_wide);
         // 对标原始 CodepointWidthDetector::_graphemeNext:
         // VS16 会把 emoji presentation 强制为宽字符，最终 cluster 宽度再 clamp 到 2。
-        if (cp == 0xFE0F)
-            w = 2;
-        width += w;
-    }
+        return cp == 0xFE0F ? 2 : w;
+    });
     return width > 2 ? 2 : width;
 }
 
@@ -258,17 +255,13 @@ inline int text_width_for_mode(std::u32string_view text, text_measurement_mode m
     case text_measurement_mode::graphemes:
         return grapheme_text_width(text, ambiguous_is_wide);
     case text_measurement_mode::wcswidth: {
-        int total = 0;
-        for (char32_t cp : text)
-            total += char_width_wcswidth(cp, ambiguous_is_wide);
-        return total;
+        return std::transform_reduce(text.begin(), text.end(), 0, std::plus<>{}, [ambiguous_is_wide](char32_t cp) {
+            return char_width_wcswidth(cp, ambiguous_is_wide);
+        });
     }
     case text_measurement_mode::console:
     default: {
-        int total = 0;
-        for (char32_t cp : text)
-            total += char_width_console(cp);
-        return total;
+        return std::transform_reduce(text.begin(), text.end(), 0, std::plus<>{}, char_width_console);
     }
     }
 }

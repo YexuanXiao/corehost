@@ -16,6 +16,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <span>
 #include <string>
 #include <string_view>
@@ -297,9 +298,21 @@ struct pipe_bridge
     {
         return _conversion.u32();
     }
+    raw_u8_buffer &conv_u8() noexcept
+    {
+        return _conversion.utf8();
+    }
     raw_wide_buffer &conv_wstr() noexcept
     {
         return _conversion.wide();
+    }
+    std::vector<CHAR_INFO> &conv_char_info() noexcept
+    {
+        return _conversion.char_info();
+    }
+    std::vector<INPUT_RECORD> &conv_input_records() noexcept
+    {
+        return _conversion.input_records();
     }
     std::span<const BYTE> read_input_payload(const miniio::io_msg &msg, size_t offset)
     {
@@ -1637,26 +1650,30 @@ struct pipe_bridge
         // Alias 只匹配第一个空格前的命令名；参数部分原样拼回展开结果。
         if (_cooked_buf.empty())
             return;
-        size_t we = 0;
-        while (we < _cooked_buf.size() && _cooked_buf[we] != U' ')
-            ++we;
-        std::wstring wk;
+        const auto word_end = std::ranges::find(_cooked_buf, U' ');
+        const auto we = static_cast<size_t>(word_end - _cooked_buf.begin());
+        auto &wk = _conversion.wide();
+        wk.clear();
         wk.reserve(we);
-        for (size_t i = 0; i < we; ++i)
-            wk.push_back(static_cast<wchar_t>(_cooked_buf[i]));
-        auto it = cstate.aliases.find(wk);
+        std::transform(_cooked_buf.begin(), word_end, std::back_inserter(wk), [](char32_t ch) {
+            return static_cast<wchar_t>(ch);
+        });
+        auto it = cstate.aliases.find(std::wstring_view{wk.data(), wk.size()});
         if (it == cstate.aliases.end())
         {
             LOG("[bridge] alias not found");
             return;
         }
-        std::u32string ex;
+        auto &ex = _conversion.u32();
+        ex.clear();
         ex.reserve(it->second.size() + _cooked_buf.size() - we);
-        for (wchar_t wc : it->second)
-            ex.push_back(static_cast<char32_t>(wc));
+        std::transform(it->second.begin(), it->second.end(), std::back_inserter(ex), [](wchar_t wc) {
+            return static_cast<char32_t>(wc);
+        });
         if (we < _cooked_buf.size())
-            ex.append(_cooked_buf.substr(we));
-        _cooked_buf = std::move(ex);
+            ex.append_range(std::u32string_view{_cooked_buf}.substr(we));
+        _cooked_buf.clear();
+        _cooked_buf.append(ex.data(), ex.size());
     }
 
     // ── 非 ConsoleRead (PowerShell) 路径: 只发 KEY_DOWN ──
@@ -1772,11 +1789,9 @@ struct pipe_bridge
             return false;
 
         const auto count = std::min<size_t>(room, _queued_vt_input.size());
-        for (size_t i = 0; i < count; ++i)
-        {
-            _readbuf[_read_total + i] = _queued_vt_input.front();
-            _queued_vt_input.pop_front();
-        }
+        std::copy_n(_queued_vt_input.begin(), count, _readbuf.data() + _read_total);
+        _queued_vt_input.erase(_queued_vt_input.begin(),
+                               _queued_vt_input.begin() + static_cast<std::ptrdiff_t>(count));
         _read_total += static_cast<DWORD>(count);
         LOG("[bridge] consume_queued_vt_input: consumed=%zu remaining=%zu", count, _queued_vt_input.size());
         return true;
@@ -1804,8 +1819,7 @@ struct pipe_bridge
             return;
 
         const auto tail_size = static_cast<size_t>(len - consumed);
-        for (auto it = bytes + len; it != bytes + consumed;)
-            _queued_vt_input.push_front(*--it);
+        _queued_vt_input.prepend_range(std::span{bytes + consumed, tail_size});
 
         const auto readbuf_begin = reinterpret_cast<std::uintptr_t>(_readbuf.data());
         const auto readbuf_end = readbuf_begin + _readbuf.size();
@@ -2532,7 +2546,8 @@ struct pipe_bridge
         {
             auto *utf16_out = reinterpret_cast<wchar_t *>(db);
             auto max_chars = maxd / sizeof(wchar_t);
-            size_t n = convert_u32_to_wide_raw(_cooked_buf, utf16_out, max_chars);
+            auto copied_text = std::u32string_view{_cooked_buf.data(), u32_prefix_for_wide_units(_cooked_buf, max_chars)};
+            size_t n = convert_u32_to_wide_raw(copied_text, utf16_out, max_chars);
             if (n < max_chars)
                 utf16_out[n++] = L'\r';
             if (n < max_chars)

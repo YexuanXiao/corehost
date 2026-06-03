@@ -36,6 +36,8 @@
 //   }
 //
 #pragma once
+#include <algorithm>
+#include <ranges>
 #include <cstdint>
 #include <charconv>
 #include <string>
@@ -395,15 +397,10 @@ class vt_parser
         if (!can_accept_direct_ground_text())
             return 0;
 
-        size_t count = 0;
-        while (count < text.size())
-        {
-            const auto ch = text[count];
-            if (ch <= 0x1F || ch == 0x7F)
-                break;
-            ++count;
-        }
-        return count;
+        const auto it = std::ranges::find_if(text, [](char32_t ch) {
+            return ch <= 0x1F || ch == 0x7F;
+        });
+        return static_cast<size_t>(it - text.begin());
     }
 
     // 释放累积文本为 text 消息并返回 text id；无残留文本时返回 continue_
@@ -1155,19 +1152,25 @@ class vt_parser
     short _parse_osc_decimal_8(std::u32string_view s, size_t &pos) const
     {
         // 跳过前导空格
-        while (pos < s.size() && s[pos] == U' ')
-            ++pos;
+        auto first = std::ranges::find_if(s.begin() + pos, s.end(), [](char32_t ch) {
+            return ch != U' ';
+        });
+        pos = static_cast<size_t>(first - s.begin());
         size_t start = pos;
         // 收集连续的数字字符，最多 5 个（保证不溢出 short）
-        while (pos < s.size() && s[pos] >= U'0' && s[pos] <= U'9' && (pos - start) < 5)
-            ++pos;
+        const auto digits_last = s.begin() + std::min(s.size(), start + size_t{5});
+        auto digits_end = std::ranges::find_if(s.begin() + start, digits_last, [](char32_t ch) {
+            return ch < U'0' || ch > U'9';
+        });
+        pos = static_cast<size_t>(digits_end - s.begin());
         if (pos == start)
             return 0; // 无数字
 
         // 转换为窄字符数组供 std::from_chars 使用
         char numbuf[6]{};
-        for (size_t i = 0; i < pos - start; ++i)
-            numbuf[i] = static_cast<char>(s[start + i]);
+        std::transform(s.begin() + start, digits_end, numbuf, [](char32_t ch) {
+            return static_cast<char>(ch);
+        });
 
         short value = 0;
         auto res = std::from_chars(numbuf, numbuf + (pos - start), value, 10);
@@ -1181,21 +1184,25 @@ class vt_parser
     {
         // 收集最多 2 个十六进制数字
         size_t start = pos;
-        while (pos < buf.size() && (pos - start) < 2 &&
-               ((buf[pos] >= U'0' && buf[pos] <= U'9') || (buf[pos] >= U'A' && buf[pos] <= U'F') ||
-                (buf[pos] >= U'a' && buf[pos] <= U'f')))
-            ++pos;
+        const auto digits_last = buf.begin() + std::min(buf.size(), start + size_t{2});
+        auto digits_end = std::ranges::find_if(buf.begin() + start, digits_last, [](char32_t ch) {
+            return !((ch >= U'0' && ch <= U'9') || (ch >= U'A' && ch <= U'F') || (ch >= U'a' && ch <= U'f'));
+        });
+        pos = static_cast<size_t>(digits_end - buf.begin());
         if (pos == start)
             return 0; // 无有效十六进制字符
 
         // 转换为窄字符数组
         char hexbuf[3]{};
-        for (size_t i = 0; i < pos - start; ++i)
-            hexbuf[i] = static_cast<char>(buf[start + i]);
+        std::transform(buf.begin() + start, digits_end, hexbuf, [](char32_t ch) {
+            return static_cast<char>(ch);
+        });
 
         // 跳过可能存在的分隔符 '/'
-        while (pos < buf.size() && buf[pos] == U'/')
-            ++pos;
+        auto slash_end = std::ranges::find_if(buf.begin() + pos, buf.end(), [](char32_t ch) {
+            return ch != U'/';
+        });
+        pos = static_cast<size_t>(slash_end - buf.begin());
 
         uint8_t value = 0;
         auto res = std::from_chars(hexbuf, hexbuf + (pos - start), value, 16);
@@ -1227,20 +1234,11 @@ class vt_parser
         ++pos; // 跳过分号
 
         // 查找终止符：BEL (0x07) 或 ST (ESC \)
-        size_t end_pos = std::u32string_view::npos;
-        for (size_t i = pos; i < seq.size(); ++i)
-        {
-            if (seq[i] == 0x07)
-            {
-                end_pos = i;
-                break;
-            }
-            if (seq[i] == 0x1B && i + 1 < seq.size() && seq[i + 1] == U'\\')
-            {
-                end_pos = i;
-                break;
-            }
-        }
+        auto indices = std::views::iota(pos, seq.size());
+        auto terminator = std::ranges::find_if(indices, [seq](size_t i) {
+            return seq[i] == 0x07 || (seq[i] == 0x1B && i + 1 < seq.size() && seq[i + 1] == U'\\');
+        });
+        const auto end_pos = terminator == indices.end() ? std::u32string_view::npos : *terminator;
         if (end_pos == std::u32string_view::npos)
             return vt_message_id::continue_;
 

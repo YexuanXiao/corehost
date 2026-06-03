@@ -7,7 +7,8 @@
 #include <cstring>
 #include <cwctype>
 #include <array>
-#include <span>
+#include <iterator>
+#include <numeric>
 #include <vector>
 #include "miniio/io_thread.hpp"
 #include "os/Console/conmsgl1.h"
@@ -46,23 +47,12 @@ inline constexpr DWORD valid_output_modes = ENABLE_PROCESSED_OUTPUT | ENABLE_WRA
                                             ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN |
                                             ENABLE_LVB_GRID_WORLDWIDE;
 
-inline std::wstring lower_wstring(std::wstring_view text)
-{
-    std::wstring result{text};
-    for (auto &ch : result)
-        if (ch >= L'A' && ch <= L'Z')
-            ch = static_cast<wchar_t>(ch - L'A' + L'a');
-    return result;
-}
-
 inline const std::wstring *find_alias_value(const console_state &state, std::wstring_view exe, std::wstring_view source)
 {
-    auto exe_key = lower_wstring(exe);
-    auto source_key = lower_wstring(source);
-    if (auto exe_it = state.aliases_by_exe.find(exe_key); exe_it != state.aliases_by_exe.end())
-        if (auto alias_it = exe_it->second.find(source_key); alias_it != exe_it->second.end())
+    if (auto exe_it = state.aliases_by_exe.find(exe); exe_it != state.aliases_by_exe.end())
+        if (auto alias_it = exe_it->second.find(source); alias_it != exe_it->second.end())
             return &alias_it->second;
-    if (auto alias_it = state.aliases.find(source_key); alias_it != state.aliases.end())
+    if (auto alias_it = state.aliases.find(source); alias_it != state.aliases.end())
         return &alias_it->second;
     return nullptr;
 }
@@ -168,10 +158,9 @@ inline bool is_line_terminator_echo(std::u32string_view text) noexcept
 
 inline bool is_printable_ascii_text(std::u32string_view text) noexcept
 {
-    for (char32_t ch : text)
-        if (ch < U' ' || ch >= U'\x7f')
-            return false;
-    return true;
+    return std::ranges::all_of(text, [](char32_t ch) {
+        return ch >= U' ' && ch < U'\x7f';
+    });
 }
 
 inline bool viewport_covers_screen_buffer(const screen_buffer &sb) noexcept
@@ -667,8 +656,7 @@ inline void consume_write_console_vt_message(vt_parser &parser, console_state &s
             bridge.vt_msg_send<id>(msg);
     }
 
-    if constexpr (id != vt_message_id::sgr)
-        vt_msg_apply_terminal_state<id>(msg, state, sb);
+    vt_msg_apply_terminal_state<id>(msg, state, sb);
     parser.reset<id>();
 }
 
@@ -948,111 +936,6 @@ inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parse
     }
 }
 
-inline void apply_sgr_params_to_attributes(std::span<const short> params, WORD &attr) noexcept
-{
-    for (short value : params)
-    {
-        if (value == 0)
-        {
-            reset_sgr_attributes(attr);
-            return;
-        }
-    }
-
-    for (size_t i = 0; i < params.size(); ++i)
-    {
-        const short value = params[i];
-        if (value == 1)
-            set_sgr_flag(attr, COMMON_LVB_GRID_HORIZONTAL);
-        else if (value == 7)
-            set_sgr_flag(attr, COMMON_LVB_REVERSE_VIDEO);
-        else if (value == 22)
-        {
-            clear_sgr_flag(attr, COMMON_LVB_GRID_HORIZONTAL);
-        }
-        else if (value == 24)
-            clear_sgr_flag(attr, COMMON_LVB_UNDERSCORE);
-        else if (value == 27)
-            clear_sgr_flag(attr, COMMON_LVB_REVERSE_VIDEO);
-        else if (value == 4)
-            set_sgr_flag(attr, COMMON_LVB_UNDERSCORE);
-        else if (value >= 30 && value <= 37)
-            set_sgr_foreground_index(attr, static_cast<uint8_t>(value - 30));
-        else if (value == 38 && i + 1 < params.size())
-        {
-            if (params[i + 1] == 5 && i + 2 < params.size())
-            {
-                set_sgr_foreground_index(attr, static_cast<uint8_t>(params[i + 2]));
-                i += 2;
-            }
-            else if (params[i + 1] == 2 && i + 4 < params.size())
-            {
-                i += 4;
-            }
-        }
-        else if (value == 39)
-            set_sgr_foreground_default(attr);
-        else if (value >= 40 && value <= 47)
-            set_sgr_background_index(attr, static_cast<uint8_t>(value - 40));
-        else if (value == 48 && i + 1 < params.size())
-        {
-            if (params[i + 1] == 5 && i + 2 < params.size())
-            {
-                set_sgr_background_index(attr, static_cast<uint8_t>(params[i + 2]));
-                i += 2;
-            }
-            else if (params[i + 1] == 2 && i + 4 < params.size())
-            {
-                i += 4;
-            }
-        }
-        else if (value == 49)
-            set_sgr_background_default(attr);
-        else if (value >= 90 && value <= 97)
-            set_sgr_foreground_index(attr, static_cast<uint8_t>(value - 90 + 8));
-        else if (value >= 100 && value <= 107)
-            set_sgr_background_index(attr, static_cast<uint8_t>(value - 100 + 8));
-    }
-}
-
-[[nodiscard]] inline size_t parse_simple_sgr_passthrough(std::u32string_view input, WORD &attr) noexcept
-{
-    if (input.size() < 3 || input[0] != U'\x1b' || input[1] != U'[')
-        return 0;
-
-    std::array<short, 16> params{};
-    size_t param_count = 0;
-    short value = 0;
-
-    for (size_t pos = 2; pos < input.size(); ++pos)
-    {
-        const char32_t ch = input[pos];
-        if (ch >= U'0' && ch <= U'9')
-        {
-            value = static_cast<short>(value * 10 + (ch - U'0'));
-            continue;
-        }
-        if (ch == U';')
-        {
-            if (param_count == params.size())
-                return 0;
-            params[param_count++] = value;
-            value = 0;
-            continue;
-        }
-        if (ch == U'm')
-        {
-            if (param_count == params.size())
-                return 0;
-            params[param_count++] = value;
-            apply_sgr_params_to_attributes(std::span<const short>{params.data(), param_count}, attr);
-            return pos + 1;
-        }
-        return 0;
-    }
-    return 0;
-}
-
 // ── completion 辅助 ──
 
 inline void ucomplete(miniio::io_msg &msg)
@@ -1295,40 +1178,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                         output_parser.reset<vt_message_id::text>();
                         consume_write_console_line_feed(state, sb, bridge, !replay_utf8_to_terminal);
                         i += 2;
-                        continue;
-                    }
-
-                    if (input[i] == U'\x1b' && output_parser.has_pending_text())
-                    {
-                        WORD next_attr = state.default_attributes;
-                        if (auto count = parse_simple_sgr_passthrough(input.substr(i), next_attr); count != 0)
-                        {
-                            COREHOST_PERF_SCOPE(write_console_consume_msg);
-                            (void)output_parser.flush_text();
-                            auto &pm = output_parser.get();
-                            consume_write_console_text_run(pm.payload.text, state, sb, bridge,
-                                                           !replay_utf8_to_terminal);
-                            output_parser.reset<vt_message_id::text>();
-                            if (!replay_utf8_to_terminal)
-                            {
-                                COREHOST_PERF_SCOPE_AMOUNT(write_console_sgr_passthrough, count);
-                                bridge.vt_append_raw_sequence(input.substr(i, count));
-                            }
-                            state.default_attributes = next_attr;
-                            i += count;
-                            continue;
-                        }
-                    }
-
-                    if (auto count = parse_simple_sgr_passthrough(input.substr(i), state.default_attributes);
-                        count != 0)
-                    {
-                        if (!replay_utf8_to_terminal)
-                        {
-                            COREHOST_PERF_SCOPE_AMOUNT(write_console_sgr_passthrough, count);
-                            bridge.vt_append_raw_sequence(input.substr(i, count));
-                        }
-                        i += count;
                         continue;
                     }
 
@@ -2138,7 +1987,7 @@ inline bool api_read_output_string(miniio::io_msg &msg, console_state &state, sc
 }
 
 inline bool api_write_console_input(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &inp,
-                                    pipe_bridge &)
+                                    pipe_bridge &bridge)
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG))
     {
@@ -2160,7 +2009,8 @@ inline bool api_write_console_input(miniio::io_msg &msg, console_state &state, s
     }
     else if (nrec > 0)
     {
-        std::vector<INPUT_RECORD> converted;
+        auto &converted = bridge.conv_input_records();
+        converted.clear();
         converted.reserve(nrec);
         const auto cp = state.input_code_page ? state.input_code_page : CP_ACP;
         for (size_t i = 0; i < nrec; ++i)
@@ -2231,19 +2081,21 @@ inline bool api_write_console_output(miniio::io_msg &msg, console_state &state, 
         miniio::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
-    std::vector<CHAR_INFO> unicode_data;
     if (!r->Unicode)
     {
-        unicode_data.resize(static_cast<size_t>(w) * static_cast<size_t>(h));
+        auto &unicode_data = bridge.conv_char_info();
+        const auto cell_count = static_cast<size_t>(w) * static_cast<size_t>(h);
+        unicode_data.clear();
+        unicode_data.reserve(cell_count);
         const auto cp = state.output_code_page ? state.output_code_page : CP_ACP;
-        for (size_t i = 0; i < unicode_data.size(); ++i)
-        {
-            auto ch = static_cast<char>(data[i].Char.AsciiChar);
+        std::transform(data, data + cell_count, std::back_inserter(unicode_data), [cp](const CHAR_INFO &ci) {
+            auto converted = ci;
+            auto ch = static_cast<char>(ci.Char.AsciiChar);
             wchar_t wc = L' ';
             ::MultiByteToWideChar(cp, MB_USEGLYPHCHARS, &ch, 1, &wc, 1);
-            unicode_data[i].Char.UnicodeChar = wc;
-            unicode_data[i].Attributes = data[i].Attributes;
-        }
+            converted.Char.UnicodeChar = wc;
+            return converted;
+        });
         data = unicode_data.data();
     }
 
@@ -2414,7 +2266,7 @@ inline bool api_write_output_string(miniio::io_msg &msg, console_state &state, s
 }
 
 inline bool api_read_console_output(miniio::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
-                                    pipe_bridge &)
+                                    pipe_bridge &bridge)
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG))
     {
@@ -2465,7 +2317,8 @@ inline bool api_read_console_output(miniio::io_msg &msg, console_state &state, s
     {
         // row_to_ci 导出整行后只复制请求区间；这样保留 row 层对宽字符和属性
         // 的 CHAR_INFO 降级逻辑。
-        std::vector<CHAR_INFO> tmp(static_cast<size_t>(sb.size.X));
+        auto &tmp = bridge.conv_char_info();
+        tmp.resize(static_cast<size_t>(sb.size.X));
         sb.row_to_ci(y, tmp.data());
         auto *dst = reinterpret_cast<CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                   sizeof(CONSOLE_READCONSOLEOUTPUT_MSG)) +
@@ -2517,7 +2370,8 @@ inline bool api_get_title(miniio::io_msg &msg, console_state &state, screen_buff
         auto maxc = std::min<size_t>(data_capacity,
                                      sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG)) /
                     sizeof(wchar_t);
-        auto cp = convert_u32_to_wide_raw(src, out, maxc);
+        auto copied_text = std::u32string_view{src.data(), u32_prefix_for_wide_units(src, maxc)};
+        auto cp = convert_u32_to_wide_raw(copied_text, out, maxc);
         if (cp < maxc)
             out[cp] = L'\0';
         r->TitleLength = static_cast<ULONG>(u32_to_wide_exact_len(src) * sizeof(wchar_t));
@@ -2566,7 +2420,7 @@ inline bool api_set_title(miniio::io_msg &msg, console_state &state, screen_buff
     auto *req = reinterpret_cast<CONSOLE_SETTITLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *input = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG);
     auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_SETTITLE_MSG);
-    std::u32string u32title;
+    auto &u32title = bridge.conv_u32();
     if (req->Unicode)
     {
         auto *in = reinterpret_cast<const wchar_t *>(input);
@@ -2579,8 +2433,12 @@ inline bool api_set_title(miniio::io_msg &msg, console_state &state, screen_buff
                             state.input_code_page ? state.input_code_page : CP_ACP, u32title, bridge.conv_wstr());
     }
     if (state.title.empty())
-        state.original_title = u32title;
-    state.title = std::move(u32title);
+    {
+        state.original_title.clear();
+        state.original_title.append(u32title.data(), u32title.size());
+    }
+    state.title.clear();
+    state.title.append(u32title.data(), u32title.size());
 
     // 状态更新后立即用 OSC 0 同步宿主终端标题。
     vt_message m{};
@@ -2739,19 +2597,20 @@ inline bool api_l3_add_alias(miniio::io_msg &msg, console_state &state, screen_b
         auto src_chars = src_len_bytes / sizeof(wchar_t);
         auto tgt_chars = tgt_len_bytes / sizeof(wchar_t);
 
-        auto exe_key = lower_wstring(std::wstring_view{exe, exe_chars});
-        auto src_key = lower_wstring(std::wstring_view{src, src_chars});
+        const std::wstring_view exe_key{exe, exe_chars};
+        const std::wstring_view src_key{src, src_chars};
         if (tgt_chars == 0)
         {
-            state.aliases.erase(src_key);
+            state.aliases.erase(std::wstring{src_key});
             if (auto exe_it = state.aliases_by_exe.find(exe_key); exe_it != state.aliases_by_exe.end())
-                exe_it->second.erase(src_key);
+                exe_it->second.erase(std::wstring{src_key});
         }
         else
         {
+            std::wstring source{src_key};
             std::wstring target{tgt, tgt_chars};
-            state.aliases[src_key] = target;
-            state.aliases_by_exe[std::move(exe_key)][std::move(src_key)] = std::move(target);
+            state.aliases.insert_or_assign(source, target);
+            state.aliases_by_exe[std::wstring{exe_key}].insert_or_assign(std::move(source), std::move(target));
         }
     }
     else
@@ -2769,18 +2628,16 @@ inline bool api_l3_add_alias(miniio::io_msg &msg, console_state &state, screen_b
             miniio::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
-        auto exe_key = lower_wstring(wexe);
-        auto src_key = lower_wstring(wsrc);
         if (wtgt.empty())
         {
-            state.aliases.erase(src_key);
-            if (auto exe_it = state.aliases_by_exe.find(exe_key); exe_it != state.aliases_by_exe.end())
-                exe_it->second.erase(src_key);
+            state.aliases.erase(wsrc);
+            if (auto exe_it = state.aliases_by_exe.find(wexe); exe_it != state.aliases_by_exe.end())
+                exe_it->second.erase(wsrc);
         }
         else
         {
-            state.aliases[src_key] = wtgt;
-            state.aliases_by_exe[std::move(exe_key)][std::move(src_key)] = std::move(wtgt);
+            state.aliases.insert_or_assign(wsrc, wtgt);
+            state.aliases_by_exe[std::move(wexe)].insert_or_assign(std::move(wsrc), std::move(wtgt));
         }
     }
 
@@ -2939,7 +2796,7 @@ inline bool api_l3_get_alias(miniio::io_msg &msg, console_state &state, screen_b
 
 // ── 0x14 GetAliasesLength ──
 inline bool api_l3_get_aliases_length(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                                      pipe_bridge &)
+                                      pipe_bridge &bridge)
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASESLENGTH_MSG))
     {
@@ -2950,38 +2807,42 @@ inline bool api_l3_get_aliases_length(miniio::io_msg &msg, console_state &state,
     auto *r = reinterpret_cast<CONSOLE_GETALIASESLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *db = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASESLENGTH_MSG);
     auto exe_len_bytes = message_input_tail_capacity(msg, sizeof(CONSOLE_GETALIASESLENGTH_MSG));
-    std::wstring exe_name;
+    std::wstring exe_name_storage;
+    std::wstring_view exe_name;
     if (r->Unicode)
     {
-        exe_name.assign(reinterpret_cast<const wchar_t *>(db), exe_len_bytes / sizeof(wchar_t));
+        exe_name = {reinterpret_cast<const wchar_t *>(db), exe_len_bytes / sizeof(wchar_t)};
     }
     else
     {
-        alias_ansi_to_wstring(reinterpret_cast<const char *>(db), exe_len_bytes, state.input_code_page, exe_name);
+        alias_ansi_to_wstring(reinterpret_cast<const char *>(db), exe_len_bytes, state.input_code_page,
+                              exe_name_storage);
+        exe_name = exe_name_storage;
     }
 
     const auto *aliases = &state.aliases;
-    auto exe_key = lower_wstring(exe_name);
-    if (auto exe_it = state.aliases_by_exe.find(exe_key); exe_it != state.aliases_by_exe.end())
+    if (auto exe_it = state.aliases_by_exe.find(exe_name); exe_it != state.aliases_by_exe.end())
         aliases = &exe_it->second;
 
     ULONG total = 0;
     if (r->Unicode)
     {
         // 原版导出格式是 source=target\0；AliasesLength 按字节返回。
-        for (const auto &[k, v] : *aliases)
-            total += static_cast<ULONG>((k.size() + 1 + v.size() + 1) * sizeof(wchar_t));
+        total = std::accumulate(aliases->begin(), aliases->end(), ULONG{0}, [](ULONG sum, const auto &alias) -> ULONG {
+            const auto &[k, v] = alias;
+            return sum + static_cast<ULONG>((k.size() + 1 + v.size() + 1) * sizeof(wchar_t));
+        });
     }
     else
     {
-        for (const auto &[k, v] : *aliases)
-        {
+        total = std::accumulate(aliases->begin(), aliases->end(), ULONG{0}, [&](ULONG sum, const auto &alias) -> ULONG {
+            const auto &[k, v] = alias;
             const auto k_len = alias_wstring_to_ansi_length(std::wstring_view{k.data(), k.size()},
                                                             state.input_code_page);
             const auto v_len = alias_wstring_to_ansi_length(std::wstring_view{v.data(), v.size()},
                                                             state.input_code_page);
-            total += static_cast<ULONG>(k_len + 1 + v_len + 1);
-        }
+            return sum + static_cast<ULONG>(k_len + 1 + v_len + 1);
+        });
     }
     r->AliasesLength = total;
     ucomplete_sz(msg, sizeof(CONSOLE_GETALIASESLENGTH_MSG));
@@ -2999,13 +2860,13 @@ inline bool api_l3_get_alias_exes_length(miniio::io_msg &msg, console_state &sta
     }
 
     auto *r = reinterpret_cast<CONSOLE_GETALIASEXESLENGTH_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    ULONG total = 0;
-    for (const auto &[exe, _] : state.aliases_by_exe)
-    {
+    const auto total = std::accumulate(state.aliases_by_exe.begin(), state.aliases_by_exe.end(), ULONG{0},
+                                       [&](ULONG sum, const auto &entry) -> ULONG {
+        const auto &[exe, _] = entry;
         auto len = r->Unicode ? exe.size()
                               : wstr_to_ansi_len(std::wstring_view{exe.data(), exe.size()}, state.input_code_page);
-        total += static_cast<ULONG>(len + 1) * (r->Unicode ? sizeof(wchar_t) : 1);
-    }
+        return sum + static_cast<ULONG>(len + 1) * (r->Unicode ? sizeof(wchar_t) : 1);
+    });
     r->AliasExesLength = total;
     ucomplete_sz(msg, sizeof(CONSOLE_GETALIASEXESLENGTH_MSG));
     return true;
@@ -3013,7 +2874,7 @@ inline bool api_l3_get_alias_exes_length(miniio::io_msg &msg, console_state &sta
 
 // ── 0x16 GetAliases ──
 inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                               pipe_bridge &)
+                               pipe_bridge &bridge)
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG))
     {
@@ -3024,15 +2885,19 @@ inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen
     auto *r = reinterpret_cast<CONSOLE_GETALIASES_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *db = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG);
     auto exe_len_bytes = message_input_tail_capacity(msg, sizeof(CONSOLE_GETALIASES_MSG));
-    std::wstring exe_name;
+    std::wstring exe_name_storage;
+    std::wstring_view exe_name;
     if (r->Unicode)
-        exe_name.assign(reinterpret_cast<const wchar_t *>(db), exe_len_bytes / sizeof(wchar_t));
+        exe_name = {reinterpret_cast<const wchar_t *>(db), exe_len_bytes / sizeof(wchar_t)};
     else
-        alias_ansi_to_wstring(reinterpret_cast<const char *>(db), exe_len_bytes, state.input_code_page, exe_name);
+    {
+        alias_ansi_to_wstring(reinterpret_cast<const char *>(db), exe_len_bytes, state.input_code_page,
+                              exe_name_storage);
+        exe_name = exe_name_storage;
+    }
 
     const auto *aliases = &state.aliases;
-    auto exe_key = lower_wstring(exe_name);
-    if (auto exe_it = state.aliases_by_exe.find(exe_key); exe_it != state.aliases_by_exe.end())
+    if (auto exe_it = state.aliases_by_exe.find(exe_name); exe_it != state.aliases_by_exe.end())
         aliases = &exe_it->second;
 
     ULONG written = 0;
@@ -3086,7 +2951,7 @@ inline bool api_l3_get_aliases(miniio::io_msg &msg, console_state &state, screen
 
 // ── 0x17 GetAliasExes ──
 inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                                  pipe_bridge &)
+                                  pipe_bridge &bridge)
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG))
     {
@@ -3117,14 +2982,14 @@ inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &state, scr
     {
         auto *out = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG));
         auto maxb = message_output_tail_capacity(msg, sizeof(CONSOLE_GETALIASEXES_MSG));
-        std::string converted;
+        auto &converted = bridge.conv_u8();
         for (const auto &[exe, _] : state.aliases_by_exe)
         {
             convert_wstr_to_ansi(exe, state.input_code_page, converted);
             auto need = converted.size() + 1;
             if (written + need > maxb)
                 break;
-            std::memcpy(out + written, converted.data(), converted.size());
+            std::memcpy(out + written, byte_data(converted), converted.size());
             written += static_cast<ULONG>(converted.size());
             out[written++] = '\0';
         }
@@ -3137,14 +3002,12 @@ inline bool api_l3_get_alias_exes(miniio::io_msg &msg, console_state &state, scr
 // ── 0x18 ExpungeCommandHistory ──
 inline size_t command_history_buffer_length(pipe_bridge &bridge, bool unicode, UINT code_page)
 {
-    size_t total = 0;
-    for (const auto &command : bridge.history_commands())
-    {
+    const auto total = std::accumulate(bridge.history_commands().begin(), bridge.history_commands().end(), size_t{0},
+                                       [&](size_t sum, const auto &command) {
         if (unicode)
-            total += u32_to_wide_exact_len(command) + 1;
-        else
-            total += u32_to_ansi_exact_len(command, code_page, bridge.conv_wstr()) + 1;
-    }
+            return sum + u32_to_wide_exact_len(command) + 1;
+        return sum + u32_to_ansi_exact_len(command, code_page, bridge.conv_wstr()) + 1;
+    });
     return total * (unicode ? sizeof(wchar_t) : 1);
 }
 

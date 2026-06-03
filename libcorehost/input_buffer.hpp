@@ -8,6 +8,7 @@
 #pragma once
 #include <windows.h>
 #include <algorithm>
+#include <span>
 #include "deque.hpp"
 
 namespace conpty
@@ -40,8 +41,7 @@ struct input_buffer
     {
         // 返回值可能小于 count，表示队列已满。
         const auto n = std::min(count, max_events - _events.size());
-        for (size_t i = 0; i < n; ++i)
-            _events.push_back(events[i]);
+        _events.append_range(std::span{events, n});
         if (n > 0 && input_available_event)
             // 只要写入了至少一条记录，等待 GetConsoleInput 的线程即可被唤醒。
             ::SetEvent(input_available_event);
@@ -51,8 +51,7 @@ struct input_buffer
     size_t prepend(const INPUT_RECORD *events, size_t count)
     {
         const auto n = std::min(count, max_events - _events.size());
-        for (size_t i = 0; i < n; ++i)
-            _events.push_front(events[n - 1 - i]);
+        _events.prepend_range(std::span{events, n});
         if (n > 0 && input_available_event)
             ::SetEvent(input_available_event);
         return n;
@@ -62,11 +61,8 @@ struct input_buffer
     {
         // 返回值为实际读出的记录数；0 表示当前没有输入事件。
         const auto n = std::min(max_count, _events.size());
-        for (size_t i = 0; i < n; ++i)
-        {
-            out[i] = _events.front();
-            _events.pop_front();
-        }
+        std::copy_n(_events.begin(), n, out);
+        _events.erase(_events.begin(), _events.begin() + static_cast<std::ptrdiff_t>(n));
         if (_events.empty() && input_available_event)
             // 事件必须反映读后的队列状态；否则调用方会在空队列上持续被唤醒。
             ::ResetEvent(input_available_event);
@@ -82,8 +78,7 @@ struct input_buffer
     {
         // peek 不移除队列元素；返回值与 read 一样是实际复制数量。
         const auto n = std::min(max_count, _events.size());
-        for (size_t i = 0; i < n; ++i)
-            out[i] = _events[i];
+        std::copy_n(_events.begin(), n, out);
         return n;
     }
 

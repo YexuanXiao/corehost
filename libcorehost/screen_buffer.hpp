@@ -9,7 +9,9 @@
 //    vt_msg_dispatch 负责。
 #pragma once
 #include <windows.h>
+#include <algorithm>
 #include <cstring>
+#include <ranges>
 #include <vector>
 #include "default_console_size.hpp"
 #include "console_viewport.hpp"
@@ -452,8 +454,7 @@ struct screen_buffer
     {
         // 0x07 是传统白前景/黑背景属性。
         _row_origin = 0;
-        for (auto &r : _rows)
-            r = screen_buffer_row(static_cast<uint16_t>(size.X), attr);
+        std::ranges::fill(_rows, screen_buffer_row(static_cast<uint16_t>(size.X), attr));
     }
 
     // ── scroll (纯 char32_t + WORD) ──
@@ -525,34 +526,34 @@ struct screen_buffer
             const auto count = std::min<int>(dy < 0 ? -static_cast<int>(dy) : static_cast<int>(dy), height);
             if (dy < 0)
             {
+                auto first = _rows.begin() + static_cast<std::ptrdiff_t>(sr.Top);
+                auto last = _rows.begin() + static_cast<std::ptrdiff_t>(sr.Bottom + 1);
                 if (count == 1)
                 {
-                    auto reusable = std::move(_rows[static_cast<size_t>(sr.Top)]);
-                    for (SHORT y = sr.Top; y < sr.Bottom; ++y)
-                        _rows[static_cast<size_t>(y)] = std::move(_rows[static_cast<size_t>(y + 1)]);
-                    _rows[static_cast<size_t>(sr.Bottom)] = std::move(reusable);
+                    auto reusable = std::move(*first);
+                    std::move(first + 1, last, first);
+                    *(last - 1) = std::move(reusable);
                 }
                 else
                 {
-                    for (SHORT y = sr.Top; y <= static_cast<SHORT>(sr.Bottom - count); ++y)
-                        _rows[static_cast<size_t>(y)] = std::move(_rows[static_cast<size_t>(y + count)]);
+                    std::move(first + count, last, first);
                 }
                 for (SHORT y = static_cast<SHORT>(sr.Bottom - count + 1); y <= sr.Bottom; ++y)
                     _fill_row(y, fill_char, fill_attr);
             }
             else
             {
+                auto first = _rows.begin() + static_cast<std::ptrdiff_t>(sr.Top);
+                auto last = _rows.begin() + static_cast<std::ptrdiff_t>(sr.Bottom + 1);
                 if (count == 1)
                 {
-                    auto reusable = std::move(_rows[static_cast<size_t>(sr.Bottom)]);
-                    for (SHORT y = sr.Bottom; y > sr.Top; --y)
-                        _rows[static_cast<size_t>(y)] = std::move(_rows[static_cast<size_t>(y - 1)]);
-                    _rows[static_cast<size_t>(sr.Top)] = std::move(reusable);
+                    auto reusable = std::move(*(last - 1));
+                    std::move_backward(first, last - 1, last);
+                    *first = std::move(reusable);
                 }
                 else
                 {
-                    for (SHORT y = sr.Bottom; y >= static_cast<SHORT>(sr.Top + count); --y)
-                        _rows[static_cast<size_t>(y)] = std::move(_rows[static_cast<size_t>(y - count)]);
+                    std::move_backward(first, last - count, last);
                 }
                 for (SHORT y = sr.Top; y < static_cast<SHORT>(sr.Top + count); ++y)
                     _fill_row(y, fill_char, fill_attr);
@@ -597,13 +598,13 @@ struct screen_buffer
 
         // saved 保存源区域内容，避免源/目标重叠时覆盖尚未复制的行。每个
         // saved row 使用完整缓冲区宽度，便于 copy_from 按列偏移写回。
-        std::vector<screen_buffer_row> saved(sh);
-        for (SHORT y = 0; y < sh; ++y)
-        {
+        _scroll_saved_rows.resize(static_cast<size_t>(sh));
+        std::ranges::for_each(std::views::iota(0, static_cast<int>(sh)), [&](int y) {
             auto &r = _rows[static_cast<size_t>(src.Top + y)];
-            saved[y] = screen_buffer_row(static_cast<uint16_t>(size.X), fill_attr);
-            saved[y].copy_from(r, static_cast<uint16_t>(src.Left), 0, static_cast<uint16_t>(sw));
-        }
+            auto &saved = _scroll_saved_rows[static_cast<size_t>(y)];
+            saved.reset_fill(static_cast<uint16_t>(size.X), U' ', text_attribute{fill_attr});
+            saved.copy_from(r, static_cast<uint16_t>(src.Left), 0, static_cast<uint16_t>(sw));
+        });
 
         SMALL_RECT fr = sr;
         // Win32 scroll 会用 fill 字符填充原源矩形与 clip 的交集，然后再写回
@@ -619,9 +620,11 @@ struct screen_buffer
         if (_rvalid(fr))
             _fill(fr, fill_char, fill_attr);
 
-        for (SHORT y = 0; y < sh; ++y)
-            _rows[static_cast<size_t>(dst.Top + y)].copy_from(saved[y], 0, static_cast<uint16_t>(dst.Left),
+        std::ranges::for_each(std::views::iota(0, static_cast<int>(sh)), [&](int y) {
+            _rows[static_cast<size_t>(dst.Top + y)].copy_from(_scroll_saved_rows[static_cast<size_t>(y)], 0,
+                                                              static_cast<uint16_t>(dst.Left),
                                                               static_cast<uint16_t>(sw));
+        });
     }
 
     // ── CHAR_INFO 行级转换 (仅 api_handlers 使用) ──
@@ -649,6 +652,7 @@ struct screen_buffer
   private:
     // _rows.size() 必须等于 size.Y，每行宽度必须等于 size.X。
     std::vector<screen_buffer_row> _rows;
+    std::vector<screen_buffer_row> _scroll_saved_rows;
     raw_u8_buffer _write_widths;
     size_t _row_origin = 0;
 

@@ -394,8 +394,11 @@ struct screen_buffer_row
 
         if (all_single_width)
         {
-            _text.assign(row_width, _fill_char);
-            std::copy(text.begin(), text.end(), _text.begin() + col);
+            _text.clear();
+            _text.reserve(row_width);
+            _text.append(col, _fill_char);
+            _text.append(text.data(), text.size());
+            _text.append(static_cast<size_t>(row_width - end_col), _fill_char);
             std::iota(_columns.begin(), _columns.end(), uint16_t{0});
         }
         else
@@ -406,8 +409,7 @@ struct screen_buffer_row
             _text.append(text.data(), text.size());
             _text.append(static_cast<size_t>(row_width - end_col), _fill_char);
 
-            for (uint16_t c = 0; c < col; ++c)
-                _columns[c] = c;
+            std::iota(_columns.begin(), _columns.begin() + col, uint16_t{0});
 
             uint16_t cell = col;
             uint16_t text_offset = col;
@@ -422,8 +424,7 @@ struct screen_buffer_row
             assert(cell == end_col);
 
             const auto suffix_offset = static_cast<uint16_t>(col + text.size());
-            for (uint16_t c = end_col; c <= row_width; ++c)
-                _columns[c] = static_cast<uint16_t>(suffix_offset + c - end_col);
+            std::iota(_columns.begin() + end_col, _columns.begin() + row_width + 1, suffix_offset);
         }
 
         _attrs_uniform = true;
@@ -464,8 +465,7 @@ struct screen_buffer_row
         assert(cell == end_col);
 
         const auto suffix_offset = static_cast<uint16_t>(col + text.size());
-        for (uint16_t c = end_col; c <= row_width; ++c)
-            _columns[c] = static_cast<uint16_t>(suffix_offset + c - end_col);
+        std::iota(_columns.begin() + end_col, _columns.begin() + row_width + 1, suffix_offset);
 
         write_attr_range(col, end_col, attr);
         _single_width_layout = false;

@@ -83,7 +83,8 @@ class command_history_state
             --_browse_index;
         }
 
-        selected_command = _commands[_browse_index];
+        selected_command.clear();
+        selected_command.append(_commands[_browse_index]);
         return true;
     }
 
@@ -95,11 +96,13 @@ class command_history_state
         if (_browse_index + 1 < _commands.size())
         {
             ++_browse_index;
-            selected_command = _commands[_browse_index];
+            selected_command.clear();
+            selected_command.append(_commands[_browse_index]);
         }
         else
         {
-            selected_command = std::move(_saved_input);
+            selected_command.clear();
+            selected_command.append(_saved_input);
             reset_browse();
         }
         return true;

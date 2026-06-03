@@ -2190,7 +2190,7 @@ bool test_regression_write_console_escape_sequence_without_vt_mode_updates_state
     return true;
 }
 
-bool test_regression_write_console_sgr_passthrough_updates_attributes()
+bool test_regression_write_console_parser_sgr_updates_attributes()
 {
     miniio::io_msg msg{};
     console_state st;
@@ -2199,6 +2199,30 @@ bool test_regression_write_console_sgr_passthrough_updates_attributes()
     pipe_bridge_testable bridge{inp, st, sb};
 
     constexpr char payload[] = "\x1b[31mX";
+    msg.descriptor.InputSize =
+        static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) + sizeof(payload) - 1);
+    auto *write = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    write->Unicode = FALSE;
+    std::memcpy(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG), payload,
+                sizeof(payload) - 1);
+
+    ASSERT(api_write_console(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(sb.at_u32({0, 0}) == U'X');
+    ASSERT((sb.attr_at({0, 0}) & 0x0F) == 1);
+    ASSERT((st.default_attributes & 0x0F) == 1);
+    return true;
+}
+
+bool test_regression_write_console_parser_sgr_applies_params_in_order()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
+
+    constexpr char payload[] = "\x1b[0;31mX";
     msg.descriptor.InputSize =
         static_cast<ULONG>(sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) + sizeof(payload) - 1);
     auto *write = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
@@ -2899,8 +2923,10 @@ int main()
              L"CREATE_OBJECT rejects malformed or unknown type");
     RUN_TEST(test_regression_write_console_escape_sequence_without_vt_mode_updates_state,
              L"WriteConsole escape sequence updates state without VT mode");
-    RUN_TEST(test_regression_write_console_sgr_passthrough_updates_attributes,
-             L"WriteConsole SGR passthrough updates attributes");
+    RUN_TEST(test_regression_write_console_parser_sgr_updates_attributes,
+             L"WriteConsole parser SGR updates attributes");
+    RUN_TEST(test_regression_write_console_parser_sgr_applies_params_in_order,
+             L"WriteConsole parser SGR applies params in order");
     RUN_TEST(test_regression_set_console_mode_validation, L"SetConsoleMode validation");
     RUN_TEST(test_regression_add_alias_msg_layout, L"Alias msg layout (Exe+Src+Tgt)");
     RUN_TEST(test_regression_add_alias_zero_exe, L"Alias msg zero exe");

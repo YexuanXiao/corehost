@@ -85,7 +85,6 @@ inline void apply_sgr_to_attributes(const vt_sgr_payload &sgr, WORD &attr) noexc
     if (sgr.has_reset())
     {
         reset_sgr_attributes(attr);
-        return;
     }
 
     if (sgr.fg.is_default())
@@ -393,7 +392,8 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
     // ── 标题 ──
     case vt_message_id::set_window_title:
         // msg.payload.title 是 parser 内部缓冲视图；状态层必须复制保存。
-        state.title.assign(msg.payload.title.data(), msg.payload.title.size());
+        state.title.clear();
+        state.title.append(msg.payload.title.data(), msg.payload.title.size());
         // original_title 由 api_set_title 首次设置时保存, 这里不处理
         break;
 

@@ -11,15 +11,11 @@ namespace conpty
 {
 
 template <typename T>
-inline constexpr bool raw_byte_allocator_value =
-    std::is_same_v<T, char8_t> || std::is_same_v<T, char16_t> || std::is_same_v<T, wchar_t> ||
-    std::is_same_v<T, char32_t>;
+inline constexpr bool raw_byte_allocator_value = std::is_trivially_constructible_v<T>;
 
 template <typename T>
 struct raw_byte_allocator
 {
-    static_assert(raw_byte_allocator_value<T>, "raw_byte_allocator is only for raw character buffers");
-
     using value_type = T;
     using size_type = std::size_t;
     using difference_type = std::ptrdiff_t;
@@ -31,7 +27,6 @@ struct raw_byte_allocator
     template <typename U>
     raw_byte_allocator(const raw_byte_allocator<U> &) noexcept
     {
-        static_assert(raw_byte_allocator_value<U>, "raw_byte_allocator is only for raw character buffers");
     }
 
     [[nodiscard]] T *allocate(std::size_t count)
@@ -52,22 +47,23 @@ struct raw_byte_allocator
     }
 
     template <typename U>
-    void construct(U *) noexcept
+    void construct(U *ptr) noexcept(std::is_nothrow_default_constructible_v<U>)
     {
-        static_assert(raw_byte_allocator_value<U>, "raw_byte_allocator is only for raw character buffers");
+        if constexpr (!raw_byte_allocator_value<U>)
+            std::construct_at(ptr);
     }
 
     template <typename U, typename... Args>
     void construct(U *ptr, Args &&...args) noexcept(noexcept(std::construct_at(ptr, std::forward<Args>(args)...)))
     {
-        static_assert(raw_byte_allocator_value<U>, "raw_byte_allocator is only for raw character buffers");
         std::construct_at(ptr, std::forward<Args>(args)...);
     }
 
     template <typename U>
-    void destroy(U *) noexcept
+    void destroy(U *ptr) noexcept
     {
-        static_assert(raw_byte_allocator_value<U>, "raw_byte_allocator is only for raw character buffers");
+        if constexpr (!raw_byte_allocator_value<U>)
+            std::destroy_at(ptr);
     }
 
     template <typename U>
@@ -84,17 +80,5 @@ using raw_u8_buffer = raw_byte_vector<char8_t>;
 using raw_u16_buffer = raw_byte_vector<char16_t>;
 using raw_wide_buffer = raw_byte_vector<wchar_t>;
 using raw_u32_buffer = raw_byte_vector<char32_t>;
-
-template <typename T, typename U>
-constexpr bool operator==(const raw_byte_allocator<T> &, const raw_byte_allocator<U> &) noexcept
-{
-    return true;
-}
-
-template <typename T, typename U>
-constexpr bool operator!=(const raw_byte_allocator<T> &, const raw_byte_allocator<U> &) noexcept
-{
-    return false;
-}
 
 } // namespace conpty

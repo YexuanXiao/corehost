@@ -16,6 +16,8 @@
 #include <vector>
 #include <algorithm>
 #include <array>
+#include <memory>
+#include <numeric>
 #include <optional>
 #include <libunicode/convert.h>
 #include "gbk_table.hpp"
@@ -308,20 +310,8 @@ constexpr bool gbk_is_trail(uint8_t byte) noexcept
 template <size_t N>
 inline const gbk_range *gbk_find_range(const std::array<gbk_range, N> &ranges, uint32_t key) noexcept
 {
-    size_t first = 0;
-    size_t last = ranges.size();
-    while (first < last)
-    {
-        const auto mid = first + (last - first) / 2;
-        const auto &range = ranges[mid];
-        if (key < range.first)
-            last = mid;
-        else if (key > range.last)
-            first = mid + 1;
-        else
-            return &range;
-    }
-    return nullptr;
+    const auto it = std::ranges::lower_bound(ranges, key, {}, &gbk_range::last);
+    return it != ranges.end() && key >= it->first ? std::addressof(*it) : nullptr;
 }
 
 inline char32_t gbk_decode_code(uint16_t code) noexcept
@@ -713,10 +703,22 @@ inline void convert_u32_to_ansi(std::u32string_view u32s, UINT cp, ByteBuffer &o
 
 inline size_t u32_to_wide_exact_len(std::u32string_view text) noexcept
 {
-    size_t length = 0;
-    for (char32_t cp : text)
-        length += cp > 0xFFFF ? 2 : 1;
-    return length;
+    return std::transform_reduce(text.begin(), text.end(), size_t{0}, std::plus<>{}, [](char32_t cp) {
+        return cp > 0xFFFF ? size_t{2} : size_t{1};
+    });
+}
+
+inline size_t u32_prefix_for_wide_units(std::u32string_view text, size_t max_units) noexcept
+{
+    size_t units = 0;
+    auto it = std::ranges::find_if(text, [&](char32_t cp) {
+        const auto next_units = cp > 0xFFFF ? size_t{2} : size_t{1};
+        if (units + next_units > max_units)
+            return true;
+        units += next_units;
+        return false;
+    });
+    return static_cast<size_t>(it - text.begin());
 }
 
 inline size_t convert_u32_to_wide_raw(std::u32string_view text, wchar_t *out, size_t out_cap) noexcept
@@ -736,10 +738,9 @@ inline size_t append_ascii_raw(char ch, char *out, size_t out_cap, size_t writte
 
 inline size_t u32_to_utf8_exact_len(std::u32string_view text) noexcept
 {
-    size_t bytes = 0;
-    for (const auto ch : text)
-        bytes += ch <= 0x7F ? 1 : (ch <= 0x7FF ? 2 : (ch <= 0xFFFF ? 3 : 4));
-    return bytes;
+    return std::transform_reduce(text.begin(), text.end(), size_t{0}, std::plus<>{}, [](char32_t ch) {
+        return ch <= 0x7F ? size_t{1} : (ch <= 0x7FF ? size_t{2} : (ch <= 0xFFFF ? size_t{3} : size_t{4}));
+    });
 }
 
 template <typename WideBuffer>
@@ -854,4 +855,3 @@ inline size_t convert_wide_to_ansi_raw(const wchar_t *s, size_t len, UINT cp, ch
 }
 
 } // namespace conpty
-

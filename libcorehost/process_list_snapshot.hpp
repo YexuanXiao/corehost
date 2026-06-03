@@ -28,8 +28,9 @@ class process_list_snapshot
     size_t copy_newest_first(DWORD *output, size_t capacity) const noexcept
     {
         const auto copy_count = std::min(_count, capacity);
-        for (size_t i = 0; i < copy_count; ++i)
-            output[i] = _processes[_count - 1 - i];
+        const auto first = _processes.begin() + static_cast<std::ptrdiff_t>(_count - copy_count);
+        const auto last = _processes.begin() + static_cast<std::ptrdiff_t>(_count);
+        std::reverse_copy(first, last, output);
         return copy_count;
     }
 

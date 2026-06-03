@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <flat_map>
 #include "default_console_size.hpp"
@@ -26,6 +27,26 @@ namespace conpty
 inline constexpr DWORD DEFAULT_INPUT_MODE =
     ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_MOUSE_INPUT;
 inline constexpr DWORD DEFAULT_OUTPUT_MODE = ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT;
+
+struct ascii_case_insensitive_less
+{
+    using is_transparent = void;
+
+    static wchar_t lower(wchar_t ch) noexcept
+    {
+        return ch >= L'A' && ch <= L'Z' ? static_cast<wchar_t>(ch - L'A' + L'a') : ch;
+    }
+
+    bool operator()(std::wstring_view lhs, std::wstring_view rhs) const noexcept
+    {
+        return std::lexicographical_compare(lhs.begin(), lhs.end(), rhs.begin(), rhs.end(),
+                                            [](wchar_t a, wchar_t b) {
+                                                return lower(a) < lower(b);
+                                            });
+    }
+};
+
+using alias_map = std::flat_map<std::wstring, std::wstring, ascii_case_insensitive_less>;
 
 struct cursor_state
 {
@@ -166,8 +187,8 @@ struct console_state
     // aliases 是当前行编辑器使用的扁平视图；aliases_by_exe 保留 Console API
     // 要求的 exe 分桶。AddAlias 同时维护两者，测试或旧路径直接填 aliases 时
     // GetAlias/GetAliases 仍会把它当作兼容回退。
-    std::flat_map<std::wstring, std::wstring> aliases;
-    std::flat_map<std::wstring, std::flat_map<std::wstring, std::wstring>> aliases_by_exe;
+    alias_map aliases;
+    std::flat_map<std::wstring, alias_map, ascii_case_insensitive_less> aliases_by_exe;
 
     // ── 文本测量模式 ──
     text_measurement_mode text_measurement = text_measurement_mode::console;
