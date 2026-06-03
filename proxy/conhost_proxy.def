@@ -1,0 +1,9 @@
+LIBRARY OpenConsoleProxy
+
+EXPORTS
+    DllCanUnloadNow PRIVATE
+    DllGetClassObject PRIVATE
+    DllRegisterServer PRIVATE
+    DllUnregisterServer PRIVATE
+    GetProxyDllInfo
+
