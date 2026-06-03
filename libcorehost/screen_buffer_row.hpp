@@ -248,7 +248,7 @@ struct screen_buffer_row
         }
 
         const auto count = static_cast<uint16_t>(text.size());
-        for (uint16_t i = 0; i < count; ++i)
+        for (uint16_t i = 0; i != count; ++i)
         {
             const auto cell = static_cast<uint16_t>(col + i);
             const auto next = static_cast<uint16_t>(cell + 1);
@@ -262,7 +262,7 @@ struct screen_buffer_row
                 return false;
         }
 
-        for (uint16_t i = 0; i < count; ++i)
+        for (uint16_t i = 0; i != count; ++i)
         {
             const auto cell = static_cast<uint16_t>(col + i);
             _text[col_offset(cell)] = text[i];
@@ -389,7 +389,7 @@ struct screen_buffer_row
             return false;
 
         uint16_t cell = col;
-        for (size_t i = 0; i < text.size(); ++i)
+        for (size_t i = 0; i != text.size(); ++i)
         {
             if (cell >= width() || is_trailing(cell) || col_offset(cell) != old_start + i)
                 return false;
@@ -449,7 +449,7 @@ struct screen_buffer_row
 
             uint16_t cell = col;
             uint16_t text_offset = col;
-            for (size_t i = 0; i < text.size(); ++i, ++text_offset)
+            for (size_t i = 0; i != text.size(); ++i, ++text_offset)
             {
                 const auto width_columns = static_cast<uint8_t>(widths[i]);
                 _columns[cell] = text_offset;
@@ -492,7 +492,7 @@ struct screen_buffer_row
 
         uint16_t cell = col;
         auto text_offset = col;
-        for (size_t i = 0; i < text.size(); ++i, ++text_offset)
+        for (size_t i = 0; i != text.size(); ++i, ++text_offset)
         {
             const auto width_columns = static_cast<uint8_t>(widths[i]);
             _columns[cell] = static_cast<uint16_t>(text_offset);
@@ -589,7 +589,7 @@ struct screen_buffer_row
 
         uint16_t cell = col;
         uint16_t text_offset = old_start;
-        for (size_t i = 0; i < text.size(); ++i, ++text_offset)
+        for (size_t i = 0; i != text.size(); ++i, ++text_offset)
         {
             const auto width_columns = static_cast<uint8_t>(widths[i]);
             _columns[cell] = text_offset;
@@ -654,7 +654,7 @@ struct screen_buffer_row
     void to_char_info(CHAR_INFO *out) const noexcept
     {
         uint16_t w = width();
-        for (uint16_t col = 0; col < w; ++col)
+        for (uint16_t col = 0; col != w; ++col)
         {
             // CHAR_INFO 只能容纳一个 UTF-16 code unit 和属性。内部多 codepoint
             // glyph 在 API 边界降级为首码点，非 BMP 使用 U+FFFD。

@@ -77,7 +77,7 @@ struct screen_buffer
 
         // 只复制新旧高度重叠的行；copy_from 自己按目标宽度截断列。
         SHORT copy_h = old_size.Y < new_size.Y ? old_size.Y : new_size.Y;
-        for (SHORT y = 0; y < copy_h; ++y)
+        for (SHORT y : std::views::iota(SHORT{0}, copy_h))
             _rows[y].copy_from(old_rows[y], 0, 0, static_cast<uint16_t>(old_size.X));
     }
 
@@ -291,9 +291,9 @@ struct screen_buffer
             const auto start_x = static_cast<ULONG>(x);
             const auto available = static_cast<ULONG>(size.X) - start_x;
             const auto n = count < available ? count : available;
-            for (ULONG i = 0; i < n; ++i)
+            for (ULONG i = 0; i != n; ++i)
                 rr.clear_cell(static_cast<uint16_t>(start_x + i));
-            for (ULONG i = 0; i < n; ++i)
+            for (ULONG i = 0; i != n; ++i)
                 rr.write_glyph(static_cast<uint16_t>(start_x + i), std::u32string_view{&cp, 1}, 1,
                                rr.attr_at(static_cast<uint16_t>(start_x + i)));
             r.length_read += n;
@@ -554,7 +554,7 @@ struct screen_buffer
             if (count == height)
             {
                 _row_origin = 0;
-                for (SHORT y = 0; y < size.Y; ++y)
+                for (SHORT y : std::views::iota(SHORT{0}, size.Y))
                     _fill_row(y, fill_char, fill_attr);
                 return;
             }
@@ -562,13 +562,13 @@ struct screen_buffer
             if (dy < 0)
             {
                 _row_origin = (_row_origin + count) % height;
-                for (SHORT y = static_cast<SHORT>(size.Y - count); y < size.Y; ++y)
+                for (SHORT y = static_cast<SHORT>(size.Y - count); y != size.Y; ++y)
                     _fill_row(y, fill_char, fill_attr);
             }
             else
             {
                 _row_origin = (_row_origin + height - count) % height;
-                for (SHORT y = 0; y < static_cast<SHORT>(count); ++y)
+                for (SHORT y : std::views::iota(SHORT{0}, static_cast<SHORT>(count)))
                     _fill_row(y, fill_char, fill_attr);
             }
             return;
@@ -611,7 +611,7 @@ struct screen_buffer
                 {
                     std::move_backward(first, last - count, last);
                 }
-                for (SHORT y = sr.Top; y < static_cast<SHORT>(sr.Top + count); ++y)
+                for (SHORT y = sr.Top; y != static_cast<SHORT>(sr.Top + count); ++y)
                     _fill_row(y, fill_char, fill_attr);
             }
             return;
@@ -733,8 +733,8 @@ struct screen_buffer
         _row_origin = 0;
         _rows.clear();
         _rows.reserve(static_cast<size_t>(size.Y));
-        for (SHORT y = 0; y < size.Y; ++y)
-            _rows.emplace_back(static_cast<uint16_t>(size.X));
+        std::ranges::for_each(std::views::iota(SHORT{0}, size.Y),
+                              [this](SHORT) { _rows.emplace_back(static_cast<uint16_t>(size.X)); });
     }
 
     // 将逻辑行号转换为 _rows 下标。y 必须是有效逻辑行；当 _rows 为空时

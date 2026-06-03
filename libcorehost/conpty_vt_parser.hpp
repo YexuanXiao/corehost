@@ -1583,7 +1583,7 @@ class vt_parser
         // SGR
         case U'm':
             m.payload.sgr = {};
-            for (size_t i = 0; i < _param_index; ++i)
+            for (size_t i = 0; i != _param_index; ++i)
             {
                 short v = _params[i];
                 if (v == 0)

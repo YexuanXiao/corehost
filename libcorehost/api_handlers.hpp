@@ -453,7 +453,7 @@ inline void apply_terminal_forward_tab(const vt_message &msg, console_state &sta
     const auto view = sb.viewport.rect();
     auto relative_x = terminal_relative_column(state, sb);
     const auto count = std::max<int>(1, msg.payload.count.value);
-    for (int i = 0; i < count; ++i)
+    for (int i = 0; i != count; ++i)
         relative_x = state.next_tab_stop(relative_x);
     state.cursor.position.X = std::clamp<SHORT>(static_cast<SHORT>(view.Left + relative_x), view.Left, view.Right);
 }
@@ -464,7 +464,7 @@ inline void apply_terminal_backward_tab(const vt_message &msg, console_state &st
     const auto view = sb.viewport.rect();
     auto relative_x = terminal_relative_column(state, sb);
     const auto count = std::max<int>(1, msg.payload.count.value);
-    for (int i = 0; i < count; ++i)
+    for (int i = 0; i != count; ++i)
         relative_x = state.prev_tab_stop(relative_x);
     state.cursor.position.X = std::clamp<SHORT>(static_cast<SHORT>(view.Left + relative_x), view.Left, view.Right);
 }
@@ -1537,7 +1537,7 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
 
                 fill_text.clear();
                 fill_text.reserve(n);
-                for (ULONG i = 0; i < n; ++i)
+                for (ULONG i = 0; i != n; ++i)
                     fill_text.push_back(sb.at_u32({static_cast<SHORT>(x + i), y}));
                 vt_message m_text{};
                 m_text.payload.text = u32_view(fill_text);
@@ -2147,7 +2147,7 @@ inline bool api_write_console_input(miniio::io_msg &msg, console_state &state, s
 
             wchar_t wide[2]{};
             const auto wide_count = ::MultiByteToWideChar(cp, 0, bytes, byte_count, wide, 2);
-            for (int j = 0; j < wide_count; ++j)
+            for (int j = 0; j != wide_count; ++j)
             {
                 rec.Event.KeyEvent.uChar.UnicodeChar = wide[j];
                 converted.push_back(rec);

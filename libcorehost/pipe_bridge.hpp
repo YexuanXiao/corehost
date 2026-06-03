@@ -2351,10 +2351,10 @@ struct pipe_bridge
         vt_append_str("t"sv);
         vt_append_str("\x1b[2J\x1b[H"sv);
         WORD last_attr = 0xFFFF;
-        for (SHORT y = 0; y < new_size.Y; ++y)
+        for (SHORT y = 0; y != new_size.Y; ++y)
         {
             vt_write_cup(y, 0);
-            for (SHORT x = 0; x < new_size.X; ++x)
+            for (SHORT x = 0; x != new_size.X; ++x)
             {
                 WORD attr = active_screen.attr_at({x, y});
                 if (attr != last_attr)
@@ -2395,7 +2395,7 @@ struct pipe_bridge
             LOG3_HEX("input", bytes, len);
         // _utf8_decoder 是流式状态机；多字节序列跨 ReadFile 边界时，前几次
         // 调用会产生 continuation，直到完整 codepoint 才交给 VT parser。
-        for (DWORD i = 0; i < len; ++i)
+        for (DWORD i = 0; i != len; ++i)
         {
             char8_t b = bytes[i];
             echo_raw_read_text_byte(b);
