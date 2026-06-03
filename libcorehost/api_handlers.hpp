@@ -7,6 +7,7 @@
 #include <cstring>
 #include <cwctype>
 #include <array>
+#include <span>
 #include <vector>
 #include "miniio/io_thread.hpp"
 #include "os/Console/conmsgl1.h"
@@ -266,6 +267,22 @@ inline void apply_terminal_line_feed(console_state &state, screen_buffer &sb)
 {
     COREHOST_PERF_SCOPE(apply_line_feed);
     const auto view = sb.viewport.rect();
+    if (state.scroll_region_top == 1 && state.scroll_region_bottom <= 0)
+    {
+        if (state.cursor.position.Y == view.Bottom)
+        {
+            sb.scroll(view, view, true, {view.Left, static_cast<SHORT>(view.Top - 1)}, U' ',
+                      state.default_attributes);
+            state.cursor.position.Y = view.Bottom;
+        }
+        else
+        {
+            state.cursor.position.Y = std::min<SHORT>(view.Bottom, static_cast<SHORT>(state.cursor.position.Y + 1));
+        }
+        state.cursor.position.X = view.Left;
+        return;
+    }
+
     const auto scroll_region = terminal_scroll_region(state, view);
     if (state.cursor.position.Y == scroll_region.Bottom && state.cursor.position.Y >= scroll_region.Top)
     {
@@ -441,8 +458,8 @@ inline void apply_terminal_scrolling_region(const vt_message &msg, console_state
     state.cursor.position = {view.Left, view.Top};
 }
 
-inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg, console_state &state,
-                                        screen_buffer &sb)
+template <vt_message_id id>
+inline void vt_msg_apply_terminal_state(const vt_message &msg, console_state &state, screen_buffer &sb)
 {
     const auto view = sb.viewport.rect();
     const auto origin = sb.viewport.origin();
@@ -541,20 +558,20 @@ inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg,
     case vt_message_id::cursor_vert_absolute: {
         auto adjusted = msg;
         adjusted.payload.position.row = static_cast<short>(msg.payload.position.row + origin.Y);
-        vt_msg_apply_state(id, adjusted, state, sb);
+        vt_msg_apply_state<id>(adjusted, state, sb);
         break;
     }
     case vt_message_id::cursor_horiz_absolute: {
         auto adjusted = msg;
         adjusted.payload.position.col = static_cast<short>(msg.payload.position.col + origin.X);
-        vt_msg_apply_state(id, adjusted, state, sb);
+        vt_msg_apply_state<id>(adjusted, state, sb);
         break;
     }
     case vt_message_id::cursor_position: {
         auto adjusted = msg;
         adjusted.payload.position.row = static_cast<short>(msg.payload.position.row + origin.Y);
         adjusted.payload.position.col = static_cast<short>(msg.payload.position.col + origin.X);
-        vt_msg_apply_state(id, adjusted, state, sb);
+        vt_msg_apply_state<id>(adjusted, state, sb);
         break;
     }
     case vt_message_id::erase_in_display:
@@ -567,7 +584,7 @@ inline void vt_msg_apply_terminal_state(vt_message_id id, const vt_message &msg,
         apply_terminal_scrolling_region(msg, state, sb);
         break;
     default:
-        vt_msg_apply_state(id, msg, state, sb);
+        vt_msg_apply_state<id>(msg, state, sb);
         break;
     }
 }
@@ -651,7 +668,7 @@ inline void consume_write_console_vt_message(vt_parser &parser, console_state &s
     }
 
     if constexpr (id != vt_message_id::sgr)
-        vt_msg_apply_terminal_state(id, msg, state, sb);
+        vt_msg_apply_terminal_state<id>(msg, state, sb);
     parser.reset<id>();
 }
 
@@ -931,18 +948,106 @@ inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parse
     }
 }
 
-[[nodiscard]] inline size_t simple_sgr_passthrough_length(std::u32string_view input) noexcept
+inline void apply_sgr_params_to_attributes(std::span<const short> params, WORD &attr) noexcept
+{
+    for (short value : params)
+    {
+        if (value == 0)
+        {
+            reset_sgr_attributes(attr);
+            return;
+        }
+    }
+
+    for (size_t i = 0; i < params.size(); ++i)
+    {
+        const short value = params[i];
+        if (value == 1)
+            set_sgr_flag(attr, COMMON_LVB_GRID_HORIZONTAL);
+        else if (value == 7)
+            set_sgr_flag(attr, COMMON_LVB_REVERSE_VIDEO);
+        else if (value == 22)
+        {
+            clear_sgr_flag(attr, COMMON_LVB_GRID_HORIZONTAL);
+        }
+        else if (value == 24)
+            clear_sgr_flag(attr, COMMON_LVB_UNDERSCORE);
+        else if (value == 27)
+            clear_sgr_flag(attr, COMMON_LVB_REVERSE_VIDEO);
+        else if (value == 4)
+            set_sgr_flag(attr, COMMON_LVB_UNDERSCORE);
+        else if (value >= 30 && value <= 37)
+            set_sgr_foreground_index(attr, static_cast<uint8_t>(value - 30));
+        else if (value == 38 && i + 1 < params.size())
+        {
+            if (params[i + 1] == 5 && i + 2 < params.size())
+            {
+                set_sgr_foreground_index(attr, static_cast<uint8_t>(params[i + 2]));
+                i += 2;
+            }
+            else if (params[i + 1] == 2 && i + 4 < params.size())
+            {
+                i += 4;
+            }
+        }
+        else if (value == 39)
+            set_sgr_foreground_default(attr);
+        else if (value >= 40 && value <= 47)
+            set_sgr_background_index(attr, static_cast<uint8_t>(value - 40));
+        else if (value == 48 && i + 1 < params.size())
+        {
+            if (params[i + 1] == 5 && i + 2 < params.size())
+            {
+                set_sgr_background_index(attr, static_cast<uint8_t>(params[i + 2]));
+                i += 2;
+            }
+            else if (params[i + 1] == 2 && i + 4 < params.size())
+            {
+                i += 4;
+            }
+        }
+        else if (value == 49)
+            set_sgr_background_default(attr);
+        else if (value >= 90 && value <= 97)
+            set_sgr_foreground_index(attr, static_cast<uint8_t>(value - 90 + 8));
+        else if (value >= 100 && value <= 107)
+            set_sgr_background_index(attr, static_cast<uint8_t>(value - 100 + 8));
+    }
+}
+
+[[nodiscard]] inline size_t parse_simple_sgr_passthrough(std::u32string_view input, WORD &attr) noexcept
 {
     if (input.size() < 3 || input[0] != U'\x1b' || input[1] != U'[')
         return 0;
 
-    for (size_t i = 2; i < input.size(); ++i)
+    std::array<short, 16> params{};
+    size_t param_count = 0;
+    short value = 0;
+
+    for (size_t pos = 2; pos < input.size(); ++pos)
     {
-        const char32_t ch = input[i];
-        if ((ch >= U'0' && ch <= U'9') || ch == U';')
+        const char32_t ch = input[pos];
+        if (ch >= U'0' && ch <= U'9')
+        {
+            value = static_cast<short>(value * 10 + (ch - U'0'));
             continue;
+        }
+        if (ch == U';')
+        {
+            if (param_count == params.size())
+                return 0;
+            params[param_count++] = value;
+            value = 0;
+            continue;
+        }
         if (ch == U'm')
-            return i + 1;
+        {
+            if (param_count == params.size())
+                return 0;
+            params[param_count++] = value;
+            apply_sgr_params_to_attributes(std::span<const short>{params.data(), param_count}, attr);
+            return pos + 1;
+        }
         return 0;
     }
     return 0;
@@ -1140,7 +1245,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                 m = vt_message{};
                 set_sgr_from_win32_attr(m, attr);
                 bridge.vt_msg_send<vt_message_id::sgr>(m);
-                vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
+                vt_msg_apply_state<vt_message_id::sgr>(m, state, sb);
             }
 
             const bool replay_utf8_to_terminal =
@@ -1195,7 +1300,8 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
 
                     if (input[i] == U'\x1b' && output_parser.has_pending_text())
                     {
-                        if (auto count = simple_sgr_passthrough_length(input.substr(i)); count != 0)
+                        WORD next_attr = state.default_attributes;
+                        if (auto count = parse_simple_sgr_passthrough(input.substr(i), next_attr); count != 0)
                         {
                             COREHOST_PERF_SCOPE(write_console_consume_msg);
                             (void)output_parser.flush_text();
@@ -1208,12 +1314,14 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                                 COREHOST_PERF_SCOPE_AMOUNT(write_console_sgr_passthrough, count);
                                 bridge.vt_append_raw_sequence(input.substr(i, count));
                             }
+                            state.default_attributes = next_attr;
                             i += count;
                             continue;
                         }
                     }
 
-                    if (auto count = simple_sgr_passthrough_length(input.substr(i)); count != 0)
+                    if (auto count = parse_simple_sgr_passthrough(input.substr(i), state.default_attributes);
+                        count != 0)
                     {
                         if (!replay_utf8_to_terminal)
                         {
@@ -1453,11 +1561,11 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
         vt_message erase_display{};
         erase_display.payload.erase_mode = 2;
         bridge.vt_msg_send<vt_message_id::erase_in_display>(erase_display);
-        vt_msg_apply_state(vt_message_id::erase_in_display, erase_display, state, sb);
+        vt_msg_apply_state<vt_message_id::erase_in_display>(erase_display, state, sb);
         vt_message erase_scrollback{};
         erase_scrollback.payload.erase_mode = 3;
         bridge.vt_msg_send<vt_message_id::erase_in_display>(erase_scrollback);
-        vt_msg_apply_state(vt_message_id::erase_in_display, erase_scrollback, state, sb);
+        vt_msg_apply_state<vt_message_id::erase_in_display>(erase_scrollback, state, sb);
         bridge.vt_flush();
     }
     else
@@ -1466,13 +1574,13 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
         // 本地 screen_buffer 已在上方 fill_* 完成。
         vt_message msg_save{};
         bridge.vt_msg_send<vt_message_id::save_cursor>(msg_save);
-        vt_msg_apply_state(vt_message_id::save_cursor, msg_save, state, sb);
+        vt_msg_apply_state<vt_message_id::save_cursor>(msg_save, state, sb);
 
         vt_message msg_cup{};
         msg_cup.payload.position.row = static_cast<short>(r->WriteCoord.Y + 1);
         msg_cup.payload.position.col = static_cast<short>(r->WriteCoord.X + 1);
         bridge.vt_msg_send<vt_message_id::cursor_position>(msg_cup);
-        vt_msg_apply_state(vt_message_id::cursor_position, msg_cup, state, sb);
+        vt_msg_apply_state<vt_message_id::cursor_position>(msg_cup, state, sb);
 
         if (r->ElementType == CONSOLE_ATTRIBUTE)
         {
@@ -1520,12 +1628,12 @@ inline bool api_fill_output(miniio::io_msg &msg, console_state &state, screen_bu
             vt_message m_text{};
             m_text.payload.text = u32_view(fill_text);
             bridge.vt_msg_send<vt_message_id::text>(m_text);
-            vt_msg_apply_state(vt_message_id::text, m_text, state, sb);
+            vt_msg_apply_state<vt_message_id::text>(m_text, state, sb);
         }
 
         vt_message msg_restore{};
         bridge.vt_msg_send<vt_message_id::restore_cursor>(msg_restore);
-        vt_msg_apply_state(vt_message_id::restore_cursor, msg_restore, state, sb);
+        vt_msg_apply_state<vt_message_id::restore_cursor>(msg_restore, state, sb);
         bridge.vt_flush();
     }
 
@@ -1621,10 +1729,15 @@ inline bool api_set_cursor(miniio::io_msg &msg, console_state &state, screen_buf
     state.cursor.visible = r->Visible != FALSE;
     vt_message m{};
     if (state.cursor.visible)
+    {
         bridge.vt_msg_send<vt_message_id::cursor_show>(m);
+        vt_msg_apply_state<vt_message_id::cursor_show>(m, state, sb);
+    }
     else
+    {
         bridge.vt_msg_send<vt_message_id::cursor_hide>(m);
-    vt_msg_apply_state(state.cursor.visible ? vt_message_id::cursor_show : vt_message_id::cursor_hide, m, state, sb);
+        vt_msg_apply_state<vt_message_id::cursor_hide>(m, state, sb);
+    }
     bridge.vt_flush();
     ucomplete(msg);
     return true;
@@ -1854,7 +1967,7 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
         m_region.payload.scroll_region.top = static_cast<short>(cr.Top + 1);
         m_region.payload.scroll_region.bottom = static_cast<short>(cr.Bottom + 1);
         bridge.vt_msg_send<vt_message_id::set_scrolling_region>(m_region);
-        vt_msg_apply_state(vt_message_id::set_scrolling_region, m_region, state, sb);
+        vt_msg_apply_state<vt_message_id::set_scrolling_region>(m_region, state, sb);
 
         vt_message m_cup{};
         m_cup.payload.position.row = static_cast<short>(sr.Bottom + 1);
@@ -1868,14 +1981,14 @@ inline bool api_scroll_sb(miniio::io_msg &msg, console_state &state, screen_buff
             vt_message m_il{};
             m_il.payload.count.value = -dy;
             bridge.vt_msg_send<vt_message_id::insert_lines>(m_il);
-            vt_msg_apply_state(vt_message_id::insert_lines, m_il, state, sb);
+            vt_msg_apply_state<vt_message_id::insert_lines>(m_il, state, sb);
         }
         else if (dy > 0)
         {
             vt_message m_dl{};
             m_dl.payload.count.value = dy;
             bridge.vt_msg_send<vt_message_id::delete_lines>(m_dl);
-            vt_msg_apply_state(vt_message_id::delete_lines, m_dl, state, sb);
+            vt_msg_apply_state<vt_message_id::delete_lines>(m_dl, state, sb);
         }
 
         vt_message m_reset{};
@@ -1914,7 +2027,7 @@ inline bool api_set_text_attr(miniio::io_msg &msg, console_state &state, screen_
     WORD attr = r->Attributes;
     set_sgr_from_win32_attr(m, attr);
     bridge.vt_msg_send<vt_message_id::sgr>(m);
-    vt_msg_apply_state(vt_message_id::sgr, m, state, sb);
+    vt_msg_apply_state<vt_message_id::sgr>(m, state, sb);
     bridge.vt_flush();
     ucomplete(msg);
     return true;

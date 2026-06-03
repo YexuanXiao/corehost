@@ -224,7 +224,7 @@ bool test_text_to_screen_buffer()
 
     vt_message msg{};
     msg.payload.text = U"Hello";
-    vt_msg_apply_state(vt_message_id::text, msg, state, sb);
+    vt_msg_apply_state<vt_message_id::text>(msg, state, sb);
 
     ASSERT(state.cursor.position.X == 5);
     ASSERT(sb.at_u32({0, 0}) == U'H');

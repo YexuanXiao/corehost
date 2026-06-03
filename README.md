@@ -58,11 +58,11 @@ Finally, corehost can be compiled directly as a static library. In static librar
 
 ### How to build
 
-1. Install the latest VS2026, C++ build tools v14.51 or later  
-2. Install CMake 4.3 or later  
-3. `git clone --recurse-submodules https://github.com/YexuanXiao/corehost`  
-4. `cmake -B build`  
-5. `cmake --build build --config Release`  
+1. Install the latest VS2026, C++ build tools v14.51 or later
+2. Install CMake 4.3 or later
+3. `git clone --recurse-submodules https://github.com/YexuanXiao/corehost`
+4. `cmake -B build`
+5. `cmake --build build --config Release`
 
 If you want maximum performance rather than helping with diagnostics, set the option `COREHOST_DISABLE_LOG` to `ON`.
 

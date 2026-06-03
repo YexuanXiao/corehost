@@ -6,7 +6,7 @@
 // 2. text、erase、scroll、insert/delete line 等消息更新 screen_buffer。
 // 3. 不可识别的控制序列由 vt_parser 以 unknown_sequence 交给调用方决策。
 //
-// vt_msg_apply_state(id, msg, state, sb):
+// vt_msg_apply_state<id>(msg, state, sb):
 //   将 vt_message 反映到控制台状态和屏幕缓冲区中。
 //   这是 "VT 消息双向驱动" 的一半——PTY 输出侧由 pipe_bridge::vt_msg_send() 负责。
 //
@@ -39,7 +39,89 @@
 namespace conpty
 {
 
-inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_state &state, screen_buffer &sb)
+inline void reset_sgr_attributes(WORD &attr) noexcept
+{
+    // 0x07 是传统白前景/黑背景属性。
+    attr = 0x07;
+}
+
+inline void set_sgr_foreground_default(WORD &attr) noexcept
+{
+    attr &= 0xFFF0;
+    attr |= 7;
+}
+
+inline void set_sgr_background_default(WORD &attr) noexcept
+{
+    // 保持既有语义：默认背景索引为 7，而不是传统黑色 0。
+    attr &= 0xFF0F;
+    attr |= (7 << 4);
+}
+
+inline void set_sgr_foreground_index(WORD &attr, uint8_t index) noexcept
+{
+    if (index <= 15)
+        attr = static_cast<WORD>((attr & 0xFFF0) | (index & 0x0F));
+}
+
+inline void set_sgr_background_index(WORD &attr, uint8_t index) noexcept
+{
+    if (index <= 15)
+        attr = static_cast<WORD>((attr & 0xFF0F) | ((index & 0x0F) << 4));
+}
+
+inline void set_sgr_flag(WORD &attr, WORD flag) noexcept
+{
+    attr |= flag;
+}
+
+inline void clear_sgr_flag(WORD &attr, WORD flag) noexcept
+{
+    attr &= static_cast<WORD>(~flag);
+}
+
+inline void apply_sgr_to_attributes(const vt_sgr_payload &sgr, WORD &attr) noexcept
+{
+    if (sgr.has_reset())
+    {
+        reset_sgr_attributes(attr);
+        return;
+    }
+
+    if (sgr.fg.is_default())
+    {
+        set_sgr_foreground_default(attr);
+    }
+    else if (sgr.fg.is_indexed() && sgr.fg.value <= 15)
+    {
+        set_sgr_foreground_index(attr, sgr.fg.value);
+    }
+
+    if (sgr.bg.is_default())
+    {
+        set_sgr_background_default(attr);
+    }
+    else if (sgr.bg.is_indexed() && sgr.bg.value <= 15)
+    {
+        set_sgr_background_index(attr, sgr.bg.value);
+    }
+
+    if (sgr.clears(vt_sgr_flag::bold))
+        clear_sgr_flag(attr, COMMON_LVB_GRID_HORIZONTAL);
+    if (sgr.clears(vt_sgr_flag::underline))
+        clear_sgr_flag(attr, COMMON_LVB_UNDERSCORE);
+    if (sgr.clears(vt_sgr_flag::negative))
+        clear_sgr_flag(attr, COMMON_LVB_REVERSE_VIDEO);
+    if (sgr.has(vt_sgr_flag::bold))
+        set_sgr_flag(attr, COMMON_LVB_GRID_HORIZONTAL);
+    if (sgr.has(vt_sgr_flag::underline))
+        set_sgr_flag(attr, COMMON_LVB_UNDERSCORE);
+    if (sgr.has(vt_sgr_flag::negative))
+        set_sgr_flag(attr, COMMON_LVB_REVERSE_VIDEO);
+}
+
+template <vt_message_id id>
+inline void vt_msg_apply_state(const vt_message &msg, console_state &state, screen_buffer &sb)
 {
     // 该函数只更新本地 Console 模型，不向宿主终端写 VT。需要实际显示变化的
     // 路径应同时调用 pipe_bridge 的 VT 输出接口。
@@ -139,60 +221,7 @@ inline void vt_msg_apply_state(vt_message_id id, const vt_message &msg, console_
 
     // ── SGR 属性 → state.default_attributes ──
     case vt_message_id::sgr: {
-        if (msg.payload.sgr.has_reset())
-        {
-            // 0x07 是传统白前景/黑背景属性。
-            state.default_attributes = 0x07;
-            break;
-        }
-
-        // attr 是 Win32 WORD 属性：低 4 位前景色，高 4 位背景色。
-        WORD &attr = state.default_attributes;
-
-        // 前景色
-        if (msg.payload.sgr.fg.is_default())
-        {
-            // 清除低 4 位后写入默认白色前景。
-            attr &= 0xFFF0; /* fg = 7 (white) */
-            attr |= 7;
-        }
-        else if (msg.payload.sgr.fg.is_rgb())
-        { /* 真彩色无法映射到 16 色, 忽略 */
-        }
-        else if (msg.payload.sgr.fg.is_indexed() && msg.payload.sgr.fg.value <= 15)
-        {
-            attr = static_cast<WORD>((attr & 0xFFF0) | (msg.payload.sgr.fg.value & 0x0F));
-        }
-
-        // 背景色
-        if (msg.payload.sgr.bg.is_default())
-        {
-            // 清除背景半字节后写入当前实现使用的默认背景索引。这里保持既有
-            // 语义：默认背景索引为 7，而不是传统黑色 0。
-            attr &= 0xFF0F;
-            attr |= (7 << 4);
-        }
-        else if (msg.payload.sgr.bg.is_rgb())
-        { /* 忽略 */
-        }
-        else if (msg.payload.sgr.bg.is_indexed() && msg.payload.sgr.bg.value <= 15)
-        {
-            attr = static_cast<WORD>((attr & 0xFF0F) | ((msg.payload.sgr.bg.value & 0x0F) << 4));
-        }
-
-        // 属性标志 (对标 COMMON_LVB_*)
-        if (msg.payload.sgr.clears(vt_sgr_flag::bold))
-            attr &= ~COMMON_LVB_GRID_HORIZONTAL;
-        if (msg.payload.sgr.clears(vt_sgr_flag::underline))
-            attr &= ~COMMON_LVB_UNDERSCORE;
-        if (msg.payload.sgr.clears(vt_sgr_flag::negative))
-            attr &= ~COMMON_LVB_REVERSE_VIDEO;
-        if (msg.payload.sgr.has(vt_sgr_flag::bold))
-            attr |= COMMON_LVB_GRID_HORIZONTAL; // 简化映射
-        if (msg.payload.sgr.has(vt_sgr_flag::underline))
-            attr |= COMMON_LVB_UNDERSCORE;
-        if (msg.payload.sgr.has(vt_sgr_flag::negative))
-            attr |= COMMON_LVB_REVERSE_VIDEO;
+        apply_sgr_to_attributes(msg.payload.sgr, state.default_attributes);
         break;
     }
 

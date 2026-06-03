@@ -31,12 +31,12 @@ void sim_wc_with_cup(console_state &st, screen_buffer &sb, std::u32string_view t
     vt_message m{};
     m.payload.position.row = st.cursor.position.Y + 1;
     m.payload.position.col = st.cursor.position.X + 1;
-    vt_msg_apply_state(vt_message_id::cursor_position, m, st, sb);
+    vt_msg_apply_state<vt_message_id::cursor_position>(m, st, sb);
 
     // Step 2: SGR
     m = vt_message{};
     m.payload.sgr.set(vt_sgr_flag::reset);
-    vt_msg_apply_state(vt_message_id::sgr, m, st, sb);
+    vt_msg_apply_state<vt_message_id::sgr>(m, st, sb);
 
     // Step 3: text split at \r \n
     m = vt_message{};
@@ -48,9 +48,9 @@ void sim_wc_with_cup(console_state &st, screen_buffer &sb, std::u32string_view t
             if (i > seg_start)
             {
                 m.payload.text = text.substr(seg_start, i - seg_start);
-                vt_msg_apply_state(vt_message_id::text, m, st, sb);
+                vt_msg_apply_state<vt_message_id::text>(m, st, sb);
             }
-            vt_msg_apply_state(vt_message_id::carriage_return, m, st, sb);
+            vt_msg_apply_state<vt_message_id::carriage_return>(m, st, sb);
             seg_start = i + 1;
         }
         else if (text[i] == U'\n')
@@ -58,23 +58,23 @@ void sim_wc_with_cup(console_state &st, screen_buffer &sb, std::u32string_view t
             if (i > seg_start)
             {
                 m.payload.text = text.substr(seg_start, i - seg_start);
-                vt_msg_apply_state(vt_message_id::text, m, st, sb);
+                vt_msg_apply_state<vt_message_id::text>(m, st, sb);
             }
-            vt_msg_apply_state(vt_message_id::line_feed, m, st, sb);
+            vt_msg_apply_state<vt_message_id::line_feed>(m, st, sb);
             seg_start = i + 1;
         }
     }
     if (seg_start < text.size())
     {
         m.payload.text = text.substr(seg_start);
-        vt_msg_apply_state(vt_message_id::text, m, st, sb);
+        vt_msg_apply_state<vt_message_id::text>(m, st, sb);
     }
 
     // Step 4: CUP to final position
     m = vt_message{};
     m.payload.position.row = st.cursor.position.Y + 1;
     m.payload.position.col = st.cursor.position.X + 1;
-    vt_msg_apply_state(vt_message_id::cursor_position, m, st, sb);
+    vt_msg_apply_state<vt_message_id::cursor_position>(m, st, sb);
 }
 
 // Bug scenario: PSReadLine writes history line after error output

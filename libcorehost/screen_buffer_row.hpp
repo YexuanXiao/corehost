@@ -27,6 +27,7 @@
 #include <string_view>
 #include <algorithm>
 #include <cassert>
+#include <numeric>
 #include "perf_diag.hpp"
 
 namespace conpty
@@ -114,12 +115,14 @@ struct screen_buffer_row
         // width() 做边界检查。
         if (_filled)
             return col <= width() ? col : 0;
+        if (_single_width_layout)
+            return col <= width() ? col : 0;
         return (col < _columns.size()) ? (_columns[col] & OFFSET_MASK) : 0;
     }
 
     bool is_trailing(uint16_t col) const noexcept
     {
-        if (_filled)
+        if (_filled || _single_width_layout)
             return false;
         return (col < _columns.size()) && (_columns[col] & TRAILING_FLAG);
     }
@@ -131,6 +134,8 @@ struct screen_buffer_row
             return {};
         if (_filled)
             return std::u32string_view{&_fill_char, 1};
+        if (_single_width_layout)
+            return col < _text.size() ? std::u32string_view{_text.data() + col, 1} : std::u32string_view{};
         uint16_t start = col_offset(col);
         // trailing 列与 leading 列共享 start。end_col 找到下一个非 trailing
         // 列或 past-the-end sentinel，以便得到完整 glyph 的 codepoint 范围。
@@ -150,6 +155,8 @@ struct screen_buffer_row
     {
         if (col >= width())
             return 0;
+        if (_filled || _single_width_layout)
+            return 1;
         if (is_trailing(col))
             return 0; // trailing half, width belongs to leading
         // 连续 trailing 列共享 leading 列偏移，计数即 glyph 宽度。
@@ -202,6 +209,14 @@ struct screen_buffer_row
         if (col >= width() || text.size() > static_cast<size_t>(width() - col))
             return false;
 
+        if (_single_width_layout)
+        {
+            assert(_text.size() == width());
+            std::copy(text.begin(), text.end(), _text.begin() + col);
+            write_attr_range(col, static_cast<uint16_t>(col + text.size()), attr);
+            return true;
+        }
+
         const auto count = static_cast<uint16_t>(text.size());
         for (uint16_t i = 0; i < count; ++i)
         {
@@ -237,6 +252,17 @@ struct screen_buffer_row
         if (col + width_columns > width())
             width_columns = width() - col;
         materialize_filled();
+
+        if (_single_width_layout && width_columns == 1 && text.size() == 1)
+        {
+            assert(_text.size() == width());
+            _text[col] = text[0];
+            write_attr_range(col, static_cast<uint16_t>(col + 1), attr);
+            return;
+        }
+
+        if (_single_width_layout)
+            materialize_columns_from_single_width_layout();
 
         if (width_columns == 1 && text.size() == 1 && !is_trailing(col))
         {
@@ -366,30 +392,39 @@ struct screen_buffer_row
         assert(all_single_width || text.size() == widths.size());
         COREHOST_PERF_SCOPE_AMOUNT(row_write_filled, text.size());
 
-        _text.clear();
-        _text.reserve(static_cast<size_t>(row_width) - total_columns + text.size());
-        _text.append(static_cast<size_t>(col), _fill_char);
-        _text.append(text.data(), text.size());
-        _text.append(static_cast<size_t>(row_width - end_col), _fill_char);
-
-        for (uint16_t c = 0; c < col; ++c)
-            _columns[c] = c;
-
-        uint16_t cell = col;
-        uint16_t text_offset = col;
-        for (size_t i = 0; i < text.size(); ++i, ++text_offset)
+        if (all_single_width)
         {
-            const auto width_columns = all_single_width ? uint8_t{1} : static_cast<uint8_t>(widths[i]);
-            _columns[cell] = text_offset;
-            for (uint8_t w = 1; w < width_columns; ++w)
-                _columns[static_cast<uint16_t>(cell + w)] = text_offset | TRAILING_FLAG;
-            cell = static_cast<uint16_t>(cell + width_columns);
+            _text.assign(row_width, _fill_char);
+            std::copy(text.begin(), text.end(), _text.begin() + col);
+            std::iota(_columns.begin(), _columns.end(), uint16_t{0});
         }
-        assert(cell == end_col);
+        else
+        {
+            _text.clear();
+            _text.reserve(static_cast<size_t>(row_width) - total_columns + text.size());
+            _text.append(static_cast<size_t>(col), _fill_char);
+            _text.append(text.data(), text.size());
+            _text.append(static_cast<size_t>(row_width - end_col), _fill_char);
 
-        const auto suffix_offset = static_cast<uint16_t>(col + text.size());
-        for (uint16_t c = end_col; c <= row_width; ++c)
-            _columns[c] = static_cast<uint16_t>(suffix_offset + c - end_col);
+            for (uint16_t c = 0; c < col; ++c)
+                _columns[c] = c;
+
+            uint16_t cell = col;
+            uint16_t text_offset = col;
+            for (size_t i = 0; i < text.size(); ++i, ++text_offset)
+            {
+                const auto width_columns = static_cast<uint8_t>(widths[i]);
+                _columns[cell] = text_offset;
+                for (uint8_t w = 1; w < width_columns; ++w)
+                    _columns[static_cast<uint16_t>(cell + w)] = text_offset | TRAILING_FLAG;
+                cell = static_cast<uint16_t>(cell + width_columns);
+            }
+            assert(cell == end_col);
+
+            const auto suffix_offset = static_cast<uint16_t>(col + text.size());
+            for (uint16_t c = end_col; c <= row_width; ++c)
+                _columns[c] = static_cast<uint16_t>(suffix_offset + c - end_col);
+        }
 
         _attrs_uniform = true;
         _uniform_attr = _fill_attr;
@@ -412,6 +447,7 @@ struct screen_buffer_row
         assert(_text.size() == row_width);
         COREHOST_PERF_SCOPE_AMOUNT(row_write_single_layout, text.size());
 
+        std::iota(_columns.begin(), _columns.end(), uint16_t{0});
         _text.replace(col, total_columns, text.data(), text.size());
 
         uint16_t cell = col;
@@ -455,18 +491,20 @@ struct screen_buffer_row
             COREHOST_PERF_SCOPE_AMOUNT(row_write_full_row, text.size());
             _filled = false;
             _text.assign(text.data(), text.size());
-            uint16_t cell = 0;
-            for (uint16_t text_offset = 0; text_offset < text.size(); ++text_offset)
+            if (!all_single_width)
             {
-                const auto width_columns =
-                    all_single_width ? uint8_t{1} : static_cast<uint8_t>(widths[text_offset]);
-                _columns[cell] = text_offset;
-                for (uint8_t w = 1; w < width_columns; ++w)
-                    _columns[static_cast<uint16_t>(cell + w)] = text_offset | TRAILING_FLAG;
-                cell = static_cast<uint16_t>(cell + width_columns);
+                uint16_t cell = 0;
+                for (uint16_t text_offset = 0; text_offset < text.size(); ++text_offset)
+                {
+                    const auto width_columns = static_cast<uint8_t>(widths[text_offset]);
+                    _columns[cell] = text_offset;
+                    for (uint8_t w = 1; w < width_columns; ++w)
+                        _columns[static_cast<uint16_t>(cell + w)] = text_offset | TRAILING_FLAG;
+                    cell = static_cast<uint16_t>(cell + width_columns);
+                }
+                assert(cell == width());
+                _columns[width()] = static_cast<uint16_t>(_text.size());
             }
-            assert(cell == width());
-            _columns[width()] = static_cast<uint16_t>(_text.size());
             _attrs_uniform = true;
             _uniform_attr = attr;
             _single_width_layout = all_single_width;
@@ -613,12 +651,20 @@ struct screen_buffer_row
 
         const auto row_width = width();
         _text.assign(row_width, _fill_char);
-        for (uint16_t i = 0; i <= row_width; ++i)
-            _columns[i] = i;
         _attrs_uniform = true;
         _uniform_attr = _fill_attr;
         _filled = false;
         _single_width_layout = true;
+    }
+
+    void materialize_columns_from_single_width_layout()
+    {
+        if (!_single_width_layout)
+            return;
+
+        assert(_text.size() == width());
+        std::iota(_columns.begin(), _columns.end(), uint16_t{0});
+        _single_width_layout = false;
     }
 
     void materialize_attrs()
@@ -652,24 +698,24 @@ struct screen_buffer_row
     // 清除 col 处 glyph 的 trailing 部分 (解除宽字符的后半列标记)
     void _unwrap_glyph(uint16_t col)
     {
-        // 如果 col 是 trailing 列，从当前位置向右清掉连续 trailing 标记。
-        // 这让后续 write_glyph 可以把 col 当作新的 leading 列。
         uint16_t w = width();
-        uint16_t scan = col;
-        while (scan < w && is_trailing(scan))
+        if (col >= w)
+            return;
+
+        if (is_trailing(col))
+        {
+            uint16_t scan = col;
+            while (scan < w && is_trailing(scan))
+            {
+                _columns[scan] &= OFFSET_MASK;
+                ++scan;
+            }
+            return;
+        }
+
+        for (uint16_t scan = static_cast<uint16_t>(col + 1); scan < w && is_trailing(scan); ++scan)
         {
             _columns[scan] &= OFFSET_MASK;
-            ++scan;
-        }
-        // 如果刚才从 trailing 区中间开始，scan 会停在旧 glyph 后的 leading。
-        // 继续清理该 leading 后面的 trailing，避免旧宽度关系残留。
-        if (scan < w && scan > col)
-        {
-            uint16_t end = scan;
-            while (end < w && is_trailing(end))
-                ++end;
-            for (uint16_t c = scan; c < end; ++c)
-                _columns[c] &= OFFSET_MASK;
         }
     }
 };

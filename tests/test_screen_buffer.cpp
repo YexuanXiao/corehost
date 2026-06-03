@@ -198,6 +198,74 @@ bool test_scroll_fill_uses_fill_char()
     return true;
 }
 
+bool test_scroll_fill_row_write_and_readback()
+{
+    screen_buffer sb({8, 2});
+    SMALL_RECT sr{0, 0, 7, 1};
+    sb.scroll(sr, sr, false, {0, -1}, U'.', 0x0A);
+
+    std::u32string text = U"abc";
+    COORD cursor{0, 1};
+    auto result = sb.write_text_row(cursor, text, 0x1E, text_measurement_mode::console, false);
+    ASSERT_EQ(result.consumed, text.size());
+    ASSERT(!result.row_end);
+    ASSERT_EQ(cursor.X, (SHORT)3);
+
+    wchar_t chars[8]{};
+    WORD attrs[8]{};
+    ASSERT_EQ(sb.read_wchars({0, 1}, chars, 8), (size_t)8);
+    ASSERT_EQ(sb.read_attrs({0, 1}, attrs, 8), (size_t)8);
+    ASSERT_EQ(chars[0], L'a');
+    ASSERT_EQ(chars[2], L'c');
+    ASSERT_EQ(chars[3], L'.');
+    ASSERT_EQ(attrs[0], (WORD)0x1E);
+    ASSERT_EQ(attrs[2], (WORD)0x1E);
+    ASSERT_EQ(attrs[3], (WORD)0x0A);
+
+    sb.set_attr({1, 1}, 0x2F);
+    ASSERT_EQ(sb.at_u32({0, 1}), U'a');
+    ASSERT_EQ(sb.at_u32({1, 1}), U'b');
+    ASSERT_EQ(sb.attr_at({0, 1}), (WORD)0x1E);
+    ASSERT_EQ(sb.attr_at({1, 1}), (WORD)0x2F);
+    ASSERT_EQ(sb.attr_at({3, 1}), (WORD)0x0A);
+    return true;
+}
+
+bool test_single_width_row_promotes_for_wide_glyph()
+{
+    screen_buffer sb({8, 2});
+    std::u32string text = U"abcdef";
+    COORD cursor{0, 0};
+    auto result = sb.write_text_row(cursor, text, 0x1E, text_measurement_mode::console, false);
+    ASSERT_EQ(result.consumed, text.size());
+    ASSERT_EQ(cursor.X, (SHORT)6);
+
+    sb.set_u32({2, 0}, U'你', 0x2F);
+    ASSERT_EQ(sb.at_u32({0, 0}), U'a');
+    ASSERT_EQ(sb.at_u32({2, 0}), U'你');
+    ASSERT_EQ(sb.glyph_width({2, 0}), 2);
+    ASSERT_EQ(sb.glyph_width({3, 0}), 0);
+    ASSERT_EQ(sb.at_u32({4, 0}), U'e');
+    ASSERT_EQ(sb.attr_at({2, 0}), (WORD)0x2F);
+    ASSERT_EQ(sb.attr_at({4, 0}), (WORD)0x1E);
+    return true;
+}
+
+bool test_fill_char_replaces_wide_glyph()
+{
+    screen_buffer sb({8, 2});
+    sb.set_u32({2, 0}, U'你', 0x2F);
+    auto res = sb.fill_char(U'X', {2, 0}, 2);
+    ASSERT_EQ(res.cells_modified, (ULONG)2);
+    ASSERT_EQ(sb.at_u32({2, 0}), U'X');
+    ASSERT_EQ(sb.glyph_width({2, 0}), 1);
+    ASSERT_EQ(sb.at_u32({3, 0}), U'X');
+    ASSERT_EQ(sb.glyph_width({3, 0}), 1);
+    ASSERT_EQ(sb.attr_at({2, 0}), (WORD)0x07);
+    ASSERT_EQ(sb.attr_at({3, 0}), (WORD)0x07);
+    return true;
+}
+
 // ==================================================================
 // Clear
 // ==================================================================
@@ -306,6 +374,9 @@ int main()
     RUN_TEST(test_scroll_down, L"scroll down");
     RUN_TEST(test_scroll_noop, L"scroll noop");
     RUN_TEST(test_scroll_fill_uses_fill_char, L"scroll fill char");
+    RUN_TEST(test_scroll_fill_row_write_and_readback, L"scroll fill row write/readback");
+    RUN_TEST(test_single_width_row_promotes_for_wide_glyph, L"single-width row promotes for wide glyph");
+    RUN_TEST(test_fill_char_replaces_wide_glyph, L"fill char replaces wide glyph");
 
     RUN_TEST(test_clear, L"clear");
     RUN_TEST(test_clear_cell, L"clear_cell");
