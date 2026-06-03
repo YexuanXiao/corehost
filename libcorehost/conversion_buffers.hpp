@@ -2,9 +2,9 @@
 #include <windows.h>
 #include <array>
 #include <vector>
-#include "utility/raw_byte_allocator.hpp"
+#include "raw_byte_allocator.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 class conversion_buffers
@@ -49,4 +49,4 @@ class conversion_buffers
     std::vector<INPUT_RECORD> _input_records;
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

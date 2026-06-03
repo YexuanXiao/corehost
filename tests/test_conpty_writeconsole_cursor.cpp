@@ -14,7 +14,7 @@
 #include "screen_buffer.hpp"
 #include <cstdio>
 
-using namespace conpty;
+using namespace corehost::conpty;
 
 // Simulate the PSReadLine history recall flow:
 //   state.cursor is at (65, 13) [SetCursorPos by PSReadLine]

@@ -3,7 +3,7 @@
 #include "pipe_bridge.hpp"
 #include "screen_buffer.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 // 将当前 active screen buffer 的可见 viewport 完整重绘到终端。
@@ -41,4 +41,4 @@ inline void render_visible_viewport(console_state &state, screen_buffer &sb, pip
     bridge.vt_flush();
 }
 
-} // namespace conpty
+} // namespace corehost::conpty

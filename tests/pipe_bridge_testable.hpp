@@ -1,7 +1,7 @@
 #pragma once
 #include "pipe_bridge.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 class pipe_bridge_testable : public pipe_bridge
@@ -209,4 +209,4 @@ class pipe_bridge_testable : public pipe_bridge
     }
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

@@ -21,7 +21,7 @@
 #endif
 #include "text_measurement_mode.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 // ── console 模式: 简化 CJK/全角判断 ──────────────────
@@ -270,4 +270,4 @@ inline int text_width_for_mode(std::u32string_view text, text_measurement_mode m
     }
 }
 
-} // namespace conpty
+} // namespace corehost::conpty

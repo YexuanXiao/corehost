@@ -9,7 +9,7 @@
 #include <string>
 #include "vt_parser.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 struct vt_input_engine
@@ -146,4 +146,4 @@ struct vt_input_engine
     }
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

@@ -6,7 +6,7 @@
 //   graphemes — libunicode::grapheme_cluster_width() (grapheme 分割 + emoji VS16/VS15)
 #pragma once
 
-namespace conpty
+namespace corehost::conpty
 {
 
 enum class text_measurement_mode
@@ -22,4 +22,4 @@ enum class text_measurement_mode
     wcswidth
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

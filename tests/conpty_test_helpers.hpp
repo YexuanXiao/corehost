@@ -12,7 +12,7 @@
 #include <cstring>
 #include "libconpty/winconpty.h"
 
-namespace conpty_test
+namespace corehost::test
 {
 
 // RAII ConPTY instance
@@ -173,4 +173,4 @@ inline void drain_output(HANDLE hOutput)
     }
 }
 
-} // namespace conpty_test
+} // namespace corehost::test

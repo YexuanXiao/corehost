@@ -27,7 +27,7 @@
 #include "utility/log.hpp"
 #include "ntapi/consolenslmode.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 inline constexpr LONG status_invalid_parameter = 0xC000000D;
@@ -3381,4 +3381,4 @@ inline bool api_l3_deprecated(miniio::io_msg &msg, console_state &, screen_buffe
     return true;
 }
 
-} // namespace conpty
+} // namespace corehost::conpty

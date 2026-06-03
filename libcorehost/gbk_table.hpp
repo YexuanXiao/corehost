@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace conpty
+namespace corehost::conpty
 {
 
 inline constexpr char32_t gbk_invalid_codepoint = static_cast<char32_t>(0xFFFFFFFFu);
@@ -5227,4 +5227,4 @@ inline constexpr std::array<gbk_range, 10407> gbk_encode_ranges{{
     {0xFFE3, 0xFFE3, 0xA3FE}, {0xFFE4, 0xFFE4, 0xA957}, {0xFFE5, 0xFFE5, 0xA3A4},
 }};
 
-} // namespace conpty
+} // namespace corehost::conpty

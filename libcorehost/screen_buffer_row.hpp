@@ -30,7 +30,7 @@
 #include <numeric>
 #include "perf_diag.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 // ── TextAttribute (对标原始 TextAttribute, 简化版) ──
@@ -780,4 +780,4 @@ struct screen_buffer_row
     }
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

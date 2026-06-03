@@ -19,7 +19,7 @@
 #include "win32/event.hpp"
 #include "win32/handle.hpp"
 
-namespace defterm
+namespace corehost::defterm
 {
 
 // ── 信号线程参数 ────────────────────────────────────────────
@@ -40,4 +40,4 @@ struct signal_thread_params
 // param 指向 signal_thread_params，函数接管其所有权。
 DWORD WINAPI signal_thread_proc(LPVOID param);
 
-} // namespace defterm
+} // namespace corehost::defterm

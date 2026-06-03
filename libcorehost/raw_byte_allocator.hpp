@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-namespace conpty
+namespace corehost::conpty
 {
 
 template <typename T>
@@ -81,4 +81,4 @@ using raw_u16_buffer = raw_byte_vector<char16_t>;
 using raw_wide_buffer = raw_byte_vector<wchar_t>;
 using raw_u32_buffer = raw_byte_vector<char32_t>;
 
-} // namespace conpty
+} // namespace corehost::conpty

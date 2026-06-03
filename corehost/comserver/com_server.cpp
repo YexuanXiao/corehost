@@ -25,7 +25,7 @@
 #include "utility/log.hpp"
 #include "mutex"
 
-namespace comserver
+namespace corehost::comserver
 {
 
 // 从 COM 便携连接消息填充 io_msg 描述符（供 accept_connection 和 read_input 使用）。
@@ -138,8 +138,8 @@ void create_terminal_pty(REFCLSID terminal_clsid, win32::handle_view signal_writ
     // 或 CreateProcess lpStartupInfo 中显式给出的值。dwFlags 当前只声明字符
     // 列/行数有效，不支持窗口位置、像素尺寸、填充属性和快捷方式图标。
     TERMINAL_STARTUP_INFO startup{.pszTitle = title.get(),
-                                  .dwXCountChars = static_cast<DWORD>(conpty::default_console_size.X),
-                                  .dwYCountChars = static_cast<DWORD>(conpty::default_console_size.Y),
+                                  .dwXCountChars = static_cast<DWORD>(corehost::conpty::default_console_size.X),
+                                  .dwYCountChars = static_cast<DWORD>(corehost::conpty::default_console_size.Y),
                                   .dwFlags = STARTF_USECOUNTCHARS,
                                   .wShowWindow = show_window};
 
@@ -401,4 +401,4 @@ handoff_result com_server_entry()
     return result;
 }
 
-} // namespace comserver
+} // namespace corehost::comserver

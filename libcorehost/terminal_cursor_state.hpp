@@ -2,7 +2,7 @@
 #include <windows.h>
 #include <cstddef>
 
-namespace conpty
+namespace corehost::conpty
 {
 
 class terminal_cursor_state
@@ -253,4 +253,4 @@ class terminal_cursor_state
     SHORT _input_column_end = 0;
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

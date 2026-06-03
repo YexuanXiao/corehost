@@ -10,7 +10,7 @@
 #include "win32/event.hpp"
 #include "win32/handle.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 enum class PtySignal
@@ -55,4 +55,4 @@ struct pty_signal_thread_params
 // 指针所有权，并在退出时通过 shutdown_event 唤醒主 I/O 循环。
 DWORD WINAPI pty_signal_thread_proc(LPVOID param);
 
-} // namespace conpty
+} // namespace corehost::conpty

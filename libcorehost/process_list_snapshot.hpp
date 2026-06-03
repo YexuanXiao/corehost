@@ -5,7 +5,7 @@
 #include <cstring>
 #include <span>
 
-namespace conpty
+namespace corehost::conpty
 {
 
 class process_list_snapshot
@@ -46,4 +46,4 @@ class process_list_snapshot
     size_t _count = 0;
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

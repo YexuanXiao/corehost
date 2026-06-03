@@ -19,9 +19,9 @@
 #include "char_convert.hpp"
 #include "char_width.hpp"
 #include "perf_diag.hpp"
-#include "utility/raw_byte_allocator.hpp"
+#include "raw_byte_allocator.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 struct screen_buffer
@@ -808,4 +808,4 @@ struct screen_buffer
     }
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

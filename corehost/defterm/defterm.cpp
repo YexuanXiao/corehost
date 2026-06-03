@@ -16,7 +16,7 @@
 #include "win32/handle.hpp"
 #include "win32/wait.hpp"
 
-namespace defterm
+namespace corehost::defterm
 {
 
 enum class initial_connect_completion
@@ -312,18 +312,19 @@ void defterm_entry(std::uintptr_t condrv_handle)
 
     // config 只描述本次 conpty 会话的策略，不拥有任何句柄。width/height 为
     // 0 时 run_conpty_session 使用 default_console_size。
-    conpty::conpty_session_config config;
+    corehost::conpty::conpty_session_config config;
     config.width = handler.width;
     config.height = handler.height;
-    config.text_measurement = conpty::text_measurement_mode::graphemes;
+    config.text_measurement = corehost::conpty::text_measurement_mode::graphemes;
     config.ambiguous_is_wide = true;
     config.poll_vt_input = vt_in_keepalive.valid();
     config.attached_process_id = handler.attached_process_id;
 
     LOG("starting conpty session: size=%dx%d attachedPid=%lu pollVtInput=%d", config.width, config.height,
         config.attached_process_id, config.poll_vt_input);
-    conpty::run_conpty_session(std::move(server), win32::handle{input_event.release()}, std::move(handler.condrv_input),
-                               std::move(handler.condrv_output), std::move(vt_in), std::move(vt_out), {}, config);
+    corehost::conpty::run_conpty_session(std::move(server), win32::handle{input_event.release()},
+                                         std::move(handler.condrv_input), std::move(handler.condrv_output),
+                                         std::move(vt_in), std::move(vt_out), {}, config);
 }
 
-} // namespace defterm
+} // namespace corehost::defterm

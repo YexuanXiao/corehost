@@ -1,4 +1,4 @@
-﻿// ── comserver/com_server.hpp ──────────────────────────────
+// ── comserver/com_server.hpp ──────────────────────────────
 // -Embedding COM 服务器: 接收 inbox conhost 的控制台会话移交。
 // 仅暴露 handoff_result 和 com_server_entry()。
 
@@ -8,7 +8,7 @@
 #include "ITerminalHandoff.h"
 #include "default_console_size.hpp"
 
-namespace comserver
+namespace corehost::comserver
 {
 
 // ── handoff_result ────────────────────────────────────────
@@ -35,10 +35,10 @@ struct handoff_result
     win32::handle condrv_input;
     win32::handle condrv_output;
 
-    // 0 不合法；默认值来自 conpty::default_console_size。WT handoff 当前只
+    // 0 不合法；默认值来自 corehost::conpty::default_console_size。WT handoff 当前只
     // 支持字符尺寸，不支持像素尺寸。
-    short width = conpty::default_console_size.X;
-    short height = conpty::default_console_size.Y;
+    short width = corehost::conpty::default_console_size.X;
+    short height = corehost::conpty::default_console_size.Y;
 };
 
 // ── com_server_entry ──────────────────────────────────────
@@ -46,4 +46,4 @@ struct handoff_result
 // 表示没有成功移交；非空句柄的所有权属于调用方。
 [[nodiscard]] handoff_result com_server_entry();
 
-} // namespace comserver
+} // namespace corehost::comserver

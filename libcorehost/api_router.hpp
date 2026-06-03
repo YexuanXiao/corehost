@@ -17,7 +17,7 @@
 #include "viewport_render.hpp"
 #include "utility/log.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 struct api_router
@@ -525,4 +525,4 @@ struct api_router
     }
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

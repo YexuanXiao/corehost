@@ -19,7 +19,7 @@
 #include "ntapi/condrv.hpp"
 #include "utility/log.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 struct io_state
@@ -244,4 +244,4 @@ struct io_state
     }
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

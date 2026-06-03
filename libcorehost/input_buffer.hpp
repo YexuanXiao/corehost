@@ -11,7 +11,7 @@
 #include <span>
 #include "deque.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 struct input_buffer
@@ -122,4 +122,4 @@ struct input_buffer
     bizwen::deque<INPUT_RECORD> _events;
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

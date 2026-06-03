@@ -45,7 +45,7 @@
 #include "utility/log.hpp"
 #include "deque.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 using namespace std::literals;
 
@@ -3056,4 +3056,4 @@ struct pipe_bridge
     }
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

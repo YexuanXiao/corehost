@@ -7,7 +7,7 @@
 
 int main()
 {
-    using namespace conpty;
+    using namespace corehost::conpty;
 
     // ── Part 1: 单字符宽度验证──
     std::cout << "=== Part 1: Single Char Width ===" << std::endl;

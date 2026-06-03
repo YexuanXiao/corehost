@@ -14,7 +14,7 @@
 #include "api_router.hpp"
 #include "utility/log.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 struct message_router
@@ -244,4 +244,4 @@ struct message_router
     }
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

@@ -106,7 +106,7 @@ inline read_io_result read_io_try(win32::handle_view server, CD_IO_COMPLETE *pre
 // ── read_exact ────────────────────────────────────────────
 // 从管道读取精确字节数。区别于 ReadFile 的"尽量读"语义，
 // 这里要求恰好 s 字节，否则返回 false（管道断开或数据不足）。
-// defterm::signal_thread_proc 和 conpty::pty_signal_thread_proc 共用。
+// corehost::defterm::signal_thread_proc 和 corehost::conpty::pty_signal_thread_proc 共用。
 inline bool read_exact(win32::handle_view p, void *b, DWORD s)
 {
     return win32::read_exact(p, std::span{static_cast<std::byte *>(b), s});

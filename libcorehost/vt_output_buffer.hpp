@@ -10,9 +10,9 @@
 #include "char_convert.hpp"
 #include "perf_diag.hpp"
 #include "utility/log.hpp"
-#include "utility/raw_byte_allocator.hpp"
+#include "raw_byte_allocator.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 class vt_output_buffer
@@ -159,4 +159,4 @@ class vt_output_buffer
     std::vector<char8_t, raw_byte_allocator<char8_t>> _buffer;
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

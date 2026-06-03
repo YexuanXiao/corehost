@@ -8,7 +8,7 @@
 #include "screen_buffer.hpp"
 #include <cstdio>
 
-using namespace conpty;
+using namespace corehost::conpty;
 
 void dump_sb(screen_buffer &sb, int rows)
 {

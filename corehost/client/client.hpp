@@ -16,7 +16,7 @@
 #include "win32/error.hpp"
 #include "win32/process_information.hpp"
 
-namespace client
+namespace corehost::client
 {
 
 inline void client_entry(std::wstring title, std::wstring client_command_line)
@@ -32,4 +32,4 @@ inline void client_entry(std::wstring title, std::wstring client_command_line)
         win32::throw_last_error();
 }
 
-} // namespace client
+} // namespace corehost::client

@@ -20,7 +20,7 @@
 #include "utility/log.hpp"
 #include "win32/wait.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 inline constexpr DWORD io_loop_idle_wait_ms = 16;
@@ -240,4 +240,4 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
     LOG("run_io_loop_no_setup: exit");
 }
 
-} // namespace conpty
+} // namespace corehost::conpty

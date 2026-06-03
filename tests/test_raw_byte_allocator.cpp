@@ -1,4 +1,4 @@
-#include "utility/raw_byte_allocator.hpp"
+#include "raw_byte_allocator.hpp"
 
 #include <vector>
 
@@ -12,7 +12,7 @@
 template <typename T>
 bool preserves_existing_values_after_resize()
 {
-    std::vector<T, conpty::raw_byte_allocator<T>> values;
+    std::vector<T, corehost::conpty::raw_byte_allocator<T>> values;
     values.reserve(2);
     values.push_back(static_cast<T>(1));
     values.push_back(static_cast<T>(2));

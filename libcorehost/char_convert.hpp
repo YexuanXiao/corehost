@@ -24,9 +24,9 @@
 #ifdef COREHOST_ANSI_OPT
 #include "gbk_table.hpp"
 #endif
-#include "utility/raw_byte_allocator.hpp"
+#include "raw_byte_allocator.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 // 返回缓冲区的窄字节视图起点；仅用于把 char8_t/vector 缓冲交给 byte API。
@@ -954,4 +954,4 @@ inline size_t convert_wide_to_ansi_raw(const wchar_t *s, size_t len, UINT cp, ch
     return 0;
 }
 
-} // namespace conpty
+} // namespace corehost::conpty

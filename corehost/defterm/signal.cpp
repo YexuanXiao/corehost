@@ -10,7 +10,7 @@
 #include "utility/log.hpp"
 #include "win32/io.hpp"
 
-namespace defterm
+namespace corehost::defterm
 {
 
 static_assert(sizeof(CONSOLENOTIFYAPPDATA) == 8);
@@ -112,4 +112,4 @@ DWORD WINAPI signal_thread_proc(LPVOID param)
     }
 }
 
-} // namespace defterm
+} // namespace corehost::defterm

@@ -9,7 +9,7 @@
 #include "utility/log.hpp"
 #include "win32/handle.hpp"
 
-namespace defterm
+namespace corehost::defterm
 {
 
 // NTSTATUS: STATUS_UNSUCCESSFUL。最小控制台 I/O 不实现完整 Console API，
@@ -94,4 +94,4 @@ inline void dispatch_console(win32::handle_view server, miniio::io_msg &msg, win
     }
 }
 
-} // namespace defterm
+} // namespace corehost::defterm

@@ -9,9 +9,9 @@
 #include "screen_buffer.hpp"
 #include "vt_msg_dispatch.hpp"
 
-using namespace conpty;
-using conpty::test::parse_one;
-using conpty::test::reset_test_vt_parser_message;
+using namespace corehost::conpty;
+using corehost::conpty::test::parse_one;
+using corehost::conpty::test::reset_test_vt_parser_message;
 
 struct input_collector
 {
@@ -261,13 +261,13 @@ bool test_unicode_through_parser()
 struct test_bridge_stub
 {
     raw_u32_buffer parser_raw;
-    conpty::vt_parser parser{parser_raw};
+    corehost::conpty::vt_parser parser{parser_raw};
     std::vector<INPUT_RECORD> events;
 
     // Simulate process_input for a Win32Input byte sequence
     void feed_win32(const BYTE *bytes, DWORD len)
     {
-        conpty::utf8_stream_decoder dec;
+        corehost::conpty::utf8_stream_decoder dec;
         for (DWORD i = 0; i < len; ++i)
         {
             BYTE b = bytes[i];

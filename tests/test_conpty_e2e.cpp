@@ -1,10 +1,10 @@
-﻿// === tests/test_conpty_e2e.cpp ===
+// === tests/test_conpty_e2e.cpp ===
 // ConPTY E2E test. Verifies creation, VT processing, isolation.
 // NOTE: Text echo requires a ConDrv ReadConsole client.
 #include "test_common.hpp"
 #include "conpty_test_helpers.hpp"
 #include <cstdio>
-using namespace conpty_test;
+using namespace corehost::test;
 
 bool test_create()
 {

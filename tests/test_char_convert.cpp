@@ -9,7 +9,7 @@
 #include <string_view>
 #include <vector>
 
-using namespace conpty;
+using namespace corehost::conpty;
 
 // ═══════════════════════════════════════════════════════
 // UTF-16 → UTF-32 (convert_utf16_to_u32)

@@ -36,7 +36,7 @@
 #include "char_width.hpp"
 #include "perf_diag.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 // 重置 Win32 属性到传统默认值；用于 SGR 0。
@@ -475,4 +475,4 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
     }
 }
 
-} // namespace conpty
+} // namespace corehost::conpty

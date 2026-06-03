@@ -5,7 +5,7 @@
 #include "test_common.hpp"
 #include "console_state.hpp"
 
-using namespace conpty;
+using namespace corehost::conpty;
 
 // ═══════════════════════════════════════════════════════
 // 光标操作

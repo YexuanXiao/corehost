@@ -15,10 +15,10 @@
 #include <string_view>
 #include <vector>
 
-using namespace conpty;
-using conpty::test::is_parse_continue;
-using conpty::test::parse_one;
-using conpty::test::reset_test_vt_parser_message;
+using namespace corehost::conpty;
+using corehost::conpty::test::is_parse_continue;
+using corehost::conpty::test::parse_one;
+using corehost::conpty::test::reset_test_vt_parser_message;
 
 struct expected_sequence
 {

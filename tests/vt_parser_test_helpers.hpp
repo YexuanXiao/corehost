@@ -2,7 +2,7 @@
 
 #include "vt_parser.hpp"
 
-namespace conpty::test
+namespace corehost::conpty::test
 {
 
 inline vt_parse_result parse_one(vt_parser &parser, char32_t ch)
@@ -132,4 +132,4 @@ inline void reset_test_vt_parser_message(vt_parser &parser, vt_message_id id)
     }
 }
 
-} // namespace conpty::test
+} // namespace corehost::conpty::test

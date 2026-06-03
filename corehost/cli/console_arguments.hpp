@@ -8,7 +8,7 @@
 #include <string>
 #include <algorithm>
 
-namespace console
+namespace corehost::cli
 {
 
 enum class parse_error : int
@@ -176,7 +176,7 @@ class console_arguments
             //   "console" 传统 conhost 规则测量宽度
             if (token == text_measurement_arg)
             {
-                using enum conpty::text_measurement_mode;
+                using enum corehost::conpty::text_measurement_mode;
                 if (parser.done())
                     throw parse_error::missing_text_measurement_value;
                 const auto value = parser.next();
@@ -234,7 +234,7 @@ class console_arguments
     {
         return _original_command_line;
     }
-    [[nodiscard]] conpty::text_measurement_mode text_measurement() const noexcept
+    [[nodiscard]] corehost::conpty::text_measurement_mode text_measurement() const noexcept
     {
         return _text_measurement;
     }
@@ -311,7 +311,7 @@ class console_arguments
     win32::wcstring_view _client_command_line;
     win32::wcstring_view _original_command_line;
 
-    conpty::text_measurement_mode _text_measurement{};
+    corehost::conpty::text_measurement_mode _text_measurement{};
 
     bool _force_no_handoff = false;
     bool _force_v1 = false;
@@ -328,4 +328,4 @@ class console_arguments
     uintptr_t _signal_handle = 0;
 };
 
-} // namespace console
+} // namespace corehost::cli

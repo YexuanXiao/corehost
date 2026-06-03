@@ -2,7 +2,7 @@
 #include <windows.h>
 #include "miniio/io_thread.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 enum class PendingKind
@@ -134,4 +134,4 @@ class pending_io_state
     bool _process_control_z = false;
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

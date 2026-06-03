@@ -4,7 +4,7 @@
 
 #pragma once
 
-namespace conpty
+namespace corehost::conpty
 {
 
 enum class connect_completion
@@ -17,4 +17,4 @@ enum class connect_completion
     inline_complete,
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

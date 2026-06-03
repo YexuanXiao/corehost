@@ -19,7 +19,7 @@
 #include "win32/thread.hpp"
 #include "win32/wait.hpp"
 
-namespace defterm
+namespace corehost::defterm
 {
 
 [[nodiscard]] inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const miniio::io_msg &msg) noexcept
@@ -155,4 +155,4 @@ namespace defterm
     return false;
 }
 
-} // namespace defterm
+} // namespace corehost::defterm

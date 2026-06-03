@@ -8,7 +8,7 @@
 #include "win32/handle.hpp"
 #include "win32/process.hpp"
 
-namespace defterm
+namespace corehost::defterm
 {
 
 [[nodiscard]] inline bool is_interactive_user_session() noexcept
@@ -116,4 +116,4 @@ namespace defterm
     return win32::query_full_process_image_name(process);
 }
 
-} // namespace defterm
+} // namespace corehost::defterm

@@ -9,7 +9,7 @@
 #include "win32/io.hpp"
 #include "win32/wait.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 enum class vt_pipe_read_status
@@ -227,4 +227,4 @@ class pipe_bridge_io
     win32::handle_view _shutdown_event;
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

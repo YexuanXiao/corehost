@@ -5,7 +5,7 @@
 #include "win32/error.hpp"
 #include "win32/handle.hpp"
 
-namespace defterm
+namespace corehost::defterm
 {
 
 inline win32::handle valid_std_handle(DWORD std_handle_id) noexcept
@@ -50,4 +50,4 @@ inline void initialize_vt_handles(win32::handle &input, win32::handle &output, w
     }
 }
 
-} // namespace defterm
+} // namespace corehost::defterm

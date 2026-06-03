@@ -5,7 +5,7 @@
 #include "screen_buffer.hpp"
 #include <cstring>
 
-using namespace conpty;
+using namespace corehost::conpty;
 
 // ==================================================================
 // Basic read/write

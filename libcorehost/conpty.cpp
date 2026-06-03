@@ -25,7 +25,7 @@
 #include "utility/log.hpp"
 #include "default_console_size.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 // 把 io_state 中的连接进程列表同步到 bridge 的 API 可见快照。io_state 是
@@ -41,7 +41,8 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
 {
     // 此日志记录会话的外部输入：ConDrv server/event、VT 管道、信号管道和
     // config。后续代码只在本函数内展开这些输入，不再重新查询环境。
-    LOG("conpty::run_conpty_session: s=%p vi=%p vo=%p ev=%p w=%d h=%d sig=%p ambi=%d pollVt=%d attachedPid=%lu",
+    LOG("corehost::conpty::run_conpty_session: s=%p vi=%p vo=%p ev=%p w=%d h=%d sig=%p ambi=%d pollVt=%d "
+        "attachedPid=%lu",
         server.get(), vt_in.get(), vt_out.get(), event.get(), config.width, config.height, signal_pipe.get(),
         config.ambiguous_is_wide, config.poll_vt_input, config.attached_process_id);
 
@@ -140,7 +141,8 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
         auto tp = std::make_unique<pty_signal_thread_params>(std::move(signal_pipe), std::move(signal_thread_event),
                                                              state, sbuf);
         sig_thread = win32::basic_thread{pty_signal_thread_proc, tp.release()};
-        LOG("conpty::run_conpty_session: signal thread started shutdownEvent=%p", signal_shutdown_event.get());
+        LOG("corehost::conpty::run_conpty_session: signal thread started shutdownEvent=%p",
+            signal_shutdown_event.get());
     }
 
     win32::event vt_input_poll_event;
@@ -164,7 +166,7 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
         // 应答前就开始处理依赖光标位置的输出。
         bridge.vt_write_dsr_cpr();
         bridge.vt_flush();
-        LOG("conpty::run_conpty_session: inherit_cursor DSR CPR sent");
+        LOG("corehost::conpty::run_conpty_session: inherit_cursor DSR CPR sent");
     }
 
     // ── 初始 VT 握手：通知终端进入 Win32 Input Mode ──
@@ -173,7 +175,7 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
     // 9001 是 Windows Terminal 的 Win32 Input Mode 私有模式号。
     bridge.vt_append_str("\x1b[?9001h"sv);
     bridge.vt_flush();
-    LOG("conpty::run_conpty_session: sent Win32Input init sequence");
+    LOG("corehost::conpty::run_conpty_session: sent Win32Input init sequence");
 
     if (config.attached_process_id != 0)
     {
@@ -186,16 +188,16 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
     // ── 进入 I/O 循环 ──
     // router 持有所有分派入口；run_io_loop_no_setup 只负责 READ_IO 时序、
     // completion 提交和 pending 等待。
-    LOG("conpty::run_conpty_session: entering io loop");
-    conpty::run_io_loop_no_setup(server.view(), event.view(), router);
-    LOG("conpty::run_conpty_session: loop returned");
+    LOG("corehost::conpty::run_conpty_session: entering io loop");
+    corehost::conpty::run_io_loop_no_setup(server.view(), event.view(), router);
+    LOG("corehost::conpty::run_conpty_session: loop returned");
 }
 
 void conpty_entry(win32::handle server, win32::handle event, win32::handle condrv_input, win32::handle condrv_output,
                   win32::handle vt_in, win32::handle vt_out, win32::handle signal_pipe, short width, short height,
                   bool inherit_cursor, text_measurement_mode text_measurement, bool ambiguous_is_wide)
 {
-    LOG("conpty::conpty_entry: s=%p vi=%p vo=%p ev=%p w=%d h=%d sig=%p ambi=%d", server.get(), vt_in.get(),
+    LOG("corehost::conpty::conpty_entry: s=%p vi=%p vo=%p ev=%p w=%d h=%d sig=%p ambi=%d", server.get(), vt_in.get(),
         vt_out.get(), event.get(), width, height, signal_pipe.get(), ambiguous_is_wide);
 
     // conpty_entry 是旧入口形态：会话策略以独立标量传入，实际执行路径只接受
@@ -223,4 +225,4 @@ void conpty_entry(win32::handle server, win32::handle event, win32::handle condr
                        std::move(vt_in), std::move(vt_out), std::move(signal_pipe), config);
 }
 
-} // namespace conpty
+} // namespace corehost::conpty

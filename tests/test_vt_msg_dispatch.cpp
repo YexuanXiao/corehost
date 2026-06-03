@@ -7,7 +7,7 @@
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
 
-using namespace conpty;
+using namespace corehost::conpty;
 
 // ==================================================================
 // Helper: create default state + sb

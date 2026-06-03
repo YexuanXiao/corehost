@@ -21,7 +21,7 @@
 #include "default_console_size.hpp"
 #include "text_measurement_mode.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 inline constexpr DWORD DEFAULT_INPUT_MODE =
@@ -360,4 +360,4 @@ struct console_state
     }
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

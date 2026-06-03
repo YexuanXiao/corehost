@@ -10,7 +10,7 @@
 #include <cstring>
 #include <string>
 
-namespace conpty::perf_diag
+namespace corehost::conpty::perf_diag
 {
 
 enum class counter_id : size_t
@@ -184,23 +184,23 @@ inline void ensure_registered() noexcept
     (void)registered;
 }
 
-} // namespace conpty::perf_diag
+} // namespace corehost::conpty::perf_diag
 
 #define COREHOST_PERF_TOKEN2(prefix, line) prefix##line
 #define COREHOST_PERF_TOKEN(prefix, line) COREHOST_PERF_TOKEN2(prefix, line)
 
 #define COREHOST_PERF_SCOPE(name)                                                                                      \
-    ::conpty::perf_diag::ensure_registered();                                                                          \
-    ::conpty::perf_diag::scope COREHOST_PERF_TOKEN(perf_scope_, __LINE__)                                              \
+    ::corehost::conpty::perf_diag::ensure_registered();                                                                \
+    ::corehost::conpty::perf_diag::scope COREHOST_PERF_TOKEN(perf_scope_, __LINE__)                                    \
     {                                                                                                                  \
-        ::conpty::perf_diag::counter_id::name                                                                          \
+        ::corehost::conpty::perf_diag::counter_id::name                                                                \
     }
 
 #define COREHOST_PERF_SCOPE_AMOUNT(name, amount_value)                                                                 \
-    ::conpty::perf_diag::ensure_registered();                                                                          \
-    ::conpty::perf_diag::scope COREHOST_PERF_TOKEN(perf_scope_, __LINE__)                                              \
+    ::corehost::conpty::perf_diag::ensure_registered();                                                                \
+    ::corehost::conpty::perf_diag::scope COREHOST_PERF_TOKEN(perf_scope_, __LINE__)                                    \
     {                                                                                                                  \
-        ::conpty::perf_diag::counter_id::name, static_cast<unsigned long long>(amount_value)                           \
+        ::corehost::conpty::perf_diag::counter_id::name, static_cast<unsigned long long>(amount_value)                 \
     }
 
 #else

@@ -13,7 +13,7 @@
 #include <span>
 #include <vector>
 
-using namespace conpty;
+using namespace corehost::conpty;
 
 struct pipe_bridge_test_context
 {

@@ -5,7 +5,7 @@
 #include <utility>
 #include <vector>
 
-namespace conpty
+namespace corehost::conpty
 {
 
 class command_history_state
@@ -141,4 +141,4 @@ class command_history_state
     std::u32string _saved_input;
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

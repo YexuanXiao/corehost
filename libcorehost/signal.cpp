@@ -9,7 +9,7 @@
 #include <memory>
 #include <mutex>
 
-namespace conpty
+namespace corehost::conpty
 {
 
 // PtySignal 线程实现入口。线程接管 param 所指向的 pty_signal_thread_params，
@@ -88,4 +88,4 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
     return 0;
 }
 
-} // namespace conpty
+} // namespace corehost::conpty

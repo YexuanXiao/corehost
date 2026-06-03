@@ -48,9 +48,9 @@
 #include <string_view>
 #include <array>
 #include <vector>
-#include "utility/raw_byte_allocator.hpp"
+#include "raw_byte_allocator.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 // ── vt_message_id ────────────────────────────────────
@@ -1686,4 +1686,4 @@ class vt_parser
     }
 };
 
-} // namespace conpty
+} // namespace corehost::conpty

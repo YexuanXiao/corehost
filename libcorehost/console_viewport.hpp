@@ -3,7 +3,7 @@
 #include <algorithm>
 #include "default_console_size.hpp"
 
-namespace conpty
+namespace corehost::conpty
 {
 
 class console_viewport
@@ -164,4 +164,4 @@ class console_viewport
     }
 };
 
-} // namespace conpty
+} // namespace corehost::conpty
