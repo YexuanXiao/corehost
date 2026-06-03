@@ -1,0 +1,9 @@
+.cache
+.vscode
+build
+contour
+terminal
+simdutf
+build-perf
+build-nolog
+build-ansi-opt
