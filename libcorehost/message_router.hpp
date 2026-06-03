@@ -165,7 +165,7 @@ struct message_router
         // label 标识 completion 的来源；msg.complete 是 corehost 回给 ConDrv
         // 的结果，io_loop 可能同步提交，也可能由 bridge 显式 COMPLETE_IO。
         LOG2("%hs id=%08lx:%08lx status=0x%08lx information=%llu", label, msg.descriptor.Identifier.HighPart,
-             msg.descriptor.Identifier.LowPart, msg.complete.Status, msg.complete.Information);
+             msg.descriptor.Identifier.LowPart, msg.complete.IoStatus.Status, msg.complete.IoStatus.Information);
     }
 
     // 按 descriptor.Function 选择 io_state、pipe_bridge 或 api_router 处理消息。

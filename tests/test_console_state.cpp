@@ -255,6 +255,32 @@ void mock_get_console_input_msg(miniio::io_msg &msg, USHORT flags)
     input->Unicode = TRUE;
 }
 
+CONSOLE_GETCONSOLEINPUT_MSG *get_console_input_completion(miniio::io_msg &msg)
+{
+    return reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.complete.Write.Data);
+}
+
+INPUT_RECORD *get_console_input_completion_records(miniio::io_msg &msg)
+{
+    return reinterpret_cast<INPUT_RECORD *>(static_cast<BYTE *>(msg.complete.Write.Data) +
+                                            sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+}
+
+std::u32string read_key_down_chars(input_buffer &inp)
+{
+    std::u32string chars;
+    INPUT_RECORD record{};
+    while (inp.read(&record, 1) == 1)
+    {
+        if (record.EventType == KEY_EVENT && record.Event.KeyEvent.bKeyDown &&
+            record.Event.KeyEvent.uChar.UnicodeChar != 0)
+        {
+            chars.push_back(static_cast<char32_t>(record.Event.KeyEvent.uChar.UnicodeChar));
+        }
+    }
+    return chars;
+}
+
 // 辅助: 构造模拟 ConDrv AddAlias 消息 (Unicode)
 void mock_add_alias_msg(miniio::io_msg &msg, const std::wstring &exe, const std::wstring &src, const std::wstring &tgt)
 {
@@ -306,7 +332,7 @@ bool test_regression_get_console_input_nowait_empty()
     mock_get_console_input_msg(msg, CONSOLE_READ_NOWAIT);
     ASSERT(api_get_console_input(msg, st, sb, inp, bridge));
 
-    auto *input = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *input = get_console_input_completion(msg);
     ASSERT(input->NumRecords == 0);
     return true;
 }
@@ -343,7 +369,7 @@ bool test_regression_get_console_input_ready_event()
     mock_get_console_input_msg(msg, 0);
     ASSERT(api_get_console_input(msg, st, sb, inp, bridge));
 
-    auto *input = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *input = get_console_input_completion(msg);
     ASSERT(input->NumRecords == 1);
     return true;
 }
@@ -367,9 +393,8 @@ bool test_regression_get_console_input_output_size_excludes_header()
     msg.descriptor.OutputSize = sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + sizeof(INPUT_RECORD);
     ASSERT(api_get_console_input(msg, st, sb, inp, bridge));
 
-    auto *input = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    auto *out =
-        reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+    auto *input = get_console_input_completion(msg);
+    auto *out = get_console_input_completion_records(msg);
     ASSERT(input->NumRecords == 1);
     ASSERT(out->EventType == KEY_EVENT);
     ASSERT(out->Event.KeyEvent.uChar.UnicodeChar == L'e');
@@ -395,9 +420,64 @@ bool test_regression_get_console_input_output_size_without_record()
     msg.descriptor.OutputSize = sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
     ASSERT(api_get_console_input(msg, st, sb, inp, bridge));
 
-    auto *input = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *input = get_console_input_completion(msg);
     ASSERT(input->NumRecords == 0);
     ASSERT(inp.available() == 1);
+    return true;
+}
+
+bool test_regression_get_console_input_uses_completion_buffer_for_large_output()
+{
+    miniio::io_msg msg;
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
+
+    constexpr size_t record_count = 256;
+    INPUT_RECORD rec{};
+    rec.EventType = KEY_EVENT;
+    rec.Event.KeyEvent.bKeyDown = TRUE;
+    rec.Event.KeyEvent.wVirtualKeyCode = L'A';
+    for (size_t i = 0; i != record_count; ++i)
+    {
+        rec.Event.KeyEvent.uChar.UnicodeChar = static_cast<WCHAR>(L'A' + (i % 26));
+        inp.write(&rec, 1);
+    }
+
+    mock_get_console_input_msg(msg, 0);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + record_count * sizeof(INPUT_RECORD);
+    ASSERT(api_get_console_input(msg, st, sb, inp, bridge));
+
+    auto *input = get_console_input_completion(msg);
+    auto *out = get_console_input_completion_records(msg);
+    ASSERT(input->NumRecords == record_count);
+    ASSERT(msg.complete.Write.Size == sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + record_count * sizeof(INPUT_RECORD));
+    ASSERT(msg.complete.Write.Data != msg.body + sizeof(CONSOLE_MSG_HEADER));
+    ASSERT(out[0].Event.KeyEvent.uChar.UnicodeChar == L'A');
+    ASSERT(out[record_count - 1].Event.KeyEvent.uChar.UnicodeChar ==
+           static_cast<WCHAR>(L'A' + ((record_count - 1) % 26)));
+    ASSERT(inp.available() == 0);
+    return true;
+}
+
+bool test_regression_signal_shutdown_requests_exit_only_without_pending()
+{
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
+
+    win32::handle shutdown_event{::CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    ASSERT(shutdown_event.valid());
+    bridge.set_signal_shutdown_event(shutdown_event.view());
+    ASSERT(!bridge.should_exit());
+
+    ASSERT(::SetEvent(shutdown_event.get()) != FALSE);
+    ASSERT(bridge.should_exit());
+
+    bridge.test_enter_console_read_mode();
+    ASSERT(!bridge.should_exit());
     return true;
 }
 
@@ -551,6 +631,47 @@ bool test_regression_write_console_w_reports_complete_utf16_units()
     ASSERT(api_write_console(msg, st, sb, inp, bridge));
     ASSERT(req->NumBytes == sizeof(wchar_t));
     ASSERT(sb.at_u32({0, 0}) == U'A');
+    return true;
+}
+
+bool test_regression_write_console_answers_terminal_cpr_and_da_queries()
+{
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
+
+    st.output_mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    st.cursor.position = {4, 6};
+    bridge.test_set_term_cursor_valid(st.cursor.position);
+    const std::wstring queries = L"\x1b[6n\x1b[c";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(queries.data()),
+                          static_cast<ULONG>(queries.size() * sizeof(wchar_t)), st, sb, bridge, false);
+
+    const auto response = read_key_down_chars(inp);
+    ASSERT(response == U"\x1b[7;5R\x1b[?1;0c");
+    ASSERT(bridge.test_vt_buf_len() == 0);
+    return true;
+}
+
+bool test_regression_write_console_cpr_response_uses_viewport_relative_cursor()
+{
+    console_state st;
+    screen_buffer sb{{120, 60}};
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
+
+    st.screen_buffer_size = {120, 60};
+    st.max_window_size = {120, 30};
+    sb.viewport.set_rect({10, 20, 109, 49}, st.screen_buffer_size);
+    st.cursor.position = {15, 22};
+    bridge.test_set_term_cursor_valid(sb.viewport.relative_position(st.cursor.position));
+
+    const std::wstring query = L"\x1b[6n";
+    write_console_payload(true, reinterpret_cast<const BYTE *>(query.data()),
+                          static_cast<ULONG>(query.size() * sizeof(wchar_t)), st, sb, bridge, false);
+
+    ASSERT(read_key_down_chars(inp) == U"\x1b[3;6R");
     return true;
 }
 
@@ -2144,6 +2265,50 @@ bool test_regression_create_object_rejects_malformed_or_unknown_type()
     return true;
 }
 
+bool test_regression_new_output_screen_buffer_can_be_activated()
+{
+    miniio::io_msg msg{};
+    console_state st;
+    screen_buffer main_sb;
+    screen_buffer alt_sb;
+    input_buffer inp;
+    io_state io;
+    pipe_bridge_testable bridge{inp, st, main_sb};
+    api_router router{st, main_sb, alt_sb, inp, io, bridge};
+
+    io.output_id = 0x100;
+    io.alternate_output_id = 0x200;
+
+    msg.descriptor.Object = io.alternate_output_id;
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER);
+    ASSERT(router.dispatch_L2(msg, 2));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(router.alt_active);
+    ASSERT(&router.active_screen_buffer() == &alt_sb);
+    ASSERT(&bridge.active_screen_buffer() == &alt_sb);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.Object = io.output_id;
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER);
+    ASSERT(router.dispatch_L2(msg, 2));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT(!router.alt_active);
+    ASSERT(&router.active_screen_buffer() == &main_sb);
+    ASSERT(&bridge.active_screen_buffer() == &main_sb);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.Object = io.alternate_output_id;
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_MODE_MSG);
+    const auto input_mode_before_set_output_mode = st.input_mode;
+    auto *mode = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    mode->Mode = ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+    ASSERT(router.dispatch_L1(msg, 2));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT((st.output_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0);
+    ASSERT(st.input_mode == input_mode_before_set_output_mode);
+    return true;
+}
+
 bool test_regression_write_console_escape_sequence_without_vt_mode_updates_state()
 {
     miniio::io_msg msg{};
@@ -2802,6 +2967,10 @@ int main()
              L"GetConsoleInput OutputSize excludes header");
     RUN_TEST(test_regression_get_console_input_output_size_without_record,
              L"GetConsoleInput OutputSize without record");
+    RUN_TEST(test_regression_get_console_input_uses_completion_buffer_for_large_output,
+             L"GetConsoleInput large completion buffer");
+    RUN_TEST(test_regression_signal_shutdown_requests_exit_only_without_pending,
+             L"Signal shutdown requests exit only without pending");
     RUN_TEST(test_regression_get_console_input_rejects_invalid_flags, L"GetConsoleInput rejects invalid flags");
     RUN_TEST(test_regression_raw_write_decodes_output_codepage, L"RawWrite decodes output codepage");
     RUN_TEST(test_regression_raw_read_completion_writes_only_bytes, L"RawRead writes only bytes");
@@ -2810,6 +2979,10 @@ int main()
     RUN_TEST(test_regression_read_console_initial_bytes_check_output_capacity, L"ReadConsole initial bytes capacity");
     RUN_TEST(test_regression_write_console_rejects_short_message, L"WriteConsole rejects short message");
     RUN_TEST(test_regression_write_console_w_reports_complete_utf16_units, L"WriteConsoleW reports complete UTF16");
+    RUN_TEST(test_regression_write_console_answers_terminal_cpr_and_da_queries,
+             L"WriteConsole answers CPR/DA terminal queries");
+    RUN_TEST(test_regression_write_console_cpr_response_uses_viewport_relative_cursor,
+             L"WriteConsole CPR uses viewport-relative cursor");
     RUN_TEST(test_regression_deprecated_l1_returns_not_implemented, L"L1 deprecated returns not implemented");
     RUN_TEST(test_regression_get_langid_matches_original_gate, L"GetConsoleLangId original gate");
     RUN_TEST(test_regression_fill_console_output_a_uses_output_codepage, L"FillConsoleOutputA uses output codepage");
@@ -2892,6 +3065,7 @@ int main()
     RUN_TEST(test_regression_connect_disconnect_syncs_process_snapshot, L"CONNECT/DISCONNECT sync process snapshot");
     RUN_TEST(test_regression_create_object_rejects_malformed_or_unknown_type,
              L"CREATE_OBJECT rejects malformed or unknown type");
+    RUN_TEST(test_regression_new_output_screen_buffer_can_be_activated, L"New output screen buffer can be activated");
     RUN_TEST(test_regression_write_console_escape_sequence_without_vt_mode_updates_state,
              L"WriteConsole escape sequence updates state without VT mode");
     RUN_TEST(test_regression_write_console_parser_sgr_updates_attributes,

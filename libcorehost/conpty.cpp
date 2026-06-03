@@ -87,6 +87,7 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
     // input_buffer 持有 Console API 可见的 INPUT_RECORD 队列。init_event 必须
     // 在 API handler 使用前调用，否则 GetNumberOfConsoleInputEvents 无法等待。
     input_buffer ibuf;
+    ibuf.set_event(event.get());
     ibuf.init_event();
 
     // ── Layer 2: I/O 状态 ──

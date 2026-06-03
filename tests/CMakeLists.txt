@@ -124,6 +124,28 @@ add_custom_command(TARGET test_conpty_e2e POST_BUILD
 add_test(NAME ConPTY.E2E COMMAND test_conpty_e2e)
 set_tests_properties(ConPTY.E2E PROPERTIES LABELS "conpty;e2e" TIMEOUT 60)
 
+# ── test_edit_conpty_real ───────────────────────────
+add_executable(test_edit_conpty_real
+    edit_conpty_real.cpp
+)
+target_include_directories(test_edit_conpty_real PRIVATE
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_edit_conpty_real PRIVATE test_common conpty_static)
+add_dependencies(test_edit_conpty_real corehost)
+add_custom_command(TARGET test_edit_conpty_real POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:corehost>"
+        "$<TARGET_FILE_DIR:test_edit_conpty_real>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_edit_conpty_real>/logs"
+)
+add_test(NAME Edit.ConPTY.Real COMMAND test_edit_conpty_real)
+set_tests_properties(Edit.ConPTY.Real PROPERTIES
+    LABELS "conpty;edit"
+    TIMEOUT 45
+)
+
 # ── test_conpty_writeconsole_cursor ──────────────────
 add_executable(test_conpty_writeconsole_cursor
     test_conpty_writeconsole_cursor.cpp

@@ -72,7 +72,7 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         const bool submitting_previous_completion = prev_comp != nullptr;
         LOG2_IF(submitting_previous_completion, "submitting completion id=%08lx:%08lx status=0x%08lx info=%llu",
                 prev_done->descriptor.Identifier.HighPart, prev_done->descriptor.Identifier.LowPart,
-                prev_done->complete.Status, prev_done->complete.Information);
+                prev_done->complete.IoStatus.Status, prev_done->complete.IoStatus.Information);
         if (submitting_previous_completion && router.has_buffered_vt_output() && ev.valid())
         {
             COREHOST_PERF_SCOPE(io_server_wait_0);
@@ -141,11 +141,32 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             // false 表示请求挂起，router 会在后续 VT 输入到达时显式完成。
             if (router.on_message(*cur))
             {
-                // 下一轮 READ_IO 会在读取下一条消息的同时提交本条 completion。
-                // 即使 VT 输出暂存在 bridge 缓冲中，也不需要额外 COMPLETE_IO；
-                // 当 READ_IO 已提交 completion 后再按阈值刷新 VT，可同时减少
-                // ConDrv IOCTL 和终端管道 WriteFile 次数。
-                prev_done = cur;
+                // 应用输出可能包含 CPR/DA/OSC 查询，终端响应只会从 vt_in 回来，
+                // 不会唤醒 ConDrv server。此时必须先让终端看见输出并完成本条
+                // I/O，再回到 idle 读取响应；否则下一轮 READ_IO 可能阻塞，导致
+                // 依赖终端查询响应的程序卡住。
+                if (router.has_buffered_vt_output())
+                {
+                    router.flush_vt_output();
+                    miniio::complete_io(server, cur->complete);
+                    LOG2("message completed explicitly after VT flush func=%lu", cur->descriptor.Function);
+                    prev_done = nullptr;
+                    router.on_idle();
+                    if (router.should_exit())
+                        break;
+                }
+                else
+                {
+                    // 没有终端可见输出时保留 piggyback completion，减少一次
+                    // COMPLETE_IO IOCTL。
+                    if (router.should_exit())
+                    {
+                        miniio::complete_io(server, cur->complete);
+                        LOG2("message completed explicitly before shutdown func=%lu", cur->descriptor.Function);
+                        break;
+                    }
+                    prev_done = cur;
+                }
             }
             else
             {

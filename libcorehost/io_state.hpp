@@ -30,8 +30,10 @@ struct io_state
         unknown,
         // descriptor.Object 对应当前 input 客户端句柄。
         input,
-        // descriptor.Object 对应当前 output 客户端句柄。
+        // descriptor.Object 对应当前主 output 客户端句柄。
         output,
+        // descriptor.Object 对应新建 output screen buffer 句柄。
+        alternate_output,
     };
 
     // 必须指向 ConDrv \Server；CREATE_OBJECT 和首个 CONNECT 使用它创建
@@ -47,6 +49,7 @@ struct io_state
     // 0 表示当前没有对应对象；CLOSE_OBJECT 使用它识别被关闭的对象。
     ULONG_PTR input_id = 0;
     ULONG_PTR output_id = 0;
+    ULONG_PTR alternate_output_id = 0;
 
     // 绑定 ConDrv server 非拥有引用。真实句柄由会话入口持有，io_state 只用
     // 它创建客户端对象和 accept 首个 CONNECT。
@@ -184,10 +187,14 @@ struct io_state
             LOG2("CREATE_OBJECT input handle=%p access=0x%08lx", nh.get(), req->DesiredAccess);
             break;
         case CD_IO_OBJECT_TYPE_CURRENT_OUTPUT:
-        case CD_IO_OBJECT_TYPE_NEW_OUTPUT:
             nh = condrv::create_client_handle(server, L"\\Output");
             output_id = reinterpret_cast<ULONG_PTR>(nh.get());
             LOG2("CREATE_OBJECT output handle=%p access=0x%08lx", nh.get(), req->DesiredAccess);
+            break;
+        case CD_IO_OBJECT_TYPE_NEW_OUTPUT:
+            nh = condrv::create_client_handle(server, L"\\Output");
+            alternate_output_id = reinterpret_cast<ULONG_PTR>(nh.get());
+            LOG2("CREATE_OBJECT alternate output handle=%p access=0x%08lx", nh.get(), req->DesiredAccess);
             break;
         default:
             LOG2("CREATE_OBJECT unsupported type=%lu access=0x%08lx", req->ObjectType, req->DesiredAccess);
@@ -207,7 +214,10 @@ struct io_state
             input_id = 0;
         if (id == output_id)
             output_id = 0;
-        LOG2("CLOSE_OBJECT object=%llu inputId=%llu outputId=%llu", id, input_id, output_id);
+        if (id == alternate_output_id)
+            alternate_output_id = 0;
+        LOG2("CLOSE_OBJECT object=%llu inputId=%llu outputId=%llu altOutputId=%llu", id, input_id, output_id,
+             alternate_output_id);
         miniio::prepare_completion(msg);
         return true;
     }
@@ -220,6 +230,8 @@ struct io_state
             return object_kind::input;
         if (id != 0 && id == output_id)
             return object_kind::output;
+        if (id != 0 && id == alternate_output_id)
+            return object_kind::alternate_output;
         return object_kind::unknown;
     }
 

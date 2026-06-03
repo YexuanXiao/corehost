@@ -698,9 +698,21 @@ inline void consume_write_console_vt_message(vt_parser &parser, const vt_parse_r
 
     const auto &msg = parsed.message;
     const auto raw = parsed.raw_sequence;
+    if constexpr (id == vt_message_id::report_cursor_position)
+    {
+        bridge.inject_cursor_position_response();
+    }
+    else if constexpr (id == vt_message_id::device_attributes)
+    {
+        bridge.inject_device_attributes_response();
+    }
+
     if (emit_vt)
     {
-        if (!raw.empty() && can_passthrough_write_console_vt(id))
+        if constexpr (id == vt_message_id::report_cursor_position || id == vt_message_id::device_attributes)
+        {
+        }
+        else if (!raw.empty() && can_passthrough_write_console_vt(id))
             bridge.vt_append_raw_sequence(raw);
         else
             bridge.vt_msg_send<id>(msg);
@@ -1557,8 +1569,8 @@ inline bool api_ctrl_event(miniio::io_msg &msg, console_state &, screen_buffer &
     return true;
 }
 
-// SetConsoleActiveScreenBuffer 入口保留为兼容完成；实际主/备用缓冲切换由
-// api_router/VT alternate-buffer 管理。
+// SetConsoleActiveScreenBuffer 的真实切换由 api_router 根据 descriptor.Object
+// 完成；handler 只负责给 ConDrv 返回同步成功。
 inline bool api_set_active_sb(miniio::io_msg &msg, console_state &, screen_buffer &, input_buffer &, pipe_bridge &)
 {
     ucomplete(msg);

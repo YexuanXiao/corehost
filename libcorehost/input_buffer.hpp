@@ -19,9 +19,25 @@ struct input_buffer
     // 队列容量上限。写入超过该值时会截断并返回实际写入数量。
     static constexpr size_t max_events = 4096;
 
-    // 手动复位事件。nullptr 表示尚未初始化；非空时队列从空变为非空会
-    // SetEvent，读空或 flush 后 ResetEvent。
+    // 手动复位事件。普通 headless/COM 路径应绑定 ConDrv 提供的
+    // InputAvailableEvent；为空时 init_event 才创建本地兜底事件。
     HANDLE input_available_event = nullptr;
+    bool owns_input_available_event = false;
+
+    void set_event(HANDLE event) noexcept
+    {
+        if (owns_input_available_event && input_available_event)
+            ::CloseHandle(input_available_event);
+        input_available_event = event;
+        owns_input_available_event = false;
+        if (input_available_event)
+        {
+            if (_events.empty())
+                ::ResetEvent(input_available_event);
+            else
+                ::SetEvent(input_available_event);
+        }
+    }
 
     // 懒创建“输入队列非空”事件；多次调用保持同一个事件句柄。
     void init_event()
@@ -29,13 +45,16 @@ struct input_buffer
         // 手动复位事件表示“队列非空”这个状态，而不是单次输入到达。读空后
         // read/flush 负责复位。
         if (!input_available_event)
+        {
             input_available_event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            owns_input_available_event = input_available_event != nullptr;
+        }
     }
 
     // 释放由 init_event 创建的事件句柄。
     ~input_buffer()
     {
-        if (input_available_event)
+        if (owns_input_available_event && input_available_event)
             ::CloseHandle(input_available_event);
     }
 

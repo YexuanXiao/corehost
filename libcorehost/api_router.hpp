@@ -136,7 +136,7 @@ struct api_router
             return true;
         }
         LOG2("USER_DEFINED consumed layer=%lu api=%lu completedInline=%d status=0x%08lx information=%llu", layer, api,
-             completed, msg.complete.Status, msg.complete.Information);
+             completed, msg.complete.IoStatus.Status, msg.complete.IoStatus.Information);
         return completed;
     }
 
@@ -329,7 +329,8 @@ struct api_router
         // L1 包含代码页、模式、输入读取和 WriteConsole 等基础 API。
         auto &sb = active_screen_buffer();
         auto object_kind = io.kind_from_object(msg.descriptor.Object);
-        const bool input_handle = object_kind != io_state::object_kind::output;
+        const bool input_handle =
+            object_kind != io_state::object_kind::output && object_kind != io_state::object_kind::alternate_output;
         // api==4 是 GetConsoleInput，PSReadLine 会高频轮询；不记录以免刷屏。
         if (api != 4)
             LOG2("[dispatch] L1 api=%lu", api);
@@ -377,7 +378,18 @@ struct api_router
         case 1:
             return api_ctrl_event(msg, state, sb, inp, bridge);
         case 2:
-            return api_set_active_sb(msg, state, sb, inp, bridge);
+            switch (io.kind_from_object(msg.descriptor.Object))
+            {
+            case io_state::object_kind::output:
+                switch_active_screen_buffer(false);
+                return api_set_active_sb(msg, state, active_screen_buffer(), inp, bridge);
+            case io_state::object_kind::alternate_output:
+                switch_active_screen_buffer(true);
+                return api_set_active_sb(msg, state, active_screen_buffer(), inp, bridge);
+            default:
+                miniio::prepare_completion(msg, status_invalid_parameter);
+                return true;
+            }
         case 3:
             return api_flush_input_buf(msg, state, sb, inp, bridge);
         case 4:

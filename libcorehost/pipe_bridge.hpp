@@ -14,6 +14,8 @@
 #include <windows.h>
 #include <algorithm>
 #include <array>
+#include <cassert>
+#include <charconv>
 #include <cstdint>
 #include <cstring>
 #include <iterator>
@@ -203,6 +205,10 @@ struct pipe_bridge
     std::array<char8_t, sizeof(miniio::io_msg::body)> _readbuf{};
     // 保存 USER_DEFINED 消息中超过 miniio::io_msg::body 的输入尾部。
     raw_u8_buffer _input_payload_buffer;
+    // GetConsoleInput 的输出可能远大于 miniio::io_msg::body。同步完成时
+    // completion 会在下一轮 READ_IO 提交，因此该缓冲必须作为 bridge 成员
+    // 保持稳定，直到 ConDrv 消费 Write.Data。
+    raw_byte_vector<BYTE> _console_input_output_buffer;
     // _readbuf 中有效字节数，范围 0.._readbuf.size()。
     DWORD _read_total = 0;
     // true 表示 process_input 已经遇到行终止符或 Ctrl+Z 并完成当前 pending 读。
@@ -225,19 +231,14 @@ struct pipe_bridge
     // 当前控制台会话的 DOSKEY 命令历史。
     command_history_state _history;
 
-    // 计算 GetConsoleInput completion 可返回的 INPUT_RECORD 上限，同时受客户端
-    // OutputSize 和本地 miniio::io_msg::body 固定容量限制。
+    // 计算 GetConsoleInput completion 可返回的 INPUT_RECORD 上限。OutputSize
+    // 不含 CONSOLE_MSG_HEADER，记录数组前还要扣掉 L1 描述符。
     size_t console_input_max_records(const miniio::io_msg &msg) const noexcept
     {
-        // OutputSize 不含 CONSOLE_MSG_HEADER；记录数组前还要扣掉 L1 描述符。
         const auto output_buffer = msg.descriptor.OutputSize > sizeof(CONSOLE_GETCONSOLEINPUT_MSG)
                                        ? msg.descriptor.OutputSize - sizeof(CONSOLE_GETCONSOLEINPUT_MSG)
                                        : 0;
-        const auto requested = output_buffer / sizeof(INPUT_RECORD);
-        const auto local_capacity =
-            (sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETCONSOLEINPUT_MSG)) /
-            sizeof(INPUT_RECORD);
-        return std::min<size_t>(requested, local_capacity);
+        return output_buffer / sizeof(INPUT_RECORD);
     }
 
     // 计算 RAW_READ 可以直接写入 completion 的最大字节数。
@@ -245,6 +246,32 @@ struct pipe_bridge
     {
         // RAW_READ completion 只写客户端缓冲区字节，不附加 API 描述符。
         return std::min<size_t>(msg.descriptor.OutputSize, sizeof(msg.body));
+    }
+
+    void prepare_console_input_completion(miniio::io_msg &msg, CONSOLE_GETCONSOLEINPUT_MSG *req, bool peek,
+                                          size_t max_count)
+    {
+        const auto records_to_copy = std::min(inp.available(), max_count);
+        const auto size = sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + records_to_copy * sizeof(INPUT_RECORD);
+        _console_input_output_buffer.resize(size);
+
+        auto *out_req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(_console_input_output_buffer.data());
+        *out_req = *req;
+        out_req->NumRecords = static_cast<ULONG>(records_to_copy);
+
+        auto *out_records =
+            reinterpret_cast<INPUT_RECORD *>(_console_input_output_buffer.data() + sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+        if (records_to_copy != 0)
+        {
+            if (peek)
+                inp.peek(out_records, records_to_copy);
+            else
+                inp.read(out_records, records_to_copy);
+        }
+
+        miniio::prepare_completion(msg, 0, size);
+        msg.complete.Write.Data = _console_input_output_buffer.data();
+        msg.complete.Write.Size = static_cast<ULONG>(size);
     }
 
     // 计算 ReadConsole 文本输出区容量。返回值只包含用户文本字节，不包含
@@ -270,7 +297,7 @@ struct pipe_bridge
     // 会话可退出条件：终端输入已经 EOF，并且没有仍需完成给 ConDrv 的请求。
     bool should_exit() const noexcept
     {
-        return _pending.vt_eof() && !_pending.has_pending();
+        return (_pending.vt_eof() || _io.shutdown_signaled()) && !_pending.has_pending();
     }
 
     // 绑定 signal 线程的 shutdown event。该 event 只用于打断等待，不代表
@@ -1157,8 +1184,6 @@ struct pipe_bridge
         prepare_console_input_events();
 
         auto *req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-        auto *out = reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                     sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
         if ((req->Flags & ~CONSOLE_READ_VALID) != 0)
         {
             miniio::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
@@ -1177,7 +1202,7 @@ struct pipe_bridge
 
         const bool peek = (req->Flags & CONSOLE_READ_NOREMOVE) != 0;
         const bool wait_allowed = (req->Flags & CONSOLE_READ_NOWAIT) == 0;
-        const auto count = peek ? inp.peek(out, max_count) : inp.read(out, max_count);
+        const auto count = inp.available();
 
         if (count == 0 && wait_allowed)
         {
@@ -1187,11 +1212,7 @@ struct pipe_bridge
             return false;
         }
 
-        req->NumRecords = static_cast<ULONG>(count);
-        const auto size = static_cast<ULONG>(sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + count * sizeof(INPUT_RECORD));
-        miniio::prepare_completion(msg, 0, size);
-        msg.complete.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
-        msg.complete.Write.Size = size;
+        prepare_console_input_completion(msg, req, peek, max_count);
         return true;
     }
 
@@ -1346,7 +1367,10 @@ struct pipe_bridge
         LOG3("[bridge] on_idle: avail=%lu kind=%d total=%lu", avail, static_cast<int>(_pending.kind()), _read_total);
         if (!_pending.has_pending())
         {
-            queue_available_vt_input();
+            // edit/PSReadLine 这类程序会先等待 InputAvailableEvent，再调用
+            // GetConsoleInput。idle 不能只保存 VT 字节；必须立即解析为
+            // INPUT_RECORD 并写入 input_buffer，才能唤醒等待 stdin 的客户端。
+            drain_available_vt_input();
             return;
         }
 
@@ -1982,6 +2006,45 @@ struct pipe_bridge
         emit_key_pair(t.Event.KeyEvent.wVirtualKeyCode, t.Event.KeyEvent.uChar.UnicodeChar);
     }
 
+    // 应用输出方向的终端查询响应需要回到 Console input 队列。调用方传入
+    // ASCII VT 响应序列；这里按字符写成 KEY_EVENT，让 ReadConsoleInputExW
+    // 看到和真实终端回包一致的字节流。
+    void inject_terminal_response(std::string_view response)
+    {
+        LOG3("[bridge] inject terminal response bytes=%zu", response.size());
+        for (char ch : response)
+            _write_char_key_event(static_cast<unsigned char>(ch), static_cast<BYTE>(ch));
+    }
+
+    // 应用发送 DSR CPR 查询时，corehost 作为 console host 返回当前可见
+    // 光标位置。响应坐标是终端协议要求的 viewport-relative 1-based row/col。
+    void inject_cursor_position_response()
+    {
+        std::array<char, 32> response{};
+        char *out = response.data();
+        *out++ = '\x1b';
+        *out++ = '[';
+
+        const auto terminal_pos = active_screen_buffer().viewport.clamped_relative_position(cstate.cursor.position);
+        auto [row_end, row_ec] = std::to_chars(out, response.data() + response.size(), terminal_pos.Y + 1);
+        assert(row_ec == std::errc{});
+        out = row_end;
+        *out++ = ';';
+        auto [col_end, col_ec] = std::to_chars(out, response.data() + response.size(), terminal_pos.X + 1);
+        assert(col_ec == std::errc{});
+        out = col_end;
+        *out++ = 'R';
+
+        inject_terminal_response(std::string_view{response.data(), static_cast<size_t>(out - response.data())});
+    }
+
+    // 应用发送 DA 查询时，返回一个稳定的 VT100-style 响应。edit 只需要
+    // 收到合法 DA 来结束启动探测，具体能力位当前不参与 corehost 状态。
+    void inject_device_attributes_response()
+    {
+        inject_terminal_response("\x1b[?1;0c"sv);
+    }
+
   private:
     // ════════════════════════════════════════════════════
     //  内部管道
@@ -2302,8 +2365,8 @@ struct pipe_bridge
     }
 
     // 处理终端 CPR 响应。只有 pending inherit cursor 时才用响应更新
-    // cstate.cursor；普通 CPR 响应不是用户输入。
-    void process_input_cpr_response(const vt_message &m)
+    // cstate.cursor；普通 CPR 响应由调用点按原始序列交还给应用。
+    bool process_input_cpr_response(const vt_message &m)
     {
         if (_terminal.pending_inherit_cursor() && m.payload.cpr.row > 0 && m.payload.cpr.col > 0)
         {
@@ -2313,7 +2376,9 @@ struct pipe_bridge
             cstate.clamp_cursor_to_buffer();
             _terminal.finish_inherit_cursor(terminal_position);
             LOG3("[bridge] cpr_response: inherit cursor (%d,%d)", cstate.cursor.position.X, cstate.cursor.position.Y);
+            return true;
         }
+        return false;
     }
 
     // 处理普通 Tab 输入，写入 Tab KEY_EVENT 对。
@@ -2384,6 +2449,16 @@ struct pipe_bridge
             else
                 _write_char_key_event(tc, static_cast<BYTE>(tc & 0xFF));
         }
+    }
+
+    // 应用发出的终端查询响应必须作为输入字符流返回给应用。只有 corehost
+    // 自己发起的内部查询（例如继承光标 CPR）才在本层消费；其它完整控制
+    // 序列按原文写入 input_buffer，让应用自己的 VT parser 处理。
+    void emit_raw_sequence_as_input(std::u32string_view sequence)
+    {
+        LOG3(L"[in] RAW_SEQ len=%zu", sequence.size());
+        for (char32_t ch : sequence)
+            _write_char_key_event(ch, static_cast<BYTE>(ch & 0xFF));
     }
 
     // ── process_input: 解码 → 解析 → echo → 分发 ──
@@ -2635,7 +2710,8 @@ struct pipe_bridge
                 break;
             }
             case vt_message_id::cpr_response: {
-                process_input_cpr_response(msg);
+                if (!process_input_cpr_response(msg))
+                    emit_raw_sequence_as_input(parsed.raw_sequence);
                 _input_parser.reset<vt_message_id::cpr_response>();
                 break;
             }
@@ -2668,10 +2744,13 @@ struct pipe_bridge
             // 未知控制序列由 parser 保留原文，但输入方向当前不透传给应用；
             // 丢弃后重置 parser，避免半条未知序列污染后续输入。
             case vt_message_id::unknown_sequence: {
+                emit_raw_sequence_as_input(parsed.raw_sequence);
                 _input_parser.reset<vt_message_id::unknown_sequence>();
                 break;
             }
             default: {
+                if (!parsed.raw_sequence.empty())
+                    emit_raw_sequence_as_input(parsed.raw_sequence);
                 _input_parser.reset<vt_message_id::continue_>();
                 break;
             }
@@ -2925,14 +3004,15 @@ struct pipe_bridge
         // 只返回触发唤醒的那一条。
         auto &m = *_pending.console_input();
         auto *req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(m.body + sizeof(CONSOLE_MSG_HEADER));
-        auto *out =
-            reinterpret_cast<INPUT_RECORD *>(m.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
         const auto max_count = console_input_max_records(m);
         if (max_count == 0)
         {
-            req->NumRecords = 0;
+            _console_input_output_buffer.resize(sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+            auto *out_req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(_console_input_output_buffer.data());
+            *out_req = *req;
+            out_req->NumRecords = 0;
             miniio::prepare_completion(m, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
-            m.complete.Write.Data = m.body + sizeof(CONSOLE_MSG_HEADER);
+            m.complete.Write.Data = _console_input_output_buffer.data();
             m.complete.Write.Size = sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
 
             auto comp = m.complete;
@@ -2943,12 +3023,7 @@ struct pipe_bridge
             return;
         }
 
-        const auto count = (req->Flags & CONSOLE_READ_NOREMOVE) ? inp.peek(out, max_count) : inp.read(out, max_count);
-        req->NumRecords = static_cast<ULONG>(count);
-        const auto size = static_cast<ULONG>(sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + count * sizeof(INPUT_RECORD));
-        miniio::prepare_completion(m, 0, size);
-        m.complete.Write.Data = m.body + sizeof(CONSOLE_MSG_HEADER);
-        m.complete.Write.Size = size;
+        prepare_console_input_completion(m, req, (req->Flags & CONSOLE_READ_NOREMOVE) != 0, max_count);
 
         auto comp = m.complete;
         _pending.clear();
