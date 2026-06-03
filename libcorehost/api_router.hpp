@@ -15,21 +15,30 @@
 #include "input_buffer.hpp"
 #include "io_state.hpp"
 #include "viewport_render.hpp"
+#include "utility/log.hpp"
 
 namespace conpty
 {
 
 struct api_router
 {
+    // state 保存 Console API 可见的全局状态：模式、代码页、光标、标题、当前属性等。
     console_state &state;
+    // sb_main 是默认 screen buffer；普通 Console API 和主缓冲区 VT 输出读写它。
     screen_buffer &sb_main;
+    // sb_alt 是 DECSET 1049 备用缓冲区；切换后同一套 API handler 操作它。
     screen_buffer &sb_alt;
+    // inp 是 GetConsoleInput/WriteConsoleInput 可见的 INPUT_RECORD 队列。
     input_buffer &inp;
+    // io 用于根据 descriptor.Object 判断请求来自 input 还是 output 客户端句柄。
     io_state &io;
+    // bridge 用于把 API 造成的状态变化同步为 VT 输出，并处理 ReadConsole 挂起。
     pipe_bridge &bridge;
     // false 使用主缓冲区；true 使用备用缓冲区。
     bool alt_active = false;
 
+    // 返回当前 Console API 应读写的 screen_buffer。返回引用由 alt_active 决定；
+    // 调用方不能保存到切换之后继续使用。
     screen_buffer &active_screen_buffer() noexcept
     {
         // alt_active 只影响 Console API 读写哪个 screen_buffer；console_state
@@ -37,12 +46,17 @@ struct api_router
         return alt_active ? sb_alt : sb_main;
     }
 
+    // 切换主/备用屏幕缓冲区，并同步宿主终端 alternate-buffer 状态。alt=true
+    // 使用备用缓冲区；alt=false 回到主缓冲区。
     void switch_active_screen_buffer(bool alt)
     {
+        // alt 来自 VT alternate-buffer 消息。true 切到备用缓冲区，false 回主缓冲区；
+        // 该状态决定后续 Read/WriteConsoleOutput 观察哪份 screen_buffer。
         // alt 等于当前状态时不发送 VT，避免重复切换清空终端屏幕。
         if (alt == alt_active)
             return;
 
+        LOG2("switch active screen buffer alt=%d previous=%d", alt, alt_active);
         alt_active = alt;
         bridge.set_active_screen_buffer(active_screen_buffer());
 
@@ -56,18 +70,26 @@ struct api_router
         vt_write_screen_snapshot();
     }
 
+    // 将当前 active screen buffer 的可见 viewport 写回宿主终端。函数只重绘
+    // 终端输出，不改变 active buffer 内容或 alt_active。
     void vt_write_screen_snapshot()
     {
         // 快照重绘只输出 active buffer 的 viewport，不改变 screen_buffer。
         render_visible_viewport(state, active_screen_buffer(), bridge);
     }
 
+    // 分派一条 CONSOLE_IO_USER_DEFINED 消息。返回 false 表示具体 handler
+    // 挂起了请求，后续由 pipe_bridge 显式 COMPLETE_IO。
     bool handle_user_defined(miniio::io_msg &msg)
     {
+        // msg 是 message_router 确认 Function==CONSOLE_IO_USER_DEFINED 后交进来的
+        // 原始请求；本函数只解析 CONSOLE_MSG_HEADER 和 L1/L2/L3 API 描述符。
         // msg.body 必须以 CONSOLE_MSG_HEADER 开头；message_router 只把
         // CONSOLE_IO_USER_DEFINED 传到这里。
         if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER))
         {
+            LOG2("USER_DEFINED rejected: inputSize=%lu headerSize=%zu", msg.descriptor.InputSize,
+                 sizeof(CONSOLE_MSG_HEADER));
             miniio::prepare_completion(msg, status_illegal_function);
             return true;
         }
@@ -77,33 +99,53 @@ struct api_router
         // ApiNumber 高字节为 L1/L2/L3 层号，低 24 位为该层 API 编号。
         auto layer = hdr->ApiNumber >> 24;
         auto api = hdr->ApiNumber & 0xFFFFFF;
+        // required_size 是当前实现理解的最小 descriptor 大小；客户端可以带
+        // 更大的输入载荷，但 descriptor 本身不能短于该 API 的固定头。
         auto required_size = api_descriptor_required_size(layer, api);
+        LOG2("USER_DEFINED enter apiNumber=0x%08lx layer=%lu api=%lu descriptorSize=%lu required=%zu inputSize=%lu outputSize=%lu",
+             hdr->ApiNumber, layer, api, hdr->ApiDescriptorSize, required_size, msg.descriptor.InputSize,
+             msg.descriptor.OutputSize);
         if (required_size == invalid_api_descriptor_size || hdr->ApiDescriptorSize > sizeof(msg.body) ||
             hdr->ApiDescriptorSize > msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) ||
             hdr->ApiDescriptorSize < required_size)
         {
+            LOG2("USER_DEFINED rejected: layer=%lu api=%lu descriptorSize=%lu required=%zu inputSize=%lu", layer, api,
+                 hdr->ApiDescriptorSize, required_size, msg.descriptor.InputSize);
             miniio::prepare_completion(msg, status_illegal_function);
             return true;
         }
 
+        // completed=false 表示 handler 已挂起请求；io_loop 不会提交 msg.complete，
+        // 等 bridge 在收到 VT 输入后显式 COMPLETE_IO。
+        bool completed = true;
         switch (layer)
         {
         case 1:
-            return dispatch_L1(msg, api);
+            completed = dispatch_L1(msg, api);
+            break;
         case 2:
-            return dispatch_L2(msg, api);
+            completed = dispatch_L2(msg, api);
+            break;
         case 3:
-            return dispatch_L3(msg, api);
+            completed = dispatch_L3(msg, api);
+            break;
         default:
+            LOG2("USER_DEFINED rejected: unsupported layer=%lu api=%lu", layer, api);
             miniio::prepare_completion(msg, status_illegal_function);
             return true;
         }
+        LOG2("USER_DEFINED consumed layer=%lu api=%lu completedInline=%d status=0x%08lx information=%llu", layer, api,
+             completed, msg.complete.Status, msg.complete.Information);
+        return completed;
     }
 
     // ── L1 / L2 / L3 分发表 ──
 
     static constexpr size_t invalid_api_descriptor_size = static_cast<size_t>(-1);
 
+    // 返回当前实现接受的固定 API descriptor 最小大小。ConDrv 消息允许 body
+    // 后面追加变长输入/输出数据，但固定 descriptor 不能短于对应结构，否则
+    // handler 会按错误布局解释 msg.body。
     constexpr size_t api_descriptor_required_size(DWORD layer, DWORD api) const noexcept
     {
         switch (layer)
@@ -279,6 +321,8 @@ struct api_router
         }
     }
 
+    // 分派 L1 API，并根据 descriptor.Object 判断 Get/SetConsoleMode 操作输入
+    // 还是输出句柄。返回 false 表示 ReadConsole/GetConsoleInput 类请求已挂起。
     bool dispatch_L1(miniio::io_msg &msg, DWORD api)
     {
         // L1 包含代码页、模式、输入读取和 WriteConsole 等基础 API。
@@ -287,7 +331,7 @@ struct api_router
         const bool input_handle = object_kind != io_state::object_kind::output;
         // api==4 是 GetConsoleInput，PSReadLine 会高频轮询；不记录以免刷屏。
         if (api != 4)
-            LOG("[dispatch] L1 api=%lu", api);
+            LOG2("[dispatch] L1 api=%lu", api);
         switch (api)
         {
         case 0:
@@ -316,13 +360,15 @@ struct api_router
         }
     }
 
+    // 分派 L2 API。所有 handler 都操作当前 active_screen_buffer，因此备用
+    // 缓冲区激活时 Read/WriteConsoleOutput 会自然落到 sb_alt。
     bool dispatch_L2(miniio::io_msg &msg, DWORD api)
     {
         // L2 包含屏幕缓冲区、窗口、光标和标题等 API。
         auto &sb = active_screen_buffer();
         // api==7/13 是查询缓冲区信息/设置属性的高频路径。
         if (api != 7 && api != 13)
-            LOG("[dispatch] L2 api=%lu", api);
+            LOG2("[dispatch] L2 api=%lu", api);
         switch (api)
         {
         case 0:
@@ -375,13 +421,15 @@ struct api_router
         }
     }
 
+    // 分派 L3 扩展 API。活跃 API 读写 console_state、bridge 历史/别名/进程
+    // 快照；废弃 API 返回兼容 completion，不维护额外内部状态。
     bool dispatch_L3(miniio::io_msg &msg, DWORD api)
     {
         // L3 覆盖鼠标、字体、别名、历史、进程列表等扩展 API。
         auto &sb = active_screen_buffer();
         // api==31/4 分别是 GetConsoleWindow/GetCurrentFont 的常见轮询路径。
         if (api != 31 && api != 4)
-            LOG("[dispatch] L3 api=%lu", api);
+            LOG2("[dispatch] L3 api=%lu", api);
         switch (api)
         {
         // ── 第一类: 活跃 L3 API (20 个) ──

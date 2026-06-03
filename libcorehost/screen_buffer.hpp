@@ -28,7 +28,10 @@ struct screen_buffer
 {
     struct text_row_write_result
     {
+        // consumed 是本次从输入 text 中实际写入当前行的 codepoint 数；调用方
+        // 用它 remove_prefix 后继续处理剩余文本。
         size_t consumed = 0;
+        // row_end=true 表示写入推进到了行尾，调用方需要执行终端换行/滚动逻辑。
         bool row_end = false;
     };
 
@@ -36,17 +39,24 @@ struct screen_buffer
     COORD size{default_console_size};
     console_viewport viewport{default_console_size};
 
+    // 构造默认 120x30 缓冲区；_ensure_rows 会建立与 size 匹配的空白行。
     screen_buffer()
     {
         _ensure_rows();
     }
+    // 构造指定尺寸的缓冲区。sz 会作为本地 API 模型和初始 viewport 的尺寸；
+    // 非法尺寸由调用 resize 的路径修正，直接构造者应传入正尺寸。
     explicit screen_buffer(COORD sz) : size(sz), viewport(sz)
     {
         _ensure_rows();
     }
 
+    // 调整本地屏幕缓冲区尺寸，并尽量保留左上角重叠区域的内容。resize 会
+    // 先线性化环形行存储，保证 old_rows[y] 仍对应逻辑 y。
     void resize(COORD new_size)
     {
+        // new_size 来自 SetConsoleScreenBufferInfo/WT resize/会话初始化；本函数
+        // 只改变本地 API 可见模型，不发任何 VT 序列。
         // 控制台缓冲区不能为 0 行或 0 列。
         if (new_size.X < 1)
             new_size.X = 1;
@@ -72,10 +82,13 @@ struct screen_buffer
     }
 
     // ── 行访问 ──
+    // 返回逻辑行 y 对应的物理行。调用方必须传入有效 y；全屏垂直滚动后
+    // _row_origin 可能非 0，因此不能直接索引 _rows[y]。
     screen_buffer_row &row(SHORT y) noexcept
     {
         return _rows[_physical_row_index(y)];
     }
+    // const 版本的逻辑行访问，用于 API 读路径和 CHAR_INFO 导出。
     const screen_buffer_row &row(SHORT y) const noexcept
     {
         return _rows[_physical_row_index(y)];
@@ -86,6 +99,8 @@ struct screen_buffer
     // 上层排版和底层写入时重复计算宽度。
     void write_glyph(COORD c, std::u32string_view text, int width_columns, WORD attr = 0x07)
     {
+        // c 是控制台缓冲区坐标，text 是一个完整 glyph/grapheme cluster。
+        // width_columns 是该 glyph 占据的屏幕列数，通常由上层排版提前算好。
         COREHOST_PERF_SCOPE(screen_set_u32);
         if (!_valid(c) || text.empty())
             return;
@@ -96,6 +111,8 @@ struct screen_buffer
         row(c.Y).write_glyph(static_cast<uint16_t>(c.X), text, width_columns, text_attribute{attr});
     }
 
+    // 写入单个 codepoint，并按 console 宽度规则更新目标 cell。它是
+    // FillConsoleOutput/WriteConsoleOutputString 等单字符 API 的基础路径。
     void set_u32(COORD c, char32_t cp, WORD attr = 0x07)
     {
         // Console 模式只区分 1/2 列宽；组合字符和控制字符在这里至少占一列，
@@ -104,16 +121,24 @@ struct screen_buffer
         write_glyph(c, std::u32string_view{&cp, 1}, cw, attr);
     }
 
+    // 尝试在一行内写入全单宽文本段。成功时直接更新目标行，失败表示调用方
+    // 需要走带宽度数组的 write_text_row/write_measured_run。
     bool try_write_single_width_run(COORD c, std::u32string_view text, WORD attr = 0x07)
     {
+        // 快路径只接受每个 codepoint 正好占一列的文本段；失败表示调用方应走
+        // write_text_row 的宽度测量路径。
         if (!_valid(c))
             return false;
         return row(c.Y).try_write_single_width_run(static_cast<uint16_t>(c.X), text, text_attribute{attr});
     }
 
+    // 写入一段不含控制字符的文本到当前 viewport 所在行。cursor 是输入/输出
+    // 状态；返回值告诉调用方消费了多少 codepoint，以及是否需要换行/滚动。
     text_row_write_result write_text_row(COORD &cursor, std::u32string_view text, WORD attr,
                                          text_measurement_mode measurement, bool ambiguous_is_wide)
     {
+        // cursor 是输入/输出参数：进入时为本地 Console 光标，返回时推进到本行
+        // 写入结束位置。text 不跨越控制字符；attr 是本段写入的 Win32 属性。
         text_row_write_result result;
         if (text.empty())
             return result;
@@ -181,6 +206,8 @@ struct screen_buffer
         return result;
     }
 
+    // 返回指定缓冲区坐标处 glyph 的首个 codepoint；无效坐标或空 glyph 按
+    // 空格处理，匹配控制台读字符 API 的宽容语义。
     char32_t at_u32(COORD c) const noexcept
     {
         if (!_valid(c))
@@ -189,6 +216,8 @@ struct screen_buffer
         return gv.empty() ? U' ' : gv[0];
     }
 
+    // 返回指定坐标处的完整内部 glyph 视图。视图引用行内 _text 或填充字符，
+    // 调用者不能在修改 screen_buffer 后继续持有。
     std::u32string_view glyph_at(COORD c) const noexcept
     {
         if (!_valid(c))
@@ -196,6 +225,7 @@ struct screen_buffer
         return row(c.Y).glyph_at(static_cast<uint16_t>(c.X));
     }
 
+    // 返回指定坐标处 glyph 的列宽；trailing 列为 0，无效坐标为 0。
     int glyph_width(COORD c) const noexcept
     {
         if (!_valid(c))
@@ -204,6 +234,8 @@ struct screen_buffer
     }
 
     // ── 属性 ──
+    // 返回指定列的 Win32 legacy 属性；越界返回默认 0x07，避免 API 读路径
+    // 因短矩形或无效坐标产生未定义结果。
     WORD attr_at(COORD c) const noexcept
     {
         if (!_valid(c))
@@ -211,6 +243,8 @@ struct screen_buffer
         return row(c.Y).attr_at(static_cast<uint16_t>(c.X)).legacy;
     }
 
+    // 修改单个缓冲区单元的属性，不改变字符内容。无效坐标被忽略，因为
+    // Console API 的短写路径会用返回长度表达实际写入范围。
     void set_attr(COORD c, WORD attr) noexcept
     {
         if (!_valid(c))
@@ -218,6 +252,8 @@ struct screen_buffer
         row(c.Y).set_attr(static_cast<uint16_t>(c.X), text_attribute{attr});
     }
 
+    // 从 start 开始填充属性。当前实现只作用于 start 所在行，用于匹配已有
+    // API handler 的分段调用方式；跨行填充由 linear 版本处理。
     void fill_attrs(COORD start, ULONG count, WORD attr) noexcept
     {
         if (!_valid_y(start.Y))
@@ -237,6 +273,8 @@ struct screen_buffer
         ULONG cells_modified = 0;
     };
 
+    // FillConsoleOutputCharacter 语义：从 start 按线性屏幕顺序写入 count 个
+    // 字符，保留每个目标单元原有属性。返回值区分请求消费量和实际改变量。
     fill_result fill_char(char32_t cp, COORD start, ULONG count)
     {
         fill_result r;
@@ -267,6 +305,8 @@ struct screen_buffer
         return r;
     }
 
+    // FillConsoleOutputAttribute 语义：从 start 按线性屏幕顺序写入 count 个
+    // 属性，不改变字符内容。越过缓冲区末尾时返回实际覆盖的列数。
     fill_result fill_attr(WORD attr, COORD start, ULONG count)
     {
         fill_result r;
@@ -317,6 +357,8 @@ struct screen_buffer
         return w;
     }
 
+    // 按 Win32 线性缓冲区顺序写入字符序列：到达行尾后继续下一行。返回
+    // 已消费的输入 codepoint 数；双宽字符消耗两列但只计一个输入字符。
     size_t write_char32_linear(COORD start, const char32_t *chars, size_t len)
     {
         if (!_valid(start))
@@ -341,6 +383,8 @@ struct screen_buffer
         return w;
     }
 
+    // 在单行内按列写入属性序列，不改变字符内容。返回实际写入属性数，可能
+    // 因 Y 无效或行尾截断而小于 len。
     size_t write_attr_seq(COORD start, const WORD *attrs, size_t len)
     {
         // 返回实际写入的属性数量；可能小于 len，表示到达行尾或 Y 无效。
@@ -358,6 +402,8 @@ struct screen_buffer
         return w;
     }
 
+    // 按 Win32 线性缓冲区顺序写入属性序列。返回已消费属性数，可能因为
+    // 起点无效或到达缓冲区末尾而小于 len。
     size_t write_attr_seq_linear(COORD start, const WORD *attrs, size_t len)
     {
         if (!_valid(start))
@@ -395,6 +441,8 @@ struct screen_buffer
         return r;
     }
 
+    // 按线性顺序导出 wchar_t。内部非 BMP 或多 codepoint glyph 会降级为首
+    // 个可表示字符/替换字符；返回写入 out 的元素数。
     size_t read_wchars_linear(COORD start, wchar_t *out, size_t max_len) const noexcept
     {
         if (!_valid(start))
@@ -414,6 +462,8 @@ struct screen_buffer
         return r;
     }
 
+    // 在单行内读取属性序列。每个可见列导出一个 WORD；到达行尾或 Y 无效时
+    // 停止。
     size_t read_attrs(COORD start, WORD *out, size_t max_len) const noexcept
     {
         // 返回实际导出的属性数量；可能小于 max_len。
@@ -431,6 +481,7 @@ struct screen_buffer
         return r;
     }
 
+    // 按线性顺序导出属性。每个可见列导出一个 WORD，trailing 列也独立导出。
     size_t read_attrs_linear(COORD start, WORD *out, size_t max_len) const noexcept
     {
         if (!_valid(start))
@@ -450,6 +501,8 @@ struct screen_buffer
     }
 
     // ── clear ──
+    // 清空整个缓冲区并重置环形行起点。所有行都会回到压缩空白状态，viewport
+    // 尺寸和位置保持不变。
     void clear(WORD attr = 0x07)
     {
         // 0x07 是传统白前景/黑背景属性。
@@ -458,6 +511,9 @@ struct screen_buffer
     }
 
     // ── scroll (纯 char32_t + WORD) ──
+    // ScrollConsoleScreenBuffer 语义：把 sr 中与 clip 相交的内容移动到 dest，
+    // 源区域未被目标覆盖的部分用 fill 填充。函数只修改内部屏幕模型，不发
+    // VT；全屏纯垂直滚动会优先使用 _row_origin 环形移动。
     void scroll(SMALL_RECT sr, SMALL_RECT clip, bool use_clip, COORD dest, char32_t fill_char, WORD fill_attr)
     {
         COREHOST_PERF_SCOPE(screen_scroll);
@@ -634,6 +690,8 @@ struct screen_buffer
         if (y >= 0 && y < size.Y)
             row(y).to_char_info(out);
     }
+    // 将 Win32 CHAR_INFO 行片段写回内部行。dst_col 是目标起始列，count 是
+    // CHAR_INFO 元素数；越界 y 被忽略。
     void row_from_ci(SHORT y, const CHAR_INFO *src, uint16_t count, uint16_t dst_col = 0) noexcept
     {
         if (y >= 0 && y < size.Y)
@@ -650,12 +708,24 @@ struct screen_buffer
     }
 
   private:
-    // _rows.size() 必须等于 size.Y，每行宽度必须等于 size.X。
+    // _rows.size() 必须等于 size.Y，每行宽度必须等于 size.X。逻辑行 y 通过
+    // _row_origin 映射到物理行，实现全屏垂直滚动的 O(1) 行移动。
     std::vector<screen_buffer_row> _rows;
+
+    // scroll 的临时行缓存。只在通用矩形滚动需要保存重叠源区域时使用，
+    // 复用 vector 容量以减少高频滚动中的分配。
     std::vector<screen_buffer_row> _scroll_saved_rows;
+
+    // write_text_row 的列宽缓存。只有文本段出现非单宽字符时才填充；全单宽
+    // 路径保持为空，避免每段输出都保存宽度数组。
     raw_u8_buffer _write_widths;
+
+    // 逻辑第 0 行在 _rows 中的物理下标。只有全屏纯垂直滚动会改变它；需要
+    // 与外部 vector 顺序一致的操作会先调用 _linearize_rows。
     size_t _row_origin = 0;
 
+    // 重建 _rows，使其数量等于 size.Y 且每行宽度等于 size.X。该函数不保留
+    // 旧内容；需要保留内容的调用方必须先保存并复制交集。
     void _ensure_rows()
     {
         // _ensure_rows 重建所有行，不保留旧内容；需要保留内容的 resize 会在
@@ -667,12 +737,16 @@ struct screen_buffer
             _rows.emplace_back(static_cast<uint16_t>(size.X));
     }
 
+    // 将逻辑行号转换为 _rows 下标。y 必须是有效逻辑行；当 _rows 为空时
+    // 返回 0 只用于防御默认构造早期状态。
     size_t _physical_row_index(SHORT y) const noexcept
     {
         const auto row_count = _rows.size();
         return row_count == 0 ? 0 : (_row_origin + static_cast<size_t>(y)) % row_count;
     }
 
+    // 把环形行顺序旋转回 _rows[0] == 逻辑 0 行。resize 和通用 scroll 需要
+    // 真实 vector 顺序时调用；如果 _row_origin 已经为 0 则不做工作。
     void _linearize_rows()
     {
         if (_row_origin == 0 || _rows.empty())
@@ -684,19 +758,25 @@ struct screen_buffer
         _row_origin = 0;
     }
 
+    // 判断坐标是否位于缓冲区内。无效坐标的公开读写函数通常返回默认值或
+    // 短写长度，不抛异常。
     bool _valid(COORD c) const noexcept
     {
         return c.X >= 0 && c.X < size.X && c.Y >= 0 && c.Y < size.Y;
     }
+    // 判断行号是否位于缓冲区内，用于只关心 Y 有效性的线性读写入口。
     bool _valid_y(SHORT y) const noexcept
     {
         return y >= 0 && y < size.Y;
     }
+    // 判断矩形是否仍有面积；被 clamp 或 clip 后可能出现 Left>Right/Top>Bottom。
     bool _rvalid(const SMALL_RECT &r) const noexcept
     {
         return r.Left <= r.Right && r.Top <= r.Bottom;
     }
 
+    // 将矩形裁剪到当前缓冲区边界。调用后仍可能无效，例如原矩形完全在边界
+    // 之外，调用者需要继续用 _rvalid 判断。
     void _clamp(SMALL_RECT &r) const noexcept
     {
         if (r.Left < 0)
@@ -709,6 +789,8 @@ struct screen_buffer
             r.Bottom = size.Y - 1;
     }
 
+    // 用指定字符和属性填充矩形区域。该路径按单元格写入，适合局部矩形；
+    // 整行填充应使用 _fill_row 保留压缩状态。
     void _fill(SMALL_RECT r, char32_t cp, WORD attr)
     {
         _clamp(r);
@@ -719,6 +801,7 @@ struct screen_buffer
                 row(y).write_glyph(static_cast<uint16_t>(x), std::u32string_view{&cp, 1}, 1, text_attribute{attr});
     }
 
+    // 将逻辑行 y 重置为同一字符/属性的压缩状态，用于滚动后新露出的行。
     void _fill_row(SHORT y, char32_t cp, WORD attr)
     {
         row(y).reset_fill(static_cast<uint16_t>(size.X), cp, text_attribute{attr});

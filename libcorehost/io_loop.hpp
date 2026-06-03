@@ -24,20 +24,22 @@ namespace conpty
 
 inline constexpr DWORD io_loop_idle_wait_ms = 16;
 
+// 运行 ConDrv READ_IO/COMPLETE_IO 主循环。server/event 都是非拥有句柄；
+// router 持有实际状态机。函数通过 READ_IO piggyback 提交同步 completion，
+// 对 pending 请求等待 VT 输入显式完成，并在 server 断开或 bridge 可退出时返回。
 inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view ev, message_router &router)
 {
+    // server 是 ConDrv \Server 等待/READ_IO 目标；ev 是客户端 input-available
+    // 事件，只用于判断 completion 前是否需要先刷 VT 输出。router 持有
+    // io_state/pipe_bridge/api_router，是本循环消费消息的唯一入口。
     LOG("run_io_loop_no_setup: enter");
-
-    // server 是 READ_IO/COMPLETE_IO 的等待对象。ev 是 ConDrv InputAvailableEvent。
-    // 本循环不把 ev 当作主要等待对象；这里只在提交上一条 completion 前做
-    // 0ms 探测，用来判断小块 VT 输出是否需要先刷给终端，避免客户端输出
-    // ready/prompt 后等待输入时卡在 READ_IO 里。
 
     // READ_IO 会在同一次调用中提交上一条 completion 并读取下一条消息。
     // 双缓冲保证 completion 中指向的 body 不会被下一条消息覆盖。
     miniio::io_msg msgA{}, msgB{};
 
-    // cur 只在 msgA/msgB 之间切换，指向本轮接收缓冲。
+    // cur 只在 msgA/msgB 之间切换，指向本轮接收缓冲。另一块缓冲可能仍被
+    // prev_done 指向，用作上一条消息的 completion 输入。
     miniio::io_msg *cur = &msgA;
 
     // nullptr 表示本轮不提交 completion；非空表示上一条消息已经处理完，
@@ -68,6 +70,9 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         // 能再次提交同一个 completion。
         CD_IO_COMPLETE *prev_comp = prev_done ? &prev_done->complete : nullptr;
         const bool submitting_previous_completion = prev_comp != nullptr;
+        LOG2_IF(submitting_previous_completion, "submitting completion id=%08lx:%08lx status=0x%08lx info=%llu",
+                prev_done->descriptor.Identifier.HighPart, prev_done->descriptor.Identifier.LowPart,
+                prev_done->complete.Status, prev_done->complete.Information);
         if (submitting_previous_completion && router.has_buffered_vt_output() && ev.valid())
         {
             COREHOST_PERF_SCOPE(io_server_wait_0);
@@ -94,6 +99,7 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         {
             // no_message 仍可能已经消费 prev_comp，因此必须清空 prev_done。
             prev_done = nullptr;
+            LOG2("READ_IO returned no message");
 
             router.flush_vt_output();
 
@@ -120,6 +126,7 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         if (cur->descriptor.Function == 0)
         {
             // Function==0 是空 descriptor，不对应可完成的 Console I/O。
+            LOG2("empty ConDrv descriptor");
             router.on_idle();
             if (router.should_exit())
                 break;
@@ -128,6 +135,8 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
 
         if (cur->descriptor.Function != CONSOLE_IO_CONNECT)
         {
+            LOG2("dispatch message func=%lu id=%08lx:%08lx", cur->descriptor.Function,
+                 cur->descriptor.Identifier.HighPart, cur->descriptor.Identifier.LowPart);
             // true 表示 router 已经填好 cur->complete，下一轮 READ_IO 提交。
             // false 表示请求挂起，router 会在后续 VT 输入到达时显式完成。
             if (router.on_message(*cur))
@@ -140,12 +149,14 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             }
             else
             {
+                LOG2("message pending func=%lu", cur->descriptor.Function);
                 // pending 期间只等待终端输入或关闭信号。继续等 server 会在
                 // 没有终端输入时重复唤醒，造成空转。
                 while (router.has_pending())
                 {
                     router.wait_for_pending_input();
                 }
+                LOG2("pending message completed func=%lu", cur->descriptor.Function);
                 if (router.should_exit())
                     break;
             }
@@ -154,6 +165,8 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         }
 
         connect_completion connect_result = connect_completion::explicit_complete;
+        LOG2("dispatch CONNECT id=%08lx:%08lx", cur->descriptor.Identifier.HighPart,
+             cur->descriptor.Identifier.LowPart);
         if (!router.on_connect(*cur, connect_result))
         {
             router.flush_vt_output();

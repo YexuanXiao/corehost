@@ -60,6 +60,9 @@ enum class vt_message_id
     continue_ = 1,     // 转义内部状态 → 无操作
     text = 2,          // 纯可打印文本消息（不含控制字符）
     unknown_sequence,  // 无法识别或语法错误的 ESC/CSI/OSC/SS3 序列，msg.payload.text 为完整原文
+
+    // C0/ESC 基础控制。输入方向用于行编辑和 RAW_READ 行终止判断；输出方向
+    // 会更新本地 cursor/screen 并序列化为对应 VT。
     carriage_return,   // \r
     line_feed,         // \n
     reverse_index,
@@ -83,9 +86,15 @@ enum class vt_message_id
     tab_clear_current,
     tab_clear_all,
     set_window_title,
+
+    // 终端模式/缓冲区切换。parser 只报告“发生了什么”，实际备用缓冲区、
+    // 光标键模式、软复位状态由 api_router/pipe_bridge/console_state 应用。
     use_alternate_buffer,
     use_main_buffer,
     soft_reset,
+
+    // 键盘输入消息。输入方向会转换为 INPUT_RECORD 或 cooked 编辑动作；
+    // 输出方向不应把这些 id 写给 vt_out。
     key_up,
     key_down,
     key_right,
@@ -117,6 +126,8 @@ enum class vt_message_id
     char_esc,
     char_nul,
 
+    // 带 count 的相对移动和行/字符编辑消息。count payload 默认 1，调用方
+    // 负责把 1-based/terminal-relative 语义转换到本地 screen_buffer。
     cursor_up,
     cursor_down,
     cursor_forward,
@@ -133,6 +144,8 @@ enum class vt_message_id
     cursor_forward_tab,
     cursor_backward_tab,
 
+    // 绝对定位、擦除、调色板和窗口状态消息。这些消息通常同时影响宿主
+    // 终端 VT 输出和 corehost 的本地 Console API 可见状态。
     cursor_vert_absolute,
     cursor_horiz_absolute,
     cursor_position,
@@ -143,40 +156,57 @@ enum class vt_message_id
     set_scrolling_region,
     set_columns_132,
     set_columns_80,
+
+    // 终端到 host 的异步通知/响应，不是用户输入。处理后通常只更新内部
+    // 尺寸、光标继承或 input_buffer 状态。
     resize_window,   // \x1b[8;height;width t — terminal resize notification
     win32_input_key, // \x1b[Vk;Sc;Uc;Kd;Cs;Rc_ — Win32 Input Mode 键盘事件
     cpr_response,    // \x1b[Pl;PcR — 终端对 DSR CPR 的应答
+
+    // 图形属性修改。payload.sgr 只保存本条消息显式设置/清除的属性，不是
+    // 完整当前属性快照。
     sgr,
 };
 
 struct vt_count_payload
 {
+    // VT count 参数。默认 1 表示序列未显式提供数量或提供 0 时按 1 处理。
     short value = 1;
 };
 
 struct vt_position_payload
 {
+    // VT row 参数，1-based。0 不是合法位置；reset 后恢复到 1。
     short row = 1;
+    // VT column 参数，1-based。调用方进入 console_state 时再转为 0-based。
     short col = 1;
 };
 
 struct vt_scroll_region_payload
 {
+    // DECSTBM top margin，1-based viewport-relative 行号。
     short top = 1;
+    // DECSTBM bottom margin，0 表示未显式提供，调用方使用 viewport 最后一行。
     short bottom = 0;
 };
 
 struct vt_resize_payload
 {
+    // CSI 8 ; rows ; cols t 的行数。0 表示没有有效 resize payload。
     short rows = 0;
+    // CSI 8 ; rows ; cols t 的列数。0 表示没有有效 resize payload。
     short cols = 0;
 };
 
 struct vt_palette_payload
 {
+    // OSC 4 palette index。
     short index = 0;
+    // OSC 4 RGB 红色分量。
     uint8_t r = 0;
+    // OSC 4 RGB 绿色分量。
     uint8_t g = 0;
+    // OSC 4 RGB 蓝色分量。
     uint8_t b = 0;
 };
 
@@ -193,6 +223,7 @@ enum class vt_sgr_flag : uint16_t
     strikethrough = 1 << 8,
 };
 
+// 把 SGR 属性枚举转换成 bit mask，供 set_flags/clear_flags 共用同一位定义。
 [[nodiscard]] constexpr uint16_t vt_sgr_flag_bit(vt_sgr_flag flag) noexcept
 {
     return static_cast<uint16_t>(flag);
@@ -200,25 +231,35 @@ enum class vt_sgr_flag : uint16_t
 
 enum class vt_sgr_color_kind : uint8_t
 {
+    // 本条 SGR 没有修改该颜色通道。
     none,
+    // 本条 SGR 要求恢复默认色，来自 39/49。
     default_,
+    // value 保存 ANSI 16 色或 256 色索引。
     indexed,
+    // value/g/b 保存 RGB 真彩色。
     rgb,
 };
 
 struct vt_sgr_color_payload
 {
+    // 当前颜色 payload 类型；none 时 value/g/b 无意义。
     vt_sgr_color_kind kind = vt_sgr_color_kind::none;
+    // indexed 时是颜色索引；rgb 时是红色分量。
     uint8_t value = 0;
+    // rgb 时是绿色分量。
     uint8_t g = 0;
+    // rgb 时是蓝色分量。
     uint8_t b = 0;
 
+    // 记录 SGR 39/49 语义：恢复终端默认前景/背景色。
     void set_default() noexcept
     {
         kind = vt_sgr_color_kind::default_;
         value = g = b = 0;
     }
 
+    // 记录 ANSI 16 色或 256 色索引；value 保存索引，g/b 不参与读取。
     void set_index(short index) noexcept
     {
         kind = vt_sgr_color_kind::indexed;
@@ -226,6 +267,7 @@ struct vt_sgr_color_payload
         g = b = 0;
     }
 
+    // 记录 SGR 38;2/48;2 RGB 真彩色参数。
     void set_rgb(uint8_t r, uint8_t green, uint8_t blue) noexcept
     {
         kind = vt_sgr_color_kind::rgb;
@@ -234,16 +276,19 @@ struct vt_sgr_color_payload
         b = blue;
     }
 
+    // true 表示该颜色参数要求恢复默认色，而不是设置具体颜色。
     [[nodiscard]] bool is_default() const noexcept
     {
         return kind == vt_sgr_color_kind::default_;
     }
 
+    // true 表示 value 保存的是 ANSI/256 色索引。
     [[nodiscard]] bool is_indexed() const noexcept
     {
         return kind == vt_sgr_color_kind::indexed;
     }
 
+    // true 表示 value/g/b 三个字段保存 RGB 分量。
     [[nodiscard]] bool is_rgb() const noexcept
     {
         return kind == vt_sgr_color_kind::rgb;
@@ -252,11 +297,16 @@ struct vt_sgr_color_payload
 
 struct vt_sgr_payload
 {
+    // 本条 SGR 显式打开的属性 bit 集合。
     uint16_t set_flags = 0;
+    // 本条 SGR 显式关闭的属性 bit 集合。
     uint16_t clear_flags = 0;
+    // 前景色修改；kind==none 表示本条消息不改前景。
     vt_sgr_color_payload fg;
+    // 背景色修改；kind==none 表示本条消息不改背景。
     vt_sgr_color_payload bg;
 
+    // 标记某个文本属性需要启用，并取消同一属性的清除标记。
     void set(vt_sgr_flag flag) noexcept
     {
         const auto bit = vt_sgr_flag_bit(flag);
@@ -264,6 +314,7 @@ struct vt_sgr_payload
         clear_flags &= static_cast<uint16_t>(~bit);
     }
 
+    // 标记某个文本属性需要关闭，并取消同一属性的启用标记。
     void clear(vt_sgr_flag flag) noexcept
     {
         const auto bit = vt_sgr_flag_bit(flag);
@@ -271,16 +322,19 @@ struct vt_sgr_payload
         set_flags &= static_cast<uint16_t>(~bit);
     }
 
+    // 查询本条 SGR 消息是否显式启用某属性。
     [[nodiscard]] bool has(vt_sgr_flag flag) const noexcept
     {
         return (set_flags & vt_sgr_flag_bit(flag)) != 0;
     }
 
+    // 查询本条 SGR 消息是否显式关闭某属性。
     [[nodiscard]] bool clears(vt_sgr_flag flag) const noexcept
     {
         return (clear_flags & vt_sgr_flag_bit(flag)) != 0;
     }
 
+    // true 表示本条 SGR 包含 0，调用方应重置全部图形属性。
     [[nodiscard]] bool has_reset() const noexcept
     {
         return has(vt_sgr_flag::reset);
@@ -289,30 +343,50 @@ struct vt_sgr_payload
 
 struct vt_win32_key_payload
 {
+    // Win32 virtual-key code。
     unsigned short vk = 0;
+    // Win32 scan code。
     unsigned short sc = 0;
+    // KEY_EVENT_RECORD::uChar.UnicodeChar；0 表示该键没有字符载荷。
     wchar_t uc = 0;
+    // true 表示 KEY_DOWN，false 表示 KEY_UP。
     bool key_down = false;
+    // KEY_EVENT_RECORD::dwControlKeyState 修饰键和键盘状态标志。
     unsigned long control_state = 0;
+    // KEY_EVENT_RECORD::wRepeatCount；Win32Input 序列未提供时至少为 1。
     unsigned short repeat_count = 1;
 };
 
 union vt_message_payload
 {
+    // text/unknown_sequence 的字符视图，指向 parser raw 缓冲。
     std::u32string_view text;
+    // OSC 0/2 标题视图，指向 parser raw 缓冲。
     std::u32string_view title;
+    // 共用 count 参数，适用于 cursor/scroll/insert/delete 等消息。
     vt_count_payload count;
+    // 共用 1-based row/col 参数，适用于 CUP/HVP/CHA/VPA/CPR。
     vt_position_payload position;
+    // ED/EL erase mode，0/1/2/3 由对应消息解释。
     short erase_mode;
+    // DECSTBM 滚动区域参数。
     vt_scroll_region_payload scroll_region;
+    // DECSCUSR 光标形状参数，0 表示未指定形状。
     short cursor_shape;
+    // DECCOLM 目标宽度；当前主要由 message id 表达 80/132。
     short window_width;
+    // 终端 resize 通知参数。
     vt_resize_payload resize;
+    // OSC 4 调色板参数。
     vt_palette_payload palette;
+    // CPR 响应坐标，1-based。
     vt_position_payload cpr;
+    // SGR 图形属性修改。
     vt_sgr_payload sgr;
+    // Windows Terminal Win32 Input Mode 键盘事件。
     vt_win32_key_payload win32_key;
 
+    // 默认构造为 sgr 分支，使 union 内含对象处于可析构/可赋值的平凡状态。
     constexpr vt_message_payload() noexcept : sgr{} {}
 };
 
@@ -326,13 +400,17 @@ struct vt_message
 
 enum class vt_parse_consumption
 {
+    // 本次 parse_with_consumption 已消费传入 codepoint。
     consumed,
+    // 本次只交付上次延迟的控制消息；调用方必须用同一个 codepoint 重试。
     retry,
 };
 
 struct vt_parse_result
 {
+    // 本次产出的消息类型；continue_ 表示还没有完整消息。
     vt_message_id id = vt_message_id::continue_;
+    // 指示调用方当前 codepoint 是否已经进入 parser 状态机。
     vt_parse_consumption consumption = vt_parse_consumption::consumed;
 };
 
@@ -344,21 +422,30 @@ class vt_parser
 
     enum class parser_mode
     {
+        // 普通文本状态，可累积 payload.text。
         ground,
+        // 已读取 ESC，等待 final/intermediate 或 CSI/OSC/SS3 入口。
         esc,
+        // CSI 参数收集状态，等待 final 字符。
         csi,
+        // OSC 字符串状态，等待 BEL 或 ST 终止。
         osc,
+        // SS3 键盘序列状态。
         ss3,
+        // OSC 中读到 ESC，等待 '\' 确认 ST。
         osc_st,
+        // 普通文本后遇到 ESC 时使用的临时状态；先交付文本，下次恢复 ESC。
         pending_esc,
     };
 
   public:
+    // raw 由调用方持有，parser 把当前消息文本/标题 view 指向该缓冲。
     explicit vt_parser(raw_u32_buffer &raw) : _raw(raw)
     {
     }
 
-    // 访问最后产出的消息（不含 id，id 由 parse() 返回值提供）
+    // 访问最后产出的消息。调用方只能按最近一次 parse 返回的 id 读取对应
+    // payload 分支，并且必须在下一次 reset/parse 改写 raw 缓冲前消费完。
     const vt_message &get() const noexcept
     {
         return _msg;
@@ -368,12 +455,14 @@ class vt_parser
         return _msg;
     }
 
-    // parse() 内部已判定当前字符是否该回显（地面态可打印/可见控制字符）
+    // 返回最近一次输入字符是否应由 ConsoleRead 路径本地 echo。该值只描述
+    // 输入方向的“用户可见字符”，不表示 parser 已经产出文本消息。
     [[nodiscard]] bool should_echo_last() const noexcept
     {
         return _should_echo;
     }
 
+    // 返回当前正在解析的 ESC 序列原文；不在 ESC 序列内时返回空 view。
     [[nodiscard]] std::u32string_view raw_sequence() const noexcept
     {
         if (_seq_start >= _raw.size() || _raw[_seq_start] != U'\x1b')
@@ -381,17 +470,20 @@ class vt_parser
         return {_raw.data() + _seq_start, _raw.size() - _seq_start};
     }
 
-    // 是否有未交付的累积文本（纯可打印字符无控制字符终止时残留）
+    // true 表示 ground 状态已累积普通文本但尚未以 text 消息交付。输出方向
+    // 在 WriteConsole 批次结束时用它 flush 尾部文本。
     [[nodiscard]] bool has_pending_text() const noexcept
     {
         return _ground_text_start != npos && !_raw.empty();
     }
 
+    // true 表示 parser 处于 ground 且没有延迟控制消息，调用方可走纯文本快路径。
     [[nodiscard]] bool can_accept_direct_ground_text() const noexcept
     {
         return _pending_control == vt_message_id::continue_ && _mode == parser_mode::ground;
     }
 
+    // 计算 text 开头连续普通文本长度；返回 0 表示当前状态或首字符不能直写。
     [[nodiscard]] size_t direct_ground_text_run_length(std::u32string_view text) const noexcept
     {
         if (!can_accept_direct_ground_text())
@@ -403,7 +495,8 @@ class vt_parser
         return static_cast<size_t>(it - text.begin());
     }
 
-    // 释放累积文本为 text 消息并返回 text id；无残留文本时返回 continue_
+    // 释放 ground 状态累积文本为 text 消息。它只用于批次边界；正在解析
+    // ESC/CSI/OSC 时调用会返回 continue_，不会截断半条控制序列。
     [[nodiscard]] vt_message_id flush_text()
     {
         // flush_text 只交付地面态累积文本；正在解析 ESC/CSI/OSC 时不能调用它
@@ -450,12 +543,14 @@ class vt_parser
     }
 
   private:
+    // 判断 ch 是否属于 ground 状态下可累计为普通文本的码点。
     [[nodiscard]] static constexpr bool _is_ground_printable(char32_t ch) noexcept
     {
         return ch > 0x1F && ch != 0x7F;
     }
 
-    // 解析单个码点，返回当前产生的消息 id，continue_ 表示尚未完成
+    // 消费一个 codepoint 并推进 VT 状态机。返回 continue_text 表示普通文本
+    // 已经累积但尚未最终交付；返回其他 id 时调用方必须消费并 reset<id>()。
     [[nodiscard]] vt_message_id _parse_consuming(char32_t ch)
     {
         // U'\0' 是 drain sentinel：无排队消息时立即返回 continue_，不产 char_nul
@@ -777,7 +872,8 @@ class vt_parser
     }
 
   public:
-    // 根据已消费的消息类型重置受污染的字段与解析器状态。
+    // 根据已消费的消息类型重置受污染的字段与解析器状态。调用方必须用刚刚
+    // 处理过的 message id 作为模板参数，否则会清错 payload 分支。
     template <vt_message_id id>
     void reset()
     {
@@ -862,60 +958,71 @@ class vt_parser
     }
 
   private:
+    // 重置共用 count payload；适用于 CUU/CUD/SU/IL/DCH 等带数量参数的消息。
     void _reset_count() noexcept
     {
         _msg.payload.count.value = 1;
     }
 
+    // 重置只使用 row 的绝对光标消息 payload。
     void _reset_row() noexcept
     {
         _msg.payload.position.row = 1;
     }
 
+    // 重置只使用 col 的绝对光标消息 payload。
     void _reset_col() noexcept
     {
         _msg.payload.position.col = 1;
     }
 
+    // 重置 row/col 坐标 payload，默认值保持 VT 的 1-based (1,1)。
     void _reset_position() noexcept
     {
         _msg.payload.position.row = 1;
         _msg.payload.position.col = 1;
     }
 
+    // 清除 DECSCUSR 光标形状 payload，0 表示没有指定形状。
     void _reset_cursor_shape() noexcept
     {
         _msg.payload.cursor_shape = 0;
     }
 
+    // 清除 ED/EL erase mode，0 是 VT 默认擦除模式。
     void _reset_erase_mode() noexcept
     {
         _msg.payload.erase_mode = 0;
     }
 
+    // 清除 OSC 4 调色板 payload，避免下一条 palette 消息继承旧 RGB。
     void _reset_palette_color() noexcept
     {
         _msg.payload.palette.index = 0;
         _msg.payload.palette.r = _msg.payload.palette.g = _msg.payload.palette.b = 0;
     }
 
+    // 重置 DECSTBM payload；bottom=0 表示使用当前 viewport 最后一行。
     void _reset_scrolling_region() noexcept
     {
         _msg.payload.scroll_region.top = 1;
         _msg.payload.scroll_region.bottom = 0;
     }
 
+    // 清除 80/132 列切换 payload；当前实现只用 message id 表达目标宽度。
     void _reset_window_width() noexcept
     {
         _msg.payload.window_width = 0;
     }
 
+    // 清除窗口尺寸通知 payload，0 表示没有有效 rows/cols。
     void _reset_resize_window() noexcept
     {
         _msg.payload.resize.rows = 0;
         _msg.payload.resize.cols = 0;
     }
 
+    // 重置 Win32 Input Mode 键盘 payload，repeat_count 默认至少为 1。
     void _reset_win32_input_key() noexcept
     {
         _msg.payload.win32_key.vk = 0;
@@ -926,17 +1033,20 @@ class vt_parser
         _msg.payload.win32_key.repeat_count = 1;
     }
 
+    // 清除 CPR 响应坐标；0 不是有效 VT CPR 坐标。
     void _reset_cpr_response() noexcept
     {
         _msg.payload.cpr.row = 0;
         _msg.payload.cpr.col = 0;
     }
 
+    // 清除 SGR payload 的 flags 和颜色分支。
     void _reset_sgr() noexcept
     {
         _msg.payload.sgr = {};
     }
 
+    // 消息被消费后清理中央 raw/text 起点，并把非 pending_esc 模式拉回 ground。
     void _reset_parser_state_after_message()
     {
         _raw.clear();
@@ -946,11 +1056,13 @@ class vt_parser
             _mode = parser_mode::ground;
     }
 
-    // 解析出的消息体；消息类型由 parse() 返回值给出。
+    // 解析出的消息体；消息类型由 parse()/parse_with_consumption() 返回值给出。
+    // union payload 中只有与该 id 对应的分支有效，reset<id>() 会清理该分支。
     vt_message _msg;
 
     // ── 中央缓冲区与视图位置 ──
-    // _raw 保存当前未消费输入；message 里的 string_view 指向该缓冲。
+    // _raw 保存当前未消费输入；message 里的 string_view 指向该缓冲。调用方
+    // 消费 message 后必须 reset，否则下一次 parse 可能让旧 view 失效。
     raw_u32_buffer &_raw;
 
     // npos 表示没有有效偏移。
@@ -959,35 +1071,51 @@ class vt_parser
     // 当前普通文本段在 _raw 中的起始偏移；npos 表示没有累积文本。
     size_t _ground_text_start = npos;
 
-    // 当前 ESC/CSI/OSC 序列在 _raw 中的起始偏移。
+    // 当前 ESC/CSI/OSC 序列在 _raw 中的起始偏移。raw_sequence() 和
+    // unknown_sequence 都依赖它返回完整原文。
     size_t _seq_start = 0;
 
     // ── 解析状态 ──
+    // 当前 VT 状态机模式。ground 表示可接收普通文本；pending_esc 表示刚刚
+    // 为了先交付文本临时延后了一个 ESC。
     parser_mode _mode = parser_mode::ground;
-    bool _private_marker = false; // true 表示 CSI '?' private marker
-    bool _should_echo = false;    // 最近一次 parse() 的字符是否该回显
+    // true 表示当前 CSI 使用 '?' private marker；只在 _mode==csi 时有意义。
+    bool _private_marker = false;
+    // 最近一次 parse() 的字符是否适合本地 echo；bridge 用它判断 ConsoleRead
+    // 是否需要回显原始字节。
+    bool _should_echo = false;
 
     // ── 延迟交付：has_text+控制字符时先交付文本，控制消息下次返回 ──
     // continue_ 表示没有排队消息。
     vt_message_id _pending_control = vt_message_id::continue_;
 
     // ── CSI 参数收集 ──
+    // _params 保存已经被 ';' 结束的参数；_current_param 保存正在累积的参数。
+    // _param_index 是已提交参数数量，范围 0..MAX_PARAMS。
     std::array<short, MAX_PARAMS> _params{};
-    size_t _param_index = 0;    // 当前已收集参数个数，范围 0..MAX_PARAMS
-    short _current_param = 0;   // 正在解析的当前参数值
-    bool _has_param = false;    // 当前参数是否被显式赋值（用于区分默认值）
-    char _intermediate = 0;     // 0 表示没有 CSI/ESC intermediate 字节
-    bool _csi_overflow = false; // 参数数量或数值溢出标记
+    size_t _param_index = 0;
+    short _current_param = 0;
+    // false 表示当前参数为空，dispatch 通过 _get_param 的默认值补 VT 默认参数。
+    bool _has_param = false;
+    // CSI/ESC intermediate 字节；0 表示当前序列没有 intermediate。
+    char _intermediate = 0;
+    // 参数数量或数值溢出标记；为 true 时整条 CSI 作为 unknown_sequence 交付。
+    bool _csi_overflow = false;
 
     // ── OSC 参数收集 ──
-    short _osc_code = 0;             // OSC 操作码；0 表示尚未解析
-    std::array<char8_t, 32> _osc_buf{}; // OSC 4 调色板参数窄字符缓冲
-    size_t _osc_len = 0;             // _osc_buf 的有效长度，范围 0.._osc_buf.size()
-    bool _osc_had_semi = false;      // true 表示已进入 payload
+    // OSC 操作码；0 既可能表示尚未解析，也可能是 OSC 0 标题，是否进入 payload
+    // 由 _osc_had_semi 区分。
+    short _osc_code = 0;
+    // OSC 4 调色板参数的窄字符缓冲。标题 OSC 不使用它，标题直接 view 到 _raw。
+    std::array<char8_t, 32> _osc_buf{};
+    // _osc_buf 的有效长度，范围 0.._osc_buf.size()。
+    size_t _osc_len = 0;
+    // true 表示已经读到 OSC 操作码后的 ';'，后续字符属于 payload。
+    bool _osc_had_semi = false;
 
     // ── 内部辅助函数 ──
 
-    // 重置 CSI 参数收集状态
+    // 重置 CSI 参数收集状态；每条 CSI 结束或非法中断后必须调用。
     void _reset_params()
     {
         _params.fill(0);
@@ -999,7 +1127,7 @@ class vt_parser
         _csi_overflow = false;
     }
 
-    // 将当前正在收集的参数值保存到参数数组
+    // 将当前正在收集的 CSI 参数保存到参数数组；参数过多时只标记 overflow。
     void _add_param()
     {
         // 空参数通过 _has_param=false 表示；这里仍保存 0，dispatch 使用
@@ -1012,18 +1140,19 @@ class vt_parser
         _has_param = false;
     }
 
-    // 获取第 i 个参数，若不存在则返回默认值 d
+    // 获取第 i 个已收集 CSI 参数；未提供该参数时返回调用方指定的默认值。
     short _get_param(size_t i, short d = 0) const
     {
         return (i < _param_index) ? _params[i] : d;
     }
 
-    // 限制参数值在有效范围内（32767）
+    // 把解析出的 short 参数限制在 VT handler 可接受的正数范围内。
     short _clamp(short v)
     {
         return v > 32767 ? static_cast<short>(32767) : v;
     }
 
+    // 把从 start 开始的原文标记为 unknown_sequence payload。
     void _set_unknown_sequence(size_t start)
     {
         _msg.payload.text = {_raw.data() + start, _raw.size() - start};
@@ -1074,7 +1203,7 @@ class vt_parser
 
     // ── 分发函数 ──
 
-    // 普通 ESC 序列（ESC + 单个字符）
+    // 分发普通 ESC 序列（ESC + 单个 final 字符）。
     vt_message_id _dispatch_esc(char32_t code)
     {
         switch (code)
@@ -1096,7 +1225,7 @@ class vt_parser
         }
     }
 
-    // SS3 键盘序列（ESC O + 一个字符），不回显原始字节：dispatch 生成钳制 CUP
+    // 分发 SS3 键盘序列（ESC O + final）；这些输入应转换为键事件而非回显。
     vt_message_id _dispatch_ss3(char32_t code)
     {
         switch (code)
@@ -1136,7 +1265,7 @@ class vt_parser
         }
     }
 
-    // 字符集选择 (ESC ( ...)
+    // 分发 G0 字符集选择；当前只建模 DEC line drawing 和 ASCII。
     vt_message_id _dispatch_charset(char32_t final)
     {
         if (final == U'0')
@@ -1148,7 +1277,7 @@ class vt_parser
 
     // ── OSC 载荷解析辅助函数（接受 u32string_view，无异常） ──
 
-    // 解析十进制数（short），从 pos 处开始，遇非数字停止，失败返回 0
+    // 从 OSC payload 的 pos 位置解析最多 5 位十进制数；pos 返回首个非数字位置。
     short _parse_osc_decimal_8(std::u32string_view s, size_t &pos) const
     {
         // 跳过前导空格
@@ -1179,7 +1308,7 @@ class vt_parser
         return value;
     }
 
-    // 解析两位十六进制数（uint8_t），从 pos 处开始，自动跳过 '/'
+    // 从 OSC RGB payload 的 pos 位置解析最多 2 位十六进制分量，并跳过后续 '/'。
     uint8_t _parse_osc_hex_8(std::u32string_view buf, size_t &pos) const
     {
         // 收集最多 2 个十六进制数字
@@ -1211,7 +1340,7 @@ class vt_parser
         return value;
     }
 
-    // ── OSC 序列分发 ──
+    // 分发完整 OSC 序列。支持标题和 OSC 4 调色板；未知 OSC 保留原文返回 unknown。
     vt_message_id _dispatch_osc()
     {
         auto &m = _msg;
@@ -1284,7 +1413,8 @@ class vt_parser
         }
     }
 
-    // ── CSI 终态分发 ──
+    // 根据 CSI final 字符和已收集参数生成消息；不支持的组合返回 continue_，
+    // 由 _finish_seq 转成 unknown_sequence 供调用方决定是否透传。
     vt_message_id _dispatch_csi(char32_t terminator)
     {
         auto &m = _msg;

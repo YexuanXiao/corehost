@@ -7,6 +7,8 @@ namespace conpty
 class pipe_bridge_testable : public pipe_bridge
 {
   public:
+    miniio::io_msg _test_console_read_msg{};
+
     using pipe_bridge::pipe_bridge;
 
     COORD test_get_term_cursor() const noexcept
@@ -135,7 +137,9 @@ class pipe_bridge_testable : public pipe_bridge
 
     void test_enter_console_read_mode(SHORT prompt_col = 13)
     {
-        _pending.begin_console_read_mode(false, false);
+        auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(_test_console_read_msg.body + sizeof(CONSOLE_MSG_HEADER));
+        req->Unicode = FALSE;
+        _pending.begin_console_read(_test_console_read_msg, false);
         _read_total = 0;
         _cooked_buf.clear();
         _cooked_cursor = 0;
@@ -168,7 +172,9 @@ class pipe_bridge_testable : public pipe_bridge
 
     void test_prepare_console_read_completion(miniio::io_msg &msg, std::u32string_view line, bool unicode)
     {
-        _pending.begin_console_read(msg, unicode, false);
+        auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+        req->Unicode = unicode ? TRUE : FALSE;
+        _pending.begin_console_read(msg, false);
         _pending.set_vt_eof(false);
         _read_total = static_cast<DWORD>(line.size());
         _cooked_buf.assign(line.begin(), line.end());

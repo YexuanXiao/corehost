@@ -39,18 +39,21 @@
 namespace conpty
 {
 
+// 重置 Win32 属性到传统默认值；用于 SGR 0。
 inline void reset_sgr_attributes(WORD &attr) noexcept
 {
     // 0x07 是传统白前景/黑背景属性。
     attr = 0x07;
 }
 
+// 应用 SGR 39 到当前 Win32 属性。
 inline void set_sgr_foreground_default(WORD &attr) noexcept
 {
     attr &= 0xFFF0;
     attr |= 7;
 }
 
+// 应用 SGR 49 到当前 Win32 属性。
 inline void set_sgr_background_default(WORD &attr) noexcept
 {
     // 保持既有语义：默认背景索引为 7，而不是传统黑色 0。
@@ -58,28 +61,33 @@ inline void set_sgr_background_default(WORD &attr) noexcept
     attr |= (7 << 4);
 }
 
+// 将 SGR 前景索引映射到 Win32 属性低 4 位；超出 16 色时忽略。
 inline void set_sgr_foreground_index(WORD &attr, uint8_t index) noexcept
 {
     if (index <= 15)
         attr = static_cast<WORD>((attr & 0xFFF0) | (index & 0x0F));
 }
 
+// 将 SGR 背景索引映射到 Win32 属性高 4 位；超出 16 色时忽略。
 inline void set_sgr_background_index(WORD &attr, uint8_t index) noexcept
 {
     if (index <= 15)
         attr = static_cast<WORD>((attr & 0xFF0F) | ((index & 0x0F) << 4));
 }
 
+// 在 Win32 属性中打开 COMMON_LVB_* 标志。
 inline void set_sgr_flag(WORD &attr, WORD flag) noexcept
 {
     attr |= flag;
 }
 
+// 在 Win32 属性中关闭 COMMON_LVB_* 标志。
 inline void clear_sgr_flag(WORD &attr, WORD flag) noexcept
 {
     attr &= static_cast<WORD>(~flag);
 }
 
+// 把 parser 产出的 SGR payload 合并到当前 Win32 属性字。
 inline void apply_sgr_to_attributes(const vt_sgr_payload &sgr, WORD &attr) noexcept
 {
     if (sgr.has_reset())
@@ -119,6 +127,7 @@ inline void apply_sgr_to_attributes(const vt_sgr_payload &sgr, WORD &attr) noexc
         set_sgr_flag(attr, COMMON_LVB_REVERSE_VIDEO);
 }
 
+// 将一条已解析 VT 消息应用到本地 Console 状态模型；模板参数必须匹配 msg 的 id。
 template <vt_message_id id>
 inline void vt_msg_apply_state(const vt_message &msg, console_state &state, screen_buffer &sb)
 {
@@ -220,6 +229,8 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
 
     // ── SGR 属性 → state.default_attributes ──
     case vt_message_id::sgr: {
+        // SGR payload 表示“本条序列显式改变了什么”，不是完整属性快照。
+        // 合并到 default_attributes 后，后续 Console API 文本写入会使用新属性。
         apply_sgr_to_attributes(msg.payload.sgr, state.default_attributes);
         break;
     }
@@ -406,7 +417,8 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
     // ── 交替缓冲区 ──
     case vt_message_id::use_alternate_buffer:
     case vt_message_id::use_main_buffer:
-        // 由 api_router::switch_active_screen_buffer 处理
+        // active screen buffer 由 api_router::switch_active_screen_buffer 切换。
+        // 这里不修改 sb，避免一个消息在 router 和 state 层重复切换。
         break;
 
     // ── 字符集 ──
@@ -419,6 +431,8 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
 
     // ── Tab 操作 ──
     case vt_message_id::horizontal_tab_set:
+        // HTS/TBC 作用于 console_state 的动态 tab 表；screen_buffer 不保存 tab
+        // stop，因为它不是格子内容。
         state.set_tab_stop(state.cursor.position.X);
         break;
     case vt_message_id::tab_clear_current:
@@ -455,6 +469,8 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
 
     // ── 其他非状态消息 ──
     default:
+        // 键盘消息、终端查询响应和当前不建模的模式切换不会改变本地 Console
+        // API 状态；输出方向的 VT 序列化由 pipe_bridge::vt_msg_send 负责。
         break;
     }
 }

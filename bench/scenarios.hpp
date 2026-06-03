@@ -12,7 +12,7 @@
 namespace bench
 {
 
-inline constexpr size_t benchmark_rounds = 2;
+inline constexpr size_t benchmark_rounds = 1;
 
 // Emits one machine-readable RESULT row. The parent process parses only these
 // tab-separated rows and ignores any diagnostic text.
@@ -84,14 +84,14 @@ inline std::vector<scenario_result> run_worker_bench(std::string host_label, std
         {
             append_worker_sample(results,
                                  run_large_mixed_vt_cjk_output(host_label, "large-mixed-vt-cjk-output",
-                                                               96ull * 1024ull * 1024ull, std::chrono::seconds{20}));
+                                                               24ull * 1024ull * 1024ull, std::chrono::seconds{10}));
         }
 
         if (should_run_scenario(scenario_filter, "long-line-three-vt-output"))
         {
             append_worker_sample(results,
                                  run_long_line_three_vt_output(host_label, "long-line-three-vt-output",
-                                                               24ull * 1024ull * 1024ull, std::chrono::seconds{30}));
+                                                               16ull * 1024ull * 1024ull, std::chrono::seconds{10}));
         }
 
         if (should_run_scenario(scenario_filter, "powershell-type-realistic-build-output"))
@@ -106,7 +106,7 @@ inline std::vector<scenario_result> run_worker_bench(std::string host_label, std
             std::string name = "sgr-";
             name.append(test_case->name);
             append_worker_sample(results, run_sgr_sequence_case(host_label, std::move(name), test_case->name,
-                                                                128ull * 1024ull * 1024ull, std::chrono::seconds{30}));
+                                                                4ull * 1024ull * 1024ull, std::chrono::seconds{10}));
         }
         else if (should_run_scenario(scenario_filter, "sgr-sequence-matrix"))
         {
@@ -115,15 +115,15 @@ inline std::vector<scenario_result> run_worker_bench(std::string host_label, std
                 std::string name = "sgr-";
                 name.append(test_case.name);
                 append_worker_sample(results, run_sgr_sequence_case(host_label, std::move(name), test_case.name,
-                                                                    128ull * 1024ull * 1024ull,
-                                                                    std::chrono::seconds{30}));
+                                                                    4ull * 1024ull * 1024ull,
+                                                                    std::chrono::seconds{10}));
             }
         }
 
         if (should_run_scenario(scenario_filter, "cjk-terminal-input"))
         {
             append_worker_sample(results, run_cjk_terminal_input(host_label, "cjk-terminal-input", 384ull * 1024ull,
-                                                                 std::chrono::seconds{30}));
+                                                                 std::chrono::seconds{10}));
         }
     }
 

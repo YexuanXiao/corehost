@@ -28,6 +28,8 @@
 namespace conpty
 {
 
+// 把 io_state 中的连接进程列表同步到 bridge 的 API 可见快照。io_state 是
+// CONNECT/DISCONNECT 的真实来源；bridge 只保存供 GetConsoleProcessList 读取的副本。
 void copy_process_list(io_state &io, pipe_bridge &bridge)
 {
     bridge.set_process_list(std::span<const DWORD>{io.process_list.data(), io.process_count});

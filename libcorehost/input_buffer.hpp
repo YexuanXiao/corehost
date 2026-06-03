@@ -23,6 +23,7 @@ struct input_buffer
     // SetEvent，读空或 flush 后 ResetEvent。
     HANDLE input_available_event = nullptr;
 
+    // 懒创建“输入队列非空”事件；多次调用保持同一个事件句柄。
     void init_event()
     {
         // 手动复位事件表示“队列非空”这个状态，而不是单次输入到达。读空后
@@ -31,12 +32,14 @@ struct input_buffer
             input_available_event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
     }
 
+    // 释放由 init_event 创建的事件句柄。
     ~input_buffer()
     {
         if (input_available_event)
             ::CloseHandle(input_available_event);
     }
 
+    // 将 events 追加到队尾；用于终端输入或 WriteConsoleInput 产生新事件。
     size_t write(const INPUT_RECORD *events, size_t count)
     {
         // 返回值可能小于 count，表示队列已满。
@@ -48,6 +51,7 @@ struct input_buffer
         return n;
     }
 
+    // 将 events 插入队头；用于需要让新事件优先被 Console API 读取的路径。
     size_t prepend(const INPUT_RECORD *events, size_t count)
     {
         const auto n = std::min(count, max_events - _events.size());
@@ -57,6 +61,7 @@ struct input_buffer
         return n;
     }
 
+    // 从队头取出最多 max_count 条事件，并在队列读空后复位可读事件。
     size_t read(INPUT_RECORD *out, size_t max_count)
     {
         // 返回值为实际读出的记录数；0 表示当前没有输入事件。
@@ -69,11 +74,13 @@ struct input_buffer
         return n;
     }
 
+    // 返回当前未消费 INPUT_RECORD 数量。
     size_t available() const noexcept
     {
         return _events.size();
     }
 
+    // 复制队头事件但不移除，供 CONSOLE_READ_NOREMOVE 使用。
     size_t peek(INPUT_RECORD *out, size_t max_count) const noexcept
     {
         // peek 不移除队列元素；返回值与 read 一样是实际复制数量。
@@ -82,6 +89,7 @@ struct input_buffer
         return n;
     }
 
+    // 清空所有未消费事件并复位 input_available_event。
     void flush()
     {
         // FlushConsoleInputBuffer 丢弃所有尚未消费事件，并把“可读”状态清零。

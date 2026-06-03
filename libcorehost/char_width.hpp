@@ -27,6 +27,7 @@ namespace conpty
 // ── console 模式: 简化 CJK/全角判断 ──────────────────
 // 对标原始 conhost 中的 IsGlyphFullWidth 逻辑
 // 注意: 控制字符与 tab 由调用方处理
+// 返回传统 Console 格子模型下单个 codepoint 的列宽。
 inline int char_width_console(char32_t cp) noexcept
 {
     // console 模式刻意不依赖 ICU/EAW 数据表；它提供稳定、低成本的宽度估计，
@@ -121,6 +122,7 @@ inline int char_width_console(char32_t cp) noexcept
 }
 
 #ifdef COREHOST_USE_SYSTEM_ICU
+// 使用系统 ICU 的 EastAsianWidth/GeneralCategory 计算单码点终端宽度。
 inline int char_width_icu(char32_t cp, bool ambiguous_is_wide = false) noexcept
 {
     if (cp < 0x20)
@@ -154,6 +156,7 @@ inline int char_width_icu(char32_t cp, bool ambiguous_is_wide = false) noexcept
 #endif
 
 // ── wcswidth 模式: ICU/libunicode width ───────────────
+// 返回 wcwidth 风格宽度；ambiguous_is_wide 会把 EAW=A 从 1 列提升为 2 列。
 inline int char_width_wcswidth(char32_t cp, bool ambiguous_is_wide = false) noexcept
 {
     if (cp < 0x20)
@@ -178,6 +181,7 @@ inline int char_width_wcswidth(char32_t cp, bool ambiguous_is_wide = false) noex
 
 // ── graphemes 模式: 段级别总宽度 ─────────────────────
 
+// 返回 Unicode width 数据下单码点宽度；grapheme 分段前的 codepoint 路径使用它。
 inline int char_width_unicode(char32_t cp, bool ambiguous_is_wide = false) noexcept
 {
 #ifdef COREHOST_USE_SYSTEM_ICU
@@ -193,7 +197,7 @@ inline int char_width_unicode(char32_t cp, bool ambiguous_is_wide = false) noexc
 #endif
 }
 
-// 单 grapheme cluster 的宽度 (调用方负责分段)
+// 计算单个 grapheme cluster 的显示宽度；返回值最多为 2 列。
 inline int grapheme_cluster_width_u32(std::u32string_view cluster, bool ambiguous_is_wide = false) noexcept
 {
     if (cluster.empty())
@@ -212,8 +216,7 @@ inline int grapheme_cluster_width_u32(std::u32string_view cluster, bool ambiguou
     return width > 2 ? 2 : width;
 }
 
-// char32_t 文本段的总宽度
-// 使用 grapheme_segmenter 分段，然后逐 cluster 调用 grapheme_cluster_width
+// 计算整段 UTF-32 文本的显示宽度；按 grapheme cluster 分段后累计。
 inline int grapheme_text_width(std::u32string_view text, bool ambiguous_is_wide = false) noexcept
 {
     if (text.empty())
@@ -228,7 +231,7 @@ inline int grapheme_text_width(std::u32string_view text, bool ambiguous_is_wide 
 
 // ── 统一入口 ─────────────────────────────────────────
 
-// 单码点宽度（非 graphemes 模式）
+// 根据当前会话测量模式计算单码点宽度；graphemes 模式在单码点路径下近似为 Unicode width。
 inline int char_width_for_mode(char32_t cp, text_measurement_mode mode, bool ambiguous_is_wide = false) noexcept
 {
     switch (mode)
@@ -244,7 +247,7 @@ inline int char_width_for_mode(char32_t cp, text_measurement_mode mode, bool amb
     }
 }
 
-// 文本段总宽度 (graphemes 模式使用 grapheme 分段)
+// 根据当前会话测量模式计算整段文本总宽度。
 inline int text_width_for_mode(std::u32string_view text, text_measurement_mode mode,
                                bool ambiguous_is_wide = false) noexcept
 {

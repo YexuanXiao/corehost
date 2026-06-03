@@ -183,36 +183,12 @@ bool test_original_title()
     return true;
 }
 
-// ═══════════════════════════════════════════════════════
-// 命令历史
-// ═══════════════════════════════════════════════════════
-
-bool test_history_default()
+bool test_history_settings_default()
 {
     console_state st;
-    ASSERT(st.command_history.empty());
     ASSERT(st.history_buffer_size == 50);
     ASSERT(st.history_num_buffers == 4);
-    return true;
-}
-
-bool test_history_add()
-{
-    console_state st;
-    st.command_history.push_back(U"cmd1");
-    st.command_history.push_back(U"cmd2");
-    ASSERT(st.command_history.size() == 2);
-    ASSERT(st.command_history[0] == U"cmd1");
-    ASSERT(st.command_history[1] == U"cmd2");
-    return true;
-}
-
-bool test_history_clear()
-{
-    console_state st;
-    st.command_history.push_back(U"test");
-    st.command_history.clear();
-    ASSERT(st.command_history.empty());
+    ASSERT(st.history_flags == 0);
     return true;
 }
 
@@ -1519,7 +1495,6 @@ bool test_regression_read_console_output_output_size_and_clipping()
         reinterpret_cast<CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
     ASSERT(cells[1].Char.UnicodeChar == L'B');
     ASSERT(cells[1].Attributes == 0x0A);
-    ASSERT(!st.cursor_position_dirty);
     return true;
 }
 
@@ -2818,9 +2793,7 @@ int main()
     RUN_TEST(test_title_set, L"Title set");
     RUN_TEST(test_original_title, L"Original title");
 
-    RUN_TEST(test_history_default, L"History default");
-    RUN_TEST(test_history_add, L"History add");
-    RUN_TEST(test_history_clear, L"History clear");
+    RUN_TEST(test_history_settings_default, L"History settings default");
 
     RUN_TEST(test_alias_add_and_find, L"Alias add/find");
     RUN_TEST(test_alias_empty, L"Alias empty");

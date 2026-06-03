@@ -12,6 +12,8 @@
 namespace conpty
 {
 
+// PtySignal 线程实现入口。线程接管 param 所指向的 pty_signal_thread_params，
+// 持续消费信号管道 payload，并在退出时通过 shutdown_event 通知主 I/O 循环。
 DWORD WINAPI pty_signal_thread_proc(LPVOID param)
 {
     // param 由创建线程的一侧 release；线程入口重新接管所有权。
@@ -31,6 +33,7 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
             LOG("pty_signal_thread_proc: failed to read signal id err=%lu", ::GetLastError());
             break;
         }
+        LOG2("PtySignal id=%u", static_cast<unsigned>(sig));
         switch (static_cast<PtySignal>(sig))
         {
         case PtySignal::ShowHideWindow: {
@@ -42,10 +45,12 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
                 LOG("pty_signal_thread_proc: ShowHideWindow payload short read err=%lu", ::GetLastError());
                 return 0;
             }
+            LOG2("PtySignal ShowHideWindow show=%u", static_cast<unsigned>(show));
             break;
         }
         case PtySignal::ClearBuffer:
             // ClearBuffer 只更新本地屏幕模型。真实终端清屏由主输出路径发 VT。
+            LOG2("PtySignal ClearBuffer");
             pp->sbuf.clear(pp->state.default_attributes);
             break;
         case PtySignal::SetParent: {
@@ -57,6 +62,7 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
                 LOG("pty_signal_thread_proc: SetParent payload short read err=%lu", ::GetLastError());
                 return 0;
             }
+            LOG2("PtySignal SetParent hwnd=%p", reinterpret_cast<void *>(hwnd));
             break;
         }
         case PtySignal::ResizeWindow: {
@@ -68,6 +74,7 @@ DWORD WINAPI pty_signal_thread_proc(LPVOID param)
                 LOG("pty_signal_thread_proc: ResizeWindow payload short read err=%lu", ::GetLastError());
                 return 0;
             }
+            LOG2("PtySignal ResizeWindow size=%dx%d", sz.X, sz.Y);
             pp->state.screen_buffer_size = sz;
             pp->state.max_window_size = sz;
             pp->sbuf.viewport.reset_to_buffer(sz);

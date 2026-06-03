@@ -87,35 +87,47 @@ class tab_stop_table
 
     void assign(size_t count, bool value)
     {
+        // count 是当前需要跟踪的控制台列数；value 决定新表是否全为有效 tab stop。
         _values.assign(count, value ? char8_t{1} : char8_t{0});
     }
 
     void resize(size_t count, bool value)
     {
+        // resize 只在控制台宽度增长或访问更大列时使用；已有列保持原 tab stop 状态。
         _values.resize(count, value ? char8_t{1} : char8_t{0});
     }
 
+    // 返回当前跟踪的列数；不代表 screen_buffer 当前宽度，只表示 tab stop
+    // 状态表已经初始化/扩展到的范围。
     size_t size() const noexcept
     {
         return _values.size();
     }
 
+    // 将已跟踪范围内的所有 tab stop 改为同一状态。TBC 清空所有停靠位时会
+    // 走这里；不会改变表容量。
     void fill(bool value) noexcept
     {
         std::fill(_values.begin(), _values.end(), value ? char8_t{1} : char8_t{0});
     }
 
+    // 返回可写引用代理，允许调用方按列设置 tab stop。index 必须在 size()
+    // 范围内；容量扩展由 console_state::ensure_tab_capacity 负责。
     reference operator[](size_t index) noexcept
     {
         return reference{_values[index]};
     }
 
+    // 读取指定列是否有 tab stop。index 必须在 size() 范围内；无效列由
+    // 调用方在查询前处理。
     bool operator[](size_t index) const noexcept
     {
         return _values[index] != 0;
     }
 
   private:
+    // 每个元素对应一列；1 表示该列有 tab stop。使用 char8_t 是为了紧凑保存
+    // bool 状态，同时 reference 允许调用方用 tab_stops[col] = true 的形式修改。
     std::vector<char8_t> _values;
 };
 
@@ -172,12 +184,9 @@ struct console_state
     // 全零表示当前没有选择区域。
     CONSOLE_SELECTION_INFO selection_info{};
 
-    // ── 语言 ID ──
-    // 构造函数中填充系统默认 LANGID；0 只表示尚未初始化。
-    LANGID lang_id = 0;
-
-    // ── 命令历史 (char32_t) ──
-    std::vector<std::u32string> command_history;
+    // ── 命令历史设置 ──
+    // 实际历史命令保存在 pipe_bridge 的 command_history_state 中；这里仅保留
+    // Console API 可查询/可设置的历史配置。
     // 默认值匹配传统控制台历史设置；0 仍是有效输入但表示禁用相应容量。
     size_t history_buffer_size = 50;
     size_t history_num_buffers = 4;
@@ -195,14 +204,6 @@ struct console_state
     // false 按西文终端处理 EAW=A；true 按 CJK 环境将其视为 2 列。
     bool ambiguous_is_wide = false;
 
-    // ── PowerShell shim 状态 ──
-    // true 表示已识别到即将由后续 API 完成的清屏序列。
-    bool pending_clear_screen = false;
-
-    // ── ConPTY 光标同步 ──
-    // true 表示 state.cursor 已变更，下一次输出前需要把终端光标同步过去。
-    bool cursor_position_dirty = false;
-
     // ── DECSC 保存的光标状态 ──
     struct saved_cursor
     {
@@ -218,12 +219,8 @@ struct console_state
     SHORT scroll_region_top = 1;
     SHORT scroll_region_bottom = 0;
 
-    // ── 标记光标可能已脏 ──
-    void mark_cursor_dirty() noexcept
-    {
-        cursor_position_dirty = true;
-    }
-
+    // 将光标夹在当前 screen_buffer_size 内。调用方在 resize、窗口移动或
+    // SetConsoleCursorPosition 后使用它保持 console_state 不含越界光标。
     void clamp_cursor_to_buffer() noexcept
     {
         cursor.position.X = std::clamp<SHORT>(cursor.position.X, 0, static_cast<SHORT>(screen_buffer_size.X - 1));
@@ -235,6 +232,8 @@ struct console_state
     static constexpr SHORT tab_width = 8;
     tab_stop_table tab_stops;
 
+    // 初始化 DEC/VT 默认 tab stop：至少覆盖默认窗口宽度，并每 8 列设置一处。
+    // 构造 console_state 时调用；后续宽度增长由 ensure_tab_capacity 补齐。
     void init_tab_stops()
     {
         const auto width = std::max<SHORT>(screen_buffer_size.X, default_console_size.X);
@@ -244,6 +243,7 @@ struct console_state
         for (SHORT i = 0; i < width; i += tab_width)
             tab_stops[i] = true;
     }
+    // 在 0-based 列 col 设置 tab stop。负数列被忽略；超出当前表容量时先扩容。
     void set_tab_stop(SHORT col)
     {
         if (col >= 0)
@@ -252,15 +252,20 @@ struct console_state
             tab_stops[col] = true;
         }
     }
+    // 清除 0-based 列 col 的 tab stop。未跟踪的列不需要扩容，因为清除一个
+    // 不存在的停靠位没有可观察效果。
     void clear_tab_stop(SHORT col)
     {
         if (col >= 0 && static_cast<size_t>(col) < tab_stops.size())
             tab_stops[col] = false;
     }
+    // 清空当前已跟踪范围内的所有 tab stop，用于 TBC mode 3。
     void clear_all_tab_stops()
     {
         tab_stops.fill(false);
     }
+    // 查询光标右侧下一个 tab stop。返回值是 viewport-relative 列；如果没有
+    // 更右的停靠位，返回原列表示不移动。
     SHORT next_tab_stop(SHORT col) const noexcept
     {
         // 返回第一个严格大于 col 的停靠位；找不到时返回原列，调用者据此保持
@@ -270,6 +275,7 @@ struct console_state
                 return static_cast<SHORT>(c);
         return col;
     }
+    // 查询光标左侧上一个 tab stop。找不到时返回 0，作为 CBT 的左边界。
     SHORT prev_tab_stop(SHORT col) const noexcept
     {
         // 返回第一个严格小于 col 的停靠位；找不到时回到 0，匹配 CBT 的左边界。
@@ -279,8 +285,12 @@ struct console_state
         return 0;
     }
 
+    // 确保 tab_stops 至少覆盖到 col。新增范围按 DEC 默认每 8 列补停靠位，
+    // 旧范围中用户设置/清除过的状态不变。
     void ensure_tab_capacity(SHORT col)
     {
+        // col 是即将读取或设置的 0-based 控制台列。扩容后只为新增范围补齐
+        // 默认每 8 列的 tab stop，不改变旧范围中 HTS/TBC 已修改过的状态。
         if (col < 0 || static_cast<size_t>(col) < tab_stops.size())
             return;
         const auto old_size = tab_stops.size();
@@ -340,13 +350,14 @@ struct console_state
         }
     }
 
+    // 建立一份新的控制台会话状态。代码页来自当前进程环境；tab stop 需要
+    // 运行时按 screen_buffer_size/default_console_size 初始化。
     console_state()
     {
         // 代码页和语言 ID 依赖当前系统环境，只能在运行时初始化；其余字段使用
         // 成员默认值即可保持可预测的控制台初始状态。
         input_code_page = ::GetACP();
         output_code_page = ::GetOEMCP();
-        lang_id = ::GetSystemDefaultLangID();
         init_tab_stops();
     }
 };

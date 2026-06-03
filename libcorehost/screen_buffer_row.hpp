@@ -75,10 +75,19 @@ struct screen_buffer_row
 
     // 大小为 width。trailing 列也保存属性，便于 CHAR_INFO 导出。
     std::vector<text_attribute> _attrs;
+
+    // true 表示每个可见列都对应 _text 中同下标的单个 codepoint，_columns
+    // 可以不被读取；一旦写入双宽 glyph 或多 codepoint glyph 就切换为 false。
     bool _single_width_layout = false;
+
+    // true 表示整行尚未写入 _text，当前行等价于 width 个 _fill_char 和
+    // _fill_attr。写入局部内容前会物化，整行清除/滚动填充会重新进入该状态。
     bool _filled = false;
     char32_t _fill_char = U' ';
     text_attribute _fill_attr{};
+
+    // true 表示整行属性都等于 _uniform_attr，_attrs 的具体内容可以暂不维护；
+    // 对局部属性写入会物化，整行属性覆盖会重新进入该状态。
     bool _attrs_uniform = false;
     text_attribute _uniform_attr{};
 
@@ -90,6 +99,9 @@ struct screen_buffer_row
         reset_fill(width, U' ', text_attribute{default_attr});
     }
 
+    // 将行重置为“整行同一字符/属性”的压缩状态。调用后 width() 等于
+    // width，读取路径能直接从 _fill_char/_fill_attr 得到内容，后续局部写入
+    // 再按需要物化 _text/_attrs。
     void reset_fill(uint16_t width, char32_t cp, text_attribute attr)
     {
         _columns.resize(static_cast<size_t>(width) + 1);
@@ -103,12 +115,16 @@ struct screen_buffer_row
     }
 
     // ── 基本信息 ──
+    // 返回当前行的可见列数。_columns 必须保留一个 sentinel，所以真实宽度为
+    // _columns.size()-1；空行只会出现在默认构造后或尚未初始化时。
     uint16_t width() const noexcept
     {
         return static_cast<uint16_t>(_columns.empty() ? 0 : _columns.size() - 1);
     }
 
     // ── 偏移量读取 ──
+    // 返回 col 对应 glyph 在 _text 中的起始偏移，不带 TRAILING_FLAG。
+    // 对 _filled/_single_width_layout 状态，列下标本身就是逻辑偏移。
     uint16_t col_offset(uint16_t col) const noexcept
     {
         // 返回值已经去掉 trailing 标志；越界列按 0 处理，调用者通常会先用
@@ -120,6 +136,8 @@ struct screen_buffer_row
         return (col < _columns.size()) ? (_columns[col] & OFFSET_MASK) : 0;
     }
 
+    // 判断 col 是否是宽 glyph 的后续列。trailing 列不能作为独立写入起点，
+    // 写入前必须先解除旧 glyph 的列关系。
     bool is_trailing(uint16_t col) const noexcept
     {
         if (_filled || _single_width_layout)
@@ -128,6 +146,8 @@ struct screen_buffer_row
     }
 
     // ── 字素簇 (glyph/grapheme cluster) 读取 ──
+    // 返回 col 所在 glyph 的完整 codepoint 序列；如果 col 是 trailing 列，
+    // 也返回对应 leading glyph 的序列，便于 CHAR_INFO 导出和区域复制。
     std::u32string_view glyph_at(uint16_t col) const noexcept
     {
         if (col >= width())
@@ -150,7 +170,8 @@ struct screen_buffer_row
         return std::u32string_view{_text.data() + start, static_cast<size_t>(end - start)};
     }
 
-    // 字素簇的列宽
+    // 返回 col 处 glyph 占据的屏幕列数。trailing 列返回 0，因为宽度属于
+    // leading 列；调用者按列扫描时可据此跳过后续列。
     int glyph_width(uint16_t col) const noexcept
     {
         if (col >= width())
@@ -168,6 +189,8 @@ struct screen_buffer_row
     }
 
     // ── 属性 ──
+    // 返回 col 的 Win32 属性。属性按可见列保存，所以 trailing 列也有独立
+    // 属性值；越界读取返回默认属性，避免 API 读路径访问无效内存。
     text_attribute attr_at(uint16_t col) const noexcept
     {
         if (_attrs_uniform && col < width())
@@ -175,6 +198,8 @@ struct screen_buffer_row
         return (col < _attrs.size()) ? _attrs[col] : text_attribute{};
     }
 
+    // 修改单列属性。局部修改会强制物化 _filled/_attrs_uniform，否则无法在
+    // 压缩状态下表达“只有一列不同”。
     void set_attr(uint16_t col, text_attribute a) noexcept
     {
         materialize_filled();
@@ -183,6 +208,8 @@ struct screen_buffer_row
             _attrs[col] = a;
     }
 
+    // 修改半开列区间 [start, end_excl) 的属性。整行覆盖会保留 uniform
+    // 压缩状态；局部覆盖会物化 _attrs 并对越界右边界截断。
     void fill_attrs(uint16_t start, uint16_t end_excl, text_attribute a) noexcept
     {
         materialize_filled();
@@ -201,6 +228,9 @@ struct screen_buffer_row
         std::fill(_attrs.begin() + start, _attrs.begin() + end, a);
     }
 
+    // 快速写入全单宽文本段。成功要求目标列区间内没有宽 glyph 的 leading/
+    // trailing 结构，也没有多 codepoint glyph；失败不改变行内容，调用方应
+    // 改用 write_measured_run。
     bool try_write_single_width_run(uint16_t col, std::u32string_view text, text_attribute attr)
     {
         materialize_filled();
@@ -242,8 +272,9 @@ struct screen_buffer_row
     }
 
     // ── 写入单 glyph (grapheme cluster) ──────────────
-    // text: Unicode 码点序列 (可包含多个 char32_t 如 ZWJ 序列)
-    // width_columns: 占据的列数 (1 或 2)
+    // text: Unicode 码点序列，可包含多个 char32_t；width_columns 是上层已经
+    // 计算好的可见列宽。该函数会修正被覆盖区域两端的旧宽 glyph 关系，并
+    // 维护 _text offset、trailing 标记和属性同步。
     void write_glyph(uint16_t col, std::u32string_view text, int width_columns, text_attribute attr)
     {
         COREHOST_PERF_SCOPE_AMOUNT(row_write_glyph, text.size());
@@ -341,6 +372,9 @@ struct screen_buffer_row
         _columns[width()] = static_cast<uint16_t>(_text.size());
     }
 
+    // 在新文本的列布局与旧布局完全一致时原地替换 _text。这个路径不移动
+    // _columns offset，适合重复刷新同一位置的 CJK/宽字符文本；返回 false
+    // 表示布局不同或边界不满足，调用方必须走会重建列映射的路径。
     bool try_overwrite_matching_measured_run(uint16_t col, std::u32string_view text, std::span<const char8_t> widths,
                                              uint16_t total_columns, text_attribute attr)
     {
@@ -382,6 +416,8 @@ struct screen_buffer_row
         return true;
     }
 
+    // 在整行仍处于 _filled 压缩状态时写入已测量文本段。函数直接构造最终
+    // _text/_columns，避免先物化整行再替换；成功后行不再是 _filled。
     bool try_write_measured_run_on_filled_row(uint16_t col, std::u32string_view text, std::span<const char8_t> widths,
                                               uint16_t total_columns, bool all_single_width, text_attribute attr)
     {
@@ -435,6 +471,9 @@ struct screen_buffer_row
         return true;
     }
 
+    // 在旧行是纯单宽布局时写入包含宽度信息的文本段。该路径从单宽 offset
+    // 直接重建受影响区域和后缀 sentinel；如果输入仍是单宽，调用方会优先走
+    // try_write_single_width_run。
     bool try_write_measured_run_on_single_width_layout(uint16_t col, std::u32string_view text,
                                                        std::span<const char8_t> widths, uint16_t total_columns,
                                                        text_attribute attr)
@@ -472,6 +511,10 @@ struct screen_buffer_row
         return true;
     }
 
+    // 写入一段已经测量过宽度的文本。widths 只在 all_single_width=false 时
+    // 与 text 一一对应；total_columns 是文本占据的可见列数。函数按常见度
+    // 选择压缩行、整行替换、单宽替换、同布局替换，最后才走通用 offset
+    // 重建路径。
     void write_measured_run(uint16_t col, std::u32string_view text, std::span<const char8_t> widths,
                             uint16_t total_columns, bool all_single_width, text_attribute attr)
     {
@@ -562,12 +605,16 @@ struct screen_buffer_row
     }
 
     // ── 清除指定列 ──
+    // 使用空格覆盖指定列；如果该列位于宽 glyph 上，write_glyph 会拆开旧
+    // glyph 关系，保证清除后该列成为独立单宽空格。
     void clear_cell(uint16_t col, text_attribute attr = text_attribute{})
     {
         write_glyph(col, U" ", 1, attr);
     }
 
     // ── 从另一行拷贝一段列 ──
+    // 按可见列复制 src 的一段内容到当前行。count 是列数而不是 codepoint
+    // 数；双宽 glyph 只在 leading 列复制一次。
     void copy_from(const screen_buffer_row &src, uint16_t src_start, uint16_t dst_start, uint16_t count)
     {
         // 按列复制时只从 leading 列复制 glyph。遇到 trailing 列跳过，避免把
@@ -585,6 +632,8 @@ struct screen_buffer_row
     }
 
     // ── 整行填充 ──
+    // 用同一个单列 glyph 重复覆盖整行。当前只用于简单填充路径；复杂宽度
+    // glyph 不应走这里，否则行宽语义会和调用者预期不一致。
     void fill(std::u32string_view text, text_attribute attr)
     {
         if (text.empty())
@@ -600,7 +649,8 @@ struct screen_buffer_row
     }
 
     // ── CHAR_INFO 级别导出 (供 API 边界) ──
-    // 将此行写入 CHAR_INFO 数组 (调用者保证 out 至少 width() 个)
+    // 将内部 glyph/属性模型降级到 Win32 CHAR_INFO。调用者保证 out 至少有
+    // width() 个元素；导出不会改变行内压缩状态。
     void to_char_info(CHAR_INFO *out) const noexcept
     {
         uint16_t w = width();
@@ -626,6 +676,8 @@ struct screen_buffer_row
     }
 
     // ── 从 CHAR_INFO 数组导入 ──
+    // 从 Win32 CHAR_INFO 写回内部行状态。CHAR_INFO 只能携带单个 UTF-16
+    // code unit，因此无法恢复完整 grapheme；dst_col 是目标起始列。
     void from_char_info(const CHAR_INFO *src, uint16_t count, uint16_t dst_col = 0)
     {
         materialize_filled();
@@ -644,6 +696,8 @@ struct screen_buffer_row
     }
 
   private:
+    // 将 _filled 压缩行展开为 _text 中的 width 个单宽填充字符。展开后仍
+    // 保持属性 uniform，避免不必要地填充 _attrs。
     void materialize_filled()
     {
         if (!_filled)
@@ -657,6 +711,8 @@ struct screen_buffer_row
         _single_width_layout = true;
     }
 
+    // 为纯单宽布局生成显式 _columns。只有当后续写入需要表达宽 glyph 或
+    // 多 codepoint glyph 时才需要这一步。
     void materialize_columns_from_single_width_layout()
     {
         if (!_single_width_layout)
@@ -667,6 +723,8 @@ struct screen_buffer_row
         _single_width_layout = false;
     }
 
+    // 将 uniform 属性展开到 _attrs。局部属性修改必须调用它；整行属性读取
+    // 和整行覆盖可以继续使用 _uniform_attr。
     void materialize_attrs()
     {
         if (!_attrs_uniform)
@@ -676,6 +734,8 @@ struct screen_buffer_row
         _attrs_uniform = false;
     }
 
+    // 写入属性半开区间。整行覆盖直接切换为 uniform 状态；如果写入属性与
+    // 当前 uniform 属性相同，则无需物化。
     void write_attr_range(uint16_t start, uint16_t end_excl, text_attribute attr)
     {
         if (start == 0 && end_excl >= width())
@@ -695,7 +755,8 @@ struct screen_buffer_row
         std::fill(_attrs.begin() + start, _attrs.begin() + end, attr);
     }
 
-    // 清除 col 处 glyph 的 trailing 部分 (解除宽字符的后半列标记)
+    // 解除 col 所在旧 glyph 的 trailing 关系。写入新 glyph 前必须让被覆盖
+    // 边界两侧不再共享旧 offset，否则新旧宽字符会互相污染列映射。
     void _unwrap_glyph(uint16_t col)
     {
         uint16_t w = width();
