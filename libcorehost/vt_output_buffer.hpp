@@ -97,6 +97,7 @@ class vt_output_buffer
         _buffer.resize(offset + static_cast<size_t>(end - first));
     }
 
+#ifdef COREHOST_ANSI_OPT
     // 追加 GBK/CP936 文本并直接转码到最终输出缓冲。
     void append_gbk(std::string_view text)
     {
@@ -114,6 +115,7 @@ class vt_output_buffer
             out = enc(gbk_decode_next(text.data(), text.size(), input), out);
         _buffer.resize(offset + static_cast<size_t>(out - first));
     }
+#endif
 
     // 追加单个 ASCII/VT 字节。
     void append(char ch)

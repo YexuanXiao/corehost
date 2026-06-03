@@ -30,6 +30,9 @@ add_compile_definitions(COREHOST_LOG_LEVEL=${COREHOST_LOG_LEVEL})
 option(COREHOST_PERF_DIAG "Enable aggregated CoreHost performance diagnostics" OFF)
 add_compile_definitions($<$<BOOL:${COREHOST_PERF_DIAG}>:COREHOST_PERF_DIAG>)
 
+option(COREHOST_ANSI_OPT "Enable table-driven ANSI code page fast paths" OFF)
+add_compile_definitions($<$<BOOL:${COREHOST_ANSI_OPT}>:COREHOST_ANSI_OPT>)
+
 option(COREHOST_USE_SYSTEM_ICU "Use system ICU for Unicode character width calculation" ON)
 
 # ── 架构检测 (proxy 子目录使用) ──────────────────────

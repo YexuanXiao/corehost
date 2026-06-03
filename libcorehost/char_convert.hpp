@@ -4,8 +4,9 @@
 // 功能分解：
 // 1. utf8_stream_decoder 逐字节解码 vt_in 输入，未完成序列返回 nullopt。
 // 2. UTF-8/UTF-16/UTF-32 批量转换写入调用方提供的持久缓冲，避免热路径分配。
-// 3. UTF-8 和 GBK/CP936 有专用快速路径；其他 ANSI 代码页通过 Windows
-//    MultiByteToWideChar/WideCharToMultiByte。
+// 3. UTF-8 有专用快速路径；ANSI 代码页默认通过 Windows
+//    MultiByteToWideChar/WideCharToMultiByte。COREHOST_ANSI_OPT 开启后，
+//    CP936/GBK 使用本地表驱动快速路径。
 #pragma once
 #include <windows.h>
 #include <cassert>
@@ -20,7 +21,9 @@
 #include <numeric>
 #include <optional>
 #include <libunicode/convert.h>
+#ifdef COREHOST_ANSI_OPT
 #include "gbk_table.hpp"
+#endif
 #include "utility/raw_byte_allocator.hpp"
 
 namespace conpty
@@ -179,24 +182,6 @@ inline size_t wide_to_utf8_max_bytes(size_t utf16_units) noexcept
     return utf16_units * 3;
 }
 
-// 返回 GBK 转 UTF-8 的最大输出字节数。
-inline size_t gbk_to_utf8_max_bytes(size_t gbk_bytes) noexcept
-{
-    return gbk_bytes * 3;
-}
-
-// 返回 UTF-32 转 GBK 的最大输出字节数。
-inline size_t u32_to_gbk_max_bytes(size_t code_points) noexcept
-{
-    return code_points * 2;
-}
-
-// 返回 UTF-16 转 GBK 的最大输出字节数。
-inline size_t wide_to_gbk_max_bytes(size_t utf16_units) noexcept
-{
-    return utf16_units * 2;
-}
-
 template <typename U32Buffer>
 // 将 UTF-16 文本转换到调用方复用的 UTF-32 缓冲。
 inline void convert_utf16_to_u32(std::wstring_view ws, U32Buffer &out)
@@ -315,11 +300,32 @@ inline void convert_wstr_to_utf8(std::wstring_view ws, ByteBuffer &out)
 // ANSI ↔ UTF-16 / UTF-32 / UTF-8
 // 原则: ByteSize = WideByteSize = U32ByteSize（保守上界估计）
 //       CP == 65001 (UTF-8) 时走 libunicode SIMD 快速路径
-//       CP == 936 (GBK) 时走本地 GBK↔UTF-32 表
+//       COREHOST_ANSI_OPT 开启且 CP == 936 (GBK) 时走本地 GBK 表
 // ════════════════════════════════════════════════════════
 
-// Windows 代码页 936；corehost 为它提供本地表驱动快速路径。
+// Windows 代码页 936。默认使用 Win32 代码页转换；COREHOST_ANSI_OPT 开启后
+// 才使用本地表驱动快速路径。
 inline constexpr UINT code_page_gbk = 936;
+
+#ifdef COREHOST_ANSI_OPT
+// 返回 GBK 转 UTF-8 的最大输出字节数。
+inline size_t gbk_to_utf8_max_bytes(size_t gbk_bytes) noexcept
+{
+    return gbk_bytes * 3;
+}
+
+// 返回 UTF-32 转 GBK 的最大输出字节数。
+inline size_t u32_to_gbk_max_bytes(size_t code_points) noexcept
+{
+    return code_points * 2;
+}
+
+// 返回 UTF-16 转 GBK 的最大输出字节数。
+inline size_t wide_to_gbk_max_bytes(size_t utf16_units) noexcept
+{
+    return utf16_units * 2;
+}
+
 // 非法 Unicode/GBK 输入统一映射到 U+FFFD，避免转换路径抛异常。
 inline constexpr char32_t unicode_replacement_character = U'\xFFFD';
 // Unicode 码点无法编码到 GBK 时使用 '?'，匹配传统 ANSI API 容错。
@@ -587,6 +593,7 @@ inline size_t wstr_to_gbk_len(std::wstring_view ws) noexcept
     }
     return bytes;
 }
+#endif
 // ── 上界估计: 1char→1wchar， 1wchar→2char(ANSI) 或 3char(UTF-8) ──
 // 返回 ANSI 字节转换到 UTF-16 的最大 code unit 数。
 inline size_t ansi_to_wide_max_units(size_t ansi_bytes) noexcept
@@ -615,11 +622,13 @@ inline void convert_ansi_to_wstr(const char *s, size_t len, UINT cp, WideBuffer 
         convert_utf8_to_wstr(std::string_view{s, len}, out);
         return;
     }
+#ifdef COREHOST_ANSI_OPT
     if (cp == code_page_gbk)
     {
         convert_gbk_to_wstr(s, len, out);
         return;
     }
+#endif
     resize_for_overwrite(out, ansi_to_wide_max_units(len), [&](wchar_t *data, size_t capacity) -> size_t {
         int wl = ::MultiByteToWideChar(cp, 0, s, static_cast<int>(len), data, static_cast<int>(capacity));
         return wl > 0 ? static_cast<size_t>(wl) : 0;
@@ -640,11 +649,13 @@ inline void convert_wstr_to_ansi(std::wstring_view ws, UINT cp, ByteBuffer &out)
         convert_wstr_to_utf8(ws, out);
         return;
     }
+#ifdef COREHOST_ANSI_OPT
     if (cp == code_page_gbk)
     {
         convert_wstr_to_gbk(ws, out);
         return;
     }
+#endif
     resize_for_overwrite(out, wide_to_ansi_max_bytes(ws.size(), cp), [&](auto *data, size_t capacity) -> size_t {
         int n = ::WideCharToMultiByte(cp, 0, ws.data(), static_cast<int>(ws.size()), byte_pointer(data),
                                       static_cast<int>(capacity), nullptr, nullptr);
@@ -653,7 +664,7 @@ inline void convert_wstr_to_ansi(std::wstring_view ws, UINT cp, ByteBuffer &out)
 }
 
 template <typename ByteBuffer, typename WideBuffer>
-// 将指定代码页的 ANSI 字节转换成 UTF-8；非 UTF-8/GBK 路径复用 wbuf 中转。
+// 将指定代码页的 ANSI 字节转换成 UTF-8；非 UTF-8 路径复用 wbuf 中转。
 inline void convert_ansi_to_utf8(const char *s, size_t len, UINT cp, ByteBuffer &out, WideBuffer &wbuf)
 {
     if (len == 0)
@@ -666,11 +677,13 @@ inline void convert_ansi_to_utf8(const char *s, size_t len, UINT cp, ByteBuffer 
         assign_bytes(out, s, len);
         return;
     }
+#ifdef COREHOST_ANSI_OPT
     if (cp == code_page_gbk)
     {
         convert_gbk_to_utf8(s, len, out);
         return;
     }
+#endif
     convert_ansi_to_wstr(s, len, cp, wbuf);
     convert_wstr_to_utf8(std::wstring_view{wbuf.data(), wbuf.size()}, out);
 }
@@ -682,8 +695,10 @@ inline size_t wstr_to_ansi_len(std::wstring_view ws, UINT cp) noexcept
         return 0;
     if (cp == CP_UTF8 || cp == 65001)
         return wide_to_ansi_max_bytes(ws.size(), cp);
+#ifdef COREHOST_ANSI_OPT
     if (cp == code_page_gbk)
         return wstr_to_gbk_len(ws);
+#endif
     int n = ::WideCharToMultiByte(cp, 0, ws.data(), static_cast<int>(ws.size()), nullptr, 0, nullptr, nullptr);
     return n > 0 ? static_cast<size_t>(n) : 0;
 }
@@ -695,14 +710,16 @@ inline size_t ansi_to_wstr_len(const char *s, size_t len, UINT cp) noexcept
         return 0;
     if (cp == CP_UTF8 || cp == 65001)
         return ansi_to_wide_max_units(len);
+#ifdef COREHOST_ANSI_OPT
     if (cp == code_page_gbk)
         return gbk_to_wstr_len(s, len);
+#endif
     int wl = ::MultiByteToWideChar(cp, 0, s, static_cast<int>(len), nullptr, 0);
     return wl > 0 ? static_cast<size_t>(wl) : 0;
 }
 
 template <typename U32Buffer, typename WideBuffer>
-// 将指定代码页 ANSI 字节转换到 UTF-32；非 UTF-8/GBK 路径使用 wbuf 中转。
+// 将指定代码页 ANSI 字节转换到 UTF-32；非 UTF-8 路径使用 wbuf 中转。
 inline void convert_ansi_to_u32(const char *s, size_t len, UINT code_page, U32Buffer &out, WideBuffer &wbuf)
 {
     if (len == 0)
@@ -716,18 +733,20 @@ inline void convert_ansi_to_u32(const char *s, size_t len, UINT code_page, U32Bu
         convert_utf8_to_u32(std::string_view{s, len}, out);
         return;
     }
+#ifdef COREHOST_ANSI_OPT
     if (cp == code_page_gbk)
     {
         convert_gbk_to_u32(s, len, out);
         return;
     }
+#endif
     convert_ansi_to_wstr(s, len, cp, wbuf);
     // wbuf 是调用方持久缓冲；这里不保留 view，转换完成后可立即复用。
     convert_utf16_to_u32(std::wstring_view{wbuf.data(), wbuf.size()}, out);
 }
 
 template <typename ByteBuffer, typename WideBuffer>
-// 将 UTF-32 文本转换到指定 ANSI 代码页；非 UTF-8/GBK 路径使用 wbuf 中转。
+// 将 UTF-32 文本转换到指定 ANSI 代码页；非 UTF-8 路径使用 wbuf 中转。
 inline void convert_u32_to_ansi(std::u32string_view u32s, UINT cp, ByteBuffer &out, WideBuffer &wbuf)
 {
     if (u32s.empty())
@@ -740,11 +759,13 @@ inline void convert_u32_to_ansi(std::u32string_view u32s, UINT cp, ByteBuffer &o
         convert_u32_to_utf8(u32s, out);
         return;
     }
+#ifdef COREHOST_ANSI_OPT
     if (cp == code_page_gbk)
     {
         convert_u32_to_gbk(u32s, out);
         return;
     }
+#endif
     convert_u32_to_wstr(u32s, wbuf);
     convert_wstr_to_ansi(std::wstring_view{wbuf.data(), wbuf.size()}, cp, out);
 }
@@ -857,7 +878,7 @@ inline size_t u32_prefix_for_ansi_bytes(std::u32string_view text, UINT code_page
     return first;
 }
 
-// 禁止不带 wbuf 的重载，避免非 UTF-8/GBK 代码页在热路径里临时分配。
+// 禁止不带 wbuf 的重载，避免非 UTF-8 代码页在热路径里临时分配。
 inline size_t convert_u32_to_ansi_raw(std::u32string_view text, UINT code_page, char *out,
                                       size_t out_cap) noexcept = delete;
 
@@ -880,11 +901,13 @@ inline size_t convert_ansi_to_wide_raw(const char *s, size_t len, UINT cp, wchar
             return 0;
         return unicode::detail::convert_utf8_to_utf16(s, len, reinterpret_cast<char16_t *>(out));
     }
+#ifdef COREHOST_ANSI_OPT
     if (cp == code_page_gbk)
     {
         size_t written = 0;
         return convert_gbk_to_wide_raw(s, len, out, out_cap, written) ? written : 0;
     }
+#endif
     int wl = ::MultiByteToWideChar(cp, 0, s, static_cast<int>(len), out, static_cast<int>(out_cap));
     return wl > 0 ? static_cast<size_t>(wl) : 0;
 }
@@ -909,6 +932,7 @@ inline size_t convert_wide_to_ansi_raw(const wchar_t *s, size_t len, UINT cp, ch
     }
     if (out_cap == 0)
         return 0;
+#ifdef COREHOST_ANSI_OPT
     if (cp == code_page_gbk)
     {
         size_t written = 0;
@@ -919,6 +943,7 @@ inline size_t convert_wide_to_ansi_raw(const wchar_t *s, size_t len, UINT cp, ch
         }
         return 0;
     }
+#endif
     int n =
         ::WideCharToMultiByte(cp, 0, s, static_cast<int>(len), out, static_cast<int>(out_cap - 1), nullptr, nullptr);
     if (n > 0)

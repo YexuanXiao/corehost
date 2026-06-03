@@ -1388,11 +1388,13 @@ struct pipe_bridge
                 vt_append_str(std::string_view{s, bytes});
                 return;
             }
+#ifdef COREHOST_ANSI_OPT
             if (cp == code_page_gbk)
             {
                 _vt_output.append_gbk(std::string_view{s, bytes});
                 return;
             }
+#endif
 
             auto &wide = _conversion.wide();
             convert_ansi_to_wstr(s, bytes, cp, wide);
