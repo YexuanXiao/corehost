@@ -46,7 +46,7 @@ inline void read(win32::handle_view file, std::span<T> buffer)
     return base;
 }
 
-[[nodiscard]] inline bool is_pipe_like_handle(const handle_view handle) noexcept
+[[nodiscard]] inline bool is_pipe_like_handle(const handle_view handle)
 {
     if (!handle)
     {

@@ -24,7 +24,7 @@ namespace win32
     return path;
 }
 
-[[nodiscard]] inline std::wstring query_process_command_line(win32::handle_view process)
+[[nodiscard]] inline std::wstring query_process_command_line(win32::handle_view process) noexcept
 {
     constexpr auto ProcessCommandLineInformation = static_cast<PROCESSINFOCLASS>(60);
     constexpr auto max_command_line_bytes = static_cast<std::size_t>(USHRT_MAX - (USHRT_MAX % sizeof(wchar_t)));

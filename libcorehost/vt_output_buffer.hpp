@@ -19,7 +19,7 @@ class vt_output_buffer
 {
   public:
     // 预留一个 flush threshold 大小，避免常见批量输出第一次 append 就分配。
-    vt_output_buffer()
+    vt_output_buffer() noexcept
     {
         _buffer.reserve(flush_threshold);
     }
@@ -47,7 +47,7 @@ class vt_output_buffer
 
     // 把缓存内容写入 vt_out；写入后无论 pipe 是否仍可用都清空缓存，避免在
     // 终端关闭后反复写同一批数据。
-    void flush()
+    void flush() noexcept
     {
         // flush 是唯一真正写 vt_out 的位置；调用方负责选择 completion 前后
         // 的刷新时机，本类不理解 ConDrv 请求边界。
@@ -64,7 +64,7 @@ class vt_output_buffer
     }
 
     // 追加已经是 UTF-8/VT 的字节序列。
-    void append(std::string_view text)
+    void append(std::string_view text) noexcept
     {
         // text 已经是目标终端需要的 UTF-8/ASCII VT 字节，不再转码。
         const auto bytes = std::span{reinterpret_cast<const char8_t *>(text.data()), text.size()};
@@ -72,7 +72,7 @@ class vt_output_buffer
     }
 
     // 追加 UTF-32 文本并直接转码到最终输出缓冲。
-    void append_utf32(std::u32string_view text)
+    void append_utf32(std::u32string_view text) noexcept
     {
         // text 来自 parser/screenbuffer 的 char32_t 语义层；直接转入最终
         // vt_out 缓冲，避免先生成临时 UTF-8 字符串。
@@ -87,7 +87,7 @@ class vt_output_buffer
     }
 
     // 追加 UTF-16 文本并直接转码到最终输出缓冲。
-    void append_utf16(std::wstring_view text)
+    void append_utf16(std::wstring_view text) noexcept
     {
         // text 来自 Win32/WT 的 UTF-16 边界，如窗口标题或 WriteConsoleW 快路径。
         if (text.empty())
@@ -103,7 +103,7 @@ class vt_output_buffer
 
 #ifdef COREHOST_ANSI_OPT
     // 追加 GBK/CP936 文本并直接转码到最终输出缓冲。
-    void append_gbk(std::string_view text)
+    void append_gbk(std::string_view text) noexcept
     {
         // text 是 CP936/GBK 字节流；用于非 Unicode Console API 的中文输出路径。
         if (text.empty())
@@ -122,13 +122,13 @@ class vt_output_buffer
 #endif
 
     // 追加单个 ASCII/VT 字节。
-    void append(char ch)
+    void append(char ch) noexcept
     {
         _buffer.push_back(static_cast<char8_t>(static_cast<unsigned char>(ch)));
     }
 
     // 追加 VT 参数整数，直接写入输出缓冲末尾。
-    void append_int(int value)
+    void append_int(int value) noexcept
     {
         // value 用于构造 VT 参数，如 CUP row/col 或 SGR 数值。
         constexpr size_t max_int_chars = 16;
@@ -141,7 +141,7 @@ class vt_output_buffer
     }
 
     // 追加单个 Unicode codepoint 的 UTF-8 字节。
-    void append_cell(char32_t ch)
+    void append_cell(char32_t ch) noexcept
     {
         char bytes[8];
         const auto length = to_utf8_bytes(ch, bytes);

@@ -11,7 +11,7 @@ namespace env
 namespace detail
 {
 
-[[nodiscard]] inline std::wstring file_uri_from_path(win32::wcstring_view path)
+[[nodiscard]] inline std::wstring file_uri_from_path(win32::wcstring_view path) noexcept
 {
     constexpr auto prefix = std::wstring_view{L"file:///"};
     std::wstring uri;
@@ -61,7 +61,7 @@ namespace detail
     return true;
 }
 
-inline void show_elevated_notification(win32::wcstring_view report_path)
+inline void show_elevated_notification(win32::wcstring_view report_path) noexcept
 {
     if (!report_path.empty())
     {
@@ -81,7 +81,7 @@ inline void show_elevated_notification(win32::wcstring_view report_path)
                        L"as an administrator and then run the program.");
 }
 
-inline void show_not_found_notification(win32::wcstring_view report_path)
+inline void show_not_found_notification(win32::wcstring_view report_path) noexcept
 {
     constexpr notification::action store_action{
         L"Install Terminal",

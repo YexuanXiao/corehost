@@ -17,7 +17,7 @@ static_assert(sizeof(CONSOLENOTIFYAPPDATA) == 8);
 static_assert(sizeof(CONSOLESETFOREGROUNDDATA) == 12);
 static_assert(sizeof(CONSOLEENDTASKDATA) == 16);
 
-bool skip_bytes(win32::handle_view p, DWORD n)
+bool skip_bytes(win32::handle_view p, DWORD n) noexcept
 {
     std::byte buf[4096];
     while (n)
@@ -36,7 +36,7 @@ bool skip_bytes(win32::handle_view p, DWORD n)
 }
 
 template <typename T>
-bool read_remote_console_payload(win32::handle_view pipe, T &payload)
+bool read_remote_console_payload(win32::handle_view pipe, T &payload) noexcept
 {
     if (!corehost::condrv_io::read_exact(pipe, &payload, sizeof(payload)))
     {
@@ -58,7 +58,7 @@ bool read_remote_console_payload(win32::handle_view pipe, T &payload)
     return true;
 }
 
-DWORD WINAPI signal_thread_proc(LPVOID param)
+DWORD WINAPI signal_thread_proc(LPVOID param) noexcept
 {
     auto pp = std::unique_ptr<signal_thread_params>{static_cast<signal_thread_params *>(param)};
     auto &hp = pp->pipe;

@@ -38,6 +38,6 @@ struct signal_thread_params
 // 作为独立线程运行，从信号管道读取信号消息，
 // 通过 user32!ConsoleControl 转发到 CSRSS。
 // param 指向 signal_thread_params，函数接管其所有权。
-DWORD WINAPI signal_thread_proc(LPVOID param);
+DWORD WINAPI signal_thread_proc(LPVOID param) noexcept;
 
 } // namespace corehost::defterm

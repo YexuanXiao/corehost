@@ -29,7 +29,7 @@ namespace corehost::comserver
 {
 
 // 从 COM 便携连接消息填充 io_msg 描述符（供 accept_connection 和 read_input 使用）。
-inline corehost::condrv_io::io_msg make_connect_msg(PCCONSOLE_PORTABLE_ATTACH_MSG msg)
+inline corehost::condrv_io::io_msg make_connect_msg(PCCONSOLE_PORTABLE_ATTACH_MSG msg) noexcept
 {
     // m.body 在这里保持为空；portable attach 消息只携带 descriptor 字段。
     // 需要 CONNECT body 时必须再通过 READ_INPUT 以 Identifier 为键读取。
@@ -89,7 +89,7 @@ CONSOLE_SERVER_MSG read_connect_message(win32::handle_view condrv_server, PCCONS
 // CONSOLE_SERVER_MSG::TitleLength 是字节数，不是 wchar_t 数量。这里仅做
 // OpenConsole 同等的边界和 NUL 终止校验，失败时返回空标题并让调用方
 // 使用 corehost 作为兜底标题。
-win32::wcstring_view connect_title(CONSOLE_SERVER_MSG &connect_info)
+win32::wcstring_view connect_title(CONSOLE_SERVER_MSG &connect_info) noexcept
 {
     if (connect_info.TitleLength > sizeof(connect_info.Title) - sizeof(WCHAR) ||
         (connect_info.TitleLength % sizeof(WCHAR)) != 0)

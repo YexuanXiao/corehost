@@ -48,7 +48,7 @@ struct api_router
 
     // 切换主/备用屏幕缓冲区，并同步宿主终端 alternate-buffer 状态。alt=true
     // 使用备用缓冲区；alt=false 回到主缓冲区。
-    void switch_active_screen_buffer(bool alt)
+    void switch_active_screen_buffer(bool alt) noexcept
     {
         // alt 来自 VT alternate-buffer 消息。true 切到备用缓冲区，false 回主缓冲区；
         // 该状态决定后续 Read/WriteConsoleOutput 观察哪份 screen_buffer。
@@ -72,7 +72,7 @@ struct api_router
 
     // 将当前 active screen buffer 的可见 viewport 写回宿主终端。函数只重绘
     // 终端输出，不改变 active buffer 内容或 alt_active。
-    void vt_write_screen_snapshot()
+    void vt_write_screen_snapshot() noexcept
     {
         // 快照重绘只输出 active buffer 的 viewport，不改变 screen_buffer。
         render_visible_viewport(state, active_screen_buffer(), bridge);

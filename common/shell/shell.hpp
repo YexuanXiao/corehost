@@ -23,13 +23,13 @@ class known_folder_path
     size_t m_size = 0;
 
   public:
-    explicit known_folder_path(REFKNOWNFOLDERID rfid)
+    explicit known_folder_path(REFKNOWNFOLDERID rfid) noexcept
     {
         if (SUCCEEDED(::SHGetKnownFolderPath(rfid, 0, nullptr, &m_path)))
             m_size = wcslen(m_path);
     }
 
-    ~known_folder_path()
+    ~known_folder_path() noexcept
     {
         if (m_path)
             ::CoTaskMemFree(m_path);
@@ -56,7 +56,7 @@ class known_folder_path
 } // namespace details
 
 // Windows 商店应用的别名是一种特殊的重分析点
-inline bool file_exists(PCWSTR file_path)
+inline bool file_exists(PCWSTR file_path) noexcept
 {
     HANDLE hFile = ::CreateFileW(file_path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                  FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr);
@@ -68,7 +68,7 @@ inline bool file_exists(PCWSTR file_path)
     return false;
 }
 
-inline get_shell_result get_shell()
+inline get_shell_result get_shell() noexcept
 {
     constexpr win32::wcstring_view prefix = L"\\\\?\\";
     // 直接假定存在pwsh别名，因此不需要判断是否安装了包
@@ -109,7 +109,7 @@ inline get_shell_result get_shell()
     return {L"cmd", cmd_path};
 }
 
-inline std::wstring get_system_conhost_path()
+inline std::wstring get_system_conhost_path() noexcept
 {
     constexpr win32::wcstring_view prefix = L"\\\\?\\";
     constexpr win32::wcstring_view conhost_suffix = L"\\conhost.exe";
@@ -126,7 +126,7 @@ inline std::wstring get_system_conhost_path()
     return conhost_path;
 }
 
-inline std::wstring get_module_path()
+inline std::wstring get_module_path() noexcept
 {
     std::wstring path;
     path.resize_and_overwrite(32768, [&](wchar_t *buffer, size_t capacity) noexcept {
@@ -135,7 +135,7 @@ inline std::wstring get_module_path()
     return path;
 }
 
-inline std::wstring get_module_dir_path()
+inline std::wstring get_module_dir_path() noexcept
 {
     std::wstring module_path = get_module_path();
 

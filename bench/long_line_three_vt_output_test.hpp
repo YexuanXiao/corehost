@@ -16,9 +16,7 @@ namespace bench
     constexpr std::string_view marker = "__CONPTY_BENCH_LONG_LINE_3VT_DONE__";
     constexpr std::string_view ready = "__CONPTY_BENCH_LONG_LINE_3VT_READY__";
     auto trigger_name = unique_event_name();
-    win32::handle trigger{::CreateEventW(nullptr, TRUE, FALSE, trigger_name.c_str())};
-    if (!trigger.valid())
-        print_and_abort("CreateEvent(long-line output trigger) failed: %lu\n", ::GetLastError());
+    win32::event trigger{win32::create_tag, true, false, trigger_name};
 
     auto command = quote(current_exe_path()) + L" --emit-long-line-3vt " + std::to_wstring(target_bytes) + L" " +
                    quote(widen(marker)) + L" " + quote(widen(ready)) + L" " + quote(trigger_name);
@@ -32,8 +30,7 @@ namespace bench
 
     const size_t before = session.bytes_read();
     const int64_t begin = perf_counter();
-    if (!::SetEvent(trigger.get()))
-        print_and_abort("SetEvent(long-line output trigger) failed: %lu\n", ::GetLastError());
+    trigger.set();
     if (!session.wait_for(marker, timeout))
     {
         print_and_abort("wait for long-line output marker timed out: scenario=%s bytes_read=%zu\n", name.c_str(),

@@ -70,7 +70,7 @@ struct io_state
 
     // 将 pid 加入当前控制台进程列表。重复 pid 不改变列表；超过容量时忽略
     // 新 pid，避免破坏已有 GetConsoleProcessList 快照。
-    void add_process(DWORD pid)
+    void add_process(DWORD pid) noexcept
     {
         // pid 来自 CONNECT descriptor.Process 或 defterm 预附加进程；同一
         // 进程重复 CONNECT 时只保留一份，匹配 GetConsoleProcessList 语义。
@@ -83,7 +83,7 @@ struct io_state
 
     // 从当前控制台进程列表删除 pid。找不到 pid 时不改变列表；删除后数组
     // 前 process_count 项保持紧凑。
-    void remove_process(DWORD pid)
+    void remove_process(DWORD pid) noexcept
     {
         // pid 来自 DISCONNECT descriptor.Process。数组保持紧凑，便于直接
         // 复制给 pipe_bridge 的进程快照。
@@ -237,7 +237,7 @@ struct io_state
 
     // 完成 RAW_FLUSH 对象消息。input_buffer 的清空由 message_router 负责，
     // 这里只准备 ConDrv completion。
-    void handle_raw_flush(corehost::condrv_io::io_msg &msg)
+    void handle_raw_flush(corehost::condrv_io::io_msg &msg) noexcept
     {
         // RAW_FLUSH 本身没有额外载荷；input_buffer 已由 message_router 清空。
         corehost::condrv_io::prepare_completion(msg);

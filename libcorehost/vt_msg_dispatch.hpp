@@ -129,7 +129,7 @@ inline void apply_sgr_to_attributes(const vt_sgr_payload &sgr, WORD &attr) noexc
 
 // 将一条已解析 VT 消息应用到本地 Console 状态模型；模板参数必须匹配 msg 的 id。
 template <vt_message_id id>
-inline void vt_msg_apply_state(const vt_message &msg, console_state &state, screen_buffer &sb)
+inline void vt_msg_apply_state(const vt_message &msg, console_state &state, screen_buffer &sb) noexcept
 {
     // 该函数只更新本地 Console 模型，不向宿主终端写 VT。需要实际显示变化的
     // 路径应同时调用 pipe_bridge 的 VT 输出接口。

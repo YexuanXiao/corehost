@@ -21,11 +21,11 @@ class handle_view
     {
     }
 
-    constexpr handle_view(const handle_view &other) : value_(other.get())
+    constexpr handle_view(const handle_view &other) noexcept : value_(other.get())
     {
     }
 
-    constexpr handle_view &operator=(const handle_view &other)
+    constexpr handle_view &operator=(const handle_view &other) noexcept
     {
         value_ = other.get();
         return *this;
@@ -56,7 +56,7 @@ class handle_view
         return valid();
     }
 
-    constexpr void clear()
+    constexpr void clear() noexcept
     {
 
         value_ = nullptr;

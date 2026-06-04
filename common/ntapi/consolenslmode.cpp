@@ -15,7 +15,7 @@ namespace console
 PFN_GetConsoleNlsMode g_pfnGetConsoleNlsMode = nullptr;
 PFN_SetConsoleNlsMode g_pfnSetConsoleNlsMode = nullptr;
 
-void initialize_console_nls()
+void initialize_console_nls() noexcept
 {
     HMODULE hKernel32 = nullptr;
     auto res = GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, L"kernel32.dll", &hKernel32);
@@ -26,12 +26,12 @@ void initialize_console_nls()
     g_pfnSetConsoleNlsMode = reinterpret_cast<PFN_SetConsoleNlsMode>(GetProcAddress(hKernel32, "SetConsoleNlsMode"));
 }
 
-BOOL GetConsoleNlsMode(_In_ HANDLE hConsole, _Out_ PDWORD lpdwNlsMode)
+BOOL GetConsoleNlsMode(_In_ HANDLE hConsole, _Out_ PDWORD lpdwNlsMode) noexcept
 {
     return console::g_pfnGetConsoleNlsMode(hConsole, lpdwNlsMode);
 }
 
-BOOL SetConsoleNlsMode(_In_ HANDLE hConsole, _In_ DWORD dwNlsMode)
+BOOL SetConsoleNlsMode(_In_ HANDLE hConsole, _In_ DWORD dwNlsMode) noexcept
 {
     return console::g_pfnSetConsoleNlsMode(hConsole, dwNlsMode);
 }

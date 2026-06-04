@@ -249,7 +249,7 @@ struct pipe_bridge
     }
 
     void prepare_console_input_completion(corehost::condrv_io::io_msg &msg, CONSOLE_GETCONSOLEINPUT_MSG *req, bool peek,
-                                          size_t max_count)
+                                          size_t max_count) noexcept
     {
         const auto records_to_copy = std::min(inp.available(), max_count);
         const auto size = sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + records_to_copy * sizeof(INPUT_RECORD);
@@ -295,7 +295,7 @@ struct pipe_bridge
         return _pending.has_pending();
     }
     // 会话可退出条件：终端输入已经 EOF，并且没有仍需完成给 ConDrv 的请求。
-    bool should_exit() const
+    bool should_exit() const noexcept
     {
         return (_pending.vt_eof() || _io.shutdown_signaled()) && !_pending.has_pending();
     }
@@ -464,7 +464,7 @@ struct pipe_bridge
 
     // 取走 Enter 本地 echo 后留下的一次性 CUP 修正标志。返回 true 时，
     // api_write_console 会先移动到 get_enter_dest()，再输出应用内容。
-    bool consume_enter_newline()
+    bool consume_enter_newline() noexcept
     {
         // Enter 的本地回显已经把终端推进到下一行，但应用随后的输出通常
         // 仍从 Console 光标位置开始。这里把“下一次输出前先 CUP”的一次性
@@ -500,7 +500,7 @@ struct pipe_bridge
 
     // WriteConsole/RAW_WRITE 完成后同步 bridge 追踪的终端光标，并把当前位置
     // 作为下一次 cooked input 的左边界。
-    void sync_cursor_after_write(COORD pos)
+    void sync_cursor_after_write(COORD pos) noexcept
     {
         // Console 输出是新的行编辑边界：后续 ReadConsole 的左右移动不得越过
         // 本次输出结束位置，否则用户可以删到 shell prompt 或上一条输出。
@@ -518,7 +518,7 @@ struct pipe_bridge
     // ════════════════════════════════════════════════════
 
     // 将累计 VT 输出写入 vt_out，并清空输出缓冲。
-    void vt_flush()
+    void vt_flush() noexcept
     {
         _vt_output.flush();
     }
@@ -538,25 +538,25 @@ struct pipe_bridge
     // ── 缓冲追加方法 ──
 
     // 追加已经是 UTF-8/ASCII VT 的字节序列。
-    void vt_append_str(std::string_view s)
+    void vt_append_str(std::string_view s) noexcept
     {
         _vt_output.append(s);
     }
 
     // 追加单个 ASCII/VT 字节。
-    void vt_append_char(char c)
+    void vt_append_char(char c) noexcept
     {
         _vt_output.append(c);
     }
 
     // 追加 VT 参数整数；用于 CUP/SGR/resize 等序列参数。
-    void vt_append_int(int n)
+    void vt_append_int(int n) noexcept
     {
         _vt_output.append_int(n);
     }
 
     // 追加 SGR 参数并自动维护分号分隔。first 为 true 表示这是第一个参数。
-    void vt_append_sgr_param(bool &first, int value)
+    void vt_append_sgr_param(bool &first, int value) noexcept
     {
         if (!first)
             vt_append_char(';');
@@ -565,7 +565,7 @@ struct pipe_bridge
     }
 
     // 追加两位小写十六进制字节，用于 OSC 4 rgb:RR/GG/BB。
-    void vt_append_hex_byte(uint8_t value)
+    void vt_append_hex_byte(uint8_t value) noexcept
     {
         constexpr char hex_digits[] = "0123456789abcdef";
         vt_append_char(hex_digits[value >> 4]);
@@ -574,7 +574,7 @@ struct pipe_bridge
 
     // 透传 parser 保存的原始 VT 序列。text 指向 parser raw 缓冲，调用方必须
     // 在 parser.reset 前调用本函数。
-    void vt_append_raw_sequence(std::u32string_view text)
+    void vt_append_raw_sequence(std::u32string_view text) noexcept
     {
         COREHOST_PERF_SCOPE_AMOUNT(vt_raw_passthrough, text.size());
         _vt_output.append_utf32(text);
@@ -584,7 +584,7 @@ struct pipe_bridge
 
     // 发送 viewport-relative CUP。row/col 是 0-based 终端坐标，函数内部转换为
     // VT 需要的 1-based 参数。
-    void vt_write_cup(SHORT row, SHORT col)
+    void vt_write_cup(SHORT row, SHORT col) noexcept
     {
         // 内部坐标沿用 Console 的 0-based COORD；VT CUP 参数是 1-based。
         vt_append_str("\x1b["sv);
@@ -595,7 +595,7 @@ struct pipe_bridge
     }
 
     // 将 screen_buffer 绝对坐标转换为 viewport-relative 坐标后发送 CUP。
-    void vt_write_cup_buffer(COORD buffer_position)
+    void vt_write_cup_buffer(COORD buffer_position) noexcept
     {
         const auto terminal_position = active_screen_buffer().viewport.clamped_relative_position(buffer_position);
         vt_write_cup(terminal_position.Y, terminal_position.X);
@@ -613,7 +613,7 @@ struct pipe_bridge
 
     // 把 Win32 legacy 属性序列化为 SGR。该函数只改变终端当前图形属性，
     // screen_buffer 的属性状态由调用方同步维护。
-    void vt_write_attr(WORD attr)
+    void vt_write_attr(WORD attr) noexcept
     {
         // Console 属性低 4 位是前景 BGRI，高 4 位是背景 BGRI；映射表把
         // Win32 颜色编号转换为 SGR 的 ANSI/bright ANSI 编号。
@@ -637,7 +637,7 @@ struct pipe_bridge
     }
 
     // 写入一个屏幕单元的首 codepoint。0 按空格输出，避免重绘时留下旧字形。
-    void vt_write_cell(char32_t ch)
+    void vt_write_cell(char32_t ch) noexcept
     {
         // screen_buffer 用 0 表示空单元格。终端没有“空字符”，重绘时用空格
         // 清除对应列，避免旧字形残留。
@@ -647,19 +647,19 @@ struct pipe_bridge
     }
 
     // 清空宿主终端可见屏幕并移动到左上角。
-    void vt_write_clear_screen()
+    void vt_write_clear_screen() noexcept
     {
         vt_append_str("\x1b[2J\x1b[H"sv);
     }
 
     // 发送 CPR 查询；响应会从 vt_in 回到 process_input_cpr_response。
-    void vt_write_dsr_cpr()
+    void vt_write_dsr_cpr() noexcept
     {
         vt_append_str("\x1b[6n"sv);
     }
 
     // 使用 OSC 0 设置宿主终端标题。title 是 UTF-32 状态文本。
-    void vt_write_window_title(std::u32string_view title)
+    void vt_write_window_title(std::u32string_view title) noexcept
     {
         if (title.empty())
             return;
@@ -671,14 +671,14 @@ struct pipe_bridge
     }
 
     // 输出普通文本消息，不解析其中 VT；调用方已确认 text 是地面态文本。
-    void vt_write_text(std::u32string_view text)
+    void vt_write_text(std::u32string_view text) noexcept
     {
         COREHOST_PERF_SCOPE_AMOUNT(vt_msg_send_text, text.size());
         _vt_output.append_utf32(text);
     }
 
     // 输出 CRLF，并让终端按 Windows 控制台换行语义前进到下一行行首。
-    void vt_write_crlf()
+    void vt_write_crlf() noexcept
     {
         vt_write_cell(U'\r');
         vt_write_cell(U'\n');
@@ -688,7 +688,7 @@ struct pipe_bridge
     // handler 调用此方法替代直接拼接原始 VT 字节。
     // 注意: 不会自动 flush，调用方负责在合适的时机 vt_flush()。
     template <vt_message_id id>
-    void vt_msg_send(const vt_message &msg)
+    void vt_msg_send(const vt_message &msg) noexcept
     {
         COREHOST_PERF_SCOPE_AMOUNT(vt_msg_send, id == vt_message_id::text ? msg.payload.text.size() : 0);
         // vt_message 是 parser 的结构化中间形态。这里把它重新序列化为宿主
@@ -1338,7 +1338,7 @@ struct pipe_bridge
 
     // 直接把 Console API 文本按当前输出代码页转成 UTF-8 写入 VT 输出缓冲。
     // 该函数只负责转码/发送，不更新 screen_buffer 或 cursor 状态。
-    void raw_write(bool uni, BYTE *data, DWORD bytes)
+    void raw_write(bool uni, BYTE *data, DWORD bytes) noexcept
     {
         if (bytes == 0)
             return;
@@ -1380,34 +1380,34 @@ struct pipe_bridge
 
     // ── 编辑缓冲 (_cooked_buf, _cooked_cursor) ──
     // 在 cooked line 的编辑光标处插入字符，并把编辑光标移动到插入字符之后。
-    void cooked_append(char32_t ch)
+    void cooked_append(char32_t ch) noexcept
     {
         // _cooked_cursor 是插入点而不是字符索引缓存；插入后移动到新字符后方。
         _cooked_buf.insert(_cooked_cursor, 1, ch);
         ++_cooked_cursor;
     }
     // 删除编辑光标左侧字符，用于 Backspace；光标已在函数内回退。
-    void cooked_pop_before()
+    void cooked_pop_before() noexcept
     {
         if (_cooked_cursor == 0)
             return;
         _cooked_buf.erase(--_cooked_cursor, 1);
     }
     // 删除编辑光标所在字符，用于 Delete；编辑光标位置保持不变。
-    void cooked_pop_at()
+    void cooked_pop_at() noexcept
     {
         if (_cooked_cursor >= _cooked_buf.size())
             return;
         _cooked_buf.erase(_cooked_cursor, 1);
     }
     // 清空当前 cooked line，并把编辑光标重置到行首。
-    void cooked_clear()
+    void cooked_clear() noexcept
     {
         _cooked_buf.clear();
         _cooked_cursor = 0;
     }
     // 设置 cooked line 编辑光标。调用方必须保证 p 不超过 _cooked_buf.size()。
-    void cooked_set_pos(size_t p)
+    void cooked_set_pos(size_t p) noexcept
     {
         _cooked_cursor = p;
     }
@@ -1418,7 +1418,7 @@ struct pipe_bridge
     }
 
     // ── 终端原始 echo (经 VT 缓冲批量写入，消除逐字节 WriteFile) ──
-    void echo_byte(BYTE b)
+    void echo_byte(BYTE b) noexcept
     {
         vt_append_char(static_cast<char>(b));
     }
@@ -1426,17 +1426,17 @@ struct pipe_bridge
     // ── term 光标追踪 ──
     // 设置 bridge 追踪的终端光标坐标。该坐标是 viewport-relative，不是
     // screen_buffer 绝对坐标。
-    void term_cursor_set(COORD c)
+    void term_cursor_set(COORD c) noexcept
     {
         _terminal.set_cursor(c);
     }
     // 本地回显一个单列字符后推进终端光标追踪状态。
-    void term_cursor_advance()
+    void term_cursor_advance() noexcept
     {
         _terminal.advance();
     }
     // 本地删除/左移后回退终端光标追踪状态。
-    void term_cursor_retreat()
+    void term_cursor_retreat() noexcept
     {
         _terminal.retreat();
     }
@@ -1447,17 +1447,17 @@ struct pipe_bridge
     };
 
     // 将行编辑左右边界重设为终端列 x。应用输出完成后，新输入不能越过该列。
-    void bounds_reset(SHORT x)
+    void bounds_reset(SHORT x) noexcept
     {
         _terminal.reset_bounds(x);
     }
     // cooked line 增加一个字符后扩展输入右边界。
-    void bounds_extend()
+    void bounds_extend() noexcept
     {
         _terminal.extend_bounds();
     }
     // cooked line 删除一个字符后收缩输入右边界。
-    void bounds_retract()
+    void bounds_retract() noexcept
     {
         _terminal.retract_bounds();
     }
@@ -1501,14 +1501,14 @@ struct pipe_bridge
 
     // ── VT 辅助 ──
     // 移动终端光标并立即刷新，供行编辑在重绘后把用户光标放回逻辑位置。
-    void cup_to(SHORT row, SHORT col)
+    void cup_to(SHORT row, SHORT col) noexcept
     {
         LOG3("[vt] cup_to(%d,%d)", row, col);
         vt_write_cup(row, col);
         vt_flush();
     }
     // 从当前 cooked 光标开始重绘后缀，用于行中间插入/删除后修正终端显示。
-    void repaint_suffix()
+    void repaint_suffix() noexcept
     {
         // 光标位于行中间插入/删除时，只重绘光标后的后缀。调用者随后会
         // CUP 回编辑光标，避免把用户光标留在行尾。
@@ -1517,7 +1517,7 @@ struct pipe_bridge
             vt_write_cell(cp);
     }
     // 从输入起始列重绘整条 cooked line，用于历史导航和别名展开后刷新显示。
-    void repaint_full_line()
+    void repaint_full_line() noexcept
     {
         // 历史导航替换整行时，从输入起始列清到行尾再写新内容。这里不清理
         // prompt 左侧内容，因为输入起始列是行编辑的左边界。
@@ -1538,7 +1538,7 @@ struct pipe_bridge
     }
     // 将 _history 当前选中的命令加载到 cooked line，并把编辑光标和终端显示
     // 都移动到新行尾。
-    void load_history_line()
+    void load_history_line() noexcept
     {
         // 加载后光标移动到行尾，和 Windows 控制台历史浏览行为一致。
         cooked_set_pos(_cooked_buf.size());
@@ -1555,7 +1555,7 @@ struct pipe_bridge
 
     // ConsoleRead 行编辑插入单字节字符。raw 用于本地 echo，ch 写入
     // _cooked_buf；多字节 Unicode 输入应使用 edit_insert_codepoint。
-    void edit_insert_char(char32_t ch, BYTE raw)
+    void edit_insert_char(char32_t ch, BYTE raw) noexcept
     {
         // raw 是原始终端字节，适用于 ASCII/单字节输入的本地回显。多字节
         // UTF-8 输入走 edit_insert_codepoint，避免只回显其中一个字节。
@@ -1581,7 +1581,7 @@ struct pipe_bridge
     }
     // ConsoleRead 行编辑插入 Unicode codepoint。函数负责 UTF-8 回显，并在
     // 行中间插入时重绘后缀。
-    void edit_insert_codepoint(char32_t ch)
+    void edit_insert_codepoint(char32_t ch) noexcept
     {
         LOG3(L"[in] EDIT_CP ch=U+%04X cooked_sz=%zu", (unsigned)ch, _cooked_buf.size());
         // 该路径用于 Win32Input UnicodeChar 和 parser 聚合后的 UTF-8 文本。
@@ -1679,7 +1679,7 @@ struct pipe_bridge
     }
     // ConsoleRead cooked 编辑的 Backspace：删除光标左侧字符、收缩输入边界，
     // 并用 VT 删除序列同步终端显示。
-    void edit_backspace()
+    void edit_backspace() noexcept
     {
         // Backspace 删除光标左侧字符。VT 的 D+P 先左移再删除当前位置字符，
         // 与 cooked_pop_before 后的新缓冲状态一致。
@@ -1702,7 +1702,7 @@ struct pipe_bridge
     }
     // ConsoleRead cooked 编辑的 Delete：删除光标所在字符，不移动 cooked 光标，
     // 并从终端当前位置删除一列。
-    void edit_delete()
+    void edit_delete() noexcept
     {
         // Delete 删除光标所在字符，不移动编辑光标；VT P 从当前位置删除一列。
         history_break_browse();
@@ -1715,7 +1715,7 @@ struct pipe_bridge
     }
     // ConsoleRead cooked 编辑左移：只移动 _cooked_cursor 和终端光标，不改变
     // _cooked_buf 内容。
-    void edit_move_left()
+    void edit_move_left() noexcept
     {
         // 左移只改变编辑插入点，不改 cooked 内容；CUP 目标列由起始列加
         // cooked_cursor 得到，避免累积终端相对移动误差。
@@ -1731,7 +1731,7 @@ struct pipe_bridge
     }
     // ConsoleRead cooked 编辑右移：不能越过 _cooked_buf 末尾，终端列由
     // terminal_cursor_state 的输入边界换算。
-    void edit_move_right()
+    void edit_move_right() noexcept
     {
         // 右移不能越过 cooked_buf 末尾；输入末尾列只记录已显示尾列，
         // 不作为逻辑长度来源。
@@ -1746,7 +1746,7 @@ struct pipe_bridge
         }
     }
     // 将编辑光标移动到当前输入边界的起始列。
-    void edit_home()
+    void edit_home() noexcept
     {
         cooked_set_pos(0);
         if (_terminal.cursor_valid())
@@ -1756,7 +1756,7 @@ struct pipe_bridge
         }
     }
     // 将编辑光标移动到 cooked line 末尾。
-    void edit_end()
+    void edit_end() noexcept
     {
         cooked_set_pos(_cooked_buf.size());
         if (_terminal.cursor_valid())
@@ -1769,19 +1769,19 @@ struct pipe_bridge
     // ── 历史导航 ──
     // 将已提交 cooked line 追加到本会话命令历史；空行由 command_history_state
     // 自己过滤。
-    void history_push()
+    void history_push() noexcept
     {
         _history.push(_cooked_buf);
     }
     // 用户手动编辑后退出历史浏览模式，避免下一次 Up/Down 仍基于旧 browse
     // index。
-    void history_break_browse()
+    void history_break_browse() noexcept
     {
         _history.break_browse();
     }
     // 选择上一条历史命令并重绘 cooked line；如果首次浏览，会把当前输入作为
     // browse_down 的恢复值保存。
-    void history_up()
+    void history_up() noexcept
     {
         const auto cursor = _terminal.cursor();
         LOG3("[history] history_up: tc=(%d,%d) col_start=%d col_end=%d history_sz=%zu idx=%zu", cursor.X, cursor.Y,
@@ -1795,7 +1795,7 @@ struct pipe_bridge
         load_history_line();
     }
     // 选择下一条历史命令或恢复进入历史浏览前的当前输入。
-    void history_down()
+    void history_down() noexcept
     {
         if (!_history.browse_down(_cooked_buf))
             return;
@@ -1803,7 +1803,7 @@ struct pipe_bridge
     }
 
     // ── 别名展开 ──
-    void expand_alias()
+    void expand_alias() noexcept
     {
         // Alias 只匹配第一个空格前的命令名；参数部分原样拼回展开结果。
         if (_cooked_buf.empty())
@@ -1884,42 +1884,42 @@ struct pipe_bridge
     // 兼容旧测试/旧调用点的薄包装：保持原来的函数名，但实际状态变化集中在
     // edit_* / input_* / history_* 函数里。
     // 在 cooked 光标处插入单字节字符。
-    void _edit_insert(char32_t ch, BYTE raw)
+    void _edit_insert(char32_t ch, BYTE raw) noexcept
     {
         edit_insert_char(ch, raw);
     }
     // Backspace 包装：删除 cooked 光标左侧字符。
-    void _edit_backspace()
+    void _edit_backspace() noexcept
     {
         edit_backspace();
     }
     // Delete 包装：删除 cooked 光标所在字符。
-    void _edit_delete()
+    void _edit_delete() noexcept
     {
         edit_delete();
     }
     // Left 包装：移动 cooked 光标和终端光标。
-    void _edit_move_left()
+    void _edit_move_left() noexcept
     {
         edit_move_left();
     }
     // Right 包装：移动 cooked 光标和终端光标。
-    void _edit_move_right()
+    void _edit_move_right() noexcept
     {
         edit_move_right();
     }
     // Home 包装：回到当前 cooked input 起始列。
-    void _edit_home()
+    void _edit_home() noexcept
     {
         edit_home();
     }
     // End 包装：移动到 cooked line 末尾。
-    void _edit_end()
+    void _edit_end() noexcept
     {
         edit_end();
     }
     // Up 包装：浏览上一条历史，并记录当前状态到日志。
-    void _edit_history_up()
+    void _edit_history_up() noexcept
     {
         const auto cursor = _terminal.cursor();
         LOG3("[history] _edit_history_up: tc=(%d,%d) col_start=%d col_end=%d cook_sz=%zu cook_pos=%zu", cursor.X,
@@ -1928,12 +1928,12 @@ struct pipe_bridge
         history_up();
     }
     // Down 包装：浏览下一条历史或恢复进入浏览前的输入。
-    void _edit_history_down()
+    void _edit_history_down() noexcept
     {
         history_down();
     }
     // DOSKEY alias 包装：在完成 ReadConsole 前替换 cooked line。
-    void _expand_alias()
+    void _expand_alias() noexcept
     {
         expand_alias();
     }
@@ -2000,7 +2000,7 @@ struct pipe_bridge
 
     // 把上一次 process_input 未消费完的 vt_in 尾部重新放入 _readbuf。room 是
     // 当前 pending completion 还可容纳的字节数。
-    bool consume_queued_vt_input(DWORD room)
+    bool consume_queued_vt_input(DWORD room) noexcept
     {
         if (_queued_vt_input.empty())
             return false;
@@ -2015,7 +2015,7 @@ struct pipe_bridge
 
     // 在没有 pending 请求时读取当前可用 vt_in 字节并追加到 _queued_vt_input。
     // 后续 GetConsoleInput/ReadConsole 会从该队列先消费，避免丢失提前到达的输入。
-    bool queue_available_vt_input()
+    bool queue_available_vt_input() noexcept
     {
         DWORD read = 0;
         auto result = _io.read_available(std::span{_readbuf}, read);
@@ -2033,7 +2033,7 @@ struct pipe_bridge
 
     // 把当前输入批次中 consumed 之后的字节放回队首。行终止符完成 pending 后，
     // 同一 ReadFile 批次里的下一行输入必须留给下一次请求。
-    void queue_unprocessed_vt_input(const char8_t *bytes, DWORD consumed, DWORD len)
+    void queue_unprocessed_vt_input(const char8_t *bytes, DWORD consumed, DWORD len) noexcept
     {
         if (consumed >= len)
             return;
@@ -2055,7 +2055,7 @@ struct pipe_bridge
     }
 
     // ── _echo_byte: 向终端输出单个字节并跟踪光标（经 VT 缓冲批量写入）──
-    void _echo_byte(char8_t b)
+    void _echo_byte(char8_t b) noexcept
     {
         // parse result 的 echo 只用于控制字符/ESC 路径。普通文本由 edit_* 处理，
         // 否则同一字节会同时进入 echo 和 cooked line，造成重复显示。
@@ -2071,7 +2071,7 @@ struct pipe_bridge
     }
 
     // RAW_READ 文本字节回显。CR/LF 由行终止符路径统一规范化为 CRLF。
-    void echo_raw_read_text_byte(char8_t b)
+    void echo_raw_read_text_byte(char8_t b) noexcept
     {
         if (raw_read_echo_enabled() && b != static_cast<char8_t>('\r') && b != static_cast<char8_t>('\n'))
             vt_append_char(static_cast<char>(b));
@@ -2314,7 +2314,7 @@ struct pipe_bridge
 
     // 处理终端 CPR 响应。只有 pending inherit cursor 时才用响应更新
     // cstate.cursor；普通 CPR 响应由调用点按原始序列交还给应用。
-    bool process_input_cpr_response(const vt_message &m)
+    bool process_input_cpr_response(const vt_message &m) noexcept
     {
         if (_terminal.pending_inherit_cursor() && m.payload.cpr.row > 0 && m.payload.cpr.col > 0)
         {
@@ -2342,7 +2342,7 @@ struct pipe_bridge
 
     // 处理终端 resize 通知：更新 console_state 尺寸、活动 screen_buffer 和
     // viewport，并把当前可见内容按新尺寸重绘到终端。
-    void process_input_resize_window(const vt_message &msg)
+    void process_input_resize_window(const vt_message &msg) noexcept
     {
         COORD new_size{msg.payload.resize.cols, msg.payload.resize.rows};
         if (new_size.X <= 0 || new_size.Y <= 0)
@@ -2777,7 +2777,7 @@ struct pipe_bridge
 
     // 为 pending RAW_READ 构造 completion。它返回 _readbuf 中的原始字节，
     // 并在容量允许时把单独 CR/LF 规范化为 ConDrv 期望的 CRLF。
-    void prepare_raw_read_completion(corehost::condrv_io::io_msg &m)
+    void prepare_raw_read_completion(corehost::condrv_io::io_msg &m) noexcept
     {
         // RawRead 返回 _readbuf 原始字节；它不使用 cooked line 编辑结果。
         auto capacity = static_cast<DWORD>(raw_read_capacity(m));
@@ -2820,7 +2820,7 @@ struct pipe_bridge
 
     // 为 pending ReadConsole 构造 completion。函数把 _cooked_buf 转成调用者
     // 请求的 Unicode/ANSI 格式，并追加 CRLF；不会清理 pending 状态。
-    void prepare_console_read_completion(corehost::condrv_io::io_msg &m)
+    void prepare_console_read_completion(corehost::condrv_io::io_msg &m) noexcept
     {
         auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(m.body + sizeof(CONSOLE_MSG_HEADER));
         req->ControlKeyState = 0;
@@ -2990,14 +2990,14 @@ struct pipe_bridge
   public:
     // Console API ExpungeConsoleCommandHistory 调用：清空 bridge 维护的当前
     // 会话命令历史，不影响 console_state 中的历史配置。
-    void api_clear_history()
+    void api_clear_history() noexcept
     {
         _history.clear();
     }
 
     // Console API SetNumberOfConsoleCommands 调用：调整实际命令历史容量，并按
     // 新容量裁剪已保存命令。
-    void api_set_history_capacity(size_t max_commands)
+    void api_set_history_capacity(size_t max_commands) noexcept
     {
         _history.set_capacity(max_commands);
     }

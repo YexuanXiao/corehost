@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <span>
 #include "deque.hpp"
+#include "win32/event.hpp"
 
 namespace corehost::conpty
 {
@@ -21,21 +22,19 @@ struct input_buffer
 
     // 手动复位事件。普通 headless/COM 路径应绑定 ConDrv 提供的
     // InputAvailableEvent；为空时 init_event 才创建本地兜底事件。
-    HANDLE input_available_event = nullptr;
-    bool owns_input_available_event = false;
+    win32::handle_view input_available_event;
+    win32::event owned_input_available_event;
 
-    void set_event(HANDLE event) noexcept
+    void set_event(win32::handle_view event) noexcept
     {
-        if (owns_input_available_event && input_available_event)
-            ::CloseHandle(input_available_event);
+        owned_input_available_event.clear();
         input_available_event = event;
-        owns_input_available_event = false;
         if (input_available_event)
         {
             if (_events.empty())
-                ::ResetEvent(input_available_event);
+                ::ResetEvent(input_available_event.get());
             else
-                ::SetEvent(input_available_event);
+                ::SetEvent(input_available_event.get());
         }
     }
 
@@ -46,42 +45,37 @@ struct input_buffer
         // read/flush 负责复位。
         if (!input_available_event)
         {
-            input_available_event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-            owns_input_available_event = input_available_event != nullptr;
+            owned_input_available_event = win32::event{win32::create_tag, true, false};
+            input_available_event = owned_input_available_event.view();
         }
     }
 
-    // 释放由 init_event 创建的事件句柄。
-    ~input_buffer()
-    {
-        if (owns_input_available_event && input_available_event)
-            ::CloseHandle(input_available_event);
-    }
+    ~input_buffer() noexcept = default;
 
     // 将 events 追加到队尾；用于终端输入或 WriteConsoleInput 产生新事件。
-    size_t write(const INPUT_RECORD *events, size_t count)
+    size_t write(const INPUT_RECORD *events, size_t count) noexcept
     {
         // 返回值可能小于 count，表示队列已满。
         const auto n = std::min(count, max_events - _events.size());
         _events.append_range(std::span{events, n});
         if (n > 0 && input_available_event)
             // 只要写入了至少一条记录，等待 GetConsoleInput 的线程即可被唤醒。
-            ::SetEvent(input_available_event);
+            ::SetEvent(input_available_event.get());
         return n;
     }
 
     // 将 events 插入队头；用于需要让新事件优先被 Console API 读取的路径。
-    size_t prepend(const INPUT_RECORD *events, size_t count)
+    size_t prepend(const INPUT_RECORD *events, size_t count) noexcept
     {
         const auto n = std::min(count, max_events - _events.size());
         _events.prepend_range(std::span{events, n});
         if (n > 0 && input_available_event)
-            ::SetEvent(input_available_event);
+            ::SetEvent(input_available_event.get());
         return n;
     }
 
     // 从队头取出最多 max_count 条事件，并在队列读空后复位可读事件。
-    size_t read(INPUT_RECORD *out, size_t max_count)
+    size_t read(INPUT_RECORD *out, size_t max_count) noexcept
     {
         // 返回值为实际读出的记录数；0 表示当前没有输入事件。
         const auto n = std::min(max_count, _events.size());
@@ -89,7 +83,7 @@ struct input_buffer
         _events.erase(_events.begin(), _events.begin() + static_cast<std::ptrdiff_t>(n));
         if (_events.empty() && input_available_event)
             // 事件必须反映读后的队列状态；否则调用方会在空队列上持续被唤醒。
-            ::ResetEvent(input_available_event);
+            ::ResetEvent(input_available_event.get());
         return n;
     }
 
@@ -109,12 +103,12 @@ struct input_buffer
     }
 
     // 清空所有未消费事件并复位 input_available_event。
-    void flush()
+    void flush() noexcept
     {
         // FlushConsoleInputBuffer 丢弃所有尚未消费事件，并把“可读”状态清零。
         _events.clear();
         if (input_available_event)
-            ::ResetEvent(input_available_event);
+            ::ResetEvent(input_available_event.get());
     }
 
   private:

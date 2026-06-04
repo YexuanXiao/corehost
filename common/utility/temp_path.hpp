@@ -5,6 +5,6 @@
 namespace utility
 {
 
-[[nodiscard]] std::wstring temp_directory();
+[[nodiscard]] std::wstring temp_directory() noexcept;
 
 } // namespace utility

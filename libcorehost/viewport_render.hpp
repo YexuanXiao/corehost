@@ -9,7 +9,7 @@ namespace corehost::conpty
 // 将当前 active screen buffer 的可见 viewport 完整重绘到终端。
 // 该函数用于 alternate-buffer 切换等“终端内容可能已丢失”的路径；它不改变
 // screen_buffer 内容，只发 VT 清屏、属性、文本和最终光标位置。
-inline void render_visible_viewport(console_state &state, screen_buffer &sb, pipe_bridge &bridge)
+inline void render_visible_viewport(console_state &state, screen_buffer &sb, pipe_bridge &bridge) noexcept
 {
     // 重绘前先把 viewport/cursor 钳制到当前 buffer，避免生成越界 CUP。
     sb.viewport.clamp_to_buffer(sb.size);

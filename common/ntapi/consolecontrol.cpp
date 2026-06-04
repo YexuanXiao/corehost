@@ -9,7 +9,7 @@ typedef NTSTATUS(WINAPI *PFN_ConsoleControl)(CONSOLECONTROL Command, PVOID Conso
 namespace console
 {
 PFN_ConsoleControl g_pfnConsoleControl = nullptr;
-void initialize_console_control()
+void initialize_console_control() noexcept
 {
     assert(g_pfnConsoleControl == nullptr);
     HMODULE hUser32 = nullptr;
@@ -22,7 +22,7 @@ void initialize_console_control()
 }
 NTSTATUS ConsoleControl(_In_ CONSOLECONTROL Command,
                         _In_reads_bytes_(ConsoleInformationLength) PVOID ConsoleInformation,
-                        _In_ DWORD ConsoleInformationLength)
+                        _In_ DWORD ConsoleInformationLength) noexcept
 {
     assert(console::g_pfnConsoleControl != nullptr);
 

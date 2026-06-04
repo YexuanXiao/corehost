@@ -20,7 +20,7 @@ struct vt_input_engine
     // ── convert: (vt_message_id + vt_message) → INPUT_RECORD ──
     // id 和 msg 都来自 vt_parser::parse(range) 的 vt_parse_result；parser 内部
     // 复用同一个消息存储，不要求调用方再窥探 parser 当前 payload。
-    bool convert(vt_message_id id, const vt_message &msg, INPUT_RECORD &rec)
+    bool convert(vt_message_id id, const vt_message &msg, INPUT_RECORD &rec) noexcept
     {
         // convert 只生成 KEY_DOWN；pipe_bridge 在需要完整按下/释放对时会额外
         // 构造 KEY_UP。这样 ConsoleRead 本地编辑可只消费按下事件。

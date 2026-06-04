@@ -30,7 +30,7 @@ namespace corehost::conpty
 
 // 把 io_state 中的连接进程列表同步到 bridge 的 API 可见快照。io_state 是
 // CONNECT/DISCONNECT 的真实来源；bridge 只保存供 GetConsoleProcessList 读取的副本。
-void copy_process_list(io_state &io, pipe_bridge &bridge)
+void copy_process_list(io_state &io, pipe_bridge &bridge) noexcept
 {
     bridge.set_process_list(std::span<const DWORD>{io.process_list.data(), io.process_count});
 }
@@ -88,7 +88,7 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
     // input_buffer 持有 Console API 可见的 INPUT_RECORD 队列。init_event 必须
     // 在 API handler 使用前调用，否则 GetNumberOfConsoleInputEvents 无法等待。
     input_buffer ibuf;
-    ibuf.set_event(event.get());
+    ibuf.set_event(event.view());
     ibuf.init_event();
 
     // ── Layer 2: I/O 状态 ──

@@ -74,7 +74,7 @@ struct io_msg
 //   CD_IO_SERVER_INFORMATION ServerInformation;
 //   ServerInformation.InputAvailableEvent = g.hInputEvent.get();
 //   g.pDeviceComm->SetServerInformation(&ServerInformation);
-inline void set_server_info(win32::handle_view server, win32::handle_view event)
+inline void set_server_info(win32::handle_view server, win32::handle_view event) noexcept
 {
     CD_IO_SERVER_INFORMATION info{};
     info.InputAvailableEvent = event.get();
@@ -107,7 +107,7 @@ inline read_io_result read_io_try(win32::handle_view server, CD_IO_COMPLETE *pre
 // 从管道读取精确字节数。区别于 ReadFile 的"尽量读"语义，
 // 这里要求恰好 s 字节，否则返回 false（管道断开或数据不足）。
 // corehost::defterm::signal_thread_proc 和 corehost::conpty::pty_signal_thread_proc 共用。
-inline bool read_exact(win32::handle_view p, void *b, DWORD s)
+inline bool read_exact(win32::handle_view p, void *b, DWORD s) noexcept
 {
     return win32::read_exact(p, std::span{static_cast<std::byte *>(b), s});
 }
@@ -145,7 +145,7 @@ inline void read_input(win32::handle_view server, LUID identifier, ULONG offset,
 //
 // 返回值是对 msg.complete 的引用，允许链式调用：
 //   prepare_completion(msg, 0, sizeof(info)).Write.Data = &info;
-inline CD_IO_COMPLETE &prepare_completion(io_msg &msg, LONG status = 0, ULONG_PTR info = 0)
+inline CD_IO_COMPLETE &prepare_completion(io_msg &msg, LONG status = 0, ULONG_PTR info = 0) noexcept
 {
     msg.complete.Identifier = msg.descriptor.Identifier;
     msg.complete.IoStatus.Status = status;

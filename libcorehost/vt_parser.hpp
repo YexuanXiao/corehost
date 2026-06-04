@@ -447,11 +447,11 @@ class vt_parser
 
   public:
     // raw 由调用方持有，parser 把当前消息文本/标题 view 指向该缓冲。
-    explicit vt_parser(raw_u32_buffer &raw) : _raw(raw)
+    explicit vt_parser(raw_u32_buffer &raw) noexcept : _raw(raw)
     {
     }
 
-    [[nodiscard]] vt_parse_result parse(std::u32string_view input)
+    [[nodiscard]] vt_parse_result parse(std::u32string_view input) noexcept
     {
         if (input.empty())
             return {};
@@ -615,7 +615,7 @@ class vt_parser
 
     // 消费 ESC/CSI/OSC/SS3 序列中的一个 codepoint。_raw 只保存控制序列
     // 原文，ground 文本和 ground 控制字符不进入该缓冲。
-    [[nodiscard]] vt_message_id _parse_sequence_char(char32_t ch)
+    [[nodiscard]] vt_message_id _parse_sequence_char(char32_t ch) noexcept
     {
         // 合法序列用结构化字段返回；非法序列则用 _raw 切片作为 text
         // 透传，避免吞字节。
@@ -639,7 +639,7 @@ class vt_parser
         std::unreachable();
     }
 
-    [[nodiscard]] vt_message_id _parse_osc(char32_t ch)
+    [[nodiscard]] vt_message_id _parse_osc(char32_t ch) noexcept
     {
         const bool control = _is_c0_or_del(ch);
         if (control)
@@ -694,7 +694,7 @@ class vt_parser
 
     // ST 终止符检测 (ESC \) — 仅当 ESC 来自 OSC 终止时触发。若不是 ST，
     // 同一个字符立刻按普通 ESC final 处理，不回到 parse 主入口重复分派。
-    [[nodiscard]] vt_message_id _parse_osc_st(char32_t ch)
+    [[nodiscard]] vt_message_id _parse_osc_st(char32_t ch) noexcept
     {
         if (ch == U'\\')
         {
@@ -708,7 +708,7 @@ class vt_parser
         return _parse_esc(ch);
     }
 
-    [[nodiscard]] vt_message_id _parse_csi(char32_t ch)
+    [[nodiscard]] vt_message_id _parse_csi(char32_t ch) noexcept
     {
         switch (_classify_csi_char(ch))
         {
@@ -750,7 +750,7 @@ class vt_parser
         std::unreachable();
     }
 
-    [[nodiscard]] vt_message_id _parse_ss3(char32_t ch)
+    [[nodiscard]] vt_message_id _parse_ss3(char32_t ch) noexcept
     {
         if (_is_c0_or_del(ch))
         {
@@ -770,7 +770,7 @@ class vt_parser
         return vt_message_id::unknown_sequence;
     }
 
-    [[nodiscard]] vt_message_id _parse_esc(char32_t ch)
+    [[nodiscard]] vt_message_id _parse_esc(char32_t ch) noexcept
     {
         if (_is_c0_or_del(ch))
         {
@@ -817,7 +817,7 @@ class vt_parser
         }
     }
 
-    [[nodiscard]] vt_message_id _parse_ground_control(char32_t ch)
+    [[nodiscard]] vt_message_id _parse_ground_control(char32_t ch) noexcept
     {
         const auto kind = _classify_ground_char(ch);
         if (kind == ground_char_kind::printable)
@@ -853,7 +853,7 @@ class vt_parser
   public:
     // 调用方消费完 vt_parse_result 后调用。vt_message 很小，直接整体重置比
     // 按 id 清理 union 分支更简单；string_view payload 在 reset 后全部失效。
-    void reset()
+    void reset() noexcept
     {
         _msg = {};
         _reset_parser_state_after_message();
@@ -861,7 +861,7 @@ class vt_parser
 
   private:
     // 消息被消费后清理中央 raw 序列，并把 parser 拉回 ground。
-    void _reset_parser_state_after_message()
+    void _reset_parser_state_after_message() noexcept
     {
         _raw.clear();
         _seq_start = 0;
@@ -913,7 +913,7 @@ class vt_parser
     // ── 内部辅助函数 ──
 
     // 重置 CSI 参数收集状态；每条 CSI 结束或非法中断后必须调用。
-    void _reset_params()
+    void _reset_params() noexcept
     {
         _params.fill(0);
         _param_index = 0;
@@ -925,7 +925,7 @@ class vt_parser
     }
 
     // 将当前正在收集的 CSI 参数保存到参数数组；参数过多时只标记 overflow。
-    void _add_param()
+    void _add_param() noexcept
     {
         // 空参数通过 _has_param=false 表示；这里仍保存 0，dispatch 使用
         // _get_param(i, default) 决定默认值。
@@ -938,27 +938,27 @@ class vt_parser
     }
 
     // 获取第 i 个已收集 CSI 参数；未提供该参数时返回调用方指定的默认值。
-    short _get_param(size_t i, short d = 0) const
+    short _get_param(size_t i, short d = 0) const noexcept
     {
         return (i < _param_index) ? _params[i] : d;
     }
 
     // VT 的 1-based 位置参数把缺省值和显式 0 都解释为默认位置。
-    short _get_positive_param(size_t i, short d) const
+    short _get_positive_param(size_t i, short d) const noexcept
     {
         const auto value = _get_param(i, d);
         return value == 0 ? d : _clamp(value);
     }
 
     // 把解析出的 short 参数限制在 VT handler 可接受的正数范围内。
-    static short _clamp(short v)
+    static short _clamp(short v) noexcept
     {
         return v > 32767 ? static_cast<short>(32767) : v;
     }
 
     // 把从 start 开始的原文标记为 unknown_sequence payload；非 OSC 错误
     // 没有安全的可见降级文本，因此 text 仍指向完整原文。
-    void _set_unknown_sequence(size_t start)
+    void _set_unknown_sequence(size_t start) noexcept
     {
         _msg.payload.text = {_raw.data() + start, _raw.size() - start};
     }
@@ -966,13 +966,13 @@ class vt_parser
     // 标记一个已完整解析但 corehost 不支持的 OSC。raw_sequence 仍由
     // _raw_sequence() 提供完整控制序列；text 只保存该 OSC 能安全降级显示的
     // 内容。OSC 8 hyperlink 的控制序列本身不可见，所以这里为空。
-    void _set_unknown_osc_text(std::u32string_view text)
+    void _set_unknown_osc_text(std::u32string_view text) noexcept
     {
         _msg.payload.text = text;
     }
 
     // 完成一个序列；continue_ 表示 dispatch 未识别，整段序列按 unknown 返回。
-    vt_message_id _finish_seq(vt_message_id id)
+    vt_message_id _finish_seq(vt_message_id id) noexcept
     {
         if (id == vt_message_id::continue_)
         {
@@ -988,7 +988,7 @@ class vt_parser
     // ── 分发函数 ──
 
     // 分发普通 ESC 序列（ESC + 单个 final 字符）。
-    vt_message_id _dispatch_esc(char32_t code)
+    vt_message_id _dispatch_esc(char32_t code) noexcept
     {
         switch (code)
         {
@@ -1010,7 +1010,7 @@ class vt_parser
     }
 
     // 分发 SS3 键盘序列（ESC O + final）；这些输入应转换为结构化键消息。
-    vt_message_id _dispatch_ss3(char32_t code)
+    vt_message_id _dispatch_ss3(char32_t code) noexcept
     {
         switch (code)
         {
@@ -1040,7 +1040,7 @@ class vt_parser
     }
 
     // 分发 G0 字符集选择；当前只建模 DEC line drawing 和 ASCII。
-    vt_message_id _dispatch_charset(char32_t final)
+    vt_message_id _dispatch_charset(char32_t final) noexcept
     {
         if (final == U'0')
             return vt_message_id::designate_charset_line_drawing;
@@ -1052,7 +1052,7 @@ class vt_parser
     // ── OSC 载荷解析辅助函数（接受 u32string_view，无异常） ──
 
     // 从 OSC payload 的 pos 位置解析最多 5 位十进制数；pos 返回首个非数字位置。
-    short _parse_osc_decimal_8(std::u32string_view s, size_t &pos) const
+    short _parse_osc_decimal_8(std::u32string_view s, size_t &pos) const noexcept
     {
         // 跳过前导空格
         auto first = std::ranges::find_if(s.begin() + pos, s.end(), [](char32_t ch) { return ch != U' '; });
@@ -1078,7 +1078,7 @@ class vt_parser
     }
 
     // 从 OSC RGB payload 的 pos 位置解析最多 2 位十六进制分量，并跳过后续 '/'。
-    uint8_t _parse_osc_hex_8(std::u32string_view buf, size_t &pos) const
+    uint8_t _parse_osc_hex_8(std::u32string_view buf, size_t &pos) const noexcept
     {
         // 收集最多 2 个十六进制数字
         size_t start = pos;
@@ -1106,7 +1106,7 @@ class vt_parser
     }
 
     // 分发完整 OSC 序列。支持标题和 OSC 4 调色板；未知 OSC 保留原文返回 unknown。
-    vt_message_id _dispatch_osc()
+    vt_message_id _dispatch_osc() noexcept
     {
         auto &m = _msg;
         // seq 覆盖完整 OSC 序列，包括 ESC ] 和终止符；payload 在后面根据
@@ -1189,7 +1189,7 @@ class vt_parser
 
     // 根据 CSI final 字符和已收集参数生成消息；不支持的组合返回 continue_，
     // 由 _finish_seq 转成 unknown_sequence 供调用方决定是否透传。
-    vt_message_id _dispatch_csi(char32_t terminator)
+    vt_message_id _dispatch_csi(char32_t terminator) noexcept
     {
         auto &m = _msg;
         if (_csi_overflow)

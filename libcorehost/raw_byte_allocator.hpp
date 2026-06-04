@@ -3,6 +3,7 @@
 #include <limits>
 #include <memory>
 #include <new>
+#include <exception>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -29,10 +30,8 @@ struct raw_byte_allocator
     {
     }
 
-    [[nodiscard]] T *allocate(std::size_t count)
+    [[nodiscard]] T *allocate(std::size_t count) noexcept
     {
-        if (count > max_size())
-            throw std::bad_array_new_length{};
         return static_cast<T *>(::operator new(count * sizeof(T)));
     }
 

@@ -83,13 +83,13 @@ class tab_stop_table
         char8_t &_value;
     };
 
-    void assign(size_t count, bool value)
+    void assign(size_t count, bool value) noexcept
     {
         // count 是当前需要跟踪的控制台列数；value 决定新表是否全为有效 tab stop。
         _values.assign(count, value ? char8_t{1} : char8_t{0});
     }
 
-    void resize(size_t count, bool value)
+    void resize(size_t count, bool value) noexcept
     {
         // resize 只在控制台宽度增长或访问更大列时使用；已有列保持原 tab stop 状态。
         _values.resize(count, value ? char8_t{1} : char8_t{0});
@@ -232,7 +232,7 @@ struct console_state
 
     // 初始化 DEC/VT 默认 tab stop：至少覆盖默认窗口宽度，并每 8 列设置一处。
     // 构造 console_state 时调用；后续宽度增长由 ensure_tab_capacity 补齐。
-    void init_tab_stops()
+    void init_tab_stops() noexcept
     {
         const auto width = std::max<SHORT>(screen_buffer_size.X, default_console_size.X);
         tab_stops.assign(static_cast<size_t>(width), 0);
@@ -242,7 +242,7 @@ struct console_state
             tab_stops[i] = true;
     }
     // 在 0-based 列 col 设置 tab stop。负数列被忽略；超出当前表容量时先扩容。
-    void set_tab_stop(SHORT col)
+    void set_tab_stop(SHORT col) noexcept
     {
         if (col >= 0)
         {
@@ -252,13 +252,13 @@ struct console_state
     }
     // 清除 0-based 列 col 的 tab stop。未跟踪的列不需要扩容，因为清除一个
     // 不存在的停靠位没有可观察效果。
-    void clear_tab_stop(SHORT col)
+    void clear_tab_stop(SHORT col) noexcept
     {
         if (col >= 0 && static_cast<size_t>(col) < tab_stops.size())
             tab_stops[col] = false;
     }
     // 清空当前已跟踪范围内的所有 tab stop，用于 TBC mode 3。
-    void clear_all_tab_stops()
+    void clear_all_tab_stops() noexcept
     {
         tab_stops.fill(false);
     }
@@ -285,7 +285,7 @@ struct console_state
 
     // 确保 tab_stops 至少覆盖到 col。新增范围按 DEC 默认每 8 列补停靠位，
     // 旧范围中用户设置/清除过的状态不变。
-    void ensure_tab_capacity(SHORT col)
+    void ensure_tab_capacity(SHORT col) noexcept
     {
         // col 是即将读取或设置的 0-based 控制台列。扩容后只为新增范围补齐
         // 默认每 8 列的 tab stop，不改变旧范围中 HTS/TBC 已修改过的状态。

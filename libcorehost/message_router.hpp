@@ -86,7 +86,7 @@ struct message_router
 
     // 将 bridge 中已缓冲的 VT 输出写到终端。I/O loop 在 completion 边界和
     // 退出前调用它，避免终端可见输出滞留。
-    void flush_vt_output()
+    void flush_vt_output() noexcept
     {
         // vt_out 由 bridge 内部批量缓冲；router 在 completion 前后根据 I/O
         // loop 时序调用这里，避免应用已完成但终端仍看不到输出。
@@ -112,7 +112,7 @@ struct message_router
     }
 
     // 查询 bridge 是否持有尚未完成的 RawRead/ReadConsole/GetConsoleInput 请求。
-    bool has_pending() const
+    bool has_pending() const noexcept
     {
         // pending 状态只存在于 bridge：RawRead/ReadConsole/GetConsoleInput。
         const bool result = bridge.has_pending();
@@ -137,7 +137,7 @@ struct message_router
     }
 
     // 查询会话是否可以退出。只有 VT 输入 EOF 且没有 pending 请求时返回 true。
-    bool should_exit() const
+    bool should_exit() const noexcept
     {
         // vt_in EOF 且没有 pending 请求时，bridge 认为会话可以退出。
         const bool result = bridge.should_exit();

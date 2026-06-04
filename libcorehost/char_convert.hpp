@@ -45,14 +45,14 @@ template <typename Char>
 
 // 为 string 分配 capacity 个元素并让 writer 直接写入；最终长度采用 writer 返回值。
 template <typename Char, typename Traits, typename Alloc, typename Writer>
-inline void resize_for_overwrite(std::basic_string<Char, Traits, Alloc> &out, size_t capacity, Writer &&writer)
+inline void resize_for_overwrite(std::basic_string<Char, Traits, Alloc> &out, size_t capacity, Writer &&writer) noexcept
 {
     out.resize_and_overwrite(capacity, [&](Char *data, size_t size) -> size_t { return writer(data, size); });
 }
 
 // 为 vector 分配 capacity 个元素并让 writer 直接写入；适配不需要 NUL 结尾的缓冲。
 template <typename Char, typename Alloc, typename Writer>
-inline void resize_for_overwrite(std::vector<Char, Alloc> &out, size_t capacity, Writer &&writer)
+inline void resize_for_overwrite(std::vector<Char, Alloc> &out, size_t capacity, Writer &&writer) noexcept
 {
     out.resize(capacity);
     const auto written = writer(out.data(), out.size());
@@ -61,14 +61,14 @@ inline void resize_for_overwrite(std::vector<Char, Alloc> &out, size_t capacity,
 
 // 将原始字节复制到 std::string；用于需要 string 语义或 NUL 兼容的调用方。
 template <typename Traits, typename Alloc>
-inline void assign_bytes(std::basic_string<char, Traits, Alloc> &out, const char *data, size_t size)
+inline void assign_bytes(std::basic_string<char, Traits, Alloc> &out, const char *data, size_t size) noexcept
 {
     out.assign(data, size);
 }
 
 // 将原始字节复制到 char8_t vector；用于不需要 NUL 结尾的热路径缓冲。
 template <typename Alloc>
-inline void assign_bytes(std::vector<char8_t, Alloc> &out, const char *data, size_t size)
+inline void assign_bytes(std::vector<char8_t, Alloc> &out, const char *data, size_t size) noexcept
 {
     out.resize(size);
     std::memcpy(out.data(), data, size);
@@ -101,7 +101,7 @@ struct utf8_stream_decoder
     unicode::decoder<char> _dec;
 
     // 输入一个 UTF-8 字节；返回 nullopt 表示多字节序列尚未收齐。
-    std::optional<char32_t> operator()(uint8_t byte)
+    std::optional<char32_t> operator()(uint8_t byte) noexcept
     {
         auto r = _dec(byte);
         if (r.has_value())
@@ -184,7 +184,7 @@ inline size_t wide_to_utf8_max_bytes(size_t utf16_units) noexcept
 
 template <typename U32Buffer>
 // 将 UTF-16 文本转换到调用方复用的 UTF-32 缓冲。
-inline void convert_utf16_to_u32(std::wstring_view ws, U32Buffer &out)
+inline void convert_utf16_to_u32(std::wstring_view ws, U32Buffer &out) noexcept
 {
     if (ws.empty())
     {
@@ -201,7 +201,7 @@ inline void convert_utf16_to_u32(std::wstring_view ws, U32Buffer &out)
 
 template <typename U32Buffer>
 // 将 UTF-8 文本转换到调用方复用的 UTF-32 缓冲。
-inline void convert_utf8_to_u32(std::string_view utf8, U32Buffer &out)
+inline void convert_utf8_to_u32(std::string_view utf8, U32Buffer &out) noexcept
 {
     if (utf8.empty())
     {
@@ -215,7 +215,7 @@ inline void convert_utf8_to_u32(std::string_view utf8, U32Buffer &out)
 
 template <typename WideBuffer>
 // 将 UTF-32 文本转换到调用方复用的 UTF-16/wchar_t 缓冲。
-inline void convert_u32_to_wstr(std::u32string_view u32s, WideBuffer &out)
+inline void convert_u32_to_wstr(std::u32string_view u32s, WideBuffer &out) noexcept
 {
     if (u32s.empty())
     {
@@ -231,7 +231,7 @@ inline void convert_u32_to_wstr(std::u32string_view u32s, WideBuffer &out)
 
 template <typename ByteBuffer>
 // 将 UTF-32 文本转换到调用方复用的 UTF-8 字节缓冲。
-inline void convert_u32_to_utf8(std::u32string_view u32s, ByteBuffer &out)
+inline void convert_u32_to_utf8(std::u32string_view u32s, ByteBuffer &out) noexcept
 {
     if (u32s.empty())
     {
@@ -264,7 +264,7 @@ inline size_t utf16_prefix_units(std::wstring_view text, size_t max_units) noexc
 
 template <typename WideBuffer>
 // 将 UTF-8 文本转换到调用方复用的 UTF-16/wchar_t 缓冲。
-inline void convert_utf8_to_wstr(std::string_view u8, WideBuffer &out)
+inline void convert_utf8_to_wstr(std::string_view u8, WideBuffer &out) noexcept
 {
     if (u8.empty())
     {
@@ -281,7 +281,7 @@ inline void convert_utf8_to_wstr(std::string_view u8, WideBuffer &out)
 
 template <typename ByteBuffer>
 // 将 UTF-16/wchar_t 文本转换到调用方复用的 UTF-8 字节缓冲。
-inline void convert_wstr_to_utf8(std::wstring_view ws, ByteBuffer &out)
+inline void convert_wstr_to_utf8(std::wstring_view ws, ByteBuffer &out) noexcept
 {
     if (ws.empty())
     {
@@ -445,7 +445,7 @@ inline bool gbk_append_code_raw(uint16_t code, char *out, size_t out_cap, size_t
 
 template <typename U32Buffer>
 // 将 GBK 字节流转换为 UTF-32 缓冲；非法字节以 U+FFFD 进入输出。
-inline void convert_gbk_to_u32(const char *s, size_t len, U32Buffer &out)
+inline void convert_gbk_to_u32(const char *s, size_t len, U32Buffer &out) noexcept
 {
     resize_for_overwrite(out, len, [&](char32_t *data, size_t) -> size_t {
         size_t i = 0;
@@ -458,7 +458,7 @@ inline void convert_gbk_to_u32(const char *s, size_t len, U32Buffer &out)
 
 template <typename WideBuffer>
 // 将 GBK 字节流转换为 UTF-16/wchar_t 缓冲。
-inline void convert_gbk_to_wstr(const char *s, size_t len, WideBuffer &out)
+inline void convert_gbk_to_wstr(const char *s, size_t len, WideBuffer &out) noexcept
 {
     resize_for_overwrite(out, len, [&](wchar_t *data, size_t) -> size_t {
         size_t i = 0;
@@ -471,7 +471,7 @@ inline void convert_gbk_to_wstr(const char *s, size_t len, WideBuffer &out)
 
 template <typename ByteBuffer>
 // 将 GBK 字节流转换为 UTF-8 缓冲，直接写入最终输出缓冲。
-inline void convert_gbk_to_utf8(const char *s, size_t len, ByteBuffer &out)
+inline void convert_gbk_to_utf8(const char *s, size_t len, ByteBuffer &out) noexcept
 {
     resize_for_overwrite(out, gbk_to_utf8_max_bytes(len), [&](auto *data, size_t) -> size_t {
         unicode::encoder<char> enc;
@@ -500,7 +500,7 @@ inline bool convert_gbk_to_wide_raw(const char *s, size_t len, wchar_t *out, siz
 
 template <typename ByteBuffer>
 // 将 UTF-32 文本转换为 GBK 字节缓冲；不可表示字符使用 '?'。
-inline void convert_u32_to_gbk(std::u32string_view u32s, ByteBuffer &out)
+inline void convert_u32_to_gbk(std::u32string_view u32s, ByteBuffer &out) noexcept
 {
     resize_for_overwrite(out, u32_to_gbk_max_bytes(u32s.size()), [&](auto *data, size_t) -> size_t {
         size_t written = 0;
@@ -512,7 +512,7 @@ inline void convert_u32_to_gbk(std::u32string_view u32s, ByteBuffer &out)
 
 template <typename ByteBuffer>
 // 将 UTF-16/wchar_t 文本转换为 GBK 字节缓冲；surrogate pair 降级为 '?'。
-inline void convert_wstr_to_gbk(std::wstring_view ws, ByteBuffer &out)
+inline void convert_wstr_to_gbk(std::wstring_view ws, ByteBuffer &out) noexcept
 {
     resize_for_overwrite(out, wide_to_gbk_max_bytes(ws.size()), [&](auto *data, size_t) -> size_t {
         size_t written = 0;
@@ -608,7 +608,7 @@ inline size_t wide_to_ansi_max_bytes(size_t wlen, UINT cp) noexcept
 
 template <typename WideBuffer>
 // 将指定代码页的 ANSI 字节转换到 UTF-16/wchar_t 缓冲。
-inline void convert_ansi_to_wstr(const char *s, size_t len, UINT cp, WideBuffer &out)
+inline void convert_ansi_to_wstr(const char *s, size_t len, UINT cp, WideBuffer &out) noexcept
 {
     if (len == 0)
     {
@@ -637,7 +637,7 @@ inline void convert_ansi_to_wstr(const char *s, size_t len, UINT cp, WideBuffer 
 
 template <typename ByteBuffer>
 // 将 UTF-16/wchar_t 文本转换到指定代码页字节缓冲。
-inline void convert_wstr_to_ansi(std::wstring_view ws, UINT cp, ByteBuffer &out)
+inline void convert_wstr_to_ansi(std::wstring_view ws, UINT cp, ByteBuffer &out) noexcept
 {
     if (ws.empty())
     {
@@ -665,7 +665,7 @@ inline void convert_wstr_to_ansi(std::wstring_view ws, UINT cp, ByteBuffer &out)
 
 template <typename ByteBuffer, typename WideBuffer>
 // 将指定代码页的 ANSI 字节转换成 UTF-8；非 UTF-8 路径复用 wbuf 中转。
-inline void convert_ansi_to_utf8(const char *s, size_t len, UINT cp, ByteBuffer &out, WideBuffer &wbuf)
+inline void convert_ansi_to_utf8(const char *s, size_t len, UINT cp, ByteBuffer &out, WideBuffer &wbuf) noexcept
 {
     if (len == 0)
     {
@@ -720,7 +720,7 @@ inline size_t ansi_to_wstr_len(const char *s, size_t len, UINT cp) noexcept
 
 template <typename U32Buffer, typename WideBuffer>
 // 将指定代码页 ANSI 字节转换到 UTF-32；非 UTF-8 路径使用 wbuf 中转。
-inline void convert_ansi_to_u32(const char *s, size_t len, UINT code_page, U32Buffer &out, WideBuffer &wbuf)
+inline void convert_ansi_to_u32(const char *s, size_t len, UINT code_page, U32Buffer &out, WideBuffer &wbuf) noexcept
 {
     if (len == 0)
     {
@@ -747,7 +747,7 @@ inline void convert_ansi_to_u32(const char *s, size_t len, UINT code_page, U32Bu
 
 template <typename ByteBuffer, typename WideBuffer>
 // 将 UTF-32 文本转换到指定 ANSI 代码页；非 UTF-8 路径使用 wbuf 中转。
-inline void convert_u32_to_ansi(std::u32string_view u32s, UINT cp, ByteBuffer &out, WideBuffer &wbuf)
+inline void convert_u32_to_ansi(std::u32string_view u32s, UINT cp, ByteBuffer &out, WideBuffer &wbuf) noexcept
 {
     if (u32s.empty())
     {
@@ -891,7 +891,7 @@ inline size_t u32_to_ansi_exact_len(std::u32string_view text, UINT code_page) no
 // ════════════════════════════════════════════════════════
 
 // 将 ANSI 字节写入有限 UTF-16/wchar_t raw 缓冲；失败或容量不足返回 0。
-inline size_t convert_ansi_to_wide_raw(const char *s, size_t len, UINT cp, wchar_t *out, size_t out_cap)
+inline size_t convert_ansi_to_wide_raw(const char *s, size_t len, UINT cp, wchar_t *out, size_t out_cap) noexcept
 {
     if (len == 0)
         return 0;
@@ -913,7 +913,7 @@ inline size_t convert_ansi_to_wide_raw(const char *s, size_t len, UINT cp, wchar
 }
 
 // 将 UTF-16/wchar_t 文本写入有限 ANSI raw 缓冲并追加 NUL；失败返回 0。
-inline size_t convert_wide_to_ansi_raw(const wchar_t *s, size_t len, UINT cp, char *out, size_t out_cap)
+inline size_t convert_wide_to_ansi_raw(const wchar_t *s, size_t len, UINT cp, char *out, size_t out_cap) noexcept
 {
     if (len == 0)
     {

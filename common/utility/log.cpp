@@ -23,7 +23,7 @@
 namespace
 {
 
-FILE *init_log_file()
+FILE *init_log_file() noexcept
 {
     std::wstring exe_dir = shell::get_module_dir_path();
     auto lower_exe_dir = exe_dir;
@@ -74,7 +74,7 @@ FILE *init_log_file()
 
 FILE *g_log_file = init_log_file();
 
-void write_hex_digits(wchar_t *out, const unsigned char *bytes, std::size_t count)
+void write_hex_digits(wchar_t *out, const unsigned char *bytes, std::size_t count) noexcept
 {
     constexpr std::wstring_view digits = L"0123456789ABCDEF";
     for (std::size_t i = 0; i < count; ++i)
@@ -91,7 +91,7 @@ void write_hex_digits(wchar_t *out, const unsigned char *bytes, std::size_t coun
 }
 } // namespace
 
-void core_log(const wchar_t *fmt, ...)
+void core_log(const wchar_t *fmt, ...) noexcept
 {
     wchar_t buf[1024];
 
@@ -112,7 +112,7 @@ void core_log(const wchar_t *fmt, ...)
     std::fflush(g_log_file);
 }
 
-void core_log_hex(const char *function_name, const char *tag, const void *data, std::size_t size)
+void core_log_hex(const char *function_name, const char *tag, const void *data, std::size_t size) noexcept
 {
     auto *bytes = static_cast<const unsigned char *>(data);
     if (bytes == nullptr && size != 0)

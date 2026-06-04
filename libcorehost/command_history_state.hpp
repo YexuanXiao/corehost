@@ -15,7 +15,7 @@ class command_history_state
     static constexpr size_t no_selection = static_cast<size_t>(-1);
 
     // 设置 DOSKEY 历史容量；容量缩小时立即丢弃最旧命令。
-    void set_capacity(size_t max_commands)
+    void set_capacity(size_t max_commands) noexcept
     {
         _capacity = max_commands;
         trim_to_capacity();
@@ -46,28 +46,28 @@ class command_history_state
     }
 
     // 清空命令历史，并终止正在进行的上下键浏览。
-    void clear()
+    void clear() noexcept
     {
         _commands.clear();
         reset_browse();
     }
 
     // 退出历史浏览；保留命令列表但丢弃用于恢复当前输入的临时文本。
-    void reset_browse()
+    void reset_browse() noexcept
     {
         _browse_index = no_selection;
         _saved_input.clear();
     }
 
     // 当前输入被普通编辑修改后调用，避免后续 Down 继续恢复旧输入。
-    void break_browse()
+    void break_browse() noexcept
     {
         if (_browse_index != no_selection)
             reset_browse();
     }
 
     // 把完成的非空命令加入历史；连续重复命令不会重复保存。
-    void push(std::u32string_view command)
+    void push(std::u32string_view command) noexcept
     {
         if (command.empty())
             return;
@@ -79,7 +79,7 @@ class command_history_state
     }
 
     // 上键浏览历史。首次浏览时保存 current_input，便于 BrowseDown 恢复。
-    bool browse_up(std::u32string_view current_input, std::u32string &selected_command)
+    bool browse_up(std::u32string_view current_input, std::u32string &selected_command) noexcept
     {
         if (_commands.empty())
             return false;
@@ -100,7 +100,7 @@ class command_history_state
     }
 
     // 下键浏览历史；越过最新历史项时恢复首次 BrowseUp 前的输入。
-    bool browse_down(std::u32string &selected_command)
+    bool browse_down(std::u32string &selected_command) noexcept
     {
         if (_browse_index == no_selection)
             return false;
@@ -122,7 +122,7 @@ class command_history_state
 
   private:
     // 保持 _commands.size() <= _capacity，并修正已经失效的浏览下标。
-    void trim_to_capacity()
+    void trim_to_capacity() noexcept
     {
         if (_commands.size() > _capacity)
             _commands.erase(_commands.begin(),

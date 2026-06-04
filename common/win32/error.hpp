@@ -45,7 +45,7 @@ enum class error : unsigned int
     invalid_window_handle = 1400,
 };
 
-inline error get_last_error()
+inline error get_last_error() noexcept
 {
     return static_cast<error>(::GetLastError());
 }
@@ -69,7 +69,7 @@ inline void throw_last_error(bool cond)
     throw_last_error(cond, get_last_error());
 }
 
-inline void check_last_error(bool cond)
+inline void check_last_error(bool cond) noexcept
 {
     if (!cond)
         return;

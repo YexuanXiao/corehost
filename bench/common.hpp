@@ -5,6 +5,7 @@
 // wrappers so higher-level headers can describe their own control flow.
 
 #include "win32/handle.hpp"
+#include "win32/event.hpp"
 
 #include <windows.h>
 

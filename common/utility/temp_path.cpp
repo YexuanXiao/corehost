@@ -5,7 +5,7 @@
 namespace utility
 {
 
-std::wstring temp_directory()
+std::wstring temp_directory() noexcept
 {
     std::wstring path;
     path.resize(path.capacity());

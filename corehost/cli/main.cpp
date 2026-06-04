@@ -14,6 +14,7 @@
 #include "condrv_io.hpp"
 #include "win32/error.hpp"
 #include "win32/com_apartment.hpp"
+#include "win32/event.hpp"
 #include "utility/crtdbg.hpp"
 #include "utility/log.hpp"
 #include "shell/shell.hpp"
@@ -61,9 +62,8 @@ try
 
         // 对标原始: ConsoleServerInitialization →ConsoleCreateIoThread
         auto server = win32::handle{reinterpret_cast<HANDLE>(args.server_handle())};
-        auto ev = win32::handle{::CreateEventW(nullptr, TRUE, FALSE, nullptr)};
-        if (!ev.valid())
-            win32::throw_last_error();
+        auto input_event = win32::event{win32::create_tag, true, false};
+        auto ev = win32::handle{input_event.release()};
         corehost::condrv_io::set_server_info(server.view(), ev.view());
 
         // 如果有--signal <handle>, 传递给信号线程

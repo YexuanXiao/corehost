@@ -4,6 +4,7 @@
 // 覆盖: 光标、Tab 停靠位、模式、标题、别名、历史
 #include "test_common.hpp"
 #include "console_state.hpp"
+#include "win32/event.hpp"
 
 using namespace corehost::conpty;
 
@@ -469,12 +470,12 @@ bool test_regression_signal_shutdown_requests_exit_only_without_pending()
     input_buffer inp;
     pipe_bridge_testable bridge{inp, st, sb};
 
-    win32::handle shutdown_event{::CreateEventW(nullptr, TRUE, FALSE, nullptr)};
+    win32::event shutdown_event{win32::create_tag, true, false};
     ASSERT(shutdown_event.valid());
     bridge.set_signal_shutdown_event(shutdown_event.view());
     ASSERT(!bridge.should_exit());
 
-    ASSERT(::SetEvent(shutdown_event.get()) != FALSE);
+    shutdown_event.set();
     ASSERT(bridge.should_exit());
 
     bridge.test_enter_console_read_mode();

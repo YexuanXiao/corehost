@@ -49,7 +49,8 @@ inline constexpr DWORD valid_output_modes = ENABLE_PROCESSED_OUTPUT | ENABLE_WRA
 
 // 在 console_state 的 DOSKEY 别名表里查找 source。优先使用 exe 分桶；
 // 兼容旧路径时，如果分桶里没有命中，再查全局 aliases 回退表。
-inline const std::wstring *find_alias_value(const console_state &state, std::wstring_view exe, std::wstring_view source)
+inline const std::wstring *find_alias_value(const console_state &state, std::wstring_view exe,
+                                            std::wstring_view source) noexcept
 {
     if (auto exe_it = state.aliases_by_exe.find(exe); exe_it != state.aliases_by_exe.end())
         if (auto alias_it = exe_it->second.find(source); alias_it != exe_it->second.end())
@@ -118,7 +119,7 @@ inline size_t message_output_tail_capacity(const corehost::condrv_io::io_msg &ms
 
 // 为 USER_DEFINED API 准备 completion，并把写回区域定位到 header 之后的
 // API descriptor。sz 是返回给客户端的 API payload 字节数。
-inline void ucomplete_status_sz(corehost::condrv_io::io_msg &msg, LONG status, ULONG sz)
+inline void ucomplete_status_sz(corehost::condrv_io::io_msg &msg, LONG status, ULONG sz) noexcept
 {
     auto &c = corehost::condrv_io::prepare_completion(msg, status, sz);
     c.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
@@ -276,7 +277,7 @@ inline SMALL_RECT terminal_scroll_region(const console_state &state, screen_buff
 
 // 将 LF/CRLF 应用到本地 cursor 和 screen_buffer。光标在滚动区域底部时滚动
 // 区域内容，否则只向下移动；X 总是回到 viewport 左边界。
-inline void apply_terminal_line_feed(console_state &state, screen_buffer &sb)
+inline void apply_terminal_line_feed(console_state &state, screen_buffer &sb) noexcept
 {
     COREHOST_PERF_SCOPE(apply_line_feed);
     const auto view = sb.viewport.rect();
@@ -311,7 +312,7 @@ inline void apply_terminal_line_feed(console_state &state, screen_buffer &sb)
 
 // 将普通文本写入本地 screen_buffer，并按 viewport 自动换行/滚动更新
 // state.cursor。text 不包含控制字符，宽度测量使用 console_state 设置。
-inline void apply_terminal_text(std::u32string_view text, console_state &state, screen_buffer &sb)
+inline void apply_terminal_text(std::u32string_view text, console_state &state, screen_buffer &sb) noexcept
 {
     const auto view = sb.viewport.rect();
     state.cursor.position.X = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
@@ -334,7 +335,7 @@ inline void apply_terminal_text(std::u32string_view text, console_state &state, 
 }
 
 // 从 vt_message 文本载荷更新本地屏幕状态。
-inline void apply_terminal_text(const vt_message &msg, console_state &state, screen_buffer &sb)
+inline void apply_terminal_text(const vt_message &msg, console_state &state, screen_buffer &sb) noexcept
 {
     apply_terminal_text(msg.payload.text, state, sb);
 }
@@ -342,7 +343,7 @@ inline void apply_terminal_text(const vt_message &msg, console_state &state, scr
 // 消费 WriteConsole 中的一段普通文本：可选地写入终端 VT，同时同步本地
 // screen_buffer/cursor。
 inline void consume_write_console_text_run(std::u32string_view text, console_state &state, screen_buffer &sb,
-                                           pipe_bridge &bridge, bool emit_vt = true)
+                                           pipe_bridge &bridge, bool emit_vt = true) noexcept
 {
     if (emit_vt)
         bridge.vt_write_text(text);
@@ -351,7 +352,7 @@ inline void consume_write_console_text_run(std::u32string_view text, console_sta
 
 // 消费 WriteConsole 中的换行：可选地输出 CRLF，并同步本地滚动/光标状态。
 inline void consume_write_console_line_feed(console_state &state, screen_buffer &sb, pipe_bridge &bridge,
-                                            bool emit_vt = true)
+                                            bool emit_vt = true) noexcept
 {
     if (emit_vt)
         bridge.vt_write_crlf();
@@ -359,7 +360,7 @@ inline void consume_write_console_line_feed(console_state &state, screen_buffer 
 }
 
 // 清除同一行的列区间，用于 ICH/DCH/ECH 在本地屏幕状态中制造空白区域。
-inline void clear_terminal_line_range(screen_buffer &sb, SHORT y, SHORT left, SHORT right, WORD attr)
+inline void clear_terminal_line_range(screen_buffer &sb, SHORT y, SHORT left, SHORT right, WORD attr) noexcept
 {
     for (SHORT x = left; x <= right; ++x)
         sb.clear_cell({x, y}, attr);
@@ -367,7 +368,7 @@ inline void clear_terminal_line_range(screen_buffer &sb, SHORT y, SHORT left, SH
 
 // 将 ICH 应用到本地 screen_buffer：从 cursor 起右移当前行尾部，并用默认
 // 属性空格填充插入区域。
-inline void apply_terminal_insert_characters(const vt_message &msg, console_state &state, screen_buffer &sb)
+inline void apply_terminal_insert_characters(const vt_message &msg, console_state &state, screen_buffer &sb) noexcept
 {
     const auto view = sb.viewport.rect();
     if (state.cursor.position.Y < view.Top || state.cursor.position.Y > view.Bottom)
@@ -387,7 +388,7 @@ inline void apply_terminal_insert_characters(const vt_message &msg, console_stat
 
 // 将 DCH 应用到本地 screen_buffer：从 cursor 起左移当前行尾部，并清空右侧
 // 露出的区域。
-inline void apply_terminal_delete_characters(const vt_message &msg, console_state &state, screen_buffer &sb)
+inline void apply_terminal_delete_characters(const vt_message &msg, console_state &state, screen_buffer &sb) noexcept
 {
     const auto view = sb.viewport.rect();
     if (state.cursor.position.Y < view.Top || state.cursor.position.Y > view.Bottom)
@@ -406,7 +407,7 @@ inline void apply_terminal_delete_characters(const vt_message &msg, console_stat
 }
 
 // 将 ECH 应用到本地 screen_buffer：从 cursor 起清除 count 个可见列。
-inline void apply_terminal_erase_characters(const vt_message &msg, console_state &state, screen_buffer &sb)
+inline void apply_terminal_erase_characters(const vt_message &msg, console_state &state, screen_buffer &sb) noexcept
 {
     const auto view = sb.viewport.rect();
     if (state.cursor.position.Y < view.Top || state.cursor.position.Y > view.Bottom)
@@ -420,7 +421,7 @@ inline void apply_terminal_erase_characters(const vt_message &msg, console_state
 }
 
 // 将 RI 应用到本地状态。光标在滚动区域顶部时向下滚动区域，否则上移一行。
-inline void apply_terminal_reverse_index(console_state &state, screen_buffer &sb)
+inline void apply_terminal_reverse_index(console_state &state, screen_buffer &sb) noexcept
 {
     const auto view = sb.viewport.rect();
     const auto scroll_region = terminal_scroll_region(state, sb);
@@ -493,7 +494,7 @@ inline void apply_terminal_scrolling_region(const vt_message &msg, console_state
 // 把输出方向 VT message 应用到本地 Console 状态。id 由调用者静态传入，使
 // reset/dispatch 路径不需要再动态判断消息类型。
 template <vt_message_id id>
-inline void vt_msg_apply_terminal_state(const vt_message &msg, console_state &state, screen_buffer &sb)
+inline void vt_msg_apply_terminal_state(const vt_message &msg, console_state &state, screen_buffer &sb) noexcept
 {
     const auto view = sb.viewport.rect();
     const auto origin = sb.viewport.origin();
@@ -691,7 +692,7 @@ inline bool can_passthrough_write_console_vt(vt_message_id id) noexcept
 // 3. 按静态 id 重置 parser 当前消息。
 template <vt_message_id id>
 inline void consume_write_console_vt_message(vt_parser &parser, const vt_parse_result &parsed, console_state &state,
-                                             screen_buffer &sb, pipe_bridge &bridge, bool emit_vt = true)
+                                             screen_buffer &sb, pipe_bridge &bridge, bool emit_vt = true) noexcept
 {
     if constexpr (id == vt_message_id::unknown_sequence)
     {
@@ -737,7 +738,7 @@ inline void consume_write_console_vt_message(vt_parser &parser, const vt_parse_r
 // 做一次 switch，然后进入模板化消费路径，避免 reset 再次动态判断。
 inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parser, const vt_parse_result &parsed,
                                               console_state &state, screen_buffer &sb, pipe_bridge &bridge,
-                                              bool emit_vt = true)
+                                              bool emit_vt = true) noexcept
 {
     // case 顺序与 vt_message_id 枚举声明顺序保持一致。
     switch (id)
@@ -1030,7 +1031,7 @@ inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parse
 
 // 完成一个没有返回 payload 的 USER_DEFINED API。Write.Data 仍指向 header 后，
 // 这样 ConDrv completion 布局和有 payload 的 API 保持一致。
-inline void ucomplete(corehost::condrv_io::io_msg &msg)
+inline void ucomplete(corehost::condrv_io::io_msg &msg) noexcept
 {
     auto &c = corehost::condrv_io::prepare_completion(msg, 0, 0);
     c.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
@@ -1039,7 +1040,7 @@ inline void ucomplete(corehost::condrv_io::io_msg &msg)
 
 // 完成一个返回 sz 字节 API payload 的 USER_DEFINED API。sz 不包含
 // CONSOLE_MSG_HEADER，只包含具体 CONSOLE_*_MSG 和其尾部数据。
-inline void ucomplete_sz(corehost::condrv_io::io_msg &msg, ULONG sz)
+inline void ucomplete_sz(corehost::condrv_io::io_msg &msg, ULONG sz) noexcept
 {
     auto &c = corehost::condrv_io::prepare_completion(msg, 0, sz);
     c.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
@@ -1052,7 +1053,7 @@ inline void ucomplete_sz(corehost::condrv_io::io_msg &msg, ULONG sz)
 
 // GetConsoleCP/GetConsoleOutputCP：从 console_state 返回当前输入或输出代码页。
 inline bool api_get_cp(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                       pipe_bridge &)
+                       pipe_bridge &) noexcept
 {
     auto *r = reinterpret_cast<CONSOLE_GETCP_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->CodePage = r->Output ? state.output_code_page : state.input_code_page;
@@ -1062,7 +1063,7 @@ inline bool api_get_cp(corehost::condrv_io::io_msg &msg, console_state &state, s
 
 // GetConsoleMode：根据请求句柄类型返回 input_mode 或 output_mode。
 inline bool api_get_mode(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                         pipe_bridge &, bool input_handle)
+                         pipe_bridge &, bool input_handle) noexcept
 {
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->Mode = input_handle ? state.input_mode : state.output_mode;
@@ -1073,7 +1074,7 @@ inline bool api_get_mode(corehost::condrv_io::io_msg &msg, console_state &state,
 // SetConsoleMode：更新 console_state 的输入/输出模式。输入模式先保存兼容位，
 // 再按原版行为对非法组合返回错误。
 inline bool api_set_mode(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                         pipe_bridge &, bool input_handle)
+                         pipe_bridge &, bool input_handle) noexcept
 {
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (input_handle)
@@ -1125,7 +1126,7 @@ inline bool api_get_console_input(corehost::condrv_io::io_msg &msg, console_stat
 
 // GetConsoleLangId：由当前输出代码页派生语言 ID；非东亚 ACP 按原版返回不支持。
 inline bool api_get_langid(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                           pipe_bridge &)
+                           pipe_bridge &) noexcept
 {
     auto *r = reinterpret_cast<CONSOLE_LANGID_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     // 原版只在 Windows ACP 是东亚代码页时成功返回 LANGID；否则返回
@@ -1408,7 +1409,7 @@ inline bool api_read_console(corehost::condrv_io::io_msg &msg, console_state &st
 
 // 已废弃 L1 API：不维护内部状态，返回 not implemented。
 inline bool api_deprecated_l1(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
-                              pipe_bridge &)
+                              pipe_bridge &) noexcept
 {
     corehost::condrv_io::prepare_completion(msg, status_not_implemented);
     return true;
@@ -1425,7 +1426,7 @@ inline bool api_deprecated_l1(corehost::condrv_io::io_msg &msg, console_state &,
 // FillConsoleOutputCharacter/Attribute：更新本地 screen_buffer，并把可见变化同步
 // 到终端；全屏空格填充会同时清除 scrollback。
 inline bool api_fill_output(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
-                            pipe_bridge &bridge)
+                            pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_FILLCONSOLEOUTPUT_MSG))
     {
@@ -1570,7 +1571,7 @@ inline bool api_fill_output(corehost::condrv_io::io_msg &msg, console_state &sta
 
 // GenerateConsoleCtrlEvent：透传 Ctrl 事件到 Windows，不改变 libcorehost 内部状态。
 inline bool api_ctrl_event(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
-                           pipe_bridge &)
+                           pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CTRLEVENT_MSG))
     {
@@ -1587,7 +1588,7 @@ inline bool api_ctrl_event(corehost::condrv_io::io_msg &msg, console_state &, sc
 // SetConsoleActiveScreenBuffer 的真实切换由 api_router 根据 descriptor.Object
 // 完成；handler 只负责给 ConDrv 返回同步成功。
 inline bool api_set_active_sb(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
-                              pipe_bridge &)
+                              pipe_bridge &) noexcept
 {
     ucomplete(msg);
     return true;
@@ -1595,7 +1596,7 @@ inline bool api_set_active_sb(corehost::condrv_io::io_msg &msg, console_state &,
 
 // FlushConsoleInputBuffer：清空 input_buffer，并取消等待输入的 pending 请求。
 inline bool api_flush_input_buf(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
-                                pipe_bridge &bridge)
+                                pipe_bridge &bridge) noexcept
 {
     // FlushConsoleInputBuffer 也要取消等待输入的 pending 读，否则客户端可能在
     // 已清空队列后继续挂起。
@@ -1607,7 +1608,7 @@ inline bool api_flush_input_buf(corehost::condrv_io::io_msg &msg, console_state 
 
 // SetConsoleCP/SetConsoleOutputCP：校验并更新 console_state 中的代码页。
 inline bool api_set_cp(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                       pipe_bridge &)
+                       pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCP_MSG))
     {
@@ -1631,7 +1632,7 @@ inline bool api_set_cp(corehost::condrv_io::io_msg &msg, console_state &state, s
 
 // GetConsoleCursorInfo：返回 console_state 中保存的光标大小和可见性。
 inline bool api_get_cursor(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                           pipe_bridge &)
+                           pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCURSORINFO_MSG))
     {
@@ -1648,7 +1649,7 @@ inline bool api_get_cursor(corehost::condrv_io::io_msg &msg, console_state &stat
 
 // SetConsoleCursorInfo：更新 console_state 光标元数据，并同步终端光标显示/隐藏。
 inline bool api_set_cursor(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
-                           pipe_bridge &bridge)
+                           pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORINFO_MSG))
     {
@@ -1684,7 +1685,7 @@ inline bool api_set_cursor(corehost::condrv_io::io_msg &msg, console_state &stat
 // GetConsoleScreenBufferInfoEx：组合 console_state 和当前 screen_buffer viewport
 // 返回 API 可见的缓冲区、窗口、属性和颜色表状态。
 inline bool api_get_sb_info(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
-                            pipe_bridge &)
+                            pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG))
     {
@@ -1711,7 +1712,7 @@ inline bool api_get_sb_info(corehost::condrv_io::io_msg &msg, console_state &sta
 // SetConsoleScreenBufferInfoEx：更新缓冲区尺寸、viewport 尺寸、属性和颜色表，
 // 必要时重绘终端可见区域。
 inline bool api_set_sb_info(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
-                            pipe_bridge &bridge)
+                            pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG))
     {
@@ -1757,7 +1758,7 @@ inline bool api_set_sb_info(corehost::condrv_io::io_msg &msg, console_state &sta
 // SetConsoleScreenBufferSize：更新 console_state/screen_buffer 尺寸并裁剪光标和
 // viewport；终端显示按新的可见区域同步。
 inline bool api_set_sb_size(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
-                            pipe_bridge &bridge)
+                            pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETSCREENBUFFERSIZE_MSG))
     {
@@ -1785,7 +1786,7 @@ inline bool api_set_sb_size(corehost::condrv_io::io_msg &msg, console_state &sta
 
 // SetConsoleCursorPosition：更新 console_state.cursor，并通过 CUP 同步终端光标。
 inline bool api_set_cursor_pos(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                               input_buffer &, pipe_bridge &bridge)
+                               input_buffer &, pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORPOSITION_MSG))
     {
@@ -1820,7 +1821,7 @@ inline bool api_set_cursor_pos(corehost::condrv_io::io_msg &msg, console_state &
 
 // GetLargestConsoleWindowSize：返回 console_state 保存的最大窗口尺寸。
 inline bool api_largest_window(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                               pipe_bridge &)
+                               pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETLARGESTWINDOWSIZE_MSG))
     {
@@ -1837,7 +1838,7 @@ inline bool api_largest_window(corehost::condrv_io::io_msg &msg, console_state &
 // ScrollConsoleScreenBuffer：更新本地 screen_buffer 的矩形滚动结果，并重绘当前
 // viewport。
 inline bool api_scroll_sb(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
-                          pipe_bridge &bridge)
+                          pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCROLLSCREENBUFFER_MSG))
     {
@@ -1957,7 +1958,7 @@ inline bool api_scroll_sb(corehost::condrv_io::io_msg &msg, console_state &state
 
 // SetConsoleTextAttribute：更新默认输出属性，并发送对应 SGR 让后续终端输出匹配。
 inline bool api_set_text_attr(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
-                              pipe_bridge &bridge)
+                              pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTEXTATTRIBUTE_MSG))
     {
@@ -1987,7 +1988,7 @@ inline bool api_set_text_attr(corehost::condrv_io::io_msg &msg, console_state &s
 // SetConsoleWindowInfo：移动或调整 screen_buffer viewport，必要时调整终端窗口
 // 尺寸并重绘可见区域。
 inline bool api_set_window_info(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                                input_buffer &, pipe_bridge &bridge)
+                                input_buffer &, pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETWINDOWINFO_MSG))
     {
@@ -2040,7 +2041,7 @@ inline bool api_set_window_info(corehost::condrv_io::io_msg &msg, console_state 
 // ReadConsoleOutputCharacter/Attribute：从本地 screen_buffer 读取字符或属性序列，
 // 按请求编码写回 completion。
 inline bool api_read_output_string(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                                   input_buffer &, pipe_bridge &bridge)
+                                   input_buffer &, pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG))
     {
@@ -2095,7 +2096,7 @@ inline bool api_read_output_string(corehost::condrv_io::io_msg &msg, console_sta
 // WriteConsoleInput：把客户端提供的 INPUT_RECORD 追加到 input_buffer，并唤醒
 // 可能等待输入的 bridge 状态。
 inline bool api_write_console_input(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                    input_buffer &inp, pipe_bridge &bridge)
+                                    input_buffer &inp, pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG))
     {
@@ -2164,7 +2165,7 @@ inline bool api_write_console_input(corehost::condrv_io::io_msg &msg, console_st
 // WriteConsoleOutput：从 CHAR_INFO 矩形写入本地 screen_buffer，并重绘受影响的
 // viewport 内容。
 inline bool api_write_console_output(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                                     input_buffer &, pipe_bridge &bridge)
+                                     input_buffer &, pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG))
     {
@@ -2288,7 +2289,7 @@ inline bool api_write_console_output(corehost::condrv_io::io_msg &msg, console_s
 // WriteConsoleOutputCharacter/Attribute：按线性缓冲区坐标写字符或属性，并同步
 // 可见输出。
 inline bool api_write_output_string(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                                    input_buffer &, pipe_bridge &bridge)
+                                    input_buffer &, pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG))
     {
@@ -2386,7 +2387,7 @@ inline bool api_write_output_string(corehost::condrv_io::io_msg &msg, console_st
 
 // ReadConsoleOutput：把本地 screen_buffer 矩形降级为 CHAR_INFO 返回给客户端。
 inline bool api_read_console_output(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                                    input_buffer &, pipe_bridge &bridge)
+                                    input_buffer &, pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG))
     {
@@ -2475,7 +2476,7 @@ inline bool api_read_console_output(corehost::condrv_io::io_msg &msg, console_st
 
 // GetConsoleTitle/GetConsoleOriginalTitle：从 console_state 标题字段转码返回。
 inline bool api_get_title(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                          pipe_bridge &bridge)
+                          pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG))
     {
@@ -2536,7 +2537,7 @@ inline bool api_get_title(corehost::condrv_io::io_msg &msg, console_state &state
 
 // SetConsoleTitle：更新 console_state.title/original_title，并通过 OSC 同步终端标题。
 inline bool api_set_title(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                          pipe_bridge &bridge)
+                          pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG))
     {
@@ -2587,7 +2588,7 @@ inline bool api_set_title(corehost::condrv_io::io_msg &msg, console_state &state
 // ── 0x01 GetMouseInfo ──
 // GetConsoleMouseInfo：返回 console_state 中保存的鼠标按钮数量。
 inline bool api_l3_get_mouse_info(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                  input_buffer &, pipe_bridge &)
+                                  input_buffer &, pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETMOUSEINFO_MSG))
     {
@@ -2605,7 +2606,7 @@ inline bool api_l3_get_mouse_info(corehost::condrv_io::io_msg &msg, console_stat
 // ── 0x03 GetFontSize ──
 // GetConsoleFontSize：返回当前 console_state 字体 cell 尺寸。
 inline bool api_l3_get_font_size(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                 input_buffer &, pipe_bridge &)
+                                 input_buffer &, pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETFONTSIZE_MSG))
     {
@@ -2628,7 +2629,7 @@ inline bool api_l3_get_font_size(corehost::condrv_io::io_msg &msg, console_state
 // ── 0x04 GetCurrentFont ──
 // GetCurrentConsoleFontEx：返回 console_state 中的字体索引、尺寸、权重和 FaceName。
 inline bool api_l3_get_current_font(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                    input_buffer &, pipe_bridge &)
+                                    input_buffer &, pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG))
     {
@@ -2649,7 +2650,7 @@ inline bool api_l3_get_current_font(corehost::condrv_io::io_msg &msg, console_st
 // ── 0x0D SetDisplayMode ──
 // SetConsoleDisplayMode：记录显示模式，并按请求最大化/恢复终端窗口尺寸。
 inline bool api_l3_set_display_mode(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                                    input_buffer &, pipe_bridge &)
+                                    input_buffer &, pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETDISPLAYMODE_MSG))
     {
@@ -2673,7 +2674,7 @@ inline bool api_l3_set_display_mode(corehost::condrv_io::io_msg &msg, console_st
 // ── 0x11 GetDisplayMode ──
 // GetConsoleDisplayMode：返回 console_state.display_mode。
 inline bool api_l3_get_display_mode(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                    input_buffer &, pipe_bridge &)
+                                    input_buffer &, pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETDISPLAYMODE_MSG))
     {
@@ -2690,7 +2691,7 @@ inline bool api_l3_get_display_mode(corehost::condrv_io::io_msg &msg, console_st
 // ── 0x12 AddAlias ──
 // AddConsoleAlias：更新 console_state 的 exe 分桶别名表和兼容扁平别名表。
 inline bool api_l3_add_alias(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                             pipe_bridge &)
+                             pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG))
     {
@@ -2781,7 +2782,7 @@ inline bool api_l3_add_alias(corehost::condrv_io::io_msg &msg, console_state &st
 
 // 将 ANSI alias 字段转换成 console_state 使用的 UTF-16 key/value。code_page
 // 来自当前输入代码页；out 是调用方复用缓冲。
-inline void alias_ansi_to_wstring(const char *text, size_t bytes, UINT code_page, std::wstring &out)
+inline void alias_ansi_to_wstring(const char *text, size_t bytes, UINT code_page, std::wstring &out) noexcept
 {
     out.clear();
     if (bytes == 0)
@@ -2833,7 +2834,7 @@ inline size_t alias_wstring_to_ansi(std::wstring_view text, UINT code_page, char
 // ── 0x13 GetAlias ──
 // GetConsoleAlias：从 console_state 别名表查找 source，并按请求缓冲返回 target。
 inline bool api_l3_get_alias(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                             pipe_bridge &)
+                             pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIAS_MSG))
     {
@@ -2938,7 +2939,7 @@ inline bool api_l3_get_alias(corehost::condrv_io::io_msg &msg, console_state &st
 // ── 0x14 GetAliasesLength ──
 // GetConsoleAliasesLength：计算指定 exe 分桶下别名导出需要的 WCHAR 字节数。
 inline bool api_l3_get_aliases_length(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                      input_buffer &, pipe_bridge &bridge)
+                                      input_buffer &, pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASESLENGTH_MSG))
     {
@@ -2996,7 +2997,7 @@ inline bool api_l3_get_aliases_length(corehost::condrv_io::io_msg &msg, console_
 // ── 0x15 GetAliasExesLength ──
 // GetConsoleAliasExesLength：计算所有已知 exe 名称导出需要的 WCHAR 字节数。
 inline bool api_l3_get_alias_exes_length(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                         input_buffer &, pipe_bridge &)
+                                         input_buffer &, pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXESLENGTH_MSG))
     {
@@ -3020,7 +3021,7 @@ inline bool api_l3_get_alias_exes_length(corehost::condrv_io::io_msg &msg, conso
 // ── 0x16 GetAliases ──
 // GetConsoleAliases：把指定 exe 的 source=target 别名列表写入 completion。
 inline bool api_l3_get_aliases(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                               pipe_bridge &bridge)
+                               pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG))
     {
@@ -3098,7 +3099,7 @@ inline bool api_l3_get_aliases(corehost::condrv_io::io_msg &msg, console_state &
 // ── 0x17 GetAliasExes ──
 // GetConsoleAliasExes：导出 console_state 中所有拥有别名分桶的 exe 名称。
 inline bool api_l3_get_alias_exes(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                  input_buffer &, pipe_bridge &bridge)
+                                  input_buffer &, pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG))
     {
@@ -3149,7 +3150,7 @@ inline bool api_l3_get_alias_exes(corehost::condrv_io::io_msg &msg, console_stat
 // ── 0x18 ExpungeCommandHistory ──
 // 计算 bridge 当前命令历史序列化后的字节数。unicode=true 时每条命令以
 // UTF-16 NUL 结尾；否则按 input code page 转为 ANSI 后 NUL 结尾。
-inline size_t command_history_buffer_length(pipe_bridge &bridge, bool unicode, UINT code_page)
+inline size_t command_history_buffer_length(pipe_bridge &bridge, bool unicode, UINT code_page) noexcept
 {
     const auto total =
         std::accumulate(bridge.history_commands().begin(), bridge.history_commands().end(), size_t{0},
@@ -3163,7 +3164,8 @@ inline size_t command_history_buffer_length(pipe_bridge &bridge, bool unicode, U
 
 // 将 bridge 当前命令历史写入调用方输出缓冲。返回实际写入字节数；容量不足
 // 时停止在命令边界，不输出截断的单条命令。
-inline size_t write_command_history_buffer(pipe_bridge &bridge, bool unicode, UINT code_page, BYTE *out, size_t out_cap)
+inline size_t write_command_history_buffer(pipe_bridge &bridge, bool unicode, UINT code_page, BYTE *out,
+                                           size_t out_cap) noexcept
 {
     size_t written = 0;
     for (const auto &command : bridge.history_commands())
@@ -3197,7 +3199,7 @@ inline size_t write_command_history_buffer(pipe_bridge &bridge, bool unicode, UI
 
 // ExpungeConsoleCommandHistory：清空 bridge 中的实际命令历史。
 inline bool api_l3_expunge_history(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
-                                   pipe_bridge &bridge)
+                                   pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_EXPUNGECOMMANDHISTORY_MSG))
     {
@@ -3213,7 +3215,7 @@ inline bool api_l3_expunge_history(corehost::condrv_io::io_msg &msg, console_sta
 // ── 0x19 SetNumberOfCommands ──
 // SetNumberOfConsoleCommands：更新历史容量配置，并同步 bridge 实际历史容量。
 inline bool api_l3_set_num_commands(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                    input_buffer &, pipe_bridge &bridge)
+                                    input_buffer &, pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETNUMBEROFCOMMANDS_MSG))
     {
@@ -3231,7 +3233,7 @@ inline bool api_l3_set_num_commands(corehost::condrv_io::io_msg &msg, console_st
 // ── 0x1A GetCommandHistoryLength ──
 // GetConsoleCommandHistoryLength：返回 bridge 当前命令历史导出所需字节数。
 inline bool api_l3_get_history_length(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                      input_buffer &, pipe_bridge &bridge)
+                                      input_buffer &, pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG))
     {
@@ -3249,7 +3251,7 @@ inline bool api_l3_get_history_length(corehost::condrv_io::io_msg &msg, console_
 // ── 0x1B GetCommandHistory ──
 // GetConsoleCommandHistory：导出 bridge 保存的历史命令列表。
 inline bool api_l3_get_history(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                               pipe_bridge &bridge)
+                               pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG))
     {
@@ -3273,7 +3275,7 @@ inline bool api_l3_get_history(corehost::condrv_io::io_msg &msg, console_state &
 // ── 0x1F GetConsoleWindow ──
 // GetConsoleWindow：返回当前宿主窗口句柄。corehost 不保存单独窗口状态。
 inline bool api_l3_get_console_window(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &,
-                                      input_buffer &, pipe_bridge &)
+                                      input_buffer &, pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEWINDOW_MSG))
     {
@@ -3290,7 +3292,7 @@ inline bool api_l3_get_console_window(corehost::condrv_io::io_msg &msg, console_
 // ── 0x28 GetSelectionInfo ──
 // GetConsoleSelectionInfo：返回 console_state.selection_info。
 inline bool api_l3_get_selection_info(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                      input_buffer &, pipe_bridge &)
+                                      input_buffer &, pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETSELECTIONINFO_MSG))
     {
@@ -3307,7 +3309,7 @@ inline bool api_l3_get_selection_info(corehost::condrv_io::io_msg &msg, console_
 // ── 0x29 GetConsoleProcessList ──
 // GetConsoleProcessList：从 bridge 的进程快照导出当前连接进程 pid。
 inline bool api_l3_get_process_list(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
-                                    pipe_bridge &bridge)
+                                    pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG))
     {
@@ -3328,7 +3330,7 @@ inline bool api_l3_get_process_list(corehost::condrv_io::io_msg &msg, console_st
 // ── 0x2A GetHistory ──
 // GetConsoleHistoryInfo：返回 console_state 中保存的历史配置。
 inline bool api_l3_get_history_info(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                    input_buffer &, pipe_bridge &)
+                                    input_buffer &, pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG))
     {
@@ -3347,7 +3349,7 @@ inline bool api_l3_get_history_info(corehost::condrv_io::io_msg &msg, console_st
 // ── 0x2B SetHistory ──
 // SetConsoleHistoryInfo：更新历史配置，并把每缓冲区命令数同步给 bridge。
 inline bool api_l3_set_history_info(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                    input_buffer &, pipe_bridge &bridge)
+                                    input_buffer &, pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG))
     {
@@ -3373,7 +3375,7 @@ inline bool api_l3_set_history_info(corehost::condrv_io::io_msg &msg, console_st
 // ── 0x2C SetCurrentFont ──
 // SetCurrentConsoleFontEx：更新 console_state 字体元数据；当前不向终端发字体 VT。
 inline bool api_l3_set_current_font(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                    input_buffer &, pipe_bridge &)
+                                    input_buffer &, pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG))
     {
@@ -3395,7 +3397,7 @@ inline bool api_l3_set_current_font(corehost::condrv_io::io_msg &msg, console_st
 // ── 第二类 L3: 废弃 API (对标 ServerDeprecatedApi) ──
 // 废弃/未实现 L3 API：不维护内部状态，返回 not implemented。
 inline bool api_l3_deprecated(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
-                              pipe_bridge &)
+                              pipe_bridge &) noexcept
 {
     // 原版 ServerDeprecatedApi 返回 E_NOTIMPL，经 ApiSorter 转为
     // STATUS_NOT_IMPLEMENTED。

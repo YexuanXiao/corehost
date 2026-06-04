@@ -28,8 +28,8 @@
 
 #include <cstddef>
 
-void core_log(const wchar_t *fmt, ...);
-void core_log_hex(const char *function_name, const char *tag, const void *data, std::size_t size);
+void core_log(const wchar_t *fmt, ...) noexcept;
+void core_log_hex(const char *function_name, const char *tag, const void *data, std::size_t size) noexcept;
 
 #if COREHOST_LOG_LEVEL >= 1
 #define LOG(fmt, ...) core_log(L"%-35hs " fmt L"\n", __func__, ##__VA_ARGS__)

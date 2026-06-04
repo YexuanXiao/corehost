@@ -87,7 +87,8 @@ namespace corehost::defterm
     return true;
 }
 
-[[nodiscard]] inline bool should_start_terminal_window(const CONSOLE_SERVER_MSG &connect_info, bool already_initialized)
+[[nodiscard]] inline bool should_start_terminal_window(const CONSOLE_SERVER_MSG &connect_info,
+                                                       bool already_initialized) noexcept
 {
     if (already_initialized)
     {
@@ -107,7 +108,7 @@ namespace corehost::defterm
     return true;
 }
 
-[[nodiscard]] inline std::wstring query_process_command_line(DWORD pid)
+[[nodiscard]] inline std::wstring query_process_command_line(DWORD pid) noexcept
 {
     // pid 来自 ConDrv 的 CONNECT 描述符。查询失败时返回空字符串，
     // 通知仍可显示 UAC 阻止原因，不把进程查询失败升级为会话错误。
