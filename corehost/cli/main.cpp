@@ -26,6 +26,7 @@ int __stdcall wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 try
 {
     utility::suppress_crt_error_dialogs();
+    corehost::log::initialize_log();
     console::initialize_console_control();
     console::initialize_console_nls();
     LOG("corehost process start, cmdline=%ls", ::GetCommandLineW());

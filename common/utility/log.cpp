@@ -20,6 +20,8 @@
 #include <string_view>
 #include <vector>
 
+namespace corehost::log
+{
 namespace
 {
 
@@ -72,7 +74,7 @@ FILE *init_log_file() noexcept
     return file;
 }
 
-FILE *g_log_file = init_log_file();
+FILE *g_log_file = nullptr;
 
 void write_hex_digits(wchar_t *out, const unsigned char *bytes, std::size_t count) noexcept
 {
@@ -91,8 +93,17 @@ void write_hex_digits(wchar_t *out, const unsigned char *bytes, std::size_t coun
 }
 } // namespace
 
+void initialize_log() noexcept
+{
+    assert(g_log_file == nullptr);
+    g_log_file = init_log_file();
+}
+
 void core_log(const wchar_t *fmt, ...) noexcept
 {
+    if (g_log_file == nullptr)
+        return;
+
     wchar_t buf[1024];
 
     std::time_t now = std::time(nullptr);
@@ -137,5 +148,18 @@ void core_log_hex(const char *function_name, const char *tag, const void *data, 
         core_log(L"%-35hs [hex] %hs +%04zu/%zu: %ls\n", function_name, tag, offset, size, hex.data());
     }
 }
+
+} // namespace corehost::log
+
+#else
+
+namespace corehost::log
+{
+
+void initialize_log() noexcept
+{
+}
+
+} // namespace corehost::log
 
 #endif
