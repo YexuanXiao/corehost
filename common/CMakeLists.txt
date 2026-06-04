@@ -8,8 +8,10 @@
 add_library(common STATIC
     ntapi/consolecontrol.cpp
     ntapi/consolenslmode.cpp
+    utility/diagnostic_report.cpp
     utility/log.cpp
     utility/notification.cpp
+    utility/temp_path.cpp
 )
 
 target_include_directories(common PUBLIC

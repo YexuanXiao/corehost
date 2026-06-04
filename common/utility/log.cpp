@@ -4,8 +4,9 @@
 
 #include <windows.h>
 
-#include "win32/string.hpp"
 #include "shell/shell.hpp"
+#include "utility/temp_path.hpp"
+#include "win32/string.hpp"
 
 #include <algorithm>
 #include <array>
@@ -22,30 +23,6 @@
 namespace
 {
 
-std::wstring temp_directory()
-{
-    std::wstring path;
-    path.resize(path.capacity());
-    // 故意使用GetTempPathW，因为GetTempPath2W会返回被保护的路径，由于我们只写入不读取，因此不需要这种保护措施
-    DWORD len = ::GetTempPathW(static_cast<DWORD>(path.size()), path.data());
-    if (len == 0)
-        return {};
-
-    if (len > path.size())
-    {
-        path.resize(len);
-        len = ::GetTempPathW(static_cast<DWORD>(path.size()), path.data());
-    }
-
-    if (len == 0 || len > path.size())
-        return {};
-
-    path.resize(len);
-    if (!path.empty() && path.back() != L'\\' && path.back() != L'/')
-        path.push_back(L'\\');
-    return path;
-}
-
 FILE *init_log_file()
 {
     std::wstring exe_dir = shell::get_module_dir_path();
@@ -53,7 +30,7 @@ FILE *init_log_file()
     std::ranges::transform(lower_exe_dir, lower_exe_dir.begin(),
                            [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
     if (lower_exe_dir.find(L"\\system32") != std::wstring::npos)
-        exe_dir = temp_directory();
+        exe_dir = utility::temp_directory();
 
     const auto now = std::time(nullptr);
     if (now == static_cast<std::time_t>(-1))
@@ -71,8 +48,10 @@ FILE *init_log_file()
 
     constexpr std::size_t max_timestamp_digits = 20;
     constexpr std::size_t max_pid_digits = 10;
-    constexpr std::size_t max_filename_chars = (sizeof(L"corehost_") / sizeof(wchar_t) - 1) + max_timestamp_digits + 1 +
-                                               max_pid_digits + (sizeof(L".log") / sizeof(wchar_t) - 1);
+    constexpr auto prefix = std::wstring_view{L"corehost_"};
+    constexpr auto suffix = std::wstring_view{L".log"};
+    constexpr std::size_t max_filename_chars =
+        prefix.size() + max_timestamp_digits + 1 + max_pid_digits + suffix.size();
 
     const auto filename_offset = exe_dir.size();
     exe_dir.resize(filename_offset + max_filename_chars + 1);

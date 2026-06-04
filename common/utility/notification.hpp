@@ -1,15 +1,16 @@
 #pragma once
-#include <string_view>
+#include <span>
+#include "win32/string.hpp"
 
 namespace notification
 {
 
 struct action
 {
-    std::wstring_view label;
-    std::wstring_view arguments;
+    win32::wcstring_view label;
+    win32::wcstring_view arguments;
 };
 
-void send(std::wstring_view title, std::wstring_view body, const action *action_button = nullptr) noexcept;
+void send(win32::wcstring_view title, win32::wcstring_view body, std::span<const action> action_buttons = {}) noexcept;
 
 } // namespace notification

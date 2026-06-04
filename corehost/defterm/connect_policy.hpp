@@ -107,13 +107,14 @@ namespace corehost::defterm
     return true;
 }
 
-[[nodiscard]] inline std::wstring query_process_image_path(DWORD pid)
+[[nodiscard]] inline std::wstring query_process_command_line(DWORD pid)
 {
-    // pid 必须来自 ConDrv 的 CONNECT 描述符。OpenProcess 失败会抛异常，
-    // 调用方没有可靠路径时不应生成带空程序名的通知。
-    win32::handle process{::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)};
-    win32::throw_last_error(!process.valid());
-    return win32::query_full_process_image_name(process);
+    // pid 来自 ConDrv 的 CONNECT 描述符。查询失败时返回空字符串，
+    // 通知仍可显示 UAC 阻止原因，不把进程查询失败升级为会话错误。
+    win32::handle process{::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, FALSE, pid)};
+    if (!process.valid())
+        return {};
+    return win32::query_process_command_line(process);
 }
 
 } // namespace corehost::defterm

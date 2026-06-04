@@ -10,6 +10,7 @@
 #include "conpty.hpp"
 #include "condrv_io.hpp"
 #include "os/Console/conmsgl1.h"
+#include "utility/diagnostic_report.hpp"
 #include "utility/env.hpp"
 #include "utility/log.hpp"
 #include "win32/event.hpp"
@@ -95,16 +96,22 @@ struct connect_handler
         {
             LOG("elevated process cannot handoff to user terminal; notification and immediate CTRL_BREAK expected");
 
-            // image_path 只用于通知；查询失败会抛出，避免显示空程序路径。
-            auto image_path = query_process_image_path(client_pid);
-            LOG(L"elevated client image path: %ls", image_path.c_str());
-            env::show_elevated_notification(image_path);
-            corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
+            // command_line 只进入低频诊断事件；查询失败时为空，主流程继续通知并打断客户端。
+            auto command_line = query_process_command_line(client_pid);
+            LOG(L"elevated client command line: %ls", command_line.c_str());
 
             // ProcessGroupId 为 0 时没有显式进程组，只能用 pid 作为
             // GenerateConsoleCtrlEvent 的目标。
             const DWORD target_process_group_id =
                 connect_info.ProcessGroupId ? connect_info.ProcessGroupId : client_pid;
+            const auto report_path = diagnostic_report::write_elevated_terminal_blocked(
+                L"CoreHost could not open the default terminal for an elevated console process; start Windows Terminal "
+                L"as administrator and run the command again.",
+                client_pid, target_process_group_id, connect_info.ShowWindow, connect_info.StartupFlags,
+                connect_info.WindowVisible, connect_info.ConsoleApp, command_line);
+            env::show_elevated_notification(report_path);
+            corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
+
             LOG("sending immediate CTRL_BREAK to process group=%lu", target_process_group_id);
             ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, target_process_group_id);
             return true;
@@ -118,10 +125,18 @@ struct connect_handler
         }
 
         LOG("no terminal accepted handoff; notification and CTRL_BREAK are expected fallback");
-        env::show_not_found_notification();
+        auto command_line = query_process_command_line(client_pid);
+        LOG(L"no-terminal client command line: %ls", command_line.c_str());
+        const DWORD target_process_group_id = connect_info.ProcessGroupId ? connect_info.ProcessGroupId : client_pid;
+        const auto report_path = diagnostic_report::write_no_default_terminal(
+            L"CoreHost could not find a default terminal application that accepted the console handoff; install "
+            L"Windows Terminal or configure a default terminal and run the command again.",
+            client_pid, target_process_group_id, connect_info.ShowWindow, connect_info.StartupFlags,
+            connect_info.WindowVisible, connect_info.ConsoleApp, command_line);
+        env::show_not_found_notification(report_path);
         corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
         // 没有可用终端时立即打断客户端进程组，避免它永久等待不可见控制台。
-        ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, client_pid);
+        ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, target_process_group_id);
         return true;
     }
 
