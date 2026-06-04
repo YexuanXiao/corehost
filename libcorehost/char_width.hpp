@@ -237,12 +237,13 @@ inline int char_width_for_mode(char32_t cp, text_measurement_mode mode, bool amb
 {
     switch (mode)
     {
-    case text_measurement_mode::wcswidth:
-        return char_width_wcswidth(cp, ambiguous_is_wide);
+    case text_measurement_mode::console:
+        return char_width_console(cp);
     case text_measurement_mode::graphemes:
         // graphemes 模式: 单码点用 width() 作为近似
         return char_width_unicode(cp, ambiguous_is_wide);
-    case text_measurement_mode::console:
+    case text_measurement_mode::wcswidth:
+        return char_width_wcswidth(cp, ambiguous_is_wide);
     default:
         return char_width_console(cp);
     }
@@ -256,6 +257,8 @@ inline int text_width_for_mode(std::u32string_view text, text_measurement_mode m
     // 返回值推进 Console 光标或计算填充宽度。
     switch (mode)
     {
+    case text_measurement_mode::console:
+        return std::transform_reduce(text.begin(), text.end(), 0, std::plus<>{}, char_width_console);
     case text_measurement_mode::graphemes:
         return grapheme_text_width(text, ambiguous_is_wide);
     case text_measurement_mode::wcswidth: {
@@ -263,7 +266,6 @@ inline int text_width_for_mode(std::u32string_view text, text_measurement_mode m
             return char_width_wcswidth(cp, ambiguous_is_wide);
         });
     }
-    case text_measurement_mode::console:
     default: {
         return std::transform_reduce(text.begin(), text.end(), 0, std::plus<>{}, char_width_console);
     }

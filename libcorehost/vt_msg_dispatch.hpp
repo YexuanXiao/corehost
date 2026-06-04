@@ -135,107 +135,6 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
     // 路径应同时调用 pipe_bridge 的 VT 输出接口。
     switch (id)
     {
-    // ── 光标定位 ──
-    case vt_message_id::cursor_position:
-        // VT 坐标是 1-based；console_state 使用 0-based COORD。
-        state.cursor.position.X = static_cast<SHORT>(msg.payload.position.col - 1);
-        state.cursor.position.Y = static_cast<SHORT>(msg.payload.position.row - 1);
-        if (state.cursor.position.X < 0)
-            state.cursor.position.X = 0;
-        if (state.cursor.position.X >= state.screen_buffer_size.X)
-            state.cursor.position.X = state.screen_buffer_size.X - 1;
-        if (state.cursor.position.Y < 0)
-            state.cursor.position.Y = 0;
-        if (state.cursor.position.Y >= state.screen_buffer_size.Y)
-            state.cursor.position.Y = state.screen_buffer_size.Y - 1;
-        break;
-
-    case vt_message_id::cursor_horiz_absolute:
-        state.cursor.position.X = static_cast<SHORT>(msg.payload.position.col - 1);
-        if (state.cursor.position.X < 0)
-            state.cursor.position.X = 0;
-        if (state.cursor.position.X >= state.screen_buffer_size.X)
-            state.cursor.position.X = state.screen_buffer_size.X - 1;
-        break;
-
-    case vt_message_id::cursor_vert_absolute:
-        state.cursor.position.Y = static_cast<SHORT>(msg.payload.position.row - 1);
-        if (state.cursor.position.Y < 0)
-            state.cursor.position.Y = 0;
-        if (state.cursor.position.Y >= state.screen_buffer_size.Y)
-            state.cursor.position.Y = state.screen_buffer_size.Y - 1;
-        break;
-
-    case vt_message_id::cursor_up:
-        // 相对移动全部钳制在当前 screen_buffer_size 内；这里不考虑滚动区域，
-        // 因为该本地模型主要服务 Console API 查询。
-        state.cursor.position.Y -= msg.payload.count.value;
-        if (state.cursor.position.Y < 0)
-            state.cursor.position.Y = 0;
-        break;
-
-    case vt_message_id::cursor_down:
-        state.cursor.position.Y += msg.payload.count.value;
-        if (state.cursor.position.Y >= state.screen_buffer_size.Y)
-            state.cursor.position.Y = state.screen_buffer_size.Y - 1;
-        break;
-
-    case vt_message_id::cursor_forward:
-        state.cursor.position.X += msg.payload.count.value;
-        if (state.cursor.position.X >= state.screen_buffer_size.X)
-            state.cursor.position.X = state.screen_buffer_size.X - 1;
-        break;
-
-    case vt_message_id::cursor_forward_tab:
-        state.cursor.position.X = state.next_tab_stop(state.cursor.position.X);
-        break;
-
-    case vt_message_id::cursor_backward:
-        state.cursor.position.X -= msg.payload.count.value;
-        if (state.cursor.position.X < 0)
-            state.cursor.position.X = 0;
-        break;
-
-    case vt_message_id::cursor_backward_tab:
-        state.cursor.position.X = state.prev_tab_stop(state.cursor.position.X);
-        break;
-
-    case vt_message_id::cursor_next_line:
-        state.cursor.position.X = 0;
-        state.cursor.position.Y += msg.payload.count.value;
-        if (state.cursor.position.Y >= state.screen_buffer_size.Y)
-            state.cursor.position.Y = state.screen_buffer_size.Y - 1;
-        break;
-
-    case vt_message_id::cursor_prev_line:
-        state.cursor.position.X = 0;
-        state.cursor.position.Y -= msg.payload.count.value;
-        if (state.cursor.position.Y < 0)
-            state.cursor.position.Y = 0;
-        break;
-
-    // ── 光标显示 ──
-    case vt_message_id::cursor_show:
-        state.cursor.visible = true;
-        break;
-    case vt_message_id::cursor_hide:
-        state.cursor.visible = false;
-        break;
-    case vt_message_id::cursor_enable_blinking:
-        // 对标: blinking 仅影响终端渲染, state 无对应字段
-        break;
-    case vt_message_id::cursor_disable_blinking:
-        break;
-
-    // ── SGR 属性 → state.default_attributes ──
-    case vt_message_id::sgr: {
-        // SGR payload 表示“本条序列显式改变了什么”，不是完整属性快照。
-        // 合并到 default_attributes 后，后续 Console API 文本写入会使用新属性。
-        apply_sgr_to_attributes(msg.payload.sgr, state.default_attributes);
-        break;
-    }
-
-    // ── 文本输出 → screen_buffer（仅可打印字符，不含控制字符）──
     case vt_message_id::text: {
         COREHOST_PERF_SCOPE_AMOUNT(apply_text_state, msg.payload.text.size());
         // pos 是本地推进副本；完成后再写回 state.cursor.position。
@@ -287,23 +186,94 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
         state.cursor.position = pos;
         break;
     }
-
-    // ── 回车：X 归零 ──
+    case vt_message_id::set_window_title:
+        // msg.payload.title 是 parser 内部缓冲视图；状态层必须复制保存。
+        state.title.clear();
+        state.title.append(msg.payload.title.data(), msg.payload.title.size());
+        // original_title 由 api_set_title 首次设置时保存, 这里不处理
+        break;
     case vt_message_id::carriage_return:
         state.cursor.position.X = 0;
         break;
-
-    // ── 换行：Windows 语义 X=0 + Y++ ──
     case vt_message_id::line_feed:
         state.cursor.position.X = 0;
         state.cursor.position.Y++;
         if (state.cursor.position.Y >= state.screen_buffer_size.Y)
             state.cursor.position.Y = state.screen_buffer_size.Y - 1;
         break;
+    case vt_message_id::cursor_up:
+        // 相对移动全部钳制在当前 screen_buffer_size 内；这里不考虑滚动区域，
+        // 因为该本地模型主要服务 Console API 查询。
+        state.cursor.position.Y -= msg.payload.count.value;
+        if (state.cursor.position.Y < 0)
+            state.cursor.position.Y = 0;
+        break;
 
-    // ── 光标保存/恢复 ──
+    case vt_message_id::cursor_down:
+        state.cursor.position.Y += msg.payload.count.value;
+        if (state.cursor.position.Y >= state.screen_buffer_size.Y)
+            state.cursor.position.Y = state.screen_buffer_size.Y - 1;
+        break;
+
+    case vt_message_id::cursor_forward:
+        state.cursor.position.X += msg.payload.count.value;
+        if (state.cursor.position.X >= state.screen_buffer_size.X)
+            state.cursor.position.X = state.screen_buffer_size.X - 1;
+        break;
+
+    case vt_message_id::cursor_backward:
+        state.cursor.position.X -= msg.payload.count.value;
+        if (state.cursor.position.X < 0)
+            state.cursor.position.X = 0;
+        break;
+
+    case vt_message_id::cursor_next_line:
+        state.cursor.position.X = 0;
+        state.cursor.position.Y += msg.payload.count.value;
+        if (state.cursor.position.Y >= state.screen_buffer_size.Y)
+            state.cursor.position.Y = state.screen_buffer_size.Y - 1;
+        break;
+
+    case vt_message_id::cursor_prev_line:
+        state.cursor.position.X = 0;
+        state.cursor.position.Y -= msg.payload.count.value;
+        if (state.cursor.position.Y < 0)
+            state.cursor.position.Y = 0;
+        break;
+    case vt_message_id::cursor_forward_tab:
+        state.cursor.position.X = state.next_tab_stop(state.cursor.position.X);
+        break;
+    case vt_message_id::cursor_backward_tab:
+        state.cursor.position.X = state.prev_tab_stop(state.cursor.position.X);
+        break;
+    case vt_message_id::cursor_vert_absolute:
+        state.cursor.position.Y = static_cast<SHORT>(msg.payload.position.row - 1);
+        if (state.cursor.position.Y < 0)
+            state.cursor.position.Y = 0;
+        if (state.cursor.position.Y >= state.screen_buffer_size.Y)
+            state.cursor.position.Y = state.screen_buffer_size.Y - 1;
+        break;
+    case vt_message_id::cursor_horiz_absolute:
+        state.cursor.position.X = static_cast<SHORT>(msg.payload.position.col - 1);
+        if (state.cursor.position.X < 0)
+            state.cursor.position.X = 0;
+        if (state.cursor.position.X >= state.screen_buffer_size.X)
+            state.cursor.position.X = state.screen_buffer_size.X - 1;
+        break;
+    case vt_message_id::cursor_position:
+        // VT 坐标是 1-based；console_state 使用 0-based COORD。
+        state.cursor.position.X = static_cast<SHORT>(msg.payload.position.col - 1);
+        state.cursor.position.Y = static_cast<SHORT>(msg.payload.position.row - 1);
+        if (state.cursor.position.X < 0)
+            state.cursor.position.X = 0;
+        if (state.cursor.position.X >= state.screen_buffer_size.X)
+            state.cursor.position.X = state.screen_buffer_size.X - 1;
+        if (state.cursor.position.Y < 0)
+            state.cursor.position.Y = 0;
+        if (state.cursor.position.Y >= state.screen_buffer_size.Y)
+            state.cursor.position.Y = state.screen_buffer_size.Y - 1;
+        break;
     case vt_message_id::save_cursor:
-    case vt_message_id::ansi_save_cursor:
         // DEC/ANSI 保存光标在当前实现中共用一个槽；只保存 Console API 可见的
         // 位置和属性。
         state.decsc_cursor.position = state.cursor.position;
@@ -312,7 +282,6 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
         break;
 
     case vt_message_id::restore_cursor:
-    case vt_message_id::ansi_restore_cursor:
         if (state.decsc_cursor.has_state)
         {
             state.cursor.position = state.decsc_cursor.position;
@@ -320,7 +289,44 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
         }
         break;
 
-    // ── 滚动 ──
+    case vt_message_id::ansi_save_cursor:
+        state.decsc_cursor.position = state.cursor.position;
+        state.decsc_cursor.attributes = state.default_attributes;
+        state.decsc_cursor.has_state = true;
+        break;
+    case vt_message_id::ansi_restore_cursor:
+        if (state.decsc_cursor.has_state)
+        {
+            state.cursor.position = state.decsc_cursor.position;
+            state.default_attributes = state.decsc_cursor.attributes;
+        }
+        break;
+    case vt_message_id::cursor_enable_blinking:
+    case vt_message_id::cursor_disable_blinking:
+        break;
+    case vt_message_id::cursor_show:
+        state.cursor.visible = true;
+        break;
+    case vt_message_id::cursor_hide:
+        state.cursor.visible = false;
+        break;
+    case vt_message_id::horizontal_tab_set:
+        // HTS/TBC 作用于 console_state 的动态 tab 表；screen_buffer 不保存 tab
+        // stop，因为它不是格子内容。
+        state.set_tab_stop(state.cursor.position.X);
+        break;
+    case vt_message_id::tab_clear_current:
+        state.clear_tab_stop(state.cursor.position.X);
+        break;
+    case vt_message_id::tab_clear_all:
+        state.clear_all_tab_stops();
+        break;
+    case vt_message_id::designate_charset_line_drawing:
+        state.dec_line_drawing_mode = true;
+        break;
+    case vt_message_id::designate_charset_ascii:
+        state.dec_line_drawing_mode = false;
+        break;
     case vt_message_id::scroll_up: {
         // 从当前光标行到缓冲区底部滚动；当前实现未应用 DECSTBM scroll margins。
         SMALL_RECT sr{0, state.cursor.position.Y, static_cast<SHORT>(state.screen_buffer_size.X - 1),
@@ -337,7 +343,6 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
         sb.scroll(sr, sr, false, dest, U' ', state.default_attributes);
         break;
     }
-
     case vt_message_id::insert_lines: {
         SMALL_RECT sr{0, state.cursor.position.Y, static_cast<SHORT>(state.screen_buffer_size.X - 1),
                       static_cast<SHORT>(state.screen_buffer_size.Y - 1)};
@@ -353,8 +358,6 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
         sb.scroll(sr, sr, false, dest, U' ', state.default_attributes);
         break;
     }
-
-    // ── 擦除 ──
     case vt_message_id::erase_in_display: {
         // ED/EL 使用当前 default_attributes 清除，和 conhost 的属性继承行为一致。
         switch (msg.payload.erase_mode)
@@ -399,50 +402,15 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
         }
         break;
     }
-
-    // ── 标题 ──
-    case vt_message_id::set_window_title:
-        // msg.payload.title 是 parser 内部缓冲视图；状态层必须复制保存。
-        state.title.clear();
-        state.title.append(msg.payload.title.data(), msg.payload.title.size());
-        // original_title 由 api_set_title 首次设置时保存, 这里不处理
-        break;
-
-    // ── 滚动区域 ──
     case vt_message_id::set_scrolling_region:
         // 当前本地模型不保存 scroll margins；实际终端端的滚动区域由 VT 透传
         // 处理，Console API 查询暂不暴露该状态。
         break;
-
-    // ── 交替缓冲区 ──
     case vt_message_id::use_alternate_buffer:
     case vt_message_id::use_main_buffer:
         // active screen buffer 由 api_router::switch_active_screen_buffer 切换。
         // 这里不修改 sb，避免一个消息在 router 和 state 层重复切换。
         break;
-
-    // ── 字符集 ──
-    case vt_message_id::designate_charset_line_drawing:
-        state.dec_line_drawing_mode = true;
-        break;
-    case vt_message_id::designate_charset_ascii:
-        state.dec_line_drawing_mode = false;
-        break;
-
-    // ── Tab 操作 ──
-    case vt_message_id::horizontal_tab_set:
-        // HTS/TBC 作用于 console_state 的动态 tab 表；screen_buffer 不保存 tab
-        // stop，因为它不是格子内容。
-        state.set_tab_stop(state.cursor.position.X);
-        break;
-    case vt_message_id::tab_clear_current:
-        state.clear_tab_stop(state.cursor.position.X);
-        break;
-    case vt_message_id::tab_clear_all:
-        state.clear_all_tab_stops();
-        break;
-
-    // ── 窗口 resize ──
     case vt_message_id::resize_window: {
         SHORT rows = msg.payload.resize.rows;
         SHORT cols = msg.payload.resize.cols;
@@ -466,8 +434,12 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
         }
         break;
     }
-
-    // ── 其他非状态消息 ──
+    case vt_message_id::sgr: {
+        // SGR payload 表示“本条序列显式改变了什么”，不是完整属性快照。
+        // 合并到 default_attributes 后，后续 Console API 文本写入会使用新属性。
+        apply_sgr_to_attributes(msg.payload.sgr, state.default_attributes);
+        break;
+    }
     default:
         // 键盘消息、终端查询响应和当前不建模的模式切换不会改变本地 Console
         // API 状态；输出方向的 VT 序列化由 pipe_bridge::vt_msg_send 负责。

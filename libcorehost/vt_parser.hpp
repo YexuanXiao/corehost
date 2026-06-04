@@ -3,16 +3,16 @@
 //
 // 设计目标：
 //   · 完全以 Unicode 码点 (char32_t) 作为输入，调用方负责 UTF-8 解码。
-//   · 不丢弃任何输入字符；无法识别的序列以 unknown_sequence 返回，
-//     msg.payload.text 指向完整原文。
+//   · 无法识别的序列以 unknown_sequence 返回，raw_sequence 指向完整原文；
+//     对 OSC 这类可以安全降级的序列，msg.payload.text 只指向可显示部分。
 //   · vt_message 中的 title/text 为 std::u32string_view。continue_text 指向
 //     本次 parse 输入范围；text/unknown_sequence/set_window_title 指向内部
 //     _raw，因为这些消息需要跨字符累计或保留完整控制序列原文。
 //   · parse(range) 返回 vt_parse_result，continue_ 表示没有可消费消息，
 //     continue_text/text 表示普通文本，unknown_sequence 表示未知/错误序列，
 //     其余为具体控制序列 id。
-//   · 提供 reset<id>() 方法，根据已消费的消息类型精确重置受污染的字段，
-//     对于 text/unknown/title 消息还会清空内部缓冲区 _raw，兼顾性能与内存。
+//   · 提供 reset() 方法，在调用方消费 result 后统一清空当前消息和内部
+//     raw 缓冲区，让下一次 parse(range) 从 ground 状态继续。
 //
 // 使用方式：
 //   raw_u32_buffer raw;
@@ -24,15 +24,15 @@
 //           switch (result.id) {
 //               case vt_message_id::text:
 //                   // 使用 result.message.payload.text (u32string_view)
-//                   // p.reset<vt_message_id::text>();
+//                   // p.reset();
 //                   break;
 //               case vt_message_id::unknown_sequence:
-//                   // 使用 result.message.payload.text (完整未知序列)
-//                   // p.reset<vt_message_id::unknown_sequence>();
+//                   // 使用 result.raw_sequence 诊断完整原文；payload.text 是可显示降级文本
+//                   // p.reset();
 //                   break;
 //               case vt_message_id::set_window_title:
 //                   // 使用 result.message.payload.title (u32string_view)
-//                   // p.reset<vt_message_id::set_window_title>();
+//                   // p.reset();
 //                   break;
 //               ...
 //           }
@@ -57,48 +57,93 @@ namespace corehost::conpty
 // 所有可能的解析结果标识。
 // continue_: 需要继续喂入字符，当前未产出完整消息。
 // text:      普通文本。
-// unknown_sequence: 无法识别或语法错误的控制序列原文。
+// unknown_sequence: 无法识别或语法错误的控制序列。
 enum class vt_message_id
 {
     continue_text = 0, // 可打印字符 → echo + 插入行缓冲
     continue_ = 1,     // 转义内部状态 → 无操作
     text = 2,          // 纯可打印文本消息（不含控制字符）
-    unknown_sequence,  // 无法识别或语法错误的 ESC/CSI/OSC/SS3 序列，msg.payload.text 为完整原文
+    unknown_sequence,  // 无法识别或语法错误的 ESC/CSI/OSC/SS3 序列
 
-    // C0/ESC 基础控制。输入方向用于行编辑和 RAW_READ 行终止判断；输出方向
-    // 会更新本地 cursor/screen 并序列化为对应 VT。
+    // 文本之外的 OSC/窗口元数据。title 会写入本地状态；OSC 8 只透传给
+    // 宿主终端，corehost 不建模 hyperlink 属性。
+    set_window_title,
+    osc8_hyperlink,
+
+    // C0/ESC 基础控制。输入方向用于行编辑和 RAW_READ 行终止判断；输出方向会
+    // 更新本地 cursor/screen 并序列化为对应 VT。
     carriage_return, // \r
     line_feed,       // \n
     reverse_index,
+
+    // 光标移动和光标状态。相对移动的 count payload 默认 1；绝对定位保持
+    // VT 1-based 坐标，调用方进入 console_state 时再转为本地坐标。
+    cursor_up,
+    cursor_down,
+    cursor_forward,
+    cursor_backward,
+    cursor_next_line,
+    cursor_prev_line,
+    cursor_forward_tab,
+    cursor_backward_tab,
+    cursor_vert_absolute,
+    cursor_horiz_absolute,
+    cursor_position,
     save_cursor,
     restore_cursor,
-    horizontal_tab_set,
-    keypad_app_mode,
-    keypad_numeric_mode,
-    designate_charset_line_drawing,
-    designate_charset_ascii,
     ansi_save_cursor,
     ansi_restore_cursor,
+    set_cursor_shape,
     cursor_enable_blinking,
     cursor_disable_blinking,
     cursor_show,
     cursor_hide,
     cursor_keys_app_mode,
     cursor_keys_normal_mode,
-    report_cursor_position,
-    device_attributes,
+
+    // Tab、keypad 和 G0 charset 模式。它们影响终端输入/字符解释或本地 tab
+    // stop，不属于屏幕内容本身。
+    horizontal_tab_set,
     tab_clear_current,
     tab_clear_all,
-    set_window_title,
+    keypad_app_mode,
+    keypad_numeric_mode,
+    designate_charset_line_drawing,
+    designate_charset_ascii,
 
-    // 终端模式/缓冲区切换。parser 只报告“发生了什么”，实际备用缓冲区、
-    // 光标键模式、软复位状态由 api_router/pipe_bridge/console_state 应用。
+    // 屏幕缓冲区编辑和终端缓冲区模式。这些消息通常同时影响宿主终端 VT
+    // 输出和 corehost 的本地 Console API 可见状态。
+    scroll_up,
+    scroll_down,
+    insert_characters,
+    delete_characters,
+    erase_characters,
+    insert_lines,
+    delete_lines,
+    erase_in_display,
+    erase_in_line,
+    set_scrolling_region,
     use_alternate_buffer,
     use_main_buffer,
-    soft_reset,
+    set_columns_132,
+    set_columns_80,
+    resize_window, // \x1b[8;height;width t — terminal resize notification
 
-    // 键盘输入消息。输入方向会转换为 INPUT_RECORD 或 cooked 编辑动作；
-    // 输出方向不应把这些 id 写给 vt_out。
+    // 图形属性修改。payload.sgr 只保存本条消息显式设置/清除的属性，不是完整
+    // 当前属性快照；OSC 4 调色板只透传给宿主终端，本地只保存 message payload。
+    sgr,
+    set_palette_color,
+
+    // 终端命令、查询和响应。查询会注入响应或透传给终端；响应来自终端，不是
+    // 用户输入。
+    soft_reset,
+    report_cursor_position,
+    device_attributes,
+    cpr_response, // \x1b[Pl;PcR — 终端对 DSR CPR 的应答
+
+    // 键盘输入消息。输入方向会转换为 INPUT_RECORD 或 cooked 编辑动作；输出
+    // 方向不应把这些 id 写给 vt_out。
+    win32_input_key, // \x1b[Vk;Sc;Uc;Kd;Cs;Rc_ — Win32 Input Mode 键盘事件
     key_up,
     key_down,
     key_right,
@@ -129,47 +174,6 @@ enum class vt_message_id
     char_sub,
     char_esc,
     char_nul,
-
-    // 带 count 的相对移动和行/字符编辑消息。count payload 默认 1，调用方
-    // 负责把 1-based/terminal-relative 语义转换到本地 screen_buffer。
-    cursor_up,
-    cursor_down,
-    cursor_forward,
-    cursor_backward,
-    cursor_next_line,
-    cursor_prev_line,
-    scroll_up,
-    scroll_down,
-    insert_characters,
-    delete_characters,
-    erase_characters,
-    insert_lines,
-    delete_lines,
-    cursor_forward_tab,
-    cursor_backward_tab,
-
-    // 绝对定位、擦除、调色板和窗口状态消息。这些消息通常同时影响宿主
-    // 终端 VT 输出和 corehost 的本地 Console API 可见状态。
-    cursor_vert_absolute,
-    cursor_horiz_absolute,
-    cursor_position,
-    set_cursor_shape,
-    erase_in_display,
-    erase_in_line,
-    set_palette_color,
-    set_scrolling_region,
-    set_columns_132,
-    set_columns_80,
-
-    // 终端到 host 的异步通知/响应，不是用户输入。处理后通常只更新内部
-    // 尺寸、光标继承或 input_buffer 状态。
-    resize_window,   // \x1b[8;height;width t — terminal resize notification
-    win32_input_key, // \x1b[Vk;Sc;Uc;Kd;Cs;Rc_ — Win32 Input Mode 键盘事件
-    cpr_response,    // \x1b[Pl;PcR — 终端对 DSR CPR 的应答
-
-    // 图形属性修改。payload.sgr 只保存本条消息显式设置/清除的属性，不是
-    // 完整当前属性快照。
-    sgr,
 };
 
 struct vt_count_payload
@@ -847,179 +851,15 @@ class vt_parser
     }
 
   public:
-    // 根据已消费的消息类型重置受污染的字段与解析器状态。调用方必须用刚刚
-    // 处理过的 message id 作为模板参数，否则会清错 payload 分支。
-    template <vt_message_id id>
+    // 调用方消费完 vt_parse_result 后调用。vt_message 很小，直接整体重置比
+    // 按 id 清理 union 分支更简单；string_view payload 在 reset 后全部失效。
     void reset()
     {
-        switch (id)
-        {
-        case vt_message_id::cursor_up:
-        case vt_message_id::cursor_down:
-        case vt_message_id::cursor_forward:
-        case vt_message_id::cursor_backward:
-        case vt_message_id::cursor_next_line:
-        case vt_message_id::cursor_prev_line:
-        case vt_message_id::scroll_up:
-        case vt_message_id::scroll_down:
-        case vt_message_id::insert_characters:
-        case vt_message_id::delete_characters:
-        case vt_message_id::erase_characters:
-        case vt_message_id::insert_lines:
-        case vt_message_id::delete_lines:
-        case vt_message_id::cursor_forward_tab:
-        case vt_message_id::cursor_backward_tab:
-            _reset_count();
-            break;
-
-        case vt_message_id::cursor_vert_absolute:
-            _reset_row();
-            break;
-
-        case vt_message_id::cursor_horiz_absolute:
-            _reset_col();
-            break;
-
-        case vt_message_id::cursor_position:
-            _reset_position();
-            break;
-
-        case vt_message_id::set_cursor_shape:
-            _reset_cursor_shape();
-            break;
-
-        case vt_message_id::erase_in_display:
-        case vt_message_id::erase_in_line:
-            _reset_erase_mode();
-            break;
-
-        case vt_message_id::set_palette_color:
-            _reset_palette_color();
-            break;
-
-        case vt_message_id::set_scrolling_region:
-            _reset_scrolling_region();
-            break;
-
-        case vt_message_id::set_columns_132:
-        case vt_message_id::set_columns_80:
-            _reset_window_width();
-            break;
-
-        case vt_message_id::resize_window:
-            _reset_resize_window();
-            break;
-
-        case vt_message_id::win32_input_key:
-            _reset_win32_input_key();
-            break;
-
-        case vt_message_id::cpr_response:
-            _reset_cpr_response();
-            break;
-
-        case vt_message_id::sgr:
-            _reset_sgr();
-            break;
-
-        default:
-            break;
-        }
-
-        // 消息交付后，当前 raw 序列已经被调用方消费；下一次 parse(range)
-        // 从 ground 重新开始，除非调用方继续喂入未完成控制序列。
+        _msg = {};
         _reset_parser_state_after_message();
     }
 
   private:
-    // 重置共用 count payload；适用于 CUU/CUD/SU/IL/DCH 等带数量参数的消息。
-    void _reset_count() noexcept
-    {
-        _msg.payload.count.value = 1;
-    }
-
-    // 重置只使用 row 的绝对光标消息 payload。
-    void _reset_row() noexcept
-    {
-        _msg.payload.position.row = 1;
-    }
-
-    // 重置只使用 col 的绝对光标消息 payload。
-    void _reset_col() noexcept
-    {
-        _msg.payload.position.col = 1;
-    }
-
-    // 重置 row/col 坐标 payload，默认值保持 VT 的 1-based (1,1)。
-    void _reset_position() noexcept
-    {
-        _msg.payload.position.row = 1;
-        _msg.payload.position.col = 1;
-    }
-
-    // 清除 DECSCUSR 光标形状 payload，0 表示没有指定形状。
-    void _reset_cursor_shape() noexcept
-    {
-        _msg.payload.cursor_shape = 0;
-    }
-
-    // 清除 ED/EL erase mode，0 是 VT 默认擦除模式。
-    void _reset_erase_mode() noexcept
-    {
-        _msg.payload.erase_mode = 0;
-    }
-
-    // 清除 OSC 4 调色板 payload，避免下一条 palette 消息继承旧 RGB。
-    void _reset_palette_color() noexcept
-    {
-        _msg.payload.palette.index = 0;
-        _msg.payload.palette.r = _msg.payload.palette.g = _msg.payload.palette.b = 0;
-    }
-
-    // 重置 DECSTBM payload；bottom=0 表示使用当前 viewport 最后一行。
-    void _reset_scrolling_region() noexcept
-    {
-        _msg.payload.scroll_region.top = 1;
-        _msg.payload.scroll_region.bottom = 0;
-    }
-
-    // 清除 80/132 列切换 payload；当前实现只用 message id 表达目标宽度。
-    void _reset_window_width() noexcept
-    {
-        _msg.payload.window_width = 0;
-    }
-
-    // 清除窗口尺寸通知 payload，0 表示没有有效 rows/cols。
-    void _reset_resize_window() noexcept
-    {
-        _msg.payload.resize.rows = 0;
-        _msg.payload.resize.cols = 0;
-    }
-
-    // 重置 Win32 Input Mode 键盘 payload，repeat_count 默认至少为 1。
-    void _reset_win32_input_key() noexcept
-    {
-        _msg.payload.win32_key.vk = 0;
-        _msg.payload.win32_key.sc = 0;
-        _msg.payload.win32_key.uc = 0;
-        _msg.payload.win32_key.key_down = false;
-        _msg.payload.win32_key.control_state = 0;
-        _msg.payload.win32_key.repeat_count = 1;
-    }
-
-    // 清除 CPR 响应坐标；0 不是有效 VT CPR 坐标。
-    void _reset_cpr_response() noexcept
-    {
-        _msg.payload.cpr.row = 0;
-        _msg.payload.cpr.col = 0;
-    }
-
-    // 清除 SGR payload 的 flags 和颜色分支。
-    void _reset_sgr() noexcept
-    {
-        _msg.payload.sgr = {};
-    }
-
     // 消息被消费后清理中央 raw 序列，并把 parser 拉回 ground。
     void _reset_parser_state_after_message()
     {
@@ -1029,7 +869,7 @@ class vt_parser
     }
 
     // 解析出的消息体；消息类型由 parse(range) 返回的 vt_parse_result::id 给出。
-    // union payload 中只有与该 id 对应的分支有效，reset<id>() 会清理该分支。
+    // union payload 中只有与该 id 对应的分支有效，reset() 后全部失效。
     vt_message _msg;
 
     // ── 中央缓冲区与视图位置 ──
@@ -1116,10 +956,19 @@ class vt_parser
         return v > 32767 ? static_cast<short>(32767) : v;
     }
 
-    // 把从 start 开始的原文标记为 unknown_sequence payload。
+    // 把从 start 开始的原文标记为 unknown_sequence payload；非 OSC 错误
+    // 没有安全的可见降级文本，因此 text 仍指向完整原文。
     void _set_unknown_sequence(size_t start)
     {
         _msg.payload.text = {_raw.data() + start, _raw.size() - start};
+    }
+
+    // 标记一个已完整解析但 corehost 不支持的 OSC。raw_sequence 仍由
+    // _raw_sequence() 提供完整控制序列；text 只保存该 OSC 能安全降级显示的
+    // 内容。OSC 8 hyperlink 的控制序列本身不可见，所以这里为空。
+    void _set_unknown_osc_text(std::u32string_view text)
+    {
+        _msg.payload.text = text;
     }
 
     // 完成一个序列；continue_ 表示 dispatch 未识别，整段序列按 unknown 返回。
@@ -1127,7 +976,8 @@ class vt_parser
     {
         if (id == vt_message_id::continue_)
         {
-            // 未识别/非法序列按独立消息返回，调用方可以选择透传或丢弃。
+            // 未识别/非法序列按独立消息返回，调用方可以选择记录
+            // raw_sequence，或显示 payload.text 中的降级文本。
             _set_unknown_sequence(_seq_start);
             id = vt_message_id::unknown_sequence;
         }
@@ -1293,6 +1143,10 @@ class vt_parser
 
         switch (code)
         {
+        case 8:
+            _set_unknown_osc_text({});
+            return vt_message_id::osc8_hyperlink;
+
         case 0:
         case 2:
             // OSC 0 和 OSC 2 都作为窗口标题处理；icon title 不单独建模。
@@ -1318,13 +1172,18 @@ class vt_parser
                 m.payload.palette.b = _parse_osc_hex_8(payload, p);
                 // 至少有一个颜色分量被成功解析才认为成功
                 if (p == p_before)
-                    return vt_message_id::continue_;
+                {
+                    _set_unknown_osc_text({});
+                    return vt_message_id::unknown_sequence;
+                }
                 return vt_message_id::set_palette_color;
             }
-            return vt_message_id::continue_;
+            _set_unknown_osc_text({});
+            return vt_message_id::unknown_sequence;
         }
         default:
-            return vt_message_id::continue_;
+            _set_unknown_osc_text({});
+            return vt_message_id::unknown_sequence;
         }
     }
 

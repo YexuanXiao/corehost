@@ -695,23 +695,22 @@ struct pipe_bridge
         // 终端可理解的 VT，方便 API handler 与原始 VT 输入共用输出路径。
         switch (id)
         {
-        case vt_message_id::cursor_position:
-            vt_write_cup(static_cast<SHORT>(msg.payload.position.row - 1),
-                         static_cast<SHORT>(msg.payload.position.col - 1));
+        case vt_message_id::text: {
+            vt_write_text(msg.payload.text);
             break;
-
-        case vt_message_id::cursor_horiz_absolute:
-            vt_append_str("\x1b["sv);
-            vt_append_int(msg.payload.position.col);
-            vt_append_char('G');
+        }
+        case vt_message_id::set_window_title:
+            vt_write_window_title(msg.payload.title);
             break;
-
-        case vt_message_id::cursor_vert_absolute:
-            vt_append_str("\x1b["sv);
-            vt_append_int(msg.payload.position.row);
-            vt_append_char('d');
+        case vt_message_id::carriage_return:
+            vt_write_cell(U'\r');
             break;
-
+        case vt_message_id::line_feed:
+            vt_write_crlf();
+            break;
+        case vt_message_id::reverse_index:
+            vt_append_str("\x1bM"sv);
+            break;
         case vt_message_id::cursor_up:
             if (msg.payload.count.value > 1)
             {
@@ -722,7 +721,6 @@ struct pipe_bridge
             else
                 vt_append_str("\x1b[A"sv);
             break;
-
         case vt_message_id::cursor_down:
             if (msg.payload.count.value > 1)
             {
@@ -733,7 +731,6 @@ struct pipe_bridge
             else
                 vt_append_str("\x1b[B"sv);
             break;
-
         case vt_message_id::cursor_forward:
             if (msg.payload.count.value > 1)
             {
@@ -744,7 +741,6 @@ struct pipe_bridge
             else
                 vt_append_str("\x1b[C"sv);
             break;
-
         case vt_message_id::cursor_backward:
             if (msg.payload.count.value > 1)
             {
@@ -755,7 +751,6 @@ struct pipe_bridge
             else
                 vt_append_str("\x1b[D"sv);
             break;
-
         case vt_message_id::cursor_next_line:
             if (msg.payload.count.value > 1)
             {
@@ -766,7 +761,6 @@ struct pipe_bridge
             else
                 vt_append_str("\x1b[E"sv);
             break;
-
         case vt_message_id::cursor_prev_line:
             if (msg.payload.count.value > 1)
             {
@@ -777,7 +771,159 @@ struct pipe_bridge
             else
                 vt_append_str("\x1b[F"sv);
             break;
-
+        case vt_message_id::cursor_forward_tab:
+            vt_append_str("\x1b["sv);
+            vt_append_int(msg.payload.count.value);
+            vt_append_char('I');
+            break;
+        case vt_message_id::cursor_backward_tab:
+            vt_append_str("\x1b["sv);
+            vt_append_int(msg.payload.count.value);
+            vt_append_char('Z');
+            break;
+        case vt_message_id::cursor_vert_absolute:
+            vt_append_str("\x1b["sv);
+            vt_append_int(msg.payload.position.row);
+            vt_append_char('d');
+            break;
+        case vt_message_id::cursor_horiz_absolute:
+            vt_append_str("\x1b["sv);
+            vt_append_int(msg.payload.position.col);
+            vt_append_char('G');
+            break;
+        case vt_message_id::cursor_position:
+            vt_write_cup(static_cast<SHORT>(msg.payload.position.row - 1),
+                         static_cast<SHORT>(msg.payload.position.col - 1));
+            break;
+        case vt_message_id::save_cursor:
+            vt_append_str("\x1b"
+                          "7"sv);
+            break;
+        case vt_message_id::restore_cursor:
+            vt_append_str("\x1b"
+                          "8"sv);
+            break;
+        case vt_message_id::ansi_save_cursor:
+            vt_append_str("\x1b"
+                          "7"sv);
+            break;
+        case vt_message_id::ansi_restore_cursor:
+            vt_append_str("\x1b"
+                          "8"sv);
+            break;
+        case vt_message_id::cursor_enable_blinking:
+            vt_append_str("\x1b[?12h"sv);
+            break;
+        case vt_message_id::cursor_disable_blinking:
+            vt_append_str("\x1b[?12l"sv);
+            break;
+        case vt_message_id::cursor_show:
+            vt_append_str("\x1b[?25h"sv);
+            break;
+        case vt_message_id::cursor_hide:
+            vt_append_str("\x1b[?25l"sv);
+            break;
+        case vt_message_id::cursor_keys_app_mode:
+            vt_append_str("\x1b[?1h"sv);
+            break;
+        case vt_message_id::cursor_keys_normal_mode:
+            vt_append_str("\x1b[?1l"sv);
+            break;
+        case vt_message_id::horizontal_tab_set:
+            vt_append_str("\x1bH"sv);
+            break;
+        case vt_message_id::tab_clear_current:
+            vt_append_str("\x1b[0g"sv);
+            break;
+        case vt_message_id::tab_clear_all:
+            vt_append_str("\x1b[3g"sv);
+            break;
+        case vt_message_id::keypad_app_mode:
+            vt_append_str("\x1b="sv);
+            break;
+        case vt_message_id::keypad_numeric_mode:
+            vt_append_str("\x1b>"sv);
+            break;
+        case vt_message_id::designate_charset_line_drawing:
+            vt_append_str("\x1b(0"sv);
+            break;
+        case vt_message_id::designate_charset_ascii:
+            vt_append_str("\x1b(B"sv);
+            break;
+        case vt_message_id::scroll_up:
+            if (msg.payload.count.value > 1)
+            {
+                vt_append_str("\x1b["sv);
+                vt_append_int(msg.payload.count.value);
+                vt_append_char('S');
+            }
+            else
+                vt_append_str("\x1b[S"sv);
+            break;
+        case vt_message_id::scroll_down:
+            if (msg.payload.count.value > 1)
+            {
+                vt_append_str("\x1b["sv);
+                vt_append_int(msg.payload.count.value);
+                vt_append_char('T');
+            }
+            else
+                vt_append_str("\x1b[T"sv);
+            break;
+        case vt_message_id::insert_characters:
+            vt_append_str("\x1b["sv);
+            vt_append_int(msg.payload.count.value);
+            vt_append_char('@');
+            break;
+        case vt_message_id::delete_characters:
+            vt_append_str("\x1b["sv);
+            vt_append_int(msg.payload.count.value);
+            vt_append_char('P');
+            break;
+        case vt_message_id::erase_characters:
+            vt_append_str("\x1b["sv);
+            vt_append_int(msg.payload.count.value);
+            vt_append_char('X');
+            break;
+        case vt_message_id::insert_lines:
+            vt_append_str("\x1b["sv);
+            vt_append_int(msg.payload.count.value);
+            vt_append_char('L');
+            break;
+        case vt_message_id::delete_lines:
+            vt_append_str("\x1b["sv);
+            vt_append_int(msg.payload.count.value);
+            vt_append_char('M');
+            break;
+        case vt_message_id::erase_in_display:
+            vt_append_str("\x1b["sv);
+            vt_append_int(msg.payload.erase_mode);
+            vt_append_char('J');
+            break;
+        case vt_message_id::erase_in_line:
+            vt_append_str("\x1b["sv);
+            vt_append_int(msg.payload.erase_mode);
+            vt_append_char('K');
+            break;
+        case vt_message_id::set_scrolling_region:
+            vt_append_str("\x1b["sv);
+            vt_append_int(msg.payload.scroll_region.top);
+            vt_append_char(';');
+            vt_append_int(msg.payload.scroll_region.bottom);
+            vt_append_char('r');
+            break;
+        case vt_message_id::use_alternate_buffer:
+            vt_append_str("\x1b[?1049h"sv);
+            break;
+        case vt_message_id::use_main_buffer:
+            vt_append_str("\x1b[?1049l"sv);
+            break;
+        case vt_message_id::set_columns_132:
+            vt_append_str("\x1b[?3h"sv);
+            break;
+        case vt_message_id::set_columns_80:
+            vt_append_str("\x1b[?3l"sv);
+            break;
         case vt_message_id::sgr: {
             vt_append_str("\x1b["sv);
             if (msg.payload.sgr.has_reset())
@@ -869,157 +1015,10 @@ struct pipe_bridge
             vt_append_char('m');
             break;
         }
-
-        case vt_message_id::carriage_return:
-            vt_write_cell(U'\r');
-            break;
-
-        case vt_message_id::line_feed:
-            vt_write_crlf();
-            break;
-
-        case vt_message_id::text: {
-            vt_write_text(msg.payload.text);
-            break;
-        }
-
-        case vt_message_id::save_cursor:
-        case vt_message_id::ansi_save_cursor:
-            vt_append_str("\x1b"
-                          "7"sv);
-            break;
-
-        case vt_message_id::restore_cursor:
-        case vt_message_id::ansi_restore_cursor:
-            vt_append_str("\x1b"
-                          "8"sv);
-            break;
-
-        case vt_message_id::cursor_show:
-            vt_append_str("\x1b[?25h"sv);
-            break;
-
-        case vt_message_id::cursor_hide:
-            vt_append_str("\x1b[?25l"sv);
-            break;
-
-        case vt_message_id::scroll_up:
-            if (msg.payload.count.value > 1)
-            {
-                vt_append_str("\x1b["sv);
-                vt_append_int(msg.payload.count.value);
-                vt_append_char('S');
-            }
-            else
-                vt_append_str("\x1b[S"sv);
-            break;
-
-        case vt_message_id::scroll_down:
-            if (msg.payload.count.value > 1)
-            {
-                vt_append_str("\x1b["sv);
-                vt_append_int(msg.payload.count.value);
-                vt_append_char('T');
-            }
-            else
-                vt_append_str("\x1b[T"sv);
-            break;
-
-        case vt_message_id::insert_lines:
-            vt_append_str("\x1b["sv);
-            vt_append_int(msg.payload.count.value);
-            vt_append_char('L');
-            break;
-
-        case vt_message_id::delete_lines:
-            vt_append_str("\x1b["sv);
-            vt_append_int(msg.payload.count.value);
-            vt_append_char('M');
-            break;
-
-        case vt_message_id::erase_in_display:
-            vt_append_str("\x1b["sv);
-            vt_append_int(msg.payload.erase_mode);
-            vt_append_char('J');
-            break;
-
-        case vt_message_id::erase_in_line:
-            vt_append_str("\x1b["sv);
-            vt_append_int(msg.payload.erase_mode);
-            vt_append_char('K');
-            break;
-
-        case vt_message_id::set_scrolling_region:
-            vt_append_str("\x1b["sv);
-            vt_append_int(msg.payload.scroll_region.top);
-            vt_append_char(';');
-            vt_append_int(msg.payload.scroll_region.bottom);
-            vt_append_char('r');
-            break;
-
-        case vt_message_id::set_window_title:
-            vt_write_window_title(msg.payload.title);
-            break;
-
-        case vt_message_id::set_cursor_shape:
-            vt_append_str("\x1b["sv);
-            vt_append_int(msg.payload.cursor_shape);
-            vt_append_str(" q"sv);
-            break;
-
-        case vt_message_id::cursor_enable_blinking:
-            vt_append_str("\x1b[?12h"sv);
-            break;
-
-        case vt_message_id::cursor_disable_blinking:
-            vt_append_str("\x1b[?12l"sv);
-            break;
-
-        case vt_message_id::designate_charset_line_drawing:
-            vt_append_str("\x1b(0"sv);
-            break;
-
-        case vt_message_id::designate_charset_ascii:
-            vt_append_str("\x1b(B"sv);
-            break;
-
-        // ── 简单 ESC 序列 ──
-        case vt_message_id::reverse_index:
-            vt_append_str("\x1bM"sv);
-            break;
-        case vt_message_id::horizontal_tab_set:
-            vt_append_str("\x1bH"sv);
-            break;
-        case vt_message_id::keypad_app_mode:
-            vt_append_str("\x1b="sv);
-            break;
-        case vt_message_id::keypad_numeric_mode:
-            vt_append_str("\x1b>"sv);
-            break;
-
-        // ── 文本修改 (count 驱动) ──
-        case vt_message_id::insert_characters:
-            vt_append_str("\x1b["sv);
-            vt_append_int(msg.payload.count.value);
-            vt_append_char('@');
-            break;
-        case vt_message_id::delete_characters:
-            vt_append_str("\x1b["sv);
-            vt_append_int(msg.payload.count.value);
-            vt_append_char('P');
-            break;
-        case vt_message_id::erase_characters:
-            vt_append_str("\x1b["sv);
-            vt_append_int(msg.payload.count.value);
-            vt_append_char('X');
-            break;
-
-        // ── OSC 4 调色板 ──
         case vt_message_id::set_palette_color: {
             vt_append_str("\x1b]4;"sv);
             vt_append_int(msg.payload.palette.index);
             vt_append_char(';');
-            // rgb:RR/GG/BB 格式 (不使用 snprintf)
             vt_append_str("rgb:"sv);
             vt_append_hex_byte(msg.payload.palette.r);
             vt_append_char('/');
@@ -1029,66 +1028,15 @@ struct pipe_bridge
             vt_append_char('\x07');
             break;
         }
-
-        // ── 制表符移动 ──
-        case vt_message_id::cursor_forward_tab:
-            vt_append_str("\x1b["sv);
-            vt_append_int(msg.payload.count.value);
-            vt_append_char('I');
-            break;
-        case vt_message_id::cursor_backward_tab:
-            vt_append_str("\x1b["sv);
-            vt_append_int(msg.payload.count.value);
-            vt_append_char('Z');
-            break;
-
-        // ── 制表符清除 ──
-        case vt_message_id::tab_clear_current:
-            vt_append_str("\x1b[0g"sv);
-            break;
-        case vt_message_id::tab_clear_all:
-            vt_append_str("\x1b[3g"sv);
-            break;
-
-        // ── 交替缓冲区 ──
-        case vt_message_id::use_alternate_buffer:
-            vt_append_str("\x1b[?1049h"sv);
-            break;
-        case vt_message_id::use_main_buffer:
-            vt_append_str("\x1b[?1049l"sv);
-            break;
-
-        // ── 列宽切换 (DECCOLM) ──
-        case vt_message_id::set_columns_132:
-            vt_append_str("\x1b[?3h"sv);
-            break;
-        case vt_message_id::set_columns_80:
-            vt_append_str("\x1b[?3l"sv);
-            break;
-
-        // ── 软复位 (DECSTR) ──
         case vt_message_id::soft_reset:
             vt_append_str("\x1b[!p\x1b[?9001h"sv);
             break;
-
-        // ── 查询 (发送到终端, 响应经 vt_in 返回) ──
         case vt_message_id::report_cursor_position:
             vt_append_str("\x1b[6n"sv);
             break;
         case vt_message_id::device_attributes:
             vt_append_str("\x1b[0c"sv);
             break;
-
-        // ── 光标键模式 ──
-        case vt_message_id::cursor_keys_app_mode:
-            vt_append_str("\x1b[?1h"sv);
-            break;
-        case vt_message_id::cursor_keys_normal_mode:
-            vt_append_str("\x1b[?1l"sv);
-            break;
-
-        // ── 无 VT 输出的消息 (键盘输入、内部标记) ──
-        case vt_message_id::continue_:
         default:
             break;
         }
@@ -1264,11 +1212,11 @@ struct pipe_bridge
             return true;
         case vt_read_status::empty:
             return false;
-        case vt_read_status::full:
-            complete_pending();
-            return true;
         case vt_read_status::eof:
             complete_pending_with_eof();
+            return true;
+        case vt_read_status::full:
+            complete_pending();
             return true;
         default:
             std::unreachable();
@@ -1316,13 +1264,13 @@ struct pipe_bridge
         case vt_read_status::bytes:
             process_new_vt_input(old_total);
             return;
-        case vt_read_status::full:
-            complete_pending();
+        case vt_read_status::empty:
             return;
         case vt_read_status::eof:
             complete_pending_with_eof();
             return;
-        case vt_read_status::empty:
+        case vt_read_status::full:
+            complete_pending();
             return;
         default:
             std::unreachable();
@@ -2140,18 +2088,18 @@ struct pipe_bridge
             const auto old_total = _read_total;
             switch (read_available_vt_input())
             {
+            case vt_read_status::bytes:
+                break;
             case vt_read_status::empty:
                 return false;
-            case vt_read_status::full:
-                LOG3("[bridge] accumulate: buffer full");
-                complete_pending();
-                return true;
             case vt_read_status::eof:
                 _pending.set_vt_eof(true);
                 complete_pending();
                 return true;
-            case vt_read_status::bytes:
-                break;
+            case vt_read_status::full:
+                LOG3("[bridge] accumulate: buffer full");
+                complete_pending();
+                return true;
             default:
                 std::unreachable();
             }
@@ -2513,7 +2461,7 @@ struct pipe_bridge
                 {
                     _write_char_key_event(ch, static_cast<BYTE>(b));
                 }
-                _input_parser.reset<vt_message_id::continue_text>(); // 清累积文本
+                _input_parser.reset(); // 清累积文本
                 continue;
             }
 
@@ -2530,228 +2478,233 @@ struct pipe_bridge
             const auto &msg = parsed.message;
             switch (id)
             {
+            case vt_message_id::text: {
+                process_input_text(pending_kind, msg);
+                _input_parser.reset();
+                break;
+            }
+            // 未知控制序列由 parser 保留原文；输入方向透传给应用，避免吞掉
+            // 终端可能返回但 corehost 暂未建模的响应。
+            case vt_message_id::unknown_sequence: {
+                emit_raw_sequence_as_input(parsed.raw_sequence);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::osc8_hyperlink: {
+                emit_raw_sequence_as_input(parsed.raw_sequence);
+                _input_parser.reset();
+                break;
+            }
             // 行终止符直接完成 pending 读取，并把同批次剩余字节退回队列。
             case vt_message_id::carriage_return: {
                 if (pending_kind != PendingKind::ConsoleRead && pending_kind != PendingKind::RawRead)
                     _write_enter_key_event();
                 _on_line_terminator(true, i, len, bytes);
-                _input_parser.reset<vt_message_id::carriage_return>();
+                _input_parser.reset();
                 return;
             }
             case vt_message_id::line_feed: {
                 if (pending_kind != PendingKind::ConsoleRead && pending_kind != PendingKind::RawRead)
                     _write_char_key_event(U'\n', 0x0A);
                 _on_line_terminator(false, i, len, bytes);
-                _input_parser.reset<vt_message_id::line_feed>();
+                _input_parser.reset();
                 return;
-            }
-            // Windows Terminal Win32 Input Mode 已经携带完整 KEY_EVENT 字段，
-            // 不需要再通过 vt_input_engine 猜测 VK/修饰键。
-            case vt_message_id::win32_input_key: {
-                if (process_input_win32_key(pending_kind, msg, i, len, bytes))
-                {
-                    _input_parser.reset<vt_message_id::win32_input_key>();
-                    return;
-                }
-                _input_parser.reset<vt_message_id::win32_input_key>();
-                break;
-            }
-            // 方向键在 ConsoleRead 中是本地行编辑动作；在 GetConsoleInput
-            // 驱动的 shell 中是 INPUT_RECORD。
-            case vt_message_id::key_left: {
-                process_input_move_left(pending_kind, msg);
-                _input_parser.reset<vt_message_id::key_left>();
-                break;
-            }
-            case vt_message_id::cursor_backward: {
-                process_input_move_left(pending_kind, msg);
-                _input_parser.reset<vt_message_id::cursor_backward>();
-                break;
-            }
-            case vt_message_id::key_right: {
-                process_input_move_right(pending_kind, msg);
-                _input_parser.reset<vt_message_id::key_right>();
-                break;
-            }
-            case vt_message_id::cursor_forward: {
-                process_input_move_right(pending_kind, msg);
-                _input_parser.reset<vt_message_id::cursor_forward>();
-                break;
-            }
-            case vt_message_id::key_home: {
-                process_input_home(pending_kind, msg);
-                _input_parser.reset<vt_message_id::key_home>();
-                break;
-            }
-            case vt_message_id::cursor_prev_line: {
-                process_input_home(pending_kind, msg);
-                _input_parser.reset<vt_message_id::cursor_prev_line>();
-                break;
-            }
-            case vt_message_id::key_end: {
-                process_input_end(pending_kind, msg);
-                _input_parser.reset<vt_message_id::key_end>();
-                break;
-            }
-            case vt_message_id::cursor_next_line: {
-                process_input_end(pending_kind, msg);
-                _input_parser.reset<vt_message_id::cursor_next_line>();
-                break;
-            }
-            case vt_message_id::key_delete: {
-                process_input_delete(pending_kind, msg);
-                _input_parser.reset<vt_message_id::key_delete>();
-                break;
-            }
-            case vt_message_id::char_del: {
-                process_input_backspace(pending_kind, msg);
-                _input_parser.reset<vt_message_id::char_del>();
-                break;
-            }
-            case vt_message_id::key_up: {
-                process_input_history_up(pending_kind, msg);
-                _input_parser.reset<vt_message_id::key_up>();
-                break;
             }
             case vt_message_id::cursor_up: {
                 process_input_history_up(pending_kind, msg);
-                _input_parser.reset<vt_message_id::cursor_up>();
-                break;
-            }
-            case vt_message_id::key_down: {
-                process_input_history_down(pending_kind, msg);
-                _input_parser.reset<vt_message_id::key_down>();
+                _input_parser.reset();
                 break;
             }
             case vt_message_id::cursor_down: {
                 process_input_history_down(pending_kind, msg);
-                _input_parser.reset<vt_message_id::cursor_down>();
+                _input_parser.reset();
                 break;
             }
-            // 其他结构化键不改变 cooked buffer，统一转换为 KEY_EVENT 对。
-            case vt_message_id::key_f3: {
-                process_input_key_event<vt_message_id::key_f3>(msg);
-                _input_parser.reset<vt_message_id::key_f3>();
+            // 方向键在 ConsoleRead 中是本地行编辑动作；在 GetConsoleInput
+            // 驱动的 shell 中是 INPUT_RECORD。
+            case vt_message_id::cursor_forward: {
+                process_input_move_right(pending_kind, msg);
+                _input_parser.reset();
                 break;
             }
-            case vt_message_id::key_f4: {
-                process_input_key_event<vt_message_id::key_f4>(msg);
-                _input_parser.reset<vt_message_id::key_f4>();
+            case vt_message_id::cursor_backward: {
+                process_input_move_left(pending_kind, msg);
+                _input_parser.reset();
                 break;
             }
-            case vt_message_id::key_f5: {
-                process_input_key_event<vt_message_id::key_f5>(msg);
-                _input_parser.reset<vt_message_id::key_f5>();
+            case vt_message_id::cursor_next_line: {
+                process_input_end(pending_kind, msg);
+                _input_parser.reset();
                 break;
             }
-            case vt_message_id::key_f6: {
-                process_input_key_event<vt_message_id::key_f6>(msg);
-                _input_parser.reset<vt_message_id::key_f6>();
+            case vt_message_id::cursor_prev_line: {
+                process_input_home(pending_kind, msg);
+                _input_parser.reset();
                 break;
             }
-            case vt_message_id::key_f7: {
-                process_input_key_event<vt_message_id::key_f7>(msg);
-                _input_parser.reset<vt_message_id::key_f7>();
+            case vt_message_id::cursor_forward_tab: {
+                process_input_tab();
+                _input_parser.reset();
                 break;
             }
-            case vt_message_id::key_f8: {
-                process_input_key_event<vt_message_id::key_f8>(msg);
-                _input_parser.reset<vt_message_id::key_f8>();
+            case vt_message_id::cursor_vert_absolute: {
+                _input_parser.reset();
                 break;
             }
-            case vt_message_id::key_f9: {
-                process_input_key_event<vt_message_id::key_f9>(msg);
-                _input_parser.reset<vt_message_id::key_f9>();
-                break;
-            }
-            case vt_message_id::key_f10: {
-                process_input_key_event<vt_message_id::key_f10>(msg);
-                _input_parser.reset<vt_message_id::key_f10>();
-                break;
-            }
-            case vt_message_id::key_f11: {
-                process_input_key_event<vt_message_id::key_f11>(msg);
-                _input_parser.reset<vt_message_id::key_f11>();
-                break;
-            }
-            case vt_message_id::key_f12: {
-                process_input_key_event<vt_message_id::key_f12>(msg);
-                _input_parser.reset<vt_message_id::key_f12>();
-                break;
-            }
-            case vt_message_id::key_insert: {
-                process_input_key_event<vt_message_id::key_insert>(msg);
-                _input_parser.reset<vt_message_id::key_insert>();
-                break;
-            }
-            case vt_message_id::key_page_up: {
-                process_input_key_event<vt_message_id::key_page_up>(msg);
-                _input_parser.reset<vt_message_id::key_page_up>();
-                break;
-            }
-            case vt_message_id::key_page_down: {
-                process_input_key_event<vt_message_id::key_page_down>(msg);
-                _input_parser.reset<vt_message_id::key_page_down>();
+            case vt_message_id::cursor_horiz_absolute: {
+                _input_parser.reset();
                 break;
             }
             // 终端控制/响应类输入只更新 bridge 状态；不能作为用户按键回给
             // Console API。
             case vt_message_id::cursor_position: {
                 process_input_cursor_position(msg);
-                _input_parser.reset<vt_message_id::cursor_position>();
+                _input_parser.reset();
                 break;
             }
-            case vt_message_id::cursor_horiz_absolute: {
-                _input_parser.reset<vt_message_id::cursor_horiz_absolute>();
-                break;
-            }
-            case vt_message_id::cursor_vert_absolute: {
-                _input_parser.reset<vt_message_id::cursor_vert_absolute>();
+            case vt_message_id::resize_window: {
+                process_input_resize_window(msg);
+                _input_parser.reset();
                 break;
             }
             case vt_message_id::cpr_response: {
                 if (!process_input_cpr_response(msg))
                     emit_raw_sequence_as_input(parsed.raw_sequence);
-                _input_parser.reset<vt_message_id::cpr_response>();
+                _input_parser.reset();
                 break;
             }
-            case vt_message_id::cursor_forward_tab: {
-                process_input_tab();
-                _input_parser.reset<vt_message_id::cursor_forward_tab>();
+            // Windows Terminal Win32 Input Mode 已经携带完整 KEY_EVENT 字段，
+            // 不需要再通过 vt_input_engine 猜测 VK/修饰键。
+            case vt_message_id::win32_input_key: {
+                if (process_input_win32_key(pending_kind, msg, i, len, bytes))
+                {
+                    _input_parser.reset();
+                    return;
+                }
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_up: {
+                process_input_history_up(pending_kind, msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_down: {
+                process_input_history_down(pending_kind, msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_right: {
+                process_input_move_right(pending_kind, msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_left: {
+                process_input_move_left(pending_kind, msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_home: {
+                process_input_home(pending_kind, msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_end: {
+                process_input_end(pending_kind, msg);
+                _input_parser.reset();
+                break;
+            }
+            // 其他结构化键不改变 cooked buffer，统一转换为 KEY_EVENT 对。
+            case vt_message_id::key_insert: {
+                process_input_key_event<vt_message_id::key_insert>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_delete: {
+                process_input_delete(pending_kind, msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_page_up: {
+                process_input_key_event<vt_message_id::key_page_up>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_page_down: {
+                process_input_key_event<vt_message_id::key_page_down>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_f3: {
+                process_input_key_event<vt_message_id::key_f3>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_f4: {
+                process_input_key_event<vt_message_id::key_f4>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_f5: {
+                process_input_key_event<vt_message_id::key_f5>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_f6: {
+                process_input_key_event<vt_message_id::key_f6>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_f7: {
+                process_input_key_event<vt_message_id::key_f7>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_f8: {
+                process_input_key_event<vt_message_id::key_f8>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_f9: {
+                process_input_key_event<vt_message_id::key_f9>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_f10: {
+                process_input_key_event<vt_message_id::key_f10>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_f11: {
+                process_input_key_event<vt_message_id::key_f11>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::key_f12: {
+                process_input_key_event<vt_message_id::key_f12>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::char_del: {
+                process_input_backspace(pending_kind, msg);
+                _input_parser.reset();
                 break;
             }
             // C0 控制字符可作为按键事件返回给 GetConsoleInput。
             case vt_message_id::char_sub: {
                 process_input_key_event<vt_message_id::char_sub>(msg);
-                _input_parser.reset<vt_message_id::char_sub>();
+                _input_parser.reset();
                 break;
             }
             case vt_message_id::char_esc: {
                 process_input_key_event<vt_message_id::char_esc>(msg);
-                _input_parser.reset<vt_message_id::char_esc>();
-                break;
-            }
-            case vt_message_id::resize_window: {
-                process_input_resize_window(msg);
-                _input_parser.reset<vt_message_id::resize_window>();
-                break;
-            }
-            case vt_message_id::text: {
-                process_input_text(pending_kind, msg);
-                _input_parser.reset<vt_message_id::text>();
-                break;
-            }
-            // 未知控制序列由 parser 保留原文，但输入方向当前不透传给应用；
-            // 丢弃后重置 parser，避免半条未知序列污染后续输入。
-            case vt_message_id::unknown_sequence: {
-                emit_raw_sequence_as_input(parsed.raw_sequence);
-                _input_parser.reset<vt_message_id::unknown_sequence>();
+                _input_parser.reset();
                 break;
             }
             default: {
                 if (!parsed.raw_sequence.empty())
                     emit_raw_sequence_as_input(parsed.raw_sequence);
-                _input_parser.reset<vt_message_id::continue_>();
+                _input_parser.reset();
                 break;
             }
             }

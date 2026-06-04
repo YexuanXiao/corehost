@@ -11,7 +11,6 @@
 
 using namespace corehost::conpty;
 using corehost::conpty::test::parse_one;
-using corehost::conpty::test::reset_test_vt_parser_message;
 
 struct input_collector
 {
@@ -292,7 +291,7 @@ struct test_bridge_stub
                 ir.Event.KeyEvent.dwControlKeyState = m.payload.win32_key.control_state;
                 events.push_back(ir);
             }
-            reset_test_vt_parser_message(parser, id);
+            parser.reset();
         }
     }
 

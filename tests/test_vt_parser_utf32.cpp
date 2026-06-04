@@ -18,7 +18,6 @@
 using namespace corehost::conpty;
 using corehost::conpty::test::is_parse_continue;
 using corehost::conpty::test::parse_one;
-using corehost::conpty::test::reset_test_vt_parser_message;
 
 struct expected_sequence
 {
@@ -53,7 +52,7 @@ bool expect_id_and_raw(std::u32string_view sequence, vt_message_id id)
     return true;
 }
 
-bool expect_unknown(std::u32string_view sequence)
+bool expect_unknown(std::u32string_view sequence, std::u32string_view text)
 {
     raw_u32_buffer raw;
     vt_parser parser{raw};
@@ -62,7 +61,7 @@ bool expect_unknown(std::u32string_view sequence)
     ASSERT(result.id == vt_message_id::unknown_sequence);
     ASSERT(result.consumed == sequence.size());
     ASSERT(result.raw_sequence == sequence);
-    ASSERT(result.message.payload.text == sequence);
+    ASSERT(result.message.payload.text == text);
     return true;
 }
 
@@ -89,14 +88,14 @@ bool test_ground_text_stops_before_control()
     ASSERT(result.id == vt_message_id::continue_text);
     ASSERT(result.consumed == 5);
     ASSERT(result.message.payload.text == U"hello");
-    parser.reset<vt_message_id::continue_text>();
+    parser.reset();
 
     input.remove_prefix(result.consumed);
     result = parser.parse(input);
     ASSERT(result.id == vt_message_id::carriage_return);
     ASSERT(result.consumed == 1);
     ASSERT(result.raw_sequence.empty());
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     input.remove_prefix(result.consumed);
     result = parser.parse(input);
@@ -114,28 +113,28 @@ bool test_ground_controls()
     auto result = parse_one(parser, U'\r');
     ASSERT(result.id == vt_message_id::carriage_return);
     ASSERT(result.consumed == 1);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parse_one(parser, U'\n');
     ASSERT(result.id == vt_message_id::line_feed);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parse_one(parser, U'\t');
     ASSERT(result.id == vt_message_id::cursor_forward_tab);
     ASSERT(result.message.payload.count.value == 1);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parse_one(parser, U'\b');
     ASSERT(result.id == vt_message_id::char_del);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parse_one(parser, 0x7f);
     ASSERT(result.id == vt_message_id::char_del);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parse_one(parser, 0x1a);
     ASSERT(result.id == vt_message_id::char_sub);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parse_one(parser, 0x00);
     ASSERT(result.id == vt_message_id::char_nul);
@@ -205,23 +204,23 @@ bool test_csi_position_sequences()
     ASSERT(result.id == vt_message_id::cursor_position);
     ASSERT(result.message.payload.position.row == 5);
     ASSERT(result.message.payload.position.col == 9);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[6;10f");
     ASSERT(result.id == vt_message_id::cursor_position);
     ASSERT(result.message.payload.position.row == 6);
     ASSERT(result.message.payload.position.col == 10);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[42G");
     ASSERT(result.id == vt_message_id::cursor_horiz_absolute);
     ASSERT(result.message.payload.position.col == 42);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[7d");
     ASSERT(result.id == vt_message_id::cursor_vert_absolute);
     ASSERT(result.message.payload.position.row == 7);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[0;0H");
     ASSERT(result.id == vt_message_id::cursor_position);
@@ -238,27 +237,27 @@ bool test_csi_erase_tabs_scroll_region_and_shape()
     auto result = parser.parse(U"\x1b[2J");
     ASSERT(result.id == vt_message_id::erase_in_display);
     ASSERT(result.message.payload.erase_mode == 2);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[1K");
     ASSERT(result.id == vt_message_id::erase_in_line);
     ASSERT(result.message.payload.erase_mode == 1);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[3;20r");
     ASSERT(result.id == vt_message_id::set_scrolling_region);
     ASSERT(result.message.payload.scroll_region.top == 3);
     ASSERT(result.message.payload.scroll_region.bottom == 20);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[4 q");
     ASSERT(result.id == vt_message_id::set_cursor_shape);
     ASSERT(result.message.payload.cursor_shape == 4);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[0g");
     ASSERT(result.id == vt_message_id::tab_clear_current);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[3g");
     ASSERT(result.id == vt_message_id::tab_clear_all);
@@ -307,7 +306,7 @@ bool test_sgr_flags_clear_and_colors()
     ASSERT(set_sgr.has(vt_sgr_flag::negative));
     ASSERT(set_sgr.has(vt_sgr_flag::conceal));
     ASSERT(set_sgr.has(vt_sgr_flag::strikethrough));
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[22;23;24;25;27;28;29m");
     ASSERT(result.id == vt_message_id::sgr);
@@ -320,7 +319,7 @@ bool test_sgr_flags_clear_and_colors()
     ASSERT(clear_sgr.clears(vt_sgr_flag::negative));
     ASSERT(clear_sgr.clears(vt_sgr_flag::conceal));
     ASSERT(clear_sgr.clears(vt_sgr_flag::strikethrough));
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[31;94;48;5;123m");
     ASSERT(result.id == vt_message_id::sgr);
@@ -328,7 +327,7 @@ bool test_sgr_flags_clear_and_colors()
     ASSERT(result.message.payload.sgr.fg.value == 12);
     ASSERT(result.message.payload.sgr.bg.is_indexed());
     ASSERT(result.message.payload.sgr.bg.value == 123);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[38;2;10;20;30;48;2;40;50;60m");
     ASSERT(result.id == vt_message_id::sgr);
@@ -340,7 +339,7 @@ bool test_sgr_flags_clear_and_colors()
     ASSERT(result.message.payload.sgr.bg.value == 40);
     ASSERT(result.message.payload.sgr.bg.g == 50);
     ASSERT(result.message.payload.sgr.bg.b == 60);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[39;49m");
     ASSERT(result.id == vt_message_id::sgr);
@@ -358,7 +357,7 @@ bool test_osc_title_bel_and_st()
     ASSERT(result.id == vt_message_id::set_window_title);
     ASSERT(result.message.payload.title == U"PowerShell");
     ASSERT(result.raw_sequence == U"\x1b]0;PowerShell\x07");
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b]2;corehost\x1b\\");
     ASSERT(result.id == vt_message_id::set_window_title);
@@ -427,13 +426,13 @@ bool test_resize_cpr_and_win32_input()
     ASSERT(result.id == vt_message_id::resize_window);
     ASSERT(result.message.payload.resize.rows == 30);
     ASSERT(result.message.payload.resize.cols == 120);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[24;80R");
     ASSERT(result.id == vt_message_id::cpr_response);
     ASSERT(result.message.payload.cpr.row == 24);
     ASSERT(result.message.payload.cpr.col == 80);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[13;28;20320;1;32;2_");
     ASSERT(result.id == vt_message_id::win32_input_key);
@@ -449,14 +448,51 @@ bool test_resize_cpr_and_win32_input()
 
 bool test_unknown_sequences_preserve_raw()
 {
+    struct unknown_case
+    {
+        std::u32string_view sequence;
+        std::u32string_view text;
+    };
     constexpr std::array cases{
-        U"\x1bX",           U"\x1b(Z",        U"\x1b[?2A", U"\x1b[999~",           U"\x1b[38;2;1m",
-        U"\x1b[4;480;640t", U"\x1b[8;0;120t", U"\x1b[4q",  U"\x1b]99;ignored\x07", U"\x1b]4;12;not-rgb\x07",
-        U"\x1bOZ",
+        unknown_case{U"\x1bX", U"\x1bX"},
+        unknown_case{U"\x1b(Z", U"\x1b(Z"},
+        unknown_case{U"\x1b[?2A", U"\x1b[?2A"},
+        unknown_case{U"\x1b[999~", U"\x1b[999~"},
+        unknown_case{U"\x1b[38;2;1m", U"\x1b[38;2;1m"},
+        unknown_case{U"\x1b[4;480;640t", U"\x1b[4;480;640t"},
+        unknown_case{U"\x1b[8;0;120t", U"\x1b[8;0;120t"},
+        unknown_case{U"\x1b[4q", U"\x1b[4q"},
+        unknown_case{U"\x1b]99;ignored\x07", U""},
+        unknown_case{U"\x1b]4;12;not-rgb\x07", U""},
+        unknown_case{U"\x1bOZ", U"\x1bOZ"},
     };
 
-    for (const auto sequence : cases)
-        ASSERT(expect_unknown(sequence));
+    for (const auto &item : cases)
+        ASSERT(expect_unknown(item.sequence, item.text));
+    return true;
+}
+
+bool test_osc8_hyperlink_passthrough_message()
+{
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
+
+    auto result = parse_complete(parser, U"\x1b]8;;https://example.com\x1b\\");
+    ASSERT(result.id == vt_message_id::osc8_hyperlink);
+    ASSERT(result.raw_sequence == U"\x1b]8;;https://example.com\x1b\\");
+    ASSERT(result.message.payload.text.empty());
+    parser.reset();
+
+    result = parser.parse(U"This is a link");
+    ASSERT(result.id == vt_message_id::continue_text);
+    ASSERT(result.raw_sequence.empty());
+    ASSERT(result.message.payload.text == U"This is a link");
+    parser.reset();
+
+    result = parse_complete(parser, U"\x1b]8;;\x1b\\");
+    ASSERT(result.id == vt_message_id::osc8_hyperlink);
+    ASSERT(result.raw_sequence == U"\x1b]8;;\x1b\\");
+    ASSERT(result.message.payload.text.empty());
     return true;
 }
 
@@ -477,7 +513,7 @@ bool test_incomplete_sequences_continue_across_calls()
     ASSERT(result.message.payload.sgr.fg.value == 1);
     ASSERT(result.message.payload.sgr.fg.g == 2);
     ASSERT(result.message.payload.sgr.fg.b == 3);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b]0;split");
     ASSERT(result.id == vt_message_id::continue_);
@@ -498,7 +534,7 @@ bool test_parse_range_consumes_one_complete_message()
     ASSERT(result.id == vt_message_id::erase_in_display);
     ASSERT(result.consumed == 4);
     ASSERT(result.message.payload.erase_mode == 2);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     input.remove_prefix(result.consumed);
     result = parser.parse(input);
@@ -518,14 +554,14 @@ bool test_text_before_vt_sequence_is_delivered_first()
     ASSERT(result.id == vt_message_id::continue_text);
     ASSERT(result.consumed == 3);
     ASSERT(result.message.payload.text == U"abc");
-    parser.reset<vt_message_id::continue_text>();
+    parser.reset();
 
     input.remove_prefix(result.consumed);
     result = parser.parse(input);
     ASSERT(result.id == vt_message_id::cursor_up);
     ASSERT(result.consumed == 3);
     ASSERT(result.raw_sequence == U"\x1b[A");
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     input.remove_prefix(result.consumed);
     result = parser.parse(input);
@@ -543,12 +579,12 @@ bool test_reset_clears_payload_for_next_message()
     ASSERT(result.id == vt_message_id::resize_window);
     ASSERT(result.message.payload.resize.rows == 30);
     ASSERT(result.message.payload.resize.cols == 120);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[2J");
     ASSERT(result.id == vt_message_id::erase_in_display);
     ASSERT(result.message.payload.erase_mode == 2);
-    reset_test_vt_parser_message(parser, result.id);
+    parser.reset();
 
     result = parser.parse(U"\x1b[8;25;80t");
     ASSERT(result.id == vt_message_id::resize_window);
@@ -608,6 +644,7 @@ int main()
     RUN_TEST(test_csi_tilde_keys, L"CSI tilde keys");
     RUN_TEST(test_resize_cpr_and_win32_input, L"Resize/CPR/Win32 input");
     RUN_TEST(test_unknown_sequences_preserve_raw, L"Unknown sequences preserve raw");
+    RUN_TEST(test_osc8_hyperlink_passthrough_message, L"OSC 8 hyperlink passthrough message");
     RUN_TEST(test_incomplete_sequences_continue_across_calls, L"Incomplete sequences continue");
     RUN_TEST(test_parse_range_consumes_one_complete_message, L"Range consumes one message");
     RUN_TEST(test_text_before_vt_sequence_is_delivered_first, L"Text before VT delivered first");
