@@ -10,3 +10,5 @@ build-ansi-opt
 edit
 build-clang
 build-clangcl
+build-clang-verify
+build-clangcl-verify

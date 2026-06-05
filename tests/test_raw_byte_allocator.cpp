@@ -2,11 +2,18 @@
 
 #include <vector>
 
-#define ASSERT_TRUE(expr)                                                                                              \
+#define ASSERT_TRUE_BOOL(expr)                                                                                         \
     do                                                                                                                 \
     {                                                                                                                  \
         if (!(expr))                                                                                                   \
             return false;                                                                                              \
+    } while (false)
+
+#define ASSERT_TRUE_MAIN(expr)                                                                                         \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (!(expr))                                                                                                   \
+            return 1;                                                                                                  \
     } while (false)
 
 template <typename T>
@@ -20,22 +27,22 @@ bool preserves_existing_values_after_resize()
     const auto old_capacity = values.capacity();
     values.resize(old_capacity + 8);
 
-    ASSERT_TRUE(values[0] == static_cast<T>(1));
-    ASSERT_TRUE(values[1] == static_cast<T>(2));
+    ASSERT_TRUE_BOOL(values[0] == static_cast<T>(1));
+    ASSERT_TRUE_BOOL(values[1] == static_cast<T>(2));
 
     for (size_t i = 2; i < values.size(); ++i)
         values[i] = static_cast<T>(i + 1);
     for (size_t i = 2; i < values.size(); ++i)
-        ASSERT_TRUE(values[i] == static_cast<T>(i + 1));
+        ASSERT_TRUE_BOOL(values[i] == static_cast<T>(i + 1));
 
     return true;
 }
 
 int main()
 {
-    ASSERT_TRUE(preserves_existing_values_after_resize<char8_t>());
-    ASSERT_TRUE(preserves_existing_values_after_resize<char16_t>());
-    ASSERT_TRUE(preserves_existing_values_after_resize<wchar_t>());
-    ASSERT_TRUE(preserves_existing_values_after_resize<char32_t>());
+    ASSERT_TRUE_MAIN(preserves_existing_values_after_resize<char8_t>());
+    ASSERT_TRUE_MAIN(preserves_existing_values_after_resize<char16_t>());
+    ASSERT_TRUE_MAIN(preserves_existing_values_after_resize<wchar_t>());
+    ASSERT_TRUE_MAIN(preserves_existing_values_after_resize<char32_t>());
     return 0;
 }

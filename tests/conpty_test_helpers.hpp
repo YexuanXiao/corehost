@@ -66,7 +66,7 @@ inline bool create_conpty(conpty_instance &ci, COORD size = {80, 25}, DWORD flag
     if (FAILED(hr))
     {
         DWORD gle = ::GetLastError();
-        fprintf(stderr, "ConptyCreatePseudoConsole failed: HR=0x%08X GLE=%u\n", (unsigned)hr, gle);
+        fprintf(stderr, "ConptyCreatePseudoConsole failed: HR=0x%08X GLE=%lu\n", (unsigned)hr, gle);
         fprintf(stderr, "  inRead=%p outWrite=%p\n", inRead, outWrite);
         ::CloseHandle(inRead);
         ::CloseHandle(inWrite);

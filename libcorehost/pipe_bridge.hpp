@@ -811,6 +811,11 @@ struct pipe_bridge
             vt_append_str("\x1b"
                           "8"sv);
             break;
+        case vt_message_id::set_cursor_shape:
+            vt_append_str("\x1b["sv);
+            vt_append_int(msg.payload.cursor_shape);
+            vt_append_str(" q"sv);
+            break;
         case vt_message_id::cursor_enable_blinking:
             vt_append_str("\x1b[?12h"sv);
             break;

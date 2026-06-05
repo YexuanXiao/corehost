@@ -227,7 +227,14 @@ bool test_alias_empty()
 #include "pipe_bridge_testable.hpp"
 #include "message_router.hpp"
 #include "os/Console/ntcon.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpragma-pack"
+#endif
 #include "os/Console/conmsgl3.h"
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 struct api_test_context
 {
     screen_buffer sb;

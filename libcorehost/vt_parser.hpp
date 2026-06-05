@@ -625,6 +625,8 @@ class vt_parser
         // 互斥字符分类，避免同一个位置反复检查 parser 状态。
         switch (_mode)
         {
+        case parser_mode::ground:
+            std::unreachable();
         case parser_mode::esc:
             return _parse_esc(ch);
         case parser_mode::csi:

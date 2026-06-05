@@ -13,7 +13,14 @@
 #include "condrv_io.hpp"
 #include "os/Console/conmsgl1.h"
 #include "os/Console/conmsgl2.h"
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpragma-pack"
+#endif
 #include "os/Console/conmsgl3.h"
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
 #include "input_buffer.hpp"
@@ -648,6 +655,7 @@ inline bool can_passthrough_write_console_vt(vt_message_id id) noexcept
     case vt_message_id::restore_cursor:
     case vt_message_id::ansi_save_cursor:
     case vt_message_id::ansi_restore_cursor:
+    case vt_message_id::set_cursor_shape:
     case vt_message_id::cursor_enable_blinking:
     case vt_message_id::cursor_disable_blinking:
     case vt_message_id::cursor_show:
@@ -818,6 +826,9 @@ inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parse
     case vt_message_id::ansi_restore_cursor:
         consume_write_console_vt_message<vt_message_id::ansi_restore_cursor>(parser, parsed, state, sb, bridge,
                                                                              emit_vt);
+        break;
+    case vt_message_id::set_cursor_shape:
+        consume_write_console_vt_message<vt_message_id::set_cursor_shape>(parser, parsed, state, sb, bridge, emit_vt);
         break;
     case vt_message_id::cursor_enable_blinking:
         consume_write_console_vt_message<vt_message_id::cursor_enable_blinking>(parser, parsed, state, sb, bridge,
