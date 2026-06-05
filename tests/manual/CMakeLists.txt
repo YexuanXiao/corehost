@@ -4,12 +4,14 @@
 cmake_minimum_required(VERSION 3.30)
 
 add_library(manual_common INTERFACE)
+target_sources(manual_common
+    INTERFACE
+        FILE_SET HEADERS
+            FILES
+                manual_common.hpp
+)
 target_include_directories(manual_common INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(manual_common INTERFACE cxx_std_17)
-if(MSVC)
-    target_compile_options(manual_common INTERFACE /utf-8)
-endif()
-
 macro(add_manual_test name src)
     add_executable(${name} ${src})
     target_link_libraries(${name} PRIVATE manual_common)

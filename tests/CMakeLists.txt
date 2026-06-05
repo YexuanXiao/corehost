@@ -12,6 +12,15 @@ enable_testing()
 
 # ── 辅助测试(公共头文 ───────────────────────────
 add_library(test_common INTERFACE)
+target_sources(test_common
+    INTERFACE
+        FILE_SET HEADERS
+            FILES
+                conpty_test_helpers.hpp
+                pipe_bridge_testable.hpp
+                test_common.hpp
+                vt_parser_test_helpers.hpp
+)
 target_include_directories(test_common INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/libcorehost
@@ -22,10 +31,6 @@ target_include_directories(test_common INTERFACE
 
 target_link_libraries(test_common INTERFACE common)
 target_compile_features(test_common INTERFACE cxx_std_23)
-
-if(MSVC)
-    target_compile_options(test_common INTERFACE /utf-8)
-endif()
 
 # ── test_vt_parser_utf32 ───────────────────────────
 add_executable(test_vt_parser_utf32

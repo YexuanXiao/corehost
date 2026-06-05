@@ -1,10 +1,4 @@
-if(CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64" OR CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x86_64")
-    set(conhost_PROXY_ARCH_DIR "x64")
-elseif(CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "ARM64" OR CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "aarch64")
-    set(conhost_PROXY_ARCH_DIR "arm64")
-else()
-    message(FATAL_ERROR "Unsupported architecture: ${CMAKE_CXX_COMPILER_ARCHITECTURE_ID}")
-endif()
+set(conhost_PROXY_ARCH_DIR "${CONHOST_PROXY_ARCH_DIR}")
 
 add_library(conhost_proxy_headers INTERFACE)
 target_sources(conhost_proxy_headers
@@ -64,20 +58,12 @@ set_target_properties(conhost_proxy PROPERTIES
 # The LINKER: prefix (CMake 3.26+) is used for the simple /DEF: flag.
 # For /SECTION:.orpc,ERW (which contains a comma) we must avoid LINKER:
 # because it would split on the comma, so we use explicit if/else.
-target_link_options(conhost_proxy PRIVATE
-    "LINKER:/DEF:${CMAKE_CURRENT_SOURCE_DIR}/conhost_proxy.def"
+corehost_target_msvc_linker_options(conhost_proxy PRIVATE
+    "/DEF:${CMAKE_CURRENT_SOURCE_DIR}/conhost_proxy.def"
+    "/SECTION:.orpc,ERW"
 )
-if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC"))
-    target_link_options(conhost_proxy PRIVATE
-        /SECTION:.orpc,ERW
-    )
-else()
-    target_link_options(conhost_proxy PRIVATE
-        -Xlinker "/SECTION:.orpc,ERW"
-    )
-endif()
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+if(COREHOST_COMPILER_CLANG_CL)
     # MIDL-generated proxy sources rely on a few Microsoft/COM ABI patterns
     # that trigger warnings under -Wall -Wextra -Wpedantic. Keep the warnings
     # on for the rest of the project, but silence them for the proxy/stub target.
@@ -90,7 +76,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_SIMULATE_ID STREQUAL "MS
         -clang:-Wno-microsoft-cast
         -clang:-Wno-unused-const-variable
     )
-elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+elseif(COREHOST_COMPILER_CLANG)
     # GNU mode (clang.exe / clang++.exe)
     target_compile_options(conhost_proxy PRIVATE
         -Wno-pragma-pack

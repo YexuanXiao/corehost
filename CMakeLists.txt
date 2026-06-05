@@ -6,18 +6,9 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    add_compile_options("/utf-8")
-    add_compile_options("$<$<CONFIG:Debug>:/fsanitize=address>")
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:DebugDLL>")
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
-elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:DebugDLL>")
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
-elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    add_link_options(-static)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
-endif()
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(CoreHostCompiler)
+corehost_configure_global_compiler()
 
 add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 
@@ -36,13 +27,7 @@ add_compile_definitions($<$<BOOL:${COREHOST_ANSI_OPT}>:COREHOST_ANSI_OPT>)
 option(COREHOST_USE_SYSTEM_ICU "Use system ICU for Unicode character width calculation" ON)
 
 # ── 架构检测 (proxy 子目录使用) ──────────────────────
-if(CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64" OR CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x86_64")
-    set(CONHOST_PROXY_ARCH_DIR "x64")
-elseif(CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "ARM64" OR CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "aarch64")
-    set(CONHOST_PROXY_ARCH_DIR "arm64")
-else()
-    message(FATAL_ERROR "Unsupported architecture: ${CMAKE_CXX_COMPILER_ARCHITECTURE_ID}")
-endif()
+corehost_detect_arch(CONHOST_PROXY_ARCH_DIR)
 
 # ── 统一输出目录：所有目标输出到 build/$<CONFIG>/ ──
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/$<CONFIG>)

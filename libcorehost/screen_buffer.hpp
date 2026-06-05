@@ -617,7 +617,12 @@ struct screen_buffer
             return;
         }
 
-        SMALL_RECT dst = {src.Left + dx, src.Top + dy, src.Right + dx, src.Bottom + dy};
+        SMALL_RECT dst = {
+            static_cast<SHORT>(src.Left + dx),
+            static_cast<SHORT>(src.Top + dy),
+            static_cast<SHORT>(src.Right + dx),
+            static_cast<SHORT>(src.Bottom + dy),
+        };
         // 如果目标越界，反向收缩源区域，保持 src/dst 尺寸一致。
         if (dst.Left < clip.Left)
         {

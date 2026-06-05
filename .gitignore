@@ -8,3 +8,5 @@ build-perf
 build-nolog
 build-ansi-opt
 edit
+build-clang
+build-clangcl

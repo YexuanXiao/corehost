@@ -26,14 +26,15 @@ namespace win32
 
 [[nodiscard]] inline std::wstring query_process_command_line(win32::handle_view process) noexcept
 {
-    constexpr auto ProcessCommandLineInformation = static_cast<PROCESSINFOCLASS>(60);
+    constexpr ULONG ProcessCommandLineInformation = 60;
     constexpr auto max_command_line_bytes = static_cast<std::size_t>(USHRT_MAX - (USHRT_MAX % sizeof(wchar_t)));
     constexpr auto output_buffer_chars = (sizeof(UNICODE_STRING) + max_command_line_bytes) / sizeof(wchar_t);
 
     std::wstring command_line;
     command_line.resize_and_overwrite(output_buffer_chars, [&](wchar_t *buffer, size_t capacity) noexcept {
-        const auto status = ::NtQueryInformationProcess(process.get(), ProcessCommandLineInformation, buffer,
-                                                        static_cast<ULONG>(capacity * sizeof(wchar_t)), nullptr);
+        const auto status = ::NtQueryInformationProcess(
+            process.get(), static_cast<PROCESSINFOCLASS>(ProcessCommandLineInformation), buffer,
+            static_cast<ULONG>(capacity * sizeof(wchar_t)), nullptr);
         if (status < 0)
             return 0uz;
 

@@ -10,7 +10,14 @@ option(USE_INBOX_CONHOST "Always use system conhost.exe (no corehost side-load)"
 # ── conpty_static: 静态库，继承父级所有编译选项 ──────────
 add_library(conpty_static STATIC
     libconpty.cpp
-    libconpty.hpp
+)
+
+target_sources(conpty_static
+    PUBLIC
+        FILE_SET HEADERS
+            FILES
+                libconpty.hpp
+                winconpty.h
 )
 
 target_include_directories(conpty_static PUBLIC
@@ -29,9 +36,16 @@ endif()
 # ── conpty (DLL): 独立编译选项 ────
 add_library(conpty SHARED
     libconpty.cpp
-    libconpty.hpp
     dllmain.cpp
     conpty.def
+)
+
+target_sources(conpty
+    PUBLIC
+        FILE_SET HEADERS
+            FILES
+                libconpty.hpp
+                winconpty.h
 )
 
 target_include_directories(conpty PUBLIC
@@ -55,27 +69,34 @@ target_compile_definitions(conpty PRIVATE
     UNICODE
     _UNICODE
     WIN32_LEAN_AND_MEAN
-    _HAS_EXCEPTIONS=0
-    CONPTY_NO_CPP_STDLIB
 )
 
 if(USE_INBOX_CONHOST)
     target_compile_definitions(conpty PRIVATE USE_INBOX_CONHOST)
 endif()
 
-if(MSVC)
+if(COREHOST_COMPILER_MSVC)
+    target_compile_definitions(conpty PRIVATE
+        _HAS_EXCEPTIONS=0
+        CONPTY_NO_CPP_STDLIB
+    )
     target_compile_options(conpty PRIVATE
-        /utf-8
         /W4
-        /permissive-
-        /Zc:preprocessor
-        /Zc:__cplusplus
         /EHs-c-
         /Zc:throwingNew-
     )
+    corehost_target_msvc_linker_options(conpty PRIVATE
+        "/NODEFAULTLIB:libcpmt"
+        "/NODEFAULTLIB:msvcprt"
+    )
+elseif(COREHOST_COMPILER_CLANG_CL)
+    target_compile_options(conpty PRIVATE
+        /W4
+    )
+elseif(COREHOST_COMPILER_CLANG)
+    target_compile_options(conpty PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+    )
 endif()
-
-target_link_options(conpty PRIVATE
-    /NODEFAULTLIB:libcpmt
-    /NODEFAULTLIB:msvcprt
-)

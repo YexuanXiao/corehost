@@ -4,10 +4,26 @@
 
 add_executable(corehost WIN32
     corehost.rc
+    corehost.manifest
     cli/main.cpp
     defterm/defterm.cpp
     defterm/signal.cpp
     comserver/com_server.cpp
+)
+
+target_sources(corehost
+    PRIVATE
+        FILE_SET HEADERS
+            FILES
+                cli/console_arguments.hpp
+                client/client.hpp
+                comserver/com_server.hpp
+                defterm/connect_policy.hpp
+                defterm/defterm.hpp
+                defterm/io.hpp
+                defterm/signal.hpp
+                defterm/terminal_handoff.hpp
+                defterm/vt_handles.hpp
 )
 
 target_include_directories(corehost PRIVATE
@@ -20,10 +36,4 @@ target_link_libraries(corehost PRIVATE
     conhost_proxy_headers
 )
 
-if(MSVC)
-    target_link_options(corehost PRIVATE
-        "/MANIFEST:EMBED"
-        "/MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/corehost.manifest"
-        "/SUBSYSTEM:WINDOWS,10.0"
-    )
-endif()
+corehost_target_msvc_linker_option(corehost PRIVATE "/SUBSYSTEM:WINDOWS,10.0")
