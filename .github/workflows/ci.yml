@@ -1,0 +1,67 @@
+name: Check corehost
+
+on:
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - '**.txt'
+      - 'LICENSE'
+  push:
+    paths-ignore:
+      - '**.md'
+      - '**.txt'
+      - 'LICENSE'
+    branches:
+      - master
+      - main
+
+jobs:
+  windows:
+    name: ${{ matrix.compiler.name }} ${{ matrix.build_type }}
+    runs-on: windows-2025-vs2026
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+        compiler:
+          - name: MSVC
+            c: cl
+            cxx: cl
+          - name: clang-cl
+            c: clang-cl
+            cxx: clang-cl
+          - name: clang
+            c: clang
+            cxx: clang++
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          & "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+
+          cmake -S . -B build-${{ matrix.compiler.name }}-${{ matrix.build_type }} -G Ninja `
+            -DCMAKE_C_COMPILER=${{ matrix.compiler.c }} `
+            -DCMAKE_CXX_COMPILER=${{ matrix.compiler.cxx }} `
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} `
+            -DBUILD_TESTS=ON
+
+      - name: Build
+        shell: pwsh
+        run: |
+          & "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+
+          cmake --build build-${{ matrix.compiler.name }}-${{ matrix.build_type }}
+
+      - name: Test
+        shell: pwsh
+        run: |
+          & "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+
+          ctest --test-dir build-${{ matrix.compiler.name }}-${{ matrix.build_type }} --output-on-failure
