@@ -30,6 +30,8 @@ corehost aims to provide **high quality and high performance** for driving:
 
 Actually, corehost is the ideal OpenConsole/conhost.
 
+In addition to debugging facilities, corehost **does not use any mutable global variables**. All immutable global variables are **initialized within the main function**, and **no singletons, including magic statics**, are used. All state is **passed through function parameters** and is modularized as much as possible, making corehost very easy to understand and debug, whether for humans or for AI.
+
 ## corehost as conhost
 
 corehost solves the problem that the original version of conhost does not support opening the default terminal (e.g., Windows Terminal) when calling `AllocConsole`.
@@ -115,9 +117,9 @@ The terminal and corehost keep separate state for the same session. The terminal
 
 ### Mode 3: ConPTY
 
-`ConptyCreatePseudoConsole` starts corehost with `--headless`. In this mode libconpty creates the ConDrv server handle, a signal handle, and the VT input/output pipes, then launches corehost with arguments such as `--server`, `--signal`, and others.
+`ConptyCreatePseudoConsole` starts corehost with `--headless`. libconpty creates the ConDrv server handle, a signal handle, and the VT input/output pipes, then launches corehost with arguments such as `--server`, `--signal`, and others.
 
-corehost parses those arguments, adopts the inherited handles, initializes the session configuration, and enters ConPTY mode immediately. This is also the path used by applications that explicitly use the ConPTY API and provide their own terminal frontend.
+corehost parses those arguments, adopts the inherited handles, initializes the session configuration, and enters ConPTY mode immediately. This is the path used by applications that explicitly use the ConPTY API and provide their own terminal frontend and also the mode that Mode 1 and Mode 2 will eventually enter.
 
 ### ConPTY runtime
 
@@ -133,8 +135,6 @@ The ConPTY runtime is the shared implementation used by all three startup modes.
 - The signal path handles terminal-side control notifications, such as close, resize, and control events, and maps them into the Windows console behavior expected by attached processes.
 
 ### Design
-
-In addition to debugging facilities, corehost **does not use any mutable global variables**. All immutable global variables are **initialized within the main function**, and **no singletons, including magic statics**, are used. All state is **passed through function parameters** and is modularized as much as possible, making corehost very easy to understand and debug, whether for humans or for AI.
 
 The main data path uses a **synchronous I/O** model and is intentionally almost **single-threaded**. One main loop reads a ConDrv request, lets the router update console state or prepare a pending read, flushes VT output when needed, and returns the completion result to ConDrv. Terminal input is also serviced from that same loop during idle or pending-read phases, so ordinary keyboard input, terminal replies, console output, and most API state transitions are serialized through **one state machine**. This **avoids the need for locks** around most console state. A request is either completed immediately, completed by the next ConDrv read cycle, or held pending until terminal input supplies the missing data.
 
