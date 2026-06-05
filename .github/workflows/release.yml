@@ -1,0 +1,77 @@
+name: Release corehost
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    permissions:
+      contents: write
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Build x64
+        shell: pwsh
+        run: |
+          & "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+
+          cmake -S . -B build-release-x64 -G Ninja `
+            -DCMAKE_C_COMPILER=cl `
+            -DCMAKE_CXX_COMPILER=cl `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_TESTS=OFF
+
+          cmake --build build-release-x64 --target corehost
+
+          if (!(Test-Path "build-release-x64/Release/corehost.exe")) {
+            echo "::error::x64 corehost.exe was not produced"
+            exit 1
+          }
+
+          Copy-Item "build-release-x64/Release/corehost.exe" "corehost_x64.exe" -Force
+
+      - name: Build ARM64
+        shell: pwsh
+        run: |
+          & "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\Launch-VsDevShell.ps1" -Arch arm64 -HostArch amd64 -SkipAutomaticLocation
+
+          cmake -S . -B build-release-arm64 -G Ninja `
+            -DCMAKE_C_COMPILER=cl `
+            -DCMAKE_CXX_COMPILER=cl `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DLIBUNICODE_SIMD_IMPLEMENTATION=none `
+            -DBUILD_TESTS=OFF
+
+          cmake --build build-release-arm64 --target corehost
+
+          if (!(Test-Path "build-release-arm64/Release/corehost.exe")) {
+            echo "::error::ARM64 corehost.exe was not produced"
+            exit 1
+          }
+
+          Copy-Item "build-release-arm64/Release/corehost.exe" "corehost_arm64.exe" -Force
+
+      - name: Upload to Release
+        shell: pwsh
+        run: |
+          $headers = @{
+            "Authorization" = "Bearer ${{ secrets.GITHUB_TOKEN }}"
+            "Content-Type" = "application/octet-stream"
+          }
+
+          foreach ($assetName in @("corehost_x64.exe", "corehost_arm64.exe")) {
+            if (!(Test-Path $assetName)) {
+              echo "::error::Release asset not found: ${assetName}"
+              exit 1
+            }
+
+            $url = "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ github.event.release.id }}/assets?name=${assetName}"
+            Invoke-RestMethod -Uri $url -Method POST -Headers $headers -InFile $assetName
+          }

@@ -1,0 +1,14 @@
+.cache
+.vscode
+build
+contour
+terminal
+simdutf
+build-perf
+build-nolog
+build-ansi-opt
+edit
+build-clang
+build-clangcl
+build-clang-verify
+build-clangcl-verify

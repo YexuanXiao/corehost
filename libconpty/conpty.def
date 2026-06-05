@@ -1,0 +1,18 @@
+EXPORTS
+    ; ConPTY API
+    ConptyCreatePseudoConsole
+    ConptyCreatePseudoConsoleAsUser
+    ConptyResizePseudoConsole
+    ConptyClosePseudoConsole
+    ConptyClearPseudoConsole
+    ConptyShowHidePseudoConsole
+    ConptyReparentPseudoConsole
+    ConptyReleasePseudoConsole
+    ConptyPackPseudoConsole
+
+    ; Compatibility aliases — 对标 kernel32 导出
+    CreatePseudoConsole = ConptyCreatePseudoConsole
+    ResizePseudoConsole = ConptyResizePseudoConsole
+    ClosePseudoConsole  = ConptyClosePseudoConsole
+    ClearPseudoConsole  = ConptyClearPseudoConsole
+    ReleasePseudoConsole = ConptyReleasePseudoConsole

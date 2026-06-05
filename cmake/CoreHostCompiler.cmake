@@ -1,0 +1,62 @@
+include_guard(GLOBAL)
+
+set(COREHOST_COMPILER_MSVC OFF)
+set(COREHOST_COMPILER_CLANG_CL OFF)
+set(COREHOST_COMPILER_CLANG OFF)
+set(COREHOST_COMPILER_MSVC_DRIVER OFF)
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    set(COREHOST_COMPILER_MSVC ON)
+    set(COREHOST_COMPILER_MSVC_DRIVER ON)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    set(COREHOST_COMPILER_CLANG_CL ON)
+    set(COREHOST_COMPILER_MSVC_DRIVER ON)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(COREHOST_COMPILER_CLANG ON)
+else()
+    message(FATAL_ERROR "Unsupported compiler: ${CMAKE_CXX_COMPILER_ID}")
+endif()
+
+function(corehost_detect_arch output_variable)
+    if(CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64" OR
+       CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x86_64")
+        set(${output_variable} "x64" PARENT_SCOPE)
+    elseif(CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "ARM64" OR
+           CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "aarch64")
+        set(${output_variable} "arm64" PARENT_SCOPE)
+    else()
+        message(FATAL_ERROR "Unsupported architecture: ${CMAKE_CXX_COMPILER_ARCHITECTURE_ID}")
+    endif()
+endfunction()
+
+function(corehost_configure_global_compiler)
+    if(COREHOST_COMPILER_MSVC_DRIVER)
+        add_compile_options(/Zc:__cplusplus /utf-8 /permissive-)
+        if(COREHOST_COMPILER_MSVC)
+            add_compile_options(/Zc:preprocessor)
+            add_compile_options("$<$<CONFIG:Debug>:/fsanitize=address>")
+        endif()
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:DebugDLL>" PARENT_SCOPE)
+    else()
+        # GNU-mode Clang on Windows does not define WIN32 by default.
+        # This is necessary for the "proxy" target.
+        add_compile_definitions(WIN32)
+        add_link_options(-static)
+    endif()
+
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE PARENT_SCOPE)
+endfunction()
+
+function(corehost_target_msvc_linker_option target visibility option)
+    if(COREHOST_COMPILER_MSVC_DRIVER)
+        target_link_options(${target} ${visibility} "${option}")
+    else()
+        target_link_options(${target} ${visibility} "LINKER:SHELL:${option}")
+    endif()
+endfunction()
+
+function(corehost_target_msvc_linker_options target visibility)
+    foreach(option IN LISTS ARGN)
+        corehost_target_msvc_linker_option(${target} ${visibility} "${option}")
+    endforeach()
+endfunction()
