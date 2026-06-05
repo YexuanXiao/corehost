@@ -107,7 +107,7 @@ In this second mode, the COM handoff only sets up the session; it does not finis
 
 The terminal and corehost keep separate state for the same session. The terminal owns the visible UI and terminal-facing state, such as windows, tabs, rendering, selection, scrollback, and its VT screen model. corehost owns the Windows console-server state, including process membership, console modes, input records, code pages, API-visible cursor/attribute state, the API-readable screen buffer, pending ConDrv requests, and control-event routing. VT bytes are the boundary between them: terminal input is sent to corehost as VT, and console output is sent back to the terminal as VT. The terminal does not implement Windows Console APIs, and corehost does not own the visible UI.
 
-### Mode 3: explicit ConPTY startup
+### Mode 3: ConPTY
 
 `ConptyCreatePseudoConsole` starts corehost with `--headless`. In this mode libconpty creates the ConDrv server handle, a signal handle, and the VT input/output pipes, then launches corehost with arguments such as `--server`, `--signal`, and others.
 
