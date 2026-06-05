@@ -46,7 +46,7 @@ Then, you can use the scripts in the scripts directory to register corehost as t
 
 Finally, corehost can also be used together with conpty.dll to provide ConPty support for third-party terminals. If you are using conpty.dll released by Microsoft, rename corehost.exe to openconsole.exe; if you are using corehost's libconpty, you can directly use corehost.exe.
 
-Additionally, corehost can be used as a C++ library by third-party terminals, as described below.
+Additionally, corehost can be used as a C++ library by third-party terminals, as described below. In this working mode, inter-process communication is completely avoided.
 
 ## Compatibility
 
