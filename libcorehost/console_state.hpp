@@ -32,15 +32,36 @@ struct ascii_case_insensitive_less
 {
     using is_transparent = void;
 
+    static std::wstring_view view(std::wstring_view value) noexcept
+    {
+        return value;
+    }
+
+    static std::wstring_view view(const std::wstring &value) noexcept
+    {
+        return value;
+    }
+
+    static std::wstring_view view(const wchar_t *value) noexcept
+    {
+        return value ? std::wstring_view{value} : std::wstring_view{};
+    }
+
     static wchar_t lower(wchar_t ch) noexcept
     {
         return ch >= L'A' && ch <= L'Z' ? static_cast<wchar_t>(ch - L'A' + L'a') : ch;
     }
 
-    bool operator()(std::wstring_view lhs, std::wstring_view rhs) const noexcept
+    static bool compare(std::wstring_view lhs, std::wstring_view rhs) noexcept
     {
         return std::lexicographical_compare(lhs.begin(), lhs.end(), rhs.begin(), rhs.end(),
                                             [](wchar_t a, wchar_t b) { return lower(a) < lower(b); });
+    }
+
+    template <typename L, typename R>
+    bool operator()(const L &lhs, const R &rhs) const noexcept
+    {
+        return compare(view(lhs), view(rhs));
     }
 };
 

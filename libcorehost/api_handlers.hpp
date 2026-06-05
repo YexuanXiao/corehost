@@ -67,6 +67,16 @@ inline const std::wstring *find_alias_value(const console_state &state, std::wst
     return nullptr;
 }
 
+inline void insert_or_assign_alias(alias_map &aliases, std::wstring_view source, std::wstring_view target)
+{
+    if (auto alias_it = aliases.find(source); alias_it != aliases.end())
+    {
+        alias_it->second.assign(target);
+        return;
+    }
+    aliases.emplace(std::wstring{source}, std::wstring{target});
+}
+
 inline bool is_east_asian_code_page(UINT code_page) noexcept
 {
     return code_page == code_page_japanese || code_page == code_page_korean ||
@@ -2747,16 +2757,18 @@ inline bool api_l3_add_alias(corehost::condrv_io::io_msg &msg, console_state &st
         const std::wstring_view src_key{src, src_chars};
         if (tgt_chars == 0)
         {
-            state.aliases.erase(std::wstring{src_key});
+            state.aliases.erase(src_key);
             if (auto exe_it = state.aliases_by_exe.find(exe_key); exe_it != state.aliases_by_exe.end())
-                exe_it->second.erase(std::wstring{src_key});
+                exe_it->second.erase(src_key);
         }
         else
         {
-            std::wstring source{src_key};
-            std::wstring target{tgt, tgt_chars};
-            state.aliases.insert_or_assign(source, target);
-            state.aliases_by_exe[std::wstring{exe_key}].insert_or_assign(std::move(source), std::move(target));
+            const std::wstring_view target{tgt, tgt_chars};
+            insert_or_assign_alias(state.aliases, src_key, target);
+            auto exe_it = state.aliases_by_exe.find(exe_key);
+            if (exe_it == state.aliases_by_exe.end())
+                exe_it = state.aliases_by_exe.try_emplace(std::wstring{exe_key}).first;
+            insert_or_assign_alias(exe_it->second, src_key, target);
         }
     }
     else
