@@ -18,7 +18,7 @@ Its goal is to act as a **bridge between the console GUI and the Windows console
 
 - **Default terminal handling** - delegates console sessions to Windows Terminal (or other third-party terminals) via COM handoff
 - **COM embedding mode** - used to support third-party terminals as the default terminal, compatible with the IConsoleHandoff and ITerminalHandoff protocols used by Windows Terminal.
-- **ConPTY** - complete pseudo console support
+- **ConPTY** - pseudo console support
 
 corehost aims to provide **high quality and high performance** for driving:
 
@@ -42,7 +42,7 @@ corehost supports three usage modes.
 
 First, you can directly replace conhost.exe with corehost.exe, and corehost will take over all functionality of conhost, except that it does not support window mode.
 
-Then, you can use the scripts in the scripts directory to register corehost as the default terminal. In this mode, when you launch cmd using Run, corehost will take over the functionality of OpenConsole.
+Then, you can use the scripts in the scripts directory to register corehost as the default console. In this mode, when you launch cmd using Run, corehost will take over the functionality of OpenConsole.
 
 Finally, corehost can also be used together with conpty.dll to provide ConPty support for third-party terminals. If you are using conpty.dll released by Microsoft, rename corehost.exe to openconsole.exe; if you are using corehost's libconpty, you can directly use corehost.exe.
 
@@ -54,11 +54,11 @@ During development, corehost was tested using cmd, powershell, pwsh, and edit. I
 
 ## How to build
 
-1. Install the latest VS2026, C++ build tools v14.51 or later
-2. Install CMake 4.3 or later
+1. MSVC14.51+ or Clang20+, supporting both STL and libc++.
+2. CMake 4.3 or later
 3. `git clone --recurse-submodules https://github.com/YexuanXiao/corehost`
 4. `cmake -B build`
-5. `cmake --build build --config Release --target corehost`
+5. `cmake --build build --config Release`
 
 ## Build targets
 
@@ -85,7 +85,7 @@ corehost is built around one common runtime: a ConPTY session that speaks to Con
 
 ### Mode 1: corehost as conhost.exe
 
-Windows starts `conhost.exe` for classic console allocation paths, such as launching a console process with `CreateProcess` and `CREATE_NEW_CONSOLE`, using Run to start a console program, or calling `AllocConsole` from a GUI process. In this path ConDrv.sys launches conhost with a command-line handle value such as `0x4`. This value is the process-local numeric value of an already-open ConDrv `\Server` handle. The `\Server` object is the user-mode host's control endpoint for one console session: ConDrv produces console requests on it, and corehost consumes those requests and returns completion results. During `CONNECT`, corehost opens the session's `\Input` and `\Output` objects relative to that `\Server` handle. Those two client handles are handed back to ConDrv and become the console input and console output handles observed by the attached application. When the application later calls console APIs or reads/writes those handles, ConDrv turns that client-side activity into requests that corehost receives through `\Server`.
+Windows starts conhost.exe for classic console allocation paths, such as launching a console process with `CreateProcess` and `CREATE_NEW_CONSOLE`, using Run to start a console program, or calling `AllocConsole` from a GUI process. In this path ConDrv.sys launches conhost with a command-line handle value such as `0x4`. This value is the process-local numeric value of an already-open ConDrv `\Server` handle. The `\Server` object is the user-mode host's control endpoint for one console session: ConDrv produces console requests on it, and corehost consumes those requests and returns completion results. During `CONNECT`, corehost opens the session's `\Input` and `\Output` objects relative to that `\Server` handle. Those two client handles are handed back to ConDrv and become the console input and console output handles observed by the attached application. When the application later calls console APIs or reads/writes those handles, ConDrv turns that client-side activity into requests that corehost receives through `\Server`.
 
 The first important ConDrv message is the `CONNECT` request. Its payload is a `CONSOLE_SERVER_MSG`. This structure contains startup information that originally came from the client process and the Windows console subsystem, including the requested title, show-window flag, initial buffer/window size, process group id, whether the client is a console application, and whether a visible window is expected.
 
@@ -109,9 +109,9 @@ The terminal and corehost keep separate state for the same session. The terminal
 
 ### Mode 3: explicit ConPTY startup
 
-`ConptyCreatePseudoConsole` starts corehost with `--headless`. In this mode libconpty creates the ConDrv server handle, a signal handle, and the VT input/output pipes, then launches corehost with arguments such as `--server`, `--signal`, `--width`, and `--height`.
+`ConptyCreatePseudoConsole` starts corehost with `--headless`. In this mode libconpty creates the ConDrv server handle, a signal handle, and the VT input/output pipes, then launches corehost with arguments such as `--server`, `--signal`, and others.
 
-corehost parses those arguments, adopts the inherited handles, initializes the session configuration, and enters ConPTY mode immediately. There is no default-terminal lookup and no COM handoff. This is the path used by applications that explicitly use the ConPTY API and provide their own terminal frontend.
+corehost parses those arguments, adopts the inherited handles, initializes the session configuration, and enters ConPTY mode immediately. This is also the path used by applications that explicitly use the ConPTY API and provide their own terminal frontend.
 
 ### ConPTY runtime
 
@@ -122,12 +122,16 @@ The ConPTY runtime is the shared implementation used by all three startup modes.
 - The console state stores process membership, modes, code pages, cursor state, attributes, title, tab stops, scrolling region, and other state that must be visible through console APIs.
 - The screen buffer models the visible console buffer needed by APIs such as cursor positioning, text writes, erase operations, scrolling, and screen reads. It is not a renderer; it is the state model that lets corehost answer console API requests correctly.
 - The input buffer stores keyboard and control input in console-event form. VT keyboard sequences from the terminal are decoded into console input records when the client reads from the console input handle.
-- The VT parser converts terminal-side UTF-8/VT input into structured messages. It recognizes text, cursor movement, erase operations, SGR, OSC title and hyperlink sequences, terminal replies, and keyboard sequences. Unknown or unsupported sequences are preserved in a form that allows the caller to either pass them through or expose printable text when appropriate.
-- The VT output path serializes console output and console-state changes back to UTF-8/VT for the terminal frontend. It buffers output so that large console writes do not become one small `WriteFile` call per character or per escape sequence.
+- The VT parser converts terminal-side VT input into structured messages. It recognizes text, cursor movement, erase operations, SGR, OSC title and hyperlink sequences, terminal replies, and keyboard sequences. Unknown or unsupported sequences are preserved in a form that allows the caller to either pass them through or expose printable text when appropriate.
+- The VT output path serializes console output and console-state changes back to VT for the terminal frontend. It buffers output so that large console writes do not become one small `WriteFile` call per character or per escape sequence.
 - The signal path handles terminal-side control notifications, such as close, resize, and control events, and maps them into the Windows console behavior expected by attached processes.
 
-The main data path uses a synchronous I/O model and is intentionally almost single-threaded. One main loop reads a ConDrv request, lets the router update console state or prepare a pending read, flushes VT output when needed, and returns the completion result to ConDrv. Terminal input is also serviced from that same loop during idle or pending-read phases, so ordinary keyboard input, terminal replies, console output, and most API state transitions are serialized through one state machine. This avoids the need for locks around most console state and keeps ordering close to the original console protocol: a request is either completed immediately, completed by the next ConDrv read cycle, or held pending until terminal input supplies the missing data.
+### Design
+
+In addition to debugging facilities, corehost **does not use any mutable global variables**. All immutable global variables are **initialized within the main function**, and **no singletons, including magic statics**, are used. All state is **passed through function parameters** and is modularized as much as possible, making corehost very easy to understand and debug, whether for humans or for AI.
+
+The main data path uses a **synchronous I/O** model and is intentionally almost **single-threaded**. One main loop reads a ConDrv request, lets the router update console state or prepare a pending read, flushes VT output when needed, and returns the completion result to ConDrv. Terminal input is also serviced from that same loop during idle or pending-read phases, so ordinary keyboard input, terminal replies, console output, and most API state transitions are serialized through **one state machine**. This **avoids the need for locks** around most console state. A request is either completed immediately, completed by the next ConDrv read cycle, or held pending until terminal input supplies the missing data.
 
 The signal thread is the main exception to that model. It exists because the terminal has a separate control channel that is not part of the normal VT input/output stream. In the direct default-terminal handoff path, the signal thread reads console-control notifications from the terminal signal pipe, forwards the relevant control events to the Windows console subsystem, and notices when the pipe closes. In ConPTY sessions, the PtySignal thread consumes terminal-side sideband messages such as show/hide, clear-buffer, parent-window, and resize notifications. Some messages are only consumed to keep the wire protocol aligned; others update the local screen buffer or console size. When the signal pipe closes, the thread signals the main loop so pending input waits can end cleanly.
 
-Data usually flows in two directions. Output from a console application arrives as ConDrv API messages, is applied to the local console and screen state, and is serialized as VT to the terminal. Input from the terminal arrives as UTF-8/VT bytes, is parsed into keyboard, text, control, or terminal-response messages, and is then exposed to the console application through the input APIs. This is the core bridge that lets Windows console programs run behind a modern terminal frontend while still observing Windows console semantics.
+Data usually flows in two directions. Output from a console application arrives as ConDrv API messages, is applied to the local console and screen state, and is serialized as VT to the terminal. Input from the terminal arrives as VT bytes, is parsed into keyboard, text, control, or terminal-response messages, and is then exposed to the console application through the input APIs. This is the core bridge that lets Windows console programs run behind a modern terminal frontend while still observing Windows console semantics.
