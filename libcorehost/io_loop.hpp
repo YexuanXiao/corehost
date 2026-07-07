@@ -115,7 +115,8 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             prev_done = nullptr;
             LOG2("READ_IO returned no message");
 
-            router.flush_vt_output();
+            if (router.has_buffered_vt_output())
+                router.flush_vt_output();
 
             // 0ms 只触发一次非阻塞等待，让 ConDrv 消化 pending 状态。
             {
@@ -183,10 +184,12 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
                 }
                 else
                 {
-                    // 没有终端可见输出时保留 piggyback completion，减少一次
-                    // COMPLETE_IO IOCTL。
+                    // 普通输出保留 piggyback completion；下一轮 READ_IO 提交
+                    // completion 前会 flush 缓冲 VT，避免额外 COMPLETE_IO 往返。
                     if (router.should_exit())
                     {
+                        if (router.has_buffered_vt_output())
+                            router.flush_vt_output();
                         corehost::condrv_io::complete_io(server, cur->complete);
                         LOG2("message completed explicitly before shutdown func=%lu", cur->descriptor.Function);
                         break;

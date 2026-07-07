@@ -327,6 +327,56 @@ inline void apply_terminal_line_feed(console_state &state, screen_buffer &sb) no
     state.cursor.position.X = view.Left;
 }
 
+// 透传输出路径的换行：只更新 cursor，不滚动 screen_buffer。
+inline void apply_terminal_line_feed_cursor_only(console_state &state, screen_buffer &sb) noexcept
+{
+    const auto view = sb.viewport.rect();
+    if (state.cursor.position.Y >= view.Bottom)
+        state.cursor.position.Y = view.Bottom;
+    else
+        state.cursor.position.Y = static_cast<SHORT>(state.cursor.position.Y + 1);
+    state.cursor.position.X = view.Left;
+}
+
+// UTF-8 VT 透传路径只推进 cursor，不写 screen_buffer。raw 字节已直接写给
+// 终端；这里仍要维护 Console API 可见的光标位置与换行语义。
+inline void apply_terminal_text_cursor_only(std::u32string_view text, console_state &state, screen_buffer &sb) noexcept
+{
+    const auto view = sb.viewport.rect();
+    state.cursor.position.X = std::clamp<SHORT>(state.cursor.position.X, view.Left, view.Right);
+    state.cursor.position.Y = std::clamp<SHORT>(state.cursor.position.Y, view.Top, view.Bottom);
+
+    auto remaining = text;
+    while (!remaining.empty())
+    {
+        uint16_t cell_count = 0;
+        size_t consumed = 0;
+        while (consumed < remaining.size())
+        {
+            const auto ch = remaining[consumed];
+            int width_columns = char_width_for_mode(ch, state.text_measurement, state.ambiguous_is_wide);
+            if (width_columns < 1)
+                width_columns = 1;
+            if (width_columns > 2)
+                width_columns = 2;
+
+            if (state.cursor.position.X + cell_count + width_columns - 1 > view.Right)
+                break;
+
+            cell_count = static_cast<uint16_t>(cell_count + width_columns);
+            ++consumed;
+        }
+
+        if (consumed == 0)
+            break;
+
+        state.cursor.position.X = static_cast<SHORT>(state.cursor.position.X + cell_count);
+        remaining.remove_prefix(consumed);
+        if (state.cursor.position.X > view.Right || !remaining.empty())
+            apply_terminal_line_feed_cursor_only(state, sb);
+    }
+}
+
 // 将普通文本写入本地 screen_buffer，并按 viewport 自动换行/滚动更新
 // state.cursor。text 不包含控制字符，宽度测量使用 console_state 设置。
 inline void apply_terminal_text(std::u32string_view text, console_state &state, screen_buffer &sb) noexcept
@@ -363,8 +413,14 @@ inline void consume_write_console_text_run(std::u32string_view text, console_sta
                                            pipe_bridge &bridge, bool emit_vt = true) noexcept
 {
     if (emit_vt)
+    {
         bridge.vt_write_text(text);
-    apply_terminal_text(text, state, sb);
+        apply_terminal_text(text, state, sb);
+    }
+    else
+    {
+        apply_terminal_text_cursor_only(text, state, sb);
+    }
 }
 
 // 消费 WriteConsole 中的换行：可选地输出 CRLF，并同步本地滚动/光标状态。
@@ -373,7 +429,10 @@ inline void consume_write_console_line_feed(console_state &state, screen_buffer 
 {
     if (emit_vt)
         bridge.vt_write_crlf();
-    apply_terminal_line_feed(state, sb);
+    if (emit_vt)
+        apply_terminal_line_feed(state, sb);
+    else
+        apply_terminal_line_feed_cursor_only(state, sb);
 }
 
 // 清除同一行的列区间，用于 ICH/DCH/ECH 在本地屏幕状态中制造空白区域。
@@ -511,7 +570,8 @@ inline void apply_terminal_scrolling_region(const vt_message &msg, console_state
 // 把输出方向 VT message 应用到本地 Console 状态。id 由调用者静态传入，使
 // reset/dispatch 路径不需要再动态判断消息类型。
 template <vt_message_id id>
-inline void vt_msg_apply_terminal_state(const vt_message &msg, console_state &state, screen_buffer &sb) noexcept
+inline void vt_msg_apply_terminal_state(const vt_message &msg, console_state &state, screen_buffer &sb,
+                                        bool sync_screen = true) noexcept
 {
     const auto view = sb.viewport.rect();
     const auto origin = sb.viewport.origin();
@@ -520,13 +580,19 @@ inline void vt_msg_apply_terminal_state(const vt_message &msg, console_state &st
     switch (id)
     {
     case vt_message_id::text:
-        apply_terminal_text(msg, state, sb);
+        if (sync_screen)
+            apply_terminal_text(msg, state, sb);
+        else
+            apply_terminal_text_cursor_only(msg.payload.text, state, sb);
         break;
     case vt_message_id::carriage_return:
         state.cursor.position.X = view.Left;
         break;
     case vt_message_id::line_feed:
-        apply_terminal_line_feed(state, sb);
+        if (sync_screen)
+            apply_terminal_line_feed(state, sb);
+        else
+            apply_terminal_line_feed_cursor_only(state, sb);
         break;
     case vt_message_id::reverse_index:
         apply_terminal_reverse_index(state, sb);
@@ -748,7 +814,7 @@ inline void consume_write_console_vt_message(vt_parser &parser, const vt_parse_r
             bridge.vt_msg_send<id>(msg);
     }
 
-    vt_msg_apply_terminal_state<id>(msg, state, sb);
+    vt_msg_apply_terminal_state<id>(msg, state, sb, emit_vt);
     parser.reset();
 }
 
@@ -1208,8 +1274,12 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                         ch = state.dec_to_unicode(static_cast<unsigned char>(ch));
             }
 
+            const bool replay_utf8_to_terminal =
+                !unicode && !emit_console_attributes && (output_code_page == CP_UTF8 || output_code_page == 65001);
+
             vt_message m{};
 
+            if (!replay_utf8_to_terminal)
             {
                 COREHOST_PERF_SCOPE(write_console_position);
                 bool need_cup = bridge.consume_enter_newline();
@@ -1246,6 +1316,16 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                         bridge.vt_write_cup_buffer(start_pos);
                 }
             }
+            else if (bridge.consume_enter_newline())
+            {
+                state.cursor.position = bridge.get_enter_dest();
+                if (is_line_terminator_echo(u32_view(u32s)))
+                {
+                    bridge.sync_cursor_after_write(state.cursor.position);
+                    LOG2("[api_write_console] swallowed enter echo newline");
+                    return;
+                }
+            }
 
             if (emit_console_attributes)
             {
@@ -1261,12 +1341,11 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             // RAW_WRITE/WriteConsoleA 在 UTF-8 + VT 模式下可以把原始字节直接写给
             // WT，同时仍用 UTF-32 parser 更新本地 screen_buffer。这样避免重新
             // 编码破坏应用已经构造好的 VT/UTF-8 字节流。
-            const bool replay_utf8_to_terminal =
-                !unicode && !emit_console_attributes && (output_code_page == CP_UTF8 || output_code_page == 65001);
             if (replay_utf8_to_terminal)
                 bridge.vt_append_str(std::string_view{reinterpret_cast<const char *>(data), bytes});
 
             auto &output_parser = bridge.output_parser();
+            const bool emit_vt = !replay_utf8_to_terminal;
 
             {
                 COREHOST_PERF_SCOPE_AMOUNT(write_console_parser, u32s.size());
@@ -1283,8 +1362,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                     if (id == vt_message_id::continue_text)
                     {
                         COREHOST_PERF_SCOPE(write_console_consume_msg);
-                        consume_write_console_text_run(parsed.message.payload.text, state, sb, bridge,
-                                                       !replay_utf8_to_terminal);
+                        consume_write_console_text_run(parsed.message.payload.text, state, sb, bridge, emit_vt);
                         output_parser.reset();
                         i += parsed.consumed;
                         continue;
@@ -1292,8 +1370,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                     if (id == vt_message_id::text)
                     {
                         COREHOST_PERF_SCOPE(write_console_consume_msg);
-                        consume_write_console_text_run(parsed.message.payload.text, state, sb, bridge,
-                                                       !replay_utf8_to_terminal);
+                        consume_write_console_text_run(parsed.message.payload.text, state, sb, bridge, emit_vt);
                         output_parser.reset();
                         i += parsed.consumed;
                         continue;
@@ -1301,7 +1378,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
 
                     // CRLF 在控制台输出状态中表现为一次换行。parser 只消费 CR；
                     // 若紧随 LF，则调用方跳过 LF，避免 screen_buffer 多换一行。
-                    if (id == vt_message_id::carriage_return && i + parsed.consumed < u32s.size() &&
+                    if (id == vt_message_id::carriage_return && i + parsed.consumed < input.size() &&
                         input[i + parsed.consumed] == U'\n')
                     {
                         id = vt_message_id::line_feed;
@@ -1314,8 +1391,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
 
                     {
                         COREHOST_PERF_SCOPE(write_console_consume_msg);
-                        dispatch_write_console_vt_message(id, output_parser, parsed, state, sb, bridge,
-                                                          !replay_utf8_to_terminal);
+                        dispatch_write_console_vt_message(id, output_parser, parsed, state, sb, bridge, emit_vt);
                     }
                 }
             }
@@ -1324,7 +1400,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             // completion 前同步，供下一次 ReadConsole 使用。
             {
                 COREHOST_PERF_SCOPE(write_console_sync_cursor);
-                bridge.sync_cursor_after_write(state.cursor.position);
+                bridge.sync_cursor_after_write(state.cursor.position, !replay_utf8_to_terminal);
             }
 
             LOG2("[api_write_console] done: u32s_len=%zu sbytes=%lu end_cursor=(%d,%d) synced", u32s.size(),
