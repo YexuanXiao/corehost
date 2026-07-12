@@ -36,26 +36,12 @@ namespace detail
 //   - conhost 进程主令牌为 High IL (管理员完整性级别)
 //   - Windows 同时维护一个"链接令牌" (Linked Token)，即提升前
 //     原始用户的 Medium IL 令牌
-//
-// 双重检查：TokenElevation（主令牌是否提升）+ TokenLinkedToken
-// （链接令牌是否存在）。两者同时成立才返回 true。
 // ──────────────────────────────────────────────────────────
 [[nodiscard]] inline bool is_elevated() noexcept
 {
-    win32::handle token;
-    if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, reinterpret_cast<PHANDLE>(token.put())))
-        return false;
-
     TOKEN_ELEVATION elev{};
     DWORD sz = sizeof(elev);
-    if (!::GetTokenInformation(token.get(), TokenElevation, &elev, sz, &sz) || !elev.TokenIsElevated)
-        return false;
-
-    HANDLE linked_raw = nullptr;
-    if (!::GetTokenInformation(token.get(), TokenLinkedToken, &linked_raw, sizeof(linked_raw), &sz))
-        return false;
-
-    if (!::CloseHandle(linked_raw))
+    if (!::GetTokenInformation(::GetCurrentProcessToken(), TokenElevation, &elev, sz, &sz) || !elev.TokenIsElevated)
         return false;
 
     return true;
