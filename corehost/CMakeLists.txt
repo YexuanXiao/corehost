@@ -32,7 +32,6 @@ target_include_directories(corehost PRIVATE
 
 target_link_libraries(corehost PRIVATE
     libcorehost
-    conhost_proxy
     conhost_proxy_headers
 )
 
