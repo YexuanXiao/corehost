@@ -53,7 +53,9 @@ class vt_output_buffer
     {
         // flush 是唯一真正写 vt_out 的位置；调用方负责选择 completion 前后
         // 的刷新时机，本类不理解 ConDrv 请求边界。
-        if (!_output.valid() || _buffer.empty())
+        if (!_output.valid())
+            _buffer.clear();
+        if (_buffer.empty())
             return;
         COREHOST_PERF_SCOPE_AMOUNT(vt_output_write_file, _buffer.size());
         const auto result = win32::write_all(_output, std::span<const char8_t>{_buffer.data(), _buffer.size()});
