@@ -35,8 +35,8 @@ void copy_process_list(io_state &io, pipe_bridge &bridge) noexcept
     bridge.set_process_list(std::span<const DWORD>{io.process_list.data(), io.process_count});
 }
 
-void run_conpty_session(win32::handle server, win32::handle event, win32::handle condrv_input,
-                        win32::handle condrv_output, win32::handle vt_in, win32::handle vt_out,
+void run_conpty_session(win32::handle_view server, win32::handle_view event, win32::handle condrv_input,
+                        win32::handle condrv_output, win32::handle_view vt_in, win32::handle_view vt_out,
                         win32::handle signal_pipe, const conpty_session_config &config)
 {
     // 此日志记录会话的外部输入：ConDrv server/event、VT 管道、信号管道和
@@ -88,14 +88,14 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
     // input_buffer 持有 Console API 可见的 INPUT_RECORD 队列。init_event 必须
     // 在 API handler 使用前调用，否则 GetNumberOfConsoleInputEvents 无法等待。
     input_buffer ibuf;
-    ibuf.set_event(event.view());
+    ibuf.set_event(event);
     ibuf.init_event();
 
     // ── Layer 2: I/O 状态 ──
     // io_state 管理 ConDrv 连接对象和进程列表。condrv_input/output 可能已经
     // 由 defterm headless 路径提前 accept；为空时首个 CONNECT 会创建它们。
     io_state io;
-    io.set_server(server.view());
+    io.set_server(server);
     io.condrv_input = std::move(condrv_input);
     io.condrv_output = std::move(condrv_output);
 
@@ -106,9 +106,9 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
 
     // vt_in 是终端到 corehost 的输入/控制字节流；VT 输出句柄由
     // vt_output_buffer 负责缓冲写入；server 用于 bridge 完成挂起 ConDrv I/O。
-    bridge.set_server(server.view());
-    bridge.set_vt_input(vt_in.view());
-    bridge.set_vt_output(vt_out.view());
+    bridge.set_server(server);
+    bridge.set_vt_input(vt_in);
+    bridge.set_vt_output(vt_out);
 
     // ── Layer 2: api router ──
     // api_router 把 USER_DEFINED Console API 分派给 api_handlers。传入主/备用
@@ -153,7 +153,7 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
         bridge.set_signal_shutdown_event(vt_input_poll_event.view());
     }
 
-    // ── 继承光标位置（对标原始 VtIo::StartIfNeeded + WriteDSRCPR）──
+    // ── 继承光标位置 ──
     // 终端 CPR 应答会在主 I/O 循环的 on_idle() 中统一读取并处理。
     if (config.inherit_cursor)
     {
@@ -169,7 +169,6 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
     }
 
     // ── 初始 VT 握手：通知终端进入 Win32 Input Mode ──
-    // 对标原始 conhost VtIo::Start()。
     // 缺失 \x1b[?9001h → 终端不会发送键盘数据 → 打字不回显。
     // 9001 是 Windows Terminal 的 Win32 Input Mode 私有模式号。
     bridge.vt_append_str("\x1b[?9001h"sv);
@@ -188,12 +187,12 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
     // router 持有所有分派入口；run_io_loop_no_setup 只负责 READ_IO 时序、
     // completion 提交和 pending 等待。
     LOG("corehost::conpty::run_conpty_session: entering io loop");
-    corehost::conpty::run_io_loop_no_setup(server.view(), event.view(), router);
+    corehost::conpty::run_io_loop_no_setup(server, event, router);
     LOG("corehost::conpty::run_conpty_session: loop returned");
 }
 
-void conpty_entry(win32::handle server, win32::handle event, win32::handle condrv_input, win32::handle condrv_output,
-                  win32::handle vt_in, win32::handle vt_out, win32::handle signal_pipe, short width, short height,
+void conpty_entry(win32::handle_view server, win32::handle_view event, win32::handle condrv_input, win32::handle condrv_output,
+                  win32::handle_view vt_in, win32::handle_view vt_out, win32::handle signal_pipe, short width, short height,
                   bool inherit_cursor, text_measurement_mode text_measurement, bool ambiguous_is_wide)
 {
     LOG("corehost::conpty::conpty_entry: s=%p vi=%p vo=%p ev=%p w=%d h=%d sig=%p ambi=%d", server.get(), vt_in.get(),

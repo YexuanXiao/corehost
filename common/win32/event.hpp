@@ -147,6 +147,11 @@ class event
         return _handle.release();
     }
 
+    constexpr operator handle_view() noexcept
+    {
+        return _handle.view();
+    }
+
   private:
     win32::handle _handle{};
 };

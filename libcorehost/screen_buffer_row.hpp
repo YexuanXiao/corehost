@@ -32,8 +32,6 @@
 
 namespace corehost::conpty
 {
-
-// ── TextAttribute (对标原始 TextAttribute, 简化版) ──
 struct text_attribute
 {
     // 0x07 是传统白前景/黑背景；legacy 保存 Win32 16 色属性位。

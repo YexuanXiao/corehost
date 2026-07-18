@@ -40,9 +40,8 @@ try
             hr.vt_in.get(), hr.vt_out.get(), hr.event.get(), hr.signal.get(), hr.width, hr.height);
 
         LOG("entering conpty_entry");
-        corehost::conpty::conpty_entry(std::move(hr.server), std::move(hr.event), std::move(hr.condrv_input),
-                                       std::move(hr.condrv_output), std::move(hr.vt_in), std::move(hr.vt_out),
-                                       std::move(hr.signal), hr.width, hr.height, false,
+        corehost::conpty::conpty_entry(hr.server, hr.event, std::move(hr.condrv_input), std::move(hr.condrv_output),
+                                       hr.vt_in, hr.vt_out, std::move(hr.signal), hr.width, hr.height, false,
                                        corehost::conpty::text_measurement_mode::graphemes, true);
         LOG("conpty_entry returned cleanly");
         return 0;
@@ -57,12 +56,13 @@ try
         return 0;
     }
 
+    // todo:
+    // https://github.com/microsoft/terminal/blob/694db4c0bc6e506db51ad98937db6ea062ab8a00/src/interactivity/win32/windowio.cpp#L927
     if (args.is_headless())
     {
         LOG("entering conpty (--headless) mode, server=0x%Ix", args.server_handle());
 
-        // 对标原始: ConsoleServerInitialization →ConsoleCreateIoThread
-        auto server = win32::handle{reinterpret_cast<HANDLE>(args.server_handle())};
+        auto server = win32::handle::from_uintptr(args.server_handle());
         auto input_event = win32::event{win32::create_tag, true, false};
         auto ev = win32::handle{input_event.release()};
         corehost::condrv_io::set_server_info(server.view(), ev.view());
@@ -70,14 +70,14 @@ try
         // 如果有--signal <handle>, 传递给信号线程
         win32::handle sig_pipe;
         if (auto sh = args.signal_handle(); sh != 0)
-            sig_pipe = win32::handle{reinterpret_cast<HANDLE>(sh)};
+            sig_pipe = win32::handle::from_uintptr(sh);
 
         LOG("entering conpty_entry (mode=%d ambiguous=%d)", static_cast<int>(args.text_measurement()),
             args.ambiguous_is_wide());
-        corehost::conpty::conpty_entry(
-            std::move(server), std::move(ev), {}, {}, win32::handle{::GetStdHandle(STD_INPUT_HANDLE)},
-            win32::handle{::GetStdHandle(STD_OUTPUT_HANDLE)}, std::move(sig_pipe), args.width(), args.height(),
-            args.inherit_cursor(), args.text_measurement(), args.ambiguous_is_wide());
+        corehost::conpty::conpty_entry(server, ev, {}, {}, win32::handle_view{::GetStdHandle(STD_INPUT_HANDLE)},
+                                       win32::handle_view{::GetStdHandle(STD_OUTPUT_HANDLE)}, std::move(sig_pipe),
+                                       args.width(), args.height(), args.inherit_cursor(), args.text_measurement(),
+                                       args.ambiguous_is_wide());
         LOG("conpty_entry returned cleanly");
         return 0;
     }

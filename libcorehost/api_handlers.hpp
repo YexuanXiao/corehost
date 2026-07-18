@@ -2676,7 +2676,7 @@ inline bool api_set_title(corehost::condrv_io::io_msg &msg, console_state &state
 }
 
 // ════════════════════════════════════════════════════════
-// L3 API handlers (对标 conmsgl3.h + ApiDispatchers.cpp)
+// L3 API handlers
 //
 // 第一类 (20 个): ConPTY 下有实际意义，直接读写 console_state
 // 第二类 (24 个): 原始全部路由到 ServerDeprecatedApi → ucomplete
@@ -3493,7 +3493,7 @@ inline bool api_l3_set_current_font(corehost::condrv_io::io_msg &msg, console_st
     return true;
 }
 
-// ── 第二类 L3: 废弃 API (对标 ServerDeprecatedApi) ──
+// ── 第二类 L3: 废弃 API ──
 // 废弃/未实现 L3 API：不维护内部状态，返回 not implemented。
 inline bool api_l3_deprecated(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                               pipe_bridge &) noexcept

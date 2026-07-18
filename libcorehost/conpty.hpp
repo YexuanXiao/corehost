@@ -40,14 +40,15 @@ struct conpty_session_config
 // signal_pipe: WT PtySignal 控制管道；空句柄表示没有 resize/clear/close 通知通道。
 // config: 会话策略值，只在组装状态机时读取，之后具体模块从 console_state/bridge
 //         中读取派生后的运行状态。
-void run_conpty_session(win32::handle server, win32::handle event, win32::handle condrv_input,
-                        win32::handle condrv_output, win32::handle vt_in, win32::handle vt_out,
+void run_conpty_session(win32::handle_view server, win32::handle_view event, win32::handle condrv_input,
+                        win32::handle condrv_output, win32::handle_view vt_in, win32::handle_view vt_out,
                         win32::handle signal_pipe, const conpty_session_config &config);
 
 // conpty_entry 是兼容旧调用点的薄入口；它把离散参数打包成
 // conpty_session_config 后交给 run_conpty_session。
-void conpty_entry(win32::handle server, win32::handle event, win32::handle condrv_input, win32::handle condrv_output,
-                  win32::handle vt_in, win32::handle vt_out, win32::handle signal_pipe, short width, short height,
-                  bool inherit_cursor, text_measurement_mode text_measurement, bool ambiguous_is_wide = false);
+void conpty_entry(win32::handle_view server, win32::handle_view event, win32::handle condrv_input,
+                  win32::handle condrv_output, win32::handle_view vt_in, win32::handle_view vt_out,
+                  win32::handle signal_pipe, short width, short height, bool inherit_cursor,
+                  text_measurement_mode text_measurement, bool ambiguous_is_wide = false);
 
 } // namespace corehost::conpty

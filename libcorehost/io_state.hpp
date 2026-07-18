@@ -118,8 +118,6 @@ struct io_state
             // 首个 CONNECT 需要创建 \Input/\Output，并由 accept_connection
             // 直接调用 COMPLETE_IO。调用方下一轮不能再次提交这个 completion。
             corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
-            input_id = reinterpret_cast<ULONG_PTR>(condrv_input.get());
-            output_id = reinterpret_cast<ULONG_PTR>(condrv_output.get());
             completion = connect_completion::explicit_complete;
             LOG2("CONNECT accepted input=%p output=%p processCount=%zu", condrv_input.get(), condrv_output.get(),
                  process_count);

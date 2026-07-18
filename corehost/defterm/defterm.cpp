@@ -316,13 +316,9 @@ void defterm_entry(std::uintptr_t condrv_handle)
     if (!handler.start_conpty)
         return;
 
-    win32::handle vt_in;
-
     // 创建一个真实管道，避免读端立即 EOF。
     // run_conpty_session 返回前必须保持存活。
-    win32::handle vt_in_keepalive;
-    auto res = ::CreatePipe(vt_in.put(), vt_in_keepalive.put(), nullptr, 0);
-    win32::throw_last_error(res != 0);
+    auto [vt_in, keepalive] = win32::create_pipe();
 
     // config 只描述本次 conpty 会话的策略，不拥有任何句柄。width/height 为
     // 0 时 run_conpty_session 使用 default_console_size。
@@ -335,9 +331,8 @@ void defterm_entry(std::uintptr_t condrv_handle)
 
     LOG("starting conpty session: size=%dx%d attachedPid=%lu pollVtInput=%d", config.width, config.height,
         config.attached_process_id);
-    corehost::conpty::run_conpty_session(std::move(server), win32::handle{input_event.release()},
-                                         std::move(handler.condrv_input), std::move(handler.condrv_output),
-                                         std::move(vt_in), {}, {}, config);
+    corehost::conpty::run_conpty_session(server, input_event, std::move(handler.condrv_input),
+                                         std::move(handler.condrv_output), vt_in, {}, {}, config);
 }
 
 } // namespace corehost::defterm

@@ -1,6 +1,5 @@
 // ── ntapi/consolenslmode.cpp ──────────────────────────
 // GetConsoleNlsMode / SetConsoleNlsMode 动态加载
-// 对标 ConsoleControl 的实现方式: GetProcAddress 从 kernel32.dll
 // 加载内部 API，避免直接链接。
 
 #include "consolenslmode.hpp"

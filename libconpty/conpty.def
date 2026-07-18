@@ -10,7 +10,7 @@ EXPORTS
     ConptyReleasePseudoConsole
     ConptyPackPseudoConsole
 
-    ; Compatibility aliases — 对标 kernel32 导出
+    ; Compatibility aliases
     CreatePseudoConsole = ConptyCreatePseudoConsole
     ResizePseudoConsole = ConptyResizePseudoConsole
     ClosePseudoConsole  = ConptyClosePseudoConsole

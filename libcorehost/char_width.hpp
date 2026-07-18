@@ -25,7 +25,6 @@ namespace corehost::conpty
 {
 
 // ── console 模式: 简化 CJK/全角判断 ──────────────────
-// 对标原始 conhost 中的 IsGlyphFullWidth 逻辑
 // 注意: 控制字符与 tab 由调用方处理
 // 返回传统 Console 格子模型下单个 codepoint 的列宽。
 inline int char_width_console(char32_t cp) noexcept
@@ -166,7 +165,6 @@ inline int char_width_wcswidth(char32_t cp, bool ambiguous_is_wide = false) noex
 #ifdef COREHOST_USE_SYSTEM_ICU
     return char_width_icu(cp, ambiguous_is_wide);
 #else
-    // ambiguous_is_wide: 对标原始 conhost --ambiguousIsWide
     // libunicode::width() 将 EAW=Ambiguous 永远计为 1
     // 需要额外查询 EAW 属性来判断
     if (ambiguous_is_wide)
@@ -210,7 +208,6 @@ inline int grapheme_cluster_width_u32(std::u32string_view cluster, bool ambiguou
             // cluster 内组合标记通常为 0 宽；emoji variation selector 需要覆盖
             // 默认 width，使整个 cluster 最终按宽 emoji 显示。
             auto w = char_width_unicode(cp, ambiguous_is_wide);
-            // 对标原始 CodepointWidthDetector::_graphemeNext:
             // VS16 会把 emoji presentation 强制为宽字符，最终 cluster 宽度再 clamp 到 2。
             return cp == 0xFE0F ? 2 : w;
         });
