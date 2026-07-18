@@ -6,7 +6,6 @@
 #include "connect_policy.hpp"
 #include "io.hpp"
 #include "terminal_handoff.hpp"
-#include "vt_handles.hpp"
 #include "conpty.hpp"
 #include "condrv_io.hpp"
 #include "os/Console/conmsgl1.h"
@@ -318,12 +317,12 @@ void defterm_entry(std::uintptr_t condrv_handle)
         return;
 
     win32::handle vt_in;
-    win32::handle vt_out;
 
-    // 仅在没有真实 STDIN 时持有 CreatePipe 的写端，避免读端立即 EOF。
-    // 它不传给 libcorehost，但 run_conpty_session 返回前必须保持存活。
+    // 创建一个真实管道，避免读端立即 EOF。
+    // run_conpty_session 返回前必须保持存活。
     win32::handle vt_in_keepalive;
-    initialize_vt_handles(vt_in, vt_out, vt_in_keepalive);
+    auto res = ::CreatePipe(vt_in.put(), vt_in_keepalive.put(), nullptr, 0);
+    win32::throw_last_error(res != 0);
 
     // config 只描述本次 conpty 会话的策略，不拥有任何句柄。width/height 为
     // 0 时 run_conpty_session 使用 default_console_size。
@@ -332,14 +331,13 @@ void defterm_entry(std::uintptr_t condrv_handle)
     config.height = handler.height;
     config.text_measurement = corehost::conpty::text_measurement_mode::graphemes;
     config.ambiguous_is_wide = true;
-    config.poll_vt_input = vt_in_keepalive.valid();
     config.attached_process_id = handler.attached_process_id;
 
     LOG("starting conpty session: size=%dx%d attachedPid=%lu pollVtInput=%d", config.width, config.height,
-        config.attached_process_id, config.poll_vt_input);
+        config.attached_process_id);
     corehost::conpty::run_conpty_session(std::move(server), win32::handle{input_event.release()},
                                          std::move(handler.condrv_input), std::move(handler.condrv_output),
-                                         std::move(vt_in), std::move(vt_out), {}, config);
+                                         std::move(vt_in), {}, {}, config);
 }
 
 } // namespace corehost::defterm

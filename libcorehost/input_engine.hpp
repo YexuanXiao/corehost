@@ -1,4 +1,4 @@
-// ── conpty/vt_input_engine.hpp ─────────────────────
+// ── conpty/input_engine.hpp ─────────────────────
 // Layer 2: VT 键盘消息到 INPUT_RECORD 的转换。
 //
 // 功能分解：

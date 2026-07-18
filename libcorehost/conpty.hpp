@@ -26,9 +26,6 @@ struct conpty_session_config
     // true 时 East Asian Width=A 的字符按 2 列计算。
     bool ambiguous_is_wide = false;
 
-    // true 表示 vt_in 可能是不会发信号的普通/兜底输入管道，I/O 循环需要轮询。
-    bool poll_vt_input = false;
-
     // 0 表示没有预附加进程；非 0 会预填进程列表，供 GetConsoleProcessList 返回。
     DWORD attached_process_id = 0;
 };
@@ -49,8 +46,6 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
 
 // conpty_entry 是兼容旧调用点的薄入口；它把离散参数打包成
 // conpty_session_config 后交给 run_conpty_session。
-// width/height/inherit_cursor/text_measurement/ambiguous_is_wide 对应 config 中
-// 同名字段；该入口不支持 poll_vt_input 和 attached_process_id。
 void conpty_entry(win32::handle server, win32::handle event, win32::handle condrv_input, win32::handle condrv_output,
                   win32::handle vt_in, win32::handle vt_out, win32::handle signal_pipe, short width, short height,
                   bool inherit_cursor, text_measurement_mode text_measurement, bool ambiguous_is_wide = false);

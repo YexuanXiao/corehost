@@ -23,7 +23,6 @@ target_sources(corehost
                 defterm/io.hpp
                 defterm/signal.hpp
                 defterm/terminal_handoff.hpp
-                defterm/vt_handles.hpp
 )
 
 target_include_directories(corehost PRIVATE

@@ -42,9 +42,9 @@ target_sources(libcorehost
                 terminal_cursor_state.hpp
                 text_measurement_mode.hpp
                 viewport_render.hpp
-                vt_input_engine.hpp
+                input_engine.hpp
                 vt_msg_dispatch.hpp
-                vt_output_buffer.hpp
+                output_buffer.hpp
                 vt_parser.hpp
 )
 

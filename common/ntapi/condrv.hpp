@@ -8,8 +8,6 @@
 namespace condrv
 {
 // 打开 ConDrv \Server 句柄（用于 IOCTL 通信）
-// 对标原版: g.pDeviceComm = new ConDrvDeviceComm(Server)
-//   内部调用 NtOpenFile(\Device\ConDrv\Server, ...)
 [[nodiscard]] inline win32::handle open_server()
 {
     win32::wcstring_view name{L"\\Device\\ConDrv\\Server"};

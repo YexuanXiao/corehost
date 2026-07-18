@@ -135,7 +135,8 @@ class pipe_bridge_io
             return vt_pipe_read_status::empty;
 
         const auto to_read = std::min<DWORD>(available, static_cast<DWORD>(destination.size()));
-        return read_from_vt_input(destination.first(to_read), read_bytes, "read_available");
+        LOG("[bridge_io] read available");
+        return read_from_vt_input(destination.first(to_read), read_bytes);
     }
 
     // 阻塞读取 vt_in，直到有字节或 EOF。只有没有 shutdown event 的等待路径
@@ -144,7 +145,8 @@ class pipe_bridge_io
     {
         // 只在没有 shutdown_event 的路径使用；调用方接受 ReadFile 阻塞到有输入或 EOF。
         read_bytes = 0;
-        return read_from_vt_input(destination, read_bytes, "read_blocking");
+        LOG("[bridge_io] read blocking");
+        return read_from_vt_input(destination, read_bytes);
     }
 
     // 尝试只消费一个特定字节。用于 CR 位于批次末尾时探测后续 LF；失败时
@@ -154,7 +156,6 @@ class pipe_bridge_io
         // 用于消费输入流中必须精确匹配的单字节后缀，例如 CR 后紧跟的 LF。
         // 只有下一个字节正好等于 expected 才读取；否则不改变 vt_in。
         consumed = {};
-
         char8_t next = {};
         DWORD peeked = 0;
         DWORD available = 0;
@@ -196,11 +197,9 @@ class pipe_bridge_io
         return {reinterpret_cast<BYTE *>(buffer.data()), buffer.size()};
     }
 
-    // 执行实际 ReadFile 并统一转换为 vt_pipe_read_status；operation 仅用于日志。
-    [[nodiscard]] vt_pipe_read_status read_from_vt_input(std::span<char8_t> destination, DWORD &read_bytes,
-                                                         const char *operation) noexcept
+    // 执行实际 ReadFile 并统一转换为 vt_pipe_read_status。
+    [[nodiscard]] vt_pipe_read_status read_from_vt_input(std::span<char8_t> destination, DWORD &read_bytes) noexcept
     {
-        // operation 只用于日志区分调用来源；destination 为空说明上层请求容量已满。
         if (destination.empty())
             return vt_pipe_read_status::empty;
 
@@ -210,8 +209,8 @@ class pipe_bridge_io
             read_bytes = result.bytes;
             if (!result.success())
             {
-                LOG("[bridge_io] %s failed read=%lu status=%u err=%u", operation, read_bytes,
-                    static_cast<unsigned>(result.status), static_cast<unsigned>(result.error));
+                LOG("[bridge_io] read=%lu status=%u err=%u", read_bytes, static_cast<unsigned>(result.status),
+                    static_cast<unsigned>(result.error));
                 return vt_pipe_read_status::eof;
             }
         }

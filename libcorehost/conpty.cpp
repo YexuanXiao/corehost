@@ -44,7 +44,7 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
     LOG("corehost::conpty::run_conpty_session: s=%p vi=%p vo=%p ev=%p w=%d h=%d sig=%p ambi=%d pollVt=%d "
         "attachedPid=%lu",
         server.get(), vt_in.get(), vt_out.get(), event.get(), config.width, config.height, signal_pipe.get(),
-        config.ambiguous_is_wide, config.poll_vt_input, config.attached_process_id);
+        config.ambiguous_is_wide, config.attached_process_id);
 
     // ── Layer 4: 控制台状态 ──
     console_state state;
@@ -125,6 +125,7 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
     // 从 PtySignal 线程进入。
     win32::basic_thread sig_thread;
     win32::event signal_shutdown_event;
+    win32::event vt_input_poll_event;
     if (signal_pipe.valid())
     {
         // signal_shutdown_event 由信号线程退出时置位。bridge 在等待 pending
@@ -144,9 +145,7 @@ void run_conpty_session(win32::handle server, win32::handle event, win32::handle
         LOG("corehost::conpty::run_conpty_session: signal thread started shutdownEvent=%p",
             signal_shutdown_event.get());
     }
-
-    win32::event vt_input_poll_event;
-    if (config.poll_vt_input && !signal_pipe.valid())
+    else
     {
         // 没有 signal_pipe 时，bridge 没有可等待的关闭信号。这里给它一个永不
         // 主动置位的 event，使 wait_for_signal_shutdown_slice 退化为 16ms 轮询。

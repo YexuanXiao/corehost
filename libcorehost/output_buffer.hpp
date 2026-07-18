@@ -18,17 +18,19 @@ namespace corehost::conpty
 class vt_output_buffer
 {
   public:
-    // 预留一个 flush threshold 大小，避免常见批量输出第一次 append 就分配。
-    vt_output_buffer() noexcept
-    {
-        _buffer.reserve(flush_threshold);
-    }
+    vt_output_buffer() = default;
 
     // 绑定终端输出 pipe；本类不拥有句柄，只在 flush 时写入。
+    // 真正的初始化函数
     void set_output(win32::handle_view output) noexcept
     {
+        // 运行非交互程序时，corehost 没有输出设备
+        if (!output.valid())
+            return;
         // output 是终端 VT 输出 pipe；本类只保存 view，不拥有句柄。
         _output = output;
+        // 预留一个 flush threshold 大小，避免常见批量输出第一次 append 就分配。
+        _buffer.reserve(flush_threshold);
     }
 
     // 返回当前已经缓存但尚未写入 vt_out 的字节数。
@@ -51,15 +53,12 @@ class vt_output_buffer
     {
         // flush 是唯一真正写 vt_out 的位置；调用方负责选择 completion 前后
         // 的刷新时机，本类不理解 ConDrv 请求边界。
-        COREHOST_PERF_SCOPE_AMOUNT(vt_output_flush, _buffer.size());
-        if (_buffer.empty())
+        if (!_output.valid() || _buffer.empty())
             return;
-        {
-            COREHOST_PERF_SCOPE_AMOUNT(vt_output_write_file, _buffer.size());
-            const auto result = win32::write_all(_output, std::span<const char8_t>{_buffer.data(), _buffer.size()});
-            LOG_IF(result.failed(), "vt_output_buffer: write failed err=%u", static_cast<unsigned>(result.error));
-            LOG_IF(result.closed(), "vt_output_buffer: output pipe closed err=%u", static_cast<unsigned>(result.error));
-        }
+        COREHOST_PERF_SCOPE_AMOUNT(vt_output_write_file, _buffer.size());
+        const auto result = win32::write_all(_output, std::span<const char8_t>{_buffer.data(), _buffer.size()});
+        LOG_IF(result.failed(), "vt_output_buffer: write failed err=%u", static_cast<unsigned>(result.error));
+        LOG_IF(result.closed(), "vt_output_buffer: output pipe closed err=%u", static_cast<unsigned>(result.error));
         _buffer.clear();
     }
 
