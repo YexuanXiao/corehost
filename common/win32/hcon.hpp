@@ -8,6 +8,7 @@
 
 #include <Windows.h>
 #include <cassert>
+#include <utility>
 
 namespace win32
 {
@@ -61,7 +62,7 @@ class hcon
 
     void *release() noexcept
     {
-        auto temp = value;
+        auto temp = value_;
         value_ = nullptr;
         return temp;
     }

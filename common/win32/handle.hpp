@@ -5,7 +5,6 @@
 #include <cassert>
 #include <utility>
 #include "error.hpp"
-#include "win32/error.hpp"
 
 namespace win32
 {
@@ -18,6 +17,10 @@ class handle_view
     constexpr handle_view() noexcept = default;
 
     explicit constexpr handle_view(void *value) noexcept : value_(value)
+    {
+    }
+
+    constexpr handle_view(std::nullptr_t) noexcept
     {
     }
 
@@ -72,6 +75,10 @@ class handle
     handle() noexcept = default;
 
     explicit handle(void *value) noexcept : value_(value)
+    {
+    }
+
+    constexpr handle(std::nullptr_t) noexcept
     {
     }
 

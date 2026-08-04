@@ -68,6 +68,10 @@ class event
     {
     }
 
+    constexpr event(std::nullptr_t) noexcept
+    {
+    }
+
     ~event() noexcept = default;
 
     event(const event &) = delete;

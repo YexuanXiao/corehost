@@ -159,9 +159,9 @@ inline CD_IO_COMPLETE &prepare_completion(io_msg &msg, LONG status = 0, ULONG_PT
 // ── CONNECT 处理 ──────────────────────────────────────────
 // 创建客户端句柄对并返回连接信息。
 //
-// NtOpenFile
+// NtOpenFile/NtCreateFile
 //   ConDrv 的客户端对象是内核对象，不通过 NT 命名空间暴露。
-//   创建它们的唯一方式是 NtOpenFile，以 Server 句柄为 RootDirectory、
+//   创建它们的唯一方式是 NtOpenFile/NtCreateFile，以 Server 句柄为 RootDirectory、
 //   对象名为 \Input / \Output。
 //
 // CD_CONNECTION_INFORMATION 中 Process 为何复用 Input 句柄值？

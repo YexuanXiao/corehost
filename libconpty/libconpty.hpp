@@ -21,7 +21,6 @@
 #include "win32/hresult.hpp"
 #include "win32/process_information.hpp"
 #include "win32/string.hpp"
-#include "ntapi/openfile.h"
 #include "shell/shell.hpp"
 
 #endif
@@ -147,16 +146,18 @@ void EnsureDriverLoaded() noexcept
     NtSetSystemInformation(kSystemConsoleInformation, &info, sizeof(info));
 }
 
-LONG OpenConDrvHandle(win32::handle &h, win32::wcstring_view name, HANDLE rootDir, BOOL inheritable) noexcept
+LONG OpenConDrvHandle(win32::handle &h, win32::wcstring_view name, win32::handle_view rootDir,
+                      bool inheritable) noexcept
 {
     UNICODE_STRING uname{.Length = static_cast<USHORT>(name.size() * sizeof(wchar_t)),
                          .MaximumLength = static_cast<USHORT>(name.size() * sizeof(wchar_t)),
                          .Buffer = const_cast<PWSTR>(name.data())};
     OBJECT_ATTRIBUTES oa{};
-    InitializeObjectAttributes(&oa, &uname, inheritable ? OBJ_INHERIT : 0ul, rootDir, nullptr);
+    InitializeObjectAttributes(&oa, &uname, inheritable ? OBJ_INHERIT : 0ul, rootDir.get(), nullptr);
     IO_STATUS_BLOCK iosb{};
-    return ::NtOpenFile(h.put(), GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE, &oa, &iosb,
-                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_SYNCHRONOUS_IO_NONALERT);
+    return ::NtCreateFile(h.put(), GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE, &oa, &iosb, nullptr,
+                          FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN, 0ul,
+                          nullptr, 0ul);
 }
 
 std::wstring FindConsoleHostPath()
@@ -241,7 +242,7 @@ HRESULT OpenConDrvHandles(win32::handle &serverHandle, win32::handle &referenceH
     if (!nt_success(st))
         return hresult_from_nt(st);
 
-    st = OpenConDrvHandle(referenceHandle, kConDrvReference, serverHandle.get(), FALSE);
+    st = OpenConDrvHandle(referenceHandle, kConDrvReference, serverHandle, FALSE);
     if (!nt_success(st))
         return hresult_from_nt(st);
     return S_OK;
