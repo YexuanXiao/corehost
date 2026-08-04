@@ -27,7 +27,6 @@ target_sources(common
                 ntapi/consolecontrol.hpp
                 ntapi/consolenslmode.hpp
                 ntapi/conwinuserrefs.h
-                ntapi/openfile.h
                 os/Console/ConIoSrv.h
                 os/Console/conapi.h
                 os/Console/condrv.h
