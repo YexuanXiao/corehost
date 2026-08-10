@@ -39,12 +39,11 @@ class pipe_bridge_io
         _vt_input = pipe;
     }
 
-    // 绑定可选 shutdown event；有效时 pending 输入等待会按时间片检查它。
-    void set_shutdown_event(win32::handle_view event) noexcept
+    // 绑定可选信号完成事件；有效时 pending 输入等待会在时间片内监视它。
+    // 事件由 PtySignal 消费者提供：就绪表示信号管道有数据或已断开。
+    void set_signal_event(win32::handle_view event) noexcept
     {
-        // event 由 PtySignal 线程或 defterm 轮询路径提供，用来打断 pending
-        // input 等待；本类不拥有该事件。
-        _shutdown_event = event;
+        _signal_event = event;
     }
 
     // 向 ConDrv 提交一个异步完成结果；调用方负责保证 completion 内容已构造好。
@@ -68,37 +67,23 @@ class pipe_bridge_io
         corehost::condrv_io::read_input(_server, identifier, offset, byte_span(destination));
     }
 
-    // true 表示 pending 输入等待可以被 shutdown event 打断。
-    [[nodiscard]] bool has_shutdown_event() const noexcept
+    // true 表示绑定了信号完成事件，等待路径应监视它。
+    [[nodiscard]] bool has_signal_event() const noexcept
     {
-        return _shutdown_event.valid();
+        return _signal_event.valid();
     }
 
-    // 非阻塞检查 shutdown event；用于轮询路径决定是否退出等待。
-    [[nodiscard]] bool shutdown_signaled() const
+    // 等待一个短时间片并监视信号完成事件。返回 true 表示完成事件就绪
+    // （信号管道有数据或已断开），调用方应交还 io_loop 处理信号。
+    [[nodiscard]] bool wait_signal_slice(DWORD timeout_ms) const
     {
-        if (!_shutdown_event.valid())
+        if (!_signal_event.valid())
             return false;
 
-        const auto wait = win32::wait_one(_shutdown_event, 0);
+        const auto wait = win32::wait_one(_signal_event, timeout_ms);
         if (wait.abandoned())
         {
-            LOG("[bridge_io] shutdown event wait abandoned");
-            return true;
-        }
-        return wait.signaled();
-    }
-
-    // 等待一个短时间片；返回 true 表示 shutdown event 已触发。
-    [[nodiscard]] bool wait_shutdown_slice(DWORD timeout_ms) const
-    {
-        if (!_shutdown_event.valid())
-            return false;
-
-        const auto wait = win32::wait_one(_shutdown_event, timeout_ms);
-        if (wait.abandoned())
-        {
-            LOG("[bridge_io] shutdown slice wait abandoned");
+            LOG("[bridge_io] signal slice wait abandoned");
             return true;
         }
         return wait.signaled();
@@ -222,8 +207,8 @@ class pipe_bridge_io
     win32::handle_view _server;
     // 终端输入 pipe 非拥有句柄，所有 vt_in Peek/ReadFile 都集中在这里。
     win32::handle_view _vt_input;
-    // 可选关闭/轮询事件。无效句柄表示等待路径不能被 signal 唤醒。
-    win32::handle_view _shutdown_event;
+    // 可选信号完成事件。无效句柄表示等待路径不监视信号管道。
+    win32::handle_view _signal_event;
 };
 
 } // namespace corehost::conpty

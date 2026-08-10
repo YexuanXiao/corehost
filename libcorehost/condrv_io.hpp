@@ -30,6 +30,7 @@
 #include <span>
 #include "win32/handle.hpp"
 #include "win32/error.hpp"
+#include "win32/event.hpp"
 #include "win32/io.hpp"
 #include "win32/string.hpp"
 #include "os/Console/condrv.h"
@@ -46,9 +47,9 @@ inline constexpr DWORD IOCTL_SET_SERVER = CTL_CODE(FILE_DEVICE_CONSOLE, 7, METHO
 
 enum class read_io_result : uint8_t
 {
-    got_message,
-    no_message,
-    disconnected,
+    got_message, // READ_IO 完成，cur 中有一条新消息
+    pending,     // READ_IO 已挂起，等待完成事件
+    disconnected, // server 已断开
 };
 
 // ── 消息缓冲区 ──────────────────────────────────────────────
@@ -86,27 +87,96 @@ inline void set_server_info(win32::handle_view server, win32::handle_view event)
     }
 }
 
-inline read_io_result read_io_try(win32::handle_view server, CD_IO_COMPLETE *prev, io_msg &msg)
+// ── overlapped READ_IO 状态 ──────────────────────────────
+// 同一时刻最多一个在飞的 READ_IO；完成事件（自动复位）与主循环的其他
+// 事件一起交给 WaitForMultipleObjects，消息到达事件驱动，无需轮询。
+struct read_io_op
+{
+    OVERLAPPED ov{};
+    win32::event ev{win32::create_tag, false, false};
+    bool in_flight{};
+
+    read_io_op()
+    {
+        ov.hEvent = ev.get();
+    }
+
+    // Move-only；移动后重绑 hEvent 到本对象的事件。
+    read_io_op(const read_io_op &) = delete;
+    read_io_op &operator=(const read_io_op &) = delete;
+
+    read_io_op(read_io_op &&other) noexcept = default;
+    read_io_op &operator=(read_io_op &&other) noexcept
+    {
+        if (this != &other)
+        {
+            ev = std::move(other.ev);
+            ov = {};
+            ov.hEvent = ev.get();
+            in_flight = other.in_flight;
+            other.in_flight = false;
+        }
+        return *this;
+    }
+
+    [[nodiscard]] bool pending() const noexcept
+    {
+        return in_flight;
+    }
+
+    // overlapped 完成事件；与主循环其他事件一起交给 WaitForMultipleObjects。
+    [[nodiscard]] win32::handle_view event() const noexcept
+    {
+        return ev.view();
+    }
+};
+
+// 发起 overlapped READ_IO。prev 是上一轮的 completion（首轮为 null），
+// msg 是接收缓冲（调用方保证 pending 期间存活）。返回 got_message 表示
+// 立即可用；pending 表示请求已挂起，完成事件就绪后调用 read_io_finish；
+// disconnected 表示 server 断开。不可恢复错误抛 win32::error。
+inline read_io_result read_io_begin(win32::handle_view server, CD_IO_COMPLETE *prev, io_msg &msg, read_io_op &op)
 {
     std::memset(&msg.descriptor, 0, sizeof(msg.descriptor));
     DWORD r = 0;
     BOOL ok = ::DeviceIoControl(server.get(), IOCTL_READ_IO, prev, prev ? sizeof(CD_IO_COMPLETE) : 0, &msg.descriptor,
-                                sizeof(msg.descriptor) + sizeof(msg.body), &r, nullptr);
+                                sizeof(msg.descriptor) + sizeof(msg.body), &r, &op.ov);
     if (ok)
         return read_io_result::got_message;
 
     auto err = win32::get_last_error();
     if (err == win32::error::io_pending)
-        return read_io_result::no_message;
+    {
+        op.in_flight = true;
+        return read_io_result::pending;
+    }
     if (err == win32::error::pipe_not_connected || err == win32::error::broken_pipe || err == win32::error::no_data)
         return read_io_result::disconnected;
-    LOG("read_io_try: unexpected error %u", static_cast<unsigned>(err));
+    LOG("read_io_begin: unexpected error %u", static_cast<unsigned>(err));
+    throw err;
+}
+
+// 完成事件触发后取回 overlapped READ_IO 结果。返回 got_message（msg 中有
+// 新消息）或 disconnected。不可恢复错误抛 win32::error。
+inline read_io_result read_io_finish(win32::handle_view server, io_msg &msg, read_io_op &op)
+{
+    op.in_flight = false;
+    DWORD r = 0;
+    BOOL ok = ::GetOverlappedResult(server.get(), &op.ov, &r, FALSE);
+    if (ok)
+        return read_io_result::got_message;
+
+    auto err = win32::get_last_error();
+    if (err == win32::error::pipe_not_connected || err == win32::error::broken_pipe || err == win32::error::no_data)
+        return read_io_result::disconnected;
+    LOG("read_io_finish: unexpected error %u", static_cast<unsigned>(err));
     throw err;
 }
 // ── read_exact ────────────────────────────────────────────
 // 从管道读取精确字节数。区别于 ReadFile 的"尽量读"语义，
 // 这里要求恰好 s 字节，否则返回 false（管道断开或数据不足）。
-// corehost::defterm::signal_thread_proc 和 corehost::conpty::pty_signal_thread_proc 共用。
+// 曾被 signal_thread_proc/pty_signal_thread_proc 使用；信号管道改为
+// overlapped I/O 后，该函数保留给其他同步读取场景。
 inline bool read_exact(win32::handle_view p, void *b, DWORD s) noexcept
 {
     return win32::read_exact(p, std::span{static_cast<std::byte *>(b), s});

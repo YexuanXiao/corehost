@@ -15,6 +15,7 @@
 #include "win32/hresult.hpp"
 #include "win32/event.hpp"
 #include "win32/com_apartment.hpp"
+#include "win32/pipe.hpp"
 #include "IConsoleHandoff.h"
 #include "ITerminalHandoff.h"
 #include "ntapi/condrv.hpp"
@@ -311,9 +312,10 @@ struct console_handoff : com::implements<console_handoff, IConsoleHandoff, IClas
         win32::handle ref_handle = condrv::create_client_handle(dup_server.view(), L"\\Reference");
         LOG("created ConDrv reference handle=%p", ref_handle.get());
 
-        // signal_read 留给 corehost conpty signal 线程；signal_write 传给 WT。
+        // signal_read 留给 corehost conpty 信号消费者（overlapped I/O 读取，
+        // 不再需要信号线程）；signal_write 传给 WT（同步 WriteFile）。
         // 两端都有效时才能完成第二跳 Pty handoff。
-        auto [signal_read, signal_write] = win32::create_pipe();
+        auto [signal_read, signal_write] = win32::create_overlapped_pipe();
         LOG("created WT signal pipe read=%p write=%p", signal_read.get(), signal_write.get());
 
         // --- 阶段 3: 打开目标客户端进程 ---

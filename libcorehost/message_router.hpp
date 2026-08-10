@@ -136,6 +136,13 @@ struct message_router
              bridge.queued_vt_input_bytes());
     }
 
+    // 信号管道断开：按终端 EOF 处理，让会话退出。无 pending 时仅置位 EOF
+    // 标志；有 pending 时按 EOF 完成（返回 0 字节/0 记录）。
+    void on_signal_disconnected()
+    {
+        bridge.complete_pending_with_eof();
+    }
+
     // 查询会话是否可以退出。只有 VT 输入 EOF 且没有 pending 请求时返回 true。
     bool should_exit() const noexcept
     {

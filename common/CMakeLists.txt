@@ -64,6 +64,9 @@ target_sources(common
                 win32/hcon.hpp
                 win32/hresult.hpp
                 win32/io.hpp
+                win32/overlapped.hpp
+                win32/overlapped_reader.hpp
+                win32/pipe.hpp
                 win32/process.hpp
                 win32/process_information.hpp
                 win32/registry_key.hpp

@@ -470,21 +470,21 @@ bool test_regression_get_console_input_uses_completion_buffer_for_large_output()
     return true;
 }
 
-bool test_regression_signal_shutdown_requests_exit_only_without_pending()
+bool test_regression_signal_disconnect_requests_exit_only_without_pending()
 {
     console_state st;
     screen_buffer sb;
     input_buffer inp;
     pipe_bridge_testable bridge{inp, st, sb};
 
-    win32::event shutdown_event{win32::create_tag, true, false};
-    ASSERT(shutdown_event.valid());
-    bridge.set_signal_shutdown_event(shutdown_event.view());
     ASSERT(!bridge.should_exit());
 
-    shutdown_event.set();
+    // 信号管道断开由主循环发现后调用 complete_pending_with_eof：
+    // 无 pending 时置位 vt_eof，会话应请求退出。
+    bridge.complete_pending_with_eof();
     ASSERT(bridge.should_exit());
 
+    // 有 pending 时不能退出：EOF 已置位但请求仍待完成。
     bridge.test_enter_console_read_mode();
     ASSERT(!bridge.should_exit());
     return true;
@@ -2978,8 +2978,8 @@ int main()
              L"GetConsoleInput OutputSize without record");
     RUN_TEST(test_regression_get_console_input_uses_completion_buffer_for_large_output,
              L"GetConsoleInput large completion buffer");
-    RUN_TEST(test_regression_signal_shutdown_requests_exit_only_without_pending,
-             L"Signal shutdown requests exit only without pending");
+    RUN_TEST(test_regression_signal_disconnect_requests_exit_only_without_pending,
+             L"Signal disconnect requests exit only without pending");
     RUN_TEST(test_regression_get_console_input_rejects_invalid_flags, L"GetConsoleInput rejects invalid flags");
     RUN_TEST(test_regression_raw_write_decodes_output_codepage, L"RawWrite decodes output codepage");
     RUN_TEST(test_regression_raw_read_completion_writes_only_bytes, L"RawRead writes only bytes");

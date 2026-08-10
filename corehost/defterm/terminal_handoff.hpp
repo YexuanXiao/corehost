@@ -2,7 +2,6 @@
 
 #include <windows.h>
 #include <array>
-#include <memory>
 #include <objbase.h>
 #include <ranges>
 #include "signal.hpp"
@@ -16,7 +15,7 @@
 #include "win32/event.hpp"
 #include "win32/handle.hpp"
 #include "win32/hresult.hpp"
-#include "win32/thread.hpp"
+#include "win32/pipe.hpp"
 #include "win32/wait.hpp"
 
 namespace corehost::defterm
@@ -78,9 +77,9 @@ namespace corehost::defterm
         LOG("default-terminal marker accepted");
     }
 
-    // signal_write 传给终端；signal_read 留给 corehost 信号线程读取
-    // Ctrl+C/Break/Close 等事件。
-    auto [signal_read, signal_write] = win32::create_pipe();
+    // signal_write 传给终端；signal_read 留给 corehost 信号消费者读取
+    // Ctrl+C/Break/Close 等事件。读端为 overlapped 句柄，写端保持同步。
+    auto [signal_read, signal_write] = win32::create_overlapped_pipe();
 
     // corehost_process 是当前进程的真实句柄副本，终端用它监控 server 生命周期。
     auto corehost_process = win32::duplicate_self();
@@ -100,32 +99,33 @@ namespace corehost::defterm
     signal_write.clear();
     corehost_process.clear();
 
-    // shutdown_event 由信号线程在信号管道断开时置位。主线程同时等待
-    // terminal_process 和它，避免 WT 关闭后 corehost 卡住。
-    auto shutdown_event = win32::event{win32::create_tag, true, false};
-    auto signal_shutdown_event = win32::event{win32::duplicate_handle(shutdown_event.view())};
+    // 信号消费者由主等待循环驱动（overlapped I/O），不再需要独立信号线程。
+    signal_consumer sig{std::move(signal_read)};
+    sig.start_read();
 
-    // thread_params release 后归 signal_thread_proc 所有；线程退出时释放。
-    auto thread_params = std::make_unique<signal_thread_params>(
-        signal_thread_params{std::move(signal_read), std::move(signal_shutdown_event)});
-    DWORD signal_thread_id = 0;
-    auto signal_thread = win32::basic_thread{signal_thread_proc, thread_params.release(), &signal_thread_id};
-    LOG("signal thread started tid=%lu handle=%p shutdown=%p", signal_thread_id, signal_thread.get(),
-        shutdown_event.get());
-
-    // index 0 表示终端进程退出；index 1 表示信号管道断开，
-    // 等价于终端侧停止服务。
-    LOG("waiting for terminal process or signal pipe close terminal=%p shutdown=%p", terminal_process.get(),
-        shutdown_event.get());
-    const auto wait_result = win32::wait_any(terminal_process, shutdown_event, INFINITE);
-    if (wait_result.abandoned())
+    // index 0 表示终端进程退出；index 1 表示信号管道完成事件（数据或断开），
+    // 断开等价于终端侧停止服务。
+    LOG("waiting for terminal process or signal pipe terminal=%p signalEvent=%p", terminal_process.get(),
+        sig.event().get());
+    bool terminal_exited = false;
+    for (;;)
     {
-        LOG("terminal handoff wait abandoned index=%zu", wait_result.index);
-        return true;
+        const auto wait_result = win32::wait_any(terminal_process, sig.event(), INFINITE);
+        if (wait_result.abandoned())
+        {
+            LOG("terminal handoff wait abandoned index=%zu", wait_result.index);
+            return true;
+        }
+        if (wait_result.index == 0)
+        {
+            terminal_exited = true;
+            break;
+        }
+        if (!sig.handle_event())
+            break;
     }
 
-    LOG("terminal handoff wait completed index=%zu source=%ls", wait_result.index,
-        wait_result.index == 0 ? L"process" : L"signal");
+    LOG("terminal handoff wait completed source=%ls", terminal_exited ? L"process" : L"signal");
     return true;
 }
 

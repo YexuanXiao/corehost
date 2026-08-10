@@ -295,22 +295,17 @@ struct pipe_bridge
         return _pending.has_pending();
     }
     // 会话可退出条件：终端输入已经 EOF，并且没有仍需完成给 ConDrv 的请求。
+    // EOF 只由 vt_in 读取失败或主循环驱动信号断开产生，不依赖外部事件。
     bool should_exit() const noexcept
     {
-        return (_pending.vt_eof() || _io.shutdown_signaled()) && !_pending.has_pending();
+        return _pending.vt_eof() && !_pending.has_pending();
     }
 
-    // 绑定 signal 线程的 shutdown event。该 event 只用于打断等待，不代表
-    // vt_in 一定还有可读字节。
-    void set_signal_shutdown_event(win32::handle_view event) noexcept
+    // 绑定 PtySignal 消费者的 overlapped 完成事件。pending 输入等待会
+    // 在时间片内监视它：事件就绪表示信号管道有数据或已断开。
+    void set_signal_event(win32::handle_view event) noexcept
     {
-        _io.set_shutdown_event(event);
-    }
-
-    // 检查 shutdown event 是否已触发；触发后 pending read 应按 EOF 完成。
-    [[nodiscard]] bool is_signal_shutdown_signaled() const
-    {
-        return _io.shutdown_signaled();
+        _io.set_signal_event(event);
     }
 
     // 查询 vt_in 当前可读字节数。返回 false 表示管道关闭或不可读，调用方会
@@ -403,12 +398,11 @@ struct pipe_bridge
         complete_pending();
     }
 
-    // 等待 signal/shutdown event 一个短时间片。返回 true 表示关闭信号已到达，
-    // pending 读不应继续等待用户输入。
-    [[nodiscard]] bool wait_for_signal_shutdown_slice()
+    // 等待 signal 完成事件一个短时间片。返回 true 表示事件就绪（信号管道
+    // 有数据或断开），调用方应交还 io_loop 处理信号。
+    [[nodiscard]] bool wait_for_signal_slice()
     {
-        // shutdown event 只代表关闭/轮询时间片；VT 输入不会唤醒它。
-        return _io.wait_shutdown_slice(pending_vt_input_wait_ms);
+        return _io.wait_signal_slice(pending_vt_input_wait_ms);
     }
 
     // ── 持久转换缓冲区访问器 ──
@@ -1230,8 +1224,9 @@ struct pipe_bridge
         }
     }
 
-    // 在存在 pending 读请求时等待 VT 输入或 shutdown。函数只等待必要对象：
-    // 有 shutdown event 时按 16ms 时间片轮询，无 event 时才允许阻塞读 vt_in。
+    // 在存在 pending 读请求时等待 VT 输入或信号完成事件。等待集合只含必要
+    // 对象：有信号事件时按 16ms 时间片监视它（就绪交还 io_loop 处理），
+    // 无事件时才允许阻塞读 vt_in。
     void wait_for_pending_vt_input()
     {
         vt_flush();
@@ -1244,24 +1239,23 @@ struct pipe_bridge
             return;
         }
 
-        if (is_signal_shutdown_signaled())
+        // 监视信号完成事件一个时间片。就绪（有数据或断开）时把控制权交还
+        // io_loop，由 io_loop 消费信号并决定是否按 EOF 退出。
+        if (wait_for_signal_slice())
         {
-            // signal 线程已经确认控制管道关闭。pending 读不能继续等待用户
-            // 输入，只能按 EOF 完成，让主循环有机会退出。
-            complete_pending_with_eof();
             return;
         }
 
-        if (wait_for_signal_shutdown_slice())
+        // 时间片超时：再试一次非阻塞 drain；仍无输入时把控制权交还 io_loop，
+        // 由下一轮 pending 等待继续监视。
+        if (drain_available_vt_input())
         {
-            complete_pending_with_eof();
             return;
         }
-        if (_io.has_shutdown_event())
+
+        if (_io.has_signal_event())
         {
-            // 有 shutdown event 的模式不能进入阻塞 ReadFile；这里再试一次
-            // 非阻塞 drain，没读到就把控制权还给 io_loop。
-            drain_available_vt_input();
+            // 有信号事件的模式不能进入阻塞 ReadFile；等待交还给 io_loop。
             return;
         }
 
@@ -1306,16 +1300,8 @@ struct pipe_bridge
 
         if (avail == 0)
         {
-            // PeekNamedPipe 的 0 字节只是“暂时没输入”。只有 signal 线程通知
-            // 关闭时才把它提升为 EOF。
-            if (is_signal_shutdown_signaled())
-            {
-                LOG3("[bridge] on_idle: signal shutdown event set, marking EOF");
-                _pending.set_vt_eof(true);
-                if (_pending.has_pending())
-                    complete_pending();
-                return;
-            }
+            // PeekNamedPipe 的 0 字节只是"暂时没输入"。EOF 只由 peek/read
+            // 失败（vt_in 关闭）或主循环驱动信号断开产生，这里不主动提升。
             return;
         }
 

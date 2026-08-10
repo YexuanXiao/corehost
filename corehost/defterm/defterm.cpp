@@ -182,55 +182,65 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
     // 已由 handler 填好 complete 字段的消息。
     corehost::condrv_io::io_msg *completed_previous = nullptr;
 
+    // 单个在飞的 overlapped READ_IO；完成事件驱动，16ms 超时兜底。
+    corehost::condrv_io::read_io_op read_op;
+
     for (;;)
     {
-        if (!handler.has_pending() && completed_previous == nullptr)
+        // ── 阶段 1: 确保 READ_IO 在飞 ──
+        if (!read_op.pending())
         {
-            handler.on_idle();
-            if (handler.should_exit())
-                break;
-            if (!handler.has_pending())
+            // completion 为 nullptr 或 completed_previous->complete。READ_IO
+            // 发起后驱动即接受该 completion，因此 completed_previous 立即清空。
+            auto *completion = completed_previous ? &completed_previous->complete : nullptr;
+            if (completion)
             {
-                // 16ms 只用于空闲节流，避免没有消息时空转。
-                const auto wait = win32::wait_one(input_event, 16);
+                LOG3("submitting previous completion id=%08lx:%08lx status=0x%08lx info=%llu",
+                     completion->Identifier.HighPart, completion->Identifier.LowPart,
+                     static_cast<unsigned long>(completion->IoStatus.Status),
+                     static_cast<unsigned long long>(completion->IoStatus.Information));
+            }
+            else
+            {
+                LOG3("reading next message without completion");
+            }
+
+            const auto result = corehost::condrv_io::read_io_begin(server, completion, *current, read_op);
+            if (result == corehost::condrv_io::read_io_result::disconnected)
+            {
+                LOG3("ConDrv disconnected; initial loop will exit");
+                break;
+            }
+            completed_previous = nullptr;
+
+            if (result == corehost::condrv_io::read_io_result::pending)
+            {
+                // ── 阶段 2: 等待完成事件 ──
+                const auto wait = win32::wait_one(read_op.event(), 16);
                 if (wait.abandoned())
                 {
                     LOG3("initial CONNECT loop idle wait abandoned");
                     return;
                 }
+                if (!wait.signaled())
+                {
+                    handler.on_idle();
+                    continue;
+                }
+                if (corehost::condrv_io::read_io_finish(server, *current, read_op) ==
+                    corehost::condrv_io::read_io_result::disconnected)
+                {
+                    LOG3("ConDrv disconnected; initial loop will exit");
+                    break;
+                }
             }
-        }
-
-        // completion 为 nullptr 或 completed_previous->complete。READ_IO 返回
-        // no_message 时，驱动已经消费该 completion，下一轮不能重复提交。
-        auto *completion = completed_previous ? &completed_previous->complete : nullptr;
-        if (completion)
-        {
-            LOG3("submitting previous completion id=%08lx:%08lx status=0x%08lx info=%llu",
-                 completion->Identifier.HighPart, completion->Identifier.LowPart,
-                 static_cast<unsigned long>(completion->IoStatus.Status),
-                 static_cast<unsigned long long>(completion->IoStatus.Information));
+            // got_message：落入消息处理。
         }
         else
         {
-            LOG3("reading next message without completion");
-        }
-
-        const auto read_result = corehost::condrv_io::read_io_try(server, completion, *current);
-        if (read_result == corehost::condrv_io::read_io_result::disconnected)
-        {
-            LOG3("ConDrv disconnected; initial loop will exit");
-            break;
-        }
-        if (read_result == corehost::condrv_io::read_io_result::no_message)
-        {
-            completed_previous = nullptr;
-            handler.on_idle();
-            if (handler.should_exit())
-                break;
+            // 阶段 1 内已处理所有 pending 分支，循环顶不会带着在飞的读进入。
             continue;
         }
-        completed_previous = nullptr;
 
         LOG3("message received: func=%lu id=%08lx:%08lx pid=%llu object=%llu in=%lu out=%lu",
              current->descriptor.Function, current->descriptor.Identifier.HighPart,
