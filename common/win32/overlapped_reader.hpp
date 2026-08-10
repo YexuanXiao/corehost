@@ -9,14 +9,21 @@
 // 完成事件（event()）由调用方与主循环的其他句柄一起交给
 // WaitForMultipleObjects；事件就绪后调用 handle_event() 消费数据。
 //
+// 帧原子性假设（关键设计前提）：
+// 写端（libconpty / WT）总是用一次 WriteFile 写完一整帧（id + payload），
+// 字节流管道保证一帧要么完整到达、要么还没到达。因此一次 ReadFile 返回的
+// 字节必然由整数个完整帧组成：解析到剩余字节不足一帧，就是协议损坏
+// （writer 拆帧或脏数据），按断开处理。为此：
+// - 不需要跨读边界的半帧状态（need_payload）与 memmove；
+// - 每次读取从缓冲头部开始，读完必消费干净。
+//
 // 错误策略（与 win32/overlapped.hpp 一致）：
 // - 管道断开（0 字节 EOF / broken pipe / 未连接）→ handle_event 返回 false；
-// - 协议损坏（缓冲满无法解析）→ 同样按断开处理；
+// - 协议损坏（半帧残留）→ 同样按断开处理；
 // - 其余不可恢复错误由 begin/finish_overlapped_read 抛 win32::error。
 
 #include <windows.h>
 #include <cstddef>
-#include <cstring>
 #include <utility>
 
 #include "win32/error.hpp"
@@ -96,7 +103,8 @@ class overlapped_pipe_reader
         const auto result = win32::finish_overlapped_read(_pipe.view(), _ov);
         if (result.done())
         {
-            _available += result.bytes;
+            // 帧原子性保证解析后无残留，_available 必为 0，直接赋值。
+            _available = result.bytes;
             drain_parsed();
             if (!_disconnected)
                 read_next();
@@ -127,10 +135,12 @@ class overlapped_pipe_reader
 
   protected:
     // ── 派生类协议解析入口 ────────────────────────────────
-    // 从 data()[consumed()..available()) 尝试解析一条完整消息：成功时更新
-    // consumed 并执行处理动作，返回 true（可能还有下一条）；数据不足返回
-    // false（等待更多字节）。解析动作不得抛出；发现协议损坏应调用
-    // mark_disconnected() 并返回 false。
+    // 从 data()[consumed()..available()) 尝试解析一条完整帧：成功时更新
+    // consumed 并执行处理动作，返回 true（可能还有下一帧）；数据不足（当前
+    // 剩余字节无法构成一帧）返回 false 且不得修改 consumed。解析动作不得
+    // 抛出；发现协议损坏应调用 mark_disconnected() 并返回 false。
+    // 基类保证：解析结束后 consumed() != available() 即半帧残留，按协议
+    // 损坏断开（帧原子性假设）。
     [[nodiscard]] virtual bool try_parse_message() noexcept = 0;
 
     [[nodiscard]] std::byte *data() noexcept
@@ -160,39 +170,33 @@ class overlapped_pipe_reader
     }
 
   private:
-    // 循环解析直到需要更多数据或消费完毕。
+    // 解析当前缓冲中的全部完整帧；残留半帧即协议损坏（帧原子性假设）。
     void drain_parsed() noexcept
     {
         while (_consumed < _available && try_parse_message()) {}
+        if (_consumed != _available)
+        {
+            // 半帧残留：writer 拆帧或脏数据，按协议损坏断开。
+            _disconnected = true;
+        }
     }
 
     // 发起下一轮读；立即完成时继续解析并重读，断开/协议损坏时停止。
+    // 帧原子性保证解析后无残留，每次读取都从缓冲头部开始。
     void read_next()
     {
         for (;;)
         {
-            // 未消费字节移到缓冲头部，给新读腾出空间。
-            const size_t remaining = _available - _consumed;
-            if (remaining != 0 && _consumed != 0)
-                std::memmove(_buffer, _buffer + _consumed, remaining);
-            _available = remaining;
+            _available = 0;
             _consumed = 0;
 
-            if (_available == sizeof(_buffer))
-            {
-                // 缓冲已满但仍无法解析出完整消息：协议损坏，按断开处理。
-                _disconnected = true;
-                return;
-            }
-
-            const auto result = win32::begin_overlapped_read(_pipe.view(), _buffer + _available,
-                                                             static_cast<DWORD>(sizeof(_buffer) - _available), _ov);
+            const auto result = win32::begin_overlapped_read(_pipe.view(), _buffer, sizeof(_buffer), _ov);
             if (result.pending())
                 return;
 
             if (result.done())
             {
-                _available += result.bytes;
+                _available = result.bytes;
                 drain_parsed();
                 if (_disconnected)
                     return;
@@ -208,9 +212,9 @@ class overlapped_pipe_reader
     win32::handle _pipe;
     win32::event _read_event; // overlapped 完成事件（自动复位）
     OVERLAPPED _ov{};
-    std::byte _buffer[64];
-    size_t _available{}; // _buffer 中有效字节数
-    size_t _consumed{};  // 已消费字节偏移
+    std::byte _buffer[64]; // 读目标；64B 容纳多次合并的完整帧
+    size_t _available{};   // 当前读入的有效字节数
+    size_t _consumed{};    // 解析游标；解析结束必须等于 _available
     bool _disconnected{};
 };
 

@@ -9,13 +9,14 @@
 //   键盘 → WT 窗口 → 写入信号管道 → conhost 消费（ConsoleControl）→
 //   user32!ConsoleControl → CSRSS → 客户端进程
 //
-// 管道断开时: handle_event 返回 false，terminal_handoff 主等待循环退出，
-//   整个握手链路干净收尾。
+// 管道断开或协议损坏时: handle_event 返回 false，terminal_handoff 主等待
+//   循环退出，整个握手链路干净收尾。
 //
 // 协议: 1 字节 CONSOLECONTROL + 对应数据结构体
 //
-// I/O 机械部分（缓冲管理、overlapped 读生命周期、断开检测）由基类
-// win32::overlapped_pipe_reader 提供；本类只实现 CONSOLECONTROL 协议解析。
+// I/O 机械部分（缓冲管理、overlapped 读生命周期、断开检测、帧原子性检查）
+// 由基类 win32::overlapped_pipe_reader 提供；本类只实现 CONSOLECONTROL
+// 协议解析（无状态：每帧 = 1 字节 code + dwSize 声明的完整 payload）。
 // 完成事件由 terminal_handoff 主等待循环与终端进程句柄一起交给
 // WaitForMultipleObjects。
 
@@ -41,25 +42,15 @@ class signal_consumer : public win32::overlapped_pipe_reader
     }
 
   private:
-    // 解析一条完整信号消息（1 字节 code + payload，含 dwSize 校验）。
+    // 解析一条完整信号帧（1 字节 code + dwSize 声明的 payload）；数据不足
+    // 返回 false。
     [[nodiscard]] bool try_parse_message() noexcept override;
 
-    // 查询 code 对应 payload 字节数；未知 code 返回 0（不消费 payload）。
+    // 查询 code 对应结构体字节数；未知 code 返回 0（不消费 payload）。
     [[nodiscard]] static size_t payload_size(unsigned code) noexcept;
 
-    // 处理一条完整信号。payload 位于 data()[_payload_offset..]。
-    void process_signal(unsigned code) noexcept;
-
-    enum class parse_state
-    {
-        need_code,    // 需要 1 字节 CONSOLECONTROL code
-        need_payload, // 需要剩余 payload 字节（_need 记录）
-        need_skip,    // 需要跳过剩余多余字节（_need 记录）
-    };
-    parse_state _parse{parse_state::need_code};
-    size_t _need{};         // need_payload/need_skip 时剩余字节数
-    size_t _payload_offset{}; // 当前消息 payload 在缓冲中的偏移
-    unsigned _current_code{}; // 正在处理的 code
+    // 处理一条完整信号。payload 指向帧内 payload 起始。
+    void process_signal(unsigned code, const std::byte *payload) noexcept;
 };
 
 } // namespace corehost::defterm

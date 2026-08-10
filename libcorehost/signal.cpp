@@ -1,7 +1,7 @@
 // ── conpty/signal.cpp ──────────────────────────────
 // PtySignal 消费者实现（overlapped I/O，无线程）。
-// 缓冲管理 / overlapped 读生命周期 / 断开检测由基类提供，本文件只实现
-// PtySignal 协议解析与状态更新。
+// 缓冲管理 / overlapped 读生命周期 / 断开检测 / 帧原子性检查由基类提供，
+// 本文件只实现 PtySignal 协议解析（无状态）与状态更新。
 #include "signal.hpp"
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
@@ -30,38 +30,23 @@ size_t pty_signal_consumer::payload_size(unsigned sig) noexcept
 
 bool pty_signal_consumer::try_parse_message() noexcept
 {
-    if (_parse == parse_state::need_sig)
-    {
-        // 需要 2 字节信号 id。
-        if (available() - consumed() < 2)
-            return false;
-        const auto sig = static_cast<unsigned>(static_cast<unsigned char>(data()[consumed()])) |
-                         (static_cast<unsigned>(static_cast<unsigned char>(data()[consumed() + 1])) << 8);
-        set_consumed(consumed() + 2);
+    const size_t pos = consumed();
+    const size_t n = available() - pos;
+    if (n < 2)
+        return false; // 不足一帧：帧边界或半帧残留（基类区分）
 
-        _need = payload_size(sig);
-        if (_need == 0)
-        {
-            // 无 payload 或未知信号：直接处理。未知信号不消费 payload，
-            // 与原线程实现一致（协议同步由写端保证）。
-            process_signal(sig);
-            return true;
-        }
-        _current_sig = sig;
-        _parse = parse_state::need_payload;
-        return true; // 头部已消费；下一次迭代检查 payload 是否完整
-    }
-
-    // need_payload
-    if (available() - consumed() < _need)
+    const auto sig = static_cast<unsigned>(static_cast<unsigned char>(data()[pos])) |
+                     (static_cast<unsigned>(static_cast<unsigned char>(data()[pos + 1])) << 8);
+    const size_t need = payload_size(sig);
+    if (n < 2 + need)
         return false;
-    process_signal(_current_sig);
-    set_consumed(consumed() + _need);
-    _parse = parse_state::need_sig;
+
+    set_consumed(pos + 2 + need);
+    process_signal(sig, data() + pos + 2);
     return true;
 }
 
-void pty_signal_consumer::process_signal(unsigned sig) noexcept
+void pty_signal_consumer::process_signal(unsigned sig, const std::byte *payload) noexcept
 {
     LOG2("PtySignal id=%u", sig);
     switch (static_cast<PtySignal>(sig))
@@ -70,7 +55,7 @@ void pty_signal_consumer::process_signal(unsigned sig) noexcept
         // 当前不管理真实窗口，但必须消费 show payload；否则下一次读到的
         // payload 会被误当作信号 id，破坏协议同步。
         unsigned short show = 0;
-        std::memcpy(&show, data() + consumed(), sizeof(show));
+        std::memcpy(&show, payload, sizeof(show));
         LOG2("PtySignal ShowHideWindow show=%u", static_cast<unsigned>(show));
         break;
     }
@@ -83,7 +68,7 @@ void pty_signal_consumer::process_signal(unsigned sig) noexcept
         // WT 按 ULONG_PTR 发送 HWND；corehost 不重新设置父窗口，只消费字段
         // 保持后续信号边界正确。
         ULONG_PTR hwnd = 0;
-        std::memcpy(&hwnd, data() + consumed(), sizeof(hwnd));
+        std::memcpy(&hwnd, payload, sizeof(hwnd));
         LOG2("PtySignal SetParent hwnd=%p", reinterpret_cast<void *>(hwnd));
         break;
     }
@@ -91,7 +76,7 @@ void pty_signal_consumer::process_signal(unsigned sig) noexcept
         // ResizeWindow 是 WT 主动通知的可见尺寸。state 中三个尺寸保持一致，
         // 因为当前 ConPTY 模型没有独立 scrollback buffer。
         COORD sz{0, 0};
-        std::memcpy(&sz, data() + consumed(), sizeof(sz));
+        std::memcpy(&sz, payload, sizeof(sz));
         LOG2("PtySignal ResizeWindow size=%dx%d", sz.X, sz.Y);
         _state->screen_buffer_size = sz;
         _state->max_window_size = sz;

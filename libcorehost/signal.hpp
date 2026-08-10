@@ -4,10 +4,12 @@
 // 功能分解：
 // 1. 从 WT 信号管道异步读取 PtySignal id 和对应 payload。
 // 2. ClearBuffer/ResizeWindow 直接更新 screen_buffer 和 console_state。
-// 3. 管道断开时 handle_event 返回 false，主 I/O 循环驱动 EOF 完成并退出。
+// 3. 管道断开或协议损坏时 handle_event 返回 false，主 I/O 循环驱动 EOF
+//    完成并退出。
 //
-// I/O 机械部分（缓冲管理、overlapped 读生命周期、断开检测）由基类
-// win32::overlapped_pipe_reader 提供；本类只实现 PtySignal 协议解析。
+// I/O 机械部分（缓冲管理、overlapped 读生命周期、断开检测、帧原子性检查）
+// 由基类 win32::overlapped_pipe_reader 提供；本类只实现 PtySignal 协议解析
+// （无状态：每帧 = 2 字节 id + 固定长度 payload，一次读内多帧循环解析）。
 // 完成事件由主 I/O 循环与 ConDrv server 一起交给 WaitForMultipleObjects，
 // 断开也由主循环直接发现，不需要任何事件通知机制。
 #pragma once
@@ -51,26 +53,17 @@ class pty_signal_consumer : public win32::overlapped_pipe_reader
     }
 
   private:
-    // 解析一条完整 PtySignal 消息（2 字节 id + payload）。
+    // 解析一条完整 PtySignal 帧（2 字节 id + payload）；数据不足返回 false。
     [[nodiscard]] bool try_parse_message() noexcept override;
 
     // 查询信号 payload 字节数；未知信号返回 0（不消费 payload）。
     [[nodiscard]] static size_t payload_size(unsigned sig) noexcept;
 
-    // 处理一条完整信号。payload 位于 data()[consumed()..]。
-    void process_signal(unsigned sig) noexcept;
+    // 处理一条完整信号。payload 指向帧内 payload 起始（可为空）。
+    void process_signal(unsigned sig, const std::byte *payload) noexcept;
 
     console_state *_state{};
     screen_buffer *_sbuf{};
-
-    enum class parse_state
-    {
-        need_sig,     // 需要 2 字节信号 id
-        need_payload, // 需要剩余 payload 字节（_need 记录）
-    };
-    parse_state _parse{parse_state::need_sig};
-    size_t _need{};        // need_payload 时剩余 payload 字节数
-    unsigned _current_sig; // need_payload 时正在处理的信号 id
 };
 
 } // namespace corehost::conpty

@@ -295,6 +295,14 @@ run_io_loop_no_setup(server, event, router,
 - ✅ V2（单线程 I/O 化）：删除整套 shutdown_event 机制，断开由主循环显式
   驱动 EOF；错误抛异常；去目录句柄缓存；consumer 指针成员栈上装配。
 - ✅ V3（简化）：公共基类消除重复 + noexcept bug 修复 + io_loop 等待统一。
+- ✅ V4（READ_IO overlapped 化）：主循环改事件驱动四阶段循环，删除同步
+  READ_IO 遗留（no_message 分支 / 0ms 消化 pending / server 句柄轮询），
+  `defterm.cpp` 初始 CONNECT 循环同步迁移；实验验证 ConDrv READ_IO 完整
+  支持 overlapped（挂起/取消/取回正常）。
+- ✅ V5-B（帧原子假设）：`pty_signal_consumer`/`signal_consumer` 解析改为
+  无状态单帧解析——写端（libconpty/WT）总是用一次 WriteFile 写完一整帧，
+  一次 ReadFile 返回整数个完整帧；删除跨读边界状态（need_payload/need_skip）、
+  memmove、buffer-full 分支，半帧残留即协议损坏按断开处理。
 
 ### 最终验证
 
@@ -302,8 +310,10 @@ run_io_loop_no_setup(server, event, router,
 - ✅ CTest 13/13 通过（含 ConPTY.E2E、Edit.ConPTY.Real 真实 ConPTY 会话；
   `Signal disconnect` 回归测试覆盖新断开语义）。
 - ✅ bench 24 场景通过（25MB VT 输出 + 键盘输入路径正常）。
-- ✅ `pty_signal_consumer` 单元验证：ResizeWindow 状态更新、批量消息流式解析、
-  **跨读边界消息解析**、写端关闭断开检测、栈上移动赋值装配。
+- ✅ `pty_signal_consumer` 单元验证（V3）：ResizeWindow 状态更新、批量流式
+  解析、跨读边界解析、断开检测、栈上移动赋值装配。
+- ✅ `pty_signal_consumer` 帧原子单测（V5-B）：单帧、多帧合并（3 帧一次写）、
+  半帧拆写 → 断开（新行为）、写端关闭 → 断开。
 
 ### 实施中发现的关键问题
 
@@ -325,8 +335,8 @@ run_io_loop_no_setup(server, event, router,
 | `common/win32/pipe.hpp` | 新增；不缓存目录句柄；失败抛异常 |
 | `common/win32/overlapped.hpp` | 新增；不可恢复错误抛异常 |
 | `common/win32/overlapped_reader.hpp` | 新增（V3）；两个 consumer 的公共 I/O 基类 |
-| `libcorehost/signal.hpp` / `signal.cpp` | 重构为 `pty_signal_consumer`（继承基类，仅协议解析） |
-| `corehost/defterm/signal.hpp` / `signal.cpp` | 重构为 `signal_consumer`（继承基类，修复 noexcept bug） |
+| `libcorehost/signal.hpp` / `signal.cpp` | 重构为 `pty_signal_consumer`（继承基类，无状态单帧解析） |
+| `corehost/defterm/signal.hpp` / `signal.cpp` | 重构为 `signal_consumer`（继承基类，无状态单帧解析） |
 | `libcorehost/pipe_bridge_io.hpp` | shutdown event → 信号完成事件；删除 `shutdown_signaled` |
 | `libcorehost/pipe_bridge.hpp` | 同上；`on_idle`/`should_exit`/`wait_for_pending_vt_input` 重构 |
 | `libcorehost/message_router.hpp` | 新增 `on_signal_disconnected` |
