@@ -216,16 +216,13 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
             if (result == corehost::condrv_io::read_io_result::pending)
             {
                 // ── 阶段 2: 等待完成事件 ──
-                const auto wait = win32::wait_one(read_op.event(), 16);
+                // 本循环没有 vt_in/信号等可轮询对象（handler 无 pending、
+                // on_idle 为空），纯事件驱动，无超时。
+                const auto wait = win32::wait_one(read_op.event(), INFINITE);
                 if (wait.abandoned())
                 {
-                    LOG3("initial CONNECT loop idle wait abandoned");
+                    LOG3("initial CONNECT loop wait abandoned");
                     return;
-                }
-                if (!wait.signaled())
-                {
-                    handler.on_idle();
-                    continue;
                 }
                 if (corehost::condrv_io::read_io_finish(server, *current, read_op) ==
                     corehost::condrv_io::read_io_result::disconnected)

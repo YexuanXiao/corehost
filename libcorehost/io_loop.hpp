@@ -73,11 +73,10 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         if (cur->descriptor.Function == 0)
         {
             // Function==0 是空 descriptor，不对应可完成的 Console I/O。
+            // cur 不切换：下一轮 READ_IO 直接覆盖。vt_in 服务由循环顶的
+            // 阶段 1 统一完成。
             LOG2("empty ConDrv descriptor");
-            router.on_idle();
-            if (router.should_exit())
-                return false;
-            return true; // cur 不切换：下一轮 READ_IO 直接覆盖
+            return true;
         }
 
         if (cur->descriptor.Function != CONSOLE_IO_CONNECT)
@@ -91,16 +90,14 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
                 // 应用输出可能包含 CPR/DA/OSC 查询，终端响应只会从 vt_in 回来，
                 // 不会唤醒 ConDrv server。此时必须先让终端看见输出并完成本条
                 // I/O，再回到 idle 读取响应；否则下一轮 READ_IO 可能阻塞，导致
-                // 依赖终端查询响应的程序卡住。
+                // 依赖终端查询响应的程序卡住。flush 后的终端应答由循环顶的
+                // 阶段 1 on_idle 统一读取，无需在此重复。
                 if (router.has_buffered_vt_output())
                 {
                     router.flush_vt_output();
                     corehost::condrv_io::complete_io(server, cur->complete);
                     LOG2("message completed explicitly after VT flush func=%lu", cur->descriptor.Function);
                     prev_done = nullptr;
-                    router.on_idle();
-                    if (router.should_exit())
-                        return false;
                 }
                 else
                 {

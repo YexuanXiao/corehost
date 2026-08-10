@@ -43,7 +43,7 @@ class overlapped_pipe_reader
 
     // 绑定管道读端（独占所有权）。
     explicit overlapped_pipe_reader(win32::handle pipe)
-        : _pipe(std::move(pipe)), _read_event(win32::event{win32::create_tag, false, false})
+        : _pipe(std::move(pipe)), _read_event(win32::event{win32::create_tag, true, false})
     {
         _ov.hEvent = _read_event.get();
     }
@@ -183,12 +183,16 @@ class overlapped_pipe_reader
 
     // 发起下一轮读；立即完成时继续解析并重读，断开/协议损坏时停止。
     // 帧原子性保证解析后无残留，每次读取都从缓冲头部开始。
+    // 事件是手动复位：发起读前显式复位，完成时系统 SetEvent；wait 不会
+    // 消费事件状态，任意多个等待/查询（io_loop wait_any、bridge
+    // wait_signal_slice、try_handle_event）都能可靠看到就绪。
     void read_next()
     {
         for (;;)
         {
             _available = 0;
             _consumed = 0;
+            ::ResetEvent(_read_event.get());
 
             const auto result = win32::begin_overlapped_read(_pipe.view(), _buffer, sizeof(_buffer), _ov);
             if (result.pending())
@@ -210,7 +214,7 @@ class overlapped_pipe_reader
     }
 
     win32::handle _pipe;
-    win32::event _read_event; // overlapped 完成事件（自动复位）
+    win32::event _read_event; // overlapped 完成事件（手动复位；发起读前 ResetEvent）
     OVERLAPPED _ov{};
     std::byte _buffer[64]; // 读目标；64B 容纳多次合并的完整帧
     size_t _available{};   // 当前读入的有效字节数

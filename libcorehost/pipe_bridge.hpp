@@ -1239,26 +1239,27 @@ struct pipe_bridge
             return;
         }
 
-        // 监视信号完成事件一个时间片。就绪（有数据或断开）时把控制权交还
-        // io_loop，由 io_loop 消费信号并决定是否按 EOF 退出。
-        if (wait_for_signal_slice())
-        {
-            return;
-        }
-
-        // 时间片超时：再试一次非阻塞 drain；仍无输入时把控制权交还 io_loop，
-        // 由下一轮 pending 等待继续监视。
-        if (drain_available_vt_input())
-        {
-            return;
-        }
-
         if (_io.has_signal_event())
         {
-            // 有信号事件的模式不能进入阻塞 ReadFile；等待交还给 io_loop。
+            // 监视信号完成事件一个时间片。就绪（有数据或断开）时把控制权
+            // 交还 io_loop，由 io_loop 消费信号并决定是否按 EOF 退出；超时
+            // 后重新 drain，捕获时间片内到达的 vt_in 数据。信号事件是手动
+            // 复位，wait 不消费其状态，io_loop 的 try_handle_event 仍能可靠
+            // 看到就绪。
+            if (wait_for_signal_slice())
+            {
+                return;
+            }
+            if (drain_available_vt_input())
+            {
+                return;
+            }
+            // 无 vt_in 数据也无信号：交还 io_loop，由下一轮继续监视。
             return;
         }
 
+        // 无信号事件：没有需要监视的对象，直接阻塞读 vt_in 直到有输入
+        // 或 EOF（这是唯一允许阻塞 ReadFile 的路径）。
         const auto old_total = _read_total;
         switch (read_blocking_vt_input())
         {

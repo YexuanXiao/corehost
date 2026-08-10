@@ -289,6 +289,47 @@ run_io_loop_no_setup(server, event, router,
 **5. `common/CMakeLists.txt`** 登记 3 个新头文件（`pipe.hpp` /
 `overlapped.hpp` / `overlapped_reader.hpp`）到 FILE_SET HEADERS。
 
+### V6 分析：无意义等待与重试审查（本轮）
+
+重新审查整个 IO 模型的等待/重试，发现 1 个严重 BUG 和 3 处无意义开销：
+
+**1.【严重 BUG】`wait_signal_slice` 消费自动复位信号事件 → pending 期间信号滞留**
+- `overlapped_reader::_read_event` 是**自动复位**事件；pending 循环里
+  `wait_signal_slice(16ms)` 用 `wait_one` 等待——**signaled 返回时事件被原子复位**；
+- 随后 io_loop 的 `try_handle_event` 用 `wait_one(ev, 0)` 查询——**已复位，
+  看不到就绪** → `handle_event` 不被调用 → overlapped 读的完成结果滞留；
+- 后果：ReadConsole 挂起期间 WT 发 resize/close 信号 → 信号滞留到用户输入
+  （无限期），resize 不生效、close 不退出；
+- 现有测试未覆盖该路径（bench/CTest 无 pending 期间信号），所以未被发现。
+- **修复**：`_read_event` 改**手动复位**（wait 不消费），`read_next` 每次发起
+  读前 `ResetEvent`——事件状态可被任意数量的 wait/查询共享，`try_handle_event`
+  的"先查后处理"语义恢复正确。
+
+**2. defterm 初始 CONNECT 循环 16ms 空转**
+- `run_initial_connect_loop` 的 handler 无 vt_in、无信号管道、`on_idle()` 是
+  空函数、`has_pending()` 恒 false——16ms 超时后唯一的动作是调用空函数 +
+  continue，**没有任何可轮询对象**；
+- **修复**：`wait_one(read_op.event(), 16)` → `INFINITE`，删除空 `on_idle()` 调用。
+  纯事件驱动，消除每 16ms 一次的无意义唤醒。
+
+**3. pending 等待中无信号事件时的冗余第二次 drain**
+- `wait_for_pending_vt_input`：drain（空）→ `wait_signal_slice`（无信号事件时
+  **立即返回 false，不发生等待**）→ 第二次 drain——同一瞬间重复 PeekNamedPipe，
+  无等待发生则数据不会自己冒出来，纯冗余系统调用；
+- **修复**：重构为"有信号事件才进时间片分支（含第二次 drain）；无信号事件
+  直接阻塞读"，无信号路径省一次 PeekNamedPipe + 分支更直白。
+
+**4. `dispatch_message` 内 flush 后 on_idle 与阶段 1 重复**
+- flush + complete_io 后立即 `on_idle()`，随后 return → continue → 阶段 1
+  又无条件 `on_idle()`——背靠背两次 PeekNamedPipe，第一次几乎必然为空；
+- **修复**：删除 dispatch 内的 on_idle 与 should_exit 检查（阶段 1 承担），
+  每轮循环固定一次 on_idle。
+
+**5. 【确认无问题】pending 期间 ConDrv 新消息积压**
+- pending 时没有挂起的 READ_IO 请求，新消息在驱动排队，16ms 后阶段 2
+  取回——这是 ConDrv completion 语义（未完成请求不能提交新 READ_IO）的
+  必然结果，原版 conhost 同样如此；16ms 是 vt_in 轮询下限，非无意义等待。
+
 ### 各轮结果
 
 - ✅ V1（基础版）：线程 → overlapped + WaitForMultipleObjects。
@@ -303,17 +344,27 @@ run_io_loop_no_setup(server, event, router,
   无状态单帧解析——写端（libconpty/WT）总是用一次 WriteFile 写完一整帧，
   一次 ReadFile 返回整数个完整帧；删除跨读边界状态（need_payload/need_skip）、
   memmove、buffer-full 分支，半帧残留即协议损坏按断开处理。
+- ✅ V6（消除无意义等待）：修复自动复位事件被 wait 消费的严重 BUG
+  （`_read_event` 改手动复位 + `read_next` 前 `ResetEvent`）；defterm 初始
+  循环 `wait_one(16)` → `INFINITE` 并删除空 `on_idle()`；pending 等待重构
+  为"有信号事件才进时间片分支"，无信号路径直接阻塞读；删除 dispatch 内
+  flush 后冗余 `on_idle()`（阶段 1 承担）。专项单测验证：wait 消费后
+  `try_handle_event` 仍可靠、双重查询、无数据非阻塞、断开检测，全部通过。
 
 ### 最终验证
 
 - ✅ Debug + Release 全量构建通过（重新 configure 后）。
 - ✅ CTest 13/13 通过（含 ConPTY.E2E、Edit.ConPTY.Real 真实 ConPTY 会话；
   `Signal disconnect` 回归测试覆盖新断开语义）。
-- ✅ bench 24 场景通过（25MB VT 输出 + 键盘输入路径正常）。
+- ✅ bench 24 场景通过（25MB VT 输出 + 键盘输入路径正常）；V6 后复跑
+  全部通过（~96MB/s，sgr 场景 0 失败）。
 - ✅ `pty_signal_consumer` 单元验证（V3）：ResizeWindow 状态更新、批量流式
   解析、跨读边界解析、断开检测、栈上移动赋值装配。
 - ✅ `pty_signal_consumer` 帧原子单测（V5-B）：单帧、多帧合并（3 帧一次写）、
   半帧拆写 → 断开（新行为）、写端关闭 → 断开。
+- ✅ 手动复位事件专项单测（V6）：wait_signal_slice 语义（wait_one 返回后
+  try_handle_event 仍能处理）、连续两次 wait 查询、无数据时非阻塞返回、
+  写端关闭断开，4 场景全部通过。
 
 ### 实施中发现的关键问题
 
