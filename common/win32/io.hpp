@@ -120,19 +120,6 @@ template <byte_like T>
 }
 
 template <byte_like T>
-[[nodiscard]] bool read_exact(win32::handle_view handle, std::span<T> buffer) noexcept
-{
-    while (!buffer.empty())
-    {
-        const auto result = read_some(handle, buffer);
-        if (!result.success())
-            return false;
-        buffer = buffer.subspan(result.bytes);
-    }
-    return true;
-}
-
-template <byte_like T>
 [[nodiscard]] io_result write_all(win32::handle_view handle, std::span<const T> buffer) noexcept
 {
     size_t total_written = 0;

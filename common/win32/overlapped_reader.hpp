@@ -173,7 +173,9 @@ class overlapped_pipe_reader
     // 解析当前缓冲中的全部完整帧；残留半帧即协议损坏（帧原子性假设）。
     void drain_parsed() noexcept
     {
-        while (_consumed < _available && try_parse_message()) {}
+        while (_consumed < _available && try_parse_message())
+        {
+        }
         if (_consumed != _available)
         {
             // 半帧残留：writer 拆帧或脏数据，按协议损坏断开。

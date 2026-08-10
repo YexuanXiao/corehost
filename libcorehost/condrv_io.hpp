@@ -47,8 +47,8 @@ inline constexpr DWORD IOCTL_SET_SERVER = CTL_CODE(FILE_DEVICE_CONSOLE, 7, METHO
 
 enum class read_io_result : uint8_t
 {
-    got_message, // READ_IO 完成，cur 中有一条新消息
-    pending,     // READ_IO 已挂起，等待完成事件
+    got_message,  // READ_IO 完成，cur 中有一条新消息
+    pending,      // READ_IO 已挂起，等待完成事件
     disconnected, // server 已断开
 };
 
@@ -90,6 +90,12 @@ inline void set_server_info(win32::handle_view server, win32::handle_view event)
 // ── overlapped READ_IO 状态 ──────────────────────────────
 // 同一时刻最多一个在飞的 READ_IO；完成事件（自动复位）与主循环的其他
 // 事件一起交给 WaitForMultipleObjects，消息到达事件驱动，无需轮询。
+//
+// 自动复位依赖两个前提（勿改，除非同步改造等待者）：
+// 1. 唯一等待者是阶段 3 的 wait，signaled 返回后必跟 read_io_finish，
+//    事件总是被消费；
+// 2. ConDrv 同步完成（DeviceIoControl 返回 TRUE）时不 SetEvent——否则
+//    残留事件会让下一轮 read_io_finish 对未完成的新请求误取回。
 struct read_io_op
 {
     OVERLAPPED ov{};
@@ -172,16 +178,6 @@ inline read_io_result read_io_finish(win32::handle_view server, io_msg &msg, rea
     LOG("read_io_finish: unexpected error %u", static_cast<unsigned>(err));
     throw err;
 }
-// ── read_exact ────────────────────────────────────────────
-// 从管道读取精确字节数。区别于 ReadFile 的"尽量读"语义，
-// 这里要求恰好 s 字节，否则返回 false（管道断开或数据不足）。
-// 曾被 signal_thread_proc/pty_signal_thread_proc 使用；信号管道改为
-// overlapped I/O 后，该函数保留给其他同步读取场景。
-inline bool read_exact(win32::handle_view p, void *b, DWORD s) noexcept
-{
-    return win32::read_exact(p, std::span{static_cast<std::byte *>(b), s});
-}
-
 inline void complete_io(win32::handle_view server, CD_IO_COMPLETE &comp)
 {
     DWORD r = 0;

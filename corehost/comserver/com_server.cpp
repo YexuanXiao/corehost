@@ -22,7 +22,6 @@
 #include "condrv_io.hpp"
 #include "os/Console/conmsgl1.h"
 #include "default_console_size.hpp"
-#include "win32/thread.hpp"
 #include "utility/log.hpp"
 #include "mutex"
 

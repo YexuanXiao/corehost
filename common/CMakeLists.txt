@@ -72,7 +72,6 @@ target_sources(common
                 win32/registry_key.hpp
                 win32/string.hpp
                 win32/tags.hpp
-                win32/thread.hpp
                 win32/wait.hpp
 )
 

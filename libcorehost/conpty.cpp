@@ -131,8 +131,7 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
         // bridge 的 pending 输入等待在时间片内监视信号完成事件，使信号
         // 在 pending 期间也能事件驱动地到达。
         bridge.set_signal_event(signal_consumer.event());
-        LOG("corehost::conpty::run_conpty_session: signal consumer started event=%p",
-            signal_consumer.event().get());
+        LOG("corehost::conpty::run_conpty_session: signal consumer started event=%p", signal_consumer.event().get());
     }
 
     // ── 继承光标位置 ──
@@ -169,14 +168,14 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     // router 持有所有分派入口；run_io_loop_no_setup 只负责 READ_IO 时序、
     // completion 提交和 pending 等待。信号消费者（如有）由本循环驱动。
     LOG("corehost::conpty::run_conpty_session: entering io loop");
-    corehost::conpty::run_io_loop_no_setup(server, event, router,
-                                           signal_consumer.valid() ? &signal_consumer : nullptr);
+    corehost::conpty::run_io_loop_no_setup(server, event, router, signal_consumer.valid() ? &signal_consumer : nullptr);
     LOG("corehost::conpty::run_conpty_session: loop returned");
 }
 
-void conpty_entry(win32::handle_view server, win32::handle_view event, win32::handle condrv_input, win32::handle condrv_output,
-                  win32::handle_view vt_in, win32::handle_view vt_out, win32::handle signal_pipe, short width, short height,
-                  bool inherit_cursor, text_measurement_mode text_measurement, bool ambiguous_is_wide)
+void conpty_entry(win32::handle_view server, win32::handle_view event, win32::handle condrv_input,
+                  win32::handle condrv_output, win32::handle_view vt_in, win32::handle_view vt_out,
+                  win32::handle signal_pipe, short width, short height, bool inherit_cursor,
+                  text_measurement_mode text_measurement, bool ambiguous_is_wide)
 {
     LOG("corehost::conpty::conpty_entry: s=%p vi=%p vo=%p ev=%p w=%d h=%d sig=%p ambi=%d", server.get(), vt_in.get(),
         vt_out.get(), event.get(), width, height, signal_pipe.get(), ambiguous_is_wide);

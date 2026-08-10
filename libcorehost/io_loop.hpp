@@ -28,6 +28,39 @@ namespace corehost::conpty
 
 inline constexpr DWORD io_loop_idle_wait_ms = 16;
 
+// 信号就绪处理：消费信号管道数据；断开时按 EOF 完成 pending 并请求
+// 退出（返回 false）。
+inline bool handle_signal_ready(pty_signal_consumer *signal, message_router &router)
+{
+    if (signal == nullptr)
+        return true;
+    if (signal->handle_event())
+        return true;
+    LOG("run_io_loop_no_setup: signal pipe closed");
+    router.on_signal_disconnected();
+    return false;
+}
+
+// 等待挂起请求完成：只靠 VT 输入或信号事件推进（继续等 server 会在
+// 没有终端输入时重复唤醒，造成空转）。返回 false 表示信号管道断开，
+// 已按 EOF 完成 pending，会话应退出。
+inline bool wait_pending_inputs(message_router &router, pty_signal_consumer *signal)
+{
+    while (router.has_pending())
+    {
+        router.wait_for_pending_input();
+        // bridge 的时间片等待已包含信号完成事件；返回后补处理一次信号，
+        // 捕获超时返回瞬间信号恰好到达的竞态窗口。
+        if (signal != nullptr && !signal->try_handle_event())
+        {
+            LOG("run_io_loop_no_setup: signal pipe closed while pending");
+            router.on_signal_disconnected();
+            return false;
+        }
+    }
+    return true;
+}
+
 // 运行 ConDrv READ_IO/COMPLETE_IO 主循环。server/event 都是非拥有句柄；
 // router 持有实际状态机。READ_IO 通过 overlapped 完成事件驱动，对 pending
 // 请求等待 VT 输入显式完成，并在 server 断开或 bridge 可退出时返回。
@@ -40,18 +73,6 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
     // 事件，只用于判断 completion 前是否需要先刷 VT 输出。router 持有
     // io_state/pipe_bridge/api_router，是本循环消费消息的唯一入口。
     LOG("run_io_loop_no_setup: enter");
-
-    // 信号就绪处理：消费信号管道数据；断开时按 EOF 完成 pending 并请求
-    // 退出（返回 false）。
-    const auto handle_signal_ready = [&]() -> bool {
-        if (signal == nullptr)
-            return true;
-        if (signal->handle_event())
-            return true;
-        LOG("run_io_loop_no_setup: signal pipe closed");
-        router.on_signal_disconnected();
-        return false;
-    };
 
     // READ_IO 会在同一次调用中提交上一条 completion 并读取下一条消息。
     // 双缓冲保证 completion 中指向的 body 不会被下一条消息覆盖。
@@ -117,20 +138,9 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             else
             {
                 LOG2("message pending func=%lu", cur->descriptor.Function);
-                // pending 期间只等待终端输入或信号事件。继续等 server 会在
-                // 没有终端输入时重复唤醒，造成空转。bridge 的时间片等待已
-                // 包含信号完成事件；返回后补处理一次信号。
-                while (router.has_pending())
-                {
-                    router.wait_for_pending_input();
-                    if (signal != nullptr && !signal->try_handle_event())
-                    {
-                        // 信号管道断开：按 EOF 完成 pending，会话退出。
-                        LOG("run_io_loop_no_setup: signal pipe closed while pending");
-                        router.on_signal_disconnected();
-                        break;
-                    }
-                }
+                // 挂起请求只能靠 VT 输入或信号事件推进。
+                if (!wait_pending_inputs(router, signal))
+                    return false;
                 LOG2("pending message completed func=%lu", cur->descriptor.Function);
                 if (router.should_exit())
                     return false;
@@ -221,14 +231,13 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         if (read_op.pending())
         {
             COREHOST_PERF_SCOPE(io_server_idle_wait);
-            const auto wait = [&] {
-                if (signal != nullptr)
-                    return win32::wait_any(read_op.event(), signal->event(), io_loop_idle_wait_ms);
-                return win32::wait_one(read_op.event(), io_loop_idle_wait_ms);
-            }();
+            // 信号消费者存在时同时等待其完成事件；否则只等 READ_IO。
+            const auto wait = signal != nullptr
+                                  ? win32::wait_any(read_op.event(), signal->event(), io_loop_idle_wait_ms)
+                                  : win32::wait_one(read_op.event(), io_loop_idle_wait_ms);
             if (signal != nullptr && wait.index == 1)
             {
-                if (!handle_signal_ready())
+                if (!handle_signal_ready(signal, router))
                     break;
                 continue; // 信号已消费；回到循环顶重新评估状态
             }
@@ -259,17 +268,8 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         // 挂起请求只能靠 VT 输入或信号事件推进，不能靠 ConDrv 消息推进。
         if (router.has_pending())
         {
-            while (router.has_pending())
-            {
-                router.wait_for_pending_input();
-                if (signal != nullptr && !signal->try_handle_event())
-                {
-                    // 信号管道断开：按 EOF 完成 pending，会话退出。
-                    LOG("run_io_loop_no_setup: signal pipe closed while pending");
-                    router.on_signal_disconnected();
-                    break;
-                }
-            }
+            if (!wait_pending_inputs(router, signal))
+                break;
             if (router.should_exit())
                 break;
             continue;

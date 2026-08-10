@@ -28,8 +28,7 @@ extern "C" NTSTATUS NTAPI NtCreateNamedPipeFile(
     _Out_ PHANDLE FileHandle, _In_ ACCESS_MASK DesiredAccess, _In_ POBJECT_ATTRIBUTES ObjectAttributes,
     _Out_ PIO_STATUS_BLOCK IoStatusBlock, _In_ ACCESS_MASK ShareAccess, _In_ ULONG CreateDisposition,
     _In_ ULONG CreateOptions, _In_ ULONG NamedPipeType, _In_ ULONG ReadMode, _In_ ULONG CompletionMode,
-    _In_ ULONG MaximumInstances, _In_ ULONG InboundQuota, _In_ ULONG OutboundQuota,
-    _In_ PLARGE_INTEGER DefaultTimeout);
+    _In_ ULONG MaximumInstances, _In_ ULONG InboundQuota, _In_ ULONG OutboundQuota, _In_ PLARGE_INTEGER DefaultTimeout);
 
 // winternl.h 未提供管道类型/模式/完成模式常量；取值与 ntifs.h 一致。
 #ifndef FILE_PIPE_BYTE_STREAM_TYPE
@@ -62,8 +61,14 @@ struct overlapped_pipe
 }
 
 // ── 创建 overlapped 读端 + 同步写端的匿名管道 ──────────────
-// 方向固定为 INBOUND（read 端可读、write 端可写）。失败抛 win32::error。
-[[nodiscard]] inline overlapped_pipe create_overlapped_pipe()
+// 方向固定为 INBOUND（read 端可读、write 端可写）。
+//
+// 两个重载：
+// - create_overlapped_pipe(read, write) : 错误码版本（noexcept），跨模块边界
+//   使用（libconpty DLL 导出 HRESULT API，与 OpenConDrvHandle 同一风格）。
+//   失败时 read/write 不被修改。
+// - create_overlapped_pipe()            : 抛异常版本，corehost 进程内部使用。
+[[nodiscard]] inline LONG create_overlapped_pipe(win32::handle &read, win32::handle &write) noexcept
 {
     // 1 秒默认超时（100ns 单位，负值表示相对时间）。
     LARGE_INTEGER timeout{.QuadPart = -10'000'0000};
@@ -93,7 +98,7 @@ struct overlapped_pipe
                                            nullptr, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE,
                                            FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, nullptr, 0);
         if (st < 0)
-            throw_nt_status(st);
+            return st;
     }
 
     // server 端：PIPE_ACCESS_INBOUND 的读端。CreateOptions=0 → overlapped。
@@ -101,23 +106,23 @@ struct overlapped_pipe
     object_attributes.RootDirectory = pipe_directory.get();
     {
         IO_STATUS_BLOCK iosb{};
-        const NTSTATUS st = ::NtCreateNamedPipeFile(
-            server.put(),
-            /* DesiredAccess     */ SYNCHRONIZE | GENERIC_READ | FILE_WRITE_ATTRIBUTES,
-            /* ObjectAttributes  */ &object_attributes,
-            /* IoStatusBlock     */ &iosb,
-            /* ShareAccess       */ FILE_SHARE_WRITE,
-            /* CreateDisposition */ FILE_CREATE,
-            /* CreateOptions     */ 0, // FILE_SYNCHRONOUS_IO_NONALERT → 同步管道
-            /* NamedPipeType     */ FILE_PIPE_BYTE_STREAM_TYPE,
-            /* ReadMode          */ FILE_PIPE_BYTE_STREAM_MODE,
-            /* CompletionMode    */ FILE_PIPE_QUEUE_OPERATION,
-            /* MaximumInstances  */ 1,
-            /* InboundQuota      */ 0,
-            /* OutboundQuota     */ 0,
-            /* DefaultTimeout    */ &timeout);
+        const NTSTATUS st =
+            ::NtCreateNamedPipeFile(server.put(),
+                                    /* DesiredAccess     */ SYNCHRONIZE | GENERIC_READ | FILE_WRITE_ATTRIBUTES,
+                                    /* ObjectAttributes  */ &object_attributes,
+                                    /* IoStatusBlock     */ &iosb,
+                                    /* ShareAccess       */ FILE_SHARE_WRITE,
+                                    /* CreateDisposition */ FILE_CREATE,
+                                    /* CreateOptions     */ 0, // FILE_SYNCHRONOUS_IO_NONALERT → 同步管道
+                                    /* NamedPipeType     */ FILE_PIPE_BYTE_STREAM_TYPE,
+                                    /* ReadMode          */ FILE_PIPE_BYTE_STREAM_MODE,
+                                    /* CompletionMode    */ FILE_PIPE_QUEUE_OPERATION,
+                                    /* MaximumInstances  */ 1,
+                                    /* InboundQuota      */ 0,
+                                    /* OutboundQuota     */ 0,
+                                    /* DefaultTimeout    */ &timeout);
         if (st < 0)
-            throw_nt_status(st);
+            return st;
     }
 
     // client 端：PIPE_ACCESS_INBOUND 的写端。FILE_SYNCHRONOUS_IO_NONALERT → 同步。
@@ -125,23 +130,37 @@ struct overlapped_pipe
     object_attributes.RootDirectory = server.get();
     {
         IO_STATUS_BLOCK iosb{};
-        const NTSTATUS st = ::NtCreateFile(
-            client.put(),
-            /* DesiredAccess     */ SYNCHRONIZE | GENERIC_WRITE | FILE_READ_ATTRIBUTES,
-            /* ObjectAttributes  */ &object_attributes,
-            /* IoStatusBlock     */ &iosb,
-            /* AllocationSize    */ nullptr,
-            /* FileAttributes    */ 0,
-            /* ShareAccess       */ FILE_SHARE_READ,
-            /* CreateDisposition */ FILE_OPEN,
-            /* CreateOptions     */ FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
-            /* EaBuffer          */ nullptr,
-            /* EaLength          */ 0);
+        const NTSTATUS st =
+            ::NtCreateFile(client.put(),
+                           /* DesiredAccess     */ SYNCHRONIZE | GENERIC_WRITE | FILE_READ_ATTRIBUTES,
+                           /* ObjectAttributes  */ &object_attributes,
+                           /* IoStatusBlock     */ &iosb,
+                           /* AllocationSize    */ nullptr,
+                           /* FileAttributes    */ 0,
+                           /* ShareAccess       */ FILE_SHARE_READ,
+                           /* CreateDisposition */ FILE_OPEN,
+                           /* CreateOptions     */ FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+                           /* EaBuffer          */ nullptr,
+                           /* EaLength          */ 0);
         if (st < 0)
-            throw_nt_status(st);
+            return st;
     }
 
-    return {std::move(server), std::move(client)};
+    read = std::move(server);
+    write = std::move(client);
+    // STATUS_SUCCESS 恒为 0；直接返回 0 避免引入 ntstatus.h（与 winternl.h
+    // 的 STATUS_IN_PAGE_ERROR 宏重定义冲突，产生 C4005 警告）。
+    return 0;
+}
+
+// 抛异常版本（corehost 进程内部使用）：失败抛 win32::error。
+[[nodiscard]] inline overlapped_pipe create_overlapped_pipe()
+{
+    overlapped_pipe p;
+    const LONG st = create_overlapped_pipe(p.read, p.write);
+    if (st < 0)
+        throw_nt_status(st);
+    return p;
 }
 
 } // namespace win32

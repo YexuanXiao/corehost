@@ -501,9 +501,10 @@ struct pipe_bridge
         if (track_terminal_cursor)
         {
             const auto old_cursor = _terminal.cursor();
-            LOG3("[bridge] sync_cursor_after_write: pos=(%d,%d) was_tc=(%d,%d) was_col_start=%d was_col_end=%d enter_nl=%d",
-                 pos.X, pos.Y, old_cursor.X, old_cursor.Y, _terminal.input_column_start(),
-                 _terminal.input_column_end(), _terminal.enter_newline_pending());
+            LOG3("[bridge] sync_cursor_after_write: pos=(%d,%d) was_tc=(%d,%d) was_col_start=%d was_col_end=%d "
+                 "enter_nl=%d",
+                 pos.X, pos.Y, old_cursor.X, old_cursor.Y, _terminal.input_column_start(), _terminal.input_column_end(),
+                 _terminal.enter_newline_pending());
             term_cursor_set(terminal_pos);
         }
         bounds_reset(terminal_pos.X);

@@ -251,24 +251,20 @@ HRESULT OpenConDrvHandles(win32::handle &serverHandle, win32::handle &referenceH
 
 HRESULT CreateSignalPipe(win32::handle &readPipe, win32::handle &writePipe) noexcept
 {
-    try
-    {
-        // 用 NT API 创建匿名管道：读端 overlapped（corehost 用 overlapped I/O
-        // 读取信号，不再需要独立信号线程），写端保持同步（ConptyResize-
-        // PseudoConsole 等 API 用同步 WriteFile）。
-        auto p = win32::create_overlapped_pipe();
-        readPipe = std::move(p.read);
-        writePipe = std::move(p.write);
+    // 用 NT API 创建匿名管道：读端 overlapped（corehost 用 overlapped I/O
+    // 读取信号，不再需要独立信号线程），写端保持同步（ConptyResize-
+    // PseudoConsole 等 API 用同步 WriteFile）。
+    //
+    // DLL 边界不抛异常：错误码重载返回 NTSTATUS，与 OpenConDrvHandle 同风格。
+    // 失败时 readPipe/writePipe 不被修改。
+    const LONG st = win32::create_overlapped_pipe(readPipe, writePipe);
+    if (!nt_success(st))
+        return hresult_from_nt(st);
 
-        // 读端必须可继承：经 --signal 命令行传给 corehost 子进程。
-        if (!::SetHandleInformation(readPipe.get(), HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT))
-            return hresult_from_last_error();
-        return S_OK;
-    }
-    catch (win32::error e)
-    {
-        return HRESULT_FROM_WIN32(static_cast<unsigned>(e));
-    }
+    // 读端必须可继承：经 --signal 命令行传给 corehost 子进程。
+    if (!::SetHandleInformation(readPipe.get(), HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT))
+        return hresult_from_last_error();
+    return S_OK;
 }
 
 HRESULT BuildStartupInfoEx(HANDLE (&inherited)[kInheritedHandlesCount], proc_thread_attribute_list &attrList,
