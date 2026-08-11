@@ -6,5 +6,5 @@
 
 namespace win32
 {
-using wcstring_view = beman::wcstring_view;
+using wcstring_view = beman::cstring_view::wcstring_view;
 } // namespace win32

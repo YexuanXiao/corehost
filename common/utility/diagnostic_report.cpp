@@ -4,6 +4,7 @@
 #include <share.h>
 #include <cstdio>
 #include <string_view>
+#include "win32/string.hpp"
 #include "utility/temp_path.hpp"
 
 namespace diagnostic_report
