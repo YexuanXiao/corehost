@@ -66,8 +66,8 @@ bool console_control_forwarder::poll()
         const auto code_read = win32::read_some(_pipe, std::span{&code, size_t{1}});
         if (code_read.closed() || code_read.failed())
         {
-            LOG("console_control_forwarder: code read failed status=%u err=%u",
-                static_cast<unsigned>(code_read.status), static_cast<unsigned>(code_read.error));
+            LOG("console_control_forwarder: code read failed status=%u err=%u", static_cast<unsigned>(code_read.status),
+                static_cast<unsigned>(code_read.error));
             return true;
         }
 
@@ -75,19 +75,17 @@ bool console_control_forwarder::poll()
         const auto min_payload = min_payload_for(code_enum);
         if (min_payload == 0)
         {
-            LOG("console_control_forwarder: unknown code=%u; protocol corrupted",
-                static_cast<unsigned>(code_enum));
+            LOG("console_control_forwarder: unknown code=%u; protocol corrupted", static_cast<unsigned>(code_enum));
             throw win32::error::invalid_state;
         }
 
         // ── 阶段 2: 精确读 4 字节 dwSize（payload 长度头）──
         DWORD dw_size = 0;
-        const auto size_read =
-            win32::read_some(_pipe, std::span{reinterpret_cast<std::byte *>(&dw_size), size_t{4}});
+        const auto size_read = win32::read_some(_pipe, std::span{reinterpret_cast<std::byte *>(&dw_size), size_t{4}});
         if (size_read.closed() || size_read.failed())
         {
-            LOG("console_control_forwarder: size read failed status=%u err=%u",
-                static_cast<unsigned>(size_read.status), static_cast<unsigned>(size_read.error));
+            LOG("console_control_forwarder: size read failed status=%u err=%u", static_cast<unsigned>(size_read.status),
+                static_cast<unsigned>(size_read.error));
             return true;
         }
         if (size_read.bytes != 4)
@@ -154,8 +152,7 @@ bool console_control_forwarder::poll()
             // 消费消息保持协议同步（老版本 WT 可能仍发送）。
             CONSOLESETFOREGROUNDDATA d{};
             std::memcpy(&d, head.data(), sizeof(d));
-            LOG("console_control_forwarder: ConsoleSetForeground pid=%lu foreground=%d", d.ProcessId,
-                d.Foreground);
+            LOG("console_control_forwarder: ConsoleSetForeground pid=%lu foreground=%d", d.ProcessId, d.Foreground);
             break;
         }
         case ConsoleEndTask: {

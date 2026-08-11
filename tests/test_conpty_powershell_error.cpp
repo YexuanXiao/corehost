@@ -298,7 +298,7 @@ std::string printable(std::string_view s)
 //   - 可打印字符推进 X，到列尾自动 wrap
 struct vt_terminal_tracker
 {
-    int row = 0;   // 0-based
+    int row = 0; // 0-based
     int col = 0;
     int width = 120;
 
@@ -452,16 +452,16 @@ int main()
     //    38;5;9 / 38;2;255;0;0 等红色 SGR 写法）
     const bool has_newline = output.find("\r\n") != std::string::npos || output.find("\n") != std::string::npos;
     const bool on_new_line = found_echo && found_err && echo_pos < err_pos && err_row > echo_row;
-    const bool has_red = output.find("\x1b[31m") != std::string::npos || output.find("\x1b[31;") != std::string::npos ||
-                         output.find("\x1b[91m") != std::string::npos || output.find("\x1b[91;") != std::string::npos ||
-                         output.find("\x1b[0;31") != std::string::npos || output.find("\x1b[0;91") != std::string::npos ||
-                         output.find("\x1b[38;5;9m") != std::string::npos ||
-                         output.find("\x1b[38;2;255;0;0m") != std::string::npos;
-    const bool has_blue = output.find("\x1b[34m") != std::string::npos || output.find("\x1b[34;") != std::string::npos ||
-                          output.find("\x1b[94m") != std::string::npos || output.find("\x1b[94;") != std::string::npos ||
-                          output.find("\x1b[0;34") != std::string::npos || output.find("\x1b[0;94") != std::string::npos ||
-                          output.find("\x1b[38;5;4m") != std::string::npos ||
-                          output.find("\x1b[38;5;12m") != std::string::npos;
+    const bool has_red =
+        output.find("\x1b[31m") != std::string::npos || output.find("\x1b[31;") != std::string::npos ||
+        output.find("\x1b[91m") != std::string::npos || output.find("\x1b[91;") != std::string::npos ||
+        output.find("\x1b[0;31") != std::string::npos || output.find("\x1b[0;91") != std::string::npos ||
+        output.find("\x1b[38;5;9m") != std::string::npos || output.find("\x1b[38;2;255;0;0m") != std::string::npos;
+    const bool has_blue =
+        output.find("\x1b[34m") != std::string::npos || output.find("\x1b[34;") != std::string::npos ||
+        output.find("\x1b[94m") != std::string::npos || output.find("\x1b[94;") != std::string::npos ||
+        output.find("\x1b[0;34") != std::string::npos || output.find("\x1b[0;94") != std::string::npos ||
+        output.find("\x1b[38;5;4m") != std::string::npos || output.find("\x1b[38;5;12m") != std::string::npos;
 
     std::printf("=== analysis: newline=%d on_new_line=%d red=%d blue=%d ===\n", has_newline, on_new_line, has_red,
                 has_blue);

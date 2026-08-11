@@ -506,9 +506,10 @@ struct pipe_bridge
         if (track_terminal_cursor)
         {
             const auto old_cursor = _terminal.cursor();
-            LOG3("[bridge] sync_cursor_after_write: pos=(%d,%d) was_tc=(%d,%d) was_col_start=%d was_col_end=%d enter_nl=%d",
-                 pos.X, pos.Y, old_cursor.X, old_cursor.Y, _terminal.input_column_start(),
-                 _terminal.input_column_end(), _terminal.enter_newline_pending());
+            LOG3("[bridge] sync_cursor_after_write: pos=(%d,%d) was_tc=(%d,%d) was_col_start=%d was_col_end=%d "
+                 "enter_nl=%d",
+                 pos.X, pos.Y, old_cursor.X, old_cursor.Y, _terminal.input_column_start(), _terminal.input_column_end(),
+                 _terminal.enter_newline_pending());
             term_cursor_set(terminal_pos);
         }
         bounds_reset(terminal_pos.X);
@@ -2343,8 +2344,7 @@ struct pipe_bridge
             cstate.cursor.position = active_screen_buffer().viewport.absolute_position(terminal_position);
             cstate.clamp_cursor_to_buffer();
             _terminal.finish_inherit_cursor(terminal_position);
-            LOG2("[bridge] cpr_response: inherit cursor (%d,%d)", cstate.cursor.position.X,
-                 cstate.cursor.position.Y);
+            LOG2("[bridge] cpr_response: inherit cursor (%d,%d)", cstate.cursor.position.X, cstate.cursor.position.Y);
             return true;
         }
         LOG2("[bridge] cpr_response: ignored pending=%d row=%d col=%d", _terminal.pending_inherit_cursor(),

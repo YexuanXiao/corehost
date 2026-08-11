@@ -22,8 +22,8 @@ namespace condrv
     IO_STATUS_BLOCK iosb{};
 
     auto st = ::NtCreateFile(h.put(), GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE, &oa, &iosb, nullptr,
-                             FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                             FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT, nullptr, 0ul);
+                             FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
+                             FILE_SYNCHRONOUS_IO_NONALERT, nullptr, 0ul);
     if (st < 0)
         win32::throw_hresult(win32::hresult(HRESULT_FROM_NT(st)));
 

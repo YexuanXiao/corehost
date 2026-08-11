@@ -85,8 +85,8 @@ int child_mode()
     ::GetConsoleMode(hOut, &mode);
 
     // 模拟 powershell 5.1 的"第 4 次 SetAttr"（观察为 R<->B 交换）
-    const WORD swapped = static_cast<WORD>((a2 & 0x0008) | ((a2 & 0x0004) >> 2) | ((a2 & 0x0002) >> 0) |
-                                           ((a2 & 0x0001) << 2));
+    const WORD swapped =
+        static_cast<WORD>((a2 & 0x0008) | ((a2 & 0x0004) >> 2) | ((a2 & 0x0002) >> 0) | ((a2 & 0x0001) << 2));
     char buf[128];
     std::snprintf(buf, sizeof(buf), "[probe] A2=0x%04X swapped=0x%04X\n", static_cast<unsigned>(a2),
                   static_cast<unsigned>(swapped));

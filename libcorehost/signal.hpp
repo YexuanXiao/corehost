@@ -49,7 +49,9 @@ class pty_signal_reader
   public:
     // state/sbuf 引用必须覆盖本对象生命周期；conpty 会话持有它们，本对象
     // 只允许在会话主线程中调用 poll()。
-    pty_signal_reader(console_state &state, screen_buffer &sbuf) noexcept : _state(state), _sbuf(sbuf) {}
+    pty_signal_reader(console_state &state, screen_buffer &sbuf) noexcept : _state(state), _sbuf(sbuf)
+    {
+    }
 
     // 绑定信号管道读端。句柄所有权仍归 conpty 会话，本对象只保存视图。
     void set_pipe(win32::handle_view pipe) noexcept

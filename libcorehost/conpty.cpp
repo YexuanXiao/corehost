@@ -165,9 +165,10 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     LOG("corehost::conpty::run_conpty_session: loop returned");
 }
 
-void conpty_entry(win32::handle_view server, win32::handle_view event, win32::handle condrv_input, win32::handle condrv_output,
-                  win32::handle_view vt_in, win32::handle_view vt_out, win32::handle signal_pipe, short width, short height,
-                  bool inherit_cursor, text_measurement_mode text_measurement, bool ambiguous_is_wide)
+void conpty_entry(win32::handle_view server, win32::handle_view event, win32::handle condrv_input,
+                  win32::handle condrv_output, win32::handle_view vt_in, win32::handle_view vt_out,
+                  win32::handle signal_pipe, short width, short height, bool inherit_cursor,
+                  text_measurement_mode text_measurement, bool ambiguous_is_wide)
 {
     LOG("corehost::conpty::conpty_entry: s=%p vi=%p vo=%p ev=%p w=%d h=%d sig=%p ambi=%d", server.get(), vt_in.get(),
         vt_out.get(), event.get(), width, height, signal_pipe.get(), ambiguous_is_wide);
