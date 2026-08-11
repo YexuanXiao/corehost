@@ -99,17 +99,19 @@ bool console_control_forwarder::poll()
             throw win32::error::invalid_state;
         }
 
-        // ── 阶段 3: 精确读 payload 结构体头部 ──
-        // 请求长度等于结构体大小，不多读；读不满 = 协议损坏。
-        std::array<std::byte, sizeof(CONSOLEENDTASKDATA)> head{};
-        const auto head_read = win32::read_some(_pipe, std::span{head}.first(min_payload));
-        if (head_read.closed() || head_read.failed())
+        // ── 阶段 3: 精确读 payload 剩余字段 ──
+        // dwSize（结构体前 4 字节）已在阶段 2 读取，这里只需读结构体剩余
+        // 部分 min_payload - 4 字节；读不满 = 协议损坏。
+        const auto body_len = min_payload - sizeof(DWORD);
+        std::array<std::byte, sizeof(CONSOLEENDTASKDATA) - sizeof(DWORD)> body{};
+        const auto body_read = win32::read_some(_pipe, std::span{body}.first(body_len));
+        if (body_read.closed() || body_read.failed())
         {
             LOG("console_control_forwarder: payload read failed status=%u err=%u",
-                static_cast<unsigned>(head_read.status), static_cast<unsigned>(head_read.error));
+                static_cast<unsigned>(body_read.status), static_cast<unsigned>(body_read.error));
             return true;
         }
-        if (head_read.bytes != min_payload)
+        if (body_read.bytes != body_len)
         {
             LOG("console_control_forwarder: partial payload; protocol corrupted");
             throw win32::error::invalid_state;
@@ -136,12 +138,17 @@ bool console_control_forwarder::poll()
             extra -= skip.bytes;
         }
 
-        // ── 转发完整消息 ──
+        // ── 转发完整消息：结构体 = [dwSize(4)][body] ──
+        // dwSize 字段与 body 分两次读入，这里组装回完整结构体再 memcpy，
+        // 避免各 case 重复拼接。
+        std::array<std::byte, sizeof(CONSOLEENDTASKDATA)> data{};
+        std::memcpy(data.data(), &dw_size, sizeof(dw_size));
+        std::memcpy(data.data() + sizeof(DWORD), body.data(), body_len);
         switch (code_enum)
         {
         case ConsoleNotifyConsoleApplication: {
             CONSOLENOTIFYAPPDATA d{};
-            std::memcpy(&d, head.data(), sizeof(d));
+            std::memcpy(&d, data.data(), sizeof(d));
             CONSOLE_PROCESS_INFO cpi{d.dwProcessID, CPI_NEWPROCESSWINDOW};
             LOG("console_control_forwarder: NotifyConsoleApplication pid=%lu", d.dwProcessID);
             console::ConsoleControl(ConsoleNotifyConsoleApplication, &cpi, sizeof(cpi));
@@ -151,13 +158,13 @@ bool console_control_forwarder::poll()
             // GH#13211: 新版 WT 不再发送此消息，改为本地处理；这里只
             // 消费消息保持协议同步（老版本 WT 可能仍发送）。
             CONSOLESETFOREGROUNDDATA d{};
-            std::memcpy(&d, head.data(), sizeof(d));
+            std::memcpy(&d, data.data(), sizeof(d));
             LOG("console_control_forwarder: ConsoleSetForeground pid=%lu foreground=%d", d.ProcessId, d.Foreground);
             break;
         }
         case ConsoleEndTask: {
             CONSOLEENDTASKDATA d{};
-            std::memcpy(&d, head.data(), sizeof(d));
+            std::memcpy(&d, data.data(), sizeof(d));
             CONSOLEENDTASK c{reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(d.ProcessId)), nullptr,
                              d.ConsoleEventCode, d.ConsoleFlags};
             LOG("console_control_forwarder: ConsoleEndTask pid=%lu event=%lu flags=0x%08lx", d.ProcessId,
