@@ -6,9 +6,10 @@
 
 The orginal Windows conhost has the following issues:
 
-- Abuses mutable global state, resulting in poor code quality
+- The code quality is poor and has become nearly unmaintainable
 - Contains numerous bugs that are almost impossible to fix
-- Lacks necessary documentation and has become unmaintainable
+
+Actually, the Windows Console team also agrees that it is far from ideal; see https://github.com/microsoft/terminal/blob/main/doc/specs/%2313000%20-%20In-process%20ConPTY.md and other comments you can find in the repo's issue tracker.
 
 ## Positioning
 
@@ -30,7 +31,7 @@ corehost aims to provide **high quality and high performance** for driving:
 
 Actually, corehost is the ideal OpenConsole/conhost.
 
-In addition to debugging facilities, corehost **does not use any mutable global variables**. All immutable global variables are **initialized within the main function**, and **no singletons, including magic statics**, are used. All state is **passed through function parameters** and is modularized as much as possible, making corehost very easy to understand and debug, whether for humans or for AI.
+corehost **does not use any mutable global variables**. All immutable global variables are **initialized within the main function**, and **no singletons, including magic statics**, are used. All state is **passed through function parameters** and is modularized as much as possible. Moreover, corehost also uses only a single thread, making corehost very easy to understand and debug, whether for humans or for AI.
 
 ## corehost as conhost
 
@@ -136,7 +137,7 @@ The ConPTY runtime is the shared implementation used by all three startup modes.
 
 ### Design
 
-The main data path uses a **synchronous I/O** model and is intentionally almost **single-threaded**. One main loop reads a ConDrv request, lets the router update console state or prepare a pending read, flushes VT output when needed, and returns the completion result to ConDrv. Terminal input is also serviced from that same loop during idle or pending-read phases, so ordinary keyboard input, terminal replies, console output, and most API state transitions are serialized through **one state machine**. This **avoids the need for locks** around most console state. A request is either completed immediately, completed by the next ConDrv read cycle, or held pending until terminal input supplies the missing data.
+Due to protocol restrictions, corehost uses synchronous I/O, but unlike the original conhost, corehost strictly uses only a single thread, the main thread. One main loop reads a ConDrv request, lets the router update console state or prepare a pending read, flushes VT output when needed, and returns the completion result to ConDrv. Terminal input is also serviced from that same loop during idle or pending-read phases, so ordinary keyboard input, terminal replies, console output, and most API state transitions are serialized through **one state machine**. This **avoids the need for locks** around most console state. A request is either completed immediately, completed by the next ConDrv read cycle, or held pending until terminal input supplies the missing data.
 
 The signal path is handled inside the same loop rather than by a dedicated thread. The terminal has a separate control channel that is not part of the normal VT input/output stream, so the session polls the signal pipe during the same idle and pending-wait phases that already service terminal input. In the direct default-terminal handoff path, the polling loop reads console-control notifications from the terminal signal pipe, forwards the relevant control events to the Windows console subsystem, and notices when the pipe closes. In ConPTY sessions, the same polling loop consumes terminal-side sideband messages such as show/hide, clear-buffer, parent-window, and resize notifications. Some messages are only consumed to keep the wire protocol aligned; others update the local screen buffer or console size. When the signal pipe closes, the session marks the input side as EOF so pending input waits can end cleanly. Signal arrivals are therefore delayed by at most one 16 ms polling slice, and all state updates stay serialized on the main thread.
 
