@@ -7,7 +7,6 @@
 #include "perf_diag.hpp"
 #include "utility/log.hpp"
 #include "win32/io.hpp"
-#include "win32/wait.hpp"
 
 namespace corehost::conpty
 {
@@ -39,12 +38,10 @@ class pipe_bridge_io
         _vt_input = pipe;
     }
 
-    // 绑定可选 shutdown event；有效时 pending 输入等待会按时间片检查它。
-    void set_shutdown_event(win32::handle_view event) noexcept
+    // 返回终端输入 pipe 视图，供等待路径对 vt_in 做短时间片等待。
+    [[nodiscard]] win32::handle_view vt_input() const noexcept
     {
-        // event 由 PtySignal 线程或 defterm 轮询路径提供，用来打断 pending
-        // input 等待；本类不拥有该事件。
-        _shutdown_event = event;
+        return _vt_input;
     }
 
     // 向 ConDrv 提交一个异步完成结果；调用方负责保证 completion 内容已构造好。
@@ -66,42 +63,6 @@ class pipe_bridge_io
         // identifier/offset 来自原始 io_msg descriptor，用于读取 body 之外的
         // 大输入载荷；destination 是 bridge 的持久输入 payload 缓冲。
         corehost::condrv_io::read_input(_server, identifier, offset, byte_span(destination));
-    }
-
-    // true 表示 pending 输入等待可以被 shutdown event 打断。
-    [[nodiscard]] bool has_shutdown_event() const noexcept
-    {
-        return _shutdown_event.valid();
-    }
-
-    // 非阻塞检查 shutdown event；用于轮询路径决定是否退出等待。
-    [[nodiscard]] bool shutdown_signaled() const
-    {
-        if (!_shutdown_event.valid())
-            return false;
-
-        const auto wait = win32::wait_one(_shutdown_event, 0);
-        if (wait.abandoned())
-        {
-            LOG("[bridge_io] shutdown event wait abandoned");
-            return true;
-        }
-        return wait.signaled();
-    }
-
-    // 等待一个短时间片；返回 true 表示 shutdown event 已触发。
-    [[nodiscard]] bool wait_shutdown_slice(DWORD timeout_ms) const
-    {
-        if (!_shutdown_event.valid())
-            return false;
-
-        const auto wait = win32::wait_one(_shutdown_event, timeout_ms);
-        if (wait.abandoned())
-        {
-            LOG("[bridge_io] shutdown slice wait abandoned");
-            return true;
-        }
-        return wait.signaled();
     }
 
     // 查询 vt_in 当前可读字节数。返回 false 表示 pipe 已不可用，bridge 会把
@@ -139,11 +100,11 @@ class pipe_bridge_io
         return read_from_vt_input(destination.first(to_read), read_bytes);
     }
 
-    // 阻塞读取 vt_in，直到有字节或 EOF。只有没有 shutdown event 的等待路径
-    // 可以使用它，否则关闭信号无法打断 ReadFile。
+    // 阻塞读取 vt_in，直到有字节或 EOF。只允许在没有信号管道的等待路径使用
+    // 它，因为 ReadFile 阻塞后不会被任何会话事件打断。
     [[nodiscard]] vt_pipe_read_status read_blocking(std::span<char8_t> destination, DWORD &read_bytes) noexcept
     {
-        // 只在没有 shutdown_event 的路径使用；调用方接受 ReadFile 阻塞到有输入或 EOF。
+        // 只在没有信号管道的路径使用；调用方接受 ReadFile 阻塞到有输入或 EOF。
         read_bytes = 0;
         LOG("[bridge_io] read blocking");
         return read_from_vt_input(destination, read_bytes);
@@ -222,8 +183,6 @@ class pipe_bridge_io
     win32::handle_view _server;
     // 终端输入 pipe 非拥有句柄，所有 vt_in Peek/ReadFile 都集中在这里。
     win32::handle_view _vt_input;
-    // 可选关闭/轮询事件。无效句柄表示等待路径不能被 signal 唤醒。
-    win32::handle_view _shutdown_event;
 };
 
 } // namespace corehost::conpty

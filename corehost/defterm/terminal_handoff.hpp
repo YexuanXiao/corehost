@@ -2,7 +2,6 @@
 
 #include <windows.h>
 #include <array>
-#include <memory>
 #include <objbase.h>
 #include <ranges>
 #include "signal.hpp"
@@ -16,7 +15,6 @@
 #include "win32/event.hpp"
 #include "win32/handle.hpp"
 #include "win32/hresult.hpp"
-#include "win32/thread.hpp"
 #include "win32/wait.hpp"
 
 namespace corehost::defterm
@@ -53,7 +51,7 @@ namespace corehost::defterm
     LOG("trying terminal candidate clsid=%08X-%04X-%04X markerRequired=%d pid=%lu", terminal_clsid.Data1,
         terminal_clsid.Data2, terminal_clsid.Data3, marker_check_required, client_pid);
 
-    // 默认终端协议使用本地 COM server，信号线程和等待逻辑不依赖 STA，
+    // 默认终端协议使用本地 COM server，信号转发和等待逻辑不依赖 STA，
     // 因此使用 MTA。
     auto apartment = win32::com_apartment{COINIT_MULTITHREADED};
 
@@ -78,7 +76,7 @@ namespace corehost::defterm
         LOG("default-terminal marker accepted");
     }
 
-    // signal_write 传给终端；signal_read 留给 corehost 信号线程读取
+    // signal_write 传给终端；signal_read 留给 corehost 轮询转发
     // Ctrl+C/Break/Close 等事件。
     auto [signal_read, signal_write] = win32::create_pipe();
 
@@ -100,33 +98,34 @@ namespace corehost::defterm
     signal_write.clear();
     corehost_process.clear();
 
-    // shutdown_event 由信号线程在信号管道断开时置位。主线程同时等待
-    // terminal_process 和它，避免 WT 关闭后 corehost 卡住。
-    auto shutdown_event = win32::event{win32::create_tag, true, false};
-    auto signal_shutdown_event = win32::event{win32::duplicate_handle(shutdown_event.view())};
+    // 信号管道由 console_control_forwarder 在主线程轮询：Ctrl+C/Break/Close
+    // 消息被转发到 CSRSS，管道断开由 poll() 报告。不再创建独立信号线程，
+    // signal_read 在函数栈上保持到等待结束。
+    console_control_forwarder signals;
+    signals.set_pipe(signal_read.view());
+    LOG("signal pipe bound to handoff polling loop pipe=%p", signal_read.get());
 
-    // thread_params release 后归 signal_thread_proc 所有；线程退出时释放。
-    auto thread_params = std::make_unique<signal_thread_params>(
-        signal_thread_params{std::move(signal_read), std::move(signal_shutdown_event)});
-    DWORD signal_thread_id = 0;
-    auto signal_thread = win32::basic_thread{signal_thread_proc, thread_params.release(), &signal_thread_id};
-    LOG("signal thread started tid=%lu handle=%p shutdown=%p", signal_thread_id, signal_thread.get(),
-        shutdown_event.get());
-
-    // index 0 表示终端进程退出；index 1 表示信号管道断开，
-    // 等价于终端侧停止服务。
-    LOG("waiting for terminal process or signal pipe close terminal=%p shutdown=%p", terminal_process.get(),
-        shutdown_event.get());
-    const auto wait_result = win32::wait_any(terminal_process, shutdown_event, INFINITE);
-    if (wait_result.abandoned())
+    // 等待终端进程退出或信号管道断开（等价于终端侧停止服务）。每个 16ms
+    // 时间片先轮询一次信号管道，保证 Ctrl+C 等消息不被饿死。
+    for (;;)
     {
-        LOG("terminal handoff wait abandoned index=%zu", wait_result.index);
-        return true;
+        if (signals.poll())
+        {
+            LOG("signal pipe closed; terminal no longer serviced");
+            return true;
+        }
+        const auto wait = win32::wait_one(terminal_process, 16);
+        if (wait.abandoned())
+        {
+            LOG("terminal handoff wait abandoned");
+            return true;
+        }
+        if (wait.signaled())
+        {
+            LOG("terminal handoff wait completed; terminal process exited");
+            return true;
+        }
     }
-
-    LOG("terminal handoff wait completed index=%zu source=%ls", wait_result.index,
-        wait_result.index == 0 ? L"process" : L"signal");
-    return true;
 }
 
 [[nodiscard]] inline bool try_terminal_handoff(win32::handle_view server, win32::handle_view input_event,

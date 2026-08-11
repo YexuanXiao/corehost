@@ -477,14 +477,12 @@ bool test_regression_signal_shutdown_requests_exit_only_without_pending()
     input_buffer inp;
     pipe_bridge_testable bridge{inp, st, sb};
 
-    win32::event shutdown_event{win32::create_tag, true, false};
-    ASSERT(shutdown_event.valid());
-    bridge.set_signal_shutdown_event(shutdown_event.view());
+    // 信号管道关闭会把输入侧推进到 EOF；没有 pending 请求时会话允许退出。
     ASSERT(!bridge.should_exit());
-
-    shutdown_event.set();
+    bridge.test_set_vt_eof(true);
     ASSERT(bridge.should_exit());
 
+    // 有挂起读取时，即使终端已关闭也必须先完成请求才能退出。
     bridge.test_enter_console_read_mode();
     ASSERT(!bridge.should_exit());
     return true;

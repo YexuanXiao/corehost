@@ -1,10 +1,16 @@
 // ── defterm/signal.cpp ────────────────────────────────────
-// 信号管道线程: 管道断开 → 线程退出
+// 信号管道轮询器: 转发 CONSOLECONTROL 到 CSRSS（替代原信号线程）
+//
+// 读取策略：写端一次 WriteFile 一条完整消息（≤ 21 字节，原子写入），
+// poll() 一次读走全部可见字节后在局部缓冲内顺序解析，无跨 poll 状态。
+// 缓冲内数据不足、未知 code 或畸形 dwSize 都是协议损坏，抛出异常由
+// 入口统一处理后退出程序。
 
 #include "signal.hpp"
-#include <memory>
-#include <mutex>
-#include "condrv_io.hpp"
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <cstring>
 #include "ntapi/conwinuserrefs.h"
 #include "ntapi/consolecontrol.hpp"
 #include "utility/log.hpp"
@@ -17,96 +23,152 @@ static_assert(sizeof(CONSOLENOTIFYAPPDATA) == 8);
 static_assert(sizeof(CONSOLESETFOREGROUNDDATA) == 12);
 static_assert(sizeof(CONSOLEENDTASKDATA) == 16);
 
-bool skip_bytes(win32::handle_view p, DWORD n) noexcept
+// 由 code 确定结构体最小长度。未知 code 返回 0，调用方按协议损坏退出
+// （内容损坏检查：写端发送非 1/5/7 的 code 时触发）。
+size_t console_control_forwarder::min_payload_for(CONSOLECONTROL code) noexcept
 {
-    std::byte buf[4096];
-    while (n)
+    switch (code)
     {
-        auto s = std::min<DWORD>(n, static_cast<DWORD>(std::size(buf)));
-        const auto result = win32::read_some(p, std::span{buf}.first(s));
-        if (!result.success())
-        {
-            LOG("signal skip_bytes: read failed status=%u err=%u remaining=%lu", static_cast<unsigned>(result.status),
-                static_cast<unsigned>(result.error), n);
-            return false;
-        }
-        n -= result.bytes;
+    case ConsoleNotifyConsoleApplication:
+        return sizeof(CONSOLENOTIFYAPPDATA);
+    case ConsoleSetForeground:
+        return sizeof(CONSOLESETFOREGROUNDDATA);
+    case ConsoleEndTask:
+        return sizeof(CONSOLEENDTASKDATA);
+    default:
+        return 0;
     }
-    return true;
 }
 
-template <typename T>
-bool read_remote_console_payload(win32::handle_view pipe, T &payload) noexcept
+bool console_control_forwarder::poll()
 {
-    if (!corehost::condrv_io::read_exact(pipe, &payload, sizeof(payload)))
-    {
-        LOG("signal_thread_proc: failed payload read size=%zu err=%lu", sizeof(payload), ::GetLastError());
+    if (!_pipe.valid())
         return false;
-    }
-
-    if (payload.dwSize < sizeof(payload))
-    {
-        LOG("signal_thread_proc: malformed payload size=%lu expected=%zu", payload.dwSize, sizeof(payload));
-        return false;
-    }
-
-    if (payload.dwSize > sizeof(payload) && !skip_bytes(pipe, payload.dwSize - static_cast<DWORD>(sizeof(payload))))
-    {
-        return false;
-    }
-
-    return true;
-}
-
-DWORD WINAPI signal_thread_proc(LPVOID param) noexcept
-{
-    auto pp = std::unique_ptr<signal_thread_params>{static_cast<signal_thread_params *>(param)};
-    auto &hp = pp->pipe;
-    auto &shutdown_event = pp->shutdown_event;
-    LOG("signal_thread_proc: start pipe=%p shutdownEvent=%p", hp.get(), shutdown_event.get());
-    std::unique_lock shutdown_signal{shutdown_event, std::adopt_lock};
 
     for (;;)
     {
-        std::uint8_t code = 0;
-        if (!corehost::condrv_io::read_exact(hp.view(), &code, 1))
+        DWORD avail = 0;
+        const auto peek = win32::peek_named_pipe(_pipe, avail);
+        if (peek.closed() || peek.failed())
         {
-            LOG("signal_thread_proc: pipe closed err=%lu", ::GetLastError());
-            return 0;
+            LOG("console_control_forwarder: pipe peek failed status=%u err=%u", static_cast<unsigned>(peek.status),
+                static_cast<unsigned>(peek.error));
+            return true;
+        }
+        if (avail == 0)
+            return false;
+
+        // ── 阶段 1: 精确读 1 字节 code ──
+        // Peek 已确认管道有数据（avail ≥ 1），ReadFile(1) 必然读满，无需
+        // 检查读取长度；写端违反原子契约导致的数据不足由后续 dwSize 和
+        // 结构体长度的检查兜底。
+        std::byte code{};
+        const auto code_read = win32::read_some(_pipe, std::span{&code, size_t{1}});
+        if (code_read.closed() || code_read.failed())
+        {
+            LOG("console_control_forwarder: code read failed status=%u err=%u",
+                static_cast<unsigned>(code_read.status), static_cast<unsigned>(code_read.error));
+            return true;
         }
 
-        LOG("signal_thread_proc: code=%u", static_cast<unsigned>(code));
-        switch (static_cast<CONSOLECONTROL>(code))
+        const auto code_enum = static_cast<CONSOLECONTROL>(code);
+        const auto min_payload = min_payload_for(code_enum);
+        if (min_payload == 0)
+        {
+            LOG("console_control_forwarder: unknown code=%u; protocol corrupted",
+                static_cast<unsigned>(code_enum));
+            throw win32::error::invalid_state;
+        }
+
+        // ── 阶段 2: 精确读 4 字节 dwSize（payload 长度头）──
+        DWORD dw_size = 0;
+        const auto size_read =
+            win32::read_some(_pipe, std::span{reinterpret_cast<std::byte *>(&dw_size), size_t{4}});
+        if (size_read.closed() || size_read.failed())
+        {
+            LOG("console_control_forwarder: size read failed status=%u err=%u",
+                static_cast<unsigned>(size_read.status), static_cast<unsigned>(size_read.error));
+            return true;
+        }
+        if (size_read.bytes != 4)
+        {
+            LOG("console_control_forwarder: partial size header; protocol corrupted");
+            throw win32::error::invalid_state;
+        }
+        if (dw_size < min_payload)
+        {
+            LOG("console_control_forwarder: malformed payload size=%lu; protocol corrupted", dw_size);
+            throw win32::error::invalid_state;
+        }
+
+        // ── 阶段 3: 精确读 payload 结构体头部 ──
+        // 请求长度等于结构体大小，不多读；读不满 = 协议损坏。
+        std::array<std::byte, sizeof(CONSOLEENDTASKDATA)> head{};
+        const auto head_read = win32::read_some(_pipe, std::span{head}.first(min_payload));
+        if (head_read.closed() || head_read.failed())
+        {
+            LOG("console_control_forwarder: payload read failed status=%u err=%u",
+                static_cast<unsigned>(head_read.status), static_cast<unsigned>(head_read.error));
+            return true;
+        }
+        if (head_read.bytes != min_payload)
+        {
+            LOG("console_control_forwarder: partial payload; protocol corrupted");
+            throw win32::error::invalid_state;
+        }
+
+        // ── 阶段 4: 跳过 dwSize 大于结构体的扩展尾部（正常为 0）──
+        auto extra = static_cast<size_t>(dw_size) - min_payload;
+        std::array<std::byte, 256> sink{};
+        while (extra != 0)
+        {
+            const auto want = std::min(extra, sink.size());
+            const auto skip = win32::read_some(_pipe, std::span{sink}.first(want));
+            if (skip.closed() || skip.failed())
+            {
+                LOG("console_control_forwarder: payload skip failed status=%u err=%u",
+                    static_cast<unsigned>(skip.status), static_cast<unsigned>(skip.error));
+                return true;
+            }
+            if (skip.bytes != want)
+            {
+                LOG("console_control_forwarder: partial payload tail; protocol corrupted");
+                throw win32::error::invalid_state;
+            }
+            extra -= skip.bytes;
+        }
+
+        // ── 转发完整消息 ──
+        switch (code_enum)
         {
         case ConsoleNotifyConsoleApplication: {
             CONSOLENOTIFYAPPDATA d{};
-            if (!read_remote_console_payload(hp.view(), d))
-                return 0;
+            std::memcpy(&d, head.data(), sizeof(d));
             CONSOLE_PROCESS_INFO cpi{d.dwProcessID, CPI_NEWPROCESSWINDOW};
-            LOG("signal_thread_proc: NotifyConsoleApplication pid=%lu", d.dwProcessID);
+            LOG("console_control_forwarder: NotifyConsoleApplication pid=%lu", d.dwProcessID);
             console::ConsoleControl(ConsoleNotifyConsoleApplication, &cpi, sizeof(cpi));
             break;
         }
         case ConsoleSetForeground: {
+            // GH#13211: 新版 WT 不再发送此消息，改为本地处理；这里只
+            // 消费消息保持协议同步（老版本 WT 可能仍发送）。
             CONSOLESETFOREGROUNDDATA d{};
-            if (!read_remote_console_payload(hp.view(), d))
-                return 0;
-            LOG("signal_thread_proc: ConsoleSetForeground");
+            std::memcpy(&d, head.data(), sizeof(d));
+            LOG("console_control_forwarder: ConsoleSetForeground pid=%lu foreground=%d", d.ProcessId,
+                d.Foreground);
             break;
         }
         case ConsoleEndTask: {
             CONSOLEENDTASKDATA d{};
-            if (!read_remote_console_payload(hp.view(), d))
-                return 0;
+            std::memcpy(&d, head.data(), sizeof(d));
             CONSOLEENDTASK c{reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(d.ProcessId)), nullptr,
                              d.ConsoleEventCode, d.ConsoleFlags};
-            LOG("signal_thread_proc: ConsoleEndTask pid=%lu event=%lu flags=0x%08lx", d.ProcessId, d.ConsoleEventCode,
-                d.ConsoleFlags);
+            LOG("console_control_forwarder: ConsoleEndTask pid=%lu event=%lu flags=0x%08lx", d.ProcessId,
+                d.ConsoleEventCode, d.ConsoleFlags);
             console::ConsoleControl(ConsoleEndTask, &c, sizeof(c));
             break;
         }
         default:
-            LOG("signal_thread_proc: unknown code=%u ignored", static_cast<unsigned>(code));
             break;
         }
     }

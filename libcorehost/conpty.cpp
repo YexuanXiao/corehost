@@ -4,14 +4,11 @@
 // 功能分解：
 // 1. 初始化 console_state、主/备用 screen_buffer 和 input_buffer。
 // 2. 把 ConDrv 句柄、VT 输入输出管道和 API/router/bridge 连接成一条会话。
-// 3. 可选启动 PtySignal 线程，接收 WT 的 resize/clear 控制消息。
+// 3. 可选绑定 WT 信号管道，由主 I/O 循环轮询 resize/clear 控制消息。
 // 4. 发送 Win32 Input Mode 初始化序列后进入 ConDrv I/O 循环。
 
 #include "conpty.hpp"
-#include <memory>
 #include <span>
-#include "win32/event.hpp"
-#include "win32/thread.hpp"
 #include "io_loop.hpp"
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
@@ -21,7 +18,6 @@
 #include "api_router.hpp"
 #include "api_handlers.hpp"
 #include "message_router.hpp"
-#include "signal.hpp"
 #include "utility/log.hpp"
 #include "default_console_size.hpp"
 
@@ -120,37 +116,15 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     // raw I/O 进 pipe_bridge，Console API 进 api_router。
     message_router router{io, bridge, api};
 
-    // ── PtySignal 信号线程 ──
-    // signal_pipe 为空表示当前会话没有 WT 信号通道，resize/close 信号不会
-    // 从 PtySignal 线程进入。
-    win32::basic_thread sig_thread;
-    win32::event signal_shutdown_event;
-    win32::event vt_input_poll_event;
+    // ── 信号管道轮询器 ──
+    // signal_pipe 为空表示当前会话没有 WT 信号通道，resize/clear/close 信号
+    // 不会进入会话。有效时由 pipe_bridge 在主 I/O 循环的 idle/pending 等待
+    // 路径中轮询，不再创建独立信号线程；断管被检测后推进会话 EOF，等效于
+    // 原 shutdown_event 的退出语义。
     if (signal_pipe.valid())
     {
-        // signal_shutdown_event 由信号线程退出时置位。bridge 在等待 pending
-        // VT 输入时检查它，避免 WT 已关闭后仍阻塞在输入等待路径。
-        signal_shutdown_event = win32::event{win32::create_tag, true, false};
-        bridge.set_signal_shutdown_event(signal_shutdown_event.view());
-
-        // 信号线程需要自己的 event 句柄；主线程继续保留 signal_shutdown_event
-        // 用于等待/查询。
-        auto signal_thread_event = win32::event{win32::duplicate_handle(signal_shutdown_event.view())};
-
-        // pty_signal_thread_params 里保存 state/sbuf 引用，因此线程必须在
-        // run_conpty_session 返回前结束；basic_thread 析构负责等待线程。
-        auto tp = std::make_unique<pty_signal_thread_params>(std::move(signal_pipe), std::move(signal_thread_event),
-                                                             state, sbuf);
-        sig_thread = win32::basic_thread{pty_signal_thread_proc, tp.release()};
-        LOG("corehost::conpty::run_conpty_session: signal thread started shutdownEvent=%p",
-            signal_shutdown_event.get());
-    }
-    else
-    {
-        // 没有 signal_pipe 时，bridge 没有可等待的关闭信号。这里给它一个永不
-        // 主动置位的 event，使 wait_for_signal_shutdown_slice 退化为 16ms 轮询。
-        vt_input_poll_event = win32::event{win32::create_tag, true, false};
-        bridge.set_signal_shutdown_event(vt_input_poll_event.view());
+        bridge.set_signal_pipe(signal_pipe.view());
+        LOG("corehost::conpty::run_conpty_session: signal pipe bound to io loop");
     }
 
     // ── 继承光标位置 ──

@@ -41,8 +41,10 @@
 #include "terminal_cursor_state.hpp"
 #include "pending_io_state.hpp"
 #include "command_history_state.hpp"
+#include "signal.hpp"
 #include "perf_diag.hpp"
 #include "utility/log.hpp"
+#include "win32/wait.hpp"
 #include "deque.hpp"
 
 namespace corehost::conpty
@@ -53,8 +55,8 @@ class pipe_bridge_testable;
 
 struct pipe_bridge
 {
-    // 等待 pending VT 输入时的时间片。VT 输入和 signal shutdown 是两个独立
-    // 条件，因此不能用无限等待。
+    // 有信号管道时等待 pending VT 输入的时间片。信号消息和 VT 输入是两个
+    // 独立来源，任一方都不能用无限阻塞等待。
     static constexpr DWORD pending_vt_input_wait_ms = 16;
 
     // ── 子系统 ──
@@ -108,6 +110,13 @@ struct pipe_bridge
     void set_vt_input(win32::handle_view input) noexcept
     {
         _io.set_vt_input(input);
+    }
+
+    // 绑定 WT 信号管道。句柄所有权仍归 conpty 会话；bridge 只在主循环的
+    // idle/pending 等待路径中非阻塞轮询它，处理 resize/clear 等 PtySignal。
+    void set_signal_pipe(win32::handle_view pipe) noexcept
+    {
+        _signal.set_pipe(pipe);
     }
 
     // 更新 GetConsoleProcessList 可见的进程快照。message_router 在
@@ -216,8 +225,11 @@ struct pipe_bridge
     // 没有 pending 时提前到达的 vt_in 字节，或当前批次完成一行后剩余的尾部。
     bizwen::deque<char8_t> _queued_vt_input;
 
-    // 低级 Win32/ConDrv I/O 封装，bridge 只通过它访问 server/vt_in/shutdown。
+    // 低级 Win32/ConDrv I/O 封装，bridge 只通过它访问 server/vt_in。
     pipe_bridge_io _io;
+    // 非阻塞轮询 WT 信号管道的 PtySignal 消息；会话主循环在 idle/pending
+    // 等待路径中推进它。无信号管道时 has_pipe() 为 false。
+    pty_signal_reader _signal{cstate, sbuf};
     // VT 输出批量缓冲，所有发送到宿主终端的字节最终从这里 flush 到 vt_out。
     vt_output_buffer _vt_output;
     // API handler 和输入/输出转换复用的临时缓冲集合。
@@ -294,23 +306,11 @@ struct pipe_bridge
     {
         return _pending.has_pending();
     }
-    // 会话可退出条件：终端输入已经 EOF，并且没有仍需完成给 ConDrv 的请求。
+    // 会话可退出条件：终端输入已经 EOF（vt_in 或信号管道关闭），并且没有
+    // 仍需完成给 ConDrv 的请求。
     bool should_exit() const noexcept
     {
-        return (_pending.vt_eof() || _io.shutdown_signaled()) && !_pending.has_pending();
-    }
-
-    // 绑定 signal 线程的 shutdown event。该 event 只用于打断等待，不代表
-    // vt_in 一定还有可读字节。
-    void set_signal_shutdown_event(win32::handle_view event) noexcept
-    {
-        _io.set_shutdown_event(event);
-    }
-
-    // 检查 shutdown event 是否已触发；触发后 pending read 应按 EOF 完成。
-    [[nodiscard]] bool is_signal_shutdown_signaled() const
-    {
-        return _io.shutdown_signaled();
+        return _pending.vt_eof() && !_pending.has_pending();
     }
 
     // 查询 vt_in 当前可读字节数。返回 false 表示管道关闭或不可读，调用方会
@@ -403,12 +403,11 @@ struct pipe_bridge
         complete_pending();
     }
 
-    // 等待 signal/shutdown event 一个短时间片。返回 true 表示关闭信号已到达，
-    // pending 读不应继续等待用户输入。
-    [[nodiscard]] bool wait_for_signal_shutdown_slice()
+    // 非阻塞推进信号管道。返回 true 表示管道已断开，pending 读不应继续
+    // 等待用户输入。
+    [[nodiscard]] bool poll_signal_closed()
     {
-        // shutdown event 只代表关闭/轮询时间片；VT 输入不会唤醒它。
-        return _io.wait_shutdown_slice(pending_vt_input_wait_ms);
+        return _signal.has_pipe() && _signal.poll();
     }
 
     // ── 持久转换缓冲区访问器 ──
@@ -1230,8 +1229,8 @@ struct pipe_bridge
         }
     }
 
-    // 在存在 pending 读请求时等待 VT 输入或 shutdown。函数只等待必要对象：
-    // 有 shutdown event 时按 16ms 时间片轮询，无 event 时才允许阻塞读 vt_in。
+    // 在存在 pending 读请求时等待 VT 输入或信号消息。有信号管道时按 16ms
+    // 时间片轮询，无信号管道时才允许阻塞读 vt_in。
     void wait_for_pending_vt_input()
     {
         vt_flush();
@@ -1244,27 +1243,29 @@ struct pipe_bridge
             return;
         }
 
-        if (is_signal_shutdown_signaled())
+        if (_signal.has_pipe())
         {
-            // signal 线程已经确认控制管道关闭。pending 读不能继续等待用户
-            // 输入，只能按 EOF 完成，让主循环有机会退出。
-            complete_pending_with_eof();
-            return;
-        }
-
-        if (wait_for_signal_shutdown_slice())
-        {
-            complete_pending_with_eof();
-            return;
-        }
-        if (_io.has_shutdown_event())
-        {
-            // 有 shutdown event 的模式不能进入阻塞 ReadFile；这里再试一次
-            // 非阻塞 drain，没读到就把控制权还给 io_loop。
+            // 有信号管道时不能进入阻塞 ReadFile：resize/clear/断管都依赖主
+            // 线程轮询。先处理已到达的信号，再等待 vt_in 短时间片；vt_in
+            // 有新数据或断管时都会触发唤醒，避免固定延时空转。
+            if (poll_signal_closed())
+            {
+                // 信号管道关闭表示终端不再服务。pending 读不能继续等待用户
+                // 输入，只能按 EOF 完成，让主循环有机会退出。
+                complete_pending_with_eof();
+                return;
+            }
+            if (const auto wait = win32::wait_one(_io.vt_input(), pending_vt_input_wait_ms); wait.abandoned())
+            {
+                LOG("[bridge] pending vt input wait abandoned");
+                complete_pending_with_eof();
+                return;
+            }
             drain_available_vt_input();
             return;
         }
 
+        // 无信号管道：没有其他等待源需要服务，可以阻塞读 vt_in。
         const auto old_total = _read_total;
         switch (read_blocking_vt_input())
         {
@@ -1292,6 +1293,17 @@ struct pipe_bridge
         if (_pending.vt_eof())
             return;
 
+        // 信号管道可能承载 resize/clear 消息，也可能在断开时标记会话结束。
+        // 轮询先于 vt_in，让尺寸变化在同一轮 idle 内生效。
+        if (poll_signal_closed())
+        {
+            LOG3("[bridge] on_idle: signal pipe closed, marking EOF");
+            _pending.set_vt_eof(true);
+            if (_pending.has_pending())
+                complete_pending();
+            return;
+        }
+
         // 即使没有 pending ReadConsole，也要轮询 vt_in。PowerShell/PSReadLine
         // 常用 GetConsoleInput(PEEK) 驱动输入；如果只在 ReadConsole pending
         // 时读 vt_in，键盘事件和终端断开都会被饿死。
@@ -1306,16 +1318,8 @@ struct pipe_bridge
 
         if (avail == 0)
         {
-            // PeekNamedPipe 的 0 字节只是“暂时没输入”。只有 signal 线程通知
-            // 关闭时才把它提升为 EOF。
-            if (is_signal_shutdown_signaled())
-            {
-                LOG3("[bridge] on_idle: signal shutdown event set, marking EOF");
-                _pending.set_vt_eof(true);
-                if (_pending.has_pending())
-                    complete_pending();
-                return;
-            }
+            // PeekNamedPipe 的 0 字节只是“暂时没输入”。信号管道关闭已由
+            // 上方的 poll 处理，这里不需要额外动作。
             return;
         }
 

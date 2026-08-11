@@ -189,6 +189,11 @@ class pipe_bridge_testable : public pipe_bridge
         return _line_found;
     }
 
+    void test_set_vt_eof(bool v) noexcept
+    {
+        _pending.set_vt_eof(v);
+    }
+
     int test_get_pend_kind() const noexcept
     {
         return static_cast<int>(_pending.kind());

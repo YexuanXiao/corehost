@@ -67,7 +67,7 @@ try
         auto ev = win32::handle{input_event.release()};
         corehost::condrv_io::set_server_info(server.view(), ev.view());
 
-        // 如果有--signal <handle>, 传递给信号线程
+        // 如果有--signal <handle>, 绑定为会话信号管道（主循环轮询）
         win32::handle sig_pipe;
         if (auto sh = args.signal_handle(); sh != 0)
             sig_pipe = win32::handle::from_uintptr(sh);

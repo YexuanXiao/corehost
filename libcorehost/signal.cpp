@@ -1,91 +1,147 @@
 // ── conpty/signal.cpp ──────────────────────────────
-// PtySignal 管道线程实现
+// WT 信号管道轮询器实现（替代原 PtySignal 信号线程）。
+//
+// 读取策略：写端一次 WriteFile 一条完整消息（≤ 10 字节，原子写入），
+// poll() 一次读走全部可见字节后在局部缓冲内顺序解析，无跨 poll 状态。
+// 缓冲内数据不足或未知 id 都是协议损坏，抛出异常由会话入口统一处理后
+// 退出程序。
 #include "signal.hpp"
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
-#include "condrv_io.hpp"
-#include "utility/log.hpp"
 #include <algorithm>
-#include <memory>
-#include <mutex>
+#include <array>
+#include <cstring>
 
 namespace corehost::conpty
 {
 
-// PtySignal 线程实现入口。线程接管 param 所指向的 pty_signal_thread_params，
-// 持续消费信号管道 payload，并在退出时通过 shutdown_event 通知主 I/O 循环。
-DWORD WINAPI pty_signal_thread_proc(LPVOID param)
+// 由消息 id 确定 payload 长度。未知 id 返回 0，调用方按协议损坏退出。
+size_t pty_signal_reader::payload_size_for(unsigned short id) noexcept
 {
-    // param 由创建线程的一侧 release；线程入口重新接管所有权。
-    auto pp = std::unique_ptr<pty_signal_thread_params>{static_cast<pty_signal_thread_params *>(param)};
-    auto &hp = pp->pipe;
+    switch (static_cast<PtySignal>(id))
+    {
+    case PtySignal::ShowHideWindow:
+        return sizeof(unsigned short);
+    case PtySignal::ClearBuffer:
+        return sizeof(unsigned short);
+    case PtySignal::SetParent:
+        return sizeof(ULONG_PTR);
+    case PtySignal::ResizeWindow:
+        return sizeof(COORD);
+    default:
+        return 0;
+    }
+}
 
-    // adopt_lock 包装的 event 在 unique_lock 析构时 SetEvent。无论正常 EOF、
-    // payload 短读还是未知信号退出，主 I/O 路径都能停止等待 vt_in。
-    std::unique_lock shutdown_signal{pp->shutdown_event, std::adopt_lock};
+bool pty_signal_reader::poll()
+{
+    if (!_pipe.valid())
+        return false;
 
     for (;;)
     {
-        // sig 是 PtySignal 的 16-bit wire id；短读表示管道关闭或协议损坏。
-        unsigned short sig = 0;
-        if (!corehost::condrv_io::read_exact(hp.view(), &sig, sizeof(sig)))
+        DWORD avail = 0;
+        const auto peek = win32::peek_named_pipe(_pipe, avail);
+        if (peek.closed() || peek.failed())
         {
-            LOG("pty_signal_thread_proc: failed to read signal id err=%lu", ::GetLastError());
-            break;
+            LOG("pty_signal_reader: pipe peek failed status=%u err=%u", static_cast<unsigned>(peek.status),
+                static_cast<unsigned>(peek.error));
+            return true;
         }
-        LOG2("PtySignal id=%u", static_cast<unsigned>(sig));
-        switch (static_cast<PtySignal>(sig))
+        if (avail == 0)
+            return false;
+
+        // ── 阶段 1: 精确读 2 字节 id ──
+        // 写端一次 WriteFile 一条完整消息（原子），管道里只要有数据就至少
+        // 是一条完整消息，因此 ReadFile(2) 必然读满；读不满 = 协议损坏。
+        unsigned short id = 0;
+        const auto id_read = win32::read_some(_pipe, std::span{reinterpret_cast<std::byte *>(&id), size_t{2}});
+        if (id_read.closed() || id_read.failed())
         {
-        case PtySignal::ShowHideWindow: {
-            // 当前不管理真实窗口，但必须消费 show payload；否则下一次读到的
-            // payload 会被误当作信号 id，破坏协议同步。
-            unsigned short show = 0;
-            if (!corehost::condrv_io::read_exact(hp.view(), &show, sizeof(show)))
-            {
-                LOG("pty_signal_thread_proc: ShowHideWindow payload short read err=%lu", ::GetLastError());
-                return 0;
-            }
-            LOG2("PtySignal ShowHideWindow show=%u", static_cast<unsigned>(show));
-            break;
+            LOG("pty_signal_reader: id read failed status=%u err=%u", static_cast<unsigned>(id_read.status),
+                static_cast<unsigned>(id_read.error));
+            return true;
         }
-        case PtySignal::ClearBuffer:
-            // ClearBuffer 只更新本地屏幕模型。真实终端清屏由主输出路径发 VT。
-            LOG2("PtySignal ClearBuffer");
-            pp->sbuf.clear(pp->state.default_attributes);
-            break;
-        case PtySignal::SetParent: {
-            // WT 按 ULONG_PTR 发送 HWND；corehost 不重新设置父窗口，只消费字段
-            // 保持后续信号边界正确。
-            ULONG_PTR hwnd = 0;
-            if (!corehost::condrv_io::read_exact(hp.view(), &hwnd, sizeof(hwnd)))
-            {
-                LOG("pty_signal_thread_proc: SetParent payload short read err=%lu", ::GetLastError());
-                return 0;
-            }
-            LOG2("PtySignal SetParent hwnd=%p", reinterpret_cast<void *>(hwnd));
-            break;
+        if (id_read.bytes != 2)
+        {
+            LOG("pty_signal_reader: partial signal id; protocol corrupted");
+            throw win32::error::invalid_state;
         }
-        case PtySignal::ResizeWindow: {
-            // ResizeWindow 是 WT 主动通知的可见尺寸。state 中三个尺寸保持一致，
-            // 因为当前 ConPTY 模型没有独立 scrollback buffer。
-            COORD sz{0, 0};
-            if (!corehost::condrv_io::read_exact(hp.view(), &sz, sizeof(sz)))
-            {
-                LOG("pty_signal_thread_proc: ResizeWindow payload short read err=%lu", ::GetLastError());
-                return 0;
-            }
-            LOG2("PtySignal ResizeWindow size=%dx%d", sz.X, sz.Y);
-            pp->state.screen_buffer_size = sz;
-            pp->state.max_window_size = sz;
-            pp->sbuf.viewport.reset_to_buffer(sz);
-            pp->sbuf.resize(sz);
-            break;
+
+        const auto payload_size = payload_size_for(id);
+        if (payload_size == 0)
+        {
+            LOG("pty_signal_reader: unknown signal id=%u; protocol corrupted", static_cast<unsigned>(id));
+            throw win32::error::invalid_state;
         }
-        default:
-            break;
+
+        // ── 阶段 2: 按 id 精确读 payload ──
+        // 请求长度恰好等于本条消息的 payload，不多读；读不满 = 协议损坏。
+        std::array<std::byte, sizeof(ULONG_PTR)> payload{};
+        const auto payload_read = win32::read_some(_pipe, std::span{payload}.first(payload_size));
+        if (payload_read.closed() || payload_read.failed())
+        {
+            LOG("pty_signal_reader: payload read failed status=%u err=%u", static_cast<unsigned>(payload_read.status),
+                static_cast<unsigned>(payload_read.error));
+            return true;
         }
+        if (payload_read.bytes != payload_size)
+        {
+            LOG("pty_signal_reader: partial payload id=%u; protocol corrupted", static_cast<unsigned>(id));
+            throw win32::error::invalid_state;
+        }
+
+        handle_message(id, std::span{payload}.first(payload_size));
     }
-    return 0;
+}
+
+// 执行一条完整 PtySignal。所有状态更新都在会话主线程进行，与 I/O 循环
+// 的其他状态推进天然互斥，无需额外同步。
+void pty_signal_reader::handle_message(unsigned short id, std::span<const std::byte> payload)
+{
+    switch (static_cast<PtySignal>(id))
+    {
+    case PtySignal::ShowHideWindow: {
+        // 当前不管理真实窗口，但必须消费 show payload；否则下一次读到的
+        // payload 会被误当作信号 id，破坏协议同步。
+        unsigned short show = 0;
+        std::memcpy(&show, payload.data(), sizeof(show));
+        LOG2("PtySignal ShowHideWindow show=%u", static_cast<unsigned>(show));
+        break;
+    }
+    case PtySignal::ClearBuffer: {
+        // keepCursorRow 是 WT 是否保留光标所在行的提示。当前清空整个屏幕
+        // 模型；真实终端清屏由主输出路径发 VT。payload 必须消费以保持
+        // 消息边界，否则下一条消息的 id 会错位。
+        unsigned short keep_cursor_row = 0;
+        std::memcpy(&keep_cursor_row, payload.data(), sizeof(keep_cursor_row));
+        LOG2("PtySignal ClearBuffer keepCursorRow=%u", static_cast<unsigned>(keep_cursor_row));
+        _sbuf.clear(_state.default_attributes);
+        break;
+    }
+    case PtySignal::SetParent: {
+        // WT 按 ULONG_PTR 发送 HWND；corehost 不重新设置父窗口，只消费字段
+        // 保持后续信号边界正确。
+        ULONG_PTR hwnd = 0;
+        std::memcpy(&hwnd, payload.data(), sizeof(hwnd));
+        LOG2("PtySignal SetParent hwnd=%p", reinterpret_cast<void *>(hwnd));
+        break;
+    }
+    case PtySignal::ResizeWindow: {
+        // ResizeWindow 是 WT 主动通知的可见尺寸。state 中三个尺寸保持一致，
+        // 因为当前 ConPTY 模型没有独立 scrollback buffer。
+        COORD sz{};
+        std::memcpy(&sz, payload.data(), sizeof(sz));
+        LOG2("PtySignal ResizeWindow size=%dx%d", sz.X, sz.Y);
+        _state.screen_buffer_size = sz;
+        _state.max_window_size = sz;
+        _sbuf.viewport.reset_to_buffer(sz);
+        _sbuf.resize(sz);
+        break;
+    }
+    default:
+        break;
+    }
 }
 
 } // namespace corehost::conpty
