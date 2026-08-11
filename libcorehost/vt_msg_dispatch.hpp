@@ -62,17 +62,43 @@ inline void set_sgr_background_default(WORD &attr) noexcept
 }
 
 // 将 SGR 前景索引映射到 Win32 属性低 4 位；超出 16 色时忽略。
+// SGR 颜色索引是 RGB 顺序（1=红, 4=蓝），Win32 属性低 4 位是 BGRI 顺序
+// （bit0=BLUE, bit2=RED），必须交换红/蓝通道，否则与 GetConsoleScreenBufferInfo
+// 报告的活动属性不一致（真实 conhost 同样返回 BGRI 语义的属性）。
 inline void set_sgr_foreground_index(WORD &attr, uint8_t index) noexcept
 {
     if (index <= 15)
-        attr = static_cast<WORD>((attr & 0xFFF0) | (index & 0x0F));
+    {
+        WORD bgri = 0;
+        if (index & 0x01)
+            bgri |= FOREGROUND_RED;
+        if (index & 0x02)
+            bgri |= FOREGROUND_GREEN;
+        if (index & 0x04)
+            bgri |= FOREGROUND_BLUE;
+        if (index & 0x08)
+            bgri |= FOREGROUND_INTENSITY;
+        attr = static_cast<WORD>((attr & 0xFFF0) | bgri);
+    }
 }
 
 // 将 SGR 背景索引映射到 Win32 属性高 4 位；超出 16 色时忽略。
+// 与前景同理：SGR 索引是 RGB 顺序，Win32 属性高 4 位是 BGRI 顺序。
 inline void set_sgr_background_index(WORD &attr, uint8_t index) noexcept
 {
     if (index <= 15)
-        attr = static_cast<WORD>((attr & 0xFF0F) | ((index & 0x0F) << 4));
+    {
+        WORD bgri = 0;
+        if (index & 0x01)
+            bgri |= BACKGROUND_RED;
+        if (index & 0x02)
+            bgri |= BACKGROUND_GREEN;
+        if (index & 0x04)
+            bgri |= BACKGROUND_BLUE;
+        if (index & 0x08)
+            bgri |= BACKGROUND_INTENSITY;
+        attr = static_cast<WORD>((attr & 0xFF0F) | bgri);
+    }
 }
 
 // 在 Win32 属性中打开 COMMON_LVB_* 标志。

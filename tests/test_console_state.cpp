@@ -2355,8 +2355,9 @@ bool test_regression_write_console_parser_sgr_updates_attributes()
     ASSERT(api_write_console(msg, st, sb, inp, bridge));
     ASSERT(msg.complete.IoStatus.Status == 0);
     ASSERT(sb.at_u32({0, 0}) == U'X');
-    ASSERT((sb.attr_at({0, 0}) & 0x0F) == 1);
-    ASSERT((st.default_attributes & 0x0F) == 1);
+    // SGR 31 是 RGB 顺序的红色；Win32 属性低 4 位是 BGRI 顺序，红色是 bit2。
+    ASSERT((sb.attr_at({0, 0}) & 0x0F) == FOREGROUND_RED);
+    ASSERT((st.default_attributes & 0x0F) == FOREGROUND_RED);
     return true;
 }
 
@@ -2378,8 +2379,9 @@ bool test_regression_write_console_parser_sgr_applies_params_in_order()
     ASSERT(api_write_console(msg, st, sb, inp, bridge));
     ASSERT(msg.complete.IoStatus.Status == 0);
     ASSERT(sb.at_u32({0, 0}) == U'X');
-    ASSERT((sb.attr_at({0, 0}) & 0x0F) == 1);
-    ASSERT((st.default_attributes & 0x0F) == 1);
+    // SGR 0;31 重置后置红色；Win32 属性应为 BGRI 红色（bit2）。
+    ASSERT((sb.attr_at({0, 0}) & 0x0F) == FOREGROUND_RED);
+    ASSERT((st.default_attributes & 0x0F) == FOREGROUND_RED);
     return true;
 }
 

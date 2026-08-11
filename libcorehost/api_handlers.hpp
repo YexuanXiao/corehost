@@ -1174,17 +1174,23 @@ inline bool api_set_mode(corehost::condrv_io::io_msg &msg, console_state &state,
         if ((requested_mode & ~(valid_input_modes | private_input_modes)) != 0 ||
             ((requested_mode & ENABLE_ECHO_INPUT) != 0 && (requested_mode & ENABLE_LINE_INPUT) == 0))
         {
+            LOG2("[api_set_mode] input invalid req=0x%08X -> E_INVALIDARG", static_cast<unsigned>(requested_mode));
             corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
+        LOG2("[api_set_mode] input req=0x%08X stored=0x%08X", static_cast<unsigned>(requested_mode),
+             static_cast<unsigned>(state.input_mode));
     }
     else
     {
         if ((r->Mode & ~valid_output_modes) != 0)
         {
+            LOG2("[api_set_mode] output invalid req=0x%08X -> E_INVALIDARG", static_cast<unsigned>(r->Mode));
             corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
+        LOG2("[api_set_mode] output req=0x%08X stored=0x%08X", static_cast<unsigned>(r->Mode),
+             static_cast<unsigned>(r->Mode));
         state.output_mode = r->Mode;
     }
     ucomplete(msg);
@@ -1276,6 +1282,9 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
 
             const bool replay_utf8_to_terminal =
                 !unicode && !emit_console_attributes && (output_code_page == CP_UTF8 || output_code_page == 65001);
+            LOG2("[api_write_console] unicode=%d emit_attrs=%d replay=%d codepage=%u default_attr=0x%04X", unicode,
+                 emit_console_attributes, replay_utf8_to_terminal, static_cast<unsigned>(output_code_page),
+                 static_cast<unsigned>(state.default_attributes));
 
             vt_message m{};
 
@@ -2072,6 +2081,7 @@ inline bool api_set_text_attr(corehost::condrv_io::io_msg &msg, console_state &s
         return true;
     }
     state.default_attributes = r->Attributes;
+    LOG2("[api_set_text_attr] attr=0x%04X", static_cast<unsigned>(r->Attributes));
     vt_message m{};
     WORD attr = r->Attributes;
     set_sgr_from_win32_attr(m, attr);

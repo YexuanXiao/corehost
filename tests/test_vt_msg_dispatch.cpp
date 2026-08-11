@@ -207,11 +207,12 @@ bool test_dispatch_sgr_fg_bg()
     screen_buffer sb;
     setup(st, sb);
     vt_message m{};
-    m.payload.sgr.fg.set_index(4);  // blue
-    m.payload.sgr.bg.set_index(14); // yellow
+    m.payload.sgr.fg.set_index(4);  // SGR 索引 4 = RGB 蓝
+    m.payload.sgr.bg.set_index(14); // SGR 索引 14 = RGB 亮青
     vt_msg_apply_state<vt_message_id::sgr>(m, st, sb);
-    ASSERT((st.default_attributes & 0x0F) == 4);
-    ASSERT(((st.default_attributes >> 4) & 0x0F) == 14);
+    // Win32 属性是 BGRI 顺序：RGB 蓝(4) -> BGRI 蓝(1)；RGB 亮青(14) -> BGRI 亮青(11)。
+    ASSERT((st.default_attributes & 0x0F) == FOREGROUND_BLUE);
+    ASSERT(((st.default_attributes >> 4) & 0x0F) == 0x0B);
     return true;
 }
 
