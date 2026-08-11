@@ -6,8 +6,6 @@
 # ═══════════════════════════════════════════════════════════════
 
 add_library(common STATIC
-    ntapi/consolecontrol.cpp
-    ntapi/consolenslmode.cpp
     utility/diagnostic_report.cpp
     utility/log.cpp
     utility/notification.cpp
@@ -24,8 +22,6 @@ target_sources(common
                 com/com_ptr.hpp
                 com/register.hpp
                 ntapi/condrv.hpp
-                ntapi/consolecontrol.hpp
-                ntapi/consolenslmode.hpp
                 ntapi/conwinuserrefs.h
                 os/Console/ConIoSrv.h
                 os/Console/conapi.h

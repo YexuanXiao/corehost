@@ -32,7 +32,6 @@
 #include "char_width.hpp"
 #include "perf_diag.hpp"
 #include "utility/log.hpp"
-#include "ntapi/consolenslmode.hpp"
 
 namespace corehost::conpty
 {

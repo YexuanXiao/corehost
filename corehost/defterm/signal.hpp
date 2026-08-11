@@ -33,6 +33,9 @@
 #include "ntapi/conwinuserrefs.h"
 #include "win32/handle.hpp"
 
+using PFN_ConsoleControl = NTSTATUS(WINAPI *)(CONSOLECONTROL Command, PVOID ConsoleInformation,
+                                              DWORD ConsoleInformationLength);
+
 namespace corehost::defterm
 {
 
@@ -42,6 +45,8 @@ namespace corehost::defterm
 class console_control_forwarder
 {
   public:
+    console_control_forwarder();
+
     // 绑定信号管道读端。句柄所有权仍归调用方，本对象只保存视图。
     void set_pipe(win32::handle_view pipe) noexcept
     {
@@ -58,10 +63,7 @@ class console_control_forwarder
     [[nodiscard]] bool poll();
 
   private:
-    // 由 code 返回结构体最小 payload 长度；0 表示未知 code（协议损坏，
-    // 退出程序）。
-    static size_t min_payload_for(CONSOLECONTROL code) noexcept;
-
+    PFN_ConsoleControl ConsoleControl;
     win32::handle_view _pipe;
 };
 

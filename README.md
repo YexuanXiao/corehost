@@ -72,7 +72,7 @@ Refer to CI for cross compilation and building with Clang.
 ## Build targets
 
 - `corehost`: the main executable. It provides the functionality of conhost/OpenConsole.
-- `libcorehost`: the core of corehost and implements full ConPTY functionality, currently has around 638KiB of code. Third-party terminals can directly link libcorehost into their programs without needing to use an external conhost program.
+- `libcorehost`: the core of corehost and implements full ConPTY functionality, currently has around 643KiB of code. Third-party terminals can directly link libcorehost into their programs without needing to use an external conhost program.
 - `conpty`: the shared library form of libconpty for third-party terminals that export the symbols declared by winconpty.h.
 - `conpty_static`: the static library form of libconpty.
 - `conhost_proxy`: the COM proxy/stub DLL used by default-terminal handoff and COM embedding.

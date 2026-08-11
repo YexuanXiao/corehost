@@ -18,8 +18,6 @@
 #include "utility/crtdbg.hpp"
 #include "utility/log.hpp"
 #include "shell/shell.hpp"
-#include "ntapi/consolecontrol.hpp"
-#include "ntapi/consolenslmode.hpp"
 #include "win32/debugging.hpp"
 
 int __stdcall wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
@@ -27,8 +25,6 @@ try
 {
     utility::suppress_crt_error_dialogs();
     corehost::log::initialize_log();
-    console::initialize_console_control();
-    console::initialize_console_nls();
     LOG("corehost process start, cmdline=%ls", ::GetCommandLineW());
     auto args = corehost::cli::console_arguments{::GetCommandLineW()};
 

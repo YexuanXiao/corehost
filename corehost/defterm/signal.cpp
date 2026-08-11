@@ -12,7 +12,6 @@
 #include <cstdint>
 #include <cstring>
 #include "ntapi/conwinuserrefs.h"
-#include "ntapi/consolecontrol.hpp"
 #include "utility/log.hpp"
 #include "win32/io.hpp"
 
@@ -25,7 +24,7 @@ static_assert(sizeof(CONSOLEENDTASKDATA) == 16);
 
 // 由 code 确定结构体最小长度。未知 code 返回 0，调用方按协议损坏退出
 // （内容损坏检查：写端发送非 1/5/7 的 code 时触发）。
-size_t console_control_forwarder::min_payload_for(CONSOLECONTROL code) noexcept
+size_t min_payload_for(CONSOLECONTROL code) noexcept
 {
     switch (code)
     {
@@ -38,6 +37,16 @@ size_t console_control_forwarder::min_payload_for(CONSOLECONTROL code) noexcept
     default:
         return 0;
     }
+}
+console_control_forwarder::console_control_forwarder()
+{
+    HMODULE hUser32 = nullptr;
+    auto res = GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, L"user32.dll", &hUser32);
+
+    assert(hUser32 != nullptr);
+    assert(res != 0);
+    ConsoleControl = (PFN_ConsoleControl)GetProcAddress(hUser32, "ConsoleControl");
+    assert(ConsoleControl != nullptr);
 }
 
 bool console_control_forwarder::poll()
@@ -151,7 +160,7 @@ bool console_control_forwarder::poll()
             std::memcpy(&d, data.data(), sizeof(d));
             CONSOLE_PROCESS_INFO cpi{d.dwProcessID, CPI_NEWPROCESSWINDOW};
             LOG("console_control_forwarder: NotifyConsoleApplication pid=%lu", d.dwProcessID);
-            console::ConsoleControl(ConsoleNotifyConsoleApplication, &cpi, sizeof(cpi));
+            ConsoleControl(ConsoleNotifyConsoleApplication, &cpi, sizeof(cpi));
             break;
         }
         case ConsoleSetForeground: {
@@ -169,7 +178,7 @@ bool console_control_forwarder::poll()
                              d.ConsoleEventCode, d.ConsoleFlags};
             LOG("console_control_forwarder: ConsoleEndTask pid=%lu event=%lu flags=0x%08lx", d.ProcessId,
                 d.ConsoleEventCode, d.ConsoleFlags);
-            console::ConsoleControl(ConsoleEndTask, &c, sizeof(c));
+            ConsoleControl(ConsoleEndTask, &c, sizeof(c));
             break;
         }
         default:
