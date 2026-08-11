@@ -1766,10 +1766,12 @@ bool test_enter_newline_full_scenario()
     return true;
 }
 
-// ── 6. ConsoleRead 模式下 CR 不设置换行标志 ──
-// ConsoleRead 路径有自己的行编辑逻辑（_edit_* / complete_pending），
-// 不应干涉 _enter_pending_newline。
-bool test_enter_newline_not_set_in_console_read()
+// ── 6. ConsoleRead 模式下 CR 也设置换行标志 ──
+// PowerShell 5.1 的 ReadConsole（ConsoleRead pending）在 Enter 后同样会
+// 补写换行 echo（裸 \n）。必须统一设置 _enter_pending_newline，输出路径
+// 才能吞掉该 echo 并 CUP 到新行首；旧行为不设置导致换行 echo 透传、
+// 后续输出接在输入行尾（与真实 conhost 不一致）。
+bool test_enter_newline_set_in_console_read()
 {
     pipe_bridge_test_context ctx;
     auto &bridge = ctx.bridge;
@@ -1778,8 +1780,9 @@ bool test_enter_newline_not_set_in_console_read()
     // 键入 "abc" + Enter
     bridge.test_feed_raw_bytes((const BYTE *)"abc\r", 4);
 
-    // ConsoleRead 模式下 Complete_pending 处理了 Enter，但不应设置标志
-    ASSERT(bridge.test_get_enter_newline_flag() == false);
+    // ConsoleRead 模式下 Complete_pending 处理了 Enter，也应设置标志，
+    // 供下一次 WriteConsole/RAW_WRITE 消费。
+    ASSERT(bridge.test_get_enter_newline_flag() == true);
     return true;
 }
 
@@ -2064,7 +2067,7 @@ int main()
     RUN_TEST(test_enter_newline_no_flag_when_no_cr, L"No flag without CR");
     RUN_TEST(test_enter_newline_flag_set_on_win32_enter, L"Flag set on Win32 Enter");
     RUN_TEST(test_enter_newline_full_scenario, L"Full scenario CR→consume→text");
-    RUN_TEST(test_enter_newline_not_set_in_console_read, L"No flag in ConsoleRead");
+    RUN_TEST(test_enter_newline_set_in_console_read, L"Flag set in ConsoleRead");
 
     std::wcout << L"\nClear + Enter Coexistence Regression :\n";
     RUN_TEST(test_clear_reset_newline_only_at_origin, L"Clear resets flag only at origin");

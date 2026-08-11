@@ -1321,15 +1321,28 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                     // 则跳过重复 CUP，避免按行小写入产生大量无意义 VT。
                     if (sb.viewport.snap_to_cursor(state.cursor.position, state.screen_buffer_size))
                         render_visible_viewport(state, sb, bridge);
-                    if (!bridge.terminal_cursor_matches_buffer(start_pos))
+                    const bool tc_match = bridge.terminal_cursor_matches_buffer(start_pos);
+                    LOG2("[api_write_console] tc_match=%d tc=(%d,%d) start=(%d,%d)", tc_match,
+                         bridge.terminal_cursor().X, bridge.terminal_cursor().Y, start_pos.X, start_pos.Y);
+                    if (!tc_match)
                         bridge.vt_write_cup_buffer(start_pos);
                 }
             }
-            else if (bridge.consume_enter_newline())
+            else if (replay_utf8_to_terminal)
             {
-                state.cursor.position = bridge.get_enter_dest();
-                if (is_line_terminator_echo(u32_view(u32s)))
+                // RAW_WRITE 透传路径的 Enter 换行 echo（\r / \n / \r\n）：
+                // Enter 已在输入侧本地回显过 CRLF，这里必须吞掉，否则裸 LF
+                // 会让后续输出接在行尾。非换行内容（如 PSReadLine 的整行
+                // 重绘帧）不消费 enter_nl——重绘帧自带 CUP，标志应保留给
+                // 后续真正的换行 echo 或 WriteConsole 定位。
+                if (is_line_terminator_echo(u32_view(u32s)) && bridge.consume_enter_newline())
                 {
+                    state.cursor.position = bridge.get_enter_dest();
+                    // 吞掉换行 echo 时终端光标可能已被 PSReadLine 重绘帧
+                    // 移走（重绘帧的 CUP 走透传，不更新 bridge 光标）；显式
+                    // CUP 到 enter_dest，让终端与 bridge 追踪一致，否则后续
+                    // WriteConsole 会误判光标匹配而跳过定位，输出接在行尾。
+                    bridge.vt_write_cup_buffer(state.cursor.position);
                     bridge.sync_cursor_after_write(state.cursor.position);
                     LOG2("[api_write_console] swallowed enter echo newline");
                     return;
@@ -1351,7 +1364,10 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             // WT，同时仍用 UTF-32 parser 更新本地 screen_buffer。这样避免重新
             // 编码破坏应用已经构造好的 VT/UTF-8 字节流。
             if (replay_utf8_to_terminal)
+            {
+                LOG2_HEX_IF(bytes <= 16, "replay", data, bytes);
                 bridge.vt_append_str(std::string_view{reinterpret_cast<const char *>(data), bytes});
+            }
 
             auto &output_parser = bridge.output_parser();
             const bool emit_vt = !replay_utf8_to_terminal;

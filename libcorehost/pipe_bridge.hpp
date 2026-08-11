@@ -612,6 +612,12 @@ struct pipe_bridge
         return cursor.X == terminal_position.X && cursor.Y == terminal_position.Y;
     }
 
+    // bridge 追踪的终端光标（viewport-relative）；未继承时为占位 (0,0)。
+    [[nodiscard]] COORD terminal_cursor() const noexcept
+    {
+        return _terminal.cursor();
+    }
+
     // 把 Win32 legacy 属性序列化为 SGR。该函数只改变终端当前图形属性，
     // screen_buffer 的属性状态由调用方同步维护。
     void vt_write_attr(WORD attr) noexcept
@@ -1622,11 +1628,14 @@ struct pipe_bridge
     void edit_submit_line()
     {
         // ConsoleRead 的 Enter 在本地完成：把当前 cooked line 回给 ConDrv，
-        // 并回显 CRLF。非 ConsoleRead/Win32Input 路径另有 enter_pending_newline。
+        // 并回显 CRLF。同时标记一次性换行目标，与 VT 文本行终止符路径
+        // 一致：吞掉 shell 随后补写的换行 echo，并让下一次 Console API
+        // 输出先 CUP 到新行首。
         if (_terminal.cursor_valid())
         {
             vt_append_str("\r\n"sv);
             _terminal.crlf();
+            _terminal.mark_enter_newline_at_cursor();
         }
         _line_found = true;
         complete_pending();
@@ -2334,9 +2343,12 @@ struct pipe_bridge
             cstate.cursor.position = active_screen_buffer().viewport.absolute_position(terminal_position);
             cstate.clamp_cursor_to_buffer();
             _terminal.finish_inherit_cursor(terminal_position);
-            LOG3("[bridge] cpr_response: inherit cursor (%d,%d)", cstate.cursor.position.X, cstate.cursor.position.Y);
+            LOG2("[bridge] cpr_response: inherit cursor (%d,%d)", cstate.cursor.position.X,
+                 cstate.cursor.position.Y);
             return true;
         }
+        LOG2("[bridge] cpr_response: ignored pending=%d row=%d col=%d", _terminal.pending_inherit_cursor(),
+             m.payload.cpr.row, m.payload.cpr.col);
         return false;
     }
 
@@ -2727,11 +2739,12 @@ struct pipe_bridge
     {
         _line_found = true;
 
-        if (is_cr && !has_lf && !raw_read_echo_enabled())
-            vt_append_char('\n');
+        // 行终止符本地回显统一为 CRLF，与真实 conhost 一致。旧实现非 raw
+        // echo 模式只输出裸 LF；Windows Terminal 中裸 LF 只下移不回车，
+        // Enter 后 shell 的输出会接在行尾而不是新行首。
+        vt_append_str("\r\n"sv);
 
-        if (raw_read_echo_enabled())
-            vt_append_str("\r\n"sv);
+        LOG2("[bridge] LINE_TERM is_cr=%d has_lf=%d raw_echo=%d", is_cr, has_lf, raw_read_echo_enabled());
 
         queue_unprocessed_vt_input(bytes, consumed, len);
 
@@ -2739,14 +2752,14 @@ struct pipe_bridge
         // WriteConsole 会在旧行列计算输出位置。
         _terminal.crlf();
 
-        if (_pending.kind() != PendingKind::ConsoleRead)
-        {
-            // 非 ConsoleRead 的 shell 通常随后通过 Console API 输出 prompt。
-            // 标记一次性换行目标，让输出路径先 CUP 到新行首。
-            _terminal.mark_enter_newline_at_cursor();
-            const auto dest = _terminal.enter_dest();
-            LOG3("[bridge] LINE_TERM enter_nl=1 dest=(%d,%d)", dest.X, dest.Y);
-        }
+        // 所有模式都标记一次性换行目标：吞掉 shell 随后补写的换行 echo
+        // （PowerShell 5.1 的 ReadConsole 会在 Enter 后补写裸 \n，pwsh 的
+        // 非 ConsoleRead 路径也一样），并让下一次 Console API 输出先 CUP
+        // 到新行首。旧实现只对非 ConsoleRead 标记，导致 ConsoleRead 的
+        // 换行 echo 被透传、错误消息接在输入行尾。
+        _terminal.mark_enter_newline_at_cursor();
+        const auto dest = _terminal.enter_dest();
+        LOG3("[bridge] LINE_TERM enter_nl=1 dest=(%d,%d)", dest.X, dest.Y);
 
         LOG3(L"[in] LINE_TERM cooked=[%.*ls]", static_cast<int>(_cooked_buf.size() < 200 ? _cooked_buf.size() : 200),
              _cooked_buf.data());

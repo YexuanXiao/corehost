@@ -102,11 +102,16 @@ void write_all(HANDLE pipe, std::string_view bytes)
     }
 }
 
-// 后台读取终端输出，保存完整字节供分析
+// 后台读取终端输出，保存完整字节供分析。
+// 同时模拟真实终端：收到 DSR CPR 查询（\x1b[6n）时用输入管道响应
+// \x1b[1;1R（初始光标 1-based (1,1)）。没有这个响应，corehost 无法继承
+// 终端光标（cursor_valid=false），输入 echo / Enter 换行处理会走降级路径，
+// 无法复现 Windows Terminal 下的真实行为。
 class terminal_reader
 {
   public:
-    explicit terminal_reader(win32::handle output_read) : _output_read{std::move(output_read)}
+    terminal_reader(win32::handle output_read, HANDLE input_write)
+        : _output_read{std::move(output_read)}, _input_write{input_write}
     {
         _thread = std::thread([this] { read_loop(); });
     }
@@ -142,6 +147,7 @@ class terminal_reader
     {
         std::scoped_lock lock{_mutex};
         _output.clear();
+        _cpr_scan_offset = 0;
     }
 
   private:
@@ -153,9 +159,24 @@ class terminal_reader
             DWORD read = 0;
             if (!::ReadFile(_output_read.get(), buffer, sizeof(buffer), &read, nullptr) || read == 0)
                 break;
+            bool cpr_found = false;
             {
                 std::scoped_lock lock{_mutex};
                 _output.append(buffer, read);
+                // 扫描 CPR 查询；只响应扫描窗口内新出现的 \x1b[6n
+                for (;;)
+                {
+                    const auto pos = _output.find("\x1b[6n", _cpr_scan_offset);
+                    if (pos == std::string::npos)
+                        break;
+                    _cpr_scan_offset = pos + 4;
+                    cpr_found = true;
+                }
+            }
+            if (cpr_found)
+            {
+                DWORD written = 0;
+                ::WriteFile(_input_write, "\x1b[1;1R", 6, &written, nullptr);
             }
             _cv.notify_all();
         }
@@ -167,10 +188,12 @@ class terminal_reader
     }
 
     win32::handle _output_read;
+    HANDLE _input_write = nullptr;
     std::thread _thread;
     mutable std::mutex _mutex;
     std::condition_variable _cv;
     std::string _output;
+    size_t _cpr_scan_offset = 0;
     bool _closed = false;
 };
 
@@ -201,7 +224,11 @@ struct conpty_session
             fail_win32("CreatePipe(output) failed");
 
         constexpr COORD size{120, 30};
-        const HRESULT hr = ConptyCreatePseudoConsole(size, pty_input_read.get(), pty_output_write.get(), 0, &hpc);
+        // 使用 PSEUDOCONSOLE_INHERIT_CURSOR：与 Windows Terminal 一致，corehost
+        // 会发送 DSR CPR 查询并继承终端光标（cursor_valid=true），输入 echo 与
+        // Enter 换行处理才走完整路径。
+        const HRESULT hr = ConptyCreatePseudoConsole(size, pty_input_read.get(), pty_output_write.get(),
+                                                     PSEUDOCONSOLE_INHERIT_CURSOR, &hpc);
         if (FAILED(hr))
         {
             std::fprintf(stderr, "ConptyCreatePseudoConsole failed: 0x%08lx\n", static_cast<unsigned long>(hr));
@@ -235,7 +262,7 @@ struct conpty_session
         if (FAILED(ConptyReleasePseudoConsole(hpc)))
             fail("ConptyReleasePseudoConsole failed");
 
-        reader = std::make_unique<terminal_reader>(std::move(output_read));
+        reader = std::make_unique<terminal_reader>(std::move(output_read), input_write.get());
     }
 };
 
@@ -263,6 +290,112 @@ std::string printable(std::string_view s)
     return out;
 }
 
+// ── VT 终端模拟器（仅跟踪光标）──
+// 模拟 Windows Terminal 的 VT 渲染语义：
+//   - LF (\n) 只下移一行，X 不变（关键差异点！conhost 输出 CRLF，裸 LF 不回车）
+//   - CR 归零 X；CRLF 到下一行行首
+//   - CUP \x1b[r;cH 绝对定位（1-based）
+//   - 可打印字符推进 X，到列尾自动 wrap
+struct vt_terminal_tracker
+{
+    int row = 0;   // 0-based
+    int col = 0;
+    int width = 120;
+
+    void feed(char c)
+    {
+        if (_in_csi)
+        {
+            if (c >= 0x40 && c <= 0x7e)
+            {
+                // final byte：只处理 CUP（H/f）
+                _in_csi = false;
+                if (c == 'H' || c == 'f')
+                {
+                    int r = 1, cc = 1;
+                    if (!_csi_params.empty())
+                    {
+                        r = std::atoi(_csi_params.c_str());
+                        auto semi = _csi_params.find(';');
+                        if (semi != std::string::npos)
+                            cc = std::atoi(_csi_params.c_str() + semi + 1);
+                    }
+                    row = (r > 0 ? r - 1 : 0);
+                    col = (cc > 0 ? cc - 1 : 0);
+                }
+                _csi_params.clear();
+            }
+            else if (c == 0x1b)
+            {
+                // 嵌套 ESC：重新开始
+                _in_csi = false;
+                _csi_params.clear();
+                _in_esc = true;
+            }
+            else
+            {
+                _csi_params.push_back(c);
+            }
+            return;
+        }
+        if (_in_esc)
+        {
+            _in_esc = false;
+            if (c == '[')
+            {
+                _in_csi = true;
+                _csi_params.clear();
+            }
+            // 其他单字符 ESC 序列（如 ESC M）与 OSC 前缀：忽略
+            return;
+        }
+        if (c == 0x1b)
+        {
+            _in_esc = true;
+        }
+        else if (c == '\r')
+        {
+            col = 0;
+        }
+        else if (c == '\n')
+        {
+            // LF 只下移；Windows Terminal 不自动 CR
+            ++row;
+        }
+        else if (c == 0x08 || c == 0x7f)
+        {
+            if (col > 0)
+                --col;
+        }
+        else if (c >= 0x20)
+        {
+            ++col;
+            if (col >= width)
+            {
+                col = 0;
+                ++row;
+            }
+        }
+    }
+
+    void feed(std::string_view s)
+    {
+        for (char c : s)
+            feed(c);
+    }
+
+    // 解析到指定字节偏移处，返回该处的光标位置
+    void advance_to(std::string_view s, size_t offset)
+    {
+        feed(s.substr(0, offset));
+    }
+
+  private:
+    bool _in_esc = false;
+    bool _in_csi = false;
+    std::string _csi_params;
+};
+
 } // namespace
 
 int main()
@@ -288,11 +421,37 @@ int main()
     std::printf("=== captured %zu bytes ===\n", output.size());
     std::printf("%s\n", printable(output).c_str());
 
+    // ── VT 终端模拟：跟踪光标，验证错误消息确实在新行 ──
+    // 关键：Windows Terminal 中裸 LF 只下移不回车。若 corehost 把 Enter 的
+    // 换行 echo 透传为裸 \n 且之后错误消息没有 CUP，错误消息会显示在
+    // hello 的同一行（列 56 处），而不是新行。
+    // 错误消息格式差异：powershell 5.1 是 "hello : The term"，pwsh 7 是
+    // "hello: \x1b[31;1mThe term"（SGR 分隔），统一匹配 "The term"。
+    const auto echo_pos = output.find("hello");
+    const auto err_pos = output.find("The term");
+    bool found_echo = echo_pos != std::string::npos;
+    bool found_err = err_pos != std::string::npos;
+
+    vt_terminal_tracker tracker;
+    int echo_row = -1, echo_col = -1, err_row = -1, err_col = -1;
+    if (found_echo && found_err && echo_pos < err_pos)
+    {
+        tracker.advance_to(output, echo_pos);
+        echo_row = tracker.row;
+        echo_col = tracker.col;
+        // 继续到错误消息文本开头
+        tracker.feed(output.substr(echo_pos, err_pos - echo_pos));
+        err_row = tracker.row;
+        err_col = tracker.col;
+    }
+    std::printf("=== vt-trace: echo@(r=%d,c=%d) err@(r=%d,c=%d) ===\n", echo_row, echo_col, err_row, err_col);
+
     // 分析断言：
-    // 1. 错误消息应从新行开始（前面有 \r\n 或 \n）
+    // 1. 错误消息应从新行开始：错误消息起始行必须大于 hello 回显所在行
     // 2. 错误消息应为红色（兼容 \x1b[31m / \x1b[31;1m / \x1b[0;91;40m /
     //    38;5;9 / 38;2;255;0;0 等红色 SGR 写法）
     const bool has_newline = output.find("\r\n") != std::string::npos || output.find("\n") != std::string::npos;
+    const bool on_new_line = found_echo && found_err && echo_pos < err_pos && err_row > echo_row;
     const bool has_red = output.find("\x1b[31m") != std::string::npos || output.find("\x1b[31;") != std::string::npos ||
                          output.find("\x1b[91m") != std::string::npos || output.find("\x1b[91;") != std::string::npos ||
                          output.find("\x1b[0;31") != std::string::npos || output.find("\x1b[0;91") != std::string::npos ||
@@ -304,12 +463,18 @@ int main()
                           output.find("\x1b[38;5;4m") != std::string::npos ||
                           output.find("\x1b[38;5;12m") != std::string::npos;
 
-    std::printf("=== analysis: newline=%d red=%d blue=%d ===\n", has_newline, has_red, has_blue);
+    std::printf("=== analysis: newline=%d on_new_line=%d red=%d blue=%d ===\n", has_newline, on_new_line, has_red,
+                has_blue);
 
     int failures = 0;
     if (!has_newline)
     {
         std::printf("FAIL: no newline in error output\n");
+        ++failures;
+    }
+    if (!on_new_line)
+    {
+        std::printf("FAIL: error output starts on same row as 'hello' echo (not on a new line)\n");
         ++failures;
     }
     if (!has_red)

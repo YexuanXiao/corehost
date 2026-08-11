@@ -176,8 +176,12 @@ class terminal_cursor_state
     }
 
     // 记录当前终端坐标为下一次 Console API 输出前应恢复的位置。
+    // 光标未继承时忽略：enter_dest 依赖可信光标，避免无 CPR 场景产生
+    // 错误的换行定位。
     void mark_enter_newline_at_cursor() noexcept
     {
+        if (!_cursor_valid)
+            return;
         _enter_dest = _cursor;
         _enter_pending_newline = true;
     }
