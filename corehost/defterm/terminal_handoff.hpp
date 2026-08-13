@@ -57,23 +57,19 @@ namespace corehost::defterm
 
     // handoff 为空表示 CoCreateInstance 失败；返回 false 后调用方会尝试
     // 下一个 CLSID。
-    com::com_ptr<IConsoleHandoff> handoff;
-    try
+    HRESULT hr;
+    auto handoff = com::try_create_instance<IConsoleHandoff>(hr, terminal_clsid, CLSCTX_LOCAL_SERVER);
+    LOG("terminal candidate COM object created ptr=%p, HRESULT=%08lx", handoff.get(), static_cast<unsigned long>(hr));
+
+    if (!handoff)
     {
-        handoff = com::create_instance<IConsoleHandoff>(terminal_clsid, CLSCTX_LOCAL_SERVER);
-        LOG("terminal candidate COM object created ptr=%p", handoff.get());
-    }
-    catch (...)
-    {
-        LOG("terminal candidate unavailable; this failure is allowed and next candidate may be tried");
         return false;
     }
 
-    if (marker_check_required)
+    if (marker_check_required && handoff.try_as<IDefaultTerminalMarker>())
     {
-        LOG("checking default-terminal marker");
-        (void)handoff.as<IDefaultTerminalMarker>();
-        LOG("default-terminal marker accepted");
+        LOG("checking default-terminal marker failed.");
+        return false;
     }
 
     // signal_write 传给终端；signal_read 留给 corehost 轮询转发
@@ -89,11 +85,14 @@ namespace corehost::defterm
 
     LOG("calling EstablishHandoff server=%p event=%p signalWrite=%p self=%p id=%08lx:%08lx", server.get(),
         input_event.get(), signal_write.get(), corehost_process.get(), portable_msg.IdHighPart, portable_msg.IdLowPart);
-    const auto hr = handoff->EstablishHandoff(server.get(), input_event.get(), &portable_msg, signal_write.get(),
-                                              corehost_process.get(), terminal_process.put());
+    hr = handoff->EstablishHandoff(server.get(), input_event.get(), &portable_msg, signal_write.get(),
+                                   corehost_process.get(), terminal_process.put());
     LOG("EstablishHandoff returned hr=0x%08lx terminalProcess=%p", static_cast<unsigned long>(hr),
         terminal_process.get());
-    win32::throw_hresult(win32::hresult(hr));
+    if (win32::failed(static_cast<win32::hresult>(hr)))
+    {
+        return false;
+    }
 
     signal_write.clear();
     corehost_process.clear();

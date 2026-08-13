@@ -1,6 +1,6 @@
 #include <windows.h>
 #include <oleauto.h>
-
+#include <string_view>
 namespace com
 {
 class bstring
@@ -10,6 +10,15 @@ class bstring
     explicit bstring(const wchar_t *str)
     {
         m_str = SysAllocString(str);
+        if (m_str == nullptr)
+        {
+            std::abort();
+        }
+    }
+
+    explicit bstring(std::wstring_view str)
+    {
+        m_str = SysAllocStringLen(str.data(), static_cast<UINT>(str.size()));
         if (m_str == nullptr)
         {
             std::abort();

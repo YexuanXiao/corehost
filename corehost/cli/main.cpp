@@ -20,8 +20,7 @@
 #include "shell/shell.hpp"
 #include "win32/debugging.hpp"
 
-int __stdcall wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
-try
+int __stdcall wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
 {
     utility::suppress_crt_error_dialogs();
     corehost::log::initialize_log();
@@ -94,9 +93,4 @@ try
         corehost::client::client_entry({}, std::wstring(cmdline.data(), cmdline.size()));
     }
     return 0;
-}
-catch (...)
-{
-    LOG("unhandled exception in wWinMain");
-    return 1;
 }

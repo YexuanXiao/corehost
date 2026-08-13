@@ -32,6 +32,15 @@ template <typename T>
     return ptr;
 }
 
+template <typename T>
+[[nodiscard]] inline com_ptr<T> try_create_instance(HRESULT &hr, REFCLSID clsid,
+                                                    DWORD cls_context = CLSCTX_LOCAL_SERVER)
+{
+    com_ptr<T> ptr;
+    hr = ::CoCreateInstance(clsid, nullptr, cls_context, __uuidof(T), ptr.put_void());
+    return ptr;
+}
+
 // ── make ────────────────────────────────────────────────
 // 构造 COM 实现对象并包装为 com_ptr。
 // 对象初始引用计数为 1 (由 com::implements 构造函数设置)。
