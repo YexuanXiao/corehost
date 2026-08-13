@@ -9,6 +9,7 @@ build-nolog
 build-ansi-opt
 edit
 build-clang
+build-clang-asan
 build-clangcl
 build-clang-verify
 build-clangcl-verify

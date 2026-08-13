@@ -24,6 +24,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 
 namespace
 {
@@ -32,6 +33,98 @@ namespace
 {
     std::fprintf(stderr, "FAIL: %s\n", message);
     std::exit(1);
+}
+
+// 失败诊断：把最新 corehost 日志（exe 同目录 logs\corehost_*.log，UTF-16LE）
+// 的尾部转储到 stdout，便于间歇性失败时定位 corehost 内部状态。
+void dump_recent_log()
+{
+    wchar_t exe_path[MAX_PATH]{};
+    if (::GetModuleFileNameW(nullptr, exe_path, MAX_PATH) == 0)
+        return;
+    std::wstring pattern{exe_path};
+    const auto slash = pattern.find_last_of(L'\\');
+    if (slash == std::wstring::npos)
+        return;
+    pattern.resize(slash + 1);
+    pattern += L"logs\\corehost_*.log";
+
+    WIN32_FIND_DATAW fd{};
+    const HANDLE h_find = ::FindFirstFileW(pattern.c_str(), &fd);
+    if (h_find == INVALID_HANDLE_VALUE)
+    {
+        std::printf("(no corehost logs)\n");
+        return;
+    }
+    std::wstring best_name;
+    ULARGE_INTEGER best_time{};
+    do
+    {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            continue;
+        ULARGE_INTEGER t;
+        t.HighPart = fd.ftLastWriteTime.dwHighDateTime;
+        t.LowPart = fd.ftLastWriteTime.dwLowDateTime;
+        if (best_name.empty() || t.QuadPart > best_time.QuadPart)
+        {
+            best_time = t;
+            best_name = fd.cFileName;
+        }
+    } while (::FindNextFileW(h_find, &fd));
+    ::FindClose(h_find);
+
+    if (best_name.empty())
+    {
+        std::printf("(no corehost logs)\n");
+        return;
+    }
+    std::wstring log_path{pattern};
+    const auto star = log_path.find(L"corehost_*.log");
+    log_path.resize(star);
+    log_path += best_name;
+    std::wprintf(L"=== corehost log tail: %ls ===\n", log_path.c_str());
+
+    FILE *f = ::_wfopen(log_path.c_str(), L"rb");
+    if (f == nullptr)
+    {
+        std::printf("(cannot open log)\n");
+        return;
+    }
+    std::fseek(f, 0, SEEK_END);
+    const long size = std::ftell(f);
+    constexpr long kTailBytes = 96 * 1024;
+    long start = size > kTailBytes ? size - kTailBytes : 0;
+    start &= ~1L; // UTF-16LE 对齐
+    std::fseek(f, start, SEEK_SET);
+    std::vector<char> bytes(static_cast<size_t>(size - start));
+    const size_t got = std::fread(bytes.data(), 1, bytes.size(), f);
+    std::fclose(f);
+
+    const wchar_t *wdata = reinterpret_cast<const wchar_t *>(bytes.data());
+    const size_t wcount = got / 2;
+    // 保留最后 ~60 行
+    int newlines = 0;
+    size_t begin = 0;
+    for (size_t i = 0; i < wcount; ++i)
+    {
+        if (wdata[i] == L'\n')
+        {
+            ++newlines;
+            if (newlines > 60)
+                begin = i + 1;
+        }
+    }
+    std::wprintf(L"%.*ls\n", static_cast<int>(wcount - begin), wdata + begin);
+    std::wprintf(L"=== end corehost log ===\n");
+}
+
+// 失败诊断：powershell 是否还活着（259=STILL_ACTIVE）。错误消息缺失时
+// 可区分 powershell 卡死 vs 输出未捕获。
+void dump_child_status(HANDLE child)
+{
+    DWORD exit_code = 0;
+    if (::GetExitCodeProcess(child, &exit_code))
+        std::printf("=== child status: exit_code=%lu (259=running) ===\n", static_cast<unsigned long>(exit_code));
 }
 
 [[noreturn]] void fail_win32(const char *message)
@@ -148,6 +241,10 @@ class terminal_reader
         std::scoped_lock lock{_mutex};
         _output.clear();
         _cpr_scan_offset = 0;
+        // clear 后不再响应 CPR：PSReadLine 渲染时会自己发送 \x1b[6n 查询光标，
+        // 此时应答会作为意外输入被转发给 powershell（继承标志已消费），干扰
+        // 其渲染。只响应 corehost 启动时的第一次继承查询。
+        _cpr_responded = true;
     }
 
   private:
@@ -163,14 +260,18 @@ class terminal_reader
             {
                 std::scoped_lock lock{_mutex};
                 _output.append(buffer, read);
-                // 扫描 CPR 查询；只响应扫描窗口内新出现的 \x1b[6n
-                for (;;)
+                // 只响应第一个 \x1b[6n（corehost 启动时的光标继承查询），
+                // 后续的 CPR（PSReadLine 自身的光标查询）不再应答，避免
+                // \x1b[1;1R 作为意外输入流入 powershell。
+                if (!_cpr_responded)
                 {
                     const auto pos = _output.find("\x1b[6n", _cpr_scan_offset);
-                    if (pos == std::string::npos)
-                        break;
-                    _cpr_scan_offset = pos + 4;
-                    cpr_found = true;
+                    if (pos != std::string::npos)
+                    {
+                        _cpr_scan_offset = pos + 4;
+                        _cpr_responded = true;
+                        cpr_found = true;
+                    }
                 }
             }
             if (cpr_found)
@@ -194,6 +295,7 @@ class terminal_reader
     std::condition_variable _cv;
     std::string _output;
     size_t _cpr_scan_offset = 0;
+    bool _cpr_responded = false;
     bool _closed = false;
 };
 
@@ -494,8 +596,16 @@ int main()
     }
 
     if (failures == 0)
+    {
         std::printf("PASS\n");
-    else
-        std::printf("%d FAILURES\n", failures);
-    return failures == 0 ? 0 : 1;
+        return 0;
+    }
+
+    // 失败诊断：corehost 日志尾部 + powershell 进程状态
+    std::printf("=== diagnostics on failure ===\n");
+    dump_child_status(session.child.get());
+    dump_recent_log();
+    std::printf("=== end diagnostics ===\n");
+    std::printf("%d FAILURES\n", failures);
+    return 1;
 }
