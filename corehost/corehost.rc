@@ -1,8 +1,9 @@
 #include <winver.h>
+#include "version.h"
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 0,0,0,1
-PRODUCTVERSION 0,0,0,1
+FILEVERSION COREHOST_VERSION_MAJOR,COREHOST_VERSION_MINOR,COREHOST_VERSION_PATCH,COREHOST_VERSION_BUILD
+PRODUCTVERSION COREHOST_VERSION_MAJOR,COREHOST_VERSION_MINOR,COREHOST_VERSION_PATCH,COREHOST_VERSION_BUILD
 FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
 #ifdef _DEBUG
 FILEFLAGS VS_FF_DEBUG
@@ -18,11 +19,11 @@ BEGIN
         BLOCK "000004b0"
         BEGIN
             VALUE "FileDescription", "corehost (Core Console Host)"
-            VALUE "FileVersion", "0.0.0.1-beta"
+            VALUE "FileVersion", COREHOST_VERSION
             VALUE "InternalName", "corehost"
             VALUE "OriginalFilename", "corehost.exe"
             VALUE "ProductName", "CoreHost"
-            VALUE "ProductVersion", "0.0.0.1-beta"
+            VALUE "ProductVersion", COREHOST_VERSION
             VALUE "LegalCopyright", "Copyright (c) 2026 YexuanXiao. All rights reserved.\0"
         END
     END

@@ -1,0 +1,15 @@
+// ── version.h ──────────────────────────────────────────────
+// CoreHost 版本定义。本文件由 CMake 从 COREHOST_VERSION 选项生成，
+// 不要手动编辑。
+#pragma once
+
+// 完整版本字符串（如 "0.0.0.0"）。corehost.rc 的 FileVersion /
+// ProductVersion 字符串值和运行时诊断直接使用它。
+#define COREHOST_VERSION "@COREHOST_VERSION@"
+
+// 四段数字版本号。corehost.rc 的 FILEVERSION / PRODUCTVERSION
+// （逗号分隔的二进制版本）使用这些宏展开。
+#define COREHOST_VERSION_MAJOR @COREHOST_VERSION_MAJOR@
+#define COREHOST_VERSION_MINOR @COREHOST_VERSION_MINOR@
+#define COREHOST_VERSION_PATCH @COREHOST_VERSION_PATCH@
+#define COREHOST_VERSION_BUILD @COREHOST_VERSION_BUILD@

@@ -26,6 +26,21 @@ add_compile_definitions($<$<BOOL:${COREHOST_ANSI_OPT}>:COREHOST_ANSI_OPT>)
 
 option(COREHOST_USE_SYSTEM_ICU "Use system ICU for Unicode character width calculation" ON)
 
+# ── 版本 ──────────────────────────────────────────────────
+# COREHOST_VERSION 决定 libcorehost/version.h 中的宏，version.h 又决定
+# corehost.rc 的资源版本。格式为点分隔的数字（如 1.2.3.4）；不足四段
+# 时缺失段按 0 处理。
+set(COREHOST_VERSION "0.0.0.0" CACHE STRING "CoreHost version (dot-separated numbers, e.g. 1.2.3.4)")
+
+string(REPLACE "." ";" _version_parts "${COREHOST_VERSION}")
+list(APPEND _version_parts 0 0 0 0)          # 补足 4 段
+list(SUBLIST _version_parts 0 4 _version_parts) # 截取前 4 段
+list(GET _version_parts 0 COREHOST_VERSION_MAJOR)
+list(GET _version_parts 1 COREHOST_VERSION_MINOR)
+list(GET _version_parts 2 COREHOST_VERSION_PATCH)
+list(GET _version_parts 3 COREHOST_VERSION_BUILD)
+unset(_version_parts)
+
 # ── 架构检测 (proxy 子目录使用) ──────────────────────
 corehost_detect_arch(CONHOST_PROXY_ARCH_DIR)
 

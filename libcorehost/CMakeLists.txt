@@ -4,6 +4,10 @@
 # 提供 conpty_entry() 函数作为外部接口。
 # ═══════════════════════════════════════════════════════════════
 
+# 由根 CMakeLists 的 COREHOST_VERSION 选项生成 version.h；corehost.rc
+# 通过本目录的 include 路径引用同一份宏定义。
+configure_file(version.h.in ${CMAKE_CURRENT_BINARY_DIR}/version.h @ONLY)
+
 add_library(libcorehost STATIC
     conpty.cpp
     signal.cpp
@@ -50,6 +54,7 @@ target_sources(libcorehost
 
 target_include_directories(libcorehost PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_SOURCE_DIR}/third_parties/deque
 )
 

@@ -142,8 +142,6 @@ inline std::wstring get_module_dir_path() noexcept
     if (module_path.empty())
         return {};
 
-    module_path.resize(module_path.size() - 4 /* .exe */);
-
     auto it = module_path.end();
     while (it != module_path.begin())
     {

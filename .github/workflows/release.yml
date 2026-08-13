@@ -21,11 +21,12 @@ jobs:
         shell: pwsh
         run: |
           & "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
-
+          $version = "${{ github.event.release.tag_name }}".TrimStart('v')
           cmake -S . -B build-release-x64 -G Ninja `
             -DCMAKE_C_COMPILER=cl `
             -DCMAKE_CXX_COMPILER=cl `
             -DCMAKE_BUILD_TYPE=Release `
+            -DCOREHOST_VERSION=$version `
             -DBUILD_TESTS=OFF
 
           cmake --build build-release-x64 --target corehost
@@ -41,11 +42,12 @@ jobs:
         shell: pwsh
         run: |
           & "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\Launch-VsDevShell.ps1" -Arch arm64 -HostArch amd64 -SkipAutomaticLocation
-
+          $version = "${{ github.event.release.tag_name }}".TrimStart('v')
           cmake -S . -B build-release-arm64 -G Ninja `
             -DCMAKE_C_COMPILER=cl `
             -DCMAKE_CXX_COMPILER=cl `
             -DCMAKE_BUILD_TYPE=Release `
+            -DCOREHOST_VERSION=$version `
             -DLIBUNICODE_SIMD_IMPLEMENTATION=none `
             -DBUILD_TESTS=OFF
 
