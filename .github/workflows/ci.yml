@@ -46,7 +46,7 @@ jobs:
         run: |
           & "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
 
-          cmake -S . -B build-${{ matrix.compiler.name }}-${{ matrix.build_type }} -G Ninja `
+          cmake -S . -B build-${{ matrix.compiler.name }}-x64-${{ matrix.build_type }} -G Ninja `
             -DCMAKE_C_COMPILER=${{ matrix.compiler.c }} `
             -DCMAKE_CXX_COMPILER=${{ matrix.compiler.cxx }} `
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} `
@@ -57,14 +57,14 @@ jobs:
         run: |
           & "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
 
-          cmake --build build-${{ matrix.compiler.name }}-${{ matrix.build_type }}
+          cmake --build build-${{ matrix.compiler.name }}-x64-${{ matrix.build_type }}
 
       - name: Test
         shell: pwsh
         run: |
           & "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
 
-          ctest --test-dir build-${{ matrix.compiler.name }}-${{ matrix.build_type }} --output-on-failure
+          ctest --test-dir build-${{ matrix.compiler.name }}-x64-${{ matrix.build_type }} --output-on-failure
 
   windows-arm64:
     name: ${{ matrix.compiler.name }} ARM64 ${{ matrix.build_type }}
@@ -125,7 +125,6 @@ jobs:
             -DCMAKE_C_COMPILER=${{ matrix.compiler.c }} `
             -DCMAKE_CXX_COMPILER=${{ matrix.compiler.cxx }} `
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} `
-            -DLIBUNICODE_SIMD_IMPLEMENTATION=none `
             -DBUILD_TESTS=OFF `
             @targetArgs
 

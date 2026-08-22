@@ -26,7 +26,7 @@ jobs:
             -DCMAKE_C_COMPILER=cl `
             -DCMAKE_CXX_COMPILER=cl `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCOREHOST_VERSION=$version `
+            "-DCOREHOST_VERSION=$version" `
             -DBUILD_TESTS=OFF
 
           cmake --build build-release-x64 --target corehost
@@ -47,7 +47,7 @@ jobs:
             -DCMAKE_C_COMPILER=cl `
             -DCMAKE_CXX_COMPILER=cl `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCOREHOST_VERSION=$version `
+            "-DCOREHOST_VERSION=$version" `
             -DLIBUNICODE_SIMD_IMPLEMENTATION=none `
             -DBUILD_TESTS=OFF
 

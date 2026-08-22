@@ -2,6 +2,33 @@
 
 **corehost** is a reimplementation of Windows conhost.
 
+## Table of Contents
+
+<ul>
+  <li><a href="#background">Background</a></li>
+  <li><a href="#positioning">Positioning</a></li>
+  <li><a href="#development">Development</a></li>
+  <li><a href="#corehost-as-conhost">corehost as conhost</a></li>
+  <li><a href="#how-to-use-it">How to use it</a></li>
+  <li><a href="#compatibility">Compatibility</a></li>
+  <li><a href="#how-to-build">How to build</a>
+    <ul>
+      <li><a href="#build-targets">Build targets</a></li>
+      <li><a href="#cmake-options">CMake options</a></li>
+    </ul>
+  </li>
+  <li><a href="#architecture-and-startup-flow">Architecture and startup flow</a>
+    <ul>
+      <li><a href="#mode-1-corehost-as-conhostexe">Mode 1: corehost as conhost.exe</a></li>
+      <li><a href="#mode-2-corehost-as-the-default-console-com-server">Mode 2: corehost as the default-console COM server</a></li>
+      <li><a href="#mode-3-conpty">Mode 3: ConPTY</a></li>
+      <li><a href="#conpty-runtime">ConPTY runtime</a></li>
+    </ul>
+  </li>
+  <li><a href="#design">Design</a></li>
+  <li><a href="#the-future-of-the-windows-console-and-corehost">The Future of the Windows Console and corehost</a></li>
+</ul>
+
 ## Background
 
 The orginal Windows conhost has the following issues:
@@ -31,7 +58,7 @@ corehost aims to provide **high quality and high performance** for driving:
 
 Actually, corehost is the ideal OpenConsole/conhost.
 
-## Develpoment
+## Development
 
 corehost is based on in-depth research of microsoft/terminal, but its codebase is not derived from microsoft/terminal; it was written entirely from scratch.
 
@@ -75,7 +102,7 @@ During development, corehost was tested using cmd, powershell, pwsh, and edit. I
 
 Refer to CI for cross compilation and building with Clang.
 
-## Build targets
+### Build targets
 
 - `corehost`: the main executable. It provides the functionality of conhost/OpenConsole.
 - `libcorehost`: the core of corehost and implements full ConPTY functionality, currently has around 643KiB of code. Third-party terminals can directly link libcorehost into their programs without needing to use an external conhost program.
@@ -83,7 +110,7 @@ Refer to CI for cross compilation and building with Clang.
 - `conpty_static`: the static library form of libconpty.
 - `conhost_proxy`: the COM proxy/stub DLL used by default-terminal handoff and COM embedding.
 
-## CMake options
+### CMake options
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -142,10 +169,20 @@ The ConPTY runtime is the shared implementation used by all three startup modes.
 - The VT output path serializes console output and console-state changes back to VT for the terminal frontend. It buffers output so that large console writes do not become one small `WriteFile` call per character or per escape sequence.
 - The signal path handles terminal-side control notifications, such as close, resize, and control events, and maps them into the Windows console behavior expected by attached processes.
 
-### Design
+## Design
 
 Due to protocol restrictions, corehost uses **synchronous I/O**, but unlike the original conhost, corehost strictly uses only **a single thread**, the main thread. One main loop reads a ConDrv request, lets the router update console state or prepare a pending read, flushes VT output when needed, and returns the completion result to ConDrv. Terminal input is also serviced from that same loop during idle or pending-read phases, so ordinary keyboard input, terminal replies, console output, and most API state transitions are serialized through **one state machine**. This **avoids the need for locks** around console state. A request is either completed immediately, completed by the next ConDrv read cycle, or held pending until terminal input supplies the missing data.
 
 The signal path is handled inside the same loop rather than by a dedicated thread. The terminal has a separate control channel that is not part of the normal VT input/output stream, so the session polls the signal pipe during the same idle and pending-wait phases that already service terminal input. In the direct default-terminal handoff path, the polling loop reads console-control notifications from the terminal signal pipe, forwards the relevant control events to the Windows console subsystem, and notices when the pipe closes. In ConPTY sessions, the same polling loop consumes terminal-side sideband messages such as show/hide, clear-buffer, parent-window, and resize notifications. Some messages are only consumed to keep the wire protocol aligned; others update the local screen buffer or console size. When the signal pipe closes, the session marks the input side as EOF so pending input waits can end cleanly. Signal arrivals are therefore delayed by at most one 16 ms polling slice, and all state updates stay serialized on the main thread.
 
 Data usually flows in two directions. Output from a console application arrives as ConDrv API messages, is applied to the local console and screen state, and is serialized as VT to the terminal. Input from the terminal arrives as VT bytes, is parsed into keyboard, text, control, or terminal-response messages, and is then exposed to the console application through the input APIs. This is the core bridge that lets Windows console programs run behind a modern terminal frontend while still observing Windows console semantics.
+
+## The Future of the Windows Console and corehost
+
+corehost currently has three issues:
+
+1. corehost's compatibility is not yet good enough; it requires a large amount of user feedback to improve compatibility. If you care about the future of the Windows Console, please follow this project and actively try it out. All your compatibility feedback will be recorded and documented.
+2. corehost currently uses a single thread, which was designed to demonstrate how the Windows Console works. Because ConDrv and ConPty use synchronous pipes, corehost currently must use polling (once every 16 ms) to keep the program working. However, [polling kills](https://devblogs.microsoft.com/oldnewthing/20060124-17/?p=32553), so in the future corehost will reintroduce threading, not for speed, but to avoid polling.
+3. corehost's code is not yet good enough. First, I must admit that most of the code in corehost was written by AI, but I guarantee that I participated in the design of the vast majority of functions and classes. You can read the code and evaluate its quality to determine whether I am trustworthy. Although I have reviewed it again and again to ensure that the AI wrote meaningful code, my energy is limited and I cannot guarantee that it is optimal. Therefore, corehost will need to be redesigned in the future.
+
+After the above issues are resolved, corehost will reach its end point, because corehost was written to demonstrate how the Windows Console works and to replace conhost under the existing design. Once that goal is achieved, corehost will enter a stable state. But this is also a new starting point for the Windows Console. The experience gained from corehost will be used to give rise to a new terminal with GUI, which should be able to independently perform all the work of conhost and use the best design we can have.
