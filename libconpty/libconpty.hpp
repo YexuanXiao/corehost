@@ -124,8 +124,8 @@ inline bool nt_success(LONG s) noexcept
 }
 
 constexpr DWORD kSystemConsoleInformation = 132;
-constexpr const wchar_t *kConDrvServer = L"\\Device\\ConDrv\\Server";
-constexpr const wchar_t *kConDrvReference = L"\\Reference";
+constexpr auto kConDrvServer = std::wstring_view{L"\\Device\\ConDrv\\Server"};
+constexpr auto kConDrvReference = std::wstring_view{L"\\Reference"};
 constexpr size_t kInheritedHandlesCount = 4; // server + stdin + stdout + signal
 
 void EnsureDriverLoaded() noexcept
@@ -309,28 +309,10 @@ HRESULT CreatePseudoConsoleImpl(HANDLE hToken, COORD size, HANDLE hInput, HANDLE
         return hr;
 
     win32::process_information pi;
-#ifdef _M_IX86
-    {
-        PVOID redirectionFlag = nullptr;
-        LONG st = ::RtlWow64EnableFsRedirectionEx(WOW64_FILE_SYSTEM_DISABLE_REDIRECT, &redirectionFlag);
-        if (!nt_success(st))
-            return hresult_from_nt(st);
-
-        if (!::CreateProcessAsUserW(hToken, conhostPath.c_str(), cmd.data(), nullptr, nullptr, TRUE,
-                                    EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr, &siEx.StartupInfo,
-                                    reinterpret_cast<::PPROCESS_INFORMATION>(&pi)))
-        {
-            ::RtlWow64EnableFsRedirectionEx(redirectionFlag, &redirectionFlag);
-            return hresult_from_last_error();
-        }
-        ::RtlWow64EnableFsRedirectionEx(redirectionFlag, &redirectionFlag);
-    }
-#else
     if (!::CreateProcessAsUserW(hToken, conhostPath.c_str(), cmd.data(), nullptr, nullptr, TRUE,
                                 EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr, &siEx.StartupInfo,
                                 reinterpret_cast<::PPROCESS_INFORMATION>(&pi)))
         return hresult_from_last_error();
-#endif
 
     auto pPty = std::make_unique<pseudo_console>();
     pPty->hSignal = std::move(signalPipeWrite);
