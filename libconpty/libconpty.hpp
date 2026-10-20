@@ -9,6 +9,7 @@
 #include "winconpty.h"
 #include <winternl.h>
 #include <winioctl.h>
+#include <wow64apiset.h>
 #include <cstdint>
 #include <memory>
 #include <new>
@@ -124,8 +125,8 @@ inline bool nt_success(LONG s) noexcept
 }
 
 constexpr DWORD kSystemConsoleInformation = 132;
-constexpr auto kConDrvServer = std::wstring_view{L"\\Device\\ConDrv\\Server"};
-constexpr auto kConDrvReference = std::wstring_view{L"\\Reference"};
+constexpr win32::wcstring_view kConDrvServer = {L"\\Device\\ConDrv\\Server"};
+constexpr win32::wcstring_view kConDrvReference = {L"\\Reference"};
 constexpr size_t kInheritedHandlesCount = 4; // server + stdin + stdout + signal
 
 void EnsureDriverLoaded() noexcept
@@ -160,6 +161,31 @@ LONG OpenConDrvHandle(win32::handle &h, win32::wcstring_view name, win32::handle
                           nullptr, 0ul);
 }
 
+std::wstring FindSystemConhostPath([[maybe_unused]] bool native) noexcept
+{
+    constexpr win32::wcstring_view prefix = L"\\\\?\\";
+    constexpr win32::wcstring_view conhost_suffix = L"\\conhost.exe";
+    constexpr win32::wcstring_view system32 = L"\\System32";
+#if (_M_X64 || _M_ARM64)
+    win32::wcstring_view system = system32;
+#else
+    constexpr win32::wcstring_view sysnative = L"\\SysNative";
+    win32::wcstring_view system = native ? sysnative : system32;
+#endif
+    std::wstring conhost_path;
+    auto max_size = prefix.size() + conhost_suffix.size() + system.size() + MAX_PATH;
+    conhost_path.reserve(max_size);
+    conhost_path.assign(prefix.data(), prefix.size());
+    conhost_path.resize(max_size);
+    auto length = ::GetWindowsDirectoryW(conhost_path.data() + prefix.size(), MAX_PATH);
+    if (length == 0)
+        return {};
+    conhost_path.resize(prefix.size() + static_cast<std::size_t>(length));
+    conhost_path.append(system.data(), system.size());
+    conhost_path.append(conhost_suffix.data(), conhost_suffix.size());
+    return conhost_path;
+}
+
 std::wstring FindConsoleHostPath()
 {
 #ifndef USE_INBOX_CONHOST
@@ -173,7 +199,15 @@ std::wstring FindConsoleHostPath()
     if (shell::file_exists(modulePath.c_str()))
         return modulePath;
 #endif
-    return shell::get_system_conhost_path();
+#if (_M_X64 || _M_ARM64)
+    return FindSystemConhostPath(false);
+#else
+    // check WOW64 exist first
+    BOOL wow64;
+    if (::IsWow64Process(::GetCurrentProcess(), &wow64) && wow64)
+        return FindSystemConhostPath(true);
+    return FindSystemConhostPath(false);
+#endif
 }
 
 std::wstring BuildConhostCommandLine(win32::wcstring_view conhostPath, COORD size,

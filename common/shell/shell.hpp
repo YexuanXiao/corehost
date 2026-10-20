@@ -109,23 +109,6 @@ inline get_shell_result get_shell() noexcept
     return {L"cmd", cmd_path};
 }
 
-inline std::wstring get_system_conhost_path() noexcept
-{
-    constexpr win32::wcstring_view prefix = L"\\\\?\\";
-    constexpr win32::wcstring_view conhost_suffix = L"\\conhost.exe";
-
-    details::known_folder_path system_dir(FOLDERID_System);
-    if (system_dir.empty())
-        return {};
-
-    std::wstring conhost_path;
-    conhost_path.reserve(prefix.size() + system_dir.size() + conhost_suffix.size());
-    conhost_path.assign(prefix.data(), prefix.size());
-    conhost_path.append(system_dir.c_str(), system_dir.size());
-    conhost_path.append(conhost_suffix.data(), conhost_suffix.size());
-    return conhost_path;
-}
-
 inline std::wstring get_module_path() noexcept
 {
     std::wstring path;
