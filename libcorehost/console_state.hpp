@@ -373,10 +373,9 @@ struct console_state
     // 运行时按 screen_buffer_size/default_console_size 初始化。
     console_state()
     {
-        // 代码页和语言 ID 依赖当前系统环境，只能在运行时初始化；其余字段使用
-        // 成员默认值即可保持可预测的控制台初始状态。
-        input_code_page = ::GetACP();
-        output_code_page = ::GetOEMCP();
+        auto cp = ::GetOEMCP();
+        input_code_page = cp;
+        output_code_page = cp;
         init_tab_stops();
     }
 };
