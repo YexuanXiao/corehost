@@ -24,6 +24,9 @@ add_compile_definitions($<$<BOOL:${COREHOST_PERF_DIAG}>:COREHOST_PERF_DIAG>)
 option(COREHOST_ANSI_OPT "Enable table-driven ANSI code page fast paths" OFF)
 add_compile_definitions($<$<BOOL:${COREHOST_ANSI_OPT}>:COREHOST_ANSI_OPT>)
 
+option(COREHOST_DEFAULT_UTF8 "Make UTF-8 the default console code page and make UTF-8 as corehost's active code page" ON)
+option(COREHOST_RUN_AS_UTF8 "Make UTF-8 as corehost's active code page" ON)
+
 option(COREHOST_USE_SYSTEM_ICU "Use system ICU for Unicode character width calculation" ON)
 
 # ── 版本 ──────────────────────────────────────────────────

@@ -373,7 +373,31 @@ struct console_state
     // 运行时按 screen_buffer_size/default_console_size 初始化。
     console_state()
     {
+        // 控制台的输入和输出代码页默认是系统的OEMCP，当设置中开启了UTF-8时，OEMCP也为UTF-8。
+        // 当corehost使用manifest指定ActiveCodePage为UTF-8时，GetOEMCP返回的值和系统OEMCP不一致。
+        // 因此当corehost的代码页为UTF-8且默认代码页不是UTF-8时，需要从注册表读取OEMCP的值。
+#ifdef COREHOST_DEFAULT_UTF8
+        UINT cp = CP_UTF8;
+#elifdef COREHOST_RUN_AS_UTF8
+        constexpr auto OEMCP_STR_MAX = 5uz;
+        wchar_t buf[OEMCP_STR_MAX + 1uz];
+        DWORD size = sizeof(buf);
+        auto rc = ::RegGetValueW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage", L"OEMCP",
+                                 RRF_RT_REG_SZ, nullptr, &buf, &size);
+        if (win32::error(rc) != win32::error::success)
+            throw win32::error(rc);
+        char cbuf[6];
+        std::ranges::transform(std::span{&buf[0], size / sizeof(wchar_t) - 1uz}, &cbuf[0], [](wchar_t ch) { 
+            if (ch > 0xFF)
+                throw std::errc::value_too_large;
+            return static_cast<char>(ch); });
+        UINT cp;
+        auto res = std::from_chars(&cbuf[0], &cbuf[size / sizeof(wchar_t) - 1uz], cp);
+        if (res.ec != std::errc{})
+            throw res.ec;
+#else
         auto cp = ::GetOEMCP();
+#endif
         input_code_page = cp;
         output_code_page = cp;
         init_tab_stops();
