@@ -4,7 +4,7 @@
 
 add_executable(corehost WIN32
     corehost.rc
-    corehost.manifest
+    $<IF:$<OR:$<BOOL:${COREHOST_DEFAULT_UTF8}>,$<BOOL:${COREHOST_RUN_AS_UTF8}>>,corehost.utf8.manifest,corehost.manifest>
     cli/main.cpp
     defterm/defterm.cpp
     defterm/signal.cpp

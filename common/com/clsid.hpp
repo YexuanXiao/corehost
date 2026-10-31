@@ -56,21 +56,12 @@ enum class delegation_step
 inline CLSID default_clsid(delegation_step step)
 {
     auto name = step == delegation_step::console ? L"DelegationConsole" : L"DelegationTerminal";
-    win32::registry_key key;
-    try
-    {
-        key = win32::registry_key{win32::open_tag, win32::predefined_key::hkcu, L"Console\\%%Startup"};
-    }
-    catch (...)
-    {
-        return clsid::zero;
-    }
     constexpr size_t CLSID_STR_MAX = 39; // 38 字符 + 1 空终止符
 
     wchar_t buf[CLSID_STR_MAX] = {};
     DWORD size = sizeof(buf);
 
-    auto rc = ::RegGetValueW(key.get(), nullptr, name,
+    auto rc = ::RegGetValueW(HKEY_CURRENT_USER, L"Console\\%%Startup", name,
                              RRF_RT_REG_SZ, // 只读取 REG_SZ，类型不匹配则失败
                              nullptr, buf, &size);
     if (win32::error(rc) != win32::error::success)

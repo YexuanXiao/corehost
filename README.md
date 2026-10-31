@@ -118,6 +118,8 @@ Refer to CI for cross compilation and building with Clang.
 | `COREHOST_LOG_LEVEL` | `1` | Compile-time log frequency level. `1` records low-frequency events, `2` also records medium-frequency events, and `3` also records high-frequency events. This only matters when `COREHOST_DISABLE_LOG=OFF`. |
 | `COREHOST_PERF_DIAG` | `OFF` | Enables aggregated performance diagnostics inside corehost. This is for profiling and should stay disabled for normal performance comparisons. |
 | `COREHOST_ANSI_OPT` | `OFF` | Enables optional table-driven ANSI code page fast paths. For users who have enabled UTF-8, this is unnecessary and will increase the binary size. |
+| `COREHOST_DEFAULT_UTF8` | `ON` | Make UTF-8 the default console code page and make UTF-8 as corehost's active code page. |
+| `COREHOST_RUN_AS_UTF8` | `ON` | Make UTF-8 as corehost's active code page. |
 | `COREHOST_USE_SYSTEM_ICU` | `ON` | Uses the Windows system ICU library for Unicode character width calculation, reducing the binary size. Disable it when targeting Windows versions earlier than 1903. |
 | `COREHOST_VERSION` | `0.0.0.0` | Sets the version baked into `corehost.exe` and `version.h`. Accepts dot-separated numbers such as `1.2.3.4`; missing segments default to `0` and extra segments are ignored. |
 | `USE_INBOX_CONHOST` | `OFF` | Make libconpty only use the system's conhost.exe. |

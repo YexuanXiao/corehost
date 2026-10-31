@@ -67,3 +67,11 @@ if(COREHOST_USE_SYSTEM_ICU)
     target_compile_definitions(libcorehost PUBLIC COREHOST_USE_SYSTEM_ICU)
     target_link_libraries(libcorehost PUBLIC icu)
 endif()
+
+if(COREHOST_DEFAULT_UTF8)
+    target_compile_definitions(libcorehost PRIVATE COREHOST_DEFAULT_UTF8)
+endif()
+
+if(COREHOST_RUN_AS_UTF8)
+    target_compile_definitions(libcorehost PRIVATE COREHOST_RUN_AS_UTF8)
+endif()
