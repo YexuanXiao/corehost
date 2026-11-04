@@ -13,7 +13,7 @@
 // 输入服务、pending 请求等待和退出条件判断。
 
 #pragma once
-#include "connect_completion.hpp"
+#include <cassert>
 #include "message_router.hpp"
 #include "condrv_io.hpp"
 #include "perf_diag.hpp"
@@ -77,6 +77,14 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         // 能再次提交同一个 completion。
         CD_IO_COMPLETE *prev_comp = prev_done ? &prev_done->complete : nullptr;
         const bool submitting_previous_completion = prev_comp != nullptr;
+        if (submitting_previous_completion)
+        {
+            // handler 返回 true 表示 msg.complete 已经准备好。若它没调用
+            // prepare_completion，completion 会残留同一缓冲上一轮的标识符，
+            // 驱动会把它当成另一条请求的完成。断言把这类遗漏立即暴露，
+            // 而不是静默提交过期结果。
+            assert(corehost::condrv_io::completion_matches_descriptor(*prev_done));
+        }
         LOG2_IF(submitting_previous_completion, "submitting completion id=%08lx:%08lx status=0x%08lx info=%llu",
                 prev_done->descriptor.Identifier.HighPart, prev_done->descriptor.Identifier.LowPart,
                 prev_done->complete.IoStatus.Status, prev_done->complete.IoStatus.Information);
@@ -214,28 +222,13 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             continue;
         }
 
-        connect_completion connect_result = connect_completion::explicit_complete;
         LOG2("dispatch CONNECT id=%08lx:%08lx", cur->descriptor.Identifier.HighPart,
              cur->descriptor.Identifier.LowPart);
-        if (!router.on_connect(*cur, connect_result))
-        {
-            router.flush_vt_output();
-            return;
-        }
-
-        // inline_complete 说明 handler 只填了 cur->complete，仍需要下一轮 READ_IO
-        // 把 completion 交给 ConDrv。
-        if (connect_result == connect_completion::inline_complete)
-        {
-            prev_done = cur;
-        }
-        else
-        {
-            // 首个 CONNECT 可能由 corehost::condrv_io::accept_connection() 通过
-            // IOCTL_COMPLETE_IO 显式完成。此时不能再把同一个 completion
-            // 作为下一轮 READ_IO 的输入重复提交。
-            prev_done = nullptr;
-        }
+        // CONNECT 的 completion 总是由 on_connect 填好并留在 msg 里，且不会
+        // 挂起，因此一律作为下一轮 READ_IO 的 piggyback completion 提交；
+        // 没有需要立即 COMPLETE_IO 的分支。
+        router.on_connect(*cur);
+        prev_done = cur;
         cur = (cur == &msgA) ? &msgB : &msgA;
     }
 

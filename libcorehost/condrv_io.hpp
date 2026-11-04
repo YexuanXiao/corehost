@@ -18,15 +18,17 @@
 //     — 注册 InputAvailableEvent。驱动在消息就绪时 SetEvent，
 //       使 server 的非阻塞等待可唤醒。
 //
-// 异步完成模型：不立即 complete_io 非 CONNECT 消息——填充
-//   msg.complete，在下一轮 read_io 作为 lpInBuffer 提交。
-//   比每次调用 complete_io 少一次 IOCTL 往返。
+// 异步完成模型：默认不立即 complete_io——填充 msg.complete，在下一轮
+//   read_io 作为 lpInBuffer 提交，比每次调用 complete_io 少一次 IOCTL 往返。
+//   CONNECT 也走同一模型；只有无法 piggyback 的调用方（循环马上退出、或
+//   io_msg 是临时对象）才显式 complete_io。
 
 #pragma once
 #include <windows.h>
 #include <winioctl.h>
 #include <winternl.h>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include "win32/handle.hpp"
 #include "win32/error.hpp"
@@ -38,6 +40,18 @@
 
 namespace corehost::condrv_io
 {
+
+namespace error
+{
+inline constexpr LONG status_invalid_parameter = 0xC000000D;
+inline constexpr LONG status_buffer_too_small = 0xC0000023;
+inline constexpr LONG status_illegal_function = 0xC00000AF;
+inline constexpr LONG status_not_implemented = 0xC0000002;
+inline constexpr LONG status_not_supported = 0xC00000BB;
+
+} // namespace error
+
+using namespace error;
 
 inline constexpr DWORD IOCTL_READ_IO = CTL_CODE(FILE_DEVICE_CONSOLE, 1, METHOD_OUT_DIRECT, FILE_ANY_ACCESS);
 inline constexpr DWORD IOCTL_COMPLETE_IO = CTL_CODE(FILE_DEVICE_CONSOLE, 2, METHOD_NEITHER, FILE_ANY_ACCESS);
@@ -137,23 +151,45 @@ inline void read_input(win32::handle_view server, LUID identifier, ULONG offset,
 
 // ── 准备完成信息 ────────────────────────────────────────────
 //
-// 设置 msg.complete 的公共字段：
+// 覆盖 msg.complete 的全部字段：
 //   - Identifier 从 msg.descriptor.Identifier 复制
 //   - IoStatus.Status = status（0=成功，负值=NTSTATUS 错误）
 //   - IoStatus.Information = info（完成的字节数或句柄值）
-//   - Write 清空（调用方可继续填充 CONNECT 的 CD_CONNECTION_INFO）
+//   - Write.Data/Size = data/size（返回给客户端的输出载荷）
+//   - Write.Offset = 0（ConDrv 的 Write 偏移恒为 0，不作为参数）
 //
-// 返回值是对 msg.complete 的引用，允许链式调用：
-//   prepare_completion(msg, 0, sizeof(info)).Write.Data = &info;
-inline CD_IO_COMPLETE &prepare_completion(io_msg &msg, LONG status = 0, ULONG_PTR info = 0) noexcept
+// Information 与 Write.Size 是两个独立语义，不能合并成一个参数：Write 为空
+// 但 Information 非零的场景确实存在（CREATE_OBJECT 返回句柄值、RAW_WRITE
+// 返回写入字节数、EOF 空读返回 0）。
+//
+// 生命周期规则：io_msg.complete 通常在下一轮 READ_IO 才交给驱动，因此
+// Write.Data 必须指向 msg.body 或其他长生命周期存储；指向栈变量只在
+// 同步 complete_io() 期间安全（驱动在 IOCTL 返回前已取走载荷）。
+inline void prepare_completion(io_msg &msg, LONG status, ULONG_PTR info, PVOID data, ULONG size) noexcept
 {
     msg.complete.Identifier = msg.descriptor.Identifier;
     msg.complete.IoStatus.Status = status;
     msg.complete.IoStatus.Information = info;
-    msg.complete.Write.Data = nullptr;
-    msg.complete.Write.Size = 0;
+    msg.complete.Write.Data = data;
+    msg.complete.Write.Size = size;
     msg.complete.Write.Offset = 0;
-    return msg.complete;
+}
+
+// 无输出载荷的完成：Write 清零，失败分支据此不会回写客户端缓冲区，
+// 与 conhost 只在 SUCCEEDED_NTSTATUS 时 WriteOutput 的行为一致。
+inline void prepare_completion(io_msg &msg, LONG status = 0, ULONG_PTR info = 0) noexcept
+{
+    prepare_completion(msg, status, info, nullptr, 0);
+}
+
+// ── completion 自检 ────────────────────────────────────────
+// prepare_completion 会把 Identifier 同步为 descriptor.Identifier。若某个
+// handler 返回"已完成"却没有调用它，msg.complete 会残留同一缓冲上一轮的
+// 标识符（或为全零）。提交前断言这一点，可以把"忘记完成"从静默提交旧结果
+// 变成可检测错误。
+[[nodiscard]] inline bool completion_matches_descriptor(const io_msg &msg) noexcept
+{
+    return std::bit_cast<ULONGLONG>(msg.complete.Identifier) == std::bit_cast<ULONGLONG>(msg.descriptor.Identifier);
 }
 
 // ── CONNECT 处理 ──────────────────────────────────────────
@@ -173,24 +209,35 @@ inline CD_IO_COMPLETE &prepare_completion(io_msg &msg, LONG status = 0, ULONG_PT
 //   调用方必须保持这些句柄存活。ConDrv 在客户端 I/O 操作时
 //   通过已注册的句柄查找对应服务端。若服务端关闭句柄，客户端
 //   后续 WriteFile/ReadFile 会收到 ERROR_BROKEN_PIPE。
+//
+// 提交时机由调用方决定：本函数只填 completion，不调用 complete_io。
+//   - 循环还能继续：留给下一轮 READ_IO piggyback，省掉一次 COMPLETE_IO；
+//   - 循环马上退出、或 io_msg 是临时对象：必须立即 complete_io，否则
+//     载荷随 msg 销毁，客户端永远收不到连接结果。
+//
+// 注意：回复会覆盖 msg.body（CONNECT 的请求体到这里已解析完毕），调用方
+// 在本函数之后不得再引用之前从 msg.body 取得的指针或引用。
+
+// 把 \Input/\Output 句柄写成 CD_CONNECTION_INFORMATION，放进 msg.body 并
+// 填充 msg.complete。放 msg.body 而不是栈变量，是因为 completion 可能由
+// 下一轮 READ_IO 携带：io_loop 的双缓冲保证该缓冲在提交前不被覆盖。
+inline void prepare_connection_completion(io_msg &msg, win32::handle_view input, win32::handle_view output) noexcept
+{
+    CD_CONNECTION_INFORMATION conn{};
+    conn.Process = reinterpret_cast<ULONG_PTR>(input.get());
+    conn.Input = reinterpret_cast<ULONG_PTR>(input.get());
+    conn.Output = reinterpret_cast<ULONG_PTR>(output.get());
+    static_assert(sizeof(conn) <= sizeof(msg.body));
+    // memcpy 而不是直接 cast 写，避免对 msg.body 做对齐假设。
+    std::memcpy(msg.body, &conn, sizeof(conn));
+    prepare_completion(msg, 0, sizeof(conn), msg.body, sizeof(conn));
+}
 
 inline void accept_connection(win32::handle_view server, io_msg &msg, win32::handle &input, win32::handle &output)
 {
     input = condrv::create_client_handle(server, L"\\Input");
     output = condrv::create_client_handle(server, L"\\Output");
-
-    CD_CONNECTION_INFORMATION conn{};
-    conn.Process = reinterpret_cast<ULONG_PTR>(input.get());
-    conn.Input = reinterpret_cast<ULONG_PTR>(input.get());
-    conn.Output = reinterpret_cast<ULONG_PTR>(output.get());
-
-    prepare_completion(msg);
-    msg.complete.IoStatus.Information = sizeof(CD_CONNECTION_INFORMATION);
-    msg.complete.Write.Data = &conn;
-    msg.complete.Write.Size = sizeof(CD_CONNECTION_INFORMATION);
-    msg.complete.Write.Offset = 0;
-
-    complete_io(server, msg.complete);
+    prepare_connection_completion(msg, input.view(), output.view());
 }
 
 } // namespace corehost::condrv_io

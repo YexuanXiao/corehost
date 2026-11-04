@@ -19,10 +19,25 @@
 namespace corehost::defterm
 {
 
-enum class initial_connect_completion
+// on_connect 的处理结果。
+//
+// CONNECT 的 completion 有两种去处：
+//   - 循环继续：completion 留在 msg 里，由下一轮 READ_IO piggyback 提交；
+//   - 循环返回：handoff 已把会话交给接手进程（本地不完成），或马上进入
+//     conpty 会话（msg 随栈帧销毁，必须在返回前显式 complete_io）。
+// 这两种结局对循环的影响不同，所以必须由返回值表达。
+//
+// 约定：continue_loop 要求 on_connect 已经填好 msg.complete；漏填时初始
+// 循环会把上一条消息的 completion 提交给驱动，由循环里的
+// completion_matches_descriptor 断言兜住。
+enum class connect_action
 {
-    explicit_complete,
-    inline_complete,
+    // msg.complete 已填好，循环继续并把这条消息作为下一轮 READ_IO 的
+    // piggyback completion 提交。
+    continue_loop,
+    // 循环应立即返回：msg 不再提交（handoff），或已由 on_connect 显式提交
+    // （转入 conpty 的路径）。
+    exit_loop,
 };
 
 struct connect_handler
@@ -55,12 +70,8 @@ struct connect_handler
     win32::handle_view server;
     win32::handle_view input_event;
 
-    bool on_connect(corehost::condrv_io::io_msg &msg, initial_connect_completion &completion)
+    [[nodiscard]] connect_action on_connect(corehost::condrv_io::io_msg &msg)
     {
-        // explicit_complete 表示本函数不在当前 READ_IO 返回体中填 completion；
-        // 需要 inline 完成的分支会覆盖它。
-        completion = initial_connect_completion::explicit_complete;
-
         // client_pid 来自 CD_IO_DESCRIPTOR::Process。它必须是当前 CONNECT
         // 的客户端 pid，后续通知、进程列表和 CTRL_BREAK 都依赖它。
         const auto client_pid = static_cast<DWORD>(msg.descriptor.Process);
@@ -87,8 +98,11 @@ struct connect_handler
             height = connect_info.ScreenBufferSize.Y > 0 ? connect_info.ScreenBufferSize.Y : 0;
             attached_process_id = client_pid;
             corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
+            // 循环马上返回，这块消息缓冲随栈帧销毁，无法 piggyback：必须
+            // 立即提交连接结果，否则客户端永远收不到 \Input/\Output 句柄。
+            corehost::condrv_io::complete_io(server, msg.complete);
             start_conpty = true;
-            return false;
+            return connect_action::exit_loop;
         }
 
         if (env::is_elevated())
@@ -113,14 +127,15 @@ struct connect_handler
 
             LOG("sending immediate CTRL_BREAK to process group=%lu", target_process_group_id);
             ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, target_process_group_id);
-            return true;
+            return connect_action::continue_loop;
         }
 
         LOG("GUI expected; trying default-terminal COM handoff (failure is allowed)");
         if (try_terminal_handoff(server, input_event, make_portable_attach_msg(msg), client_pid))
         {
+            // handoff 成功后 server 已由接手进程持有，本地不再完成这条 CONNECT。
             LOG("terminal handoff completed; initial loop should exit");
-            return false;
+            return connect_action::exit_loop;
         }
 
         LOG("no terminal accepted handoff; notification and CTRL_BREAK are expected fallback");
@@ -136,7 +151,7 @@ struct connect_handler
         corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
         // 没有可用终端时立即打断客户端进程组，避免它永久等待不可见控制台。
         ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, target_process_group_id);
-        return true;
+        return connect_action::continue_loop;
     }
 
     bool on_message(corehost::condrv_io::io_msg &msg)
@@ -206,6 +221,9 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
         auto *completion = completed_previous ? &completed_previous->complete : nullptr;
         if (completion)
         {
+            // 与 io_loop 相同：handler 返回 true 必须已准备 completion，否则
+            // 会把上一轮残留的标识符交给驱动。
+            assert(corehost::condrv_io::completion_matches_descriptor(*completed_previous));
             LOG3("submitting previous completion id=%08lx:%08lx status=0x%08lx info=%llu",
                  completion->Identifier.HighPart, completion->Identifier.LowPart,
                  static_cast<unsigned long>(completion->IoStatus.Status),
@@ -248,13 +266,14 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
 
         if (current->descriptor.Function == CONSOLE_IO_CONNECT)
         {
-            initial_connect_completion connect_result = initial_connect_completion::explicit_complete;
-            if (!handler.on_connect(*current, connect_result))
+            if (handler.on_connect(*current) == connect_action::exit_loop)
             {
                 LOG3("CONNECT handler completed session handoff; initial loop will return");
                 return;
             }
-            completed_previous = connect_result == initial_connect_completion::inline_complete ? current : nullptr;
+            // continue_loop 约定 msg.complete 已填好，这里把它交给下一轮
+            // READ_IO piggyback 提交，不再单独发 COMPLETE_IO。
+            completed_previous = current;
             current = current == &message_a ? &message_b : &message_a;
             continue;
         }

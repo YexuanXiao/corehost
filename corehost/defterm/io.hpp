@@ -32,7 +32,12 @@ inline void dispatch_console(win32::handle_view server, corehost::condrv_io::io_
     {
     case no_console_io_function:
     case CONSOLE_IO_CONNECT:
-        break;
+        // 这两种消息在 run_initial_connect_loop 中被提前过滤：CONNECT 走
+        // on_connect（由它填充 completion 并由初始循环提交），Function==0
+        // 直接丢弃，都不应该进入 dispatch_console。若这里被调用，说明过滤
+        // 路径被改坏——用 unreachable 立即暴露，而不是留下一个未准备的
+        // completion 让循环把旧的完成结果提交给驱动。
+        std::unreachable();
     case CONSOLE_IO_DISCONNECT:
         input.clear();
         output.clear();

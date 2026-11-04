@@ -23,7 +23,6 @@ target_sources(libcorehost
                 char_width.hpp
                 command_history_state.hpp
                 condrv_io.hpp
-                connect_completion.hpp
                 console_state.hpp
                 console_viewport.hpp
                 conpty.hpp

@@ -50,6 +50,7 @@
 namespace corehost::conpty
 {
 using namespace std::literals;
+using namespace condrv_io::error;
 
 class pipe_bridge_testable;
 
@@ -281,9 +282,8 @@ struct pipe_bridge
                 inp.read(out_records, records_to_copy);
         }
 
-        corehost::condrv_io::prepare_completion(msg, 0, size);
-        msg.complete.Write.Data = _console_input_output_buffer.data();
-        msg.complete.Write.Size = static_cast<ULONG>(size);
+        corehost::condrv_io::prepare_completion(msg, 0, size, _console_input_output_buffer.data(),
+                                                static_cast<ULONG>(size));
     }
 
     // 计算 ReadConsole 文本输出区容量。返回值只包含用户文本字节，不包含
@@ -1094,9 +1094,7 @@ struct pipe_bridge
             req->NumBytes = 0;
             req->ControlKeyState = 0;
             auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
-            corehost::condrv_io::prepare_completion(msg, 0, sz);
-            msg.complete.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
-            msg.complete.Write.Size = sz;
+            corehost::condrv_io::prepare_completion(msg, 0, sz, msg.body + sizeof(CONSOLE_MSG_HEADER), sz);
             return true;
         }
 
@@ -1147,7 +1145,7 @@ struct pipe_bridge
         auto *req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
         if ((req->Flags & ~CONSOLE_READ_VALID) != 0)
         {
-            corehost::condrv_io::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
 
@@ -1155,9 +1153,9 @@ struct pipe_bridge
         if (max_count == 0)
         {
             req->NumRecords = 0;
-            corehost::condrv_io::prepare_completion(msg, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
-            msg.complete.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
-            msg.complete.Write.Size = sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+            corehost::condrv_io::prepare_completion(msg, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG),
+                                                    msg.body + sizeof(CONSOLE_MSG_HEADER),
+                                                    sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
             return true;
         }
 
@@ -2837,9 +2835,7 @@ struct pipe_bridge
 
         if (data_bytes > 0)
             std::memcpy(m.body, _readbuf.data(), data_bytes);
-        corehost::condrv_io::prepare_completion(m, 0, data_bytes);
-        m.complete.Write.Data = m.body;
-        m.complete.Write.Size = data_bytes;
+        corehost::condrv_io::prepare_completion(m, 0, data_bytes, m.body, data_bytes);
     }
 
     // 为 pending ReadConsole 构造 completion。函数把 _cooked_buf 转成调用者
@@ -2853,9 +2849,7 @@ struct pipe_bridge
         {
             req->NumBytes = 0;
             auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
-            corehost::condrv_io::prepare_completion(m, 0, sz);
-            m.complete.Write.Data = m.body + sizeof(CONSOLE_MSG_HEADER);
-            m.complete.Write.Size = sz;
+            corehost::condrv_io::prepare_completion(m, 0, sz, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
             return;
         }
 
@@ -2895,9 +2889,7 @@ struct pipe_bridge
         }
         req->NumBytes = cp;
         auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG) + cp);
-        corehost::condrv_io::prepare_completion(m, 0, sz);
-        m.complete.Write.Data = m.body + sizeof(CONSOLE_MSG_HEADER);
-        m.complete.Write.Size = sz;
+        corehost::condrv_io::prepare_completion(m, 0, sz, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
     }
 
     // ── complete_pending ──────────────────────────────
@@ -2988,9 +2980,9 @@ struct pipe_bridge
             auto *out_req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(_console_input_output_buffer.data());
             *out_req = *req;
             out_req->NumRecords = 0;
-            corehost::condrv_io::prepare_completion(m, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
-            m.complete.Write.Data = _console_input_output_buffer.data();
-            m.complete.Write.Size = sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+            corehost::condrv_io::prepare_completion(m, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG),
+                                                    _console_input_output_buffer.data(),
+                                                    sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
 
             auto comp = m.complete;
             _pending.clear();

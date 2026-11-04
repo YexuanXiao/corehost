@@ -8,6 +8,7 @@
 #pragma once
 #include <windows.h>
 #include <span>
+#include <utility>
 #include "condrv_io.hpp"
 #include "io_state.hpp"
 #include "pipe_bridge.hpp"
@@ -31,24 +32,22 @@ struct message_router
     // CONSOLE_MSG_HEADER 之后的 API body，只把完整消息交给 api_router。
     api_router &api;
 
-    // 消费 CONNECT 消息，并把 io_state 的进程列表同步给 pipe_bridge。completion
-    // 返回首个 CONNECT 是显式完成还是可由下一轮 READ_IO 内联提交。
-    bool on_connect(corehost::condrv_io::io_msg &msg, connect_completion &completion)
+    // 消费 CONNECT 消息，并把 io_state 的进程列表同步给 pipe_bridge。
+    //
+    // CONNECT 走独立入口而不共用 on_message：它总是把 completion 留给下一轮
+    // READ_IO 携带，不参与 dispatch 的“挂起/已就绪”判定。
+    void on_connect(corehost::condrv_io::io_msg &msg)
     {
-        // msg 是 ConDrv 的 CONNECT 请求；completion 返回给 io_loop，说明
-        // handle_connect 是已经显式 COMPLETE_IO，还是只填好 msg.complete。
-        // CONNECT 走单独入口，因为 I/O loop 需要知道 completion 是显式完成
-        // 还是要在下一轮 READ_IO 中提交。
+        // msg 是 ConDrv 的 CONNECT 请求；handle_connect 只填 msg.complete，
+        // 由 io_loop 在下一轮 READ_IO 提交。
         log_descriptor("enter CONNECT", msg);
         LOG2("consume CONNECT via io_state; before processCount=%zu bridgeProcessCount=%zu", io.process_count,
              bridge.process_count());
-        auto ok = io.handle_connect(msg, completion);
+        io.handle_connect(msg);
         sync_process_snapshot();
-        LOG2("CONNECT consumed ok=%d completionMode=%d after processCount=%zu bridgeProcessCount=%zu", ok,
-             static_cast<int>(completion), io.process_count, bridge.process_count());
-        if (completion == connect_completion::inline_complete)
-            log_completion("CONNECT inline completion", msg);
-        return ok;
+        LOG2("CONNECT consumed after processCount=%zu bridgeProcessCount=%zu", io.process_count,
+             bridge.process_count());
+        log_completion("CONNECT completion", msg);
     }
 
     // 消费一条非首个 CONNECT 的 ConDrv 消息。返回 true 表示 msg.complete 可由
@@ -178,17 +177,12 @@ struct message_router
         // 未识别值按成功完成，避免未知/废弃请求阻塞客户端。
         switch (msg.descriptor.Function)
         {
-        case CONSOLE_IO_CONNECT: {
-            // 理论上 CONNECT 已由 on_connect 处理；这里保留分支给直接 dispatch
-            // 的调用路径，仍然同步进程列表快照。
-            LOG2("dispatch consumes CONNECT through io_state fallback");
-            connect_completion completion = connect_completion::explicit_complete;
-            bool ok = io.handle_connect(msg, completion);
-            sync_process_snapshot();
-            LOG2("fallback CONNECT consumed ok=%d completionMode=%d processCount=%zu bridgeProcessCount=%zu", ok,
-                 static_cast<int>(completion), io.process_count, bridge.process_count());
-            return ok;
-        }
+        case CONSOLE_IO_CONNECT:
+            // CONNECT 只能由 on_connect 进入：它总是把 completion 留给下一轮
+            // READ_IO 携带，不经过 dispatch 的 bool 判定。
+            // unreachable 让任何把 CONNECT 重新接回 dispatch 的改动立即暴露，
+            // 而不是静默产生双完成。
+            std::unreachable();
         case CONSOLE_IO_DISCONNECT: {
             LOG2("dispatch consumes DISCONNECT through io_state after flushing vtOut=%zu",
                  bridge.buffered_vt_output_bytes());

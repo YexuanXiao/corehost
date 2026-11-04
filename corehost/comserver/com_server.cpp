@@ -168,10 +168,12 @@ void accept_condrv_connection(win32::handle_view condrv_server, PCCONSOLE_PORTAB
 {
     LOG("accepting ConDrv CONNECT; input/output handles are expected");
 
-    // accept_connection 会完成 CONNECT，并把 \Input/\Output 客户端句柄写入
-    // 出参；失败时出参保持空句柄并抛出 Win32 错误。
+    // accept_connection 只创建 \Input/\Output 并填充 completion，不提交。
+    // 这里的 connect_io 是栈上的临时 io_msg，没有后续 READ_IO 能 piggyback，
+    // 因此必须当场 complete_io；失败时出参保持空句柄并抛出 Win32 错误。
     auto connect_io = make_connect_msg(attach_msg);
     corehost::condrv_io::accept_connection(condrv_server, connect_io, condrv_input, condrv_output);
+    corehost::condrv_io::complete_io(condrv_server, connect_io.complete);
     LOG("ConDrv CONNECT accepted input=%p output=%p", condrv_input.get(), condrv_output.get());
 }
 

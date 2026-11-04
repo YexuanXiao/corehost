@@ -36,11 +36,8 @@
 namespace corehost::conpty
 {
 
-inline constexpr LONG status_invalid_parameter = 0xC000000D;
-inline constexpr LONG status_buffer_too_small = 0xC0000023;
-inline constexpr LONG status_illegal_function = 0xC00000AF;
-inline constexpr LONG status_not_implemented = 0xC0000002;
-inline constexpr LONG status_not_supported = 0xC00000BB;
+using namespace condrv_io::error;
+
 inline constexpr UINT code_page_japanese = 932;
 inline constexpr UINT code_page_korean = 949;
 inline constexpr UINT code_page_chinese_simplified = 936;
@@ -137,9 +134,7 @@ inline size_t message_output_tail_capacity(const corehost::condrv_io::io_msg &ms
 // API descriptor。sz 是返回给客户端的 API payload 字节数。
 inline void ucomplete_status_sz(corehost::condrv_io::io_msg &msg, LONG status, ULONG sz) noexcept
 {
-    auto &c = corehost::condrv_io::prepare_completion(msg, status, sz);
-    c.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
-    c.Write.Size = sz;
+    corehost::condrv_io::prepare_completion(msg, status, sz, msg.body + sizeof(CONSOLE_MSG_HEADER), sz);
 }
 
 // ── 前向声明 ──
@@ -1119,18 +1114,14 @@ inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parse
 // 这样 ConDrv completion 布局和有 payload 的 API 保持一致。
 inline void ucomplete(corehost::condrv_io::io_msg &msg) noexcept
 {
-    auto &c = corehost::condrv_io::prepare_completion(msg, 0, 0);
-    c.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
-    c.Write.Size = 0;
+    corehost::condrv_io::prepare_completion(msg, 0, 0, msg.body + sizeof(CONSOLE_MSG_HEADER), 0);
 }
 
 // 完成一个返回 sz 字节 API payload 的 USER_DEFINED API。sz 不包含
 // CONSOLE_MSG_HEADER，只包含具体 CONSOLE_*_MSG 和其尾部数据。
 inline void ucomplete_sz(corehost::condrv_io::io_msg &msg, ULONG sz) noexcept
 {
-    auto &c = corehost::condrv_io::prepare_completion(msg, 0, sz);
-    c.Write.Data = msg.body + sizeof(CONSOLE_MSG_HEADER);
-    c.Write.Size = sz;
+    corehost::condrv_io::prepare_completion(msg, 0, sz, msg.body + sizeof(CONSOLE_MSG_HEADER), sz);
 }
 
 // ════════════════════════════════════════════════════════
@@ -1506,7 +1497,7 @@ inline bool api_read_console(corehost::condrv_io::io_msg &msg, console_state &st
         // 原版只允许 ReadConsoleW 使用 InitialNumBytes。
         if (!req->Unicode)
         {
-            corehost::condrv_io::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
 
@@ -1515,7 +1506,7 @@ inline bool api_read_console(corehost::condrv_io::io_msg &msg, console_state &st
         auto exe_bytes = static_cast<ULONG>(req->ExeNameLength) * static_cast<ULONG>(sizeof(wchar_t));
         if (exe_bytes > input_payload)
         {
-            corehost::condrv_io::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
 
@@ -1562,7 +1553,7 @@ inline bool api_fill_output(corehost::condrv_io::io_msg &msg, console_state &sta
     if (r->ElementType != CONSOLE_ASCII && r->ElementType != CONSOLE_REAL_UNICODE &&
         r->ElementType != CONSOLE_FALSE_UNICODE && r->ElementType != CONSOLE_ATTRIBUTE)
     {
-        corehost::condrv_io::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 

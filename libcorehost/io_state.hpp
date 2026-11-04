@@ -13,7 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
-#include "connect_completion.hpp"
+#include <cstring>
 #include "win32/handle.hpp"
 #include "condrv_io.hpp"
 #include "ntapi/condrv.hpp"
@@ -21,6 +21,8 @@
 
 namespace corehost::conpty
 {
+
+using namespace condrv_io::error;
 
 struct io_state
 {
@@ -96,14 +98,15 @@ struct io_state
         process_list[process_count] = 0;
     }
 
-    bool handle_connect(corehost::condrv_io::io_msg &msg, connect_completion &completion)
+    // 消费一条 CONNECT 消息，把回复写进 msg.complete 但不提交。
+    //
+    // 两种 CONNECT 都走 piggyback：completion 由 io_loop 的下一轮 READ_IO
+    // 携带提交，因此每条 CONNECT 都省掉一次 COMPLETE_IO 往返。
+    void handle_connect(corehost::condrv_io::io_msg &msg)
     {
-        // msg 的 body 对 CONNECT 不由本层解析；accept_connection 会使用
-        // descriptor.Identifier 完成首个连接并创建 input/output 句柄。
-        // completion 告诉 io_loop 是否还需要把 msg.complete 作为下一轮 READ_IO
-        // 的 completion 参数提交。
-        // descriptor.Process 是 ConDrv 记录的客户端 pid。它必须能放入 DWORD，
-        // 因为 Win32 进程列表 API 以 DWORD 表示 pid。
+        // msg 的 body 对 CONNECT 不由本层解析；已完成握手后它会被回复载荷
+        // 覆盖。descriptor.Process 是 ConDrv 记录的客户端 pid，必须能放入
+        // DWORD，因为 Win32 进程列表 API 以 DWORD 表示 pid。
         client_pid = msg.descriptor.Process;
         const bool first_connect = !condrv_input.valid();
         // first_connect 决定是否需要真正 accept \Input/\Output；后续 CONNECT
@@ -115,22 +118,34 @@ struct io_state
         add_process(static_cast<DWORD>(client_pid));
         if (first_connect)
         {
-            // 首个 CONNECT 需要创建 \Input/\Output，并由 accept_connection
-            // 直接调用 COMPLETE_IO。调用方下一轮不能再次提交这个 completion。
+            // 首个 CONNECT 需要创建 \Input/\Output。accept_connection 把
+            // CD_CONNECTION_INFORMATION 写进 msg.body 并填充 msg.complete，
+            // 提交交给下一轮 READ_IO。
             corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
-            completion = connect_completion::explicit_complete;
             LOG2("CONNECT accepted input=%p output=%p processCount=%zu", condrv_input.get(), condrv_output.get(),
                  process_count);
+            return;
         }
         else
         {
             // 后续 CONNECT 只代表子进程加入现有控制台。它共享首个连接的
-            // \Input/\Output，因此只填 completion，交给下一轮 READ_IO 提交。
-            corehost::condrv_io::prepare_completion(msg);
-            completion = connect_completion::inline_complete;
+            // \Input/\Output，因此不需要新建句柄。
+            // 加入的进程仍然需要为stdin和stdout获取对象id，就像conhost为每个进程提供的一样。
+            // 空的回复将它们留为0，因此对子进程的stdout的每次调用（从shell启动的ssh.exe）
+            // 都被路由为输入句柄调用：
+            // SetConsoleMode(stdout)失败，甚至覆盖了输入模式。重用第一个连接的id。
+            //
+            // 这里用 piggyback：只填 msg.complete，由 io_loop 的下一轮 READ_IO
+            // 携带提交，省掉一次 COMPLETE_IO 往返。
+            //
+            // 回复载荷必须活到那次 READ_IO，因此 prepare_connection_completion
+            // 把它放在 msg.body 而不是栈变量：io_loop 的双缓冲保证本缓冲在
+            // completion 被提交前不会被下一条消息覆盖。CONNECT 的
+            // 请求体（CONSOLE_SERVER_MSG）此时已经不再被读取，可以安全重用。
+            corehost::condrv_io::prepare_connection_completion(msg, condrv_input.view(), condrv_output.view());
             LOG2("CONNECT joined existing console processCount=%zu", process_count);
+            return;
         }
-        return true;
     }
 
     bool handle_disconnect(corehost::condrv_io::io_msg &msg)
@@ -153,7 +168,7 @@ struct io_state
         if (msg.descriptor.InputSize < sizeof(CD_CREATE_OBJECT_INFORMATION))
         {
             LOG2("CREATE_OBJECT short input=%lu", msg.descriptor.InputSize);
-            corehost::condrv_io::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
 
@@ -196,7 +211,7 @@ struct io_state
             break;
         default:
             LOG2("CREATE_OBJECT unsupported type=%lu access=0x%08lx", req->ObjectType, req->DesiredAccess);
-            corehost::condrv_io::prepare_completion(msg, 0xC000000D /* STATUS_INVALID_PARAMETER */);
+            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
         corehost::condrv_io::prepare_completion(msg, 0, reinterpret_cast<ULONG_PTR>(nh.release()));
@@ -230,6 +245,13 @@ struct io_state
             return object_kind::output;
         if (id != 0 && id == alternate_output_id)
             return object_kind::alternate_output;
+        // 第一个 CONNECT 的对象（accept_connection）是每个附加进程继承的 stdin/stdout，它们的 id
+        // 就是句柄值本身。没有它，SetConsoleMode 在 stdout 上被当作输入模式请求而拒绝，因此 ssh.exe 无法设置
+        // DISABLE_NEWLINE_AUTO_RETURN，每个裸 LF 也会把光标返回到列 0。
+        if (id != 0 && id == reinterpret_cast<ULONG_PTR>(condrv_input.get()))
+            return object_kind::input;
+        if (id != 0 && id == reinterpret_cast<ULONG_PTR>(condrv_output.get()))
+            return object_kind::output;
         return object_kind::unknown;
     }
 

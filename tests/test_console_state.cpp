@@ -5,8 +5,10 @@
 #include "test_common.hpp"
 #include "console_state.hpp"
 #include "win32/event.hpp"
+#include "condrv_io.hpp"
 
 using namespace corehost::conpty;
+using namespace corehost::condrv_io::error;
 
 // ═══════════════════════════════════════════════════════
 // 光标操作
@@ -2215,23 +2217,28 @@ bool test_regression_connect_disconnect_syncs_process_snapshot()
     api_router api{st, main_sb, alt_sb, inp, io, bridge};
     message_router router{io, bridge, api};
 
-    connect_completion completion = connect_completion::explicit_complete;
     msg.descriptor.Function = CONSOLE_IO_CONNECT;
     msg.descriptor.Process = 11;
-    ASSERT(router.on_connect(msg, completion));
-    ASSERT(completion == connect_completion::inline_complete);
+    // 加入型 CONNECT 走 piggyback：载荷暂存在 msg.body，等下一轮 READ_IO
+    // 提交，不额外发 COMPLETE_IO。
+    router.on_connect(msg);
+    ASSERT(msg.complete.IoStatus.Information == sizeof(CD_CONNECTION_INFORMATION));
+    ASSERT(msg.complete.Write.Data == msg.body);
+    ASSERT(msg.complete.Write.Size == sizeof(CD_CONNECTION_INFORMATION));
+    const auto *joined = reinterpret_cast<const CD_CONNECTION_INFORMATION *>(msg.body);
+    ASSERT(joined->Process == reinterpret_cast<ULONG_PTR>(io.condrv_input.get()));
+    ASSERT(joined->Input == reinterpret_cast<ULONG_PTR>(io.condrv_input.get()));
+    ASSERT(joined->Output == reinterpret_cast<ULONG_PTR>(io.condrv_output.get()));
 
     std::memset(&msg, 0, sizeof(msg));
-    completion = connect_completion::explicit_complete;
     msg.descriptor.Function = CONSOLE_IO_CONNECT;
     msg.descriptor.Process = 22;
-    ASSERT(router.on_connect(msg, completion));
+    router.on_connect(msg);
 
     std::memset(&msg, 0, sizeof(msg));
-    completion = connect_completion::explicit_complete;
     msg.descriptor.Function = CONSOLE_IO_CONNECT;
     msg.descriptor.Process = 33;
-    ASSERT(router.on_connect(msg, completion));
+    router.on_connect(msg);
     ASSERT(bridge.process_count() == 3);
 
     std::memset(&msg, 0, sizeof(msg));

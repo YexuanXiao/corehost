@@ -387,10 +387,11 @@ struct console_state
         if (win32::error(rc) != win32::error::success)
             throw win32::error(rc);
         char cbuf[6];
-        std::ranges::transform(std::span{&buf[0], size / sizeof(wchar_t) - 1uz}, &cbuf[0], [](wchar_t ch) { 
+        std::ranges::transform(std::span{&buf[0], size / sizeof(wchar_t) - 1uz}, &cbuf[0], [](wchar_t ch) {
             if (ch > 0xFF)
                 throw std::errc::value_too_large;
-            return static_cast<char>(ch); });
+            return static_cast<char>(ch);
+        });
         UINT cp;
         auto res = std::from_chars(&cbuf[0], &cbuf[size / sizeof(wchar_t) - 1uz], cp);
         if (res.ec != std::errc{})

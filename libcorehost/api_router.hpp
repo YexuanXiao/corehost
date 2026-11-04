@@ -20,6 +20,8 @@
 namespace corehost::conpty
 {
 
+using namespace condrv_io::error;
+
 struct api_router
 {
     // state 保存 Console API 可见的全局状态：模式、代码页、光标、标题、当前属性等。
