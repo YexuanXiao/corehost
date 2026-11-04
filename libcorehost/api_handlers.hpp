@@ -98,10 +98,9 @@ inline LANGID lang_id_from_console_output_code_page(UINT output_code_page) noexc
     }
 }
 
-// 计算 corehost::condrv_io::io_msg::body 中 descriptor 后还能直接访问的变长尾部容量。
+// 计算 condrv_io::io_msg::body 中 descriptor 后还能直接访问的变长尾部容量。
 // declared_size 为 ConDrv 声明的输入/输出总大小；返回值不会超过本地 body。
-inline size_t message_tail_capacity(const corehost::condrv_io::io_msg &msg, size_t api_size,
-                                    ULONG declared_size) noexcept
+inline size_t message_tail_capacity(const condrv_io::io_msg &msg, size_t api_size, ULONG declared_size) noexcept
 {
     const auto prefix = sizeof(CONSOLE_MSG_HEADER) + api_size;
     if (declared_size == 0)
@@ -112,14 +111,14 @@ inline size_t message_tail_capacity(const corehost::condrv_io::io_msg &msg, size
 }
 
 // 计算输入消息中当前 API descriptor 后的本地尾部容量。
-inline size_t message_input_tail_capacity(const corehost::condrv_io::io_msg &msg, size_t api_size) noexcept
+inline size_t message_input_tail_capacity(const condrv_io::io_msg &msg, size_t api_size) noexcept
 {
     return message_tail_capacity(msg, api_size, msg.descriptor.InputSize);
 }
 
 // 计算 completion 可直接写入 msg.body 的输出尾部容量。OutputSize 不包含
 // CONSOLE_MSG_HEADER，因此只扣除 API descriptor 大小。
-inline size_t message_output_tail_capacity(const corehost::condrv_io::io_msg &msg, size_t api_size) noexcept
+inline size_t message_output_tail_capacity(const condrv_io::io_msg &msg, size_t api_size) noexcept
 {
     const auto local_prefix = sizeof(CONSOLE_MSG_HEADER) + api_size;
     const auto local_capacity = sizeof(msg.body) - local_prefix;
@@ -132,9 +131,9 @@ inline size_t message_output_tail_capacity(const corehost::condrv_io::io_msg &ms
 
 // 为 USER_DEFINED API 准备 completion，并把写回区域定位到 header 之后的
 // API descriptor。sz 是返回给客户端的 API payload 字节数。
-inline void ucomplete_status_sz(corehost::condrv_io::io_msg &msg, LONG status, ULONG sz) noexcept
+inline void ucomplete_status_sz(condrv_io::io_msg &msg, LONG status, ULONG sz) noexcept
 {
-    corehost::condrv_io::prepare_completion(msg, status, sz, msg.body + sizeof(CONSOLE_MSG_HEADER), sz);
+    condrv_io::prepare_completion(msg, status, sz, msg.body + sizeof(CONSOLE_MSG_HEADER), sz);
 }
 
 // ── 前向声明 ──
@@ -1112,16 +1111,16 @@ inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parse
 
 // 完成一个没有返回 payload 的 USER_DEFINED API。Write.Data 仍指向 header 后，
 // 这样 ConDrv completion 布局和有 payload 的 API 保持一致。
-inline void ucomplete(corehost::condrv_io::io_msg &msg) noexcept
+inline void ucomplete(condrv_io::io_msg &msg) noexcept
 {
-    corehost::condrv_io::prepare_completion(msg, 0, 0, msg.body + sizeof(CONSOLE_MSG_HEADER), 0);
+    condrv_io::prepare_completion(msg, 0, 0, msg.body + sizeof(CONSOLE_MSG_HEADER), 0);
 }
 
 // 完成一个返回 sz 字节 API payload 的 USER_DEFINED API。sz 不包含
 // CONSOLE_MSG_HEADER，只包含具体 CONSOLE_*_MSG 和其尾部数据。
-inline void ucomplete_sz(corehost::condrv_io::io_msg &msg, ULONG sz) noexcept
+inline void ucomplete_sz(condrv_io::io_msg &msg, ULONG sz) noexcept
 {
-    corehost::condrv_io::prepare_completion(msg, 0, sz, msg.body + sizeof(CONSOLE_MSG_HEADER), sz);
+    condrv_io::prepare_completion(msg, 0, sz, msg.body + sizeof(CONSOLE_MSG_HEADER), sz);
 }
 
 // ════════════════════════════════════════════════════════
@@ -1129,7 +1128,7 @@ inline void ucomplete_sz(corehost::condrv_io::io_msg &msg, ULONG sz) noexcept
 // ════════════════════════════════════════════════════════
 
 // GetConsoleCP/GetConsoleOutputCP：从 console_state 返回当前输入或输出代码页。
-inline bool api_get_cp(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+inline bool api_get_cp(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                        pipe_bridge &) noexcept
 {
     auto *r = reinterpret_cast<CONSOLE_GETCP_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
@@ -1139,8 +1138,8 @@ inline bool api_get_cp(corehost::condrv_io::io_msg &msg, console_state &state, s
 }
 
 // GetConsoleMode：根据请求句柄类型返回 input_mode 或 output_mode。
-inline bool api_get_mode(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                         pipe_bridge &, bool input_handle) noexcept
+inline bool api_get_mode(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &,
+                         bool input_handle) noexcept
 {
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->Mode = input_handle ? state.input_mode : state.output_mode;
@@ -1150,8 +1149,8 @@ inline bool api_get_mode(corehost::condrv_io::io_msg &msg, console_state &state,
 
 // SetConsoleMode：更新 console_state 的输入/输出模式。输入模式先保存兼容位，
 // 再按原版行为对非法组合返回错误。
-inline bool api_set_mode(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
-                         pipe_bridge &, bool input_handle) noexcept
+inline bool api_set_mode(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &,
+                         bool input_handle) noexcept
 {
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (input_handle)
@@ -1165,7 +1164,7 @@ inline bool api_set_mode(corehost::condrv_io::io_msg &msg, console_state &state,
             ((requested_mode & ENABLE_ECHO_INPUT) != 0 && (requested_mode & ENABLE_LINE_INPUT) == 0))
         {
             LOG2("[api_set_mode] input invalid req=0x%08X -> E_INVALIDARG", static_cast<unsigned>(requested_mode));
-            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+            condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
         LOG2("[api_set_mode] input req=0x%08X stored=0x%08X", static_cast<unsigned>(requested_mode),
@@ -1176,7 +1175,7 @@ inline bool api_set_mode(corehost::condrv_io::io_msg &msg, console_state &state,
         if ((r->Mode & ~valid_output_modes) != 0)
         {
             LOG2("[api_set_mode] output invalid req=0x%08X -> E_INVALIDARG", static_cast<unsigned>(r->Mode));
-            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+            condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
         LOG2("[api_set_mode] output req=0x%08X stored=0x%08X", static_cast<unsigned>(r->Mode),
@@ -1189,7 +1188,7 @@ inline bool api_set_mode(corehost::condrv_io::io_msg &msg, console_state &state,
 
 // GetNumberOfConsoleInputEvents：先让 bridge 抽取可用 VT 输入，再返回
 // input_buffer 中可见事件数。
-inline bool api_get_num_input(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
+inline bool api_get_num_input(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
                               pipe_bridge &bridge)
 {
     bridge.prepare_console_input_events();
@@ -1200,7 +1199,7 @@ inline bool api_get_num_input(corehost::condrv_io::io_msg &msg, console_state &,
 }
 
 // GetConsoleInput：委托 bridge 从 input_buffer 同步返回或挂起等待终端输入。
-inline bool api_get_console_input(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
+inline bool api_get_console_input(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                                   pipe_bridge &bridge)
 {
     // GetConsoleInput 可能同步完成，也可能由 bridge 挂起到输入事件到达。
@@ -1208,7 +1207,7 @@ inline bool api_get_console_input(corehost::condrv_io::io_msg &msg, console_stat
 }
 
 // GetConsoleLangId：由当前输出代码页派生语言 ID；非东亚 ACP 按原版返回不支持。
-inline bool api_get_langid(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+inline bool api_get_langid(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                            pipe_bridge &) noexcept
 {
     auto *r = reinterpret_cast<CONSOLE_LANGID_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
@@ -1216,7 +1215,7 @@ inline bool api_get_langid(corehost::condrv_io::io_msg &msg, console_state &stat
     // STATUS_NOT_SUPPORTED，让客户端 loader 跳过 SetThreadLocale。
     if (!is_east_asian_code_page(::GetACP()))
     {
-        corehost::condrv_io::prepare_completion(msg, status_not_supported);
+        condrv_io::prepare_completion(msg, status_not_supported);
         return true;
     }
 
@@ -1428,12 +1427,12 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
 // ── WriteConsole: UTF-16/ANSI → char32_t → vt_message 驱动 ──
 // WriteConsoleA/W：读取变长 payload，消费到本地屏幕状态和 VT 输出，并返回
 // 实际消费字节数。
-inline bool api_write_console(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+inline bool api_write_console(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                               pipe_bridge &bridge)
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -1453,8 +1452,8 @@ inline bool api_write_console(corehost::condrv_io::io_msg &msg, console_state &s
 }
 
 // CONSOLE_IO_RAW_WRITE：按 WriteConsoleA 语义处理客户端字节，而不是直接透传。
-inline bool api_raw_write_console(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                                  input_buffer &, pipe_bridge &bridge)
+inline bool api_raw_write_console(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                                  pipe_bridge &bridge)
 {
     // 原版 IoSorter 把 CONSOLE_IO_RAW_WRITE 伪造成 WriteConsoleA，而不是把
     // 客户端字节直接透传给终端。否则 WriteFile 写入的 OEM/ANSI 字节会被
@@ -1463,19 +1462,19 @@ inline bool api_raw_write_console(corehost::condrv_io::io_msg &msg, console_stat
     auto bytes = static_cast<ULONG>(payload.size());
     write_console_payload(false, payload.data(), bytes, state, sb, bridge,
                           (state.output_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) == 0);
-    corehost::condrv_io::prepare_completion(msg, 0, bytes);
+    condrv_io::prepare_completion(msg, 0, bytes);
     return true;
 }
 
 // ── ReadConsole ──
 // ReadConsoleA/W：建立 cooked input pending 状态；可能同步完成，也可能等待
 // bridge 后续收到终端输入。
-inline bool api_read_console(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+inline bool api_read_console(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                              pipe_bridge &bridge)
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -1490,14 +1489,14 @@ inline bool api_read_console(corehost::condrv_io::io_msg &msg, console_state &st
     {
         if (initial_bytes > message_output_tail_capacity(msg, sizeof(CONSOLE_READCONSOLE_MSG)))
         {
-            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+            condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
 
         // 原版只允许 ReadConsoleW 使用 InitialNumBytes。
         if (!req->Unicode)
         {
-            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+            condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
 
@@ -1506,7 +1505,7 @@ inline bool api_read_console(corehost::condrv_io::io_msg &msg, console_state &st
         auto exe_bytes = static_cast<ULONG>(req->ExeNameLength) * static_cast<ULONG>(sizeof(wchar_t));
         if (exe_bytes > input_payload)
         {
-            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+            condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
 
@@ -1520,10 +1519,10 @@ inline bool api_read_console(corehost::condrv_io::io_msg &msg, console_state &st
 }
 
 // 已废弃 L1 API：不维护内部状态，返回 not implemented。
-inline bool api_deprecated_l1(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
+inline bool api_deprecated_l1(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                               pipe_bridge &) noexcept
 {
-    corehost::condrv_io::prepare_completion(msg, status_not_implemented);
+    condrv_io::prepare_completion(msg, status_not_implemented);
     return true;
 }
 
@@ -1537,12 +1536,12 @@ inline bool api_deprecated_l1(corehost::condrv_io::io_msg &msg, console_state &,
 
 // FillConsoleOutputCharacter/Attribute：更新本地 screen_buffer，并把可见变化同步
 // 到终端；全屏空格填充会同时清除 scrollback。
-inline bool api_fill_output(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+inline bool api_fill_output(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                             pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_FILLCONSOLEOUTPUT_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -1553,7 +1552,7 @@ inline bool api_fill_output(corehost::condrv_io::io_msg &msg, console_state &sta
     if (r->ElementType != CONSOLE_ASCII && r->ElementType != CONSOLE_REAL_UNICODE &&
         r->ElementType != CONSOLE_FALSE_UNICODE && r->ElementType != CONSOLE_ATTRIBUTE)
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -1682,12 +1681,12 @@ inline bool api_fill_output(corehost::condrv_io::io_msg &msg, console_state &sta
 }
 
 // GenerateConsoleCtrlEvent：透传 Ctrl 事件到 Windows，不改变 libcorehost 内部状态。
-inline bool api_ctrl_event(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
+inline bool api_ctrl_event(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                            pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CTRLEVENT_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -1699,7 +1698,7 @@ inline bool api_ctrl_event(corehost::condrv_io::io_msg &msg, console_state &, sc
 
 // SetConsoleActiveScreenBuffer 的真实切换由 api_router 根据 descriptor.Object
 // 完成；handler 只负责给 ConDrv 返回同步成功。
-inline bool api_set_active_sb(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
+inline bool api_set_active_sb(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                               pipe_bridge &) noexcept
 {
     ucomplete(msg);
@@ -1707,7 +1706,7 @@ inline bool api_set_active_sb(corehost::condrv_io::io_msg &msg, console_state &,
 }
 
 // FlushConsoleInputBuffer：清空 input_buffer，并取消等待输入的 pending 请求。
-inline bool api_flush_input_buf(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
+inline bool api_flush_input_buf(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
                                 pipe_bridge &bridge) noexcept
 {
     // FlushConsoleInputBuffer 也要取消等待输入的 pending 读，否则客户端可能在
@@ -1719,19 +1718,19 @@ inline bool api_flush_input_buf(corehost::condrv_io::io_msg &msg, console_state 
 }
 
 // SetConsoleCP/SetConsoleOutputCP：校验并更新 console_state 中的代码页。
-inline bool api_set_cp(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+inline bool api_set_cp(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                        pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCP_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
     auto *r = reinterpret_cast<CONSOLE_SETCP_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (!::IsValidCodePage(r->CodePage))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     if (r->Output)
@@ -1743,12 +1742,12 @@ inline bool api_set_cp(corehost::condrv_io::io_msg &msg, console_state &state, s
 }
 
 // GetConsoleCursorInfo：返回 console_state 中保存的光标大小和可见性。
-inline bool api_get_cursor(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+inline bool api_get_cursor(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                            pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCURSORINFO_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -1760,12 +1759,12 @@ inline bool api_get_cursor(corehost::condrv_io::io_msg &msg, console_state &stat
 }
 
 // SetConsoleCursorInfo：更新 console_state 光标元数据，并同步终端光标显示/隐藏。
-inline bool api_set_cursor(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+inline bool api_set_cursor(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                            pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORINFO_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -1773,7 +1772,7 @@ inline bool api_set_cursor(corehost::condrv_io::io_msg &msg, console_state &stat
     auto *r = reinterpret_cast<CONSOLE_SETCURSORINFO_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (r->CursorSize == 0 || r->CursorSize > 100)
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     state.cursor.size = r->CursorSize;
@@ -1796,12 +1795,12 @@ inline bool api_set_cursor(corehost::condrv_io::io_msg &msg, console_state &stat
 
 // GetConsoleScreenBufferInfoEx：组合 console_state 和当前 screen_buffer viewport
 // 返回 API 可见的缓冲区、窗口、属性和颜色表状态。
-inline bool api_get_sb_info(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+inline bool api_get_sb_info(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                             pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -1823,12 +1822,12 @@ inline bool api_get_sb_info(corehost::condrv_io::io_msg &msg, console_state &sta
 
 // SetConsoleScreenBufferInfoEx：更新缓冲区尺寸、viewport 尺寸、属性和颜色表，
 // 必要时重绘终端可见区域。
-inline bool api_set_sb_info(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+inline bool api_set_sb_info(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                             pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -1839,7 +1838,7 @@ inline bool api_set_sb_info(corehost::condrv_io::io_msg &msg, console_state &sta
         r->CurrentWindowSize.X <= 0 || r->CurrentWindowSize.Y <= 0 || r->CurrentWindowSize.X > r->Size.X ||
         r->CurrentWindowSize.Y > r->Size.Y)
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     state.screen_buffer_size = r->Size;
@@ -1869,12 +1868,12 @@ inline bool api_set_sb_info(corehost::condrv_io::io_msg &msg, console_state &sta
 
 // SetConsoleScreenBufferSize：更新 console_state/screen_buffer 尺寸并裁剪光标和
 // viewport；终端显示按新的可见区域同步。
-inline bool api_set_sb_size(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+inline bool api_set_sb_size(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                             pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETSCREENBUFFERSIZE_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -1883,7 +1882,7 @@ inline bool api_set_sb_size(corehost::condrv_io::io_msg &msg, console_state &sta
     if (new_size.X < 1 || new_size.Y < 1 || new_size.X == SHRT_MAX || new_size.Y == SHRT_MAX ||
         new_size.X < sb.viewport.size().X || new_size.Y < sb.viewport.size().Y)
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     state.screen_buffer_size = new_size;
@@ -1897,12 +1896,12 @@ inline bool api_set_sb_size(corehost::condrv_io::io_msg &msg, console_state &sta
 }
 
 // SetConsoleCursorPosition：更新 console_state.cursor，并通过 CUP 同步终端光标。
-inline bool api_set_cursor_pos(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                               input_buffer &, pipe_bridge &bridge) noexcept
+inline bool api_set_cursor_pos(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                               pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORPOSITION_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -1911,7 +1910,7 @@ inline bool api_set_cursor_pos(corehost::condrv_io::io_msg &msg, console_state &
     if (new_pos.X < 0 || new_pos.X >= state.screen_buffer_size.X || new_pos.Y < 0 ||
         new_pos.Y >= state.screen_buffer_size.Y)
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -1932,12 +1931,12 @@ inline bool api_set_cursor_pos(corehost::condrv_io::io_msg &msg, console_state &
 }
 
 // GetLargestConsoleWindowSize：返回 console_state 保存的最大窗口尺寸。
-inline bool api_largest_window(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+inline bool api_largest_window(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETLARGESTWINDOWSIZE_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -1949,12 +1948,12 @@ inline bool api_largest_window(corehost::condrv_io::io_msg &msg, console_state &
 
 // ScrollConsoleScreenBuffer：更新本地 screen_buffer 的矩形滚动结果，并重绘当前
 // viewport。
-inline bool api_scroll_sb(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+inline bool api_scroll_sb(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                           pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCROLLSCREENBUFFER_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2069,12 +2068,12 @@ inline bool api_scroll_sb(corehost::condrv_io::io_msg &msg, console_state &state
 }
 
 // SetConsoleTextAttribute：更新默认输出属性，并发送对应 SGR 让后续终端输出匹配。
-inline bool api_set_text_attr(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+inline bool api_set_text_attr(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                               pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTEXTATTRIBUTE_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2083,7 +2082,7 @@ inline bool api_set_text_attr(corehost::condrv_io::io_msg &msg, console_state &s
     static constexpr WORD valid_text_attributes = 0xDFFF;
     if ((r->Attributes & ~valid_text_attributes) != 0)
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     state.default_attributes = r->Attributes;
@@ -2100,12 +2099,12 @@ inline bool api_set_text_attr(corehost::condrv_io::io_msg &msg, console_state &s
 
 // SetConsoleWindowInfo：移动或调整 screen_buffer viewport，必要时调整终端窗口
 // 尺寸并重绘可见区域。
-inline bool api_set_window_info(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                                input_buffer &, pipe_bridge &bridge) noexcept
+inline bool api_set_window_info(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                                pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETWINDOWINFO_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2122,7 +2121,7 @@ inline bool api_set_window_info(corehost::condrv_io::io_msg &msg, console_state 
 
     if (window.Right < window.Left || window.Bottom < window.Top)
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2153,12 +2152,12 @@ inline bool api_set_window_info(corehost::condrv_io::io_msg &msg, console_state 
 
 // ReadConsoleOutputCharacter/Attribute：从本地 screen_buffer 读取字符或属性序列，
 // 按请求编码写回 completion。
-inline bool api_read_output_string(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                                   input_buffer &, pipe_bridge &bridge) noexcept
+inline bool api_read_output_string(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                                   pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2168,7 +2167,7 @@ inline bool api_read_output_string(corehost::condrv_io::io_msg &msg, console_sta
     if (r->StringType != CONSOLE_ASCII && r->StringType != CONSOLE_REAL_UNICODE &&
         r->StringType != CONSOLE_FALSE_UNICODE && r->StringType != CONSOLE_ATTRIBUTE)
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     auto data_capacity = msg.descriptor.OutputSize > sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)
@@ -2208,12 +2207,12 @@ inline bool api_read_output_string(corehost::condrv_io::io_msg &msg, console_sta
 
 // WriteConsoleInput：把客户端提供的 INPUT_RECORD 追加到 input_buffer，并唤醒
 // 可能等待输入的 bridge 状态。
-inline bool api_write_console_input(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                    input_buffer &inp, pipe_bridge &bridge) noexcept
+inline bool api_write_console_input(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &inp,
+                                    pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2277,12 +2276,12 @@ inline bool api_write_console_input(corehost::condrv_io::io_msg &msg, console_st
 
 // WriteConsoleOutput：从 CHAR_INFO 矩形写入本地 screen_buffer，并重绘受影响的
 // viewport 内容。
-inline bool api_write_console_output(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                                     input_buffer &, pipe_bridge &bridge) noexcept
+inline bool api_write_console_output(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                                     pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2308,7 +2307,7 @@ inline bool api_write_console_output(corehost::condrv_io::io_msg &msg, console_s
     if (input_bytes < required)
     {
         cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     if (!r->Unicode)
@@ -2401,12 +2400,12 @@ inline bool api_write_console_output(corehost::condrv_io::io_msg &msg, console_s
 
 // WriteConsoleOutputCharacter/Attribute：按线性缓冲区坐标写字符或属性，并同步
 // 可见输出。
-inline bool api_write_output_string(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                                    input_buffer &, pipe_bridge &bridge) noexcept
+inline bool api_write_output_string(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                                    pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2415,7 +2414,7 @@ inline bool api_write_output_string(corehost::condrv_io::io_msg &msg, console_st
     if (r->StringType != CONSOLE_ASCII && r->StringType != CONSOLE_REAL_UNICODE &&
         r->StringType != CONSOLE_FALSE_UNICODE && r->StringType != CONSOLE_ATTRIBUTE)
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2499,12 +2498,12 @@ inline bool api_write_output_string(corehost::condrv_io::io_msg &msg, console_st
 }
 
 // ReadConsoleOutput：把本地 screen_buffer 矩形降级为 CHAR_INFO 返回给客户端。
-inline bool api_read_console_output(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                                    input_buffer &, pipe_bridge &bridge) noexcept
+inline bool api_read_console_output(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                                    pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2529,7 +2528,7 @@ inline bool api_read_console_output(corehost::condrv_io::io_msg &msg, console_st
     if (required > data_capacity)
     {
         cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2588,12 +2587,12 @@ inline bool api_read_console_output(corehost::condrv_io::io_msg &msg, console_st
 // ── GetTitle / SetTitle (char32_t ↔ wchar_t 边界) ──
 
 // GetConsoleTitle/GetConsoleOriginalTitle：从 console_state 标题字段转码返回。
-inline bool api_get_title(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+inline bool api_get_title(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                           pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2649,12 +2648,12 @@ inline bool api_get_title(corehost::condrv_io::io_msg &msg, console_state &state
 }
 
 // SetConsoleTitle：更新 console_state.title/original_title，并通过 OSC 同步终端标题。
-inline bool api_set_title(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+inline bool api_set_title(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                           pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2700,12 +2699,12 @@ inline bool api_set_title(corehost::condrv_io::io_msg &msg, console_state &state
 
 // ── 0x01 GetMouseInfo ──
 // GetConsoleMouseInfo：返回 console_state 中保存的鼠标按钮数量。
-inline bool api_l3_get_mouse_info(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                  input_buffer &, pipe_bridge &) noexcept
+inline bool api_l3_get_mouse_info(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                  pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETMOUSEINFO_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2718,12 +2717,12 @@ inline bool api_l3_get_mouse_info(corehost::condrv_io::io_msg &msg, console_stat
 
 // ── 0x03 GetFontSize ──
 // GetConsoleFontSize：返回当前 console_state 字体 cell 尺寸。
-inline bool api_l3_get_font_size(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                 input_buffer &, pipe_bridge &) noexcept
+inline bool api_l3_get_font_size(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                 pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETFONTSIZE_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2731,7 +2730,7 @@ inline bool api_l3_get_font_size(corehost::condrv_io::io_msg &msg, console_state
     if (r->FontIndex != 0)
     {
         r->FontSize = {};
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     r->FontSize = state.font_size; // 简化: 返回当前字体尺寸 (所有 index 相同)
@@ -2741,12 +2740,12 @@ inline bool api_l3_get_font_size(corehost::condrv_io::io_msg &msg, console_state
 
 // ── 0x04 GetCurrentFont ──
 // GetCurrentConsoleFontEx：返回 console_state 中的字体索引、尺寸、权重和 FaceName。
-inline bool api_l3_get_current_font(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                    input_buffer &, pipe_bridge &) noexcept
+inline bool api_l3_get_current_font(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                    pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2762,19 +2761,19 @@ inline bool api_l3_get_current_font(corehost::condrv_io::io_msg &msg, console_st
 
 // ── 0x0D SetDisplayMode ──
 // SetConsoleDisplayMode：记录显示模式，并按请求最大化/恢复终端窗口尺寸。
-inline bool api_l3_set_display_mode(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &sb,
-                                    input_buffer &, pipe_bridge &) noexcept
+inline bool api_l3_set_display_mode(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
+                                    pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETDISPLAYMODE_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
     auto *r = reinterpret_cast<CONSOLE_SETDISPLAYMODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if ((r->dwFlags & (CONSOLE_FULLSCREEN_MODE | CONSOLE_WINDOWED_MODE)) == 0)
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     state.display_mode = (r->dwFlags & CONSOLE_FULLSCREEN_MODE) != 0 ? CONSOLE_FULLSCREEN_MODE : 0;
@@ -2786,12 +2785,12 @@ inline bool api_l3_set_display_mode(corehost::condrv_io::io_msg &msg, console_st
 
 // ── 0x11 GetDisplayMode ──
 // GetConsoleDisplayMode：返回 console_state.display_mode。
-inline bool api_l3_get_display_mode(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                    input_buffer &, pipe_bridge &) noexcept
+inline bool api_l3_get_display_mode(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                    pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETDISPLAYMODE_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2803,12 +2802,12 @@ inline bool api_l3_get_display_mode(corehost::condrv_io::io_msg &msg, console_st
 
 // ── 0x12 AddAlias ──
 // AddConsoleAlias：更新 console_state 的 exe 分桶别名表和兼容扁平别名表。
-inline bool api_l3_add_alias(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+inline bool api_l3_add_alias(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                              pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2821,13 +2820,13 @@ inline bool api_l3_add_alias(corehost::condrv_io::io_msg &msg, console_state &st
     auto tgt_len_bytes = static_cast<size_t>(r->TargetLength);
     if (exe_len_bytes + src_len_bytes + tgt_len_bytes > message_input_tail_capacity(msg, sizeof(CONSOLE_ADDALIAS_MSG)))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
     if (src_len_bytes == 0)
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2835,7 +2834,7 @@ inline bool api_l3_add_alias(corehost::condrv_io::io_msg &msg, console_state &st
     {
         if ((exe_len_bytes | src_len_bytes | tgt_len_bytes) % sizeof(wchar_t) != 0)
         {
-            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+            condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
         auto *exe = reinterpret_cast<const wchar_t *>(db);
@@ -2875,7 +2874,7 @@ inline bool api_l3_add_alias(corehost::condrv_io::io_msg &msg, console_state &st
         convert_ansi_to_wstr(tgt_a, tgt_len_bytes, state.input_code_page, wtgt);
         if (wsrc.empty())
         {
-            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+            condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
         if (wtgt.empty())
@@ -2948,12 +2947,12 @@ inline size_t alias_wstring_to_ansi(std::wstring_view text, UINT code_page, char
 
 // ── 0x13 GetAlias ──
 // GetConsoleAlias：从 console_state 别名表查找 source，并按请求缓冲返回 target。
-inline bool api_l3_get_alias(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+inline bool api_l3_get_alias(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                              pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIAS_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2966,7 +2965,7 @@ inline bool api_l3_get_alias(corehost::condrv_io::io_msg &msg, console_state &st
     if (exe_len_bytes + src_len_bytes > message_input_tail_capacity(msg, sizeof(CONSOLE_GETALIAS_MSG)))
     {
         r->TargetLength = 0;
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -2975,7 +2974,7 @@ inline bool api_l3_get_alias(corehost::condrv_io::io_msg &msg, console_state &st
         if ((exe_len_bytes | src_len_bytes) % sizeof(wchar_t) != 0)
         {
             r->TargetLength = 0;
-            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+            condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
         auto *exe = reinterpret_cast<const wchar_t *>(db);
@@ -3053,12 +3052,12 @@ inline bool api_l3_get_alias(corehost::condrv_io::io_msg &msg, console_state &st
 
 // ── 0x14 GetAliasesLength ──
 // GetConsoleAliasesLength：计算指定 exe 分桶下别名导出需要的 WCHAR 字节数。
-inline bool api_l3_get_aliases_length(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                      input_buffer &, pipe_bridge &bridge) noexcept
+inline bool api_l3_get_aliases_length(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                      pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASESLENGTH_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -3111,12 +3110,12 @@ inline bool api_l3_get_aliases_length(corehost::condrv_io::io_msg &msg, console_
 
 // ── 0x15 GetAliasExesLength ──
 // GetConsoleAliasExesLength：计算所有已知 exe 名称导出需要的 WCHAR 字节数。
-inline bool api_l3_get_alias_exes_length(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                         input_buffer &, pipe_bridge &) noexcept
+inline bool api_l3_get_alias_exes_length(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                         pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXESLENGTH_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -3135,12 +3134,12 @@ inline bool api_l3_get_alias_exes_length(corehost::condrv_io::io_msg &msg, conso
 
 // ── 0x16 GetAliases ──
 // GetConsoleAliases：把指定 exe 的 source=target 别名列表写入 completion。
-inline bool api_l3_get_aliases(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+inline bool api_l3_get_aliases(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -3213,12 +3212,12 @@ inline bool api_l3_get_aliases(corehost::condrv_io::io_msg &msg, console_state &
 
 // ── 0x17 GetAliasExes ──
 // GetConsoleAliasExes：导出 console_state 中所有拥有别名分桶的 exe 名称。
-inline bool api_l3_get_alias_exes(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                  input_buffer &, pipe_bridge &bridge) noexcept
+inline bool api_l3_get_alias_exes(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                  pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -3313,12 +3312,12 @@ inline size_t write_command_history_buffer(pipe_bridge &bridge, bool unicode, UI
 }
 
 // ExpungeConsoleCommandHistory：清空 bridge 中的实际命令历史。
-inline bool api_l3_expunge_history(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
+inline bool api_l3_expunge_history(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                                    pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_EXPUNGECOMMANDHISTORY_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -3329,12 +3328,12 @@ inline bool api_l3_expunge_history(corehost::condrv_io::io_msg &msg, console_sta
 
 // ── 0x19 SetNumberOfCommands ──
 // SetNumberOfConsoleCommands：更新历史容量配置，并同步 bridge 实际历史容量。
-inline bool api_l3_set_num_commands(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                    input_buffer &, pipe_bridge &bridge) noexcept
+inline bool api_l3_set_num_commands(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                    pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETNUMBEROFCOMMANDS_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -3347,12 +3346,12 @@ inline bool api_l3_set_num_commands(corehost::condrv_io::io_msg &msg, console_st
 
 // ── 0x1A GetCommandHistoryLength ──
 // GetConsoleCommandHistoryLength：返回 bridge 当前命令历史导出所需字节数。
-inline bool api_l3_get_history_length(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                      input_buffer &, pipe_bridge &bridge) noexcept
+inline bool api_l3_get_history_length(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                      pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -3365,12 +3364,12 @@ inline bool api_l3_get_history_length(corehost::condrv_io::io_msg &msg, console_
 
 // ── 0x1B GetCommandHistory ──
 // GetConsoleCommandHistory：导出 bridge 保存的历史命令列表。
-inline bool api_l3_get_history(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+inline bool api_l3_get_history(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -3389,12 +3388,12 @@ inline bool api_l3_get_history(corehost::condrv_io::io_msg &msg, console_state &
 
 // ── 0x1F GetConsoleWindow ──
 // GetConsoleWindow：返回当前宿主窗口句柄。corehost 不保存单独窗口状态。
-inline bool api_l3_get_console_window(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &,
-                                      input_buffer &, pipe_bridge &) noexcept
+inline bool api_l3_get_console_window(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
+                                      pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEWINDOW_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -3406,12 +3405,12 @@ inline bool api_l3_get_console_window(corehost::condrv_io::io_msg &msg, console_
 
 // ── 0x28 GetSelectionInfo ──
 // GetConsoleSelectionInfo：返回 console_state.selection_info。
-inline bool api_l3_get_selection_info(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                      input_buffer &, pipe_bridge &) noexcept
+inline bool api_l3_get_selection_info(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                      pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETSELECTIONINFO_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -3423,12 +3422,12 @@ inline bool api_l3_get_selection_info(corehost::condrv_io::io_msg &msg, console_
 
 // ── 0x29 GetConsoleProcessList ──
 // GetConsoleProcessList：从 bridge 的进程快照导出当前连接进程 pid。
-inline bool api_l3_get_process_list(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
+inline bool api_l3_get_process_list(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                                     pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -3444,12 +3443,12 @@ inline bool api_l3_get_process_list(corehost::condrv_io::io_msg &msg, console_st
 
 // ── 0x2A GetHistory ──
 // GetConsoleHistoryInfo：返回 console_state 中保存的历史配置。
-inline bool api_l3_get_history_info(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                    input_buffer &, pipe_bridge &) noexcept
+inline bool api_l3_get_history_info(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                    pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -3463,12 +3462,12 @@ inline bool api_l3_get_history_info(corehost::condrv_io::io_msg &msg, console_st
 
 // ── 0x2B SetHistory ──
 // SetConsoleHistoryInfo：更新历史配置，并把每缓冲区命令数同步给 bridge。
-inline bool api_l3_set_history_info(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                    input_buffer &, pipe_bridge &bridge) noexcept
+inline bool api_l3_set_history_info(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                    pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -3476,7 +3475,7 @@ inline bool api_l3_set_history_info(corehost::condrv_io::io_msg &msg, console_st
     if (r->HistoryBufferSize > SHRT_MAX || r->NumberOfHistoryBuffers > SHRT_MAX ||
         (r->dwFlags & ~HISTORY_NO_DUP_FLAG) != 0)
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
     state.history_buffer_size = r->HistoryBufferSize;
@@ -3489,12 +3488,12 @@ inline bool api_l3_set_history_info(corehost::condrv_io::io_msg &msg, console_st
 
 // ── 0x2C SetCurrentFont ──
 // SetCurrentConsoleFontEx：更新 console_state 字体元数据；当前不向终端发字体 VT。
-inline bool api_l3_set_current_font(corehost::condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                    input_buffer &, pipe_bridge &) noexcept
+inline bool api_l3_set_current_font(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                    pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG))
     {
-        corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
@@ -3511,12 +3510,12 @@ inline bool api_l3_set_current_font(corehost::condrv_io::io_msg &msg, console_st
 
 // ── 第二类 L3: 废弃 API ──
 // 废弃/未实现 L3 API：不维护内部状态，返回 not implemented。
-inline bool api_l3_deprecated(corehost::condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
+inline bool api_l3_deprecated(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                               pipe_bridge &) noexcept
 {
     // 原版 ServerDeprecatedApi 返回 E_NOTIMPL，经 ApiSorter 转为
     // STATUS_NOT_IMPLEMENTED。
-    corehost::condrv_io::prepare_completion(msg, status_not_implemented);
+    condrv_io::prepare_completion(msg, status_not_implemented);
     return true;
 }
 

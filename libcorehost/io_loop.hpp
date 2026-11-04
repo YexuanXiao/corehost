@@ -37,15 +37,15 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
 
     // READ_IO 会在同一次调用中提交上一条 completion 并读取下一条消息。
     // 双缓冲保证 completion 中指向的 body 不会被下一条消息覆盖。
-    corehost::condrv_io::io_msg msgA{}, msgB{};
+    condrv_io::io_msg msgA{}, msgB{};
 
     // cur 只在 msgA/msgB 之间切换，指向本轮接收缓冲。另一块缓冲可能仍被
     // prev_done 指向，用作上一条消息的 completion 输入。
-    corehost::condrv_io::io_msg *cur = &msgA;
+    condrv_io::io_msg *cur = &msgA;
 
     // nullptr 表示本轮不提交 completion；非空表示上一条消息已经处理完，
     // 其 completion 必须作为下一轮 READ_IO 的输入。
-    corehost::condrv_io::io_msg *prev_done = nullptr;
+    condrv_io::io_msg *prev_done = nullptr;
 
     for (;;)
     {
@@ -83,7 +83,7 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
             // prepare_completion，completion 会残留同一缓冲上一轮的标识符，
             // 驱动会把它当成另一条请求的完成。断言把这类遗漏立即暴露，
             // 而不是静默提交过期结果。
-            assert(corehost::condrv_io::completion_matches_descriptor(*prev_done));
+            assert(condrv_io::completion_matches_descriptor(*prev_done));
         }
         LOG2_IF(submitting_previous_completion, "submitting completion id=%08lx:%08lx status=0x%08lx info=%llu",
                 prev_done->descriptor.Identifier.HighPart, prev_done->descriptor.Identifier.LowPart,
@@ -106,18 +106,18 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
         // disconnected: server 已断开，本循环结束。
         // no_message   : completion 已提交，但暂时没有新消息。
         // message      : cur 中已有一条新的 ConDrv 消息。
-        auto read_result = corehost::condrv_io::read_io_result::no_message;
+        auto read_result = condrv_io::read_io_result::no_message;
         {
             COREHOST_PERF_SCOPE(io_read_io_try);
-            read_result = corehost::condrv_io::read_io_try(server, prev_comp, *cur);
+            read_result = condrv_io::read_io_try(server, prev_comp, *cur);
         }
-        if (read_result == corehost::condrv_io::read_io_result::disconnected)
+        if (read_result == condrv_io::read_io_result::disconnected)
         {
             router.flush_vt_output();
             LOG("run_io_loop_no_setup: read_io false, exiting");
             break;
         }
-        if (read_result == corehost::condrv_io::read_io_result::no_message)
+        if (read_result == condrv_io::read_io_result::no_message)
         {
             // no_message 仍可能已经消费 prev_comp，因此必须清空 prev_done。
             prev_done = nullptr;
@@ -183,7 +183,7 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
                 if (router.has_buffered_vt_output())
                 {
                     router.flush_vt_output();
-                    corehost::condrv_io::complete_io(server, cur->complete);
+                    condrv_io::complete_io(server, cur->complete);
                     LOG2("message completed explicitly after VT flush func=%lu", cur->descriptor.Function);
                     prev_done = nullptr;
                     router.on_idle();
@@ -198,7 +198,7 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view e
                     {
                         if (router.has_buffered_vt_output())
                             router.flush_vt_output();
-                        corehost::condrv_io::complete_io(server, cur->complete);
+                        condrv_io::complete_io(server, cur->complete);
                         LOG2("message completed explicitly before shutdown func=%lu", cur->descriptor.Function);
                         break;
                     }

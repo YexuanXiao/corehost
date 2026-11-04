@@ -59,7 +59,7 @@ struct connect_handler
     // 用于初始化 libcorehost 的进程列表，保证 GetConsoleProcessList 可见。
     DWORD attached_process_id = 0;
 
-    // corehost::condrv_io::accept_connection 打开的 ConDrv 客户端句柄。它们必须在
+    // condrv_io::accept_connection 打开的 ConDrv 客户端句柄。它们必须在
     // conpty/mini fallback 生命周期内保持有效，否则客户端 ReadFile/WriteFile
     // 会收到断开。
     win32::handle condrv_input;
@@ -70,7 +70,7 @@ struct connect_handler
     win32::handle_view server;
     win32::handle_view input_event;
 
-    [[nodiscard]] connect_action on_connect(corehost::condrv_io::io_msg &msg)
+    [[nodiscard]] connect_action on_connect(condrv_io::io_msg &msg)
     {
         // client_pid 来自 CD_IO_DESCRIPTOR::Process。它必须是当前 CONNECT
         // 的客户端 pid，后续通知、进程列表和 CTRL_BREAK 都依赖它。
@@ -97,10 +97,10 @@ struct connect_handler
             width = connect_info.ScreenBufferSize.X > 0 ? connect_info.ScreenBufferSize.X : 0;
             height = connect_info.ScreenBufferSize.Y > 0 ? connect_info.ScreenBufferSize.Y : 0;
             attached_process_id = client_pid;
-            corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
+            condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
             // 循环马上返回，这块消息缓冲随栈帧销毁，无法 piggyback：必须
             // 立即提交连接结果，否则客户端永远收不到 \Input/\Output 句柄。
-            corehost::condrv_io::complete_io(server, msg.complete);
+            condrv_io::complete_io(server, msg.complete);
             start_conpty = true;
             return connect_action::exit_loop;
         }
@@ -123,7 +123,7 @@ struct connect_handler
                 client_pid, target_process_group_id, connect_info.ShowWindow, connect_info.StartupFlags,
                 connect_info.WindowVisible, connect_info.ConsoleApp, command_line);
             env::show_elevated_notification(report_path);
-            corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
+            condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
 
             LOG("sending immediate CTRL_BREAK to process group=%lu", target_process_group_id);
             ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, target_process_group_id);
@@ -148,13 +148,13 @@ struct connect_handler
             client_pid, target_process_group_id, connect_info.ShowWindow, connect_info.StartupFlags,
             connect_info.WindowVisible, connect_info.ConsoleApp, command_line);
         env::show_not_found_notification(report_path);
-        corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
+        condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
         // 没有可用终端时立即打断客户端进程组，避免它永久等待不可见控制台。
         ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, target_process_group_id);
         return connect_action::continue_loop;
     }
 
-    bool on_message(corehost::condrv_io::io_msg &msg)
+    bool on_message(condrv_io::io_msg &msg)
     {
         LOG3("fallback message: func=%lu", msg.descriptor.Function);
         dispatch_console(server, msg, condrv_input, condrv_output);
@@ -182,20 +182,20 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
 {
     LOG3("initial CONNECT loop started; waiting for ConDrv messages server=%p event=%p", server.get(),
          input_event.get());
-    corehost::condrv_io::set_server_info(server, input_event);
+    condrv_io::set_server_info(server, input_event);
 
     // ConDrv 的 READ_IO 同时提交上一条 completion 并读取下一条消息。
     // 因此需要双缓冲，避免 completion 的 Write.Data 指向的 body 被下一条
     // 读取覆盖。
-    corehost::condrv_io::io_msg message_a{};
-    corehost::condrv_io::io_msg message_b{};
+    condrv_io::io_msg message_a{};
+    condrv_io::io_msg message_b{};
 
     // current 指向本轮接收缓冲，只能是 message_a 或 message_b。
-    corehost::condrv_io::io_msg *current = &message_a;
+    condrv_io::io_msg *current = &message_a;
 
     // nullptr 表示本轮 READ_IO 不提交 completion；非 nullptr 指向上一条
     // 已由 handler 填好 complete 字段的消息。
-    corehost::condrv_io::io_msg *completed_previous = nullptr;
+    condrv_io::io_msg *completed_previous = nullptr;
 
     for (;;)
     {
@@ -223,7 +223,7 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
         {
             // 与 io_loop 相同：handler 返回 true 必须已准备 completion，否则
             // 会把上一轮残留的标识符交给驱动。
-            assert(corehost::condrv_io::completion_matches_descriptor(*completed_previous));
+            assert(condrv_io::completion_matches_descriptor(*completed_previous));
             LOG3("submitting previous completion id=%08lx:%08lx status=0x%08lx info=%llu",
                  completion->Identifier.HighPart, completion->Identifier.LowPart,
                  static_cast<unsigned long>(completion->IoStatus.Status),
@@ -234,13 +234,13 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
             LOG3("reading next message without completion");
         }
 
-        const auto read_result = corehost::condrv_io::read_io_try(server, completion, *current);
-        if (read_result == corehost::condrv_io::read_io_result::disconnected)
+        const auto read_result = condrv_io::read_io_try(server, completion, *current);
+        if (read_result == condrv_io::read_io_result::disconnected)
         {
             LOG3("ConDrv disconnected; initial loop will exit");
             break;
         }
-        if (read_result == corehost::condrv_io::read_io_result::no_message)
+        if (read_result == condrv_io::read_io_result::no_message)
         {
             completed_previous = nullptr;
             handler.on_idle();

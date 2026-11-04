@@ -102,7 +102,7 @@ struct io_state
     //
     // 两种 CONNECT 都走 piggyback：completion 由 io_loop 的下一轮 READ_IO
     // 携带提交，因此每条 CONNECT 都省掉一次 COMPLETE_IO 往返。
-    void handle_connect(corehost::condrv_io::io_msg &msg)
+    void handle_connect(condrv_io::io_msg &msg)
     {
         // msg 的 body 对 CONNECT 不由本层解析；已完成握手后它会被回复载荷
         // 覆盖。descriptor.Process 是 ConDrv 记录的客户端 pid，必须能放入
@@ -121,7 +121,7 @@ struct io_state
             // 首个 CONNECT 需要创建 \Input/\Output。accept_connection 把
             // CD_CONNECTION_INFORMATION 写进 msg.body 并填充 msg.complete，
             // 提交交给下一轮 READ_IO。
-            corehost::condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
+            condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
             LOG2("CONNECT accepted input=%p output=%p processCount=%zu", condrv_input.get(), condrv_output.get(),
                  process_count);
             return;
@@ -142,13 +142,13 @@ struct io_state
             // 把它放在 msg.body 而不是栈变量：io_loop 的双缓冲保证本缓冲在
             // completion 被提交前不会被下一条消息覆盖。CONNECT 的
             // 请求体（CONSOLE_SERVER_MSG）此时已经不再被读取，可以安全重用。
-            corehost::condrv_io::prepare_connection_completion(msg, condrv_input.view(), condrv_output.view());
+            condrv_io::prepare_connection_completion(msg, condrv_input.view(), condrv_output.view());
             LOG2("CONNECT joined existing console processCount=%zu", process_count);
             return;
         }
     }
 
-    bool handle_disconnect(corehost::condrv_io::io_msg &msg)
+    bool handle_disconnect(condrv_io::io_msg &msg)
     {
         // msg.descriptor.Process 是要从当前控制台进程列表删除的 pid；ConDrv
         // 对象句柄不随单个进程 DISCONNECT 释放。
@@ -157,18 +157,18 @@ struct io_state
         LOG2("DISCONNECT pid=%lu processCount=%zu", pid, process_count);
 
         // DISCONNECT 没有输出载荷，成功 completion 足以让 ConDrv 继续派发消息。
-        corehost::condrv_io::prepare_completion(msg);
+        condrv_io::prepare_completion(msg);
         return true;
     }
 
-    bool handle_create_object(corehost::condrv_io::io_msg &msg)
+    bool handle_create_object(condrv_io::io_msg &msg)
     {
         // CREATE_OBJECT body 是 CD_CREATE_OBJECT_INFORMATION；它描述客户端
         // 想打开当前 Input/Output 还是新 Output，以及访问掩码。
         if (msg.descriptor.InputSize < sizeof(CD_CREATE_OBJECT_INFORMATION))
         {
             LOG2("CREATE_OBJECT short input=%lu", msg.descriptor.InputSize);
-            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+            condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
 
@@ -211,14 +211,14 @@ struct io_state
             break;
         default:
             LOG2("CREATE_OBJECT unsupported type=%lu access=0x%08lx", req->ObjectType, req->DesiredAccess);
-            corehost::condrv_io::prepare_completion(msg, status_invalid_parameter);
+            condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
-        corehost::condrv_io::prepare_completion(msg, 0, reinterpret_cast<ULONG_PTR>(nh.release()));
+        condrv_io::prepare_completion(msg, 0, reinterpret_cast<ULONG_PTR>(nh.release()));
         return true;
     }
 
-    bool handle_close_object(corehost::condrv_io::io_msg &msg)
+    bool handle_close_object(condrv_io::io_msg &msg)
     {
         // msg.descriptor.Object 是客户端传回的句柄值，不一定仍然对应一个
         // 当前对象；不匹配时也按成功完成，避免关闭未知句柄阻塞客户端。
@@ -231,7 +231,7 @@ struct io_state
             alternate_output_id = 0;
         LOG2("CLOSE_OBJECT object=%llu inputId=%llu outputId=%llu altOutputId=%llu", id, input_id, output_id,
              alternate_output_id);
-        corehost::condrv_io::prepare_completion(msg);
+        condrv_io::prepare_completion(msg);
         return true;
     }
 
@@ -257,10 +257,10 @@ struct io_state
 
     // 完成 RAW_FLUSH 对象消息。input_buffer 的清空由 message_router 负责，
     // 这里只准备 ConDrv completion。
-    void handle_raw_flush(corehost::condrv_io::io_msg &msg) noexcept
+    void handle_raw_flush(condrv_io::io_msg &msg) noexcept
     {
         // RAW_FLUSH 本身没有额外载荷；input_buffer 已由 message_router 清空。
-        corehost::condrv_io::prepare_completion(msg);
+        condrv_io::prepare_completion(msg);
     }
 };
 

@@ -20,7 +20,7 @@ inline constexpr LONG ntstatus_unsuccessful = static_cast<LONG>(0xC0000001);
 // 只表示当前读取结果没有业务消息需要处理。
 inline constexpr ULONG no_console_io_function = 0;
 
-inline void dispatch_console(win32::handle_view server, corehost::condrv_io::io_msg &msg, win32::handle &input,
+inline void dispatch_console(win32::handle_view server, condrv_io::io_msg &msg, win32::handle &input,
                              win32::handle &output)
 {
     LOG3("ConDrv IO dispatch: func=%lu id=%08lx:%08lx pid=%llu object=%llu input=%p output=%p", msg.descriptor.Function,
@@ -41,7 +41,7 @@ inline void dispatch_console(win32::handle_view server, corehost::condrv_io::io_
     case CONSOLE_IO_DISCONNECT:
         input.clear();
         output.clear();
-        corehost::condrv_io::prepare_completion(msg);
+        condrv_io::prepare_completion(msg);
         break;
     case CONSOLE_IO_CREATE_OBJECT: {
         // request 指向 ConDrv 消息体中的 CD_CREATE_OBJECT_INFORMATION。
@@ -73,26 +73,26 @@ inline void dispatch_console(win32::handle_view server, corehost::condrv_io::io_
             new_handle = condrv::create_client_handle(server, L"\\Output");
             break;
         default:
-            corehost::condrv_io::prepare_completion(msg, ntstatus_unsuccessful);
+            condrv_io::prepare_completion(msg, ntstatus_unsuccessful);
             return;
         }
-        corehost::condrv_io::prepare_completion(msg, 0, reinterpret_cast<ULONG_PTR>(new_handle.release()));
+        condrv_io::prepare_completion(msg, 0, reinterpret_cast<ULONG_PTR>(new_handle.release()));
         break;
     }
     case CONSOLE_IO_CLOSE_OBJECT:
-        corehost::condrv_io::prepare_completion(msg);
+        condrv_io::prepare_completion(msg);
         break;
     case CONSOLE_IO_RAW_WRITE:
-        corehost::condrv_io::prepare_completion(msg, 0, msg.descriptor.InputSize);
+        condrv_io::prepare_completion(msg, 0, msg.descriptor.InputSize);
         break;
     case CONSOLE_IO_RAW_READ:
-        corehost::condrv_io::prepare_completion(msg);
+        condrv_io::prepare_completion(msg);
         break;
     case CONSOLE_IO_USER_DEFINED:
-        corehost::condrv_io::prepare_completion(msg, ntstatus_unsuccessful);
+        condrv_io::prepare_completion(msg, ntstatus_unsuccessful);
         break;
     case CONSOLE_IO_RAW_FLUSH:
-        corehost::condrv_io::prepare_completion(msg);
+        condrv_io::prepare_completion(msg);
         break;
     default:
         std::unreachable();

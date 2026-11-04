@@ -48,7 +48,7 @@ class pipe_bridge_io
     void complete(CD_IO_COMPLETE &completion) const
     {
         // completion 是 bridge 构造好的 ConDrv 完成结果；这里仅把它提交给 server。
-        corehost::condrv_io::complete_io(_server, completion);
+        condrv_io::complete_io(_server, completion);
     }
 
     // true 表示当前绑定了真实 ConDrv server，可以提交 COMPLETE_IO。
@@ -62,7 +62,7 @@ class pipe_bridge_io
     {
         // identifier/offset 来自原始 io_msg descriptor，用于读取 body 之外的
         // 大输入载荷；destination 是 bridge 的持久输入 payload 缓冲。
-        corehost::condrv_io::read_input(_server, identifier, offset, byte_span(destination));
+        condrv_io::read_input(_server, identifier, offset, byte_span(destination));
     }
 
     // 查询 vt_in 当前可读字节数。返回 false 表示 pipe 已不可用，bridge 会把
