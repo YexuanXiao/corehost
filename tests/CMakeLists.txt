@@ -141,6 +141,18 @@ add_custom_command(TARGET test_conpty_e2e POST_BUILD
 add_test(NAME ConPTY.E2E COMMAND test_conpty_e2e)
 set_tests_properties(ConPTY.E2E PROPERTIES LABELS "conpty;e2e" TIMEOUT 60)
 
+# ── test_platform_selftest ────────────────────────
+# 测试库宿主层：环境探测与子进程运行器。
+add_executable(test_platform_selftest
+    test_platform_selftest.cpp
+)
+target_include_directories(test_platform_selftest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(test_platform_selftest PRIVATE test_common)
+add_test(NAME Platform.SelfTest COMMAND test_platform_selftest)
+set_tests_properties(Platform.SelfTest PROPERTIES LABELS "testlib;selftest" TIMEOUT 120)
+
 # ── test_conpty_window ─────────────────────────────
 # GetConsoleWindow 伪窗口端到端：枚举、不可见、同步消息、WM_CLOSE 结束会话。
 add_executable(test_conpty_window
