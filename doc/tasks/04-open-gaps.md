@@ -22,6 +22,11 @@
 | G13 | ~~部分控制台程序 0xc0000142~~ | 已定位为**测试拆除竞态**：正常会话里 `cmd /c mode con` 成功（exit 0、输出正常）；弹窗发生在"子进程初始化期间关闭伪控制台"。缓解：测试进程树 `SetErrorMode` 抑制弹窗 + 会话驱动用 Job 对象先杀整棵客户端进程树再关伪控制台 | 若日后在正常会话中复现再升级为产品 BUG | A/D 交叉 |
 | G11 | Ctrl+C 投递（缺 console 关联） | 已移植：processed input 下 Ctrl+C 不排队为按键；`bridge.send_ctrl_event` 用 `ConsoleControl(ConsoleEndTask)` 逐进程投递（`GenerateConsoleCtrlEvent` 到不了客户端）。用专用探针（`tests/console_probe.cpp`，保持 ENABLE_PROCESSED_INPUT）验证：READY 后发 Ctrl+C，探针未在 15s 内结束，日志无失败输出（调用返回成功） | 依据 `terminal/`：ConPTY 下 conhost 用 **Win32 `ConsoleControl(ConsoleEndTask)`**（`RemoteConsoleControl` 只用于嵌套 conhost 转发，我们这里没有 root conhost）；`ConsoleControl` 依赖调用进程"在控制台上"。真实 conhost 之所以在控制台上，是它把自己的 **PEB ConsoleHandle** 设成 ConDrv 连接（`ConsoleBench` 的 `set_active_connection` 同一机制），而 corehost 从未设置过，所以调用返回成功但 CSRSS 找不到目标。**已试并排除**：hwnd 传伪窗口 / nullptr、PEB ConsoleHandle 指向 `\convdr_input` 连接，均无效果；且日志显示探针对 Ctrl+C 序列根本没有进入 `send_ctrl_event`（分支未触发），说明还有更前一步的问题（探针的 processed-input 模式未同步到 bridge，或序列未被解析成 win32 key）。**决定暂停**：G11 不再消耗预算，保留实现与 SKIP 用例；将来若要继续，先解决"分支为何不触发"（在 process_input_win32_key 入口加日志逐步核对） | A 阶段遗留 |
 
+## 1.1 收尾状态
+
+第 60 轮时：G1/G3/G6/G7/G10/G12/G13/G14/G15 已关闭；G2（sshd）、G4/G5（真实 WT 与
+handoff 替身层）、G11（Ctrl+C）仍未完成，解除条件见对应行。构建与 `ctest` 23/23 通过。
+
 ## 2. 已明确不做（有理由）
 
 | 项 | 理由 | 记录 |
