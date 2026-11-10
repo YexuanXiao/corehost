@@ -95,10 +95,16 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     io.condrv_input = std::move(condrv_input);
     io.condrv_output = std::move(condrv_output);
 
+    // ── Layer 2: 输入状态 ──
+    // A4 起，终端输入的读缓冲、解码、解析、键盘状态与 cooked 行编辑状态由
+    // input_state 持有；会话把它交给输入线程，bridge 只保留引用别名。它必须
+    // 先于 bridge 构造、后于 bridge 析构（输入线程在 bridge 之前 join）。
+    vt_input_state input_state;
+
     // ── Layer 2: pipe bridge ──
     // pipe_bridge 是 VT 输入输出和 Console API 状态的交汇点。它直接引用
     // ibuf/state/sbuf，因此主缓冲区和 API 查询能看到同一份光标与文本状态。
-    pipe_bridge bridge{ibuf, state, sbuf};
+    pipe_bridge bridge{ibuf, state, sbuf, input_state};
 
     // vt_in 是终端到 corehost 的输入/控制字节流；VT 输出句柄由
     // vt_output_buffer 负责缓冲写入；server 用于 bridge 完成挂起 ConDrv I/O。

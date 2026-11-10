@@ -41,6 +41,7 @@
 #include "terminal_cursor_state.hpp"
 #include "pending_io_state.hpp"
 #include "command_history_state.hpp"
+#include "vt_input_state.hpp"
 #include "signal.hpp"
 #include "perf_diag.hpp"
 #include "utility/log.hpp"
@@ -73,8 +74,9 @@ struct pipe_bridge
     // api_router 切换 alternate buffer 时改指向。
     screen_buffer *_active_screen = nullptr;
 
-    pipe_bridge(input_buffer &input, console_state &state, screen_buffer &screen) noexcept
-        : inp(input), cstate(state), sbuf(screen)
+    pipe_bridge(input_buffer &input, console_state &state, screen_buffer &screen,
+                vt_input_state &input_state) noexcept
+        : inp(input), cstate(state), sbuf(screen), _input_state(input_state)
     {
         _active_screen = &screen;
         _history.set_capacity(state.history_buffer_size);
@@ -171,28 +173,28 @@ struct pipe_bridge
     }
 
   private:
-    // ── Parser 外部缓冲 ──────────────────────────────
-    // _input_raw_buf 属于终端输入方向：vt_in 的 UTF-8 字节解码成 char32_t 后喂给
-    // _input_parser。vt_parser 会把当前消息的原文写到这里，并让 vt_message::text /
-    // title 指向其中的切片；调用方消费消息并 reset 后，该缓冲才能被清理或复用。
-    raw_u32_buffer _input_raw_buf;
+    // ── 输入侧状态（归属输入线程） ───────────────────
+    // A4 起，终端输入的读缓冲、解码器、解析器、键盘状态与 cooked 行编辑状态
+    // 由 vt_input_thread 持有的 vt_input_state 拥有；bridge 只通过下面的引用
+    // 别名访问，历史代码保留原名。输入线程是唯一写者，主线程只在会话锁内读取
+    // 已完成的结果（例如 pending 的返回字节）。
+    vt_input_state &_input_state;
+    std::array<char8_t, sizeof(condrv_io::io_msg::body)> &_readbuf = _input_state.readbuf;
+    DWORD &_read_total = _input_state.read_total;
+    bool &_line_found = _input_state.line_found;
+    bizwen::deque<char8_t> &_queued_vt_input = _input_state.queued_input;
+    raw_u32_buffer &_input_raw_buf = _input_state.input_raw_buf;
+    vt_parser &_input_parser = _input_state.input_parser;
+    vt_input_engine &_engine = _input_state.engine;
+    utf8_stream_decoder &_utf8_decoder = _input_state.utf8_decoder;
+    std::u32string &_cooked_buf = _input_state.cooked_buf;
+    size_t &_cooked_cursor = _input_state.cooked_cursor;
 
+    // ── Parser 外部缓冲 ──────────────────────────────
     // _output_raw_buf 属于 Console API 输出方向：WriteConsole/RAW_WRITE 的文本
-    // 也可能包含 VT 序列。它和 _input_raw_buf 分离，避免应用输出中的半条 ESC/CSI/OSC
+    // 也可能包含 VT 序列。它和输入侧的原文缓冲分离，避免应用输出中的半条 ESC/CSI/OSC
     // 序列污染终端输入解析状态。
     raw_u32_buffer _output_raw_buf;
-
-    // _cooked_buf 保存当前 cooked ReadConsole 行编辑文本，只包含可以返回给
-    // 控制台程序的地面态输入字符，不包含 ESC/CSI/OSC 控制序列原文。
-    std::u32string _cooked_buf;
-    // 编辑光标在 _cooked_buf 中的位置，范围 0.._cooked_buf.size()。
-    size_t _cooked_cursor = 0;
-
-    // ── char32_t VT 解析器 ───────────────────────────
-    // _input_parser 只处理终端输入方向。它把键盘 VT 序列、Win32 Input Mode 事件、
-    // CPR/resize 等终端回应以及普通文本拆成 vt_message；状态必须跨 vt_in
-    // 读取块保留，因为 pipe 读取边界可能落在一条控制序列中间。
-    vt_parser _input_parser{_input_raw_buf};
 
     // _output_parser 只处理 Console API 输出方向。它用于在透传输出文本前识别
     // CUP/SGR/ED/OSC title 等序列并同步本地终端状态；状态必须跨
@@ -200,31 +202,13 @@ struct pipe_bridge
     // 拆成多个 API 消息。
     vt_parser _output_parser{_output_raw_buf};
 
-    // _engine 把 _input_parser 产出的输入方向 vt_message 转换为 INPUT_RECORD 或 cooked
-    // 行编辑动作；输出方向不经过它。
-    vt_input_engine _engine;
-
-    // ── 流式 UTF-8 解码器 ──
-    // vt_in 是 UTF-8 字节流。_utf8_decoder 保留跨 ReadFile 边界的半个多字节
-    // 序列；只有得到完整 codepoint 后才交给 _input_parser。
-    utf8_stream_decoder _utf8_decoder;
-
     // ── 原始字节缓冲 ──
-    // _readbuf 保存本轮 pending 读取已经从 vt_in 取得的原始字节；RawRead
-    // completion 直接从这里返回，ReadConsole 则同时把它解码进 _cooked_buf。
-    std::array<char8_t, sizeof(condrv_io::io_msg::body)> _readbuf{};
     // 保存 USER_DEFINED 消息中超过 condrv_io::io_msg::body 的输入尾部。
     raw_u8_buffer _input_payload_buffer;
     // GetConsoleInput 的输出可能远大于 condrv_io::io_msg::body。同步完成时
     // completion 会在下一轮 READ_IO 提交，因此该缓冲必须作为 bridge 成员
     // 保持稳定，直到 ConDrv 消费 Write.Data。
     raw_byte_vector<BYTE> _console_input_output_buffer;
-    // _readbuf 中有效字节数，范围 0.._readbuf.size()。
-    DWORD _read_total = 0;
-    // true 表示 process_input 已经遇到行终止符或 Ctrl+Z 并完成当前 pending 读。
-    bool _line_found = false;
-    // 没有 pending 时提前到达的 vt_in 字节，或当前批次完成一行后剩余的尾部。
-    bizwen::deque<char8_t> _queued_vt_input;
 
     // 低级 Win32/ConDrv I/O 封装，bridge 只通过它访问 server/vt_in。
     pipe_bridge_io _io;

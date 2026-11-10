@@ -4,12 +4,25 @@
 namespace corehost::conpty
 {
 
-class pipe_bridge_testable : public pipe_bridge
+// 测试用：pipe_bridge 需要一个外部持有的输入状态。基类先构造 vt_input_state，
+// 再把它传给 pipe_bridge 构造（基类按声明顺序构造），因此测试仍可用
+// pipe_bridge_testable{inp, st, sb} 三参数形式。
+struct pipe_bridge_input_holder
+{
+    vt_input_state input_state;
+};
+
+class pipe_bridge_testable : private pipe_bridge_input_holder, public pipe_bridge
 {
   public:
     condrv_io::io_msg _test_console_read_msg{};
 
     using pipe_bridge::pipe_bridge;
+
+    pipe_bridge_testable(input_buffer &input, console_state &state, screen_buffer &screen)
+        : pipe_bridge_input_holder{}, pipe_bridge{input, state, screen, input_state}
+    {
+    }
 
     COORD test_get_term_cursor() const noexcept
     {
