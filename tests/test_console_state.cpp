@@ -3167,6 +3167,23 @@ bool test_input_apis_reject_output_handle()
     return true;
 }
 
+// conhost 的默认输出模式由 HKCU\Console\VirtualTerminalLevel 决定：非 0 时
+// 默认带 ENABLE_VIRTUAL_TERMINAL_PROCESSING。这里测纯映射，注册表读取在会话
+// 初始化处（read_virtual_terminal_level）完成。
+bool test_output_mode_follows_virtual_terminal_level()
+{
+    ASSERT(output_mode_for_virtual_terminal_level(0) == DEFAULT_OUTPUT_MODE);
+    ASSERT(output_mode_for_virtual_terminal_level(1) ==
+           (DEFAULT_OUTPUT_MODE | ENABLE_VIRTUAL_TERMINAL_PROCESSING));
+    // ConPTY 强制 level=1，忽略注册表；普通窗口才用注册表值。
+    ASSERT(effective_virtual_terminal_level(0, true) == 1);
+    ASSERT(effective_virtual_terminal_level(0, false) == 0);
+    ASSERT(effective_virtual_terminal_level(5, false) == 5);
+    ASSERT(output_mode_for_virtual_terminal_level(7) ==
+           (DEFAULT_OUTPUT_MODE | ENABLE_VIRTUAL_TERMINAL_PROCESSING));
+    return true;
+}
+
 int main()
 {
     std::wcout << L"=== console_state Tests ===" << std::endl;
@@ -3267,6 +3284,7 @@ int main()
              L"ReadConsoleOutput output size and clipping");
     RUN_TEST(test_regression_get_title_output_size_limits_copy, L"GetTitle output size limits copy");
 RUN_TEST(test_read_output_string_clamps_oversized_output, L"ReadConsoleOutputString clamps oversized output");
+RUN_TEST(test_output_mode_follows_virtual_terminal_level, L"Output mode follows VirtualTerminalLevel");
 RUN_TEST(test_read_console_output_clamps_oversized_region, L"ReadConsoleOutput clamps oversized region");
     RUN_TEST(test_regression_set_title_a_uses_input_codepage, L"SetTitleA uses input codepage");
     RUN_TEST(test_regression_l3_mouse_info_rejects_short_message, L"L3 MouseInfo rejects short message");

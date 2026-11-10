@@ -48,6 +48,17 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     // ── Layer 4: 控制台状态 ──
     console_state state;
 
+    // 与 conhost 的默认行为一致：启动时读用户注册表 VirtualTerminalLevel，
+    // 非 0 则默认打开 ENABLE_VIRTUAL_TERMINAL_PROCESSING。读取时机不必与
+    // conhost 相同，只要 GetConsoleMode 与 WriteConsole 的 VT 行为一致。
+    // conhost 在 ConPTY 下强制 VirtualTerminalLevel=1（srvinit.cpp:169-173），
+    // 忽略用户注册表；非 ConPTY 窗口才用注册表值。corehost 只服务 ConPTY，
+    // 因此行为与 conhost 一致：默认 out_mode 带 ENABLE_VIRTUAL_TERMINAL_PROCESSING。
+    // 注册表仍读取并记录，便于诊断用户设置。
+    const auto registry_vt_level = read_virtual_terminal_level();
+    LOG2("output_mode: VirtualTerminalLevel=%lu (conpty forces level=1)", registry_vt_level);
+    state.output_mode = output_mode_for_virtual_terminal_level(effective_virtual_terminal_level(registry_vt_level, true));
+
     // screen_buffer_size 是控制台 API 看到的主尺寸。config.width/height <= 0
     // 代表“未指定”，统一回退到 default_console_size，避免不同入口产生
     // 80x25/120x30 的分裂默认值。

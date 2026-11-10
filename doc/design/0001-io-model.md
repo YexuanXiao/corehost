@@ -318,3 +318,17 @@ nullptr 或伪窗口、flags 变体都试过），CSRSS 阻塞约 5 秒后返回
 用户态无法绕过。模拟该行为只会让每次关闭多等 5 秒而没有可观察效果，因此按决定
 不实现：WM_CLOSE 直接结束会话，不伪造 close 事件。应用在 corehost ConPTY 下不应
 依赖 close 处理器（该差异记录在 gaps G18）。
+## 4.19 默认 out_mode 与 conhost 一致
+
+conhost 的 `srvinit.cpp:169-173` 在 **ConPTY 模式**下强制
+`SetDefaultVirtTermLevel(1)`，忽略用户注册表 `HKCU\Console\VirtualTerminalLevel`；
+只有普通控制台窗口才使用注册表值。`screenInfo.cpp` 据此在创建屏幕缓冲区时把
+`ENABLE_VIRTUAL_TERMINAL_PROCESSING` 加入 `OutputMode`。
+
+corehost 只服务 ConPTY，因此在会话初始化时：
+1. 读取并记录 `VirtualTerminalLevel`（诊断用）；
+2. 按 `effective_virtual_terminal_level(registry_level, conpty_mode=true)` 强制
+   取 1（`console_state.hpp` 的纯函数，可单测）；
+3. `state.output_mode = output_mode_for_virtual_terminal_level(1)`。
+
+差分测试已把 `out_mode` 纳入比较（此前 corehost=3、conhost=7 的差异即由此修复）。

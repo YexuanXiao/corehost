@@ -268,13 +268,13 @@ int wmain(int argc, wchar_t **argv)
     struct scenario
     {
         const wchar_t *name;
-        const char *keys[6];
+        const char *keys[8];
         size_t key_count;
     };
     // api 场景只比较稳定字段；raw/input 场景比较 Ctrl+C 后客户端 API 的返回值
     // 文本（0 字节/0 记录 + last error），这是宿主的可观察契约。
     const scenario scenarios[] = {
-        {L"api", {"in_mode", "attr_after", "cursor_size", "cursor_visible", "title", "title_len"}, 6},
+        {L"api", {"in_mode", "out_mode", "attr_after", "cursor_size", "cursor_visible", "title", "title_len"}, 7},
         // raw/record 读的 Ctrl+C 结果只记录不比较：conhost 在 ConPTY 下对这两类
         // 读不返回（其自身问题），corehost 返回 0 字节。
         {L"raw_ctrl", {}, 0},
