@@ -10,7 +10,7 @@
 | G2 | ~~ssh 远程组合~~ | DONE：测试库 `tests/lib/ssh_server.hpp` 在测试目录旁生成密钥与最小 sshd_config，以当前用户身份在高端口拉起**临时 sshd**（非管理员），`ssh` 非交互命令与 `ssh_pty` 交互会话两条用例均通过；不再依赖系统 sshd 服务 | — | D3 |
 | G3 | ~~伪窗口 show/hide 信号~~ | DONE：`WM_SIZE(SIZE_MINIMIZED/RESTORED)`、`WM_SHOWWINDOW` 在会话锁内向 vt_out 写 `ESC[2t/1t`（原版 `VtIo::Writer::WriteWindowVisibility` 同款）；`ConPTY.Programs` 的 visibility 用例验证 | — | B7 |
 | G4 | 真实 WindowsTerminal 层（L2） | 未开始：defterm 测试目前覆盖 L0（ConDrv 直连），没有真正拉起 WT 并做端到端交互 | 需要交互式桌面 + 已安装 WT；用例要能探测并 SKIP | C6 |
-| G5 | Handoff 替身层（L1） | 未开始：没有测试实现的 COM handoff 接收方 | 需要一个最小 `IConsoleHandoff` 本地服务器；可先在 defterm 分支上做 | C6 |
+| G5 | ~~handoff 替身层~~ | DONE：handoff 协议拆到 `corehost/defterm/handoff_session.hpp`，测试用进程内 `IConsoleHandoff` 替身驱动 `perform_handoff()`（`Defterm.Handoff`，2 个用例），不碰注册表、不启动 WindowsTerminal | — | C6 |
 | G6 | ~~输出侧 `vt_output_buffer::flush` 的 `noexcept` 路径~~ | DONE：对端关闭仍按预期失败丢弃；其它写失败改为记录后 `abort`（致命） | — | A9 |
 | G7 | ~~`defterm.cpp` 的 `connect_handler::on_idle()` 空实现~~ | DONE：调用点与方法已删除 | — | A9/A6b |
 | G8 | CR/LF 跨批次 lookahead 在线程模型下的归属 | `_on_line_terminator` 会在批次末尾 `PeekNamedPipe` 找 LF；threaded 模式下由输入线程执行，但缺专门用例 | 增加"CR 与 LF 分两次到达"的用例，断言不产生多余行 | A10 |

@@ -48,6 +48,7 @@ ctest --test-dir build --output-on-failure
 | 需求 | 证据 |
 | --- | --- |
 | 测试库（runner/隔离/超时/宿主层/失败归档） | `Runner.SelfTest`、`Platform.SelfTest`；失败用例自动归档日志到 `test-artifacts/<case>/` |
+| defterm handoff 协议（替身层） | `Defterm.Handoff`：portable attach 字段、句柄有效性、失败路径 |
 | defterm 自动化（不碰注册表/系统状态） | `Defterm.Connect`：CONNECT、GetConsoleMode、窗口与关闭、进程列表、压力、重复会话 |
 | conpty 真实程序 | `ConPTY.Programs`：cmd、嵌套子进程、powershell、vim、edit |
 | conpty 健壮性 | `ConPTY.Robustness`：resize、clear、非法尺寸、退出码、50 次重复 |
@@ -57,7 +58,7 @@ ctest --test-dir build --output-on-failure
 ## 5. 已知缺口（详见 `04-open-gaps.md`）
 
 - ~~G2~~：已用临时 sshd 解决；
-- **G4/G5**：真实 WindowsTerminal 层与 handoff 替身层未实现；
+- **G4**：真实 WindowsTerminal 层未实现（G5 已用替身层覆盖）；
 
 - 偶发：一次完整 `ctest` 出现 1 个失败，立即复跑通过；未定位到具体用例（日志被覆盖）。后续应给失败用例保留产物（`--output-on-failure` 已开，但需归档日志）。
 
@@ -67,7 +68,7 @@ ctest --test-dir build --output-on-failure
 | --- | --- | --- |
 | 1. I/O 模型 | 完成 | — |
 | 2. GetConsoleWindow 伪窗口 | 完成 | — |
-| 3. defterm 测试 | 确定性层完成 | 真实 WT 层（G4）、handoff 替身层（G5） |
+| 3. defterm 测试 | 确定性层 + handoff 替身层完成 | 真实 WT 层（G4） |
 | 4. conpty 测试 | 主矩阵完成 | ssh（G2，环境）、Ctrl+C（G11，暂停） |
 
 最终一次完整运行：构建通过，`ctest` **23/23 通过，41.46s**。
@@ -82,7 +83,7 @@ ctest --test-dir build --output-on-failure
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-第 62 轮实测：**23/23 通过，27.64s**；`ConPTY.Programs` 9 passed / 0 skipped。
+第 63 轮实测：**24/24 通过，27.75s**；`ConPTY.Programs` 9 passed / 0 skipped。
 
 ## 7. 结论''
 
