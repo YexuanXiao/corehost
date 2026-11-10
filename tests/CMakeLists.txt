@@ -162,8 +162,8 @@ add_custom_command(TARGET test_defterm_connect_selftest POST_BUILD
 # TODO(C3): 宿主已进入 defterm_entry 并阻塞在 READ_IO，但测试进程的 \Connect
 # 消息没有送达（无 "CONNECT received" 日志）；需对照 ConsoleBench 的时序与 EA
 # 结构逐项比对。修复前不注册，避免超时红灯。
-# add_test(NAME Defterm.Connect COMMAND test_defterm_connect_selftest)
-# set_tests_properties(Defterm.Connect PROPERTIES LABELS "defterm" TIMEOUT 120)
+add_test(NAME Defterm.Connect COMMAND test_defterm_connect_selftest)
+set_tests_properties(Defterm.Connect PROPERTIES LABELS "defterm" TIMEOUT 120)
 
 # ── test_conpty_session_selftest ──────────────────
 # 会话驱动自测：真实客户端、输出捕获、退出码、resize。

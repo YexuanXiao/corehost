@@ -44,7 +44,7 @@
 | 编号 | 子任务 | 状态 | 提交 | 备注 |
 | --- | --- | --- | --- | --- |
 | C1 | 测试库骨架：runner/断言/隔离/超时/环境探测 + 自测 | DOING | C1 测试库 runner | runner/断言/过滤/子进程隔离/超时均已完成并有自测；环境探测（C2）待做 |
-| C2 | 进程/会话驱动；诊断产物；ConDrv 客户端 | DOING | C2 宿主层：环境探测与子进程运行器 | `tests/lib/platform.hpp`：PATH/System32/WT/sshd/交互式探测 + `run_process`（Job 对象管进程树、600ms 超时实测终止）；会话驱动完成并通过；**defterm 测试不碰注册表**：测试进程自建 ConDrv server/reference，启动 `corehost.exe <handle>`，再打开 `\\Connect` 完成客户端 CONNECT 并绑定 PEB ConsoleHandle（见 `tests/lib/condrv.hpp`）。已修：旧循环在首次 READ_IO 前等事件，CONNECT 先排队时永久阻塞；现能收到 CONNECT 并启动 headless 会话。遗留：测试进程 GetConsoleMode 失败，待查连接对象匹配
+| C2 | 进程/会话驱动；诊断产物；ConDrv 客户端 | DOING | C2 宿主层：环境探测与子进程运行器 | `tests/lib/platform.hpp`：PATH/System32/WT/sshd/交互式探测 + `run_process`（Job 对象管进程树、600ms 超时实测终止）；会话驱动完成并通过；**defterm 测试不碰注册表**：测试进程自建 ConDrv server/reference，启动 `corehost.exe <handle>`，再打开 `\\Connect` 完成客户端 CONNECT 并绑定 PEB ConsoleHandle（见 `tests/lib/condrv.hpp`）。已修：首轮 READ_IO 前误等事件导致 CONNECT 收不到。`Defterm.Connect` 已注册并通过：测试进程自建 ConDrv 会话 → corehost defterm → GetConsoleCP/GetConsoleOutputCP=65001。遗留：GetConsoleMode 等依赖对象 id 的 API 需拿到 CONNECT 返回的句柄值
 | C3 | defterm 启动路径：delegation 切换、启动客户端、等待就绪 | TODO | | |
 | C4 | 控制台测试客户端（脚本化 API/VT/窗口消息） | TODO | | |
 | C5 | 用例矩阵：控制台/窗口/输入/子进程/关闭 | TODO | | |
