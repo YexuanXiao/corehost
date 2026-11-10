@@ -129,6 +129,29 @@ add_custom_command(TARGET test_conpty_e2e POST_BUILD
 add_test(NAME ConPTY.E2E COMMAND test_conpty_e2e)
 set_tests_properties(ConPTY.E2E PROPERTIES LABELS "conpty;e2e" TIMEOUT 60)
 
+# ── test_conpty_window ─────────────────────────────
+# GetConsoleWindow 伪窗口端到端：枚举、不可见、同步消息、WM_CLOSE 结束会话。
+add_executable(test_conpty_window
+    test_conpty_window.cpp
+)
+target_include_directories(test_conpty_window PRIVATE
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_conpty_window PRIVATE test_common conpty_static)
+add_dependencies(test_conpty_window corehost)
+add_custom_command(TARGET test_conpty_window POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:corehost>"
+        "$<TARGET_FILE_DIR:test_conpty_window>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_conpty_window>/logs"
+)
+add_test(NAME ConPTY.PseudoWindow COMMAND test_conpty_window)
+set_tests_properties(ConPTY.PseudoWindow PROPERTIES
+    LABELS "conpty;window"
+    TIMEOUT 60
+)
+
 # ── test_conpty_idle_cpu ───────────────────────────
 # 空闲 CPU 回归：验证消除轮询后没有输入时不空转。
 add_executable(test_conpty_idle_cpu

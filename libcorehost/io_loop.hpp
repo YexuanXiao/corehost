@@ -31,6 +31,7 @@ namespace corehost::conpty
 // 都是非拥有句柄；router 持有实际状态机，session_lock 保护全部控制台共享状态。
 inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view input_available,
                                  win32::shared_mutex &session_lock, win32::handle_view state_changed,
+                                 win32::handle_view close_requested,
                                  message_router &router)
 {
     LOG("run_io_loop_no_setup: enter");
@@ -163,17 +164,45 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
 
         if (wait_for_state)
         {
-            // 只等输入线程完成挂起请求或关闭输入，醒来后重新读取真实状态。
-            const auto wait = win32::wait_one(state_changed, INFINITE);
-            if (wait.abandoned())
-                win32::throw_last_error(win32::error::invalid_state);
+            // 只等输入线程完成挂起请求、关闭输入，或窗口请求关闭会话。
+            if (!close_requested.valid())
+            {
+                const auto wait = win32::wait_one(state_changed, INFINITE);
+                if (wait.abandoned())
+                    win32::throw_last_error(win32::error::invalid_state);
+            }
+            else
+            {
+                const auto wait = win32::wait_any(state_changed, close_requested, INFINITE);
+                if (wait.abandoned())
+                    win32::throw_last_error(win32::error::invalid_state);
+                if (wait.index == 1)
+                {
+                    LOG("run_io_loop_no_setup: close requested while pending");
+                    break;
+                }
+            }
         }
         else if (wait_for_any)
         {
-            // ConDrv 有新消息，或输入/信号线程改变了会话状态。
-            const auto wait = win32::wait_any(input_available, state_changed, INFINITE);
-            if (wait.abandoned())
-                win32::throw_last_error(win32::error::invalid_state);
+            // ConDrv 有新消息、输入/信号线程改变状态，或窗口请求关闭会话。
+            if (!close_requested.valid())
+            {
+                const auto wait = win32::wait_any(input_available, state_changed, INFINITE);
+                if (wait.abandoned())
+                    win32::throw_last_error(win32::error::invalid_state);
+            }
+            else
+            {
+                const auto wait = win32::wait_any(input_available, state_changed, close_requested, INFINITE);
+                if (wait.abandoned())
+                    win32::throw_last_error(win32::error::invalid_state);
+                if (wait.index == 2)
+                {
+                    LOG("run_io_loop_no_setup: close requested by window");
+                    break;
+                }
+            }
         }
     }
 

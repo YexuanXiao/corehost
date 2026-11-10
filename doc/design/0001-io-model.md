@@ -197,3 +197,26 @@ INFINITE；"探查状态"必须通过读取真实状态完成，不能通过等�
    后发起，此时主线程不持锁）。
 5. `ReadFile` 返回 0 字节（对端关闭）与 `ERROR_OPERATION_ABORTED`（取消）必须
    严格区分：前者是 EOF，后者是"停止"，不能混为一谈。
+
+### 4.10 实测发现：ConDrv READ_IO 是阻塞的
+
+B6 的伪窗口用例暴露出一个此前被注释误导的事实：`DeviceIoControl(IOCTL_READ_IO)`
+在没有消息时会**阻塞**，而不是立即返回 `ERROR_IO_PENDING`。证据：窗口线程在
+12:24:04 收到 `WM_CLOSE` 并置位事件，主循环直到 12:24:09 测试拆除会话、ConDrv
+断开时才打印 "read_io false, exiting"——5 秒里主线程一直停在 READ_IO 内部。
+
+推论与调整：
+
+1. **主循环的 `wait_any` 只是安全网**：正常情况下主线程阻塞在 READ_IO 上，
+   ConDrv 有新消息或断开时自然返回，本身就不轮询。
+2. 输入线程完成 pending 请求时不需要唤醒主线程（它已经用 COMPLETE_IO 直接
+   完成），唤醒只用于"会话状态需要主线程决策"的场景。
+3. **`WM_CLOSE` 必须能打断 READ_IO**：窗口线程收到 `WM_CLOSE` 后，除了置位
+   `close_requested`，还要对主线程调用 `CancelSynchronousIo`（与 4.6 的取消
+   协议同一套机制）。`read_io_try` 需要把 `ERROR_OPERATION_ABORTED` 当作
+   "本轮无消息，重新评估状态"，而不是当作意外错误。
+4. 因此 B6 的实现顺序是：暴露主线程句柄给窗口线程 → 关闭时取消 READ_IO →
+   主循环检查 `close_requested` → 走统一关闭路径（给客户端发关闭事件、退出）。
+
+这条发现同时说明：`ConPTY.IdleCpu` 的 0ms 不只是"没轮询"，还因为主线程根本
+不在用户态空转，而是在内核里等消息。

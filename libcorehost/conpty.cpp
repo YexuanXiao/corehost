@@ -184,7 +184,7 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
         signal_thread.start();
 
     LOG("corehost::conpty::run_conpty_session: entering io loop");
-    corehost::conpty::run_io_loop_no_setup(server, event, session_lock, state_changed.view(), router);
+    corehost::conpty::run_io_loop_no_setup(server, event, session_lock, state_changed.view(), pseudo_window::instance().close_requested(), router);
     LOG("corehost::conpty::run_conpty_session: loop returned");
 
     // ── 退出：先停输入源，再释放会话状态 ──
