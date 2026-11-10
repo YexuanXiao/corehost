@@ -214,16 +214,15 @@ int ctrl_read_probe(const wchar_t *result_file)
 
 wchar_t g_close_marker_path[MAX_PATH]{};
 
+HANDLE g_handler_event = nullptr;
+volatile ULONG g_handler_code = 0;
+
 BOOL WINAPI marker_event_handler(DWORD event)
 {
-    FILE *file = nullptr;
-    if (::_wfopen_s(&file, g_close_marker_path, L"ab") == 0 && file != nullptr)
-    {
-        char line[32]{};
-        ::sprintf_s(line, "EVENT=%lu\r\n", static_cast<unsigned long>(event));
-        std::fwrite(line, 1, std::strlen(line), file);
-        std::fclose(file);
-    }
+    // 处理器在独立线程执行：只记录并置事件，文件由主线程写，避免与进程退出竞争。
+    g_handler_code = event;
+    if (g_handler_event != nullptr)
+        ::SetEvent(g_handler_event);
     return TRUE; // 处理掉事件，进程存活以便观察
 }
 
@@ -234,6 +233,9 @@ int handler_probe(const wchar_t *marker_path)
         return 13;
     ::wcsncpy_s(g_close_marker_path, marker_path, _TRUNCATE);
     ::DeleteFileW(g_close_marker_path);
+    g_handler_event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (g_handler_event == nullptr)
+        return 20;
     ::SetConsoleCtrlHandler(&marker_event_handler, TRUE);
 
     constexpr char ready[] = "HANDLER-PROBE-READY\r\n";
@@ -243,6 +245,19 @@ int handler_probe(const wchar_t *marker_path)
     char buffer[32]{};
     DWORD read = 0;
     ::ReadConsoleA(::GetStdHandle(STD_INPUT_HANDLE), buffer, sizeof(buffer), &read, nullptr);
+
+    const bool handled = ::WaitForSingleObject(g_handler_event, 10000) == WAIT_OBJECT_0;
+    FILE *file = nullptr;
+    if (::_wfopen_s(&file, g_close_marker_path, L"wb") == 0 && file != nullptr)
+    {
+        char line[48]{};
+        if (handled)
+            ::sprintf_s(line, "EVENT=%lu\r\n", static_cast<unsigned long>(g_handler_code));
+        else
+            ::strcpy_s(line, "EVENT=none\r\n");
+        std::fwrite(line, 1, std::strlen(line), file);
+        std::fclose(file);
+    }
     return 0;
 }
 
