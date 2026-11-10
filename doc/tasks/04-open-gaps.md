@@ -35,9 +35,9 @@
 | G22 | ~~输入状态所有权文档与实现不符~~ | DONE：`vt_input_state.hpp` 头部改为"输入线程独占 vt_in 读取；bridge 状态由会话锁串行访问"，并说明主线程会消费批间残留字节 | — | A |
 | G23 | 测试库缺 VT 屏幕模型 | 现有断言依赖字节子串（`tests/lib/conpty_session.hpp` 只有输出泵）；无法验证单元格/属性/光标 | 新增 `tests/lib/vt_screen.hpp` 并迁移至少 2 个用例 | D1 |
 | G24 | ~~缺与系统 conhost 的差分测试~~ | DONE：`tests/test_conpty_differential.cpp` 把测试目录里的 corehost.exe 换成复制的 `%SystemRoot%\System32\conhost.exe`（libconpty 按名查找宿主），同一 API 探针在两个宿主下运行并比较。用差分发现并修复了两个真实差异：`GetConsoleTitleW` 的 `TitleLength` 应为字符数（原实现返回字节数）、`GetConsoleMode(input)` 应补 `EXTENDED_FLAGS/INSERT/QUICK_EDIT/AUTO_POSITION`。`out_mode` 不比较：conhost 默认 VT processing 取决于用户注册表 `VirtualTerminalLevel` | 继续扩充场景（resize/换行等已知 conhost bug 领域只记录） | D |
-| G25 | ssh 负路径缺失 | 仅覆盖 loopback 成功路径（`test_conpty_programs.cpp` ssh/ssh_pty） | 补认证失败、远端退出码、交互 Ctrl+C 三条用例 | D3 |
+| G25 | ~~ssh 负路径缺失~~ | DONE：未授权密钥（Permission denied + 非 0 退出）、远端 `exit 7` 传播、交互会话 ^C 中断远端命令三条用例通过；raw read 改为"有字节即返回"（conhost readDataRaw 语义） | — | D3 |
 | G26 | ~~defterm handoff 失败后为无窗口 headless~~ | 已文档化：`design/0001` §4.13 记录该取舍与影响（handoff 失败时无输入/输出，conhost 会回退本地窗口；本实现按"委托失败即通知并打断客户端"设计） | 若需要本地窗口回退，另立计划 | A |
-| G27 | 零断言/未注册测试 | `tests/test_width_verify.cpp` 未注册进 ctest；`ConPTY.SbAttrProbe` 无断言（纯诊断） | 删除未注册手工测试；差分或删除 sbattr 探针，避免"测试"名不副实 | C/D |
+| G27 | ~~零断言/未注册测试~~ | DONE：删除未注册的 `test_width_verify.cpp` 与 0 断言的 `test_conpty_sbattr_probe`（差分测试覆盖其目的）；测试目标 26 个 | — | C/D |
 
 ## 3. 已决定不做（有理由）
 

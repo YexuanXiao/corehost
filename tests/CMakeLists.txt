@@ -403,29 +403,6 @@ set_tests_properties(ConPTY.PowerShellError PROPERTIES
     TIMEOUT 45
 )
 
-# ── test_conpty_sbattr_probe ────────────────────
-# 探针：对比 corehost 与系统 conhost 对 SetConsoleTextAttribute /
-# GetConsoleScreenBufferInfo 的响应（颜色语义差异诊断用）。
-add_executable(test_conpty_sbattr_probe
-    test_conpty_sbattr_probe.cpp
-)
-target_include_directories(test_conpty_sbattr_probe PRIVATE
-    ${CMAKE_SOURCE_DIR}
-)
-target_link_libraries(test_conpty_sbattr_probe PRIVATE test_common conpty_static)
-add_dependencies(test_conpty_sbattr_probe corehost)
-add_custom_command(TARGET test_conpty_sbattr_probe POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:corehost>"
-        "$<TARGET_FILE_DIR:test_conpty_sbattr_probe>"
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-        "$<TARGET_FILE_DIR:test_conpty_sbattr_probe>/logs"
-)
-add_test(NAME ConPTY.SbAttrProbe COMMAND test_conpty_sbattr_probe)
-set_tests_properties(ConPTY.SbAttrProbe PROPERTIES
-    LABELS "conpty;diagnostic"
-    TIMEOUT 45
-)
 
 # ── test_conpty_writeconsole_cursor ──────────────────
 add_executable(test_conpty_writeconsole_cursor
