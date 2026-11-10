@@ -117,3 +117,23 @@ WindowsTerminal 并交互"，所以 L2 是验收项，L1 是日常回归主力�
   避免用例大面积重写。
 - 若子进程隔离开销成为瓶颈，可对纯逻辑用例（无会话）提供"同进程执行"标记，
   但默认仍是隔离执行。
+## 测试进程不得弹出可见窗口
+
+测试运行时出现的 conhost 窗口通常来自两类进程创建：
+
+1. **真实默认终端冒烟**：`Defterm.RealTerminal` 用 `CREATE_NEW_CONSOLE` 启动
+   `cmd.exe`，让 Windows 把控制台创建委托给默认终端。这会在桌面上真实创建
+   控制台窗口（默认终端为 WT 时表现为 WT/conhost 窗口一闪而过）。该用例改为
+   **显式 opt-in**：只有设置 `COREHOST_TEST_REAL_TERMINAL=1` 才运行，否则 SKIP。
+2. **测试子进程**：`runner::run_isolated` 的每个隔离用例、`condrv` 的宿主进程
+   都是控制台程序。父进程有控制台时它们继承，不新建窗口；父进程没有控制台时
+   （Visual Studio Test Explorer、GUI 宿主等）Windows 会给每个子进程新建一个
+   可见控制台 → conhost 闪窗。现在：
+   - `run_isolated` 在 `GetConsoleWindow() == nullptr` 时用 `CREATE_NO_WINDOW`；
+   - `condrv` 启动宿主固定加 `CREATE_NO_WINDOW`（宿主不需要控制台）；
+   - ConPTY 客户端由 `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE` 提供伪控制台；
+     libconpty 启动的 conhost 一律带 `--headless`；`ssh_server`/`run_process`
+     已使用 `CREATE_NO_WINDOW`。
+
+因此正常 `ctest` 只会出现 `--headless` 的 ConPTY 宿主和 `CREATE_NO_WINDOW`
+（命令行 `conhost.exe 0x4`）的控制台宿主，二者都没有可见窗口。

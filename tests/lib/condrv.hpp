@@ -126,7 +126,8 @@ inline bool launch_defterm_host(std::wstring_view corehost_path, win32::handle_v
                  static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(server.get())));
 
     PROCESS_INFORMATION process{};
-    const BOOL created = ::CreateProcessW(nullptr, buffer, nullptr, nullptr, TRUE, EXTENDED_STARTUPINFO_PRESENT,
+    const BOOL created = ::CreateProcessW(nullptr, buffer, nullptr, nullptr, TRUE,
+                                          EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW,
                                           nullptr, nullptr, &startup.StartupInfo, &process);
     ::DeleteProcThreadAttributeList(attributes);
 

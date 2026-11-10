@@ -248,7 +248,11 @@ inline run_stats run_isolated(std::span<const test_case> cases, std::string_view
         startup.cb = sizeof(startup);
         PROCESS_INFORMATION process{};
 
-        if (::CreateProcessW(module_path, command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup,
+        // 父进程没有可见控制台时（例如 Visual Studio 测试宿主），子进程默认会
+        // 新建一个可见控制台窗口（conhost 闪窗）；用一个无窗口控制台代替。
+        // 父进程有控制台时保持继承，保留隔离用例的失败诊断输出。
+        const DWORD creation_flags = (::GetConsoleWindow() == nullptr) ? CREATE_NO_WINDOW : 0;
+        if (::CreateProcessW(module_path, command.data(), nullptr, nullptr, FALSE, creation_flags, nullptr, nullptr, &startup,
                              &process) == FALSE)
         {
             std::fwprintf(stderr, L"  %hs ... CREATE FAILED (err=%lu)\n", test.name, ::GetLastError());

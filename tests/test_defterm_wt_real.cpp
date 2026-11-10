@@ -6,6 +6,9 @@
 // 程序——Windows 会把这次控制台创建委托给默认终端（true defterm handoff），
 // 由 WT 托管这个控制台。用例只断言"命令确实在委托后的控制台里执行了"。
 //
+// 默认 SKIP：本用例会用 CREATE_NEW_CONSOLE 真实创建控制台窗口，设置
+// COREHOST_TEST_REAL_TERMINAL=1 才运行，避免 ctest 在桌面弹窗。
+//
 // 默认终端是 conhost、或该键不存在时，用例 SKIP：这条路径依赖机器配置，
 // 不属于本仓库可控的状态。
 #include "test_common.hpp"
@@ -70,6 +73,16 @@ bool read_file(const std::filesystem::path &path)
 // 默认终端是 WT 时，普通控制台程序的控制台创建会被委托给 WT。
 bool console_creation_is_delegated_to_terminal()
 {
+    // 默认跳过：CREATE_NEW_CONSOLE 会真实创建控制台窗口（默认终端为 WT 时，
+    // 会在桌面拉起 WT/conhost 窗口），只在显式 opt-in 时运行，避免 ctest
+    // 在交互桌面上"一闪而过"地弹窗。
+    if (::GetEnvironmentVariableW(L"COREHOST_TEST_REAL_TERMINAL", nullptr, 0) == 0)
+    {
+        std::wcout << L"    [skip] set COREHOST_TEST_REAL_TERMINAL=1 to run real handoff" << std::endl;
+        return true;
+    }
+
+
     const std::wstring clsid = default_terminal_clsid();
     if (clsid.empty())
     {
