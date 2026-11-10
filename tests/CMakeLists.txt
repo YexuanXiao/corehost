@@ -129,6 +129,29 @@ add_custom_command(TARGET test_conpty_e2e POST_BUILD
 add_test(NAME ConPTY.E2E COMMAND test_conpty_e2e)
 set_tests_properties(ConPTY.E2E PROPERTIES LABELS "conpty;e2e" TIMEOUT 60)
 
+# ── test_conpty_idle_cpu ───────────────────────────
+# 空闲 CPU 回归：验证消除轮询后没有输入时不空转。
+add_executable(test_conpty_idle_cpu
+    test_conpty_idle_cpu.cpp
+)
+target_include_directories(test_conpty_idle_cpu PRIVATE
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_conpty_idle_cpu PRIVATE test_common conpty_static)
+add_dependencies(test_conpty_idle_cpu corehost)
+add_custom_command(TARGET test_conpty_idle_cpu POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:corehost>"
+        "$<TARGET_FILE_DIR:test_conpty_idle_cpu>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_conpty_idle_cpu>/logs"
+)
+add_test(NAME ConPTY.IdleCpu COMMAND test_conpty_idle_cpu)
+set_tests_properties(ConPTY.IdleCpu PROPERTIES
+    LABELS "conpty;perf"
+    TIMEOUT 60
+)
+
 # ── test_edit_conpty_real ───────────────────────────
 add_executable(test_edit_conpty_real
     edit_conpty_real.cpp

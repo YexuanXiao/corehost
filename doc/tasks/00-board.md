@@ -23,7 +23,7 @@
 | A7 | defterm 初始 CONNECT 循环与 handoff 等待循环收敛到同一模型 | DONE | A7 defterm 循环去轮询 | 初始循环 INFINITE 等 input_event；handoff 用信号线程 + 等 {终端进程, 管道关闭}；待阶段 C 真机验证 |
 | A8 | 退出协议：停止标志、事件驱动取消、无限 join | DONE | A4/A5 输入与信号线程 | 终止性由构造保证；压力验证归 A10 |
 | A9 | 错误分类审计：所有系统调用检查、致命路径统一 | DOING | A9 审计新建路径 | 见 `doc/tasks/03-a9-error-audit.md`；遗留：输出 flush、死代码、defterm 空 on_idle |
-| A10 | 性能与唤醒验证：空转计数、CPU、时延、压力、泄漏 | TODO | | 计划做成自动化用例 `ConPTY.IdleCpu`：5 秒空闲内 corehost 进程 CPU 增量阈值断言，替代手工采样 |
+| A10 | 性能与唤醒验证：空转计数、CPU、时延、压力、泄漏 | DOING | A10 空闲 CPU 用例 | `ConPTY.IdleCpu`：3 秒空闲实测 **0 ms** CPU（阈值 100ms）；时延/压力/泄漏待测试库落地后补 |
 | A11 | 文档更新与提交 | TODO | | |
 
 ## 阶段 B：GetConsoleWindow 伪窗口（任务 2）
@@ -73,8 +73,8 @@
 | --- | --- | --- | --- |
 | 构建 | 通过（`ninja: no work to do`） | 2026-11-10 | `cmake --build build` |
 | 配置 | Debug / Ninja / MSVC 14.52 / `COREHOST_LOG_LEVEL=2` | 2026-11-10 | `build/CMakeCache.txt` |
-| 测试 | 15/15 通过，6.41s（A3 后复测） | 2026-11-10 | `ctest --test-dir build --output-on-failure` |
-| 空闲 CPU | 待采集 | | A10 统一方法 |
+| 测试 | 16/16 通过（新增 ConPTY.IdleCpu） | 2026-11-11 | `ctest --test-dir build --output-on-failure` |
+| 空闲 CPU | 改造后 3 秒空闲 0 ms；改造前未采样（旧实现按 16ms 唤醒，理论值远高于此） | 2026-11-11 | `ConPTY.IdleCpu` |
 | 输入时延 | 待采集 | | A10 统一方法 |
 | 环境 | WT 已安装；`ssh.exe`/`sshd.exe` 存在；交互式桌面 | 2026-11-10 | 命令探测 |
 | 环境注意 | 受限文件沙箱下 CMake 的 `try_compile` 子进程会挂起（编译器探测卡死）；配置/构建需要完整权限 | 2026-11-10 | 最小工程复现 |
