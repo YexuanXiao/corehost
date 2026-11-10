@@ -87,6 +87,7 @@
 | 2026-11-10 | 不用"每输入一个队列"，控制台是同步处理，多线程只为消除轮询 | `design/0001` 方案 D：会话锁 + 数据到达即处理 |
 | 2026-11-10 | **禁止任何等待上限**：不许用超时放弃等待 | `design/0001` 4.6；`plan/01` 第 2/6 节；`cancellable_read::wait_for_exit` 改为无限等待 |
 | 2026-11-11 | defterm 测试禁止改注册表/系统状态：构造 ConDrv 句柄 + 启动控制台程序 + 交给 defterm | `tests/lib/condrv.hpp`；plan/03 与 design/0003 已修订 |
+| 2026-11-11 | fork（corehost_another-fork）只作参考，不作为正确性来源；借鉴项必须有 conhost 依据或本仓库用例 | `design/0005-fork-reference-policy.md` |
 | 2026-11-11 | **禁止单例与全局可变状态**，依赖必须参数传递 | 删除 `pseudo_window::instance()`；窗口实例由会话持有，hwnd 经 `console_state::window_handle` 传给 API handler |
 
 ## 阻碍

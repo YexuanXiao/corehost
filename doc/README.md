@@ -54,5 +54,6 @@
 | `design/0002-console-window.md` | 伪窗口：窗口类型、消息策略、生命周期 | DONE |
 | `design/0003-conhost-test-library.md` | 测试库：框架、隔离、驱动方式 | DONE |
 | `design/0004-input-thread-split.md` | 输入侧拆分：状态先搬、引用别名、分步实施 | DONE |
+| `design/0005-fork-reference-policy.md` | fork 只作参考：借鉴项必须有依据或有本仓库用例 | DONE |
 
 新增设计取舍时按 `NNNN-kebab-case.md` 递增编号，并在上表登记。
