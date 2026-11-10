@@ -63,6 +63,7 @@ target_sources(common
                 win32/process.hpp
                 win32/process_information.hpp
                 win32/registry_key.hpp
+                win32/srwlock.hpp
                 win32/string.hpp
                 win32/tags.hpp
                 win32/thread.hpp
