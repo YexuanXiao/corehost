@@ -4,6 +4,7 @@
 // 设计见 doc/plan/04-conpty-tests.md：每用例独立会话、条件+截止时间等待、
 // 外部程序缺失时 SKIP 而不是假装通过。
 #include "lib/conpty_session.hpp"
+#include "lib/ssh_server.hpp"
 #include "lib/platform.hpp"
 #include "lib/runner.hpp"
 
@@ -157,31 +158,32 @@ corehost::test::result ssh_remote_command()
     if (!corehost::test::file_exists(ssh))
         SKIP(L"ssh.exe not found");
 
-    const DWORD state = corehost::test::service_state(L"sshd");
-    if (state != SERVICE_RUNNING)
-        SKIP(L"sshd service is not running (start requires administrator)");
+    // 用测试进程自己拉起的临时 sshd（当前用户、高端口、密钥认证），
+    // 不依赖系统 sshd 服务，也不需要管理员权限。
+    corehost::test::ssh_server server;
+    std::wstring error;
+    if (!server.start(error))
+        SKIP((L"cannot start temporary sshd: " + error).c_str());
 
     corehost::test::conpty_session session;
-    const std::wstring known_hosts = L"C:\\Windows\\Temp\\corehost_ssh_known_hosts";
-    const std::wstring command =
-        quote(ssh) + L" -tt -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=" + known_hosts +
-        L" localhost \"cmd /c echo ssh-marker\"";
+    const std::wstring command = quote(ssh) + L" " + server.client_options() + L" " + server.user() +
+                                 L"@127.0.0.1 \"cmd /c echo ssh-marker\"";
     REQUIRE(session.start(command));
 
-    const bool saw_marker = session.wait_output("ssh-marker", 30000);
+    const bool saw_marker = session.wait_output("ssh-marker", 60000);
 
     DWORD exit_code = static_cast<DWORD>(-1);
-    REQUIRE(session.wait_exit(30000, &exit_code));
+    const bool exited = session.wait_exit(30000, &exit_code);
 
-    const auto output = session.take_output();
-    if (!saw_marker && exit_code != 0 &&
-        (output.find("Permission denied") != std::string::npos ||
-         output.find("Host key verification failed") != std::string::npos))
+    if (!saw_marker)
     {
-        SKIP(L"sshd running but key authentication is not configured for this user");
+        const auto output = session.take_output();
+        std::fwprintf(stderr, L"[ssh] session output: %hs\n", output.c_str());
     }
 
+    server.stop();
     REQUIRE(saw_marker);
+    REQUIRE(exited);
     REQUIRE(exit_code == 0);
     return corehost::test::result::pass;
 }
@@ -228,6 +230,46 @@ corehost::test::result visibility_is_reported_to_terminal()
     return corehost::test::result::pass;
 }
 
+// ssh 交互会话：请求 PTY、进入远端 shell，再通过终端输入一条命令。
+// 这条用例覆盖"键盘输入经 ssh 转发到远端"的完整链路。
+corehost::test::result ssh_interactive_session()
+{
+    const auto ssh = corehost::test::system32_path(L"OpenSSH\\ssh.exe");
+    if (!corehost::test::file_exists(ssh))
+        SKIP(L"ssh.exe not found");
+
+    corehost::test::ssh_server server;
+    std::wstring error;
+    if (!server.start(error))
+        SKIP((L"cannot start temporary sshd: " + error).c_str());
+
+    corehost::test::conpty_session session;
+    const std::wstring command = quote(ssh) + L" -tt " + server.client_options() + L" " + server.user() + L"@127.0.0.1";
+    REQUIRE(session.start(command));
+
+    // 等远端 shell 起来（cmd.exe 的提示符），再输入命令。
+    const bool ready = session.wait_output(">", 60000);
+    if (!ready)
+    {
+        const auto output = session.take_output();
+        std::fwprintf(stderr, L"[ssh-pty] no prompt, output: %hs\n", output.c_str());
+    }
+    REQUIRE(ready);
+
+    REQUIRE(session.write("echo ssh-pty-marker\r"));
+    const bool saw_marker = session.wait_output("ssh-pty-marker", 30000);
+
+    if (!saw_marker)
+    {
+        const auto output = session.take_output();
+        std::fwprintf(stderr, L"[ssh-pty] missing marker, output: %hs\n", output.c_str());
+    }
+
+    server.stop();
+    REQUIRE(saw_marker);
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -240,6 +282,7 @@ int main()
         {"latency", "conpty;perf", &input_latency},
         {"edit", "conpty;program", &edit_help_runs},
         {"ssh", "conpty;program;network", &ssh_remote_command},
+        {"ssh_pty", "conpty;program;network", &ssh_interactive_session},
         {"visibility", "conpty;window", &visibility_is_reported_to_terminal},
     };
 

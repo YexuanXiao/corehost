@@ -211,7 +211,7 @@ target_include_directories(test_conpty_programs PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}
 )
-target_link_libraries(test_conpty_programs PRIVATE test_common conpty_static)
+target_link_libraries(test_conpty_programs PRIVATE test_common conpty_static ws2_32)
 add_dependencies(test_conpty_programs corehost)
 add_custom_command(TARGET test_conpty_programs POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
