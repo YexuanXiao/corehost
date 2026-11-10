@@ -295,6 +295,48 @@ corehost::test::result child_process_joins_console()
     return corehost::test::result::pass;
 }
 
+// GetConsoleProcessList：客户端应看到自己这个进程在控制台进程列表中。
+corehost::test::result process_list_contains_client()
+{
+    const auto corehost = corehost_next_to_test();
+    REQUIRE(!corehost.empty());
+
+    corehost::test::condrv_session session{};
+    DWORD error = 0;
+    REQUIRE(corehost::test::create_condrv_server(session, error));
+
+    PROCESS_INFORMATION host{};
+    REQUIRE(corehost::test::launch_defterm_host(corehost, session.server.view(), error, &host));
+    REQUIRE(corehost::test::connect_client(session, L"defterm-processes", L"defterm-processes.exe", false, error));
+    corehost::test::bind_console_connection(session.connection.view());
+
+    DWORD pids[8]{};
+    const DWORD count = ::GetConsoleProcessList(pids, ARRAYSIZE(pids));
+
+    const HWND window = ::GetConsoleWindow();
+    corehost::test::unbind_console_connection();
+    DWORD_PTR ignored = 0;
+    if (window != nullptr)
+        ::SendMessageTimeoutW(window, WM_CLOSE, 0, 0, SMTO_ABORTIFHUNG, 2000, &ignored);
+    session.connection = win32::handle{};
+    const DWORD wait = ::WaitForSingleObject(host.hProcess, 5000);
+    if (wait != WAIT_OBJECT_0)
+        ::TerminateProcess(host.hProcess, 1);
+    ::CloseHandle(host.hThread);
+    ::CloseHandle(host.hProcess);
+
+    REQUIRE(count >= 1);
+    bool found = false;
+    for (DWORD i = 0; i < count; ++i)
+    {
+        if (pids[i] == ::GetCurrentProcessId())
+            found = true;
+    }
+    REQUIRE(found);
+    REQUIRE(wait == WAIT_OBJECT_0);
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -305,6 +347,7 @@ int main()
         {"pressure", "defterm", &pressure_does_not_leak},
         {"sessions", "defterm", &repeated_sessions_exit_cleanly},
         {"child", "defterm", &child_process_joins_console},
+        {"processes", "defterm", &process_list_contains_client},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))
