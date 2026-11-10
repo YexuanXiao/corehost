@@ -19,7 +19,7 @@
 | A4 | 终端输入线程：读、解码、解析、键盘事件、cooked 编辑，锁内同步处理 | DONE | A4/A5 输入与信号线程 | 状态在 `vt_input_state`；线程阻塞读、锁内同步处理；ctest 15/15 |
 | A5 | 信号管道线程：协议解析、锁内应用 resize/clear/parent | DONE | A4/A5 输入与信号线程 | `pty_signal_thread`；断管按 EOF 处理 |
 | A6 | 主循环：INFINITE 等待 {InputAvailableEvent, state_changed}；删除 16ms/0ms 时间片 | DONE | A4/A5 输入与信号线程 | 死代码清理见 A6b |
-| A6b | 清理死代码：`on_idle`/`wait_for_pending_vt_input`/`pipe_bridge_io` peek 路径 | DOING | A6b 清理主循环侧轮询入口 | 已删 message_router 轮询入口与 signal::poll；剩余：pipe_bridge 的 drain/peek 辅助、defterm 空 on_idle |
+| A6b | 清理死代码：`on_idle`/`wait_for_pending_vt_input`/`pipe_bridge_io` peek 路径 | DOING | A6b 清理主循环侧轮询入口 | 已删 message_router 轮询入口、signal::poll、pipe_bridge::on_idle/wait_for_pending_vt_input；read_available 在 threaded 模式不再碰管道；剩余：drain/prepare 辅助与 defterm 空 on_idle |
 | A7 | defterm 初始 CONNECT 循环与 handoff 等待循环收敛到同一模型 | DONE | A7 defterm 循环去轮询 | 初始循环 INFINITE 等 input_event；handoff 用信号线程 + 等 {终端进程, 管道关闭}；待阶段 C 真机验证 |
 | A8 | 退出协议：停止标志、事件驱动取消、无限 join | DONE | A4/A5 输入与信号线程 | 终止性由构造保证；压力验证归 A10 |
 | A9 | 错误分类审计：所有系统调用检查、致命路径统一 | DOING | A9 审计新建路径 | 见 `doc/tasks/03-a9-error-audit.md`；遗留：输出 flush、死代码、defterm 空 on_idle |

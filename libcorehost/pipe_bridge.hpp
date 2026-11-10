@@ -410,6 +410,11 @@ struct pipe_bridge
         if (consume_queued_vt_input(room))
             return vt_read_status::bytes;
 
+        // 输入线程存在时，管道由它独占读取；主线程只能消费已经排队的字节，
+        // 不能 Peek/ReadFile，否则既造成两处轮询又可能抢走线程正在等的数据。
+        if (_input_threaded)
+            return vt_read_status::empty;
+
         DWORD read = 0;
         auto result = _io.read_available(std::span{_readbuf}.subspan(_read_total, room), read);
         if (result == vt_pipe_read_status::bytes)
@@ -1299,118 +1304,6 @@ struct pipe_bridge
         default:
             std::unreachable();
         }
-    }
-
-    // 在存在 pending 读请求时等待 VT 输入或信号消息。有信号管道时按 16ms
-    // 时间片轮询，无信号管道时才允许阻塞读 vt_in。
-    void wait_for_pending_vt_input()
-    {
-        vt_flush();
-
-        if (_pending.vt_eof() || !_pending.has_pending())
-            return;
-
-        if (drain_available_vt_input())
-        {
-            return;
-        }
-
-        if (_signal.has_pipe() && !_signal_threaded)
-        {
-            // 有信号管道时不能进入阻塞 ReadFile：resize/clear/断管都依赖主
-            // 线程轮询。先处理已到达的信号，再等待 vt_in 短时间片；vt_in
-            // 有新数据或断管时都会触发唤醒，避免固定延时空转。
-            if (poll_signal_closed())
-            {
-                // 信号管道关闭表示终端不再服务。pending 读不能继续等待用户
-                // 输入，只能按 EOF 完成，让主循环有机会退出。
-                complete_pending_with_eof();
-                return;
-            }
-            if (const auto wait = win32::wait_one(_io.vt_input(), pending_vt_input_wait_ms); wait.abandoned())
-            {
-                LOG("[bridge] pending vt input wait abandoned");
-                complete_pending_with_eof();
-                return;
-            }
-            drain_available_vt_input();
-            return;
-        }
-
-        // 无信号管道：没有其他等待源需要服务，可以阻塞读 vt_in。
-        const auto old_total = _read_total;
-        switch (read_blocking_vt_input())
-        {
-        case vt_read_status::bytes:
-            process_new_vt_input(old_total);
-            return;
-        case vt_read_status::empty:
-            return;
-        case vt_read_status::eof:
-            complete_pending_with_eof();
-            return;
-        case vt_read_status::full:
-            complete_pending();
-            return;
-        default:
-            std::unreachable();
-        }
-    }
-
-    // ── on_idle ──
-    // 没有 ConDrv 消息时推进终端输入。它负责支持 GetConsoleInput(PEEK) 这种
-    // 不挂起 ReadConsole 的输入模型，同时检测终端关闭。
-    void on_idle()
-    {
-        // 输入线程存在时，vt_in 与信号管道的读取都不归主循环。
-        if (_input_threaded)
-            return;
-
-        if (_pending.vt_eof())
-            return;
-
-        // 信号管道可能承载 resize/clear 消息，也可能在断开时标记会话结束。
-        // 轮询先于 vt_in，让尺寸变化在同一轮 idle 内生效。
-        if (poll_signal_closed())
-        {
-            LOG3("[bridge] on_idle: signal pipe closed, marking EOF");
-            _pending.set_vt_eof(true);
-            if (_pending.has_pending())
-                complete_pending();
-            return;
-        }
-
-        // 即使没有 pending ReadConsole，也要轮询 vt_in。PowerShell/PSReadLine
-        // 常用 GetConsoleInput(PEEK) 驱动输入；如果只在 ReadConsole pending
-        // 时读 vt_in，键盘事件和终端断开都会被饿死。
-        DWORD avail = 0;
-        if (!peek_vt_input(avail))
-        {
-            _pending.set_vt_eof(true);
-            if (_pending.has_pending())
-                complete_pending();
-            return;
-        }
-
-        if (avail == 0)
-        {
-            // PeekNamedPipe 的 0 字节只是“暂时没输入”。信号管道关闭已由
-            // 上方的 poll 处理，这里不需要额外动作。
-            return;
-        }
-
-        LOG3("[bridge] on_idle: avail=%lu kind=%d total=%lu", avail, static_cast<int>(_pending.kind()), _read_total);
-        if (!_pending.has_pending())
-        {
-            // edit/PSReadLine 这类程序会先等待 InputAvailableEvent，再调用
-            // GetConsoleInput。idle 不能只保存 VT 字节；必须立即解析为
-            // INPUT_RECORD 并写入 input_buffer，才能唤醒等待 stdin 的客户端。
-            drain_available_vt_input();
-            return;
-        }
-
-        if (accumulate_from_pipe())
-            return;
     }
 
     // 取消当前挂起读取并立即完成给 ConDrv。Flush/Disconnect 类路径用它把
