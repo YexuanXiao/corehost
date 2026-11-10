@@ -97,7 +97,6 @@ class vt_input_thread
                     std::unique_lock guard{*_session_lock};
                     _bridge->on_input_eof();
                 }
-                // 终端关闭 pty（vt_in EOF）：与 conhost 的 VtIo::SendCloseEvent 一样，
                 // 由输入线程在 EOF 时向仍存活的客户端投递 CTRL_CLOSE_EVENT。
                 signal_state();
                 return;
@@ -107,6 +106,9 @@ class vt_input_thread
                 std::unique_lock guard{*_session_lock};
                 _bridge->on_input_bytes(std::span<const std::byte>{staging.data(), read});
             }
+            // 控制事件在释放会话锁后投递：EndTask 可能阻塞到客户端处理器返回/
+            // CSRSS 超时，不能占着会话锁（conhost 的 ProcessCtrlEvents 也在解锁后）。
+            _bridge->deliver_ctrl_events();
             signal_state();
         }
     }

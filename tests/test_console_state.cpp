@@ -2064,16 +2064,19 @@ bool test_ctrl_event_filters_by_process_group()
 
     g_ctrl_targets.clear();
     bridge.send_ctrl_event(CTRL_C_EVENT, 0);
+    bridge.deliver_ctrl_events();
     ASSERT_EQ(g_ctrl_targets.size(), size_t{3});
 
     g_ctrl_targets.clear();
     bridge.send_ctrl_event(CTRL_BREAK_EVENT, 100);
+    bridge.deliver_ctrl_events();
     ASSERT_EQ(g_ctrl_targets.size(), size_t{2});
     ASSERT_EQ(g_ctrl_targets[0], 11u);
     ASSERT_EQ(g_ctrl_targets[1], 33u);
 
     g_ctrl_targets.clear();
     bridge.send_ctrl_event(CTRL_C_EVENT, 999);
+    bridge.deliver_ctrl_events();
     ASSERT_EQ(g_ctrl_targets.size(), size_t{0});
     return true;
 }
@@ -2109,12 +2112,14 @@ bool test_regression_ctrl_event_rejects_unknown_group()
     ASSERT(g_ctrl_targets.empty());
 
     ASSERT(invoke(100));
+    bridge.deliver_ctrl_events();
     ASSERT(msg.complete.IoStatus.Status == 0);
     ASSERT_EQ(g_ctrl_targets.size(), size_t{1});
     ASSERT_EQ(g_ctrl_targets[0], 11u);
 
     g_ctrl_targets.clear();
     ASSERT(invoke(0));
+    bridge.deliver_ctrl_events();
     ASSERT(msg.complete.IoStatus.Status == 0);
     ASSERT_EQ(g_ctrl_targets.size(), size_t{2});
     return true;

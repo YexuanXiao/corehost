@@ -20,10 +20,12 @@
 #include <cstring>
 #include <iterator>
 #include <span>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
 #include "win32/handle.hpp"
+#include "win32/srwlock.hpp"
 #include "condrv_io.hpp"
 #include "os/Console/ntcon.h"
 #include "os/Console/conmsgl1.h"
@@ -238,16 +240,36 @@ struct pipe_bridge
     // ProcessCtrlEvents 也是同一条路）。
     void send_ctrl_event(DWORD event, DWORD group) noexcept
     {
-        // 先复制目标 pid：EndTask 可能阻塞，期间 CONNECT/DISCONNECT 仍可能
-        // 在会话锁内修改注册表。
+        // 只入队，不在这里 EndTask：EndTask 可能阻塞到客户端处理器返回或
+        // CSRSS 超时（~5s），而本函数由持会话锁的输入线程/主循环调用。
+        // 真正的投递在 deliver_ctrl_events()（解锁后）执行。
         std::vector<DWORD> targets(_processes->count());
         const auto count = _processes->copy_for_group(group, std::span<DWORD>{targets.data(), targets.size()});
-        LOG2("ctrl event %lu group=%lu pids=%zu", event, group, count);
-        for (size_t index = 0; index < count; ++index)
+        targets.resize(count);
+        LOG2("ctrl event %lu group=%lu queued pids=%zu", event, group, count);
+        if (count == 0)
+            return;
+        std::unique_lock guard{_ctrl_event_lock};
+        _ctrl_events.push_back(ctrl_event_request{event, std::move(targets)});
+    }
+
+    // 在释放会话锁后调用（输入线程处理完一批输入、io_loop 完成一次 dispatch）。
+    // 与 conhost 的 ProcessCtrlEvents 一致：EndTask 不在控制台锁内执行。
+    void deliver_ctrl_events() noexcept
+    {
+        std::vector<ctrl_event_request> pending;
         {
-            const auto pid = targets[index];
-            const auto status = _ctrl_sender(pid, event, nullptr);
-            LOG2("ctrl event %lu to pid=%lu status=0x%08lx", event, pid, static_cast<unsigned long>(status));
+            std::unique_lock guard{_ctrl_event_lock};
+            pending.swap(_ctrl_events);
+        }
+        for (const auto &request : pending)
+        {
+            for (const auto pid : request.targets)
+            {
+                const auto status = _ctrl_sender(pid, request.event, nullptr);
+                LOG2("ctrl event %lu to pid=%lu status=0x%08lx", request.event, pid,
+                     static_cast<unsigned long>(status));
+            }
         }
     }
 
@@ -400,6 +422,16 @@ struct pipe_bridge
     bool _window_size_event_valid = false;
     // 控制事件投递函数。默认走 CSRSS ConsoleControl；测试可替换为记录器。
     ctrl_event_sender _ctrl_sender = &console_end_task;
+
+    // 待投递的控制事件队列。send_ctrl_event 在会话锁内入队，deliver_ctrl_events
+    // 在解锁后投递；输入线程与主循环都可能调用，故用独立 SRW 锁保护。
+    struct ctrl_event_request
+    {
+        DWORD event = 0;
+        std::vector<DWORD> targets;
+    };
+    win32::shared_mutex _ctrl_event_lock;
+    std::vector<ctrl_event_request> _ctrl_events;
 
     // bridge 对宿主终端当前光标和 cooked input 编辑边界的本地追踪。
     terminal_cursor_state _terminal;

@@ -210,6 +210,11 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
             }
         }
 
+        // ── 阶段 3.5：解锁后投递控制事件 ──
+        // Ctrl+C/Break 的 ConsoleControl(EndTask) 可能阻塞；conhost 的
+        // ProcessCtrlEvents 也只在释放控制台锁后执行。
+        router.deliver_ctrl_events();
+
         if (exit_loop)
             break;
 
@@ -240,6 +245,8 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
         }
     }
 
+    // 退出前清空可能残留的控制事件（例如 dispatch 后立刻 should_exit）。
+    router.deliver_ctrl_events();
     router.flush_vt_output();
     LOG("run_io_loop_no_setup: exit");
 }

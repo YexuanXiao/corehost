@@ -77,6 +77,12 @@ struct message_router
 
     // 将 bridge 中已缓冲的 VT 输出写到终端。I/O loop 在 completion 边界和
     // 退出前调用它，避免终端可见输出滞留。
+    // 在会话锁外投递排队的 Ctrl+C / Ctrl+Break（EndTask 可能阻塞）。
+    void deliver_ctrl_events() noexcept
+    {
+        bridge.deliver_ctrl_events();
+    }
+
     void flush_vt_output() noexcept
     {
         // vt_out 由 bridge 内部批量缓冲；router 在 completion 前后根据 I/O

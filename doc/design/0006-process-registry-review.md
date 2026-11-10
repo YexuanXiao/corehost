@@ -151,10 +151,19 @@ corehost 当前把 0 归一化为 pid，效果上覆盖了"按普通子进程 pi
 - 新增单测 `Process registry operations` 覆盖去重、移除/重加、无上限（100 项）、
   组过滤、新到旧顺序。
 
-未做（阶段 B，仍记录在 §4）：
-1. GetConsoleProcessList 缓冲不足时按 conhost 不写数据；
-2. 未知 group 的 GenerateConsoleCtrlEvent 返回 `E_INVALIDARG`；
-3. 控制事件延迟到解锁后投递（消除持锁 EndTask，并可去掉"发送前复制"）。
+阶段 B（已完成）：
+1. **GetConsoleProcessList**：缓冲不足时不写 pid、`Information=0`、
+   `dwProcessCount` 返回所需数量（conhost `E_NOT_SUFFICIENT_BUFFER` 路径），
+   单测用哨兵数据验证客户端缓冲不被改写。
+2. **未知 group**：`GenerateConsoleCtrlEvent(group != 0)` 在没有匹配进程组时返回
+   `E_INVALIDARG`（客户端 `FALSE`）；conhost 的 "group 当 pid + 父进程兜底"
+   legacy 不复刻，已在 `api_ctrl_event` 注释中说明。
+3. **控制事件延迟投递**：`send_ctrl_event` 在会话锁内只入队 `{event, targets}`
+   （targets 在锁内从 registry 解析），输入线程处理完一批输入、io_loop 完成一次
+   dispatch 后，在锁外调用 `deliver_ctrl_events()` 执行 `EndTask`。这消除了
+   持锁 `EndTask` 最长约 5s 阻塞其它客户端的问题；事件队列用独立 SRW 锁保护，
+   输入线程与主循环都可以安全 drain。行为对齐 conhost 的
+   `HandleCtrlEvent`（置标志）+ `ProcessCtrlEvents`（解锁后投递）模型。
 
 代码量说明：删除 snapshot（80 行）与各处同步/数组维护，新增 registry（约 95 行），
 **净行数接近持平**；简化体现在状态从"三份数据保持同序"降为"一份数据"，并消除了

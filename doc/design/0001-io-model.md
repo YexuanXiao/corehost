@@ -126,6 +126,10 @@ Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额�
   `CTRL_BREAK_EVENT`，同样以 `STATUS_ALERTED` 结束读。
 - 事件投递走 CSRSS `ConsoleControl(ConsoleEndTask)`（corehost 不在控制台上，
   `GenerateConsoleCtrlEvent` 到不了客户端），与 conhost 的 `ProcessCtrlEvents` 同路。
+- `ConsoleControl(EndTask)` 不在会话锁内执行：处理 Ctrl+C/Break 时只把事件与目标
+  pid 入队，输入线程/io_loop 在释放会话锁后调用 `deliver_ctrl_events()` 投递；
+  与 conhost 的 `HandleCtrlEvent`（置标志）+ `ProcessCtrlEvents`（解锁后 EndTask）
+  模型一致，避免客户端处理器阻塞期间其它客户端被会话锁卡住。
 - 客户端观察到的结果由 Windows 控制台客户端库映射：0 字节读取 +
   `ERROR_OPERATION_ABORTED`。
 
