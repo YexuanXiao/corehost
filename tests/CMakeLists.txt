@@ -161,8 +161,8 @@ add_custom_command(TARGET test_conpty_session_selftest POST_BUILD
 )
 # TODO(C2): 会话驱动尚未把客户端挂到伪控制台（corehost 侧收不到 CONNECT），
 # 自测因此失败；修复前不注册到 ctest，避免长期红灯。修复后恢复下面两行。
-# add_test(NAME ConPTY.SessionSelfTest COMMAND test_conpty_session_selftest)
-# set_tests_properties(ConPTY.SessionSelfTest PROPERTIES LABELS "testlib;conpty" TIMEOUT 180)
+add_test(NAME ConPTY.SessionSelfTest COMMAND test_conpty_session_selftest)
+set_tests_properties(ConPTY.SessionSelfTest PROPERTIES LABELS "testlib;conpty" TIMEOUT 180)
 
 # ── test_platform_selftest ────────────────────────
 # 测试库宿主层：环境探测与子进程运行器。

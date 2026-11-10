@@ -204,14 +204,15 @@ class conpty_session
         STARTUPINFOEXW startup{};
         startup.StartupInfo.cb = sizeof(startup);
         startup.lpAttributeList = attributes;
-        startup.StartupInfo.dwFlags = STARTF_USESHOWWINDOW;
-        startup.StartupInfo.wShowWindow = SW_HIDE;
+        // 与 bench/conpty_session.hpp 的可用配方一致：标准句柄留空（控制台句柄
+        // 由 ConDrv 提供），不继承父进程句柄。
+        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
 
         PROCESS_INFORMATION process{};
         std::wstring mutable_command{command_line};
-        const BOOL created = ::CreateProcessW(nullptr, mutable_command.data(), nullptr, nullptr, TRUE,
-                                              EXTENDED_STARTUPINFO_PRESENT, nullptr, nullptr, &startup.StartupInfo,
-                                              &process);
+        const BOOL created = ::CreateProcessW(nullptr, mutable_command.data(), nullptr, nullptr, FALSE,
+                                              EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, nullptr,
+                                              nullptr, &startup.StartupInfo, &process);
 
         ::DeleteProcThreadAttributeList(attributes);
 
@@ -220,6 +221,10 @@ class conpty_session
 
         _process = win32::handle{process.hProcess};
         ::CloseHandle(process.hThread);
+
+        // 关键一步：释放 \Reference，客户端才能完成控制台连接（bench 同款）。
+        if (FAILED(ConptyReleasePseudoConsole(_pty)))
+            return false;
         return true;
     }
 
