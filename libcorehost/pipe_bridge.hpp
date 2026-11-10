@@ -274,6 +274,9 @@ struct pipe_bridge
     std::array<char8_t, sizeof(condrv_io::io_msg::body)> &_readbuf = _input_state.readbuf;
     DWORD &_read_total = _input_state.read_total;
     bool &_line_found = _input_state.line_found;
+    // 上一批次以 CR 结束；下一批首个 LF 属于同一条 CRLF（批间状态，不在处理
+    // 函数里 Peek 管道：输入线程是唯一读者）。
+    bool &_swallow_lf_after_cr = _input_state.swallow_lf_after_cr;
     bizwen::deque<char8_t> &_queued_vt_input = _input_state.queued_input;
     raw_u32_buffer &_input_raw_buf = _input_state.input_raw_buf;
     vt_parser &_input_parser = _input_state.input_parser;
@@ -2543,6 +2546,12 @@ struct pipe_bridge
         for (DWORD i = 0; i != len; ++i)
         {
             char8_t b = bytes[i];
+            if (_swallow_lf_after_cr)
+            {
+                _swallow_lf_after_cr = false;
+                if (b == static_cast<char8_t>('\n'))
+                    continue; // 属于上一条 CRLF，不再作为新的行终止
+            }
             echo_raw_read_text_byte(b);
 
             // ── Ctrl+Z 即时检测 ──
@@ -2893,15 +2902,10 @@ struct pipe_bridge
             }
             else if (i + 1 == len)
             {
-                // CR 位于本批次末尾时，LF 可能已经在管道中但尚未读入。只在
-                // 下一个字节确认为 LF 时消费它，避免吞掉下一行首字符。
-                char8_t nb = {};
-                if (_io.try_consume_byte(static_cast<char8_t>('\n'), nb))
-                {
-                    if (_read_total < _readbuf.size())
-                        _readbuf[_read_total++] = nb;
-                    has_lf = true;
-                }
+                // CR 位于本批次末尾时，LF 可能已经在管道中但尚未读入。这里只
+                // 记录"下一批次的首个 LF 属于同一条 CRLF"，不 Peek 管道：输入
+                // 线程是唯一读者，批间归属由状态决定。
+                _swallow_lf_after_cr = true;
             }
         }
 

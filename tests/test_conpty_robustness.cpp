@@ -231,6 +231,32 @@ corehost::test::result vt_input_passthrough_sends_raw_sequences()
     return corehost::test::result::pass;
 }
 
+// Ctrl+Break：Win32 input 的 VK_CANCEL 在 processed input 下应投递 CTRL_BREAK_EVENT。
+corehost::test::result ctrl_break_interrupts_foreground()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --ctrl-probe"));
+    REQUIRE(session.wait_output("CTRL-PROBE-READY", 15000));
+
+    ::Sleep(300);
+    // Vk=3 (VK_CANCEL), Sc=46, Uc=3, Kd=1, Cs=8 (LEFT_CTRL_PRESSED), Rc=1
+    REQUIRE(session.write("\x1b[3;46;3;1;8;1_"));
+
+    DWORD exit_code = static_cast<DWORD>(-1);
+    const bool exited = session.wait_exit(15000, &exit_code);
+    if (!exited)
+    {
+        const auto output = session.take_output();
+        std::fwprintf(stderr, L"[ctrl_break] probe output: %hs\n", output.c_str());
+        session.close();
+    }
+    REQUIRE(exited);
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -245,6 +271,7 @@ int main()
         {"serve", "conpty;robust;pending", &console_calls_served_while_read_pending},
         {"wake", "conpty;robust;input", &write_console_input_wakes_read},
         {"vt", "conpty;robust;input", &vt_input_passthrough_sends_raw_sequences},
+        {"ctrl_break", "conpty;robust;signal", &ctrl_break_interrupts_foreground},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))

@@ -1948,6 +1948,24 @@ bool test_write_console_does_not_emit_final_cup()
     return true;
 }
 
+// CRLF 跨批次：CR 在上一批末尾、LF 在下一批开头时，只应产生一次行终止
+// （否则 raw 读者会多出一个空行，终端也会多回显一次换行）。
+bool test_crlf_split_across_batches_terminates_once()
+{
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
+    bridge.test_enter_console_read_mode(13);
+
+    bridge.test_feed_raw_bytes((const BYTE *)"ab\r", 3);
+    const COORD after_cr = bridge.test_get_term_cursor();
+    ASSERT(after_cr.Y == 1);
+
+    bridge.test_feed_raw_bytes((const BYTE *)"\n", 1);
+    const COORD after_lf = bridge.test_get_term_cursor();
+    ASSERT(after_lf.Y == after_cr.Y);
+    return true;
+}
+
 // ==================================================================
 // ══════════════════════════════════════════════════════════
 // 入口
@@ -2051,6 +2069,7 @@ int main()
 
     std::wcout << L"\nWin32Input → ConsoleRead Regression (cmd shell) :\n";
     RUN_TEST(test_win32_console_read_enter_submits_line, L"Enter submits line");
+    RUN_TEST(test_crlf_split_across_batches_terminates_once, L"CRLF split across batches");
     RUN_TEST(test_win32_console_read_printable_inserts_char, L"Printable inserts char");
     RUN_TEST(test_console_read_utf8_text_decodes_once, L"UTF-8 text decodes once");
     RUN_TEST(test_win32_console_read_backspace_deletes_char, L"Backspace deletes char");

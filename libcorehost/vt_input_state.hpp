@@ -32,6 +32,9 @@ struct vt_input_state
     DWORD read_total = 0;
     // true 表示 process_input 已经遇到行终止符或 Ctrl+Z 并完成当前 pending 读。
     bool line_found = false;
+    // 上一批次以 CR 结尾：下一批次首个 LF 属于同一条 CRLF，应被吞掉而不是
+    // 当成新的空行终止（CRLF 跨 ReadFile 边界）。
+    bool swallow_lf_after_cr = false;
     // 没有 pending 时提前到达的 vt_in 字节，或当前批次完成一行后剩余的尾部。
     bizwen::deque<char8_t> queued_input;
 
