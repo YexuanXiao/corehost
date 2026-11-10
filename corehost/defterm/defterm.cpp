@@ -197,24 +197,26 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
     // 已由 handler 填好 complete 字段的消息。
     condrv_io::io_msg *completed_previous = nullptr;
 
+    // 只有"上一次 READ_IO 已确认没有消息"时才等待事件。首次进入循环必须先
+    // READ_IO：CONNECT 可能在宿主注册 InputAvailableEvent 之前就已排队，此时
+    // 事件不会被置位，先等待就会永久阻塞。
+    bool wait_for_message = false;
+
     for (;;)
     {
-        if (!handler.has_pending() && completed_previous == nullptr)
+        if (wait_for_message)
         {
-            handler.on_idle();
-            if (handler.should_exit())
-                break;
-            if (!handler.has_pending())
+            wait_for_message = false;
+            const auto wait = win32::wait_one(input_event, INFINITE);
+            if (wait.abandoned())
             {
-                // 没有待提交 completion 时无限等待下一条 ConDrv 消息：没有消息就不唤醒。
-                const auto wait = win32::wait_one(input_event, INFINITE);
-                if (wait.abandoned())
-                {
-                    LOG3("initial CONNECT loop idle wait abandoned");
-                    return;
-                }
+                LOG3("initial CONNECT loop idle wait abandoned");
+                return;
             }
         }
+
+        if (handler.should_exit())
+            break;
 
         // completion 为 nullptr 或 completed_previous->complete。READ_IO 返回
         // no_message 时，驱动已经消费该 completion，下一轮不能重复提交。
@@ -246,6 +248,7 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
             handler.on_idle();
             if (handler.should_exit())
                 break;
+            wait_for_message = true;
             continue;
         }
         completed_previous = nullptr;

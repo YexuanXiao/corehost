@@ -121,7 +121,8 @@ inline bool launch_defterm_host(std::wstring_view corehost_path, win32::handle_v
     startup.lpAttributeList = attributes;
 
     wchar_t buffer[1024]{};
-    ::swprintf_s(buffer, L"\"%.*s\" 0x%llx", static_cast<int>(corehost_path.size()), corehost_path.data(),
+    ::swprintf_s(buffer, L"\"%.*s\" 0x%llx",
+                 static_cast<int>(corehost_path.size()), corehost_path.data(),
                  static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(server.get())));
 
     PROCESS_INFORMATION process{};
