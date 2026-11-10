@@ -47,8 +47,11 @@ corehost::test::result connect_and_call_console_api()
     const UINT output_cp = ::GetConsoleOutputCP();
     const DWORD cp_error = ::GetLastError();
 
-    // 依赖对象 id 的 API（如 GetConsoleMode）需要句柄值与 CONNECT 返回的对象
-    // id 对应；测试进程目前拿不到那组 id，见 TODO(C3)。
+    // 带对象 id 的 API：真实控制台客户端有客户端侧句柄表，测试进程直接 \Connect
+    // 没有，因此传 nullptr（object=0）。传本进程的 STD 句柄会被判为未知对象而
+    // 返回 ERROR_INVALID_HANDLE——这是测试环境的差异，不是产品缺陷（见 gaps G1）。
+    DWORD mode = 0;
+    REQUIRE(::GetConsoleMode(nullptr, &mode) != FALSE);
 
     corehost::test::unbind_console_connection();
 

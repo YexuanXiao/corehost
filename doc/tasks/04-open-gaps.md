@@ -6,7 +6,7 @@
 
 | 编号 | 项 | 现状 | 解除条件 | 归属 |
 | --- | --- | --- | --- | --- |
-| G1 | defterm 直连客户端的 `GetConsoleMode` 等"带对象 id"的 API 失败（ERROR_INVALID_HANDLE） | 连接与无对象 API（`GetConsoleCP`/`GetConsoleTitle`/`GetConsoleWindow`）可用；`descriptor.Object` 与 CONNECT completion 返回的对象 id 对不上 | 在 `\Connect` 之后按客户端协议取回 connection info（Process/Input/Output 的句柄值），或让测试改用这些值 | C5 |
+| G1 | ~~defterm 直连客户端的 `GetConsoleMode` 失败~~ | RESOLVED：传本进程 STD 句柄会被判未知对象（测试环境没有客户端句柄表）；改传 `nullptr`（object=0）后成功。真实客户端有句柄表，不受影响 | — | C5 |
 | G2 | ssh 远程组合用例 | 用例已实现（`ssh -tt localhost` + 标记校验 + 环境 SKIP），但本机 sshd 服务 **Stopped**，启动需管理员 | 以管理员启动 sshd 并为当前用户配置公钥登录；代码无需改动 | D5 |
 | G3 | 伪窗口 show/hide 信号 | 未实现：`WM_SHOWWINDOW`/`WM_SIZE` 不上报给终端，`PtySignal::ShowHideWindow` 只消费不发送 | 需要确认 ConPTY 下可见性上报的协议方向（原版走 VT writer，corehost 走信号管道） | B7 |
 | G4 | 真实 WindowsTerminal 层（L2） | 未开始：defterm 测试目前覆盖 L0（ConDrv 直连），没有真正拉起 WT 并做端到端交互 | 需要交互式桌面 + 已安装 WT；用例要能探测并 SKIP | C6 |
