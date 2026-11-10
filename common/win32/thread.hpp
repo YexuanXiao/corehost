@@ -135,10 +135,11 @@ class basic_thread
 
     // ── Waiting ──────────────────────────────────────────────
     //
-    // Waits for the thread to exit. join_for returns false on timeout
-    // (the thread keeps running) and throws only on unexpected wait
-    // failures. The handle stays valid after join so the caller may
-    // still inspect the thread id.
+    // join() waits forever; it is the only production way to wait
+    // for a worker. join_for() exists for progress polling inside the
+    // cancellation loop (see cancellable_read::wait_for_exit) and for
+    // tests; using it as a "give up after N ms" bound is forbidden by
+    // project policy (see doc/design/0001.md 4.6).
     void join()
     {
         if (!valid())

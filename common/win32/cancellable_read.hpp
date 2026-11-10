@@ -136,26 +136,24 @@ class cancellable_read
     }
 
     // Waits until the reader thread exits, cancelling its pending read
-    // whenever it is inside one. Returns false if the thread did not
-    // exit within timeout_ms.
+    // whenever it is inside one.
     //
-    // The 5ms retry period is a shutdown-only cost; it bounds the
-    // window in which the reader can slip into ReadFile between the
-    // flag check and the cancellation.
-    [[nodiscard]] bool wait_for_exit(basic_thread &reader_thread, DWORD timeout_ms)
+    // There is deliberately NO timeout: a bounded wait would mean
+    // "give up on a thread that is still running", which is exactly the
+    // kind of silent failure this project forbids. Termination is
+    // guaranteed by construction: the reader checks the stop flag before
+    // every read, and every read it does enter is cancelled here. If
+    // cancellation itself fails unexpectedly, that is fatal and throws.
+    //
+    // The 5ms retry period bounds the window in which the reader can slip
+    // into ReadFile between the flag check and the cancellation; it is a
+    // polling interval for a shutdown-only loop, not a wait limit.
+    void wait_for_exit(basic_thread &reader_thread)
     {
-        const ULONGLONG deadline = ::GetTickCount64() + timeout_ms;
         for (;;)
         {
-            const ULONGLONG now = ::GetTickCount64();
-            if (now >= deadline)
-                return false;
-
-            const ULONGLONG remaining = deadline - now;
-            const DWORD slice = remaining < 5 ? static_cast<DWORD>(remaining) : 5;
-
-            if (reader_thread.join_for(slice))
-                return true;
+            if (reader_thread.join_for(5))
+                return;
 
             (void)cancel_pending(reader_thread.view());
         }
