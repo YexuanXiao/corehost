@@ -22,9 +22,9 @@
 | A6b | 清理死代码：`on_idle`/`wait_for_pending_vt_input`/`pipe_bridge_io` peek 路径 | DONE | A6b 清理主循环侧轮询入口 | 已删主循环侧全部轮询入口与实现；`prepare_console_input_events` 等辅助仍被**非线程化的单元测试 bridge** 使用（`_input_threaded=false` 时服务 GetConsoleInput），不是生产轮询路径，保留 |
 | A7 | defterm 初始 CONNECT 循环与 handoff 等待循环收敛到同一模型 | DONE | A7 defterm 循环去轮询 | 初始循环 INFINITE 等 input_event；handoff 用信号线程 + 等 {终端进程, 管道关闭}；待阶段 C 真机验证 |
 | A8 | 退出协议：停止标志、事件驱动取消、无限 join | DONE | A4/A5 输入与信号线程 | 终止性由构造保证；压力验证归 A10 |
-| A9 | 错误分类审计：所有系统调用检查、致命路径统一 | DOING | A9 审计新建路径 | 见 `doc/tasks/03-a9-error-audit.md`；遗留：输出 flush、死代码、defterm 空 on_idle |
-| A10 | 性能与唤醒验证：空转计数、CPU、时延、压力、泄漏 | DOING | A10 空闲 CPU 用例 | `ConPTY.IdleCpu`：3 秒空闲实测 **0 ms** CPU（阈值 100ms）；时延/压力/泄漏待测试库落地后补 |
-| A11 | 文档更新与提交 | TODO | | |
+| A9 | 错误分类审计：所有系统调用检查、致命路径统一 | DONE | A9 审计新建路径 | 见 `doc/tasks/03-a9-error-audit.md`；输出 flush、死代码、空 `on_idle` 均已处理；本轮新发现项见 gaps G16/G17/G21/G22 |
+| A10 | 性能与唤醒验证：空转计数、CPU、时延、压力、泄漏 | DONE | A10 空闲 CPU 用例 | `ConPTY.IdleCpu` 3 秒空闲 **0 ms**；`latency` p95 9–13ms；`repeat` 50 次句柄 104→107；`signal_repeat` 5 轮交替 |
+| A11 | 文档更新与提交 | DOING | | 本轮 W0 起持续更新；看板/gaps/05-final-status 已纠偏 |
 
 ## 阶段 B：GetConsoleWindow 伪窗口（任务 2）
 
@@ -34,7 +34,7 @@
 | B2 | 伪窗口设计：窗口类型、消息矩阵、状态机 | DONE | B2/B3 伪窗口与窗口线程 | `design/0002` 3/4 节 |
 | B3 | 窗口线程 + 消息循环 + 命名 + 停止协议 | DONE | B2/B3 伪窗口与窗口线程 | `pseudo_window.hpp`；GetMessage 阻塞，WM_QUIT + 无限 join |
 | B4 | 消息处理骨架：查询类消息、默认处理 | DONE | B2/B3 伪窗口与窗口线程 | WM_CREATE/CLOSE/DESTROY/ACTIVATE/GETOBJECT + DefWindowProc |
-| B5 | `GetConsoleWindow` 返回句柄 + 生命周期绑定 | DONE | B2/B3 伪窗口与窗口线程 | API 返回 `instance().hwnd()`；会话内创建/退出销毁（日志实测 hwnd） |
+| B5 | `GetConsoleWindow` 返回句柄 + 生命周期绑定 | DONE | B2/B3 伪窗口与窗口线程 | API 返回 `console_state::window_handle`（窗口实例由会话持有，无单例）；会话内创建/退出销毁 |
 | B6 | 关闭语义：`WM_CLOSE` → 会话关闭事件 | DONE | B6 WM_CLOSE 结束会话 | CancelIoEx(server) 打断 READ_IO；用例实测 0.11s 内进程退出 |
 | B7 | 状态联动：标题、尺寸、show/hide 最小支持 | DONE | B7 伪窗口标题与矩形 | `WM_GETTEXT/WM_GETTEXTLENGTH` 返回控制台标题；窗口 640x400；`WM_SIZE`/`WM_SHOWWINDOW` 通过会话锁向 vt_out 写 `ESC[1t`/`ESC[2t`（与原版一致），用例 `visibility` 验证 |
 | B8 | 泄漏/并发/压力验证 + 文档 | DONE | B8 句柄与压力验证 | defterm 用例：200 次 API + 50 次窗口消息后 corehost 句柄增长 ≤32、USER 对象增长 ≤4；连续 5 次会话均干净退出 |
@@ -43,29 +43,29 @@
 
 | 编号 | 子任务 | 状态 | 提交 | 备注 |
 | --- | --- | --- | --- | --- |
-| C1 | 测试库骨架：runner/断言/隔离/超时/环境探测 + 自测 | DOING | C1 测试库 runner | runner/断言/过滤/子进程隔离/超时均已完成并有自测；环境探测（C2）待做 |
-| C2 | 进程/会话驱动；诊断产物；ConDrv 客户端 | DOING | C2 宿主层：环境探测与子进程运行器 | `tests/lib/platform.hpp`：PATH/System32/WT/sshd/交互式探测 + `run_process`（Job 对象管进程树、600ms 超时实测终止）；会话驱动完成并通过；**defterm 测试不碰注册表**：测试进程自建 ConDrv server/reference，启动 `corehost.exe <handle>`，再打开 `\\Connect` 完成客户端 CONNECT 并绑定 PEB ConsoleHandle（见 `tests/lib/condrv.hpp`）。已修：首轮 READ_IO 前误等事件导致 CONNECT 收不到。`Defterm.Connect` 已注册并通过：测试进程自建 ConDrv 会话 → corehost defterm → GetConsoleCP/GetConsoleOutputCP=65001。遗留：GetConsoleMode 等依赖对象 id 的 API 需拿到 CONNECT 返回的句柄值
+| C1 | 测试库骨架：runner/断言/隔离/超时/环境探测 + 自测 | DONE | C1 测试库 runner | runner/断言/过滤/子进程隔离/超时/失败归档均有自测（`Runner.SelfTest`、`Platform.SelfTest`） |
+| C2 | 进程/会话驱动；诊断产物；ConDrv 客户端 | DONE | C2 宿主层：环境探测与子进程运行器 | `tests/lib/platform.hpp`：PATH/System32/WT/sshd/交互式探测 + `run_process`（Job 对象管进程树、600ms 超时实测终止）；会话驱动完成并通过；**defterm 测试不碰注册表**：测试进程自建 ConDrv server/reference，启动 `corehost.exe <handle>`，再打开 `\\Connect` 完成客户端 CONNECT 并绑定 PEB ConsoleHandle（见 `tests/lib/condrv.hpp`）。已修：首轮 READ_IO 前误等事件导致 CONNECT 收不到。`Defterm.Connect` 已注册并通过：测试进程自建 ConDrv 会话 → corehost defterm → GetConsoleCP/GetConsoleOutputCP=65001。遗留：GetConsoleMode 等依赖对象 id 的 API 需拿到 CONNECT 返回的句柄值
 | C3 | defterm 启动路径：测试进程自建 ConDrv 会话，驱动 defterm 入口 | DONE | C3 defterm 直连用例 | `tests/lib/condrv.hpp`；`Defterm.Connect` 覆盖 CONNECT + 代码页往返；新增 window 用例覆盖 `GetConsoleWindow` 归属与 `WM_CLOSE` 结束会话；不碰注册表 |
-| C4 | 控制台测试客户端（脚本化 API/VT/窗口消息） | TODO | | |
+| C4 | 控制台测试客户端（脚本化 API/VT/窗口消息） | TODO | | `tests/console_probe.cpp` 已有 ctrl/serve/wake/vt/close 等专用模式；脚本化客户端见 W9 |
 | C5 | 用例矩阵：控制台/窗口/输入/子进程/关闭 | DONE | C5 defterm 用例矩阵 | 已有 CONNECT、GetConsoleMode、GetConsoleWindow、窗口标题/矩形、WM_CLOSE、GetConsoleProcessList、压力/重复会话；子进程继承在直连客户端下不可行（SKIP 并注明改由 ConPTY 覆盖） |
-| C6 | 真实 WT 层、稳定性、文档 | TODO | | |
+| C6 | 真实 WT 层、稳定性、文档 | DONE | | `Defterm.RealTerminal` 机会式委托冒烟；真实 handoff 与 `-Embedding` 按决定不扩展（gaps §3） |
 
 ## 阶段 D：conpty 测试（任务 4）
 
 | 编号 | 子任务 | 状态 | 提交 | 备注 |
 | --- | --- | --- | --- | --- |
-| D1 | 测试库：会话驱动、输出泵、VT 屏幕模型、诊断 | TODO | | 复用 C1 |
-| D2 | 控制台测试程序（脚本化 API/VT/子进程） | TODO | | |
+| D1 | 测试库：会话驱动、输出泵、VT 屏幕模型、诊断 | TODO | | 会话驱动与输出泵完成；VT 屏幕模型见 W8（gaps G23）；失败日志归档已实现 |
+| D2 | 控制台测试程序（脚本化 API/VT/子进程） | TODO | | `console_probe` 专用模式可用；脚本化见 W9 |
 | D3 | 基础用例：输出、光标、输入、resize、异常 | DONE | ConPTY.Robustness | resize（mode con 读到 100x30）、clear 后仍可用、非法尺寸拒绝、退出码 7 传播、5 次重复会话全部通过 |
 | D4 | 真实程序用例：cmd、powershell、vim、edit | DONE | ConPTY.Programs | cmd/嵌套子进程/powershell/vim/edit 全部通过；缺程序时 SKIP |
-| D5 | ssh 远程组合：专用 sshd、连接、远程交互、清理 | BLOCKED | ConPTY.Programs | 用例已实现（`ssh -tt localhost` + 标记校验）：sshd 服务未运行，启动需要管理员权限；服务可用时自动执行，否则 SKIP 并输出原因 |
-| D6 | 子进程继承用例、稳定性、文档 | DOING | | 子进程继承（nested）+ 20 次重复会话（测试进程句柄 122→125）已覆盖；文档收尾待做 |
+| D5 | ssh 远程组合：专用 sshd、连接、远程交互、清理 | DONE | ConPTY.Programs | 临时 sshd（当前用户、高端口、密钥认证）；`ssh` 非交互与 `ssh_pty` 交互均通过 |
+| D6 | 子进程继承用例、稳定性、文档 | DONE | | `nested` 子进程继承 + `repeat` 50 次会话（句柄 104→107） |
 
 ## 当前迭代
 
-- 阶段：A
-- 正在做：A6b 收尾（pipe_bridge 内部 drain/peek 辅助）
-- 下一步：A6b → A9 错误审计 → A10 性能/唤醒验证 → 阶段 B
+- 阶段：A–D 收尾后的差距补齐（计划见本轮计划：W0–W13）
+- 正在做：W0 文档纠偏（A11）
+- 下一步：W1 defterm Ctrl+Break → W2 进程组 → W3 close 事件 → W4 尺寸事件 → W5 鼠标 → W6 小项
 
 ## 基线记录
 

@@ -54,7 +54,7 @@ ctest --test-dir build --output-on-failure
 | conpty 真实程序 | `ConPTY.Programs`：cmd、嵌套子进程、powershell、vim、edit |
 | conpty 健壮性 | `ConPTY.Robustness`：resize、clear、非法尺寸、退出码、50 次重复 |
 | 子进程继承控制台 | ConPTY `nested` 用例；defterm 直连方式不可行，已 SKIP 并注明 |
-| ssh 远程组合 | 用例已实现，环境阻塞（sshd 未运行，见 G2） |
+| ssh 远程组合 | 已实现：临时 sshd（当前用户、高端口、密钥认证），非交互与交互 PTY 两条用例通过 |
 
 ## 5. 已知缺口（详见 `04-open-gaps.md`）
 
@@ -75,8 +75,8 @@ ctest --test-dir build --output-on-failure
 | --- | --- | --- |
 | 1. I/O 模型 | 完成 | — |
 | 2. GetConsoleWindow 伪窗口 | 完成 | — |
-| 3. defterm 测试 | 完成（确定性层、handoff 替身层、真实 WT 机会式） | — |
-| 4. conpty 测试 | 主矩阵完成 | ssh（G2，环境）、Ctrl+C（G11，暂停） |
+| 3. defterm 测试 | L0 直连 + L1 handoff 替身 + 系统委托冒烟（按决定不扩展真实 handoff / -Embedding） | 真实 handoff、-Embedding、UI 自动化（gaps §3 决策） |
+| 4. conpty 测试 | 主矩阵完成；语义缺口在补齐（G16–G27） | 尺寸/鼠标事件、进程组过滤、关闭事件、VT 屏幕模型、差分 |
 
 最终一次完整运行：构建通过，`ctest` **23/23 通过，41.46s**。
 
