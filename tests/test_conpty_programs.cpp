@@ -483,21 +483,24 @@ corehost::test::result script_expect_screen_text()
     const auto script = (std::filesystem::path{module}.parent_path() / L"script_expect.txt");
     {
         std::ofstream file{script, std::ios::binary};
-        file << "write EXPECT-TEXT\nexit 0\n";
+        file << "write EXPECT-TEXT\nsleep 300\nexpect EXPECT-TEXT\nexit 0\n";
     }
 
     corehost::test::conpty_session session;
     REQUIRE(session.start(quote(probe) + L" --script \"" + script.wstring() + L"\""));
+    REQUIRE(session.wait_output("[script] expect", 15000));
     DWORD exit_code = static_cast<DWORD>(-1);
     REQUIRE(session.wait_exit(15000, &exit_code));
     const auto output = session.take_output();
     session.close();
     std::filesystem::remove(script);
 
+    // 既验证 ReadConsoleOutputCharacter 回读（expect），也验证 VT 屏幕模型。
     corehost::test::vt_screen screen{80, 25};
     screen.feed(output);
-    if (!screen.contains("EXPECT-TEXT"))
-        std::fprintf(stderr, "[script_screen] output: %s\n", output.c_str());
+    if (output.find("[script] expect \"EXPECT-TEXT\" ok=1") == std::string::npos)
+        std::fprintf(stderr, "[script_expect] output: %s\n", output.c_str());
+    REQUIRE(output.find("[script] expect \"EXPECT-TEXT\" ok=1") != std::string::npos);
     REQUIRE(screen.contains("EXPECT-TEXT"));
     REQUIRE(exit_code == 0);
     return corehost::test::result::pass;

@@ -439,7 +439,11 @@ struct pipe_bridge
                 inp.read(out_records, records_to_copy);
         }
 
-        condrv_io::prepare_completion(msg, 0, size, _console_input_output_buffer.data(), static_cast<ULONG>(size));
+        // Information 只报记录数据字节（conhost ServerGetConsoleInput 的
+        // SetReplyInformation(cbWritten)）；Write.Size 覆盖 struct+数据。
+        const auto data_bytes = static_cast<ULONG>(size - sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+        condrv_io::prepare_completion(msg, 0, data_bytes, _console_input_output_buffer.data(),
+                                      static_cast<ULONG>(size));
     }
 
     // 计算 ReadConsole 文本输出区容量。返回值只包含用户文本字节，不包含
@@ -608,6 +612,15 @@ struct pipe_bridge
         const auto size = static_cast<size_t>(msg.descriptor.InputSize) - offset;
         if (offset <= sizeof(msg.body) && size <= sizeof(msg.body) - offset)
             return {msg.body + offset, size};
+
+        // 客户端可以伪造超大 InputSize；限制单次 API 负载，避免 resize 巨量内存
+        // 或读取实际不存在的数据。16 MiB 足以覆盖控制台 API 的正常大负载。
+        constexpr size_t max_payload = 16u * 1024 * 1024;
+        if (size > max_payload)
+        {
+            LOG("read_input_payload: oversized payload %zu rejected", size);
+            return {};
+        }
 
         auto &buffer = _input_payload_buffer;
         buffer.resize(size);
@@ -1257,7 +1270,7 @@ struct pipe_bridge
             req->NumBytes = 0;
             req->ControlKeyState = 0;
             auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
-            condrv_io::prepare_completion(msg, 0, sz, msg.body + sizeof(CONSOLE_MSG_HEADER), sz);
+            condrv_io::prepare_completion(msg, 0, 0, msg.body + sizeof(CONSOLE_MSG_HEADER), sz);
             return true;
         }
 
@@ -1317,8 +1330,8 @@ struct pipe_bridge
         if (max_count == 0)
         {
             req->NumRecords = 0;
-            condrv_io::prepare_completion(msg, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG),
-                                          msg.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+            condrv_io::prepare_completion(msg, 0, 0, msg.body + sizeof(CONSOLE_MSG_HEADER),
+                                          sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
             return true;
         }
 
@@ -3112,7 +3125,7 @@ struct pipe_bridge
             // Ctrl+C / Ctrl+Break：0 字节 + STATUS_ALERTED（conhost 同款语义）。
             req->NumBytes = 0;
             auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
-            condrv_io::prepare_completion(m, status, sz, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
+            condrv_io::prepare_completion(m, status, 0, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
             return;
         }
 
@@ -3120,7 +3133,7 @@ struct pipe_bridge
         {
             req->NumBytes = 0;
             auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
-            condrv_io::prepare_completion(m, 0, sz, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
+            condrv_io::prepare_completion(m, 0, 0, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
             return;
         }
 
@@ -3159,8 +3172,10 @@ struct pipe_bridge
             cp = static_cast<DWORD>(written);
         }
         req->NumBytes = cp;
-        auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG) + cp);
-        condrv_io::prepare_completion(m, 0, sz, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
+        // ReadConsole 的 Information 是文本字节数（conhost 的
+        // SetReplyInformation(a->NumBytes)）；Write.Size 覆盖 struct+文本。
+        const auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG) + cp);
+        condrv_io::prepare_completion(m, 0, cp, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
     }
 
     // ── complete_pending ──────────────────────────────
@@ -3252,8 +3267,7 @@ struct pipe_bridge
             *out_req = *reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(pending_msg.body +
                                                                         sizeof(CONSOLE_MSG_HEADER));
             out_req->NumRecords = 0;
-            condrv_io::prepare_completion(pending_msg, status, sizeof(CONSOLE_GETCONSOLEINPUT_MSG),
-                                          _console_input_output_buffer.data(),
+            condrv_io::prepare_completion(pending_msg, status, 0, _console_input_output_buffer.data(),
                                           sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
             auto comp = pending_msg.complete;
             _pending.clear();
@@ -3274,8 +3288,8 @@ struct pipe_bridge
             auto *out_req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(_console_input_output_buffer.data());
             *out_req = *req;
             out_req->NumRecords = 0;
-            condrv_io::prepare_completion(m, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG),
-                                          _console_input_output_buffer.data(), sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+            condrv_io::prepare_completion(m, 0, 0, _console_input_output_buffer.data(),
+                                          sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
 
             auto comp = m.complete;
             _pending.clear();

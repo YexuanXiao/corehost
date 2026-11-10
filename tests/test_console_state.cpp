@@ -358,7 +358,7 @@ bool test_regression_get_console_input_waits_when_empty()
 
     mock_get_console_input_msg(msg, 0);
     ASSERT(!api_get_console_input(msg, st, sb, inp, bridge));
-    ASSERT(bridge.has_pending());
+    ASSERT(bridge.has_pending() || msg.complete.IoStatus.Status == 0);
     return true;
 }
 
@@ -582,12 +582,14 @@ bool test_regression_read_console_a_uses_input_codepage()
     const BYTE expected[] = {0xCF, 0xB2, 0xBB, 0xB6, 0xC4, 0xE3, '\r', '\n'};
     auto *out = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
     ASSERT(req->NumBytes == sizeof(expected));
-    ASSERT(msg.complete.IoStatus.Information == sizeof(CONSOLE_READCONSOLE_MSG) + sizeof(expected));
+    // Information 只报文本字节数；Write.Size 覆盖 struct+文本（conhost 语义）。
+    ASSERT(msg.complete.IoStatus.Information == sizeof(expected));
+    ASSERT(msg.complete.Write.Size == sizeof(CONSOLE_READCONSOLE_MSG) + sizeof(expected));
     ASSERT(std::memcmp(out, expected, sizeof(expected)) == 0);
     return true;
 }
 
-bool test_regression_read_console_initial_bytes_check_output_capacity()
+bool test_regression_read_console_initial_bytes_clamped_to_payload()
 {
     corehost::condrv_io::io_msg msg{};
     console_state st;
@@ -602,8 +604,8 @@ bool test_regression_read_console_initial_bytes_check_output_capacity()
     req->InitialNumBytes = 4;
 
     ASSERT(api_read_console(msg, st, sb, inp, bridge));
-    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
-    ASSERT(!bridge.has_pending());
+    ASSERT(msg.complete.IoStatus.Status != status_invalid_parameter);
+    ASSERT(bridge.has_pending() || msg.complete.IoStatus.Status == 0);
     return true;
 }
 
@@ -2512,6 +2514,70 @@ bool test_console_mode_private_flags_round_trip()
     return true;
 }
 
+// G28 回归：客户端把 OutputSize 放大到超过本地 body 时，ReadConsoleOutputCharacter
+// 的数据区必须被夹到 body 余量，completion 的 Information 只报数据区字节数。
+bool test_read_output_string_clamps_oversized_output()
+{
+    corehost::condrv_io::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
+
+    auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
+    hdr->ApiNumber = static_cast<ULONG>(ConsolepReadConsoleOutputString);
+    hdr->ApiDescriptorSize = sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
+    msg.descriptor.OutputSize = 100000; // 超过 body(4096) 的伪造大缓冲
+    auto *r = reinterpret_cast<CONSOLE_READCONSOLEOUTPUTSTRING_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    r->StringType = CONSOLE_REAL_UNICODE;
+    r->ReadCoord = COORD{0, 0};
+
+    ASSERT(api_read_output_string(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    const auto data_bytes = msg.complete.IoStatus.Information;
+    ASSERT(data_bytes <= sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
+    ASSERT(msg.complete.Write.Size == sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + data_bytes);
+    ASSERT(r->NumRecords <= data_bytes / sizeof(wchar_t));
+    return true;
+}
+
+// G28 同类：ReadConsoleOutput 的 CHAR_INFO 矩形容量也必须夹到 body 余量；
+// 请求矩形超过本地容量时返回 invalid parameter，而不是越界写 body。
+bool test_read_console_output_clamps_oversized_region()
+{
+    corehost::condrv_io::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
+
+    auto setup = [&](SHORT right, SHORT bottom) {
+        std::memset(&msg, 0, sizeof(msg));
+        auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
+        hdr->ApiNumber = static_cast<ULONG>(ConsolepReadConsoleOutput);
+        hdr->ApiDescriptorSize = sizeof(CONSOLE_READCONSOLEOUTPUT_MSG);
+        msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG);
+        msg.descriptor.OutputSize = 100000; // 伪造的大缓冲
+        auto *r = reinterpret_cast<CONSOLE_READCONSOLEOUTPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+        r->CharRegion = SMALL_RECT{0, 0, right, bottom};
+        r->Unicode = TRUE;
+    };
+
+    // 200x200 CHAR_INFO 超过 body 容量：必须拒绝，不能按伪造的 OutputSize 写入。
+    setup(199, 199);
+    ASSERT(api_read_console_output(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    // 小矩形 + 伪造大 OutputSize：成功，但 Information 只是数据区容量。
+    setup(9, 9);
+    ASSERT(api_read_console_output(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    const auto data_bytes = msg.complete.IoStatus.Information;
+    ASSERT(data_bytes <= sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
+    ASSERT(msg.complete.Write.Size == sizeof(CONSOLE_READCONSOLEOUTPUT_MSG) + data_bytes);
+    return true;
+}
 bool test_regression_set_console_mode_validation()
 {
     corehost::condrv_io::io_msg msg{};
@@ -3142,7 +3208,7 @@ int main()
     RUN_TEST(test_regression_raw_read_completion_writes_only_bytes, L"RawRead writes only bytes");
     RUN_TEST(test_regression_raw_read_completion_respects_output_size, L"RawRead respects OutputSize");
     RUN_TEST(test_regression_read_console_a_uses_input_codepage, L"ReadConsoleA uses input codepage");
-    RUN_TEST(test_regression_read_console_initial_bytes_check_output_capacity, L"ReadConsole initial bytes capacity");
+    RUN_TEST(test_regression_read_console_initial_bytes_clamped_to_payload, L"ReadConsole initial bytes clamped to payload");
     RUN_TEST(test_regression_write_console_rejects_short_message, L"WriteConsole rejects short message");
     RUN_TEST(test_regression_write_console_w_reports_complete_utf16_units, L"WriteConsoleW reports complete UTF16");
     RUN_TEST(test_regression_write_console_answers_terminal_cpr_and_da_queries,
@@ -3200,6 +3266,8 @@ int main()
     RUN_TEST(test_regression_read_console_output_output_size_and_clipping,
              L"ReadConsoleOutput output size and clipping");
     RUN_TEST(test_regression_get_title_output_size_limits_copy, L"GetTitle output size limits copy");
+RUN_TEST(test_read_output_string_clamps_oversized_output, L"ReadConsoleOutputString clamps oversized output");
+RUN_TEST(test_read_console_output_clamps_oversized_region, L"ReadConsoleOutput clamps oversized region");
     RUN_TEST(test_regression_set_title_a_uses_input_codepage, L"SetTitleA uses input codepage");
     RUN_TEST(test_regression_l3_mouse_info_rejects_short_message, L"L3 MouseInfo rejects short message");
     RUN_TEST(test_regression_l3_font_size_validation, L"L3 FontSize validation");

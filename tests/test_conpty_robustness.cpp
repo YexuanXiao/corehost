@@ -537,6 +537,34 @@ corehost::test::result generate_ctrl_event_api_is_delivered()
     return corehost::test::result::pass;
 }
 
+// G28 回归：逐行 ReadConsoleOutputCharacter(可见宽度) + ReadConsoleOutput 矩形
+// 在 ConPTY 下不再触发客户端内存越界（ASAN 会直接 abort）。
+corehost::test::result screen_readback_does_not_overflow()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+    const auto marker = marker_path(L"screen-readback.txt");
+    ::DeleteFileW(marker.c_str());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --screen-read-probe \"" + marker + L"\""));
+    const bool saw = wait_file_contains(marker, "region=1", 15000);
+    if (!saw)
+    {
+        ::Sleep(500);
+        const auto early = session.take_output();
+        std::fprintf(stderr, "[screen_read] output: %s\n", early.c_str());
+    }
+    DWORD exit_code = static_cast<DWORD>(-1);
+    const bool exited = session.wait_exit(15000, &exit_code);
+    session.close();
+    ::DeleteFileW(marker.c_str());
+    REQUIRE(saw);
+    REQUIRE(exited);
+    REQUIRE(exit_code == 0);
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -561,6 +589,7 @@ int main()
         {"input_ctrl_c", "conpty;robust;signal", &input_record_aborts_on_ctrl_c},
         {"noproc_ctrl_c", "conpty;robust;signal", &ctrl_c_is_a_key_without_processed_input},
         {"api_ctrl", "conpty;robust;signal", &generate_ctrl_event_api_is_delivered},
+        {"screen_read", "conpty;robust;screen", &screen_readback_does_not_overflow},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))
