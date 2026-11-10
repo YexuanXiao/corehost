@@ -379,6 +379,8 @@ struct pipe_bridge
     process_list_snapshot _processes;
     // 最近一次 WINDOW_BUFFER_SIZE_EVENT 的尺寸（conhost 的 InputBuffer 去重）。
     COORD _last_window_size_event{};
+    // SGR 鼠标按下状态（移动/松开事件沿用，conhost 的 _mouseButtonState）。
+    DWORD _mouse_button_state = 0;
     bool _window_size_event_valid = false;
     // 控制事件投递函数。默认走 CSRSS ConsoleControl；测试可替换为记录器。
     ctrl_event_sender _ctrl_sender = &console_end_task;
@@ -2517,6 +2519,87 @@ struct pipe_bridge
             _write_char_key_event(ch, static_cast<BYTE>(ch & 0xFF));
     }
 
+    // SGR 1006 鼠标 → MOUSE_EVENT。conhost 在非 VT 输入模式下做同样的合成
+    // （InputStateMachineEngine::_UpdateSGRMouseButtonState / _WriteMouseEvent），
+    // VT 输入模式或 RAW_READ 下应用要的是原始字节，直接透传/留给 completion。
+    void process_input_mouse(PendingKind pending_kind, const vt_message &m, std::u32string_view raw) noexcept
+    {
+        if (pending_kind == PendingKind::RawRead)
+            return;
+
+        if ((cstate.input_mode & ENABLE_VIRTUAL_TERMINAL_INPUT) != 0)
+        {
+            emit_raw_sequence_as_input(raw);
+            return;
+        }
+
+        const auto &mouse = m.payload.mouse;
+        const unsigned encoding = mouse.encoding;
+        const bool wheel = (encoding & 64) != 0;
+        const bool motion = (encoding & 32) != 0;
+        const unsigned base = encoding & 3;
+
+        DWORD button_state = 0;
+        DWORD event_flags = 0;
+        if (wheel)
+        {
+            // 滚轮：高字是带符号的 WHEEL_DELTA；横向滚轮单独一个 flag。
+            const bool horizontal = base >= 2;
+            event_flags = horizontal ? MOUSE_HWHEELED : MOUSE_WHEELED;
+            const short delta = (base == 0 || base == 2) ? WHEEL_DELTA : -WHEEL_DELTA;
+            button_state = _mouse_button_state | (static_cast<DWORD>(static_cast<unsigned short>(delta)) << 16);
+        }
+        else if (mouse.release || base == 3)
+        {
+            _mouse_button_state = 0;
+        }
+        else if (!motion)
+        {
+            switch (base)
+            {
+            case 0:
+                _mouse_button_state = FROM_LEFT_1ST_BUTTON_PRESSED;
+                break;
+            case 1:
+                _mouse_button_state = FROM_LEFT_2ND_BUTTON_PRESSED;
+                break;
+            case 2:
+                _mouse_button_state = RIGHTMOST_BUTTON_PRESSED;
+                break;
+            default:
+                break;
+            }
+            button_state = _mouse_button_state;
+        }
+        else
+        {
+            // 移动（hover/drag）：保留当前按下的键，只置 MOUSE_MOVED。
+            event_flags |= MOUSE_MOVED;
+            button_state = _mouse_button_state;
+        }
+
+        DWORD control_state = 0;
+        if ((encoding & 4) != 0)
+            control_state |= SHIFT_PRESSED;
+        if ((encoding & 8) != 0)
+            control_state |= LEFT_ALT_PRESSED;
+        if ((encoding & 16) != 0)
+            control_state |= LEFT_CTRL_PRESSED;
+
+        INPUT_RECORD record{};
+        record.EventType = MOUSE_EVENT;
+        record.Event.MouseEvent.dwMousePosition = COORD{mouse.x, mouse.y};
+        record.Event.MouseEvent.dwButtonState = button_state;
+        record.Event.MouseEvent.dwControlKeyState = control_state;
+        record.Event.MouseEvent.dwEventFlags = event_flags;
+        const size_t written = inp.write(&record, 1);
+        if (written != 1)
+            LOG("bridge: MOUSE_EVENT dropped (input buffer full)");
+
+        if (_pending.kind() == PendingKind::ConsoleInput)
+            complete_pending_console_input();
+    }
+
     // 解析器会解码成虚拟键的那些按键：方向键、Home/End、编辑键、功能键、
     // Backspace/Esc 等。它们的原文序列保存在 parsed.raw_sequence。
     static constexpr bool is_decoded_key(vt_message_id id) noexcept
@@ -2753,6 +2836,12 @@ struct pipe_bridge
             case vt_message_id::cpr_response: {
                 if (!process_input_cpr_response(msg))
                     emit_raw_sequence_as_input(parsed.raw_sequence);
+                _input_parser.reset();
+                break;
+            }
+            // SGR 1006 鼠标：非 VT 输入模式合成 MOUSE_EVENT，VT 模式透传原文。
+            case vt_message_id::mouse_sgr: {
+                process_input_mouse(pending_kind, msg, parsed.raw_sequence);
                 _input_parser.reset();
                 break;
             }

@@ -144,6 +144,7 @@ enum class vt_message_id
     // 键盘输入消息。输入方向会转换为 INPUT_RECORD 或 cooked 编辑动作；输出
     // 方向不应把这些 id 写给 vt_out。
     win32_input_key, // \x1b[Vk;Sc;Uc;Kd;Cs;Rc_ — Win32 Input Mode 键盘事件
+    mouse_sgr,       // \x1b[<b;x;yM/m — SGR 1006 鼠标（1-based 坐标）
     key_up,
     key_down,
     key_right,
@@ -365,11 +366,22 @@ struct vt_win32_key_payload
     unsigned short repeat_count = 1;
 };
 
+struct vt_mouse_payload
+{
+    // 0-based 光标列/行（SGR 原始坐标是 1-based）。
+    short x = 0;
+    short y = 0;
+    // SGR 第一个参数：BBDM'MMBB，低两位是按钮，bit5 移动、bit6 滚轮、
+    // bit2/3/4 是 Shift/Alt/Ctrl。
+    unsigned short encoding = 0;
+    // final 字符为 'm' 表示松开；'M' 表示按下/移动。
+    bool release = false;
+};
+
 union vt_message_payload {
     // continue_text/text/unknown_sequence 的字符视图；continue_text 指向
     // 本次 parse 输入，其它文本消息指向 parser raw 缓冲。
-    std::u32string_view text;
-    // OSC 0/2 标题视图，指向 parser raw 缓冲。
+    std::u32string_view text;    // OSC 0/2 标题视图，指向 parser raw 缓冲。
     std::u32string_view title;
     // 共用 count 参数，适用于 cursor/scroll/insert/delete 等消息。
     vt_count_payload count;
@@ -393,6 +405,8 @@ union vt_message_payload {
     vt_sgr_payload sgr;
     // Windows Terminal Win32 Input Mode 键盘事件。
     vt_win32_key_payload win32_key;
+    // SGR 1006 鼠标事件。
+    vt_mouse_payload mouse;
 
     // 默认构造为 sgr 分支，使 union 内含对象处于可析构/可赋值的平凡状态。
     constexpr vt_message_payload() noexcept : sgr{}
@@ -604,7 +618,9 @@ class vt_parser
             return csi_char_kind::digit;
         if (ch == U';')
             return csi_char_kind::semicolon;
-        if (ch == U'?')
+        // VT 语法里 0x3C..0x3F（< = > ?）是私有参数字节：SGR 鼠标用 '<'，
+        // 私有模式用 '?'。
+        if (ch >= 0x3C && ch <= 0x3F)
             return csi_char_kind::private_marker;
         if (ch >= 0x20 && ch <= 0x2F)
             return csi_char_kind::intermediate;
@@ -729,7 +745,8 @@ class vt_parser
             _add_param();
             return vt_message_id::continue_;
         case csi_char_kind::private_marker:
-            _private_marker = true;
+            // 记录具体标记字符：'?' 是普通私有模式，'<' 是 SGR 鼠标。
+            _private_marker = ch;
             return vt_message_id::continue_;
         case csi_char_kind::intermediate:
             // intermediate 只保留最后一个字节；当前支持的序列都只需要一个
@@ -887,7 +904,8 @@ class vt_parser
     // 当前 VT 状态机模式。ground 表示可接收普通文本。
     parser_mode _mode = parser_mode::ground;
     // true 表示当前 CSI 使用 '?' private marker；只在 _mode==csi 时有意义。
-    bool _private_marker = false;
+    // CSI 私有标记字符（0 表示没有）：?\'?\' 或 \'<\'。
+    char32_t _private_marker = 0;
     // ── CSI 参数收集 ──
     // _params 保存已经被 ';' 结束的参数；_current_param 保存正在累积的参数。
     // _param_index 是已提交参数数量，范围 0..MAX_PARAMS。
@@ -921,7 +939,7 @@ class vt_parser
         _param_index = 0;
         _current_param = 0;
         _has_param = false;
-        _private_marker = false;
+        _private_marker = 0;
         _intermediate = 0;
         _csi_overflow = false;
     }
@@ -1196,7 +1214,22 @@ class vt_parser
         auto &m = _msg;
         if (_csi_overflow)
             return vt_message_id::continue_; // 参数溢出，序列非法
-        bool priv = _private_marker;
+        const bool priv = _private_marker == U'?';
+
+        // SGR 1006 鼠标：ESC [ < b ; x ; y M/m。坐标是 1-based，转入 payload
+        // 时换算成 0-based；b 的位含义由 bridge 解释。
+        if (_private_marker == U'<' || _intermediate == '<')
+        {
+            if (terminator == U'M' || terminator == U'm')
+            {
+                m.payload.mouse.encoding = static_cast<unsigned short>(_get_param(0, 0));
+                m.payload.mouse.x = static_cast<short>(_get_positive_param(1, 1) - 1);
+                m.payload.mouse.y = static_cast<short>(_get_positive_param(2, 1) - 1);
+                m.payload.mouse.release = terminator == U'm';
+                return vt_message_id::mouse_sgr;
+            }
+            return vt_message_id::continue_;
+        }
 
         // 默认 count = 第一个参数，若未提供则为 1，0 也视为 1
         auto n = (_param_index > 0) ? _get_param(0, 1) : static_cast<short>(1);

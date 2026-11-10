@@ -278,6 +278,42 @@ int size_event_probe()
     }
 }
 
+// SGR 1006 鼠标在非 VT 输入模式下应转成 MOUSE_EVENT。连续读 3 条记录后退出。
+int mouse_probe()
+{
+    const HANDLE input = ::GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode = 0;
+    if (::GetConsoleMode(input, &mode) == FALSE)
+        return 17;
+    if (::SetConsoleMode(input, mode | ENABLE_MOUSE_INPUT) == FALSE)
+        return 18;
+
+    constexpr char ready[] = "MOUSE-PROBE-READY\r\n";
+    DWORD written = 0;
+    ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), ready, sizeof(ready) - 1, &written, nullptr);
+
+    int seen = 0;
+    while (seen < 3)
+    {
+        INPUT_RECORD record{};
+        DWORD read = 0;
+        if (::ReadConsoleInputW(input, &record, 1, &read) == FALSE || read != 1)
+            return 19;
+        if (record.EventType != MOUSE_EVENT)
+            continue;
+
+        char marker[128]{};
+        ::sprintf_s(marker, "MOUSE x=%d y=%d buttons=0x%08lx flags=0x%08lx\r\n",
+                    record.Event.MouseEvent.dwMousePosition.X, record.Event.MouseEvent.dwMousePosition.Y,
+                    static_cast<unsigned long>(record.Event.MouseEvent.dwButtonState),
+                    static_cast<unsigned long>(record.Event.MouseEvent.dwEventFlags));
+        ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), marker, static_cast<DWORD>(::strlen(marker)), &written,
+                    nullptr);
+        ++seen;
+    }
+    return 0;
+}
+
 int wmain(int argc, wchar_t **argv)
 {
     if (argc < 2 || argc > 3)
@@ -292,6 +328,8 @@ int wmain(int argc, wchar_t **argv)
         return serve_probe();
     if (::wcscmp(argv[1], L"--wake-probe") == 0)
         return wake_probe();
+    if (::wcscmp(argv[1], L"--mouse-probe") == 0)
+        return mouse_probe();
     if (::wcscmp(argv[1], L"--size-event-probe") == 0)
         return size_event_probe();
     if (::wcscmp(argv[1], L"--handler-probe") == 0)

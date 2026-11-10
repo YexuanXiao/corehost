@@ -383,6 +383,33 @@ corehost::test::result resize_reports_window_size_event()
     return corehost::test::result::pass;
 }
 
+// SGR 1006 鼠标：按下 / 滚轮 / 松开都转成 MOUSE_EVENT（非 VT 输入模式）。
+corehost::test::result mouse_sgr_becomes_mouse_events()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --mouse-probe"));
+    REQUIRE(session.wait_output("MOUSE-PROBE-READY", 15000));
+
+    // 左键按下 (10,20) → 滚轮上滚 → 松开。
+    REQUIRE(session.write("\x1b[<0;10;20M\x1b[<64;10;20M\x1b[<0;10;20m"));
+
+    const bool saw = session.wait_output("MOUSE x=9 y=19 buttons=0x00000000 flags=0x00000000", 15000);
+    const auto output = session.take_output();
+    session.close();
+    if (!saw)
+        std::fwprintf(stderr, L"[mouse] output: %hs\n", output.c_str());
+    REQUIRE(saw);
+    if (output.find("buttons=0x00000001 flags=0x00000000") == std::string::npos ||
+        output.find("buttons=0x00780001 flags=0x00000004") == std::string::npos)
+        std::fwprintf(stderr, L"[mouse] unexpected sequence: %hs\n", output.c_str());
+    REQUIRE(output.find("buttons=0x00000001 flags=0x00000000") != std::string::npos);
+    REQUIRE(output.find("buttons=0x00780001 flags=0x00000004") != std::string::npos);
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -402,6 +429,7 @@ int main()
         {"ctrl_c_read", "conpty;robust;signal", &ctrl_c_aborts_pending_read},
         {"handler_ctrl_c", "conpty;robust;signal", &handler_receives_ctrl_c},
         {"resize_event", "conpty;robust;window", &resize_reports_window_size_event},
+        {"mouse", "conpty;robust;input", &mouse_sgr_becomes_mouse_events},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))
