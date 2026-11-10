@@ -94,10 +94,10 @@ corehost::test::result vim_starts_and_quits()
 // A10：输入到回显的时延（不轮询模型的回归指标）。
 corehost::test::result input_latency()
 {
-    // 已知不稳定：隔离子进程里交互式 cmd 的回显偶尔在首轮就 EOF（用例体外
-    // 手动运行稳定）。测得的 p95 为 0–1ms，已记录在看板；在稳定化前 SKIP，
-    // 见 doc/tasks/04-open-gaps.md G12。
-    SKIP(L"interactive cmd echo is flaky under isolated child processes (gap G12)");
+    // 探针已确认回显链路工作（cmd /k 输入 abc 后收到 \r\nabc\r\n）。但连续
+    // 交互式 cmd 会话在隔离子进程里会提前结束，等待标记随之失败；稳定化前
+    // 保持 SKIP，见 doc/tasks/04-open-gaps.md G12。
+    SKIP(L"repeated interactive cmd sessions are unstable under isolated child (gap G12)");
 
     const auto cmd = corehost::test::system32_path(L"cmd.exe");
     REQUIRE(!cmd.empty());
