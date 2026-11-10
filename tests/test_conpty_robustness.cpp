@@ -195,15 +195,20 @@ corehost::test::result write_console_input_wakes_read()
 {
     // 实现已按 fork 9742404 移植，但端到端尚未验证：探针的 WriteConsoleInput 在
     // pseudoconsole 下没有观察到进入 api_write_console_input（G15）。
-    SKIP(L"WriteConsoleInput wake path implemented but not yet verified end-to-end (gap G15)");
-
     const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
     REQUIRE(!probe.empty());
 
     corehost::test::conpty_session session;
     REQUIRE(session.start(quote(probe) + L" --wake-probe"));
 
-    REQUIRE(session.wait_output("READ-RETURNED", 15000));
+    const bool saw = session.wait_output("READ-RETURNED", 15000);
+    if (!saw)
+    {
+        const auto output = session.take_output();
+        std::fwprintf(stderr, L"[wake] probe output: %hs\n", output.c_str());
+        session.close();
+        REQUIRE(false);
+    }
     session.close();
     return corehost::test::result::pass;
 }

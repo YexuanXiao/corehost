@@ -130,6 +130,8 @@ int wmain(int argc, wchar_t **argv)
         return ctrl_probe();
     if (::wcscmp(argv[1], L"--serve-probe") == 0)
         return serve_probe();
+    if (::wcscmp(argv[1], L"--wake-probe") == 0)
+        return wake_probe();
 
     ::fwprintf(stderr, L"unknown mode\n");
     return 2;
