@@ -7,6 +7,7 @@
 #include <windows.h>
 
 #include <cstdio>
+#include <cwchar>
 #include <cstring>
 #include <cstring>
 
@@ -211,6 +212,40 @@ int ctrl_read_probe(const wchar_t *result_file)
     return 0;
 }
 
+wchar_t g_close_marker_path[MAX_PATH]{};
+
+BOOL WINAPI marker_event_handler(DWORD event)
+{
+    FILE *file = nullptr;
+    if (::_wfopen_s(&file, g_close_marker_path, L"ab") == 0 && file != nullptr)
+    {
+        char line[32]{};
+        ::sprintf_s(line, "EVENT=%lu\r\n", static_cast<unsigned long>(event));
+        std::fwrite(line, 1, std::strlen(line), file);
+        std::fclose(file);
+    }
+    return TRUE; // 处理掉事件，进程存活以便观察
+}
+
+// 通用事件探针：把收到的控制台事件码写入文件，便于验证投递路径。
+int handler_probe(const wchar_t *marker_path)
+{
+    if (marker_path == nullptr || marker_path[0] == 0)
+        return 13;
+    ::wcsncpy_s(g_close_marker_path, marker_path, _TRUNCATE);
+    ::DeleteFileW(g_close_marker_path);
+    ::SetConsoleCtrlHandler(&marker_event_handler, TRUE);
+
+    constexpr char ready[] = "HANDLER-PROBE-READY\r\n";
+    DWORD written = 0;
+    ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), ready, sizeof(ready) - 1, &written, nullptr);
+
+    char buffer[32]{};
+    DWORD read = 0;
+    ::ReadConsoleA(::GetStdHandle(STD_INPUT_HANDLE), buffer, sizeof(buffer), &read, nullptr);
+    return 0;
+}
+
 int wmain(int argc, wchar_t **argv)
 {
     if (argc < 2 || argc > 3)
@@ -225,6 +260,8 @@ int wmain(int argc, wchar_t **argv)
         return serve_probe();
     if (::wcscmp(argv[1], L"--wake-probe") == 0)
         return wake_probe();
+    if (::wcscmp(argv[1], L"--handler-probe") == 0)
+        return handler_probe(argc >= 3 ? argv[2] : nullptr);
     if (::wcscmp(argv[1], L"--ctrl-read-probe") == 0)
         return ctrl_read_probe(argc >= 3 ? argv[2] : nullptr);
     if (::wcscmp(argv[1], L"--vt-probe") == 0)

@@ -107,6 +107,7 @@ struct message_router
     }
 
     // 查询会话是否可以退出。只有 VT 输入 EOF 且没有 pending 请求时返回 true。
+
     bool should_exit() const noexcept
     {
         // vt_in EOF 且没有 pending 请求时，bridge 认为会话可以退出。

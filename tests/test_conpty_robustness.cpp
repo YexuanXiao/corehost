@@ -323,6 +323,44 @@ corehost::test::result ctrl_c_aborts_pending_read()
 // 参考基准：让真实 conhost 跑同一个探针（CREATE_NEW_CONSOLE），
 // 通过 AttachConsole + GenerateConsoleCtrlEvent 投递 Ctrl+C，
 // 记录 ReadConsole 的返回，用于核对 corehost 是否与 conhost 一致。
+// 控制台处理器确实被调用（CTRL_C_EVENT）：验证投递路径不只是"进程被杀"。
+corehost::test::result handler_receives_ctrl_c()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    wchar_t module[MAX_PATH]{};
+    REQUIRE(::GetModuleFileNameW(nullptr, module, ARRAYSIZE(module)) != 0);
+    const std::wstring marker =
+        (std::filesystem::path{module}.parent_path() / L"handler-ctrl-c.txt").wstring();
+    ::DeleteFileW(marker.c_str());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --handler-probe \"" + marker + L"\""));
+    REQUIRE(session.wait_output("HANDLER-PROBE-READY", 15000));
+
+    ::Sleep(300);
+    REQUIRE(session.write("\x1b[67;46;3;1;8;1_"));
+
+    bool saw = false;
+    for (int attempt = 0; attempt < 100 && !saw; ++attempt)
+    {
+        if (std::filesystem::exists(marker))
+        {
+            std::ifstream file{marker};
+            const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            saw = text.find("EVENT=0") != std::string::npos;
+        }
+        if (!saw)
+            ::Sleep(50);
+    }
+
+    session.close();
+    ::DeleteFileW(marker.c_str());
+    REQUIRE(saw);
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -340,6 +378,7 @@ int main()
         {"ctrl_break", "conpty;robust;signal", &ctrl_break_interrupts_foreground},
         {"signal_repeat", "conpty;robust;signal", &signal_delivery_is_repeatable},
         {"ctrl_c_read", "conpty;robust;signal", &ctrl_c_aborts_pending_read},
+        {"handler_ctrl_c", "conpty;robust;signal", &handler_receives_ctrl_c},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))
