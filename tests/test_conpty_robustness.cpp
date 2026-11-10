@@ -11,6 +11,42 @@
 namespace
 {
 
+bool wait_file_contains(const std::wstring &path, std::string_view needle, DWORD timeout_ms)
+{
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{timeout_ms};
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        if (std::filesystem::exists(path))
+        {
+            std::ifstream file{path};
+            const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            if (text.find(needle) != std::string::npos)
+                return true;
+        }
+        ::Sleep(50);
+    }
+
+    // 超时：把已有的部分内容打出来，便于判断探针返回了什么。
+    if (std::filesystem::exists(path))
+    {
+        std::ifstream file{path};
+        const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        std::fprintf(stderr, "[marker] %ls: %s\n", path.c_str(), text.c_str());
+    }
+    else
+    {
+        std::fprintf(stderr, "[marker] %ls: <missing>\n", path.c_str());
+    }
+    return false;
+}
+
+std::wstring marker_path(const wchar_t *name)
+{
+    wchar_t module[MAX_PATH]{};
+    if (::GetModuleFileNameW(nullptr, module, ARRAYSIZE(module)) == 0)
+        return {};
+    return (std::filesystem::path{module}.parent_path() / name).wstring();
+}
 std::wstring quote(std::wstring_view path)
 {
     return L"\"" + std::wstring{path} + L"\"";
@@ -410,6 +446,97 @@ corehost::test::result mouse_sgr_becomes_mouse_events()
     return corehost::test::result::pass;
 }
 
+// raw ReadFile 遇 Ctrl+C：STATUS_ALERTED → 0 字节 + ERROR_OPERATION_ABORTED。
+corehost::test::result raw_read_aborts_on_ctrl_c()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+    const auto marker = marker_path(L"raw-ctrl-c.txt");
+    ::DeleteFileW(marker.c_str());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --raw-read-probe \"" + marker + L"\""));
+    REQUIRE(session.wait_output("RAW-PROBE-READY", 15000));
+
+    ::Sleep(300);
+    REQUIRE(session.write("\x1b[67;46;3;1;8;1_"));
+
+    // 客户端把 STATUS_ALERTED 映射成 0 字节读取；last error 由客户端库决定，
+    // 这里只断言 0 字节（conhost 在 ConPTY 下对 raw 读不返回，属其自身问题）。
+    const bool saw = wait_file_contains(marker, "read=0", 15000);
+    session.close();
+    ::DeleteFileW(marker.c_str());
+    REQUIRE(saw);
+    return corehost::test::result::pass;
+}
+
+// ReadConsoleInput 遇 Ctrl+C：0 条记录 + ERROR_OPERATION_ABORTED。
+corehost::test::result input_record_aborts_on_ctrl_c()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+    const auto marker = marker_path(L"input-ctrl-c.txt");
+    ::DeleteFileW(marker.c_str());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --input-record-probe \"" + marker + L"\""));
+    REQUIRE(session.wait_output("INPUT-PROBE-READY", 15000));
+
+    ::Sleep(300);
+    REQUIRE(session.write("\x1b[67;46;3;1;8;1_"));
+
+    // 只断言 0 条记录（同 raw 读：不要求特定 last error）。
+    const bool saw = wait_file_contains(marker, "read=0", 15000);
+    session.close();
+    ::DeleteFileW(marker.c_str());
+    REQUIRE(saw);
+    return corehost::test::result::pass;
+}
+
+// 未开 processed input 时 Ctrl+C 应作为按键到达。
+corehost::test::result ctrl_c_is_a_key_without_processed_input()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+    const auto marker = marker_path(L"no-processed-ctrl-c.txt");
+    ::DeleteFileW(marker.c_str());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --no-processed-probe \"" + marker + L"\""));
+    REQUIRE(session.wait_output("NOPROC-PROBE-READY", 15000));
+
+    ::Sleep(300);
+    REQUIRE(session.write("\x1b[67;46;3;1;8;1_"));
+
+    const bool saw = wait_file_contains(marker, "KEY vk=67 uc=3", 15000);
+    session.close();
+    ::DeleteFileW(marker.c_str());
+    REQUIRE(saw);
+    return corehost::test::result::pass;
+}
+
+// GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0) 应把事件投递给控制台进程。
+corehost::test::result generate_ctrl_event_api_is_delivered()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+    const auto marker = marker_path(L"api-ctrl.txt");
+    ::DeleteFileW(marker.c_str());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --api-ctrl-probe \"" + marker + L"\""));
+    REQUIRE(session.wait_output("APICTRL-PROBE-READY", 15000));
+
+    const bool saw = wait_file_contains(marker, "delivered=1", 15000);
+    const auto output = saw ? std::string{} : session.take_output();
+    session.close();
+    ::DeleteFileW(marker.c_str());
+    if (!saw)
+        std::fwprintf(stderr, L"[api_ctrl] output: %hs\n", output.c_str());
+    REQUIRE(saw);
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -430,6 +557,10 @@ int main()
         {"handler_ctrl_c", "conpty;robust;signal", &handler_receives_ctrl_c},
         {"resize_event", "conpty;robust;window", &resize_reports_window_size_event},
         {"mouse", "conpty;robust;input", &mouse_sgr_becomes_mouse_events},
+        {"raw_ctrl_c", "conpty;robust;signal", &raw_read_aborts_on_ctrl_c},
+        {"input_ctrl_c", "conpty;robust;signal", &input_record_aborts_on_ctrl_c},
+        {"noproc_ctrl_c", "conpty;robust;signal", &ctrl_c_is_a_key_without_processed_input},
+        {"api_ctrl", "conpty;robust;signal", &generate_ctrl_event_api_is_delivered},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))

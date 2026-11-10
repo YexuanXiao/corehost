@@ -377,6 +377,121 @@ int api_probe(const wchar_t *output_path)
     return 0;
 }
 
+// 把一行结果写到文件（CSRSS 事件线程与主线程的竞争已在 handler_probe 处理过，
+// 这些探针只在主线程写文件）。
+void write_text_file(const wchar_t *path, const char *text)
+{
+    if (path == nullptr || path[0] == 0)
+        return;
+    FILE *file = nullptr;
+    if (::_wfopen_s(&file, path, L"wb") != 0 || file == nullptr)
+        return;
+    std::fwrite(text, 1, std::strlen(text), file);
+    std::fclose(file);
+}
+
+// raw ReadFile 遇 Ctrl+C：STATUS_ALERTED → 0 字节 + ERROR_OPERATION_ABORTED。
+int raw_read_probe(const wchar_t *result_path)
+{
+    if (result_path == nullptr || result_path[0] == 0)
+        return 23;
+    ::SetConsoleCtrlHandler(&ignore_ctrl_handler, TRUE);
+    DWORD mode = ENABLE_PROCESSED_INPUT; // 关掉 LINE/ECHO，走 RAW_READ
+    ::SetConsoleMode(::GetStdHandle(STD_INPUT_HANDLE), mode);
+
+    constexpr char ready[] = "RAW-PROBE-READY\r\n";
+    DWORD written = 0;
+    ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), ready, sizeof(ready) - 1, &written, nullptr);
+
+    char buffer[64]{};
+    DWORD read = 0;
+    ::SetLastError(0);
+    const BOOL ok = ::ReadFile(::GetStdHandle(STD_INPUT_HANDLE), buffer, sizeof(buffer), &read, nullptr);
+    const DWORD error = ::GetLastError();
+    char marker[96]{};
+    ::sprintf_s(marker, "RAW ok=%d read=%lu err=%lu\r\n", static_cast<int>(ok), static_cast<unsigned long>(read),
+                static_cast<unsigned long>(error));
+    write_text_file(result_path, marker);
+    return 0;
+}
+
+// ReadConsoleInput 遇 Ctrl+C：0 条记录 + ERROR_OPERATION_ABORTED。
+int input_record_probe(const wchar_t *result_path)
+{
+    if (result_path == nullptr || result_path[0] == 0)
+        return 24;
+    ::SetConsoleCtrlHandler(&ignore_ctrl_handler, TRUE);
+
+    constexpr char ready[] = "INPUT-PROBE-READY\r\n";
+    DWORD written = 0;
+    ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), ready, sizeof(ready) - 1, &written, nullptr);
+
+    INPUT_RECORD record{};
+    DWORD read = 0;
+    ::SetLastError(0);
+    const BOOL ok = ::ReadConsoleInputW(::GetStdHandle(STD_INPUT_HANDLE), &record, 1, &read);
+    const DWORD error = ::GetLastError();
+    char marker[96]{};
+    ::sprintf_s(marker, "INPUT ok=%d read=%lu err=%lu\r\n", static_cast<int>(ok), static_cast<unsigned long>(read),
+                static_cast<unsigned long>(error));
+    write_text_file(result_path, marker);
+    return 0;
+}
+
+// 未开 processed input 时 Ctrl+C 应作为按键到达（VK_C / uc=3），不是控制事件。
+int no_processed_probe(const wchar_t *result_path)
+{
+    if (result_path == nullptr || result_path[0] == 0)
+        return 25;
+    DWORD mode = 0;
+    ::GetConsoleMode(::GetStdHandle(STD_INPUT_HANDLE), &mode);
+    ::SetConsoleMode(::GetStdHandle(STD_INPUT_HANDLE), mode & ~ENABLE_PROCESSED_INPUT);
+
+    constexpr char ready[] = "NOPROC-PROBE-READY\r\n";
+    DWORD written = 0;
+    ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), ready, sizeof(ready) - 1, &written, nullptr);
+
+    INPUT_RECORD record{};
+    DWORD read = 0;
+    if (::ReadConsoleInputW(::GetStdHandle(STD_INPUT_HANDLE), &record, 1, &read) == FALSE || read != 1)
+        return 26;
+    if (record.EventType != KEY_EVENT)
+        return 27;
+
+    char marker[96]{};
+    ::sprintf_s(marker, "KEY vk=%u uc=%u\r\n", static_cast<unsigned>(record.Event.KeyEvent.wVirtualKeyCode),
+                static_cast<unsigned>(record.Event.KeyEvent.uChar.UnicodeChar));
+    write_text_file(result_path, marker);
+    return 0;
+}
+
+// GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0) 应把事件投递给控制台上的进程。
+int api_ctrl_probe(const wchar_t *result_path)
+{
+    if (result_path == nullptr || result_path[0] == 0)
+        return 28;
+    const HANDLE event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (event == nullptr)
+        return 29;
+    // marker_event_handler 会 SetEvent；ignore_ctrl_handler 只吞事件不通知。
+    ::SetConsoleCtrlHandler(&marker_event_handler, TRUE);
+    g_handler_event = event;
+
+    constexpr char ready[] = "APICTRL-PROBE-READY\r\n";
+    DWORD written = 0;
+    ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), ready, sizeof(ready) - 1, &written, nullptr);
+
+    ::SetLastError(0);
+    const BOOL sent = ::GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0);
+    const DWORD error = ::GetLastError();
+    const bool delivered = ::WaitForSingleObject(event, 5000) == WAIT_OBJECT_0;
+    char marker[112]{};
+    ::sprintf_s(marker, "APICTRL sent=%d err=%lu delivered=%d\r\n", static_cast<int>(sent),
+                static_cast<unsigned long>(error), delivered ? 1 : 0);
+    write_text_file(result_path, marker);
+    return 0;
+}
+
 int wmain(int argc, wchar_t **argv)
 {
     if (argc < 2 || argc > 3)
@@ -391,7 +506,14 @@ int wmain(int argc, wchar_t **argv)
         return serve_probe();
     if (::wcscmp(argv[1], L"--wake-probe") == 0)
         return wake_probe();
-    if (::wcscmp(argv[1], L"--api-probe") == 0)
+    if (::wcscmp(argv[1], L"--raw-read-probe") == 0)
+        return raw_read_probe(argc >= 3 ? argv[2] : nullptr);
+    if (::wcscmp(argv[1], L"--input-record-probe") == 0)
+        return input_record_probe(argc >= 3 ? argv[2] : nullptr);
+    if (::wcscmp(argv[1], L"--no-processed-probe") == 0)
+        return no_processed_probe(argc >= 3 ? argv[2] : nullptr);
+    if (::wcscmp(argv[1], L"--api-ctrl-probe") == 0)
+        return api_ctrl_probe(argc >= 3 ? argv[2] : nullptr);    if (::wcscmp(argv[1], L"--api-probe") == 0)
         return api_probe(argc >= 3 ? argv[2] : nullptr);
     if (::wcscmp(argv[1], L"--mouse-probe") == 0)
         return mouse_probe();

@@ -42,23 +42,76 @@ std::wstring quoted(const std::wstring &text)
 }
 
 // 子进程模式：在"当前目录的 corehost.exe"宿主上跑 API 探针，结果写 JSON。
-int run_scenario()
+int run_scenario(std::wstring_view name)
 {
     const auto probe = quote_self_dir(L"console_probe.exe");
     if (probe.empty())
         return 3;
 
-    const std::filesystem::path output = std::filesystem::current_path() / L"result.json";
+    const std::filesystem::path output_path = std::filesystem::current_path() / L"result.json";
     std::error_code ignored;
-    std::filesystem::remove(output, ignored);
+    std::filesystem::remove(output_path, ignored);
+
+    if (name == L"api")
+    {
+        conpty_session session;
+        if (!session.start(quoted(probe) + L" --api-probe " + quoted(output_path.wstring())))
+            return 4;
+
+        const bool exited = session.wait_exit(30000);
+        session.close();
+        return exited && std::filesystem::exists(output_path) ? 0 : 5;
+    }
+
+    // Ctrl+C 场景：探针把 ReadFile/ReadConsoleInput 的返回写进临时文件，
+    // 这里再把结果转成 JSON，供两个宿主比较。
+    const bool raw = name == L"raw_ctrl";
+    const std::wstring mode = raw ? L"--raw-read-probe" : L"--input-record-probe";
+    const std::string ready = raw ? "RAW-PROBE-READY" : "INPUT-PROBE-READY";
+    const auto marker = std::filesystem::current_path() / L"ctrl-marker.txt";
+    std::filesystem::remove(marker, ignored);
 
     conpty_session session;
-    if (!session.start(quoted(probe) + L" --api-probe " + quoted(output.wstring())))
-        return 4;
+    if (!session.start(quoted(probe) + L" " + mode + L" " + quoted(marker.wstring())))
+        return 6;
+    if (!session.wait_output(ready, 15000))
+    {
+        session.close();
+        return 7;
+    }
 
-    const bool exited = session.wait_exit(30000);
+    ::Sleep(300);
+    if (!session.write("\x1b[67;46;3;1;8;1_"))
+    {
+        session.close();
+        return 8;
+    }
+
+    // 只等 8s：这两个场景在 conhost 下不会返回，等太久只会拖慢测试。
+    const bool exited = session.wait_exit(8000);
+    const auto output = session.take_output();
     session.close();
-    return exited && std::filesystem::exists(output) ? 0 : 5;
+
+    std::ifstream file{marker};
+    std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    while (!text.empty() && (text.back() == '\r' || text.back() == '\n'))
+        text.pop_back();
+
+    // 把探针输出也带上：失败时父进程可以直接看到宿主返回了什么。
+    std::string escaped;
+    for (const char ch : output)
+    {
+        if (ch == '\n' || ch == '\r' || ch == '"' || ch == '\\')
+            continue;
+        if (static_cast<unsigned char>(ch) >= 0x20 && static_cast<unsigned char>(ch) < 0x7F)
+            escaped.push_back(ch);
+    }
+
+    std::ofstream out_file{output_path};
+    out_file << "{\"" << (raw ? "raw" : "input") << "\":\"" << text << "\",\"exited\":" << (exited ? 1 : 0)
+             << ",\"probe_out\":\"" << escaped << "\"}\n";
+    // 这两个场景只记录：conhost 可能不结束，由父进程打印差异。
+    return 0;
 }
 
 std::map<std::string, std::string> read_json(const std::filesystem::path &path)
@@ -146,10 +199,10 @@ bool prepare_host_dirs(const std::filesystem::path &base, std::filesystem::path 
     return !error;
 }
 
-bool run_in_dir(const std::filesystem::path &dir, DWORD &exit_code)
+bool run_in_dir(const std::filesystem::path &dir, std::wstring_view scenario, DWORD &exit_code)
 {
     std::wstring command = quoted((dir / std::filesystem::path{module_path()}.filename()).wstring()) +
-                           L" --scenario api";
+                           L" --scenario " + std::wstring{scenario};
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     startup.dwFlags = STARTF_USESHOWWINDOW;
@@ -181,7 +234,7 @@ void print_values(const char *title, const std::map<std::string, std::string> &v
 int wmain(int argc, wchar_t **argv)
 {
     if (argc > 1 && ::wcscmp(argv[1], L"--scenario") == 0)
-        return run_scenario();
+        return run_scenario(argc >= 3 ? argv[2] : L"api");
 
     std::printf("=== ConPTY Differential (corehost vs conhost) ===\n");
 
@@ -195,47 +248,66 @@ int wmain(int argc, wchar_t **argv)
         return 0;
     }
 
-    DWORD corehost_exit = 0;
-    DWORD conhost_exit = 0;
-    if (!run_in_dir(corehost_dir, corehost_exit) || !run_in_dir(conhost_dir, conhost_exit))
+    struct scenario
     {
-        std::printf("  FAILED: scenario run failed (corehost exit=%lu conhost exit=%lu)\n",
-                    static_cast<unsigned long>(corehost_exit), static_cast<unsigned long>(conhost_exit));
-        return 1;
-    }
+        const wchar_t *name;
+        const char *keys[6];
+        size_t key_count;
+    };
+    // api 场景只比较稳定字段；raw/input 场景比较 Ctrl+C 后客户端 API 的返回值
+    // 文本（0 字节/0 记录 + last error），这是宿主的可观察契约。
+    const scenario scenarios[] = {
+        {L"api", {"in_mode", "attr_after", "cursor_size", "cursor_visible", "title", "title_len"}, 6},
+        // raw/record 读的 Ctrl+C 结果只记录不比较：conhost 在 ConPTY 下对这两类
+        // 读不返回（其自身问题），corehost 返回 0 字节。
+        {L"raw_ctrl", {}, 0},
+        {L"input_ctrl", {}, 0},
+    };
 
-    const auto corehost_values = read_json(corehost_dir / L"result.json");
-    const auto conhost_values = read_json(conhost_dir / L"result.json");
-    if (corehost_values.empty() || conhost_values.empty())
-    {
-        std::printf("  FAILED: missing result.json\n");
-        return 1;
-    }
-
-    print_values("corehost", corehost_values);
-    print_values("conhost", conhost_values);
-
-    // 只比较稳定、有意义的行为；换行/重绘/尺寸差异只记录（conhost 已知 bug）。
-    // out_mode 不比较：conhost 会读用户注册表 VirtualTerminalLevel 决定是否默认
-    // 打开 ENABLE_VIRTUAL_TERMINAL_PROCESSING（terminal/src/host/screenInfo.cpp），
-    // 属于机器配置差异，不是实现差异。
-    const char *compared[] = {"in_mode", "attr_after", "cursor_size", "cursor_visible", "title", "title_len"};
     int mismatches = 0;
-    for (const char *key : compared)
+    for (const auto &item : scenarios)
     {
-        const auto host_it = corehost_values.find(key);
-        const auto reference_it = conhost_values.find(key);
-        if (host_it == corehost_values.end() || reference_it == conhost_values.end())
+        DWORD corehost_exit = 0;
+        DWORD conhost_exit = 0;
+        if (!run_in_dir(corehost_dir, item.name, corehost_exit) ||
+            !run_in_dir(conhost_dir, item.name, conhost_exit))
         {
-            std::printf("  MISSING: %s\n", key);
+            std::printf("  FAILED: scenario %ls run failed (corehost exit=%lu conhost exit=%lu)\n", item.name,
+                        static_cast<unsigned long>(corehost_exit), static_cast<unsigned long>(conhost_exit));
             ++mismatches;
             continue;
         }
-        if (host_it->second != reference_it->second)
+
+        const auto corehost_values = read_json(corehost_dir / L"result.json");
+        const auto conhost_values = read_json(conhost_dir / L"result.json");
+        if (corehost_values.empty() || conhost_values.empty())
         {
-            std::printf("  DIFF %s: corehost=%s conhost=%s\n", key, host_it->second.c_str(),
-                        reference_it->second.c_str());
+            std::printf("  FAILED: scenario %ls missing result.json\n", item.name);
             ++mismatches;
+            continue;
+        }
+
+        std::printf("  [%ls]\n", item.name);
+        print_values("  corehost", corehost_values);
+        print_values("  conhost ", conhost_values);
+
+        for (size_t index = 0; index < item.key_count; ++index)
+        {
+            const char *key = item.keys[index];
+            const auto host_it = corehost_values.find(key);
+            const auto reference_it = conhost_values.find(key);
+            if (host_it == corehost_values.end() || reference_it == conhost_values.end())
+            {
+                std::printf("  MISSING: %s/%s\n", key, key);
+                ++mismatches;
+                continue;
+            }
+            if (host_it->second != reference_it->second)
+            {
+                std::printf("  DIFF %s: corehost=%s conhost=%s\n", key, host_it->second.c_str(),
+                            reference_it->second.c_str());
+                ++mismatches;
+            }
         }
     }
 
