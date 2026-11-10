@@ -165,8 +165,28 @@ add_custom_command(TARGET test_defterm_connect_selftest POST_BUILD
 add_test(NAME Defterm.Connect COMMAND test_defterm_connect_selftest)
 set_tests_properties(Defterm.Connect PROPERTIES LABELS "defterm" TIMEOUT 120)
 
-# ── test_conpty_session_selftest ──────────────────
-# 会话驱动自测：真实客户端、输出捕获、退出码、resize。
+# ── test_conpty_programs ──────────────────────────
+# 真实程序矩阵：cmd、嵌套子进程、powershell、vim、输入时延。
+add_executable(test_conpty_programs
+    test_conpty_programs.cpp
+)
+target_include_directories(test_conpty_programs PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_conpty_programs PRIVATE test_common conpty_static)
+add_dependencies(test_conpty_programs corehost)
+add_custom_command(TARGET test_conpty_programs POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:corehost>"
+        "$<TARGET_FILE_DIR:test_conpty_programs>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_conpty_programs>/logs"
+)
+add_test(NAME ConPTY.Programs COMMAND test_conpty_programs)
+set_tests_properties(ConPTY.Programs PROPERTIES LABELS "conpty;program" TIMEOUT 300)
+
+# ── test_conpty_session_selftest ──────────────────# 会话驱动自测：真实客户端、输出捕获、退出码、resize。
 add_executable(test_conpty_session_selftest
     test_conpty_session_selftest.cpp
 )
