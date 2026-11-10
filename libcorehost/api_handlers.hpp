@@ -2272,6 +2272,8 @@ inline bool api_write_console_input(condrv_io::io_msg &msg, console_state &state
     }
     r->NumRecords = static_cast<ULONG>(written);
     ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
+    if (written > 0)
+        bridge.on_console_input_written();
     return true;
 }
 

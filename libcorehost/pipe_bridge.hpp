@@ -189,6 +189,17 @@ struct pipe_bridge
         on_input_eof();
     }
 
+    // WriteConsoleInput 写入了记录：唤醒等待中的 ReadConsoleInput，或让等待中的
+    // ReadConsole 用这些记录编辑当前行（conhost 行为）。libuv（node/bun 等）在
+    // 切换 raw 模式时就是写一个 Enter 键来结束挂起的行读，读不返回会让程序卡住。
+    void on_console_input_written()
+    {
+        if (_pending.kind() == PendingKind::ConsoleInput)
+            complete_pending_console_input();
+        else if (_pending.kind() == PendingKind::ConsoleRead)
+            (void)consume_input_buffer_for_console_read();
+    }
+
     // 更新 GetConsoleProcessList 可见的进程快照。message_router 在
     // CONNECT/DISCONNECT 后把 io_state 的真实列表同步到这里。
     void set_process_list(std::span<const DWORD> processes) noexcept
@@ -280,6 +291,25 @@ struct pipe_bridge
     // completion 会在下一轮 READ_IO 提交，因此该缓冲必须作为 bridge 成员
     // 保持稳定，直到 ConDrv 消费 Write.Data。
     raw_byte_vector<BYTE> _console_input_output_buffer;
+
+    // 当前 handler 正在服务的读请求。若输入已就绪、handler 内就完成它并返回
+    // true，I/O loop 会提交这次 completion；complete_pending 不能再发一次，
+    // 否则 ConDrv 拒绝第二次 COMPLETE_IO 并结束进程（fork 9742404）。
+    const condrv_io::io_msg *_serving = nullptr;
+    struct serving_guard
+    {
+        const condrv_io::io_msg *&slot;
+        serving_guard(const condrv_io::io_msg *&s, const condrv_io::io_msg &m) noexcept : slot(s)
+        {
+            slot = &m;
+        }
+        ~serving_guard()
+        {
+            slot = nullptr;
+        }
+        serving_guard(const serving_guard &) = delete;
+        serving_guard &operator=(const serving_guard &) = delete;
+    };
 
     // 低级 Win32/ConDrv I/O 封装，bridge 只通过它访问 server/vt_in。
     pipe_bridge_io _io;
@@ -1132,6 +1162,7 @@ struct pipe_bridge
     // 建立 RAW_READ pending，并尽量同步消费已经到达的 vt_in 字节。
     bool handle_raw_read(condrv_io::io_msg &msg)
     {
+        const serving_guard serving{_serving, msg};
         // RAW_READ 是 ANSI/raw byte read；Ctrl+Z 只在 ENABLE_PROCESSED_INPUT
         // 下代表 EOF。
         if (_pending.vt_eof())
@@ -1154,6 +1185,7 @@ struct pipe_bridge
     // ── ReadConsole ──
     bool handle_console_read(condrv_io::io_msg &msg, bool proc_z, const BYTE *init_data, DWORD init_bytes)
     {
+        const serving_guard serving{_serving, msg};
         // USER_DEFINED ReadConsole body 位于 CONSOLE_MSG_HEADER 后。返回时只写
         // CONSOLE_READCONSOLE_MSG 和后续文本，不把 header 回传给客户端。
         auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
@@ -1207,6 +1239,7 @@ struct pipe_bridge
     // NOWAIT 标志从 input_buffer 返回；可等待且无记录时进入 ConsoleInput pending。
     bool handle_console_input(condrv_io::io_msg &msg)
     {
+        const serving_guard serving{_serving, msg};
         // GetConsoleInput 直接服务于 input_buffer。PEEK 不消费记录；NOWAIT
         // 在没有记录时必须同步返回 0，而不是挂起。
         prepare_console_input_events();
@@ -2900,6 +2933,7 @@ struct pipe_bridge
 
         CD_IO_COMPLETE comp_before{};
         CD_IO_COMPLETE *comp_ptr = nullptr;
+        const auto *request = _pending.raw_read() ? _pending.raw_read() : _pending.console_read();
         if (_pending.kind() == PendingKind::RawRead && _pending.raw_read())
         {
             auto &m = *_pending.raw_read();
@@ -2941,7 +2975,7 @@ struct pipe_bridge
         LOG3("[bridge] complete_pending: done kind=%d cooked_len=%zu vt_eof=%d", static_cast<int>(_pending.kind()),
              _cooked_buf.size(), _pending.vt_eof());
 
-        if (comp_ptr && _io.can_complete())
+        if (comp_ptr && _io.can_complete() && request != _serving)
         {
             // 挂起请求已经从原始 READ_IO 返回 false，必须额外发送
             // CD_IO_COMPLETE；同步完成的请求则由 io_loop 直接带回。
@@ -2975,7 +3009,7 @@ struct pipe_bridge
             auto comp = m.complete;
             _pending.clear();
 
-            if (_io.can_complete())
+            if (_io.can_complete() && &m != _serving)
                 _io.complete(comp);
             return;
         }
@@ -2985,7 +3019,7 @@ struct pipe_bridge
         auto comp = m.complete;
         _pending.clear();
 
-        if (_io.can_complete())
+        if (_io.can_complete() && &m != _serving)
             _io.complete(comp);
     }
 
