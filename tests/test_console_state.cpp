@@ -2952,6 +2952,36 @@ bool test_dec_to_unicode()
 // Test Runner
 // ═══════════════════════════════════════════════════════
 
+// GetNumberOfConsoleInputEvents/GetConsoleInput/ReadConsole 在输出句柄上必须
+// 失败（conhost 行为；libuv 靠它区分 stdin/stdout，fork 42ef837）。
+bool test_input_apis_reject_output_handle()
+{
+    corehost::condrv_io::io_msg msg{};
+    console_state st;
+    screen_buffer main_sb;
+    screen_buffer alt_sb;
+    input_buffer inp;
+    io_state io;
+    io.condrv_input = win32::duplicate_self();
+    io.condrv_output = win32::duplicate_self();
+    pipe_bridge_testable bridge{inp, st, main_sb};
+    api_router router{st, main_sb, alt_sb, inp, io, bridge};
+
+    msg.descriptor.Object = reinterpret_cast<ULONG_PTR>(io.condrv_output.get());
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG);
+    ASSERT(router.dispatch_L1(msg, 3));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_handle);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.Object = reinterpret_cast<ULONG_PTR>(io.condrv_input.get());
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG);
+    ASSERT(router.dispatch_L1(msg, 3));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    return true;
+}
+
 int main()
 {
     std::wcout << L"=== console_state Tests ===" << std::endl;
@@ -3118,6 +3148,7 @@ int main()
     RUN_TEST(test_default_attributes, L"Default attrs");
     RUN_TEST(test_dec_line_drawing, L"DEC line drawing");
     RUN_TEST(test_dec_to_unicode, L"dec_to_unicode");
+    RUN_TEST(test_input_apis_reject_output_handle, L"Input APIs reject output handle");
 
     std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, " << (tests_passed + tests_failed)
                << L" total." << std::endl;
