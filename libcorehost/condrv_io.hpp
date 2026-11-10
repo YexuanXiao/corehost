@@ -44,6 +44,7 @@ namespace corehost::condrv_io
 namespace error
 {
 inline constexpr LONG status_invalid_parameter = 0xC000000D;
+inline constexpr LONG status_invalid_handle = 0xC0000008;
 inline constexpr LONG status_buffer_too_small = 0xC0000023;
 inline constexpr LONG status_illegal_function = 0xC00000AF;
 inline constexpr LONG status_not_implemented = 0xC0000002;
