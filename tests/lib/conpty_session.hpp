@@ -145,27 +145,31 @@ class conpty_session
 
     void close()
     {
-        if (_pump.valid())
-        {
-            ::CancelSynchronousIo(_pump.get());
-            _pump.join();
-        }
-
+        // 先结束客户端、关闭伪控制台：corehost 随之退出并关闭 vt_out，输出泵
+        // 读到 EOF 自然结束。反过来先 join 泵会死等（CancelSynchronousIo 只能
+        // 命中正在进行的同步读，读已返回时就抓不到，join 永不返回）。
         if (_process.valid())
         {
             ::TerminateProcess(_process.get(), 1);
-            ::WaitForSingleObject(_process.get(), INFINITE);
+            ::WaitForSingleObject(_process.get(), 5000);
             _process = win32::handle{};
         }
 
         _input = win32::handle{};
-        _output = win32::handle{};
 
         if (_pty != nullptr)
         {
             ConptyClosePseudoConsole(_pty);
             _pty = nullptr;
         }
+
+        if (_pump.valid())
+        {
+            ::CancelSynchronousIo(_pump.get()); // 兜底：正常路径上泵已因 EOF 退出
+            _pump.join();
+        }
+
+        _output = win32::handle{};
     }
 
   private:
