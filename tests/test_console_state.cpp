@@ -2226,7 +2226,8 @@ bool test_regression_connect_disconnect_syncs_process_snapshot()
     ASSERT(msg.complete.Write.Data == msg.body);
     ASSERT(msg.complete.Write.Size == sizeof(CD_CONNECTION_INFORMATION));
     const auto *joined = reinterpret_cast<const CD_CONNECTION_INFORMATION *>(msg.body);
-    ASSERT(joined->Process == reinterpret_cast<ULONG_PTR>(io.condrv_input.get()));
+    // Process 令牌是客户端 pid（fork 42ef837）：DISCONNECT 靠它指出离开的进程。
+    ASSERT(joined->Process == 11);
     ASSERT(joined->Input == reinterpret_cast<ULONG_PTR>(io.condrv_input.get()));
     ASSERT(joined->Output == reinterpret_cast<ULONG_PTR>(io.condrv_output.get()));
 

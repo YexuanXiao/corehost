@@ -165,8 +165,21 @@ add_custom_command(TARGET test_defterm_connect_selftest POST_BUILD
 add_test(NAME Defterm.Connect COMMAND test_defterm_connect_selftest)
 set_tests_properties(Defterm.Connect PROPERTIES LABELS "defterm" TIMEOUT 120)
 
-# ── test_conpty_robustness ────────────────────────
-# resize / clear / 非法尺寸 / 退出码 / 重复会话。
+# ── console_probe ─────────────────────────────────
+# 被测会话里的真实控制台客户端探针（Ctrl+C 等需要保持 processed input）。
+add_executable(console_probe
+    console_probe.cpp
+)
+target_link_libraries(console_probe PRIVATE test_common)
+add_custom_command(TARGET console_probe POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_conpty_robustness>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:console_probe>"
+        "$<TARGET_FILE_DIR:test_conpty_robustness>"
+)
+
+# ── test_conpty_robustness ────────────────────────# resize / clear / 非法尺寸 / 退出码 / 重复会话。
 add_executable(test_conpty_robustness
     test_conpty_robustness.cpp
 )

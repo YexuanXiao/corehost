@@ -152,6 +152,19 @@ inline BOOL CALLBACK enum_window_proc(HWND hwnd, LPARAM param)
 }
 } // namespace details
 
+// 与当前测试可执行文件同目录的路径（例如随构建复制过去的探针程序）。
+inline std::wstring quote_self_dir(std::wstring_view file_name)
+{
+    wchar_t module[MAX_PATH]{};
+    if (::GetModuleFileNameW(nullptr, module, ARRAYSIZE(module)) == 0)
+        return {};
+    std::wstring path{module};
+    const auto slash = path.find_last_of(L'\\');
+    path.resize(slash + 1);
+    path += file_name;
+    return file_exists(path) ? path : std::wstring{};
+}
+
 // 在指定进程里查找指定类名的顶层窗口（找不到返回 nullptr）。
 inline HWND find_top_level_window(DWORD process_id, std::wstring_view class_name)
 {

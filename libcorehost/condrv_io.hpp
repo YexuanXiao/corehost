@@ -226,10 +226,13 @@ inline void prepare_completion(io_msg &msg, LONG status = 0, ULONG_PTR info = 0)
 // 把 \Input/\Output 句柄写成 CD_CONNECTION_INFORMATION，放进 msg.body 并
 // 填充 msg.complete。放 msg.body 而不是栈变量，是因为 completion 可能由
 // 下一轮 READ_IO 携带：io_loop 的双缓冲保证该缓冲在提交前不被覆盖。
-inline void prepare_connection_completion(io_msg &msg, win32::handle_view input, win32::handle_view output) noexcept
+inline void prepare_connection_completion(io_msg &msg, win32::handle_view input, win32::handle_view output,
+                                         ULONG_PTR process_token) noexcept
 {
     CD_CONNECTION_INFORMATION conn{};
-    conn.Process = reinterpret_cast<ULONG_PTR>(input.get());
+    // ConDrv 会把 Process 原样带回后续消息（含 DISCONNECT）；必须用客户端 pid，
+    // 否则 DISCONNECT 指不到进程，进程列表只增不减（fork 42ef837）。
+    conn.Process = process_token;
     conn.Input = reinterpret_cast<ULONG_PTR>(input.get());
     conn.Output = reinterpret_cast<ULONG_PTR>(output.get());
     static_assert(sizeof(conn) <= sizeof(msg.body));
@@ -242,7 +245,7 @@ inline void accept_connection(win32::handle_view server, io_msg &msg, win32::han
 {
     input = condrv::create_client_handle(server, L"\\Input");
     output = condrv::create_client_handle(server, L"\\Output");
-    prepare_connection_completion(msg, input.view(), output.view());
+    prepare_connection_completion(msg, input.view(), output.view(), msg.descriptor.Process);
 }
 
 } // namespace corehost::condrv_io
