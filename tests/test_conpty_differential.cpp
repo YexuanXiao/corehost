@@ -104,8 +104,8 @@ int run_scenario(std::wstring_view name)
         return 8;
     }
 
-    // 只等 8s：这两个场景在 conhost 下不会返回，等太久只会拖慢测试。
-    const bool exited = session.wait_exit(8000);
+    // 只等 3s：这两个场景在 conhost 下不会返回，等太久只会拖慢测试。
+    const bool exited = session.wait_exit(3000);
     const auto output = session.take_output();
     session.close();
 
@@ -174,34 +174,37 @@ std::map<std::string, std::string> read_json(const std::filesystem::path &path)
     return values;
 }
 
-bool prepare_host_dirs(const std::filesystem::path &base, std::filesystem::path &corehost_dir,
-                       std::filesystem::path &conhost_dir)
+bool prepare_corehost_dir(const std::filesystem::path &base, std::filesystem::path &dir)
 {
     std::error_code error;
     const auto self = std::filesystem::path{module_path()};
     const auto self_dir = self.parent_path();
-    corehost_dir = base / L"corehost";
-    conhost_dir = base / L"conhost";
-    std::filesystem::create_directories(corehost_dir, error);
-    std::filesystem::create_directories(conhost_dir, error);
+    dir = base / L"corehost";
+    std::filesystem::create_directories(dir, error);
     if (error)
         return false;
 
-    // 两个目录都需要：测试 exe（子进程模式）与 console_probe.exe。
-    for (const auto &dir : {corehost_dir, conhost_dir})
-    {
-        std::filesystem::copy_file(self, dir / self.filename(), std::filesystem::copy_options::overwrite_existing,
-                                   error);
-        std::filesystem::copy_file(self_dir / L"console_probe.exe", dir / L"console_probe.exe",
-                                   std::filesystem::copy_options::overwrite_existing, error);
-        if (error)
-            return false;
-    }
-
-    std::filesystem::copy_file(self_dir / L"corehost.exe", corehost_dir / L"corehost.exe",
+    std::filesystem::copy_file(self, dir / self.filename(), std::filesystem::copy_options::overwrite_existing, error);
+    std::filesystem::copy_file(self_dir / L"console_probe.exe", dir / L"console_probe.exe",
                                std::filesystem::copy_options::overwrite_existing, error);
+    std::filesystem::copy_file(self_dir / L"corehost.exe", dir / L"corehost.exe",
+                               std::filesystem::copy_options::overwrite_existing, error);
+    return !error;
+}
+
+bool prepare_conhost_dir(const std::filesystem::path &base, std::filesystem::path &dir)
+{
+    std::error_code error;
+    const auto self = std::filesystem::path{module_path()};
+    const auto self_dir = self.parent_path();
+    dir = base / L"conhost";
+    std::filesystem::create_directories(dir, error);
     if (error)
         return false;
+
+    std::filesystem::copy_file(self, dir / self.filename(), std::filesystem::copy_options::overwrite_existing, error);
+    std::filesystem::copy_file(self_dir / L"console_probe.exe", dir / L"console_probe.exe",
+                               std::filesystem::copy_options::overwrite_existing, error);
 
     wchar_t windows[MAX_PATH]{};
     if (::GetWindowsDirectoryW(windows, ARRAYSIZE(windows)) == 0)
@@ -211,11 +214,15 @@ bool prepare_host_dirs(const std::filesystem::path &base, std::filesystem::path 
         return false;
 
     // 系统 conhost 改名成 corehost.exe：libconpty 按名查找宿主。
-    std::filesystem::copy_file(system_conhost, conhost_dir / L"corehost.exe",
+    std::filesystem::copy_file(system_conhost, dir / L"corehost.exe",
                                std::filesystem::copy_options::overwrite_existing, error);
     return !error;
 }
 
+bool env_enabled(const wchar_t *name) noexcept
+{
+    return ::GetEnvironmentVariableW(name, nullptr, 0) != 0;
+}
 bool run_in_dir(const std::filesystem::path &dir, std::wstring_view scenario, DWORD &exit_code)
 {
     std::wstring command = quoted((dir / std::filesystem::path{module_path()}.filename()).wstring()) +
@@ -253,12 +260,52 @@ int wmain(int argc, wchar_t **argv)
     if (argc > 1 && ::wcscmp(argv[1], L"--scenario") == 0)
         return run_scenario(argc >= 3 ? argv[2] : L"api");
 
-    std::printf("=== ConPTY Differential (corehost vs conhost) ===\n");
-
     const auto base = std::filesystem::path{module_path()}.parent_path() / L"differential";
+
+    // 默认只跑 corehost 侧冒烟，不与系统 conhost 比较；比较是显式 opt-in，
+    // 因为需要复制系统 conhost 且 raw/record Ctrl+C 场景在 conhost 下会等待
+    // 超时，整体较慢。选项说明见 doc/tasks/06-test-options.md。
+    const bool compare = env_enabled(L"COREHOST_TEST_DIFFERENTIAL");
+    const bool compare_ctrl = compare && env_enabled(L"COREHOST_TEST_DIFFERENTIAL_CTRL");
+
+    if (!compare)
+    {
+        std::printf("=== ConPTY Differential (corehost-only smoke) ===\n");
+        std::printf("  comparison: disabled (set COREHOST_TEST_DIFFERENTIAL=1 to compare with conhost)\n");
+        std::printf("  raw/record Ctrl+C comparison: disabled (also needs COREHOST_TEST_DIFFERENTIAL_CTRL=1)\n");
+
+        std::filesystem::path corehost_dir;
+        if (!prepare_corehost_dir(base, corehost_dir))
+        {
+            std::printf("  [skip] cannot prepare corehost test directory\n");
+            std::printf("  0 passed, 0 failed, 1 skipped\n");
+            return 0;
+        }
+
+        DWORD exit_code = 0;
+        if (!run_in_dir(corehost_dir, L"api", exit_code))
+        {
+            std::printf("  FAILED: corehost api scenario exit=%lu\n", static_cast<unsigned long>(exit_code));
+            return 1;
+        }
+
+        const auto values = read_json(corehost_dir / L"result.json");
+        print_values("  corehost", values);
+        const bool ok = values.count("in_mode") != 0 && values.count("out_mode") != 0 &&
+                        values.find("title") != values.end() && values.at("title") == "diff-title-42" &&
+                        values.find("has_window") != values.end() && values.at("has_window") == "1";
+        std::printf("  %s\n", ok ? "PASSED" : "FAILED");
+        return ok ? 0 : 1;
+    }
+
+    std::printf("=== ConPTY Differential (corehost vs conhost) ===\n");
+    std::printf("  comparison: enabled (COREHOST_TEST_DIFFERENTIAL=1)\n");
+    std::printf("  raw/record Ctrl+C comparison: %s\n",
+                compare_ctrl ? "enabled (COREHOST_TEST_DIFFERENTIAL_CTRL=1)" : "disabled");
+
     std::filesystem::path corehost_dir;
     std::filesystem::path conhost_dir;
-    if (!prepare_host_dirs(base, corehost_dir, conhost_dir))
+    if (!prepare_corehost_dir(base, corehost_dir) || !prepare_conhost_dir(base, conhost_dir))
     {
         std::printf("  [skip] cannot prepare host directories or system conhost.exe missing\n");
         std::printf("  0 passed, 0 failed, 1 skipped\n");
@@ -271,19 +318,14 @@ int wmain(int argc, wchar_t **argv)
         const char *keys[8];
         size_t key_count;
     };
-    // api 场景只比较稳定字段；raw/input 场景比较 Ctrl+C 后客户端 API 的返回值
-    // 文本（0 字节/0 记录 + last error），这是宿主的可观察契约。
-    const scenario scenarios[] = {
-        {L"api", {"in_mode", "out_mode", "attr_after", "cursor_size", "cursor_visible", "title", "title_len"}, 7},
-        // raw/record 读的 Ctrl+C 结果只记录不比较：conhost 在 ConPTY 下对这两类
-        // 读不返回（其自身问题），corehost 返回 0 字节。
-        {L"raw_ctrl", {}, 0},
-        {L"input_ctrl", {}, 0},
-    };
+    // api 场景比较稳定字段；raw/input 只记录，不比较（conhost 在 ConPTY 下
+    // 对这两类读不返回，是 conhost 自身问题），且默认不运行。
+    const scenario api_scenario{
+        L"api", {"in_mode", "out_mode", "attr_after", "cursor_size", "cursor_visible", "title", "title_len"}, 7};
+    const scenario ctrl_scenarios[] = {{L"raw_ctrl", {}, 0}, {L"input_ctrl", {}, 0}};
 
     int mismatches = 0;
-    for (const auto &item : scenarios)
-    {
+    auto run_scenario_pair = [&](const scenario &item) {
         DWORD corehost_exit = 0;
         DWORD conhost_exit = 0;
         if (!run_in_dir(corehost_dir, item.name, corehost_exit) ||
@@ -292,7 +334,7 @@ int wmain(int argc, wchar_t **argv)
             std::printf("  FAILED: scenario %ls run failed (corehost exit=%lu conhost exit=%lu)\n", item.name,
                         static_cast<unsigned long>(corehost_exit), static_cast<unsigned long>(conhost_exit));
             ++mismatches;
-            continue;
+            return;
         }
 
         const auto corehost_values = read_json(corehost_dir / L"result.json");
@@ -301,7 +343,7 @@ int wmain(int argc, wchar_t **argv)
         {
             std::printf("  FAILED: scenario %ls missing result.json\n", item.name);
             ++mismatches;
-            continue;
+            return;
         }
 
         std::printf("  [%ls]\n", item.name);
@@ -315,7 +357,7 @@ int wmain(int argc, wchar_t **argv)
             const auto reference_it = conhost_values.find(key);
             if (host_it == corehost_values.end() || reference_it == conhost_values.end())
             {
-                std::printf("  MISSING: %s/%s\n", key, key);
+                std::printf("  MISSING: %s\n", key);
                 ++mismatches;
                 continue;
             }
@@ -326,6 +368,13 @@ int wmain(int argc, wchar_t **argv)
                 ++mismatches;
             }
         }
+    };
+
+    run_scenario_pair(api_scenario);
+    if (compare_ctrl)
+    {
+        for (const auto &item : ctrl_scenarios)
+            run_scenario_pair(item);
     }
 
     std::printf("  %s\n", mismatches == 0 ? "PASSED" : "FAILED");

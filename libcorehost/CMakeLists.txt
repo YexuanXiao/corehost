@@ -41,7 +41,6 @@ target_sources(libcorehost
                 pipe_bridge.hpp
                 pipe_bridge_io.hpp
                 pseudo_window.hpp
-                process_list_snapshot.hpp
                 raw_byte_allocator.hpp
                 screen_buffer.hpp
                 screen_buffer_row.hpp

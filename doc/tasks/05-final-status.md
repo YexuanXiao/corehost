@@ -61,7 +61,7 @@ ctest --test-dir build --output-on-failure
 第 64 轮状态：**G1–G15 全部关闭**（G1 RESOLVED，其余 DONE）。
 
 - ~~G2~~：已用临时 sshd 解决；
-- ~~G4~~：真实 WT 层已有机会式冒烟用例（`Defterm.RealTerminal`）；
+- ~~G4~~：真实 WT 层的机会式用例已删除（环境依赖、会弹窗）；defterm 由 L0/L1 覆盖；
 
 - ~~偶发失败~~：已定位为**测试驱动 `close()` 的顺序问题**——先 `join` 输出泵、后结束客户端；
   `CancelSynchronousIo` 只能命中正在进行的同步读，读已返回时抓不到，`join` 就死等（表
@@ -75,7 +75,7 @@ ctest --test-dir build --output-on-failure
 | --- | --- | --- |
 | 1. I/O 模型 | 完成 | — |
 | 2. GetConsoleWindow 伪窗口 | 完成 | — |
-| 3. defterm 测试 | L0 直连 + L1 handoff 替身 + 系统委托冒烟（按决定不扩展真实 handoff / -Embedding） | 真实 handoff、-Embedding、UI 自动化（gaps §3 决策） |
+| 3. defterm 测试 | L0 直连 + L1 handoff 替身（真实终端机会式用例已删除） | 真实 handoff、-Embedding、UI 自动化（gaps §3 决策） |
 新增证据：差分测试（corehost vs 系统 conhost）发现并修复 TitleLength 字符数、GetConsoleMode 私有标志两处差异；raw read 改为有字节即返回；VT 屏幕模型与脚本化客户端落地。
 | 4. conpty 测试 | 主矩阵 + 语义补齐完成 | 关闭事件（G18 决策不实现）；`ReadConsoleOutputCharacter` 客户端崩溃（G28） |
 
@@ -91,7 +91,7 @@ ctest --test-dir build --output-on-failure
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-第 65 轮（差距补齐后）实测：**27/27 通过，约 57s**；`ConPTY.Programs` **16 passed / 0 skipped**；`ConPTY.Robustness` **19 passed**；新增 `ConPTY.Differential`、`VT.ScreenSelfTest`、`Defterm.ClientNotify`。
+第 66 轮实测：**26/26 通过，约 33s**。相较上一轮：删除环境依赖的 `Defterm.RealTerminal`；`Defterm.Connect` 删除必然 SKIP 的 slow case（7.3s → 0.9s）；`ConPTY.Differential` 默认只跑 corehost 冒烟（18s → 0.2s），与 conhost 比较改为 opt-in（`COREHOST_TEST_DIFFERENTIAL=1`）。测试选项见 `06-test-options.md`。
 
 ## 7. 结论''
 

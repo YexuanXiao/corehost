@@ -72,7 +72,10 @@ defterm 测试必须覆盖"真实 WT"，但真实 WT 的启动/窗口/版本让 
   不依赖注册表/默认终端/GUI，默认在 CI 运行。
 - **L1 确定性层**：用一个测试实现的 handoff 接收方（COM 服务器）代替 WT，验证
   corehost 的 handoff 协议、信号转发、退出语义。
-- **L2 真实终端层**：真正唤起 WindowsTerminal，验证端到端行为与窗口交互。
+- **L2 真实终端层（已删除）**：曾有机会式冒烟 `Defterm.RealTerminal`，但它依赖
+  用户默认终端、会在桌面真实弹窗且无法在 CI 稳定运行；按决定删除。defterm 的
+  覆盖保留 L0 直连（`Defterm.Connect`）与 L1 替身（`Defterm.Handoff`、
+  `Defterm.ClientNotify`）。
   需要交互式会话 + 已安装 WT，探测不到则跳过。
 
 两层共用同一套控制台客户端与断言。任务要求"和 WindowsTerminal 进行交互"，

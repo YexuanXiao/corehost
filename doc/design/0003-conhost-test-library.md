@@ -119,12 +119,12 @@ WindowsTerminal 并交互"，所以 L2 是验收项，L1 是日常回归主力�
   但默认仍是隔离执行。
 ## 测试进程不得弹出可见窗口
 
-测试运行时出现的 conhost 窗口通常来自两类进程创建：
+测试运行时不应在用户桌面创建任何窗口。相关约束：
 
-1. **真实默认终端冒烟**：`Defterm.RealTerminal` 用 `CREATE_NEW_CONSOLE` 启动
-   `cmd.exe`，让 Windows 把控制台创建委托给默认终端。这会在桌面上真实创建
-   控制台窗口（默认终端为 WT 时表现为 WT/conhost 窗口一闪而过）。该用例改为
-   **显式 opt-in**：只有设置 `COREHOST_TEST_REAL_TERMINAL=1` 才运行，否则 SKIP。
+1. **真实终端冒烟已删除**：`Defterm.RealTerminal` 曾用 `CREATE_NEW_CONSOLE` 启动
+   `cmd.exe` 以触发默认终端委托，但该用例依赖用户默认终端配置、会在桌面真实弹窗，
+   且本仓库无法控制其行为。实现 handoff 协议的 `Defterm.Handoff`（替身）与直连
+   路径的 `Defterm.Connect` 已覆盖 defterm 代码，因此删除该用例。
 2. **测试子进程**：`runner::run_isolated` 的每个隔离用例、`condrv` 的宿主进程
    都是控制台程序。父进程有控制台时它们继承，不新建窗口；父进程没有控制台时
    （Visual Studio Test Explorer、GUI 宿主等）Windows 会给每个子进程新建一个
@@ -134,12 +134,14 @@ WindowsTerminal 并交互"，所以 L2 是验收项，L1 是日常回归主力�
    - ConPTY 客户端由 `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE` 提供伪控制台；
      libconpty 启动的 conhost 一律带 `--headless`；`ssh_server`/`run_process`
      已使用 `CREATE_NO_WINDOW`。
-
-因此正常 `ctest` 只会出现 `--headless` 的 ConPTY 宿主和 `CREATE_NO_WINDOW`
-（命令行 `conhost.exe 0x4`）的控制台宿主，二者都没有可见窗口。
 3. **ssh 非交互远程命令**：Windows OpenSSH sshd 为非 PTY 命令启动的
    `cmd.exe` / `powershell.exe` 会新建**可见**的控制台窗口（sshd 自己虽然用
-   `CREATE_NO_WINDOW` 启动，子进程仍会拿到新控制台）。`ssh_server` 现在用
+   `CREATE_NO_WINDOW` 启动，子进程仍会拿到新控制台）。`ssh_server` 用
    `CreateDesktopW` 创建一个隐藏桌面，并通过 `STARTUPINFO.lpDesktop` 把 sshd
    放上去；sshd 的子进程继承该桌面，窗口不再出现在用户桌面。`CreateDesktopW`
    失败时退回默认桌面（测试仍可运行，只是可能闪窗）。
+
+因此正常 `ctest` 只会出现 `--headless` 的 ConPTY 宿主和 `CREATE_NO_WINDOW`
+（命令行 `conhost.exe 0x4`）的控制台宿主，二者都没有可见窗口。
+
+测试环境变量与各测试组选项见 [06-test-options.md](../tasks/06-test-options.md)。

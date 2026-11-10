@@ -48,7 +48,7 @@
 | C3 | defterm 启动路径：测试进程自建 ConDrv 会话，驱动 defterm 入口 | DONE | C3 defterm 直连用例 | `tests/lib/condrv.hpp`；`Defterm.Connect` 覆盖 CONNECT + 代码页往返；新增 window 用例覆盖 `GetConsoleWindow` 归属与 `WM_CLOSE` 结束会话；不碰注册表 |
 | C4 | 控制台测试客户端（脚本化 API/VT/窗口消息） | DONE | | `console_probe --script`：write/settitle/gettitle/sbi/getmode/window/msg/sleep/exit；专用模式保留 |
 | C5 | 用例矩阵：控制台/窗口/输入/子进程/关闭 | DONE | C5 defterm 用例矩阵 | 已有 CONNECT、GetConsoleMode、GetConsoleWindow、窗口标题/矩形、WM_CLOSE、GetConsoleProcessList、压力/重复会话；子进程继承在直连客户端下不可行（SKIP 并注明改由 ConPTY 覆盖） |
-| C6 | 真实 WT 层、稳定性、文档 | DONE | | `Defterm.RealTerminal` 机会式委托冒烟；真实 handoff 与 `-Embedding` 按决定不扩展（gaps §3） |
+| C6 | 真实 WT 层、稳定性、文档 | DONE | | 真实终端机会式用例已删除（环境依赖/弹窗）；defterm 保留 L0 直连 + L1 替身；测试选项见 `06-test-options.md` |
 
 ## 阶段 D：conpty 测试（任务 4）
 

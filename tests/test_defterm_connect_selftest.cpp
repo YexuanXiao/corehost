@@ -235,76 +235,6 @@ corehost::test::result repeated_sessions_exit_cleanly()
     return corehost::test::result::pass;
 }
 
-corehost::test::result child_process_joins_console()
-{
-    const auto corehost = corehost_next_to_test();
-    REQUIRE(!corehost.empty());
-
-    corehost::test::condrv_session session{};
-    DWORD error = 0;
-    REQUIRE(corehost::test::create_condrv_server(session, error));
-
-    PROCESS_INFORMATION host{};
-    REQUIRE(corehost::test::launch_defterm_host(corehost, session.server.view(), error, &host));
-    REQUIRE(corehost::test::connect_client(session, L"defterm-child", L"defterm-child.exe", false, error));
-    corehost::test::bind_console_connection(session.connection.view());
-
-    // 子进程按默认方式创建：它继承父进程的控制台（也就是我们的 ConDrv 连接）。
-    const auto cmd = corehost::test::system32_path(L"cmd.exe");
-    REQUIRE(!cmd.empty());
-    std::wstring command = L"\"" + cmd + L"\" /c for /l %i in (1,1,3000) do @rem";
-
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION child{};
-    REQUIRE(::CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, 0, nullptr, nullptr, &startup, &child) !=
-            FALSE);
-    ::CloseHandle(child.hThread);
-
-    // 子进程应通过 CONNECT 加入同一个控制台。
-    DWORD pids[16]{};
-    bool found = false;
-    DWORD last_count = 0;
-    for (int attempt = 0; attempt < 200 && !found; ++attempt)
-    {
-        last_count = ::GetConsoleProcessList(pids, ARRAYSIZE(pids));
-        for (DWORD index = 0; index < last_count; ++index)
-        {
-            if (pids[index] == child.dwProcessId)
-                found = true;
-        }
-        if (!found)
-            ::Sleep(20);
-    }
-
-    const BOOL child_exited = ::WaitForSingleObject(child.hProcess, 30000) == WAIT_OBJECT_0;
-    ::CloseHandle(child.hProcess);
-
-    const HWND window = ::GetConsoleWindow();
-    corehost::test::unbind_console_connection();
-    DWORD_PTR ignored = 0;
-    if (window != nullptr)
-        ::SendMessageTimeoutW(window, WM_CLOSE, 0, 0, SMTO_ABORTIFHUNG, 2000, &ignored);
-    session.connection = win32::handle{};
-    const DWORD wait = ::WaitForSingleObject(host.hProcess, 5000);
-    if (wait != WAIT_OBJECT_0)
-        ::TerminateProcess(host.hProcess, 1);
-    ::CloseHandle(host.hProcess);
-
-    REQUIRE(child_exited != FALSE);
-    REQUIRE(wait == WAIT_OBJECT_0);
-
-    // 已知限制：直接 \Connect 的客户端没有真实控制台句柄，CreateProcess 的
-    // 子进程不会加入这条 ConDrv 会话（ConsoleHandle 继承依赖真实控制台对象）。
-    // 子进程/继承控制台的覆盖改由 ConPTY 路径（真实客户端 + pseudoconsole）
-    // 承担，见 plan/03 与看板。
-    if (!found)
-        SKIP(L"direct ConDrv client: child does not join this console; covered by ConPTY path");
-    REQUIRE(last_count >= 2);
-    return corehost::test::result::pass;
-}
-
-// GetConsoleProcessList：客户端应看到自己这个进程在控制台进程列表中。
 corehost::test::result process_list_contains_client()
 {
     const auto corehost = corehost_next_to_test();
@@ -355,7 +285,6 @@ int main()
         {"window", "defterm", &get_console_window_then_close},
         {"pressure", "defterm", &pressure_does_not_leak},
         {"sessions", "defterm", &repeated_sessions_exit_cleanly},
-        {"child", "defterm", &child_process_joins_console},
         {"processes", "defterm", &process_list_contains_client},
     };
 

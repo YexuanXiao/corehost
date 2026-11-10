@@ -9,7 +9,7 @@
 | G1 | defterm 直连客户端的 `GetConsoleMode` 失败 | RESOLVED：传本进程 STD 句柄会被判未知对象（测试环境没有客户端句柄表），改传 `nullptr`（object=0）后成功；真实客户端有句柄表，不受影响 | C5 |
 | G2 | ssh 远程组合 | DONE：`tests/lib/ssh_server.hpp` 生成密钥与最小 sshd_config，以当前用户身份在高端口拉起临时 sshd；`ssh` 与 `ssh_pty` 两条用例通过，不再依赖系统服务 | D3 |
 | G3 | 伪窗口 show/hide 信号 | DONE：`WM_SIZE`/`WM_SHOWWINDOW` 在会话锁内向 vt_out 写 `ESC[1t/2t`，`visibility` 用例验证 | B7 |
-| G4 | 真实 WindowsTerminal 层 | DONE（机会式）：`Defterm.RealTerminal` 只读默认终端配置，是 WT 时触发系统委托并校验命令执行；不写注册表 | C6 |
+| G4 | 真实 WindowsTerminal 层 | 删除：机会式用例 `Defterm.RealTerminal` 依赖用户默认终端、会真实弹窗、无法稳定 CI；按决定删除。defterm 覆盖保留 L0 直连 + L1 替身 | C6 |
 | G5 | handoff 替身层 | DONE：协议拆到 `corehost/defterm/handoff_session.hpp`，`Defterm.Handoff` 用进程内 `IConsoleHandoff` 替身驱动 | C6 |
 | G6 | 输出侧 flush 的 `noexcept` 路径 | DONE：对端关闭按预期失败丢弃；其它写失败记录后 `abort`（致命） | A9 |
 | G7 | `defterm.cpp` 的空 `on_idle()` | DONE：调用点与方法已删除 | A6b |
@@ -44,7 +44,7 @@
 
 | 项 | 理由 | 记录 |
 | --- | --- | --- |
-| 真实 defterm handoff（WindowVisible=TRUE → COM → WT）用例 | 用户决定 defterm 测试保持现状；现有 L0/L1 覆盖协议层，真实 WT 交互由 `Defterm.RealTerminal` 的委托冒烟间接覆盖 | 本文件 §4、`05-final-status` |
+| 真实 defterm handoff（WindowVisible=TRUE → COM → WT）用例 | 用户决定 defterm 测试保持现状；现有 L0 直连与 L1 替身覆盖协议层。环境依赖、会弹窗的真实终端用例已删除 | 本文件 §4、`05-final-status` |
 | `-Embedding` 第二跳（corehost 作为委托终端 → WT）重构与替身测试 | 同上，保持现状；该路径靠代码审查 | 本文件 §4 |
 | `com_server.cpp` 的 `try/catch(...)` 移除 | COM RPC 边界不允许异常逃逸，属于明确例外，保留 | `design/0001` §4.12 |
 | 伪窗口渲染、滚动条、菜单、DPI 真实处理、UIA provider | 伪窗口只做消息端点；依赖方不需要渲染 | `design/0002` 第 5 节 |
