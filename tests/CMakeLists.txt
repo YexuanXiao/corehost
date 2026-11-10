@@ -202,8 +202,17 @@ add_custom_command(TARGET test_conpty_robustness POST_BUILD
 add_test(NAME ConPTY.Robustness COMMAND test_conpty_robustness)
 set_tests_properties(ConPTY.Robustness PROPERTIES LABELS "conpty;robust" TIMEOUT 180)
 
-# ── test_conpty_programs ──────────────────────────
-# 真实程序矩阵：cmd、嵌套子进程、powershell、vim、输入时延。
+# ── test_defterm_handoff_mock ────────────────────
+# handoff 协议替身测试：不做 COM 注册、不需要 WindowsTerminal。
+add_executable(test_defterm_handoff_mock
+    test_defterm_handoff_mock.cpp
+    ${CMAKE_SOURCE_DIR}/corehost/defterm/signal.cpp
+)
+target_link_libraries(test_defterm_handoff_mock PRIVATE test_common conhost_proxy_headers ole32)
+add_test(NAME Defterm.Handoff COMMAND test_defterm_handoff_mock)
+set_tests_properties(Defterm.Handoff PROPERTIES LABELS "defterm;handoff" TIMEOUT 30)
+
+# ── test_conpty_programs ──────────────────────────# 真实程序矩阵：cmd、嵌套子进程、powershell、vim、输入时延。
 add_executable(test_conpty_programs
     test_conpty_programs.cpp
 )
