@@ -7,6 +7,7 @@
 // - 超时只用于测试基础设施判定失败，不是产品等待上限。
 #pragma once
 #include <windows.h>
+#include <tlhelp32.h>
 #include <winsvc.h>
 
 #include <string>
@@ -99,6 +100,64 @@ inline bool is_interactive_session()
     if (::GetUserObjectInformationW(station, UOI_FLAGS, &flags, sizeof(flags), nullptr) == FALSE)
         return false;
     return (flags.dwFlags & WSF_VISIBLE) != 0;
+}
+
+// ── 子进程查找 / 顶层窗口查找 ─────────────────────────────
+inline DWORD find_child_process_id(std::wstring_view exe_name)
+{
+    const HANDLE snapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE)
+        return 0;
+
+    const DWORD parent = ::GetCurrentProcessId();
+    DWORD found = 0;
+    PROCESSENTRY32W entry{};
+    entry.dwSize = sizeof(entry);
+    for (BOOL ok = ::Process32FirstW(snapshot, &entry); ok != FALSE; ok = ::Process32NextW(snapshot, &entry))
+    {
+        if (entry.th32ParentProcessID == parent && ::_wcsicmp(entry.szExeFile, std::wstring{exe_name}.c_str()) == 0)
+            found = entry.th32ProcessID;
+    }
+    ::CloseHandle(snapshot);
+    return found;
+}
+
+namespace details
+{
+struct window_search
+{
+    DWORD process_id = 0;
+    std::wstring class_name;
+    HWND found = nullptr;
+};
+
+inline BOOL CALLBACK enum_window_proc(HWND hwnd, LPARAM param)
+{
+    auto *search = reinterpret_cast<window_search *>(param);
+
+    DWORD window_pid = 0;
+    if (::GetWindowThreadProcessId(hwnd, &window_pid) == 0 || window_pid != search->process_id)
+        return TRUE;
+
+    wchar_t class_name[128]{};
+    if (::GetClassNameW(hwnd, class_name, ARRAYSIZE(class_name)) == 0)
+        return TRUE;
+
+    if (::_wcsicmp(class_name, search->class_name.c_str()) == 0)
+    {
+        search->found = hwnd;
+        return FALSE;
+    }
+    return TRUE;
+}
+} // namespace details
+
+// 在指定进程里查找指定类名的顶层窗口（找不到返回 nullptr）。
+inline HWND find_top_level_window(DWORD process_id, std::wstring_view class_name)
+{
+    details::window_search search{process_id, std::wstring{class_name}, nullptr};
+    ::EnumWindows(&details::enum_window_proc, reinterpret_cast<LPARAM>(&search));
+    return search.found;
 }
 
 // ── 子进程运行器 ─────────────────────────────────────────

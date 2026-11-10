@@ -185,6 +185,7 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     window.start();
     state.window_handle = window.hwnd();
     state.window = &window;
+    window.bind_output(bridge, session_lock);
 
     input_thread.start();
     if (signal_pipe.valid())

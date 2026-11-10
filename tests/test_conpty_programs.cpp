@@ -187,6 +187,48 @@ corehost::test::result ssh_remote_command()
     return corehost::test::result::pass;
 }
 
+// show/hide 上报：向伪窗口发 WM_SIZE(MINIMIZED/RESTORED)，宿主应向 vt_out
+// 写 ESC[2t / ESC[1t（与原版 VtIo::Writer::WriteWindowVisibility 一致）。
+corehost::test::result visibility_is_reported_to_terminal()
+{
+    const auto cmd = corehost::test::system32_path(L"cmd.exe");
+    REQUIRE(!cmd.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(cmd) + L" /c \"for /l %i in (1,1,100000) do @rem\""));
+    REQUIRE(session.wait_output("", 1000) || true);
+
+    DWORD host_pid = 0;
+    for (int attempt = 0; attempt < 100 && host_pid == 0; ++attempt)
+    {
+        host_pid = corehost::test::find_child_process_id(L"corehost.exe");
+        if (host_pid == 0)
+            ::Sleep(20);
+    }
+    REQUIRE(host_pid != 0);
+
+    HWND window = nullptr;
+    for (int attempt = 0; attempt < 100 && window == nullptr; ++attempt)
+    {
+        window = corehost::test::find_top_level_window(host_pid, L"PseudoConsoleWindow");
+        if (window == nullptr)
+            ::Sleep(20);
+    }
+    REQUIRE(window != nullptr);
+
+    (void)session.take_output();
+
+    DWORD_PTR result = 0;
+    REQUIRE(::SendMessageTimeoutW(window, WM_SIZE, SIZE_MINIMIZED, 0, SMTO_ABORTIFHUNG, 2000, &result) != 0);
+    REQUIRE(session.wait_output("\x1b[2t", 5000));
+
+    (void)session.take_output();
+    REQUIRE(::SendMessageTimeoutW(window, WM_SIZE, SIZE_RESTORED, 0, SMTO_ABORTIFHUNG, 2000, &result) != 0);
+    REQUIRE(session.wait_output("\x1b[1t", 5000));
+
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -199,6 +241,7 @@ int main()
         {"latency", "conpty;perf", &input_latency},
         {"edit", "conpty;program", &edit_help_runs},
         {"ssh", "conpty;program;network", &ssh_remote_command},
+        {"visibility", "conpty;window", &visibility_is_reported_to_terminal},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))

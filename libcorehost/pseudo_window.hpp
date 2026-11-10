@@ -21,7 +21,7 @@
 #include <string_view>
 #include <cstdlib>
 #include <utility>
-#include "utility/log.hpp"
+#include "pipe_bridge.hpp"
 #include "win32/event.hpp"
 #include "win32/error.hpp"
 #include "win32/handle.hpp"
@@ -88,6 +88,14 @@ class pseudo_window
     void set_server(win32::handle_view server) noexcept
     {
         _server = server;
+    }
+
+    // 绑定会话的 VT 输出（用于 show/hide 上报）。窗口线程在会话锁内追加序列，
+    // 与主线程输出串行；参数由会话持有，生命周期覆盖窗口。
+    void bind_output(pipe_bridge &bridge, win32::shared_mutex &session_lock) noexcept
+    {
+        _bridge = &bridge;
+        _session_lock = &session_lock;
     }
 
     // 控制台标题（WM_GETTEXT 返回它）。会话线程写，窗口线程读，用 SRWLock
@@ -168,6 +176,18 @@ class pseudo_window
 
         switch (message)
         {
+        case WM_SIZE:
+            // 与原版一致：最小化/恢复时把可见性上报给宿主终端。
+            if (wparam == SIZE_MINIMIZED)
+                self->send_visibility(false);
+            else if (wparam == SIZE_RESTORED)
+                self->send_visibility(true);
+            return 0;
+        case WM_SHOWWINDOW:
+            // lParam==0 表示显式 ShowWindow 调用。
+            if (lparam == 0)
+                self->send_visibility(wparam != 0);
+            return 0;
         case WM_CLOSE:
             // 不在这里销毁窗口：关闭语义由会话主线程统一执行。主线程此时通常
             // 阻塞在 READ_IO 内部，必须先打断它才能让主循环看到关闭请求。
@@ -224,6 +244,18 @@ class pseudo_window
         return result;
     }
 
+    // 把可见性变化写成 VT 序列（ESC[1t 显示 / ESC[2t 隐藏），与原版
+    // VtIo::Writer::WriteWindowVisibility 一致。
+    void send_visibility(bool visible) const
+    {
+        if (_bridge == nullptr || _session_lock == nullptr)
+            return;
+
+        std::unique_lock guard{*_session_lock};
+        _bridge->vt_append_str(visible ? "\x1b[1t"sv : "\x1b[2t"sv);
+        _bridge->vt_flush();
+    }
+
     // 打断主线程阻塞中的 READ_IO。线程不在同步 I/O 中时 CancelSynchronousIo
     // 返回 ERROR_NOT_FOUND，属于正常竞态（主线程随后会在事件等待里看到关闭）。
     void cancel_server_io() const noexcept
@@ -247,6 +279,8 @@ class pseudo_window
     win32::basic_thread _thread;
     std::atomic<HWND> _hwnd{nullptr};
     win32::handle_view _server;
+    pipe_bridge *_bridge = nullptr;
+    win32::shared_mutex *_session_lock = nullptr;
     mutable win32::shared_mutex _text_lock;
     std::u32string _title;
 };
