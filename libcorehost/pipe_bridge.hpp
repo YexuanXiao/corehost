@@ -200,6 +200,37 @@ struct pipe_bridge
             (void)consume_input_buffer_for_console_read();
     }
 
+    // 缓冲区尺寸变化时给 VT 输入模式的客户端补一条 WINDOW_BUFFER_SIZE_EVENT。
+    // conhost 在 viewport 变化且 IsInVirtualTerminalInputMode() 时这么做
+    // （screenInfo.cpp::_CommitViewport），并由 InputBuffer 对重复尺寸去重。
+    // 调用方必须持有会话锁；没有尺寸变化/非 VT 输入模式时什么也不做。
+    void queue_window_buffer_size_event() noexcept
+    {
+        if ((cstate.input_mode & ENABLE_VIRTUAL_TERMINAL_INPUT) == 0)
+            return;
+
+        const COORD size = cstate.screen_buffer_size;
+        if (size.X <= 0 || size.Y <= 0)
+            return;
+        if (_window_size_event_valid && _last_window_size_event.X == size.X &&
+            _last_window_size_event.Y == size.Y)
+            return;
+
+        _last_window_size_event = size;
+        _window_size_event_valid = true;
+
+        INPUT_RECORD record{};
+        record.EventType = WINDOW_BUFFER_SIZE_EVENT;
+        record.Event.WindowBufferSizeEvent.dwSize = size;
+        const size_t written = inp.write(&record, 1);
+        if (written != 1)
+            LOG("bridge: WINDOW_BUFFER_SIZE_EVENT dropped (input buffer full)");
+
+        // 正在等待 GetConsoleInput 的客户端需要被唤醒才能看到这条记录。
+        if (_pending.kind() == PendingKind::ConsoleInput)
+            complete_pending_console_input();
+    }
+
     // 把 CTRL_C_EVENT / CTRL_BREAK_EVENT 送给控制台上的每个进程。
     // corehost 不是该控制台的附属进程，GenerateConsoleCtrlEvent 到不了客户端；
     // 必须经 CSRSS 的 ConsoleControl(ConsoleEndTask)，与 conhost 的
@@ -346,6 +377,9 @@ struct pipe_bridge
     conversion_buffers _conversion;
     // GetConsoleProcessList 可见的连接进程快照（pid 与进程组同序）。
     process_list_snapshot _processes;
+    // 最近一次 WINDOW_BUFFER_SIZE_EVENT 的尺寸（conhost 的 InputBuffer 去重）。
+    COORD _last_window_size_event{};
+    bool _window_size_event_valid = false;
     // 控制事件投递函数。默认走 CSRSS ConsoleControl；测试可替换为记录器。
     ctrl_event_sender _ctrl_sender = &console_end_task;
     // bridge 对宿主终端当前光标和 cooked input 编辑边界的本地追踪。
@@ -2428,6 +2462,7 @@ struct pipe_bridge
         auto &active_screen = active_screen_buffer();
         active_screen.viewport.reset_to_buffer(cstate.screen_buffer_size);
         active_screen.resize(new_size);
+        queue_window_buffer_size_event();
 
         vt_flush();
         vt_append_str("\x1b[8;"sv);

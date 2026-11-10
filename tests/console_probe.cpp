@@ -246,6 +246,38 @@ int handler_probe(const wchar_t *marker_path)
     return 0;
 }
 
+// VT 输入模式下，终端 resize 应产生 WINDOW_BUFFER_SIZE_EVENT。
+int size_event_probe()
+{
+    const HANDLE input = ::GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode = 0;
+    if (::GetConsoleMode(input, &mode) == FALSE)
+        return 14;
+    if (::SetConsoleMode(input, mode | ENABLE_VIRTUAL_TERMINAL_INPUT) == FALSE)
+        return 15;
+
+    constexpr char ready[] = "SIZE-PROBE-READY\r\n";
+    DWORD written = 0;
+    ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), ready, sizeof(ready) - 1, &written, nullptr);
+
+    for (;;)
+    {
+        INPUT_RECORD record{};
+        DWORD read = 0;
+        if (::ReadConsoleInputW(input, &record, 1, &read) == FALSE || read != 1)
+            return 16;
+        if (record.EventType != WINDOW_BUFFER_SIZE_EVENT)
+            continue;
+
+        char marker[96]{};
+        ::sprintf_s(marker, "SIZE-EVENT=%dx%d\r\n", record.Event.WindowBufferSizeEvent.dwSize.X,
+                    record.Event.WindowBufferSizeEvent.dwSize.Y);
+        ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), marker, static_cast<DWORD>(::strlen(marker)), &written,
+                    nullptr);
+        return 0;
+    }
+}
+
 int wmain(int argc, wchar_t **argv)
 {
     if (argc < 2 || argc > 3)
@@ -260,6 +292,8 @@ int wmain(int argc, wchar_t **argv)
         return serve_probe();
     if (::wcscmp(argv[1], L"--wake-probe") == 0)
         return wake_probe();
+    if (::wcscmp(argv[1], L"--size-event-probe") == 0)
+        return size_event_probe();
     if (::wcscmp(argv[1], L"--handler-probe") == 0)
         return handler_probe(argc >= 3 ? argv[2] : nullptr);
     if (::wcscmp(argv[1], L"--ctrl-read-probe") == 0)

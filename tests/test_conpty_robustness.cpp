@@ -361,6 +361,28 @@ corehost::test::result handler_receives_ctrl_c()
     return corehost::test::result::pass;
 }
 
+// VT 输入模式下 resize 应产生 WINDOW_BUFFER_SIZE_EVENT（conhost 语义）。
+corehost::test::result resize_reports_window_size_event()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --size-event-probe"));
+    REQUIRE(session.wait_output("SIZE-PROBE-READY", 15000));
+
+    REQUIRE(session.resize({100, 30}));
+    const bool saw = session.wait_output("SIZE-EVENT=100x30", 15000);
+    if (!saw)
+    {
+        const auto output = session.take_output();
+        std::fwprintf(stderr, L"[size] session output: %hs\n", output.c_str());
+    }
+    session.close();
+    REQUIRE(saw);
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -379,6 +401,7 @@ int main()
         {"signal_repeat", "conpty;robust;signal", &signal_delivery_is_repeatable},
         {"ctrl_c_read", "conpty;robust;signal", &ctrl_c_aborts_pending_read},
         {"handler_ctrl_c", "conpty;robust;signal", &handler_receives_ctrl_c},
+        {"resize_event", "conpty;robust;window", &resize_reports_window_size_event},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))

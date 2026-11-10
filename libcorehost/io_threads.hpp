@@ -203,6 +203,9 @@ class pty_signal_thread
             {
                 std::unique_lock guard{_session_lock};
                 _signals.apply(id, std::span{payload}.first(payload_size));
+                // 终端 resize 后，VT 输入模式的客户端需要一条尺寸事件。
+                if (id == static_cast<unsigned short>(PtySignal::ResizeWindow))
+                    _bridge.queue_window_buffer_size_event();
             }
         }
     }

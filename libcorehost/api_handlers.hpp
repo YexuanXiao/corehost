@@ -1857,6 +1857,7 @@ inline bool api_set_sb_info(condrv_io::io_msg &msg, console_state &state, screen
     std::memcpy(state.color_table.data(), r->ColorTable, state.color_table.size() * sizeof(state.color_table[0]));
     const auto old_viewport_size = sb.viewport.size();
     sb.resize(r->Size);
+    bridge.queue_window_buffer_size_event();
     bool viewport_changed = sb.viewport.set_size(r->CurrentWindowSize, sb.size);
     viewport_changed = sb.viewport.clamp_to_buffer(sb.size) || viewport_changed;
     state.clamp_cursor_to_buffer();
@@ -1896,6 +1897,8 @@ inline bool api_set_sb_size(condrv_io::io_msg &msg, console_state &state, screen
     }
     state.screen_buffer_size = new_size;
     sb.resize(new_size);
+    // VT 输入模式的客户端需要知道缓冲区尺寸变了（conhost 的 _CommitViewport）。
+    bridge.queue_window_buffer_size_event();
     const bool viewport_changed = sb.viewport.clamp_to_buffer(sb.size);
     state.clamp_cursor_to_buffer();
     if (viewport_changed || !viewport_covers_screen_buffer(sb))
@@ -2141,6 +2144,7 @@ inline bool api_set_window_info(condrv_io::io_msg &msg, console_state &state, sc
         state.screen_buffer_size.X = std::max(state.screen_buffer_size.X, requested_size.X);
         state.screen_buffer_size.Y = std::max(state.screen_buffer_size.Y, requested_size.Y);
         sb.resize(state.screen_buffer_size);
+        bridge.queue_window_buffer_size_event();
     }
 
     const auto old_size = sb.viewport.size();

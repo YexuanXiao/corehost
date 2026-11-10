@@ -2075,6 +2075,42 @@ bool test_ctrl_event_filters_by_process_group()
     return true;
 }
 
+// WINDOW_BUFFER_SIZE_EVENT 只在 VT 输入模式、尺寸变化时产生，并对重复尺寸去重。
+bool test_window_size_event_gated_and_deduplicated()
+{
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
+
+    st.screen_buffer_size = COORD{80, 25};
+    bridge.queue_window_buffer_size_event();
+    ASSERT(inp.available() == 0); // 非 VT 输入模式不产生
+
+    st.input_mode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
+    bridge.queue_window_buffer_size_event();
+    ASSERT(inp.available() == 1);
+
+    INPUT_RECORD record{};
+    ASSERT(inp.read(&record, 1) == 1);
+    ASSERT_EQ(record.EventType, static_cast<WORD>(WINDOW_BUFFER_SIZE_EVENT));
+    ASSERT_EQ(record.Event.WindowBufferSizeEvent.dwSize.X, 80);
+    ASSERT_EQ(record.Event.WindowBufferSizeEvent.dwSize.Y, 25);
+
+    // 相同尺寸不重复产生。
+    bridge.queue_window_buffer_size_event();
+    ASSERT(inp.available() == 0);
+
+    // 尺寸变化后再产生一条。
+    st.screen_buffer_size = COORD{100, 30};
+    bridge.queue_window_buffer_size_event();
+    ASSERT(inp.available() == 1);
+    ASSERT(inp.read(&record, 1) == 1);
+    ASSERT_EQ(record.Event.WindowBufferSizeEvent.dwSize.X, 100);
+    ASSERT_EQ(record.Event.WindowBufferSizeEvent.dwSize.Y, 30);
+    return true;
+}
+
 bool test_regression_l3_process_list_validation_and_output_size()
 {
     corehost::condrv_io::io_msg msg{};
@@ -3144,6 +3180,7 @@ int main()
     RUN_TEST(test_regression_l3_selection_info_validation_and_copy, L"L3 SelectionInfo validation and copy");
     RUN_TEST(test_regression_l3_process_list_validation_and_output_size, L"L3 ProcessList validation and output size");
     RUN_TEST(test_ctrl_event_filters_by_process_group, L"Ctrl event filters by process group");
+    RUN_TEST(test_window_size_event_gated_and_deduplicated, L"Window size event gated and deduped");
     RUN_TEST(test_regression_l3_history_info_validation_get_set, L"L3 HistoryInfo validation get/set");
     RUN_TEST(test_regression_l3_set_current_font_validation_and_store, L"L3 SetCurrentFont validation and store");
     RUN_TEST(test_regression_raw_flush_clears_input_events, L"RawFlush clears input events");
