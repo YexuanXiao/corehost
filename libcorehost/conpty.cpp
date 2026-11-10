@@ -10,6 +10,7 @@
 #include "conpty.hpp"
 #include <span>
 #include "io_loop.hpp"
+#include "io_threads.hpp"
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
 #include "input_buffer.hpp"
@@ -95,16 +96,21 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     io.condrv_input = std::move(condrv_input);
     io.condrv_output = std::move(condrv_output);
 
-    // ── Layer 2: 输入状态 ──
-    // A4 起，终端输入的读缓冲、解码、解析、键盘状态与 cooked 行编辑状态由
-    // input_state 持有；会话把它交给输入线程，bridge 只保留引用别名。它必须
-    // 先于 bridge 构造、后于 bridge 析构（输入线程在 bridge 之前 join）。
-    vt_input_state input_state;
+    // ── Layer 2: 会话锁与输入线程 ──
+    // 输入线程拥有 vt_input_state；会话锁保护控制台共享状态；state_changed
+    // 只用于唤醒主循环重新评估真实状态（不携带数据、不排队）。
+    win32::shared_mutex session_lock;
+    win32::event state_changed{win32::create_tag, /*manual_reset=*/false, /*initial=*/false};
+
+    vt_input_thread input_thread{vt_in};
 
     // ── Layer 2: pipe bridge ──
     // pipe_bridge 是 VT 输入输出和 Console API 状态的交汇点。它直接引用
     // ibuf/state/sbuf，因此主缓冲区和 API 查询能看到同一份光标与文本状态。
-    pipe_bridge bridge{ibuf, state, sbuf, input_state};
+    pipe_bridge bridge{ibuf, state, sbuf, input_thread.state()};
+
+    // 信号线程与 bridge 共享同一个 signal reader，管道由信号线程独占读取。
+    pty_signal_thread signal_thread{signal_pipe.view(), bridge.signal_reader(), bridge, session_lock};
 
     // vt_in 是终端到 corehost 的输入/控制字节流；VT 输出句柄由
     // vt_output_buffer 负责缓冲写入；server 用于 bridge 完成挂起 ConDrv I/O。
@@ -122,16 +128,20 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     // raw I/O 进 pipe_bridge，Console API 进 api_router。
     message_router router{io, bridge, api};
 
-    // ── 信号管道轮询器 ──
-    // signal_pipe 为空表示当前会话没有 WT 信号通道，resize/clear/close 信号
-    // 不会进入会话。有效时由 pipe_bridge 在主 I/O 循环的 idle/pending 等待
-    // 路径中轮询，不再创建独立信号线程；断管被检测后推进会话 EOF，等效于
-    // 原 shutdown_event 的退出语义。
+    // ── 信号管道 ──
+    // signal_pipe 为空表示当前会话没有 WT 信号通道。有效时由信号线程阻塞读取
+    // resize/clear/parent 消息，在会话锁内应用到控制台状态；断管等价于会话 EOF。
     if (signal_pipe.valid())
     {
         bridge.set_signal_pipe(signal_pipe.view());
-        LOG("corehost::conpty::run_conpty_session: signal pipe bound to io loop");
+        bridge.set_signal_threaded();
+        signal_thread.bind(state_changed);
+        LOG("corehost::conpty::run_conpty_session: signal pipe bound to signal thread");
     }
+
+    // 输入线程从此刻起独占读取 vt_in；bridge 的主线程路径不再窥探管道。
+    bridge.set_input_threaded();
+    input_thread.bind(bridge, session_lock, state_changed);
 
     // ── 继承光标位置 ──
     // 终端 CPR 应答会在主 I/O 循环的 on_idle() 中统一读取并处理。
@@ -164,11 +174,23 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     }
 
     // ── 进入 I/O 循环 ──
-    // router 持有所有分派入口；run_io_loop_no_setup 只负责 READ_IO 时序、
-    // completion 提交和 pending 等待。
+    // 先启动输入线程：会话锁已建立、bridge 已绑定，线程可以在主循环等待时
+    // 立即处理终端输入。
+    LOG("corehost::conpty::run_conpty_session: starting io threads");
+    input_thread.start();
+    if (signal_pipe.valid())
+        signal_thread.start();
+
     LOG("corehost::conpty::run_conpty_session: entering io loop");
-    corehost::conpty::run_io_loop_no_setup(server, event, router);
+    corehost::conpty::run_io_loop_no_setup(server, event, session_lock, state_changed.view(), router);
     LOG("corehost::conpty::run_conpty_session: loop returned");
+
+    // ── 退出：先停输入源，再释放会话状态 ──
+    // 停止是无限等待：停止标志 + 取消阻塞读 + join，由线程自身保证退出。
+    input_thread.stop_and_join();
+    if (signal_pipe.valid())
+        signal_thread.stop_and_join();
+    LOG("corehost::conpty::run_conpty_session: io threads joined");
 }
 
 void conpty_entry(win32::handle_view server, win32::handle_view event, win32::handle condrv_input,

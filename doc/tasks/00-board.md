@@ -16,11 +16,12 @@
 | A1 | 基线调查：枚举全部轮询/唤醒点、状态归属；锁定回归基线 | DONE | A1 基线调查 | 9 处轮询点；15/15 测试通过；方法见 `doc/tasks/01-a1-baseline.md` |
 | A2 | `common/win32`：SRWLock 共享/独占锁 + 条件变量封装（common 不写测试） | DONE | A2 SRWLock 封装 | `common/win32/srwlock.hpp`；编译检查通过 |
 | A3 | `common/win32`：命名线程、启动/join、可取消阻塞读 + 单测 | DONE | A3 线程与可取消读工具 | `thread.hpp`、`cancellable_read.hpp`；common 不写测试，由使用方覆盖 |
-| A4 | 终端输入线程：读、解码、解析、键盘事件、cooked 编辑，锁内同步处理 | DOING | S2 输入状态迁移 | 拆分方案见 `design/0004`；S2 完成：状态在 `vt_input_state`，bridge 用引用别名，行为未变 |
-| A5 | 信号管道线程：协议解析、命令投递 | TODO | | |
-| A6 | 主循环：无限等待 + 排空；删除 16ms 时间片 | TODO | | |
+| A4 | 终端输入线程：读、解码、解析、键盘事件、cooked 编辑，锁内同步处理 | DONE | A4/A5 输入与信号线程 | 状态在 `vt_input_state`；线程阻塞读、锁内同步处理；ctest 15/15 |
+| A5 | 信号管道线程：协议解析、锁内应用 resize/clear/parent | DONE | A4/A5 输入与信号线程 | `pty_signal_thread`；断管按 EOF 处理 |
+| A6 | 主循环：INFINITE 等待 {InputAvailableEvent, state_changed}；删除 16ms/0ms 时间片 | DONE | A4/A5 输入与信号线程 | 死代码清理见 A6b |
+| A6b | 清理死代码：`on_idle`/`wait_for_pending_vt_input`/`pipe_bridge_io` peek 路径 | TODO | | 保留测试直接调用的入口 |
 | A7 | defterm 初始 CONNECT 循环与 handoff 等待循环收敛到同一模型 | TODO | | |
-| A8 | 退出协议：停止事件、取消阻塞读、join、超时兜底 | TODO | | |
+| A8 | 退出协议：停止标志、事件驱动取消、无限 join | DONE | A4/A5 输入与信号线程 | 终止性由构造保证；压力验证归 A10 |
 | A9 | 错误分类审计：所有系统调用检查、致命路径统一 | TODO | | |
 | A10 | 性能与唤醒验证：空转计数、CPU、时延、压力、泄漏 | TODO | | |
 | A11 | 文档更新与提交 | TODO | | |
@@ -63,8 +64,8 @@
 ## 当前迭代
 
 - 阶段：A
-- 正在做：A4（终端输入线程，锁内同步处理）
-- 下一步：A4/A5 → A6 主循环 → A7 defterm 循环 → A8 退出协议
+- 正在做：A6b（清理死代码）与 A7（defterm 循环去轮询）
+- 下一步：A6b → A7 → A9 错误审计 → A10 性能/唤醒验证
 
 ## 基线记录
 

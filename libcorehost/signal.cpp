@@ -95,6 +95,13 @@ bool pty_signal_reader::poll()
     }
 }
 
+// 应用一条完整 PtySignal。会话锁由调用方持有（信号线程），因此这里只做状态
+// 更新，不再处理管道读取或同步。
+void pty_signal_reader::apply(unsigned short id, std::span<const std::byte> payload)
+{
+    handle_message(id, payload);
+}
+
 // 执行一条完整 PtySignal。所有状态更新都在会话主线程进行，与 I/O 循环
 // 的其他状态推进天然互斥，无需额外同步。
 void pty_signal_reader::handle_message(unsigned short id, std::span<const std::byte> payload)

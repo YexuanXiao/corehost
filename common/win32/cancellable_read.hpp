@@ -107,6 +107,26 @@ class cancellable_read
         win32::throw_last_error(err);
     }
 
+    // Reads exactly destination.size() bytes (a complete wire message).
+    // Returns status::cancelled when cancelled at any point, and
+    // status::closed when the peer closed first; a caller that requires
+    // message atomicity must treat "closed after a partial read" as
+    // protocol corruption (it can check read_bytes).
+    [[nodiscard]] status read_exact(std::span<std::byte> destination, DWORD &read_bytes)
+    {
+        assert(!destination.empty());
+        read_bytes = 0;
+        while (read_bytes < destination.size())
+        {
+            DWORD chunk = 0;
+            const auto status = read(destination.subspan(read_bytes), chunk);
+            if (status != status::data)
+                return status;
+            read_bytes += chunk;
+        }
+        return status::data;
+    }
+
     // ── Stopper side ─────────────────────────────────────────
     void request_stop() noexcept
     {

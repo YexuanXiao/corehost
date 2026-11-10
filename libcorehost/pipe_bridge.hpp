@@ -122,6 +122,72 @@ struct pipe_bridge
         _signal.set_pipe(pipe);
     }
 
+    // A4 起，终端输入与信号管道各由一个线程阻塞读取；主循环不再窥探管道。
+    // 设置后 on_idle/prepare_console_input_events 不再访问 vt_in，信号轮询也
+    // 由信号线程接管，避免两处同时读同一个管道。
+    void set_input_threaded() noexcept
+    {
+        _input_threaded = true;
+    }
+
+    void set_signal_threaded() noexcept
+    {
+        _signal_threaded = true;
+    }
+
+    [[nodiscard]] pty_signal_reader &signal_reader() noexcept
+    {
+        return _signal;
+    }
+
+    // ── 输入线程入口（调用方必须持有会话锁） ──────────────
+    // 把线程读到的字节追加到读缓冲，按既有管线解析并完成 pending 请求。
+    void on_input_bytes(std::span<const std::byte> bytes)
+    {
+        size_t offset = 0;
+        while (offset < bytes.size())
+        {
+            const auto limit = static_cast<DWORD>(input_read_limit());
+            if (_read_total >= limit)
+            {
+                // 缓冲已满：按原有 vt_read_status::full 语义先完成当前请求。
+                // 没有挂起请求却仍满，说明状态机被破坏，按致命错误处理。
+                if (!_pending.has_pending())
+                    win32::throw_last_error(win32::error::invalid_state);
+                complete_pending();
+                continue;
+            }
+
+            const auto chunk = std::min<size_t>(limit - _read_total, bytes.size() - offset);
+            std::memcpy(_readbuf.data() + _read_total, bytes.data() + offset, chunk);
+            const DWORD old_total = _read_total;
+            _read_total += static_cast<DWORD>(chunk);
+            offset += chunk;
+
+            process_new_vt_input(old_total);
+        }
+
+        vt_flush();
+    }
+
+    // vt_in 关闭：标记 EOF 并完成挂起读取，让主循环可以退出。
+    void on_input_eof()
+    {
+        if (!_pending.vt_eof())
+        {
+            _pending.set_vt_eof(true);
+            if (_pending.has_pending())
+                complete_pending();
+        }
+        vt_flush();
+    }
+
+    // 信号管道关闭：终端不再服务，等价于输入 EOF。
+    void on_signal_closed()
+    {
+        on_input_eof();
+    }
+
     // 更新 GetConsoleProcessList 可见的进程快照。message_router 在
     // CONNECT/DISCONNECT 后把 io_state 的真实列表同步到这里。
     void set_process_list(std::span<const DWORD> processes) noexcept
@@ -190,6 +256,10 @@ struct pipe_bridge
     std::u32string &_cooked_buf = _input_state.cooked_buf;
     size_t &_cooked_cursor = _input_state.cooked_cursor;
 
+    // true 表示输入/信号管道已由专用线程阻塞读取；主循环不再窥探它们。
+    bool _input_threaded = false;
+    bool _signal_threaded = false;
+
     // ── Parser 外部缓冲 ──────────────────────────────
     // _output_raw_buf 属于 Console API 输出方向：WriteConsole/RAW_WRITE 的文本
     // 也可能包含 VT 序列。它和输入侧的原文缓冲分离，避免应用输出中的半条 ESC/CSI/OSC
@@ -244,6 +314,16 @@ struct pipe_bridge
         // RAW_READ completion 只写客户端缓冲区字节，不附加 API 描述符。
         return std::min<size_t>(msg.descriptor.OutputSize, sizeof(msg.body));
     }
+
+    // 输入线程可写入 _readbuf 的上限：默认整个读缓冲；RawRead 时受客户端
+    // 输出缓冲限制，达到上限必须先完成当前请求（原 vt_read_status::full）。
+    [[nodiscard]] size_t input_read_limit() const noexcept
+    {
+        if (_pending.kind() == PendingKind::RawRead && _pending.raw_read() != nullptr)
+            return raw_read_capacity(*_pending.raw_read());
+        return _readbuf.size();
+    }
+
 
     void prepare_console_input_completion(condrv_io::io_msg &msg, CONSOLE_GETCONSOLEINPUT_MSG *req, bool peek,
                                           size_t max_count) noexcept
@@ -1162,6 +1242,11 @@ struct pipe_bridge
     // 对应 pending 路径独占消费输入。
     void prepare_console_input_events()
     {
+        // 输入线程已把 VT 字节转成 INPUT_RECORD 并写入 input_buffer，主线程
+        // 不能再窥探 vt_in。
+        if (_input_threaded)
+            return;
+
         if (_pending.has_pending())
             return;
 
@@ -1230,7 +1315,7 @@ struct pipe_bridge
             return;
         }
 
-        if (_signal.has_pipe())
+        if (_signal.has_pipe() && !_signal_threaded)
         {
             // 有信号管道时不能进入阻塞 ReadFile：resize/clear/断管都依赖主
             // 线程轮询。先处理已到达的信号，再等待 vt_in 短时间片；vt_in
@@ -1277,6 +1362,10 @@ struct pipe_bridge
     // 不挂起 ReadConsole 的输入模型，同时检测终端关闭。
     void on_idle()
     {
+        // 输入线程存在时，vt_in 与信号管道的读取都不归主循环。
+        if (_input_threaded)
+            return;
+
         if (_pending.vt_eof())
             return;
 

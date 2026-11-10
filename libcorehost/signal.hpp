@@ -68,10 +68,14 @@ class pty_signal_reader
     // 断开或不可读，会话应停止等待终端输入并按 EOF 处理。
     [[nodiscard]] bool poll();
 
-  private:
     // 由消息 id 返回 payload 长度；0 表示未知 id（协议损坏，退出程序）。
+    // 公开给信号线程：它需要在读 payload 之前知道精确长度。
     static size_t payload_size_for(unsigned short id) noexcept;
 
+    // 应用一条已完整读出的信号消息。调用方必须持有会话锁。
+    void apply(unsigned short id, std::span<const std::byte> payload);
+
+  private:
     // 执行一条已完整解析的信号动作。
     void handle_message(unsigned short id, std::span<const std::byte> payload);
 
