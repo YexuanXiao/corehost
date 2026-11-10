@@ -15,7 +15,7 @@
 | --- | --- | --- | --- | --- |
 | A1 | 基线调查：枚举全部轮询/唤醒点、状态归属；锁定回归基线 | DONE | A1 基线调查 | 9 处轮询点；15/15 测试通过；方法见 `doc/tasks/01-a1-baseline.md` |
 | A2 | `common/win32`：SRWLock 共享/独占锁 + 条件变量封装（common 不写测试） | DONE | A2 SRWLock 封装 | `common/win32/srwlock.hpp`；编译检查通过 |
-| A3 | `common/win32`：命名线程、启动/join、可取消阻塞读 + 单测 | TODO | | |
+| A3 | `common/win32`：命名线程、启动/join、可取消阻塞读 + 单测 | DONE | A3 线程与可取消读工具 | `thread.hpp`、`cancellable_read.hpp`；common 不写测试，由使用方覆盖 |
 | A4 | 终端输入线程：阻塞读、解码、解析、键盘事件、cooked 编辑、事件投递 | TODO | | |
 | A5 | 信号管道线程：协议解析、命令投递 | TODO | | |
 | A6 | 主循环：无限等待 + 排空；删除 16ms 时间片 | TODO | | |
@@ -63,8 +63,8 @@
 ## 当前迭代
 
 - 阶段：A
-- 正在做：A3（线程工具：命名线程、启动/join、可取消阻塞读）
-- 下一步：A3 → A4/A5 输入线程（锁内同步处理）→ A6 主循环
+- 正在做：A4（终端输入线程，锁内同步处理）
+- 下一步：A4/A5 → A6 主循环 → A7 defterm 循环 → A8 退出协议
 
 ## 基线记录
 
@@ -72,7 +72,7 @@
 | --- | --- | --- | --- |
 | 构建 | 通过（`ninja: no work to do`） | 2026-11-10 | `cmake --build build` |
 | 配置 | Debug / Ninja / MSVC 14.52 / `COREHOST_LOG_LEVEL=2` | 2026-11-10 | `build/CMakeCache.txt` |
-| 测试 | 15/15 通过，7.30s | 2026-11-10 | `ctest --test-dir build --output-on-failure` |
+| 测试 | 15/15 通过，6.41s（A3 后复测） | 2026-11-10 | `ctest --test-dir build --output-on-failure` |
 | 空闲 CPU | 待采集 | | A10 统一方法 |
 | 输入时延 | 待采集 | | A10 统一方法 |
 | 环境 | WT 已安装；`ssh.exe`/`sshd.exe` 存在；交互式桌面 | 2026-11-10 | 命令探测 |

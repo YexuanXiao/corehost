@@ -129,6 +129,10 @@ Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额�
 5. 兜底：join 等待设上限（例如 2s），超时按致命错误处理（记录线程名与状态后
    终止进程）。
 
+实现载体：`common/win32/cancellable_read.hpp` 封装了 `in_read` 标记、`request_stop`、
+`cancel_pending` 与"每 5ms 重试取消直到线程退出"的 `wait_for_exit`；线程句柄与命名
+由 `common/win32/thread.hpp` 的 `basic_thread` 提供。
+
 被否决的替代：关闭读端句柄（行为未定义，I/O 可能继续挂起）；改 overlapped
 （调用方给的句柄不可控）；`TerminateThread`（破坏进程状态，违背"正确处理线程
 退出"）。
