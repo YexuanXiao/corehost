@@ -243,7 +243,7 @@ corehost::test::result child_process_joins_console()
     // 子进程按默认方式创建：它继承父进程的控制台（也就是我们的 ConDrv 连接）。
     const auto cmd = corehost::test::system32_path(L"cmd.exe");
     REQUIRE(!cmd.empty());
-    std::wstring command = L"\"" + cmd + L"\" /c ping -n 3 127.0.0.1 >nul";
+    std::wstring command = L"\"" + cmd + L"\" /c for /l %i in (1,1,20000) do @rem";
 
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);

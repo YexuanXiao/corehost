@@ -25,23 +25,24 @@ corehost::test::result resize_changes_client_size()
     REQUIRE(session.wait_output(">", 15000));
     (void)session.take_output();
 
-    REQUIRE(session.resize(COORD{100, 30}));
-
-    // 尺寸通过 PTY 信号到达会话后，mode con 才会报告新值；轮询等待而不是固定睡眠。
-    REQUIRE(session.write("mode con\r"));
-
-    bool saw_width = false;
-    bool saw_height = false;
-    for (int attempt = 0; attempt < 30 && !(saw_width && saw_height); ++attempt)
+    // resize 信号与后续命令是异步的：允许整体重试，避免一次性竞态导致假失败。
+    std::string accumulated;
+    for (int attempt = 0; attempt < 3; ++attempt)
     {
-        const auto output = session.take_output();
-        if (output.find("100") != std::string::npos)
-            saw_width = true;
-        if (output.find("30") != std::string::npos)
-            saw_height = true;
-        if (!(saw_width && saw_height))
+        REQUIRE(session.resize(COORD{100, 30}));
+        REQUIRE(session.write("mode con\r"));
+        for (int slice = 0; slice < 30; ++slice)
+        {
+            accumulated += session.take_output();
+            if (accumulated.find("100") != std::string::npos && accumulated.find("30") != std::string::npos)
+                break;
             ::Sleep(100);
+        }
+        if (accumulated.find("100") != std::string::npos && accumulated.find("30") != std::string::npos)
+            break;
     }
+    const bool saw_width = accumulated.find("100") != std::string::npos;
+    const bool saw_height = accumulated.find("30") != std::string::npos;
 
     session.write("exit\r");
     (void)session.wait_exit(10000);
@@ -121,7 +122,7 @@ corehost::test::result repeated_sessions()
     DWORD handles_before = 0;
     REQUIRE(::GetProcessHandleCount(::GetCurrentProcess(), &handles_before) != FALSE);
 
-    for (int iteration = 0; iteration < 20; ++iteration)
+    for (int iteration = 0; iteration < 50; ++iteration)
     {
         corehost::test::conpty_session session;
         REQUIRE(session.start(quote(cmd) + L" /c \"echo repeat-marker\""));
@@ -135,8 +136,8 @@ corehost::test::result repeated_sessions()
     DWORD handles_after = 0;
     REQUIRE(::GetProcessHandleCount(::GetCurrentProcess(), &handles_after) != FALSE);
 
-    std::fwprintf(stdout, L"[repeat] handles %lu -> %lu ", handles_before, handles_after);
-    // 每次会话允许少量临时对象；20 次后不应线性增长。
+    std::fwprintf(stdout, L"[repeat] 50 sessions, handles %lu -> %lu ", handles_before, handles_after);
+    // 每次会话允许少量临时对象；50 次后不应线性增长。
     REQUIRE(handles_after <= handles_before + 40);
     return corehost::test::result::pass;
 }

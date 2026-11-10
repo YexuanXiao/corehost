@@ -15,7 +15,9 @@
 | G7 | ~~`defterm.cpp` 的 `connect_handler::on_idle()` 空实现~~ | DONE：调用点与方法已删除 | — | A9/A6b |
 | G8 | CR/LF 跨批次 lookahead 在线程模型下的归属 | `_on_line_terminator` 会在批次末尾 `PeekNamedPipe` 找 LF；threaded 模式下由输入线程执行，但缺专门用例 | 增加"CR 与 LF 分两次到达"的用例，断言不产生多余行 | A10 |
 | G9 | 中断/信号压力测试 | 未做：Ctrl+C/Ctrl+Break 与信号线程交互只在少数用例间接覆盖 | 在 defterm/conpty 两侧补"信号到达时无丢失、无重复"的压力用例 | A10 |
-| G10 | 20 次以上会话的泄漏观察 | 已做 20 次（句柄 122→125）；100 次未做 | 延长 `repeat` 或新增慢速用例 | A10 |
+| G10 | ~~20 次以上会话的泄漏观察~~ | DONE：repeat 扩到 50 次（句柄 104→107） | — | A10 |
+| G12 | 输入时延用例在隔离子进程下不稳定 | 手动运行稳定（p95 0–1ms），CI 隔离进程里交互式 cmd 首轮可能 EOF；用例暂时 SKIP 并注明 | 找出隔离进程与手动运行的差异（控制台/stdio），或改用非交互式回显程序 | D3 |
+| G11 | **Ctrl+C 未投递到前台进程组** | 收到 Win32 Ctrl+C 键事件后，宿主没有生成 `CTRL_C_EVENT`（代码中只有 `GenerateConsoleCtrlEvent` API 透传）；`ctrl_c` 用例因此 SKIP 并注明 | 需要记录 CONNECT 的 ProcessGroupId，并在 processed input 下于会话锁内调用 `GenerateConsoleCtrlEvent(CTRL_C_EVENT, group)` | A 阶段遗留 |
 
 ## 2. 已明确不做（有理由）
 

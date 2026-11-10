@@ -38,7 +38,10 @@ corehost::test::result timeout_terminates_child()
     REQUIRE(!cmd.empty());
 
     const auto start = std::chrono::steady_clock::now();
-    const auto result = corehost::test::run_tool(cmd, L"/c ping -n 10 127.0.0.1 >nul", 600);
+    const auto powershell = corehost::test::system32_path(L"WindowsPowerShell\\v1.0\\powershell.exe");
+    REQUIRE(corehost::test::file_exists(powershell));
+    const auto result =
+        corehost::test::run_tool(powershell, L"-NoProfile -NonInteractive -Command \"Start-Sleep -Seconds 5\"", 600);
     const auto elapsed =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 
