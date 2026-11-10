@@ -48,12 +48,22 @@ struct pipe_bridge {
 `vt_input_thread` 的循环：
 
 ```
-read（阻塞，cancellable_read）
+read（阻塞，cancellable_read，写线程私有 staging 缓冲，锁外）
   -> 取会话锁
-  -> bridge.process_new_vt_input(...) / complete_pending 等（原有方法）
+  -> bridge.on_input_bytes(staging)     // 追加到 _readbuf，调用原有解析/完成逻辑
   -> 解锁
-  -> SetEvent(input_ready)   // 仅用于唤醒主线程重新评估 pending/退出
+  -> SetEvent(input_ready)              // 仅用于唤醒主线程重新评估 pending/退出
 ```
+
+两个要点：
+
+1. **锁内不做阻塞读**。`_readbuf` 是桥接给 completion 用的持久缓冲，不能在锁外被
+   写、锁内被读。因此线程先在锁外把管道数据读进自己的 4KB staging 缓冲，再在
+   锁内拷进 `_readbuf` 并解析。多一次 4KB 拷贝，换取"锁内无阻塞"。
+2. `on_input_bytes` 需要处理"空间不足"：`_readbuf` 剩余空间为 0 时先
+   `complete_pending()`（原有语义：`vt_read_status::full`），再继续拷贝剩余字节。
+   这个循环必须保留 `_read_total` 的原有含义，否则 RawRead/ReadConsole 的返回
+   字节会错位。
 
 因此原有输入处理函数不需要复制一份"线程版本"，只是调用者从主循环变成了输入
 线程。这是本方案最重要的性质：**行为等价性靠"同一份代码、不同调用者"保证，
