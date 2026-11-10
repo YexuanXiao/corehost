@@ -2157,32 +2157,30 @@ struct pipe_bridge
     bool process_input_win32_key(PendingKind pending_kind, const vt_message &m, DWORD i, DWORD len,
                                  const char8_t *bytes)
     {
-        // Ctrl+C / Ctrl+Break：processed input 下转换为控制台控制事件并投递给
-        // 前台进程组，不再进入 cooked/raw 缓冲（与真实控制台一致）。
-
-        if (m.payload.win32_key.key_down && (cstate.input_mode & ENABLE_PROCESSED_INPUT) != 0)
+        // Ctrl+C / Ctrl+Break：与 conhost 的 HandleGenericKeyEvent 对齐——
+        //   Ctrl+C（processed input、无 Alt）：投递 CTRL_C_EVENT，并以
+        //     STATUS_ALERTED 结束等待中的读；不清空输入缓冲。
+        //   Ctrl+Break（不看 processed input）：先清空输入缓冲，再投递
+        //     CTRL_BREAK_EVENT，同样以 STATUS_ALERTED 结束读。
+        // 两者都不把按键写进 input_buffer。
+        if (m.payload.win32_key.key_down &&
+            (m.payload.win32_key.control_state & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0 &&
+            (m.payload.win32_key.control_state & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) == 0)
         {
-            const bool ctrl = (m.payload.win32_key.control_state & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0;
-            DWORD control_event = 0;
-            // Ctrl+C 的事件码是 CTRL_C_EVENT == 0，不能用 0 表示"没有事件"。
-            bool has_control_event = false;
-            if (ctrl && (m.payload.win32_key.vk == 'C' || m.payload.win32_key.uc == 0x03))
+            const bool processed = (cstate.input_mode & ENABLE_PROCESSED_INPUT) != 0;
+            if (m.payload.win32_key.vk == 'C' && processed)
             {
-                control_event = CTRL_C_EVENT;
-                has_control_event = true;
-            }
-            else if (ctrl && m.payload.win32_key.vk == VK_CANCEL)
-            {
-                control_event = CTRL_BREAK_EVENT;
-                has_control_event = true;
+                send_ctrl_event(CTRL_C_EVENT);
+                complete_pending(condrv_io::status_alerted);
+                return false;
             }
 
-            if (has_control_event)
+            if (m.payload.win32_key.vk == VK_CANCEL)
             {
-                // corehost 不在该控制台上，GenerateConsoleCtrlEvent 到不了客户端；
-                // 走 CSRSS 的 ConsoleControl(ConsoleEndTask)，与 conhost 的
-                // ProcessCtrlEvents 同一路径。
-                send_ctrl_event(control_event);
+                // conhost 只在 Break 时清空输入缓冲（Ctrl+C 不清）。
+                inp.flush();
+                send_ctrl_event(CTRL_BREAK_EVENT);
+                complete_pending(condrv_io::status_alerted);
                 return false;
             }
         }
@@ -2914,8 +2912,14 @@ struct pipe_bridge
 
     // 为 pending RAW_READ 构造 completion。它返回 _readbuf 中的原始字节，
     // 并在容量允许时把单独 CR/LF 规范化为 ConDrv 期望的 CRLF。
-    void prepare_raw_read_completion(condrv_io::io_msg &m) noexcept
+    void prepare_raw_read_completion(condrv_io::io_msg &m, LONG status = 0) noexcept
     {
+        if (status != 0)
+        {
+            // Ctrl+C / Ctrl+Break：以 STATUS_ALERTED 结束，不返回任何字节。
+            condrv_io::prepare_completion(m, status, 0, nullptr, 0);
+            return;
+        }
         // RawRead 返回 _readbuf 原始字节；它不使用 cooked line 编辑结果。
         auto capacity = static_cast<DWORD>(raw_read_capacity(m));
         DWORD data_bytes = std::min(_read_total, capacity);
@@ -2955,10 +2959,19 @@ struct pipe_bridge
 
     // 为 pending ReadConsole 构造 completion。函数把 _cooked_buf 转成调用者
     // 请求的 Unicode/ANSI 格式，并追加 CRLF；不会清理 pending 状态。
-    void prepare_console_read_completion(condrv_io::io_msg &m) noexcept
+    void prepare_console_read_completion(condrv_io::io_msg &m, LONG status = 0) noexcept
     {
         auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(m.body + sizeof(CONSOLE_MSG_HEADER));
         req->ControlKeyState = 0;
+
+        if (status != 0)
+        {
+            // Ctrl+C / Ctrl+Break：0 字节 + STATUS_ALERTED（conhost 同款语义）。
+            req->NumBytes = 0;
+            auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
+            condrv_io::prepare_completion(m, status, sz, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
+            return;
+        }
 
         if (_pending.vt_eof() && _cooked_buf.empty() && _read_total == 0)
         {
@@ -3008,19 +3021,19 @@ struct pipe_bridge
     }
 
     // ── complete_pending ──────────────────────────────
-    void complete_pending()
+    void complete_pending(LONG status = 0)
     {
         // complete_pending 是所有挂起读的唯一出口。它先构造 CD_IO_COMPLETE
         // 的副本，再清空 pending 状态，最后显式通知 ConDrv。
-        LOG3(L"[bridge] complete_pending: kind=%d total=%lu cooked_len=%zu vt_eof=%d cooked=[%.*ls]",
-             static_cast<int>(_pending.kind()), _read_total, _cooked_buf.size(), _pending.vt_eof(),
+        LOG3(L"[bridge] complete_pending: kind=%d total=%lu cooked_len=%zu vt_eof=%d status=0x%08lx cooked=[%.*ls]",
+             static_cast<int>(_pending.kind()), _read_total, _cooked_buf.size(), _pending.vt_eof(), status,
              static_cast<int>(_cooked_buf.size() < 200 ? _cooked_buf.size() : 200), _cooked_buf.data());
         if (!_pending.has_pending())
             return;
 
         if (_pending.kind() == PendingKind::ConsoleInput)
         {
-            complete_pending_console_input();
+            complete_pending_console_input(status);
             return;
         }
 
@@ -3030,7 +3043,7 @@ struct pipe_bridge
         if (_pending.kind() == PendingKind::RawRead && _pending.raw_read())
         {
             auto &m = *_pending.raw_read();
-            prepare_raw_read_completion(m);
+            prepare_raw_read_completion(m, status);
             comp_before = m.complete;
             comp_ptr = &comp_before;
         }
@@ -3039,7 +3052,7 @@ struct pipe_bridge
             auto &m = *_pending.console_read();
             // ConsoleRead 返回行编辑后的文本，而不是原始 VT 字节；退格、历史、
             // alias 等本地编辑结果都已经体现在 _cooked_buf 中。
-            prepare_console_read_completion(m);
+            prepare_console_read_completion(m, status);
             comp_before = m.complete;
             comp_ptr = &comp_before;
         }
@@ -3047,7 +3060,9 @@ struct pipe_bridge
         _pending.clear();
         _read_total = 0;
 
-        history_push();
+        // Ctrl+C / Ctrl+Break 结束的读不进入命令历史（conhost 只在正常提交时记录）。
+        if (status == 0)
+            history_push();
 
         // completion 后所有行编辑临时状态失效；下一次 ReadConsole 重新从当前
         // cursor 和 prompt 边界建立编辑上下文。
@@ -3079,10 +3094,30 @@ struct pipe_bridge
 
     // 完成 pending GetConsoleInput。它按原请求的 PEEK/READ 标志重新从
     // input_buffer 取记录，构造 CD_IO_COMPLETE 后清除 pending。
-    void complete_pending_console_input()
+    void complete_pending_console_input(LONG status = 0)
     {
         if (_pending.kind() != PendingKind::ConsoleInput || !_pending.console_input())
             return;
+
+        if (status != 0)
+        {
+            // Ctrl+C / Ctrl+Break：0 条记录 + STATUS_ALERTED。
+            auto &pending_msg = *_pending.console_input();
+            _console_input_output_buffer.resize(sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+            auto *out_req =
+                reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(_console_input_output_buffer.data());
+            *out_req = *reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(pending_msg.body +
+                                                                        sizeof(CONSOLE_MSG_HEADER));
+            out_req->NumRecords = 0;
+            condrv_io::prepare_completion(pending_msg, status, sizeof(CONSOLE_GETCONSOLEINPUT_MSG),
+                                          _console_input_output_buffer.data(),
+                                          sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+            auto comp = pending_msg.complete;
+            _pending.clear();
+            if (_io.can_complete() && &pending_msg != _serving)
+                _io.complete(comp);
+            return;
+        }
 
         // ConsoleInput pending 只等待 input_buffer 出现记录。completion 使用
         // 当前请求的 PEEK/READ 标志重新取数，避免 pending 期间写入多条记录时

@@ -49,6 +49,9 @@ inline constexpr LONG status_buffer_too_small = 0xC0000023;
 inline constexpr LONG status_illegal_function = 0xC00000AF;
 inline constexpr LONG status_not_implemented = 0xC0000002;
 inline constexpr LONG status_not_supported = 0xC00000BB;
+// Ctrl+C / Ctrl+Break 结束挂起读时返回的状态（conhost 的 COOKED_READ_DATA::Notify
+// 与 readDataRaw/readDataDirect 都用它）。
+inline constexpr LONG status_alerted = 0x00000101;
 
 } // namespace error
 
