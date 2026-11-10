@@ -195,6 +195,13 @@ class ssh_server
         }
         _user = user;
 
+        // sshd 为非 PTY 远程命令创建的子进程（cmd/powershell）会新建可见的
+        // 控制台窗口。把 sshd 及其子进程放到一个隐藏桌面上，窗口就不会出现在
+        // 用户桌面（CreateDesktop 失败时退回默认桌面，测试仍可运行）。
+        _desktop_name = L"corehost-ssh-" + std::to_wstring(::GetCurrentProcessId()) + L"-" +
+                        std::to_wstring(::GetTickCount64());
+        _desktop = ::CreateDesktopW(_desktop_name.c_str(), nullptr, nullptr, 0, GENERIC_ALL, nullptr);
+
         // 端口从随机起点向上试，直到 sshd 能起来并可连接。
         const int first_port = 21200 + static_cast<int>(::GetTickCount64() % 400u);
         for (int attempt = 0; attempt < 5; ++attempt)
@@ -240,6 +247,12 @@ class ssh_server
     void stop()
     {
         stop_sshd();
+        if (_desktop != nullptr)
+        {
+            ::CloseDesktop(_desktop);
+            _desktop = nullptr;
+            _desktop_name.clear();
+        }
         if (_wsa_started)
         {
             ::WSACleanup();
@@ -307,6 +320,8 @@ class ssh_server
         startup.hStdOutput = _log;
         startup.hStdError = _log;
         startup.hStdInput = nullptr;
+        if (_desktop != nullptr)
+            startup.lpDesktop = _desktop_name.data();
 
         std::wstring command = L"\"" + sshd + L"\" -D -f \"" + config.wstring() + L"\" -e";
         PROCESS_INFORMATION process{};
@@ -342,6 +357,8 @@ class ssh_server
     std::wstring _user;
     PROCESS_INFORMATION _process{};
     HANDLE _log = nullptr;
+    HDESK _desktop = nullptr;
+    std::wstring _desktop_name;
     int _port = 0;
     bool _wsa_started = false;
 };

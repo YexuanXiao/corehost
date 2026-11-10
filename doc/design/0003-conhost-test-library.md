@@ -137,3 +137,9 @@ WindowsTerminal 并交互"，所以 L2 是验收项，L1 是日常回归主力�
 
 因此正常 `ctest` 只会出现 `--headless` 的 ConPTY 宿主和 `CREATE_NO_WINDOW`
 （命令行 `conhost.exe 0x4`）的控制台宿主，二者都没有可见窗口。
+3. **ssh 非交互远程命令**：Windows OpenSSH sshd 为非 PTY 命令启动的
+   `cmd.exe` / `powershell.exe` 会新建**可见**的控制台窗口（sshd 自己虽然用
+   `CREATE_NO_WINDOW` 启动，子进程仍会拿到新控制台）。`ssh_server` 现在用
+   `CreateDesktopW` 创建一个隐藏桌面，并通过 `STARTUPINFO.lpDesktop` 把 sshd
+   放上去；sshd 的子进程继承该桌面，窗口不再出现在用户桌面。`CreateDesktopW`
+   失败时退回默认桌面（测试仍可运行，只是可能闪窗）。
