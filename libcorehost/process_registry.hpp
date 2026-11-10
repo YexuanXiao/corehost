@@ -61,6 +61,14 @@ class process_registry
 
     // 进程组过滤：group == 0 表示"所有进程"（conhost 的 ProcessGroupId=0
     // 语义），否则只保留组 id 匹配的 pid。返回写入 output 的数量。
+    // 是否存在指定进程组（GenerateConsoleCtrlEvent 的未知 group 校验）。
+    [[nodiscard]] bool contains_group(DWORD group) const noexcept
+    {
+        return std::any_of(_entries.begin(), _entries.end(), [group](const process_entry &entry) {
+            return entry.group == group;
+        });
+    }
+
     size_t copy_for_group(DWORD group, std::span<DWORD> output) const noexcept
     {
         size_t written = 0;

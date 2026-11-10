@@ -2079,6 +2079,47 @@ bool test_ctrl_event_filters_by_process_group()
 }
 
 // WINDOW_BUFFER_SIZE_EVENT 只在 VT 输入模式、尺寸变化时产生，并对重复尺寸去重。
+// GenerateConsoleCtrlEvent(group)：未知组按 conhost 语义返回 E_INVALIDARG，
+// 不静默成功（客户端会得到 FALSE）。legacy 的"group 当 pid + 父进程兜底"不复刻。
+bool test_regression_ctrl_event_rejects_unknown_group()
+{
+    corehost::condrv_io::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
+
+    const DWORD processes[] = {11, 22};
+    const DWORD groups[] = {100, 200};
+    bridge.set_process_list(processes, groups);
+    bridge.test_set_ctrl_sender(&record_ctrl_target);
+
+    auto invoke = [&](DWORD group) {
+        std::memset(&msg, 0, sizeof(msg));
+        msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CTRLEVENT_MSG);
+        auto *r = reinterpret_cast<CONSOLE_CTRLEVENT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+        r->CtrlEvent = CTRL_C_EVENT;
+        r->ProcessGroupId = group;
+        return api_ctrl_event(msg, st, sb, inp, bridge);
+    };
+
+    g_ctrl_targets.clear();
+    ASSERT(invoke(999));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    ASSERT(g_ctrl_targets.empty());
+
+    ASSERT(invoke(100));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT_EQ(g_ctrl_targets.size(), size_t{1});
+    ASSERT_EQ(g_ctrl_targets[0], 11u);
+
+    g_ctrl_targets.clear();
+    ASSERT(invoke(0));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT_EQ(g_ctrl_targets.size(), size_t{2});
+    return true;
+}
+
 bool test_window_size_event_gated_and_deduplicated()
 {
     console_state st;
@@ -2133,15 +2174,19 @@ bool test_regression_l3_process_list_validation_and_output_size()
     std::memset(&msg, 0, sizeof(msg));
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG);
     msg.descriptor.OutputSize = sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG) + 2 * sizeof(DWORD);
+    std::memset(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG), 0xCD, 2 * sizeof(DWORD));
     auto *plist = reinterpret_cast<CONSOLE_GETCONSOLEPROCESSLIST_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     ASSERT(api_l3_get_process_list(msg, st, sb, inp, bridge));
     ASSERT(msg.complete.IoStatus.Status == 0);
+    // 缓冲不足（容量 2 < 3）：conhost 不写 pid，Information=0，dwProcessCount=3。
     ASSERT(plist->dwProcessCount == 3);
+    ASSERT(msg.complete.IoStatus.Information == 0);
+    ASSERT(msg.complete.Write.Size == sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
 
     auto *out = reinterpret_cast<const DWORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                 sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
-    ASSERT(out[0] == 33);
-    ASSERT(out[1] == 22);
+    ASSERT(out[0] == 0xCDCDCDCD);
+    ASSERT(out[1] == 0xCDCDCDCD);
     return true;
 }
 
@@ -3349,6 +3394,7 @@ RUN_TEST(test_read_console_output_clamps_oversized_region, L"ReadConsoleOutput c
     RUN_TEST(test_regression_l3_selection_info_validation_and_copy, L"L3 SelectionInfo validation and copy");
     RUN_TEST(test_regression_l3_process_list_validation_and_output_size, L"L3 ProcessList validation and output size");
     RUN_TEST(test_ctrl_event_filters_by_process_group, L"Ctrl event filters by process group");
+RUN_TEST(test_regression_ctrl_event_rejects_unknown_group, L"Ctrl event rejects unknown group");
 RUN_TEST(test_process_registry_operations, L"Process registry operations");
     RUN_TEST(test_window_size_event_gated_and_deduplicated, L"Window size event gated and deduped");
     RUN_TEST(test_regression_l3_history_info_validation_get_set, L"L3 HistoryInfo validation get/set");

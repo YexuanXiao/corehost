@@ -272,6 +272,13 @@ struct pipe_bridge
         return _processes->count();
     }
 
+
+    // 是否存在指定进程组；供 GenerateConsoleCtrlEvent 校验未知 group。
+    bool has_process_group(DWORD group) const noexcept
+    {
+        return _processes->contains_group(group);
+    }
+
     [[nodiscard]] PendingKind pending_kind() const noexcept
     {
         // 供 message_router 日志判断当前挂起请求如何消费后续 vt_in 字节。

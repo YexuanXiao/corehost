@@ -1734,6 +1734,15 @@ inline bool api_ctrl_event(condrv_io::io_msg &msg, console_state &, screen_buffe
         return true;
     }
 
+    // group 非 0 时必须存在匹配的进程组；conhost 对未知 group 返回
+    // E_INVALIDARG（客户端 GenerateConsoleCtrlEvent 得到 FALSE）。conhost 还有
+    // "group 当 pid、父进程在控制台则合成 entry"的 legacy 兜底，这里不复刻。
+    if (r->ProcessGroupId != 0 && !bridge.has_process_group(r->ProcessGroupId))
+    {
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
     bridge.send_ctrl_event(r->CtrlEvent, r->ProcessGroupId);
     ucomplete(msg);
     return true;
@@ -3509,9 +3518,21 @@ inline bool api_l3_get_process_list(condrv_io::io_msg &msg, console_state &, scr
     auto *r = reinterpret_cast<CONSOLE_GETCONSOLEPROCESSLIST_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *out =
         reinterpret_cast<DWORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
-    auto maxc = message_output_tail_capacity(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG)) / sizeof(DWORD);
-    size_t count = bridge.copy_process_list_newest_first(out, maxc);
-    r->dwProcessCount = static_cast<ULONG>(bridge.process_count());
+    const auto capacity = message_output_tail_capacity(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG)) / sizeof(DWORD);
+    const auto total = bridge.process_count();
+
+    // conhost 语义：缓冲不足时 GetProcessList 返回 E_NOT_SUFFICIENT_BUFFER，
+    // dispatcher 不写任何 pid、Information=0，但 dwProcessCount 仍是所需数量
+    // （客户端据此扩容后重试）。只有容量足够时才返回数据。
+    if (capacity < total)
+    {
+        r->dwProcessCount = static_cast<ULONG>(total);
+        ucomplete_data(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG), 0);
+        return true;
+    }
+
+    const auto count = bridge.copy_process_list_newest_first(out, capacity);
+    r->dwProcessCount = static_cast<ULONG>(count);
     ucomplete_data(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG), count * sizeof(DWORD));
     return true;
 }
