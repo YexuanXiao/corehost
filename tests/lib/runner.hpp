@@ -29,6 +29,7 @@
 
 #include <array>
 #include <cstdio>
+#include <filesystem>
 #include <cwchar>
 #include <optional>
 #include <span>
@@ -185,9 +186,40 @@ inline std::optional<int> run_child_case(std::span<const test_case> cases)
 
 
 
-// 子进程隔离执行：每个用例重启自身（--case-index N），父进程等待并汇总。
+// 把本用例期间写出的 corehost 日志复制到 test-artifacts/<case>/。
+// 偶发失败如果没有产物，就只能靠复跑碰运气；这里至少保住会话日志。
+inline void archive_case_logs(const char *case_name, std::filesystem::file_time_type since)
+{
+    std::error_code error;
+    wchar_t module[MAX_PATH]{};
+    if (::GetModuleFileNameW(nullptr, module, ARRAYSIZE(module)) == 0)
+        return;
+
+    const std::filesystem::path base = std::filesystem::path{module}.parent_path();
+    const std::filesystem::path logs = base / L"logs";
+    if (!std::filesystem::exists(logs, error))
+        return;
+
+    const std::filesystem::path destination = base / L"test-artifacts" / std::filesystem::path{case_name};
+    std::filesystem::create_directories(destination, error);
+
+    for (const auto &entry : std::filesystem::directory_iterator(logs, error))
+    {
+        std::error_code time_error;
+        const auto written = std::filesystem::last_write_time(entry, time_error);
+        if (time_error || written < since)
+            continue;
+
+        std::error_code copy_error;
+        std::filesystem::copy_file(entry, destination / entry.path().filename(),
+                                   std::filesystem::copy_options::overwrite_existing, copy_error);
+    }
+}
+
+
 // timeout_ms 是测试基础设施的判定期限：超时即终止子进程并记为失败，避免一个
 // 挂起的用例拖死整组（产品代码不允许等待上限，测试基础设施需要它来判定失败）。
+// 子进程隔离执行：每个用例重启自身（--case-index N），父进程等待并汇总。
 inline run_stats run_isolated(std::span<const test_case> cases, std::string_view filter = {},
                                DWORD timeout_ms = 60000)
 {
@@ -224,8 +256,10 @@ inline run_stats run_isolated(std::span<const test_case> cases, std::string_view
             continue;
         }
 
+        const auto case_start = std::filesystem::file_time_type::clock::now();
         const DWORD wait = ::WaitForSingleObject(process.hProcess, timeout_ms);
         DWORD exit_code_value = 1;
+        bool case_failed = false;
         if (wait == WAIT_TIMEOUT)
         {
             // 超时：终止并记录，不能让它继续占用。
@@ -233,6 +267,7 @@ inline run_stats run_isolated(std::span<const test_case> cases, std::string_view
             ::WaitForSingleObject(process.hProcess, INFINITE);
             std::fwprintf(stdout, L"  %hs ... TIMEOUT\n", test.name);
             ++stats.failed;
+            case_failed = true;
         }
         else if (wait != WAIT_OBJECT_0 ||
                  ::GetExitCodeProcess(process.hProcess, &exit_code_value) == FALSE)
@@ -240,6 +275,7 @@ inline run_stats run_isolated(std::span<const test_case> cases, std::string_view
             std::fwprintf(stderr, L"  %hs ... WAIT FAILED (err=%lu)\n", test.name, ::GetLastError());
             ++stats.failed;
             exit_code_value = 1;
+            case_failed = true;
         }
         else if (exit_code_value == 0)
         {
@@ -252,7 +288,12 @@ inline run_stats run_isolated(std::span<const test_case> cases, std::string_view
         else
         {
             ++stats.failed;
+            case_failed = true;
         }
+
+        // 失败时归档本用例期间产生的 corehost 日志，偶发失败才有材料可查。
+        if (case_failed)
+            archive_case_logs(test.name, case_start);
 
         ::CloseHandle(process.hThread);
         ::CloseHandle(process.hProcess);
