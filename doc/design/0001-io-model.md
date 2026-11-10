@@ -237,3 +237,29 @@ B6 的伪窗口用例暴露出一个此前被注释误导的事实：`DeviceIoCo
 
 这条发现同时说明：`ConPTY.IdleCpu` 的 0ms 不只是"没轮询"，还因为主线程根本
 不在用户态空转，而是在内核里等消息。
+## 4.12 COM RPC 边界捕获异常是唯一例外
+
+`corehost/comserver/com_server.cpp` 的 `EstablishHandoff` 用 `try/catch(...)` 包裹实现体。
+这不是"用 catch 掩盖错误"：COM 方法跨 RPC 边界，异常逃逸是未定义行为；捕获后返回
+`E_FAIL` 并记录日志，是协议层的错误返回路径。产品其余部分仍然禁止 catch（见 A9 审计）。
+
+## 4.13 defterm handoff 失败后的取舍：无窗口 headless
+
+`corehost/defterm/defterm.cpp` 在 COM handoff 失败（或 elevated）时，通知并立刻
+`CTRL_BREAK` 客户端，然后以 keepalive 空输入管道 + 空 `vt_out` 启动 conpty 会话：
+客户端不会获得键盘输入，输出被丢弃。conhost 在这种情况会回退到本地窗口；本实现
+选择"委托失败即尽快结束客户端"，避免维护第二套窗口/渲染路径。影响与解除条件记录
+在 `tasks/04-open-gaps.md` G26。
+
+## 4.14 WINDOW_BUFFER_SIZE_EVENT 的触发条件
+
+与 conhost `_CommitViewport` 一致：只有 `ENABLE_VIRTUAL_TERMINAL_INPUT` 且缓冲区
+尺寸变化时产生；事件写入 input_buffer 前按"最近一次上报尺寸"去重（对齐
+`InputBuffer` 的重复事件抑制）。触发点：PtySignal resize、SetConsoleScreenBufferSize、
+SetConsoleScreenBufferInfo(Ex)、SetConsoleWindowInfo、VT `\x1b[8;h;wt`。
+
+## 4.15 SGR 鼠标的转换边界
+
+`\x1b[<b;x;yM/m` 在**非** VT 输入模式下转换成 `MOUSE_EVENT`（按下/松开/移动/滚轮、
+修饰键，按 conhost 的状态保留语义）；VT 输入模式或 RAW_READ 下原样透传，由应用
+自行解析。conhost 的双击/悬停启发式没有复刻（记录在 G20 备注）。

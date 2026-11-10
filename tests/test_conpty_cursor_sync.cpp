@@ -2018,6 +2018,30 @@ bool test_ctrl_break_flushes_input_and_alerts()
     return true;
 }
 
+// Ctrl+Esc / Alt+Esc 是系统快捷键：conhost 不把它们写进输入缓冲。
+bool test_ctrl_and_alt_escape_are_consumed()
+{
+    {
+        pipe_bridge_test_context ctx;
+        auto &bridge = ctx.bridge;
+        bridge.test_enter_console_read_mode(13);
+        auto seq = make_win32_seq(VK_ESCAPE, 1, L'\x1b', true, LEFT_CTRL_PRESSED);
+        bridge.test_feed_raw_bytes(seq.data(), static_cast<DWORD>(seq.size()));
+        ASSERT(bridge.test_get_pend_kind() != 0); // 读仍然挂起
+        ASSERT(bridge.test_get_cooked_buf() == U"");
+    }
+    {
+        pipe_bridge_test_context ctx;
+        auto &bridge = ctx.bridge;
+        bridge.test_enter_console_read_mode(13);
+        auto seq = make_win32_seq(VK_ESCAPE, 1, L'\x1b', true, LEFT_ALT_PRESSED);
+        bridge.test_feed_raw_bytes(seq.data(), static_cast<DWORD>(seq.size()));
+        ASSERT(bridge.test_get_pend_kind() != 0);
+        ASSERT(bridge.test_get_cooked_buf() == U"");
+    }
+    return true;
+}
+
 int main()
 {
     std::wcout.sync_with_stdio(false);
@@ -2120,6 +2144,7 @@ int main()
     RUN_TEST(test_crlf_split_across_batches_terminates_once, L"CRLF split across batches");
     RUN_TEST(test_ctrl_c_alerts_pending_read_without_flushing, L"Ctrl+C alerts read, keeps input");
     RUN_TEST(test_ctrl_break_flushes_input_and_alerts, L"Ctrl+Break flushes input and alerts");
+    RUN_TEST(test_ctrl_and_alt_escape_are_consumed, L"Ctrl+Esc and Alt+Esc consumed");
     RUN_TEST(test_win32_console_read_printable_inserts_char, L"Printable inserts char");
     RUN_TEST(test_console_read_utf8_text_decodes_once, L"UTF-8 text decodes once");
     RUN_TEST(test_win32_console_read_backspace_deletes_char, L"Backspace deletes char");

@@ -31,12 +31,12 @@
 | G18 | ~~WM_CLOSE 投递 CTRL_CLOSE_EVENT~~ | 不实现：ConPTY 下经 `ConsoleControl(ConsoleEndTask)` 投递 close 事件（flags=0x4，hwnd 传 nullptr 或伪窗口）时客户端处理器未被调用，调用阻塞约 5s 后返回成功（CSRSS 超时语义）；同一路径的 Ctrl+C 处理器可被调用（`handler_ctrl_c`，EVENT=0）。结论：WM_CLOSE 保持立即结束会话，关闭处理器语义在 ConPTY 下不可达 | 若将来确认 CSRSS 侧的 close 投递方式再实现 | B |
 | G19 | ~~VT 输入模式缺 `WINDOW_BUFFER_SIZE_EVENT`~~ | DONE：`bridge.queue_window_buffer_size_event()` 在 resize（PtySignal）、`SetConsoleScreenBufferSize`、`SetConsoleScreenBufferInfo(Ex)`、`SetConsoleWindowInfo`、VT `\x1b[8;h;wt` 后按 VT 输入模式产生事件，并对重复尺寸去重；`resize_event` 端到端用例 + 单测 `Window size event gated and deduped` | — | D |
 | G20 | ~~鼠标输入未实现~~ | DONE：parser 识别 `\x1b[<b;x;yM/m`（0x3C..0x3F 私有参数字节）；非 VT 输入模式合成 `MOUSE_EVENT`（按下/松开/移动/滚轮、修饰键，按 conhost `_UpdateSGRMouseButtonState` 的状态保留语义），VT 输入模式/RAW_READ 透传原文；单测 `SGR mouse sequence` + 端到端 `mouse` 用例（按下→滚轮→松开） | 未实现 conhost 的双击/悬停启发式 | D |
-| G21 | Ctrl+Esc / Alt+Esc 未按 conhost 抑制 | conhost `terminal/src/host/input.cpp:150-160` 不把这两个组合写入输入缓冲；corehost 会写入 | 同款抑制，补单测 | A |
-| G22 | 输入状态所有权文档与实现不符 | `vt_input_state.hpp:4-9` 称只被输入线程访问，但主线程在锁内经 `accumulate_from_pipe`（`pipe_bridge.hpp:1197,1246`）读写同一状态 | 修正注释与 `design/0001`：输入线程独占 vt_in 读取，bridge 状态由会话锁串行访问 | A |
+| G21 | ~~Ctrl+Esc / Alt+Esc 未按 conhost 抑制~~ | DONE：`process_input_win32_key` 在 key_down 且带 Ctrl/Alt 的 VK_ESCAPE 上直接返回（不写输入缓冲）；单测 `Ctrl+Esc and Alt+Esc consumed` | — | A |
+| G22 | ~~输入状态所有权文档与实现不符~~ | DONE：`vt_input_state.hpp` 头部改为"输入线程独占 vt_in 读取；bridge 状态由会话锁串行访问"，并说明主线程会消费批间残留字节 | — | A |
 | G23 | 测试库缺 VT 屏幕模型 | 现有断言依赖字节子串（`tests/lib/conpty_session.hpp` 只有输出泵）；无法验证单元格/属性/光标 | 新增 `tests/lib/vt_screen.hpp` 并迁移至少 2 个用例 | D1 |
 | G24 | 缺与系统 conhost 的差分测试 | 无差分用例；`test_conpty_sbattr_probe.cpp` 注释声称对比 conhost 但实际只跑 corehost 且 0 断言 | 用 `conhost.exe`（可复制/重命名为 `corehost.exe` 交给 libconpty）做差分，只比较稳定字段 | D |
 | G25 | ssh 负路径缺失 | 仅覆盖 loopback 成功路径（`test_conpty_programs.cpp` ssh/ssh_pty） | 补认证失败、远端退出码、交互 Ctrl+C 三条用例 | D3 |
-| G26 | defterm handoff 失败后为无窗口 headless | `defterm.cpp:333-350` 用 keepalive 空输入 + 空 `vt_out`，客户端无输入、输出丢弃；属既定取舍但未文档化 | 在 `design/0001`/`0002` 记录取舍与影响 | A |
+| G26 | ~~defterm handoff 失败后为无窗口 headless~~ | 已文档化：`design/0001` §4.13 记录该取舍与影响（handoff 失败时无输入/输出，conhost 会回退本地窗口；本实现按"委托失败即通知并打断客户端"设计） | 若需要本地窗口回退，另立计划 | A |
 | G27 | 零断言/未注册测试 | `tests/test_width_verify.cpp` 未注册进 ctest；`ConPTY.SbAttrProbe` 无断言（纯诊断） | 删除未注册手工测试；差分或删除 sbattr 探针，避免"测试"名不副实 | C/D |
 
 ## 3. 已决定不做（有理由）

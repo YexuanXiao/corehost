@@ -2230,6 +2230,16 @@ struct pipe_bridge
             }
         }
 
+        // conhost 的 HandleGenericKeyEvent 不把 Ctrl+Esc / Alt+Esc 写进输入缓冲
+        // （它们属于系统快捷键）。这里同样吞掉，避免应用读到本不该出现的键。
+        if (m.payload.win32_key.key_down)
+        {
+            const bool ctrl = (m.payload.win32_key.control_state & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0;
+            const bool alt = (m.payload.win32_key.control_state & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) != 0;
+            if ((ctrl || alt) && m.payload.win32_key.vk == VK_ESCAPE)
+                return false;
+        }
+
         if (pending_kind == PendingKind::ConsoleRead)
         {
             // ConsoleRead 自己做本地行编辑，只处理 KEY_DOWN；KEY_UP 不应
