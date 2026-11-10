@@ -63,7 +63,11 @@ ctest --test-dir build --output-on-failure
 - ~~G2~~：已用临时 sshd 解决；
 - ~~G4~~：真实 WT 层已有机会式冒烟用例（`Defterm.RealTerminal`）；
 
-- 偶发：一次完整 `ctest` 出现 1 个失败，立即复跑通过；未定位到具体用例（日志被覆盖）。后续应给失败用例保留产物（`--output-on-failure` 已开，但需归档日志）。
+- ~~偶发失败~~：已定位为**测试驱动 `close()` 的顺序问题**——先 `join` 输出泵、后结束客户端；
+  `CancelSynchronousIo` 只能命中正在进行的同步读，读已返回时抓不到，`join` 就死等（表
+  现为某用例挂到 120s 超时）。改为先结束客户端并关闭伪控制台（corehost 退出 → vt_out
+  关闭 → 泵读到 EOF），再 `join`。修复后 `ConPTY.Robustness` 连续 30 次、全量 `ctest`
+  连续 3 次全部通过（约 31s）。
 
 '## 6. 完成度总表（第 60 轮收尾）
 
