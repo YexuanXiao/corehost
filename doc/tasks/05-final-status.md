@@ -57,6 +57,8 @@ ctest --test-dir build --output-on-failure
 
 ## 5. 已知缺口（详见 `04-open-gaps.md`）
 
+第 64 轮状态：**G1–G15 全部关闭**（G1 RESOLVED，其余 DONE）。
+
 - ~~G2~~：已用临时 sshd 解决；
 - ~~G4~~：真实 WT 层已有机会式冒烟用例（`Defterm.RealTerminal`）；
 
@@ -83,7 +85,7 @@ ctest --test-dir build --output-on-failure
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-第 64 轮实测：**25/25 通过，27.66s**；`ConPTY.Programs` 9 passed / 0 skipped。
+第 64 轮实测：**25/25 通过，29.84s**；`ConPTY.Programs` 9 passed / 0 skipped；`ConPTY.Robustness` 11 passed。
 
 ## 7. 结论''
 
