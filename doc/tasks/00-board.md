@@ -44,7 +44,7 @@
 | 编号 | 子任务 | 状态 | 提交 | 备注 |
 | --- | --- | --- | --- | --- |
 | C1 | 测试库骨架：runner/断言/隔离/超时/环境探测 + 自测 | DOING | C1 测试库 runner | runner/断言/过滤/子进程隔离/超时均已完成并有自测；环境探测（C2）待做 |
-| C2 | 进程/会话驱动；诊断；注册表隔离与恢复 | DOING | C2 宿主层：环境探测与子进程运行器 | `tests/lib/platform.hpp`：PATH/System32/WT/sshd/交互式探测 + `run_process`（Job 对象管进程树、600ms 超时实测终止）；会话驱动已写（`tests/lib/conpty_session.hpp`）但**客户端挂不上伪控制台**：corehost 收不到 CONNECT，cmd 输出仍进父进程控制台；自测暂不注册（CMake 注释 + TODO），待查；注册表隔离待做 |
+| C2 | 进程/会话驱动；诊断；注册表隔离与恢复 | DOING | C2 宿主层：环境探测与子进程运行器 | `tests/lib/platform.hpp`：PATH/System32/WT/sshd/交互式探测 + `run_process`（Job 对象管进程树、600ms 超时实测终止）；会话驱动完成：`ConptyReleasePseudoConsole` 是客户端挂载的关键一步；`ConPTY.SessionSelfTest` 已注册并通过；注册表隔离待做 |
 | C3 | defterm 启动路径：delegation 切换、启动客户端、等待就绪 | TODO | | |
 | C4 | 控制台测试客户端（脚本化 API/VT/窗口消息） | TODO | | |
 | C5 | 用例矩阵：控制台/窗口/输入/子进程/关闭 | TODO | | |
@@ -98,7 +98,7 @@
 
 | 编号 | 现象 | 分支 | 状态 | 关联子任务 |
 | --- | --- | --- | --- | --- |
-| — | — | — | — | — |
+| B1 | ConPTY 客户端不连接（无 CONNECT，输出落父控制台） | bugfix/conpty-client-attach | FIXED（已合并） | C2 |
 
 ## 提交记录
 
