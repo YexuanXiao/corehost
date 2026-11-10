@@ -36,7 +36,7 @@
 | B4 | 消息处理骨架：查询类消息、默认处理 | DONE | B2/B3 伪窗口与窗口线程 | WM_CREATE/CLOSE/DESTROY/ACTIVATE/GETOBJECT + DefWindowProc |
 | B5 | `GetConsoleWindow` 返回句柄 + 生命周期绑定 | DONE | B2/B3 伪窗口与窗口线程 | API 返回 `instance().hwnd()`；会话内创建/退出销毁（日志实测 hwnd） |
 | B6 | 关闭语义：`WM_CLOSE` → 会话关闭事件 | DONE | B6 WM_CLOSE 结束会话 | CancelIoEx(server) 打断 READ_IO；用例实测 0.11s 内进程退出 |
-| B7 | 状态联动：标题、尺寸、show/hide 最小支持 | TODO | | |
+| B7 | 状态联动：标题、尺寸、show/hide 最小支持 | DONE | B7 伪窗口标题与矩形 | `WM_GETTEXT/WM_GETTEXTLENGTH` 返回控制台标题（SetConsoleTitle 同步，SRWLock 保护）；窗口创建为 640x400，`GetWindowRect` 非零；show/hide 信号仍未做 |
 | B8 | 泄漏/并发/压力验证 + 文档 | TODO | | |
 
 ## 阶段 C：defterm 测试（任务 3）

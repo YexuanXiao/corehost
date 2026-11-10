@@ -88,11 +88,25 @@ corehost::test::result get_console_window_then_close()
     DWORD window_pid = 0;
     if (window != nullptr)
         ::GetWindowThreadProcessId(window, &window_pid);
-    corehost::test::unbind_console_connection();
-
     REQUIRE(window != nullptr);
     REQUIRE(::IsWindow(window) != FALSE);
     REQUIRE(window_pid == host.dwProcessId);
+
+    // 标题：SetConsoleTitle 更新 console_state，并同步到伪窗口的 WM_GETTEXT。
+    REQUIRE(::SetConsoleTitleW(L"corehost-window-title") != FALSE);
+    wchar_t title[128]{};
+    DWORD_PTR copied = 0;
+    REQUIRE(::SendMessageTimeoutW(window, WM_GETTEXT, ARRAYSIZE(title), reinterpret_cast<LPARAM>(title),
+                                 SMTO_ABORTIFHUNG, 2000, &copied) != 0);
+    REQUIRE(::wcsstr(title, L"corehost-window-title") != nullptr);
+
+    // 查询类：窗口矩形必须非零，依赖方用它估算可用尺寸。
+    RECT rect{};
+    REQUIRE(::GetWindowRect(window, &rect) != FALSE);
+    REQUIRE(rect.right > rect.left);
+    REQUIRE(rect.bottom > rect.top);
+
+    corehost::test::unbind_console_connection();
 
     // 向伪窗口发 WM_CLOSE：会话应结束，宿主进程退出。
     DWORD_PTR result = 0;

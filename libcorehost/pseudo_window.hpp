@@ -14,12 +14,18 @@
 #pragma once
 #include <windows.h>
 #include <atomic>
+#include <algorithm>
+#include <cstring>
+#include <mutex>
+#include <string>
+#include <string_view>
 #include <cstdlib>
 #include <utility>
 #include "utility/log.hpp"
 #include "win32/event.hpp"
 #include "win32/error.hpp"
 #include "win32/handle.hpp"
+#include "win32/srwlock.hpp"
 #include "win32/thread.hpp"
 
 namespace corehost::conpty
@@ -84,6 +90,14 @@ class pseudo_window
         _server = server;
     }
 
+    // 控制台标题（WM_GETTEXT 返回它）。会话线程写，窗口线程读，用 SRWLock
+    // 保护；窗口线程只复制，不回调主线程。
+    void set_title(std::u32string_view title)
+    {
+        std::unique_lock lock{_text_lock};
+        _title.assign(title.begin(), title.end());
+    }
+
   private:
     static DWORD WINAPI thread_entry(LPVOID self)
     {
@@ -114,7 +128,7 @@ class pseudo_window
         // WS_POPUP 是硬需求：否则 GetAncestor(GetConsoleWindow(), GA_ROOTOWNER)
         // 会返回伪窗口自己，而不是宿主终端窗口。
         const HWND created = ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
-                                               class_name, L"", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, nullptr,
+                                               class_name, L"", WS_POPUP, 0, 0, 640, 400, nullptr, nullptr, nullptr,
                                                this);
         if (created == nullptr)
             win32::throw_last_error();
@@ -170,9 +184,44 @@ class pseudo_window
         case WM_GETOBJECT:
             // 不提供 UIA provider；返回 0 表示没有可访问对象。
             return 0;
+        case WM_GETTEXTLENGTH:
+            return static_cast<LRESULT>(self->title_copy().size());
+        case WM_GETTEXT: {
+            const auto text = self->title_copy();
+            const auto capacity = static_cast<size_t>(wparam);
+            if (capacity != 0)
+            {
+                const auto count = capacity > text.size() ? text.size() : capacity - 1;
+                std::memcpy(reinterpret_cast<wchar_t *>(lparam), text.data(), count * sizeof(wchar_t));
+                reinterpret_cast<wchar_t *>(lparam)[count] = L'\0';
+            }
+            return static_cast<LRESULT>(text.size());
+        }
         default:
             return ::DefWindowProcW(hwnd, message, wparam, lparam);
         }
+    }
+
+    // 把 UTF-32 标题转换成 UTF-16（含代理对）。
+    [[nodiscard]] std::wstring title_copy() const
+    {
+        std::unique_lock lock{_text_lock};
+        std::wstring result;
+        result.reserve(_title.size());
+        for (const char32_t ch : _title)
+        {
+            if (ch <= 0xFFFF)
+            {
+                result.push_back(static_cast<wchar_t>(ch));
+            }
+            else
+            {
+                const auto value = static_cast<char32_t>(ch - 0x10000);
+                result.push_back(static_cast<wchar_t>(0xD800 + (value >> 10)));
+                result.push_back(static_cast<wchar_t>(0xDC00 + (value & 0x3FF)));
+            }
+        }
+        return result;
     }
 
     // 打断主线程阻塞中的 READ_IO。线程不在同步 I/O 中时 CancelSynchronousIo
@@ -198,6 +247,8 @@ class pseudo_window
     win32::basic_thread _thread;
     std::atomic<HWND> _hwnd{nullptr};
     win32::handle_view _server;
+    mutable win32::shared_mutex _text_lock;
+    std::u32string _title;
 };
 
 } // namespace corehost::conpty

@@ -24,6 +24,9 @@
 namespace corehost::conpty
 {
 
+// 伪窗口前瞻声明：console_state 只保存指针，窗口对象由会话持有。
+class pseudo_window;
+
 inline constexpr DWORD DEFAULT_INPUT_MODE =
     ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_MOUSE_INPUT;
 inline constexpr DWORD DEFAULT_OUTPUT_MODE = ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT;
@@ -180,6 +183,9 @@ struct console_state
     // 销毁前清空；0 表示当前没有窗口。会话线程写，API 处理线程读，均在
     // 会话锁内。
     HWND window_handle = nullptr;
+    // 伪窗口对象（会话持有，生命周期覆盖 console_state 的使用期）。API handler
+    // 通过它更新窗口标题；窗口对象自身负责跨线程同步。
+    pseudo_window *window = nullptr;
 
     std::u32string title;
     // original_title 为空表示尚未捕获初始标题。

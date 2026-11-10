@@ -184,6 +184,7 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     window.set_server(server);
     window.start();
     state.window_handle = window.hwnd();
+    state.window = &window;
 
     input_thread.start();
     if (signal_pipe.valid())
@@ -196,6 +197,7 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     // ── 退出：先停输入源，再释放会话状态 ──
     // 停止是无限等待：停止标志 + 取消阻塞读 + join，由线程自身保证退出。
     state.window_handle = nullptr;
+    state.window = nullptr;
     window.stop_and_join();
     input_thread.stop_and_join();
     if (signal_pipe.valid())

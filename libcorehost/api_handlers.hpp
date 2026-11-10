@@ -8,6 +8,7 @@
 #include <cwctype>
 #include <array>
 #include <iterator>
+#include "pseudo_window.hpp"
 #include <numeric>
 #include <vector>
 #include "condrv_io.hpp"
@@ -2679,6 +2680,10 @@ inline bool api_set_title(condrv_io::io_msg &msg, console_state &state, screen_b
     }
     state.title.clear();
     state.title.append(u32title.data(), u32title.size());
+
+    // 同步到伪窗口：依赖 GetConsoleWindow + WM_GETTEXT 的程序要能拿到标题。
+    if (state.window != nullptr)
+        state.window->set_title(state.title);
 
     // 状态更新后立即用 OSC 0 同步宿主终端标题。
     vt_message m{};
