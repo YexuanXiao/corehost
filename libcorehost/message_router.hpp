@@ -68,21 +68,6 @@ struct message_router
         return completed_inline;
     }
 
-    // 没有新的 ConDrv 消息时推进 VT 输入和 EOF 检测。它不提交 completion，
-    // 只让 bridge 有机会把终端输入转成 pending 结果或 input_buffer 事件。
-    void on_idle()
-    {
-        // idle 阶段没有新的 ConDrv 消息；corehost 必须主动抽取 vt_in，因为
-        // 终端键盘输入不会唤醒 ConDrv server 句柄。
-        LOG3("idle enter pendingKind=%d vtEof=%d vtInBuffered=%lu vtInQueued=%zu vtOut=%zu",
-             static_cast<int>(bridge.pending_kind()), bridge.pending_vt_eof(), bridge.buffered_vt_input_bytes(),
-             bridge.queued_vt_input_bytes(), bridge.buffered_vt_output_bytes());
-        bridge.on_idle();
-        LOG3("idle consumed pendingKind=%d vtEof=%d vtInBuffered=%lu vtInQueued=%zu vtOut=%zu",
-             static_cast<int>(bridge.pending_kind()), bridge.pending_vt_eof(), bridge.buffered_vt_input_bytes(),
-             bridge.queued_vt_input_bytes(), bridge.buffered_vt_output_bytes());
-    }
-
     // 将 bridge 中已缓冲的 VT 输出写到终端。I/O loop 在 completion 边界和
     // 退出前调用它，避免终端可见输出滞留。
     void flush_vt_output() noexcept
@@ -119,20 +104,6 @@ struct message_router
                 static_cast<int>(bridge.pending_kind()), bridge.pending_vt_eof(), bridge.buffered_vt_input_bytes(),
                 bridge.queued_vt_input_bytes());
         return result;
-    }
-
-    // 等待并推进当前 pending 输入请求。函数返回时 pending 可能完成，也可能
-    // 因短时间片轮询仍然存在。
-    void wait_for_pending_input()
-    {
-        // pending 请求只能靠 VT 输入或终端关闭推进，不能靠 ConDrv 消息推进。
-        LOG3("wait pending input begin kind=%d vtEof=%d vtInBuffered=%lu vtInQueued=%zu",
-             static_cast<int>(bridge.pending_kind()), bridge.pending_vt_eof(), bridge.buffered_vt_input_bytes(),
-             bridge.queued_vt_input_bytes());
-        bridge.wait_for_pending_vt_input();
-        LOG3("wait pending input end kind=%d vtEof=%d vtInBuffered=%lu vtInQueued=%zu",
-             static_cast<int>(bridge.pending_kind()), bridge.pending_vt_eof(), bridge.buffered_vt_input_bytes(),
-             bridge.queued_vt_input_bytes());
     }
 
     // 查询会话是否可以退出。只有 VT 输入 EOF 且没有 pending 请求时返回 true。

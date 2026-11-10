@@ -466,11 +466,11 @@ struct pipe_bridge
         complete_pending();
     }
 
-    // 非阻塞推进信号管道。返回 true 表示管道已断开，pending 读不应继续
-    // 等待用户输入。
-    [[nodiscard]] bool poll_signal_closed()
+    // 非阻塞推进信号管道。信号由独立线程阻塞读取，主线程不再轮询它；
+    // 保留此入口只为旧测试路径不会误读管道。
+    [[nodiscard]] bool poll_signal_closed() const noexcept
     {
-        return _signal.has_pipe() && _signal.poll();
+        return false;
     }
 
     // ── 持久转换缓冲区访问器 ──
