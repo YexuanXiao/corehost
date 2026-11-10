@@ -49,6 +49,7 @@ target_sources(common
                 utility/temp_path.hpp
                 utility/utf.hpp
                 utility/wil.hpp
+                win32/cancellable_read.hpp
                 win32/command_line.hpp
                 win32/com_apartment.hpp
                 win32/debugging.hpp

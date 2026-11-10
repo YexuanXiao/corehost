@@ -33,6 +33,7 @@ enum class error : unsigned int
     invalid_parameter = 87,
     gen_failure = 31,
     proc_not_found = 127,
+    not_found = 1168,
     filename_exced_range = 207,
     bad_command = 22,
     invalid_state = 5023,
