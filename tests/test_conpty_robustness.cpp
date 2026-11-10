@@ -447,6 +447,9 @@ corehost::test::result mouse_sgr_becomes_mouse_events()
 }
 
 // raw ReadFile 遇 Ctrl+C：STATUS_ALERTED → 0 字节 + ERROR_OPERATION_ABORTED。
+// conhost 差异（G24）：ConPTY 下系统 conhost 的 raw/record 读收到 Ctrl+C 不会
+// 返回；corehost 以 STATUS_ALERTED 结束。这里只断言客户端看到 0 字节/0 记录，
+// 不对 last error 或 conhost 行为做 1:1 对齐。
 corehost::test::result raw_read_aborts_on_ctrl_c()
 {
     const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
@@ -471,6 +474,9 @@ corehost::test::result raw_read_aborts_on_ctrl_c()
 }
 
 // ReadConsoleInput 遇 Ctrl+C：0 条记录 + ERROR_OPERATION_ABORTED。
+// conhost 差异（G24）：ConPTY 下系统 conhost 的 raw/record 读收到 Ctrl+C 不会
+// 返回；corehost 以 STATUS_ALERTED 结束。这里只断言客户端看到 0 字节/0 记录，
+// 不对 last error 或 conhost 行为做 1:1 对齐。
 corehost::test::result input_record_aborts_on_ctrl_c()
 {
     const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");

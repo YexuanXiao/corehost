@@ -73,6 +73,15 @@ int run_scenario(std::wstring_view name)
 
     // Ctrl+C 场景：探针把 ReadFile/ReadConsoleInput 的返回写进临时文件，
     // 这里再把结果转成 JSON，供两个宿主比较。
+    //
+    // 复现 corehost 与 conhost 的差异（G24）：
+    //   - 探针以 --raw-read-probe / --input-record-probe 启动，打印 READY 后
+    //     阻塞在 ReadFile / ReadConsoleInput；
+    //   - 这里写入 Win32Input 的 Ctrl+C 序列 ESC[67;46;3;1;8;1_；
+    //   - corehost：读以 STATUS_ALERTED 结束，客户端得到 0 字节/0 记录；
+    //   - conhost：读不返回，探针不退出（read_ctrl 场景的 exited=0）。
+    // 两个场景在父进程里只记录不比较：挂起永不返回比返回 0 字节差，
+    // 不应把 conhost 的缺陷固化成 corehost 的期望。
     const bool raw = name == L"raw_ctrl";
     const std::wstring mode = raw ? L"--raw-read-probe" : L"--input-record-probe";
     const std::string ready = raw ? "RAW-PROBE-READY" : "INPUT-PROBE-READY";

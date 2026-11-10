@@ -2223,6 +2223,17 @@ struct pipe_bridge
     bool process_input_win32_key(PendingKind pending_kind, const vt_message &m, DWORD i, DWORD len,
                                  const char8_t *bytes)
     {
+        // 与 conhost 的已知差异（差分 G24，只记录不比较）：
+        // ConPTY 下，挂起中的 raw ReadFile / ReadConsoleInput 收到 Ctrl+C 时，
+        // 系统 conhost 不会让读返回——探针打印 READY 后 ReadFile 永不完成、
+        // 进程不退出；corehost 按 conhost 源码 readDataRaw / 读记录的
+        // TerminateRead(CtrlC) 语义，以 STATUS_ALERTED 结束，客户端看到
+        // 0 字节 / 0 条记录。
+        // 复现：tests/test_conpty_differential.cpp 的 raw_ctrl / input_ctrl
+        // 场景（console_probe --raw-read-probe / --input-record-probe 挂起后
+        // 收到 Win32Input 的 Ctrl+C 序列）。挂起永不返回比返回 0 字节更差，
+        // 因此不把 conhost 的行为固化成 corehost 的测试期望。
+
         // Ctrl+C / Ctrl+Break：与 conhost 的 HandleGenericKeyEvent 对齐——
         //   Ctrl+C（processed input、无 Alt）：投递 CTRL_C_EVENT，并以
         //     STATUS_ALERTED 结束等待中的读；不清空输入缓冲。

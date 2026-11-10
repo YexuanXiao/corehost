@@ -395,6 +395,9 @@ void write_text_file(const wchar_t *path, const char *text)
 }
 
 // raw ReadFile 遇 Ctrl+C：STATUS_ALERTED → 0 字节 + ERROR_OPERATION_ABORTED。
+// 注意：系统 conhost 在 ConPTY 下不会让这里挂起的读因 Ctrl+C 返回（探针会
+// 一直阻塞）；corehost 以 STATUS_ALERTED 结束并返回 0 字节/0 记录。
+// 复现见 test_conpty_differential.cpp 的 raw_ctrl / input_ctrl 场景（G24）。
 int raw_read_probe(const wchar_t *result_path)
 {
     if (result_path == nullptr || result_path[0] == 0)
@@ -420,6 +423,9 @@ int raw_read_probe(const wchar_t *result_path)
 }
 
 // ReadConsoleInput 遇 Ctrl+C：0 条记录 + ERROR_OPERATION_ABORTED。
+// 注意：系统 conhost 在 ConPTY 下不会让这里挂起的读因 Ctrl+C 返回（探针会
+// 一直阻塞）；corehost 以 STATUS_ALERTED 结束并返回 0 字节/0 记录。
+// 复现见 test_conpty_differential.cpp 的 raw_ctrl / input_ctrl 场景（G24）。
 int input_record_probe(const wchar_t *result_path)
 {
     if (result_path == nullptr || result_path[0] == 0)
