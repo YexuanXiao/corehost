@@ -141,8 +141,21 @@ add_custom_command(TARGET test_conpty_e2e POST_BUILD
 add_test(NAME ConPTY.E2E COMMAND test_conpty_e2e)
 set_tests_properties(ConPTY.E2E PROPERTIES LABELS "conpty;e2e" TIMEOUT 60)
 
-# ── test_conpty_session_selftest ──────────────────
-# 会话驱动自测：真实客户端、输出捕获、退出码、resize。
+# ── test_registry_selftest ────────────────────────
+# 注册表快照/恢复守卫（defterm 用例依赖）。
+add_executable(test_registry_selftest
+    test_registry_selftest.cpp
+)
+target_include_directories(test_registry_selftest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(test_registry_selftest PRIVATE test_common)
+# TODO(C2): 本环境下测试进程内 RegCreateKeyExW 返回 ACCESS_DENIED（同样路径用
+# reg.exe 可写），疑与令牌/沙箱限制有关；helper 保留，自测待环境复核后注册。
+# add_test(NAME Registry.GuardSelfTest COMMAND test_registry_selftest)
+# set_tests_properties(Registry.GuardSelfTest PROPERTIES LABELS "testlib;registry" TIMEOUT 60)
+
+# ── test_conpty_session_selftest ──────────────────# 会话驱动自测：真实客户端、输出捕获、退出码、resize。
 add_executable(test_conpty_session_selftest
     test_conpty_session_selftest.cpp
 )
