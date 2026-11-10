@@ -14,10 +14,29 @@ namespace corehost::conpty
 // The CONSOLE_CTRL_*_FLAG values conhost hands along with the event.
 inline constexpr ULONG console_ctrl_c_flag = 0x00000001;
 inline constexpr ULONG console_ctrl_break_flag = 0x00000002;
+inline constexpr ULONG console_ctrl_close_flag = 0x00000004;
 
 // ReadConsole/ReadFile were ended by Ctrl+C or Ctrl+Break (conhost replies
 // STATUS_ALERTED; the client sees 0 chars and ERROR_OPERATION_ABORTED).
 inline constexpr LONG status_alerted = 0x00000101;
+
+// 控制事件投递函数签名：pid、事件码、控制台窗口（无则 nullptr）。
+using ctrl_event_sender = NTSTATUS (*)(DWORD pid, DWORD event, HWND console_window);
+
+// 事件码到 ConsoleFlags 的映射：conhost 的 ProcessCtrlEvents 按同一套标志
+// 判断 EndTask 的语义（Ctrl+C / Ctrl+Break / Close）。
+inline ULONG console_ctrl_flags(DWORD event) noexcept
+{
+    switch (event)
+    {
+    case CTRL_BREAK_EVENT:
+        return console_ctrl_break_flag;
+    case CTRL_CLOSE_EVENT:
+        return console_ctrl_close_flag;
+    default:
+        return console_ctrl_c_flag;
+    }
+}
 
 inline NTSTATUS console_end_task(DWORD pid, DWORD event, HWND console_window) noexcept
 {
@@ -35,7 +54,7 @@ inline NTSTATUS console_end_task(DWORD pid, DWORD event, HWND console_window) no
     task.ProcessId = ULongToHandle(pid);
     task.hwnd = console_window;
     task.ConsoleEventCode = event;
-    task.ConsoleFlags = event == CTRL_BREAK_EVENT ? console_ctrl_break_flag : console_ctrl_c_flag;
+    task.ConsoleFlags = console_ctrl_flags(event);
     return console_control(ConsoleEndTask, &task, sizeof(task));
 }
 

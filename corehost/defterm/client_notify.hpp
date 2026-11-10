@@ -17,7 +17,7 @@ namespace corehost::defterm
 {
 
 // 与 console_end_task 签名一致：pid、事件码、控制台窗口（无则 nullptr）。
-using ctrl_event_sender = NTSTATUS (*)(DWORD pid, DWORD event, HWND console_window);
+using ctrl_event_sender = corehost::conpty::ctrl_event_sender;
 
 // 向单个客户端进程投递控制事件。事件码必须是 CTRL_C_EVENT / CTRL_BREAK_EVENT。
 inline void notify_client_ctrl(DWORD pid, DWORD event,

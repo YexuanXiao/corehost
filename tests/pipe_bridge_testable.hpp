@@ -225,6 +225,12 @@ class pipe_bridge_testable : private pipe_bridge_input_holder, public pipe_bridg
     {
         _terminal.set_enter_newline_pending(v);
     }
+
+    // 控制事件投递函数替换：测试用记录器验证进程组过滤。
+    void test_set_ctrl_sender(ctrl_event_sender sender) noexcept
+    {
+        _ctrl_sender = sender;
+    }
 };
 
 } // namespace corehost::conpty

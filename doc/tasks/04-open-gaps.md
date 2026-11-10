@@ -27,7 +27,7 @@
 | 编号 | 项 | 现状（证据） | 解除条件 | 归属 |
 | --- | --- | --- | --- | --- |
 | G16 | defterm 的 Ctrl+Break 投递不可达 | `corehost/defterm/defterm.cpp:129,153` 仍用 `GenerateConsoleCtrlEvent`，corehost 不在客户端控制台上（与 G11 同类），返回值也未检查 | 改为 `console_end_task` 投递并加注入式单测 | A（bugfix） |
-| G17 | `GenerateConsoleCtrlEvent` 忽略进程组 | `libcorehost/pipe_bridge.hpp:207 send_ctrl_event(DWORD)` 全量投递；`api_handlers.hpp:1685 api_ctrl_event` 丢弃 `ProcessGroupId`；`io_state.hpp:70` 只有单个 foreground group | 记录 per-process group，`send_ctrl_event(event, group)` 过滤，补单测 + 端到端 | A |
+| G17 | ~~`GenerateConsoleCtrlEvent` 忽略进程组~~ | DONE：`io_state` 按 CONNECT 记录 per-process group；`process_list_snapshot::copy_for_group` 过滤；`send_ctrl_event(event, group)`（0=全部）经 ConsoleControl 投递；`api_ctrl_event` 校验事件码并传 `ProcessGroupId`；单测 `Ctrl event filters by process group`（0/匹配组/不匹配组） | — | A |
 | G18 | WM_CLOSE 不投递 `CTRL_CLOSE_EVENT` | `libcorehost/pseudo_window.hpp:191` 直接置关闭事件；conhost 走 `CloseConsoleProcessState`→`HandleCtrlEvent(CTRL_CLOSE_EVENT)`（`terminal/src/host/output.cpp:459`） | 窗口线程先投递 close 事件再结束会话，补探针用例 | B |
 | G19 | VT 输入模式缺 `WINDOW_BUFFER_SIZE_EVENT` | conhost 在 viewport 变化且 `IsInVirtualTerminalInputMode()` 时合成（`terminal/src/host/screenInfo.cpp:1180-1194`）；corehost 无合成 | 在 resize / SetConsoleScreenBufferSize / SetConsoleWindowInfo 时合成并去重，补用例 | D |
 | G20 | 鼠标输入未实现 | 默认输入模式含 `ENABLE_MOUSE_INPUT`（`console_state.hpp:30`），但无 SGR 1006 解析、无 `MOUSE_EVENT`；conhost 见 `terminal/src/host/inputBuffer.cpp:603` | 解析 SGR 鼠标并合成 `MOUSE_EVENT`，跟踪 1000/1002/1003/1006 | D |

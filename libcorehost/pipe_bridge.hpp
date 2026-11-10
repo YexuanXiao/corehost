@@ -204,21 +204,28 @@ struct pipe_bridge
     // corehost 不是该控制台的附属进程，GenerateConsoleCtrlEvent 到不了客户端；
     // 必须经 CSRSS 的 ConsoleControl(ConsoleEndTask)，与 conhost 的
     // ProcessCtrlEvents 走同一条路。
-    void send_ctrl_event(DWORD event) noexcept
+    // 把 CTRL_C_EVENT / CTRL_BREAK_EVENT / CTRL_CLOSE_EVENT 投递给控制台进程。
+    // group == 0 表示全部进程（conhost 的 ProcessGroupId=0 语义），否则只投递
+    // 给该进程组的成员。corehost 不在该控制台上，GenerateConsoleCtrlEvent
+    // 到不了客户端；必须走 CSRSS 的 ConsoleControl(ConsoleEndTask)。
+    void send_ctrl_event(DWORD event, DWORD group) noexcept
     {
-        LOG2("ctrl event %lu pids=%zu", event, _processes.count());
-        for (const DWORD pid : _processes.view())
+        std::array<DWORD, process_list_snapshot::max_processes> targets{};
+        const auto count = _processes.copy_for_group(group, targets.data(), targets.size());
+        LOG2("ctrl event %lu group=%lu pids=%zu", event, group, count);
+        for (size_t index = 0; index < count; ++index)
         {
-            const auto status = console_end_task(pid, event, nullptr);
+            const auto pid = targets[index];
+            const auto status = _ctrl_sender(pid, event, nullptr);
             LOG2("ctrl event %lu to pid=%lu status=0x%08lx", event, pid, static_cast<unsigned long>(status));
         }
     }
 
-    // 更新 GetConsoleProcessList 可见的进程快照。message_router 在
-    // CONNECT/DISCONNECT 后把 io_state 的真实列表同步到这里。
-    void set_process_list(std::span<const DWORD> processes) noexcept
+    // 更新 GetConsoleProcessList 可见的进程快照（pid 与进程组同序）。
+    // message_router 在 CONNECT/DISCONNECT 后把 io_state 的真实列表同步到这里。
+    void set_process_list(std::span<const DWORD> processes, std::span<const DWORD> groups) noexcept
     {
-        _processes.assign(processes);
+        _processes.assign(processes, groups);
     }
 
     // 返回当前进程快照数量；仅用于日志和 L3 GetConsoleProcessList 响应。
@@ -337,8 +344,10 @@ struct pipe_bridge
     vt_output_buffer _vt_output;
     // API handler 和输入/输出转换复用的临时缓冲集合。
     conversion_buffers _conversion;
-    // GetConsoleProcessList 可见的连接进程快照。
+    // GetConsoleProcessList 可见的连接进程快照（pid 与进程组同序）。
     process_list_snapshot _processes;
+    // 控制事件投递函数。默认走 CSRSS ConsoleControl；测试可替换为记录器。
+    ctrl_event_sender _ctrl_sender = &console_end_task;
     // bridge 对宿主终端当前光标和 cooked input 编辑边界的本地追踪。
     terminal_cursor_state _terminal;
     // 当前被挂起的 ConDrv 读请求及 VT EOF 状态。
@@ -2170,7 +2179,7 @@ struct pipe_bridge
             const bool processed = (cstate.input_mode & ENABLE_PROCESSED_INPUT) != 0;
             if (m.payload.win32_key.vk == 'C' && processed)
             {
-                send_ctrl_event(CTRL_C_EVENT);
+                send_ctrl_event(CTRL_C_EVENT, 0);
                 complete_pending(condrv_io::status_alerted);
                 return false;
             }
@@ -2179,7 +2188,7 @@ struct pipe_bridge
             {
                 // conhost 只在 Break 时清空输入缓冲（Ctrl+C 不清）。
                 inp.flush();
-                send_ctrl_event(CTRL_BREAK_EVENT);
+                send_ctrl_event(CTRL_BREAK_EVENT, 0);
                 complete_pending(condrv_io::status_alerted);
                 return false;
             }

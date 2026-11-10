@@ -1681,9 +1681,11 @@ inline bool api_fill_output(condrv_io::io_msg &msg, console_state &state, screen
     return true;
 }
 
-// GenerateConsoleCtrlEvent：透传 Ctrl 事件到 Windows，不改变 libcorehost 内部状态。
+// GenerateConsoleCtrlEvent：把事件投递给请求的进程组（0 = 全部），与 conhost
+// 的 ProcessCtrlEvents 一致。corehost 不在该控制台上，直接调用 Win32
+// GenerateConsoleCtrlEvent 到不了客户端；统一走 bridge::send_ctrl_event。
 inline bool api_ctrl_event(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
-                           pipe_bridge &) noexcept
+                           pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CTRLEVENT_MSG))
     {
@@ -1692,7 +1694,13 @@ inline bool api_ctrl_event(condrv_io::io_msg &msg, console_state &, screen_buffe
     }
 
     auto *r = reinterpret_cast<CONSOLE_CTRLEVENT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    ::GenerateConsoleCtrlEvent(r->CtrlEvent, r->ProcessGroupId);
+    if (r->CtrlEvent != CTRL_C_EVENT && r->CtrlEvent != CTRL_BREAK_EVENT)
+    {
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
+    bridge.send_ctrl_event(r->CtrlEvent, r->ProcessGroupId);
     ucomplete(msg);
     return true;
 }

@@ -65,19 +65,18 @@ struct io_state
     // 最近一次 CONNECT 的客户端 pid。0 表示尚未收到 CONNECT。
     ULONG_PTR client_pid = 0;
 
-    // Ctrl+C / Ctrl+Break 的投递目标（CONSOLE_SERVER_MSG::ProcessGroupId，
-    // 缺省回退到客户端 pid）。
-    DWORD foreground_process_group = 0;
-
     // GetConsoleProcessList 兼容数据。数组保存当前已连接进程 pid；
     // 超过容量的新 pid 会被忽略，以避免写越界。
     static constexpr size_t max_processes = 64;
     std::array<DWORD, max_processes> process_list{};
+    // 与 process_list 同序的进程组 id（CONSOLE_SERVER_MSG::ProcessGroupId，
+    // 缺省回退到客户端 pid）。GenerateConsoleCtrlEvent(group) 的过滤依据。
+    std::array<DWORD, max_processes> process_groups{};
     size_t process_count = 0;
 
     // 将 pid 加入当前控制台进程列表。重复 pid 不改变列表；超过容量时忽略
     // 新 pid，避免破坏已有 GetConsoleProcessList 快照。
-    void add_process(DWORD pid) noexcept
+    void add_process(DWORD pid, DWORD group) noexcept
     {
         // pid 来自 CONNECT descriptor.Process 或 defterm 预附加进程；同一
         // 进程重复 CONNECT 时只保留一份，匹配 GetConsoleProcessList 语义。
@@ -85,7 +84,11 @@ struct io_state
         if (std::find(process_list.begin(), end, pid) != end)
             return;
         if (process_count < max_processes)
-            process_list[process_count++] = pid;
+        {
+            process_list[process_count] = pid;
+            process_groups[process_count] = group != 0 ? group : pid;
+            ++process_count;
+        }
     }
 
     // 从当前控制台进程列表删除 pid。找不到 pid 时不改变列表；删除后数组
@@ -98,9 +101,13 @@ struct io_state
         const auto it = std::find(process_list.begin(), end, pid);
         if (it == end)
             return;
+        const auto offset = static_cast<std::ptrdiff_t>(it - process_list.begin());
         std::move(it + 1, end, it);
+        std::move(process_groups.begin() + offset + 1,
+                  process_groups.begin() + static_cast<std::ptrdiff_t>(process_count), process_groups.begin() + offset);
         --process_count;
         process_list[process_count] = 0;
+        process_groups[process_count] = 0;
     }
 
     // 消费一条 CONNECT 消息，把回复写进 msg.complete 但不提交。
@@ -115,23 +122,23 @@ struct io_state
         client_pid = msg.descriptor.Process;
         const bool first_connect = !condrv_input.valid();
 
-        // CONNECT 请求体带 CONSOLE_SERVER_MSG，其中 ProcessGroupId 是 Ctrl+C /
-        // Ctrl+Break 的投递目标。必须在 accept_connection 覆盖 msg.body 之前读。
+        // CONNECT 请求体带 CONSOLE_SERVER_MSG，其中 ProcessGroupId 是
+        // Ctrl+C / Ctrl+Break 的投递目标。必须在 accept_connection 覆盖
+        // msg.body 之前读。
+        DWORD client_group = static_cast<DWORD>(client_pid);
         if (msg.descriptor.InputSize >= sizeof(CONSOLE_SERVER_MSG))
         {
             const auto *connect_info = reinterpret_cast<const CONSOLE_SERVER_MSG *>(msg.body);
             if (connect_info->ProcessGroupId != 0)
-                foreground_process_group = connect_info->ProcessGroupId;
+                client_group = connect_info->ProcessGroupId;
         }
-        if (foreground_process_group == 0)
-            foreground_process_group = static_cast<DWORD>(client_pid);
         // first_connect 决定是否需要真正 accept \Input/\Output；后续 CONNECT
         // 只增加进程列表，不替换已有控制台对象句柄。
         LOG2("handle_connect pid=%llu first=%d processCount=%zu", client_pid, first_connect, process_count);
 
         // 同一 pid 可能重复 CONNECT；add_process 会去重，避免
         // GetConsoleProcessList 返回重复项。
-        add_process(static_cast<DWORD>(client_pid));
+        add_process(static_cast<DWORD>(client_pid), client_group);
         if (first_connect)
         {
             // 首个 CONNECT 需要创建 \Input/\Output。accept_connection 把
