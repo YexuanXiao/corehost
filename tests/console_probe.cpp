@@ -96,7 +96,16 @@ int wake_probe()
     record.Event.KeyEvent.uChar.UnicodeChar = L'\r';
 
     DWORD written = 0;
-    if (::WriteConsoleInputW(::GetStdHandle(STD_INPUT_HANDLE), &record, 1, &written) == FALSE || written != 1)
+    const BOOL wrote = ::WriteConsoleInputW(::GetStdHandle(STD_INPUT_HANDLE), &record, 1, &written);
+    {
+        char marker[64]{};
+        ::sprintf_s(marker, "WAKE-WRITE ok=%d written=%lu err=%lu\r\n", static_cast<int>(wrote),
+                    static_cast<unsigned long>(written), static_cast<unsigned long>(::GetLastError()));
+        DWORD out_written = 0;
+        ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), marker, static_cast<DWORD>(::strlen(marker)), &out_written,
+                    nullptr);
+    }
+    if (wrote == FALSE || written != 1)
     {
         ::CloseHandle(thread);
         return 7;
