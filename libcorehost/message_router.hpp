@@ -79,6 +79,7 @@ struct message_router
         bridge.vt_flush();
     }
 
+
     // 查询是否有等待写入终端的 VT 输出字节。
     [[nodiscard]] bool has_buffered_vt_output() const noexcept
     {

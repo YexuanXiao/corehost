@@ -215,10 +215,11 @@ int ctrl_read_probe(const wchar_t *result_file)
     return 0;
 }
 
-wchar_t g_close_marker_path[MAX_PATH]{};
 
 HANDLE g_handler_event = nullptr;
 volatile ULONG g_handler_code = 0;
+
+wchar_t g_close_marker_path[MAX_PATH]{};
 
 BOOL WINAPI marker_event_handler(DWORD event)
 {
@@ -692,6 +693,8 @@ int screen_read_probe(const wchar_t *result_path)
     return screen.empty() || region_ok == FALSE ? 33 : 0;
 }
 
+// CTRL_CLOSE_EVENT 处理器：必须自己写文件，因为 close 语义下 CSRSS 在处理器
+// 返回后会终止进程，主线程可能来不及写。
 int wmain(int argc, wchar_t **argv)
 {
     if (argc < 2 || argc > 3)
@@ -699,6 +702,7 @@ int wmain(int argc, wchar_t **argv)
         ::fwprintf(stderr, L"usage: console_probe --ctrl-probe | --ctrl-read-probe | --serve-probe | --wake-probe | --vt-probe\n");
         return 2;
     }
+
 
     if (::wcscmp(argv[1], L"--ctrl-probe") == 0)
         return ctrl_probe();

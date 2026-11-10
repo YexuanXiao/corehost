@@ -303,3 +303,18 @@ ConDrv 客户端把 `CD_IO_COMPLETE.IoStatus.Information` 当作**数据区字�
 （ReadConsole initial data、WriteConsoleInput/Output/OutputString、SetTitle）
 统一经 `pipe_bridge::read_input_payload` 取数据：body 放得下就直接切片，否则用
 READ_INPUT 读入临时缓冲，并拒绝超过 16 MiB 的单次负载。
+## 4.18 WM_CLOSE 与 CTRL_CLOSE_EVENT：不实现（记录平台限制）
+
+conhost 的伪窗口（`InteractivityFactory::PseudoWindowProc`）不处理 WM_CLOSE，落到
+`DefWindowProc` 只是销毁窗口；ConPTY 下真正的关闭事件由 pty 管道关闭触发
+（`VtIo::SendCloseEvent` → `CloseConsoleProcessState` → 对每个进程
+`ConsoleControl(ConsoleEndTask, CTRL_CLOSE_EVENT)`），差分测试中系统 conhost 的
+客户端确实收到 `EVENT=2`。
+
+corehost 用同一 EndTask 路径投递 close 时（io 主线程、vt 输入线程、hwnd 为
+nullptr 或伪窗口、flags 变体都试过），CSRSS 阻塞约 5 秒后返回成功，但客户端
+`SetConsoleCtrlHandler` 的 close 处理器从未被调用；同一 API 的 Ctrl+C/Break 可以
+触发。判断是外部 ConDrv server 不被 CSRSS 当作可分发 close 的 console host，
+用户态无法绕过。模拟该行为只会让每次关闭多等 5 秒而没有可观察效果，因此按决定
+不实现：WM_CLOSE 直接结束会话，不伪造 close 事件。应用在 corehost ConPTY 下不应
+依赖 close 处理器（该差异记录在 gaps G18）。

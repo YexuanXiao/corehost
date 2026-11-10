@@ -97,6 +97,8 @@ class vt_input_thread
                     std::unique_lock guard{*_session_lock};
                     _bridge->on_input_eof();
                 }
+                // 终端关闭 pty（vt_in EOF）：与 conhost 的 VtIo::SendCloseEvent 一样，
+                // 由输入线程在 EOF 时向仍存活的客户端投递 CTRL_CLOSE_EVENT。
                 signal_state();
                 return;
             }

@@ -59,8 +59,16 @@ int run_scenario(std::wstring_view name)
             return 4;
 
         const bool exited = session.wait_exit(30000);
+        const auto api_output = session.take_output();
+        const bool exists = std::filesystem::exists(output_path);
         session.close();
-        return exited && std::filesystem::exists(output_path) ? 0 : 5;
+        if (!exited || !exists)
+        {
+            std::ofstream diag{std::filesystem::current_path() / L"diag.txt"};
+            diag << "exited=" << (exited ? 1 : 0) << " exists=" << (exists ? 1 : 0) << " output=" << api_output
+                 << "\n";
+        }
+        return exited && exists ? 0 : 5;
     }
 
     // Ctrl+C 场景：探针把 ReadFile/ReadConsoleInput 的返回写进临时文件，

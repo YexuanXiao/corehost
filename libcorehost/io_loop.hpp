@@ -57,6 +57,7 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
         bool submitted_previous = false;
         bool serving_pending = false;
 
+
         // ── 阶段 1：持锁准备 ──
         {
             std::unique_lock guard{session_lock};
@@ -202,7 +203,11 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
             }
 
             if (router.should_exit())
+            {
+                // 终端关闭 pty / 输入 EOF：conhost 的 VtIo::SendCloseEvent 在
+                // 这条路径向仍存活的客户端投递 CTRL_CLOSE_EVENT。
                 exit_loop = true;
+            }
         }
 
         if (exit_loop)
@@ -225,6 +230,10 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
                 if (wait.index == 2)
                 {
                     LOG("run_io_loop_no_setup: close requested by window");
+                    // conhost 的伪窗口 WM_CLOSE 由 DefWindowProc 销毁窗口，不投递
+                    // CTRL_CLOSE_EVENT；conhost 只在 pty 关闭时经 VtIo::SendCloseEvent
+                    // 投递，而外部 ConDrv server 的 EndTask(close) 不会触发客户端处理器
+                    // （见 G18）。因此直接结束会话，不伪造 close 事件。
                     break;
                 }
             }

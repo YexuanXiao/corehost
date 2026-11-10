@@ -252,6 +252,12 @@ struct pipe_bridge
         }
     }
 
+    // 关闭会话时向所有客户端投递 CTRL_CLOSE_EVENT。对应 conhost 的
+    // CloseConsoleProcessState()：HandleCtrlEvent(CTRL_CLOSE_EVENT) 之后
+    // ProcessCtrlEvents 对每个进程调用 ConsoleControl(ConsoleEndTask)，
+    // EndTask 会阻塞到客户端处理器返回（或 CSRSS 的 ~5s 超时）。
+
+
     // 更新 GetConsoleProcessList 可见的进程快照（pid 与进程组同序）。
     // message_router 在 CONNECT/DISCONNECT 后把 io_state 的真实列表同步到这里。
     void set_process_list(std::span<const DWORD> processes, std::span<const DWORD> groups) noexcept
@@ -384,6 +390,8 @@ struct pipe_bridge
     bool _window_size_event_valid = false;
     // 控制事件投递函数。默认走 CSRSS ConsoleControl；测试可替换为记录器。
     ctrl_event_sender _ctrl_sender = &console_end_task;
+    // WM_CLOSE 只投递一次 CTRL_CLOSE_EVENT（conhost VtIo::_closeEventSent）。
+
     // bridge 对宿主终端当前光标和 cooked input 编辑边界的本地追踪。
     terminal_cursor_state _terminal;
     // 当前被挂起的 ConDrv 读请求及 VT EOF 状态。

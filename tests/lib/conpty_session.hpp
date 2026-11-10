@@ -141,6 +141,7 @@ class conpty_session
         if (exit_code != nullptr)
             ::GetExitCodeProcess(_process.get(), exit_code);
         return wait != WAIT_TIMEOUT;
+
     }
 
     void close()
