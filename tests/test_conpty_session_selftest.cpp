@@ -15,7 +15,7 @@ corehost::test::result client_output_and_exit()
     REQUIRE(!cmd.empty());
 
     corehost::test::conpty_session session;
-    const std::wstring command = L"\"" + cmd + L"\" /c \"echo conpty-marker & ping -n 3 127.0.0.1 >nul\"";
+    const std::wstring command = L"\"" + cmd + L"\" /c \"echo conpty-marker & ping -n 2 127.0.0.1 >nul & exit /b 0\"";
     REQUIRE(session.start(command));
 
     REQUIRE(session.wait_output("conpty-marker", 10000));
@@ -32,7 +32,7 @@ corehost::test::result resize_keeps_session_alive()
     REQUIRE(!cmd.empty());
 
     corehost::test::conpty_session session;
-    REQUIRE(session.start(L"\"" + cmd + L"\" /c \"ping -n 3 127.0.0.1 >nul\""));
+    REQUIRE(session.start(L"\"" + cmd + L"\" /c \"ping -n 2 127.0.0.1 >nul & exit /b 0\""));
     REQUIRE(session.resize(COORD{100, 30}));
 
     DWORD exit_code = static_cast<DWORD>(-1);
