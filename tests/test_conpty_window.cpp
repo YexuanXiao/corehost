@@ -99,11 +99,16 @@ bool pseudo_window_contract()
     const auto send = ::SendMessageTimeoutW(search.found, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 2000, &result);
     ASSERT(send != 0);
 
-    // B-R4（续）：WM_CLOSE 必须被及时处理，不能挂起调用方。
-    // 会话真正退出的语义（B6）依赖"唤醒阻塞在 READ_IO 的主线程"，
-    // 见 doc/design/0001.md 的 READ_IO 阻塞说明，由 B6 实现后在这里补断言。
+    // B-R6：WM_CLOSE 必须及时返回，并结束会话（corehost 进程退出）。
+    // 主线程阻塞在 READ_IO 上，窗口线程会 CancelSynchronousIo 打断它。
     const auto close = ::SendMessageTimeoutW(search.found, WM_CLOSE, 0, 0, SMTO_ABORTIFHUNG, 2000, &result);
     ASSERT(close != 0);
+
+    HANDLE process = ::OpenProcess(SYNCHRONIZE, FALSE, pid);
+    ASSERT(process != nullptr);
+    const DWORD wait = ::WaitForSingleObject(process, 5000);
+    ::CloseHandle(process);
+    ASSERT(wait == WAIT_OBJECT_0);
 
     return true;
 }

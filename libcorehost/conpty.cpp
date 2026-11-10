@@ -178,6 +178,9 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     // 先启动输入线程：会话锁已建立、bridge 已绑定，线程可以在主循环等待时
     // 立即处理终端输入。
     LOG("corehost::conpty::run_conpty_session: starting io threads");
+    // 主线程句柄交给窗口对象：WM_CLOSE 时要打断阻塞中的 READ_IO。
+    // server 句柄交给窗口对象：WM_CLOSE 时用 CancelIoEx 打断阻塞的 READ_IO。
+    pseudo_window::instance().set_server(server);
     pseudo_window::instance().start();
     input_thread.start();
     if (signal_pipe.valid())

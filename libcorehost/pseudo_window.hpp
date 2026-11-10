@@ -14,6 +14,7 @@
 #pragma once
 #include <windows.h>
 #include <atomic>
+#include <cstdlib>
 #include <utility>
 #include "utility/log.hpp"
 #include "win32/event.hpp"
@@ -74,6 +75,13 @@ class pseudo_window
     [[nodiscard]] win32::handle_view close_requested() const noexcept
     {
         return _close_requested.view();
+    }
+
+    // ConDrv server 句柄：WM_CLOSE 时用 CancelIoEx 打断主线程阻塞中的
+    // READ_IO。必须在 start() 前设置；句柄所有权仍归会话。
+    void set_server(win32::handle_view server) noexcept
+    {
+        _server = server;
     }
 
   private:
@@ -152,9 +160,11 @@ class pseudo_window
         switch (message)
         {
         case WM_CLOSE:
-            // 不在这里销毁窗口：关闭语义由会话主线程统一执行。
+            // 不在这里销毁窗口：关闭语义由会话主线程统一执行。主线程此时通常
+            // 阻塞在 READ_IO 内部，必须先打断它才能让主循环看到关闭请求。
             LOG("pseudo_window: WM_CLOSE requested");
             self->_close_requested.set();
+            self->cancel_server_io();
             return 0;
         case WM_DESTROY:
             ::PostQuitMessage(0);
@@ -170,12 +180,29 @@ class pseudo_window
         }
     }
 
+    // 打断主线程阻塞中的 READ_IO。线程不在同步 I/O 中时 CancelSynchronousIo
+    // 返回 ERROR_NOT_FOUND，属于正常竞态（主线程随后会在事件等待里看到关闭）。
+    void cancel_server_io() const noexcept
+    {
+        if (!_server.valid())
+            return;
+        if (::CancelIoEx(_server.get(), nullptr) != FALSE)
+            return;
+        const auto err = win32::get_last_error();
+        if (err == win32::error::not_found)
+            return;
+        // 窗口过程不能抛异常（跨 user32 边界是未定义行为），按致命错误处理。
+        LOG("pseudo_window: CancelIoEx failed err=%u", static_cast<unsigned>(err));
+        std::abort();
+    }
+
     static constexpr const wchar_t *class_name = L"PseudoConsoleWindow";
 
     win32::event _ready;
     win32::event _close_requested;
     win32::basic_thread _thread;
     std::atomic<HWND> _hwnd{nullptr};
+    win32::handle_view _server;
 };
 
 } // namespace corehost::conpty

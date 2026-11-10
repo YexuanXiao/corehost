@@ -212,9 +212,11 @@ B6 的伪窗口用例暴露出一个此前被注释误导的事实：`DeviceIoCo
 2. 输入线程完成 pending 请求时不需要唤醒主线程（它已经用 COMPLETE_IO 直接
    完成），唤醒只用于"会话状态需要主线程决策"的场景。
 3. **`WM_CLOSE` 必须能打断 READ_IO**：窗口线程收到 `WM_CLOSE` 后，除了置位
-   `close_requested`，还要对主线程调用 `CancelSynchronousIo`（与 4.6 的取消
-   协议同一套机制）。`read_io_try` 需要把 `ERROR_OPERATION_ABORTED` 当作
-   "本轮无消息，重新评估状态"，而不是当作意外错误。
+   `close_requested`，还要取消主线程正在进行的设备 I/O。实测：
+   - `CancelSynchronousIo(主线程)` **不能**取消 `DeviceIoControl(IOCTL_READ_IO)`；
+   - `CancelIoEx(server, nullptr)` 可以，READ_IO 返回 `ERROR_OPERATION_ABORTED`。
+   `read_io_try` 把 `ERROR_OPERATION_ABORTED` 当作"本轮无消息"，主循环随后在
+   事件等待里看到 `close_requested` 并退出。
 4. 因此 B6 的实现顺序是：暴露主线程句柄给窗口线程 → 关闭时取消 READ_IO →
    主循环检查 `close_requested` → 走统一关闭路径（给客户端发关闭事件、退出）。
 
