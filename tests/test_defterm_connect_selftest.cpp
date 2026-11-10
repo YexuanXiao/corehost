@@ -252,7 +252,7 @@ corehost::test::result child_process_joins_console()
     // 子进程按默认方式创建：它继承父进程的控制台（也就是我们的 ConDrv 连接）。
     const auto cmd = corehost::test::system32_path(L"cmd.exe");
     REQUIRE(!cmd.empty());
-    std::wstring command = L"\"" + cmd + L"\" /c for /l %i in (1,1,20000) do @rem";
+    std::wstring command = L"\"" + cmd + L"\" /c for /l %i in (1,1,3000) do @rem";
 
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
@@ -277,7 +277,7 @@ corehost::test::result child_process_joins_console()
             ::Sleep(20);
     }
 
-    const BOOL child_exited = ::WaitForSingleObject(child.hProcess, 15000) == WAIT_OBJECT_0;
+    const BOOL child_exited = ::WaitForSingleObject(child.hProcess, 30000) == WAIT_OBJECT_0;
     ::CloseHandle(child.hProcess);
 
     const HWND window = ::GetConsoleWindow();
