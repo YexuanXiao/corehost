@@ -141,6 +141,30 @@ add_custom_command(TARGET test_conpty_e2e POST_BUILD
 add_test(NAME ConPTY.E2E COMMAND test_conpty_e2e)
 set_tests_properties(ConPTY.E2E PROPERTIES LABELS "conpty;e2e" TIMEOUT 60)
 
+# ── test_defterm_connect_selftest ─────────────────
+# 测试进程自建 ConDrv 会话并跑 corehost 的 defterm 入口（不碰注册表）。
+add_executable(test_defterm_connect_selftest
+    test_defterm_connect_selftest.cpp
+)
+target_include_directories(test_defterm_connect_selftest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_defterm_connect_selftest PRIVATE test_common)
+add_dependencies(test_defterm_connect_selftest corehost)
+add_custom_command(TARGET test_defterm_connect_selftest POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:corehost>"
+        "$<TARGET_FILE_DIR:test_defterm_connect_selftest>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_defterm_connect_selftest>/logs"
+)
+# TODO(C3): 宿主已进入 defterm_entry 并阻塞在 READ_IO，但测试进程的 \Connect
+# 消息没有送达（无 "CONNECT received" 日志）；需对照 ConsoleBench 的时序与 EA
+# 结构逐项比对。修复前不注册，避免超时红灯。
+# add_test(NAME Defterm.Connect COMMAND test_defterm_connect_selftest)
+# set_tests_properties(Defterm.Connect PROPERTIES LABELS "defterm" TIMEOUT 120)
+
 # ── test_registry_selftest ────────────────────────
 # 注册表快照/恢复守卫（defterm 用例依赖）。
 add_executable(test_registry_selftest
