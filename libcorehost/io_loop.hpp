@@ -1,15 +1,21 @@
 // ── conpty/io_loop.hpp ────────────────────────────────────
 // ConDrv I/O 主循环（事件驱动，无轮询）。
 //
-// 关键约束：READ_IO 在没有消息时会阻塞。它**不能**持有会话锁执行，否则输入
-// 线程拿不到锁，终端按键要等到下一次 ConDrv 消息才被处理（表现为输入卡死）。
-// 因此每轮分成三段：
-//   1. 持锁：判断是否有挂起请求、准备上一条 completion、按需 flush 输出；
-//   2. 不持锁：执行 READ_IO（阻塞等待由驱动完成）；
-//   3. 持锁：分派收到的消息、提交 completion、判断退出。
+// 关键约束：
+// 1. READ_IO 在没有消息时会阻塞，不能持会话锁执行（否则输入线程拿不到锁，
+//    终端按键要等下一次 ConDrv 消息才被处理）。
+// 2. 有挂起读请求（ReadConsole/RawRead/GetConsoleInput）时，循环仍要继续服务
+//    其它 ConDrv 请求：多线程客户端会一边等待输入，一边查询光标/模式（典型是
+//    PowerShell 的 PSReadLine）。挂起请求所在的接收缓冲必须保持不动，因此这时
+//    用独立的 scratch 缓冲读取，并在处理完后立即显式 COMPLETE_IO。
 //
-// 等待集：{ConDrv InputAvailableEvent, state_changed}。输入/信号线程在锁内
-// 处理完数据后置位 state_changed；这里没有超时参数（见 design/0001 4.6/4.9）。
+// 每轮分三段：
+//   1. 持锁准备（判断是否挂起、准备上一条 completion、按需 flush）；
+//   2. 不持锁执行 READ_IO（可能阻塞到有消息）；
+//   3. 持锁分派消息、提交 completion、判断退出。
+//
+// 等待集：{ConDrv InputAvailableEvent, state_changed}（可能再加窗口关闭事件）。
+// 没有超时参数（见 design/0001 4.6/4.9）。
 #pragma once
 #include <cassert>
 #include <mutex>
@@ -33,6 +39,9 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
     // 双缓冲保证 completion 中指向的 body 不会被下一条消息覆盖。
     condrv_io::io_msg msgA{}, msgB{};
 
+    // 挂起读期间使用的独立接收缓冲：pending 请求所在的缓冲不能被覆盖。
+    condrv_io::io_msg scratch{};
+
     // cur 只在 msgA/msgB 之间切换，指向本轮接收缓冲。
     condrv_io::io_msg *cur = &msgA;
 
@@ -43,10 +52,10 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
     for (;;)
     {
         bool exit_loop = false;
-        bool wait_for_state = false;
         bool wait_for_any = false;
         bool do_read = false;
         bool submitted_previous = false;
+        bool serving_pending = false;
 
         // ── 阶段 1：持锁准备 ──
         {
@@ -54,8 +63,9 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
 
             if (router.has_pending())
             {
-                // 挂起请求未完成：不能复用接收缓冲，也不 READ_IO。
-                wait_for_state = true;
+                // 挂起读：用 scratch 缓冲继续 READ_IO，服务其它请求。
+                serving_pending = true;
+                do_read = true;
             }
             else if (prev_done != nullptr)
             {
@@ -68,18 +78,23 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
                 // 提交 completion 前先把缓冲的 VT 输出交给终端。
                 if (router.has_buffered_vt_output())
                     router.flush_vt_output();
-            }
 
-            do_read = !wait_for_state;
+                do_read = true;
+            }
+            else
+            {
+                do_read = true;
+            }
         }
 
         // ── 阶段 2：不持锁执行 READ_IO（可能阻塞到有消息）──
         condrv_io::read_io_result read_result = condrv_io::read_io_result::no_message;
         if (do_read)
         {
+            condrv_io::io_msg &target = serving_pending ? scratch : *cur;
             CD_IO_COMPLETE *prev_comp = submitted_previous ? &prev_done->complete : nullptr;
             COREHOST_PERF_SCOPE(io_read_io_try);
-            read_result = condrv_io::read_io_try(server, prev_comp, *cur);
+            read_result = condrv_io::read_io_try(server, prev_comp, target);
         }
 
         // ── 阶段 3：持锁处理结果 ──
@@ -104,6 +119,38 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
                         router.flush_vt_output();
 
                     wait_for_any = true;
+                }
+                else if (serving_pending)
+                {
+                    // 挂起读期间收到的其它请求：处理完立即显式完成，scratch 才能复用。
+                    condrv_io::io_msg &msg = scratch;
+                    if (msg.descriptor.Function == 0)
+                    {
+                        LOG2("empty ConDrv descriptor while pending");
+                        wait_for_any = true;
+                    }
+                    else if (msg.descriptor.Function == CONSOLE_IO_CONNECT)
+                    {
+                        LOG2("dispatch CONNECT while pending");
+                        router.on_connect(msg);
+                        condrv_io::complete_io(server, msg.complete);
+                    }
+                    else
+                    {
+                        LOG2("dispatch message while pending func=%lu", msg.descriptor.Function);
+                        if (router.on_message(msg))
+                        {
+                            if (router.has_buffered_vt_output())
+                                router.flush_vt_output();
+                            condrv_io::complete_io(server, msg.complete);
+                        }
+                        else
+                        {
+                            // 又出现新的挂起请求（同一时间只允许一个）：记录并继续，
+                            // bridge 的 pending 状态会以后到的请求为准。
+                            LOG("run_io_loop_no_setup: unexpected second pending request");
+                        }
+                    }
                 }
                 else
                 {
@@ -138,8 +185,8 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
                         }
                         else
                         {
+                            // 新挂起的请求：下一轮用 scratch 继续服务其它消息。
                             LOG2("message pending func=%lu", cur->descriptor.Function);
-                            wait_for_state = true;
                         }
                         cur = (cur == &msgA) ? &msgB : &msgA;
                     }
@@ -161,28 +208,7 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
         if (exit_loop)
             break;
 
-        if (wait_for_state)
-        {
-            // 只等输入线程完成挂起请求、关闭输入，或窗口请求关闭会话。
-            if (!close_requested.valid())
-            {
-                const auto wait = win32::wait_one(state_changed, INFINITE);
-                if (wait.abandoned())
-                    win32::throw_last_error(win32::error::invalid_state);
-            }
-            else
-            {
-                const auto wait = win32::wait_any(state_changed, close_requested, INFINITE);
-                if (wait.abandoned())
-                    win32::throw_last_error(win32::error::invalid_state);
-                if (wait.index == 1)
-                {
-                    LOG("run_io_loop_no_setup: close requested while pending");
-                    break;
-                }
-            }
-        }
-        else if (wait_for_any)
+        if (wait_for_any)
         {
             // ConDrv 有新消息、输入/信号线程改变状态，或窗口请求关闭会话。
             if (!close_requested.valid())

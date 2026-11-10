@@ -174,6 +174,22 @@ corehost::test::result ctrl_c_interrupts_foreground()
     return corehost::test::result::pass;
 }
 
+// 读请求挂起期间，宿主仍必须服务其它 ConDrv 请求（多线程客户端会同时查询光标）。
+corehost::test::result console_calls_served_while_read_pending()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --serve-probe"));
+
+    // 不发送任何输入：只有"读挂起时仍服务查询"才能让标记出现。
+    REQUIRE(session.wait_output("QUERY-OK", 10000));
+
+    session.close();
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -185,6 +201,7 @@ int main()
         {"exit_code", "conpty;robust", &exit_code_is_propagated},
         {"repeat", "conpty;robust;stability", &repeated_sessions},
         {"ctrl_c", "conpty;robust;signal", &ctrl_c_interrupts_foreground},
+        {"serve", "conpty;robust;pending", &console_calls_served_while_read_pending},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))
