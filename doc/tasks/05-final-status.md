@@ -38,7 +38,7 @@ ctest --test-dir build --output-on-failure
 | 有效句柄、可枚举、属于专用线程 | `Defterm.Connect/window`：`IsWindow`、`GetWindowThreadProcessId` = corehost 进程 |
 | 不可见 | `IsWindowVisible == FALSE` |
 | 同步消息不挂起 | 50 次 `SendMessageTimeout` + pressure 用例 |
-| 查询类自洽 | `WM_GETTEXT` 返回控制台标题；`GetWindowRect` 非零 |
+| 查询类自洽 | `WM_GETTEXT`/`WM_GETTEXTLENGTH` 返回控制台标题与长度；`GetWindowRect` 非零；显式 `WM_SHOWWINDOW` 只上报、不改变可见性 |
 | 关闭语义 | `WM_CLOSE` → `CancelIoEx` 打断 READ_IO → 宿主退出（0.11s 级） |
 | show/hide 上报 | `ConPTY.Programs/visibility`：`WM_SIZE` 触发 `ESC[2t/1t` |
 | 无泄漏 | `pressure`：200 次 API + 50 次消息后句柄/ USER 对象有界 |
@@ -47,7 +47,7 @@ ctest --test-dir build --output-on-failure
 
 | 需求 | 证据 |
 | --- | --- |
-| 测试库（runner/隔离/超时/宿主层） | `Runner.SelfTest`、`Platform.SelfTest` |
+| 测试库（runner/隔离/超时/宿主层/失败归档） | `Runner.SelfTest`、`Platform.SelfTest`；失败用例自动归档日志到 `test-artifacts/<case>/` |
 | defterm 自动化（不碰注册表/系统状态） | `Defterm.Connect`：CONNECT、GetConsoleMode、窗口与关闭、进程列表、压力、重复会话 |
 | conpty 真实程序 | `ConPTY.Programs`：cmd、嵌套子进程、powershell、vim、edit |
 | conpty 健壮性 | `ConPTY.Robustness`：resize、clear、非法尺寸、退出码、50 次重复 |

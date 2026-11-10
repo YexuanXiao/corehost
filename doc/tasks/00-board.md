@@ -47,7 +47,7 @@
 | C2 | 进程/会话驱动；诊断产物；ConDrv 客户端 | DOING | C2 宿主层：环境探测与子进程运行器 | `tests/lib/platform.hpp`：PATH/System32/WT/sshd/交互式探测 + `run_process`（Job 对象管进程树、600ms 超时实测终止）；会话驱动完成并通过；**defterm 测试不碰注册表**：测试进程自建 ConDrv server/reference，启动 `corehost.exe <handle>`，再打开 `\\Connect` 完成客户端 CONNECT 并绑定 PEB ConsoleHandle（见 `tests/lib/condrv.hpp`）。已修：首轮 READ_IO 前误等事件导致 CONNECT 收不到。`Defterm.Connect` 已注册并通过：测试进程自建 ConDrv 会话 → corehost defterm → GetConsoleCP/GetConsoleOutputCP=65001。遗留：GetConsoleMode 等依赖对象 id 的 API 需拿到 CONNECT 返回的句柄值
 | C3 | defterm 启动路径：测试进程自建 ConDrv 会话，驱动 defterm 入口 | DONE | C3 defterm 直连用例 | `tests/lib/condrv.hpp`；`Defterm.Connect` 覆盖 CONNECT + 代码页往返；新增 window 用例覆盖 `GetConsoleWindow` 归属与 `WM_CLOSE` 结束会话；不碰注册表 |
 | C4 | 控制台测试客户端（脚本化 API/VT/窗口消息） | TODO | | |
-| C5 | 用例矩阵：控制台/窗口/输入/子进程/关闭 | DOING | | 已有 CONNECT、GetConsoleMode、GetConsoleWindow、窗口标题/矩形、WM_CLOSE、GetConsoleProcessList、压力/重复会话；子进程继承在直连客户端下不可行（SKIP 并注明改由 ConPTY 覆盖） |
+| C5 | 用例矩阵：控制台/窗口/输入/子进程/关闭 | DONE | C5 defterm 用例矩阵 | 已有 CONNECT、GetConsoleMode、GetConsoleWindow、窗口标题/矩形、WM_CLOSE、GetConsoleProcessList、压力/重复会话；子进程继承在直连客户端下不可行（SKIP 并注明改由 ConPTY 覆盖） |
 | C6 | 真实 WT 层、稳定性、文档 | TODO | | |
 
 ## 阶段 D：conpty 测试（任务 4）

@@ -103,6 +103,15 @@ corehost::test::result get_console_window_then_close()
                                  SMTO_ABORTIFHUNG, 2000, &copied) != 0);
     REQUIRE(::wcsstr(title, L"corehost-window-title") != nullptr);
 
+    // WM_GETTEXTLENGTH 必须与标题长度一致。
+    DWORD_PTR title_length = 0;
+    REQUIRE(::SendMessageTimeoutW(window, WM_GETTEXTLENGTH, 0, 0, SMTO_ABORTIFHUNG, 2000, &title_length) != 0);
+    REQUIRE(title_length == ::wcslen(L"corehost-window-title"));
+
+    // 显式 WM_SHOWWINDOW 只上报状态：不可见窗口不能被"显示"，也不得崩溃。
+    REQUIRE(::SendMessageTimeoutW(window, WM_SHOWWINDOW, TRUE, 0, SMTO_ABORTIFHUNG, 2000, &copied) != 0);
+    REQUIRE(::IsWindowVisible(window) == FALSE);
+
     // 查询类：窗口矩形必须非零，依赖方用它估算可用尺寸。
     RECT rect{};
     REQUIRE(::GetWindowRect(window, &rect) != FALSE);
