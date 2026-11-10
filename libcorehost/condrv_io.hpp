@@ -229,7 +229,7 @@ inline void prepare_completion(io_msg &msg, LONG status = 0, ULONG_PTR info = 0)
 inline void prepare_connection_completion(io_msg &msg, win32::handle_view input, win32::handle_view output) noexcept
 {
     CD_CONNECTION_INFORMATION conn{};
-    conn.Process = reinterpret_cast<ULONG_PTR>(input.get());
+    // ConDrv 会把 Process 原样带回后续消息（含 DISCONNECT）；必须用客户端 pid，\n    // 否则 DISCONNECT 指不到进程，进程列表只增不减（fork 42ef837）。\n    conn.Process = msg.descriptor.Process;
     conn.Input = reinterpret_cast<ULONG_PTR>(input.get());
     conn.Output = reinterpret_cast<ULONG_PTR>(output.get());
     static_assert(sizeof(conn) <= sizeof(msg.body));
