@@ -3184,6 +3184,44 @@ bool test_output_mode_follows_virtual_terminal_level()
     return true;
 }
 
+// process_registry 是进程列表的单一真相：无固定容量上限、去重、按组过滤、
+// GetConsoleProcessList 的新到旧顺序。
+bool test_process_registry_operations()
+{
+    process_registry registry;
+    for (DWORD pid = 1; pid <= 100; ++pid)
+        registry.add(pid, 0);
+    ASSERT(registry.count() == 100);
+
+    registry.add(10, 0); // 重复 pid 不增加
+    ASSERT(registry.count() == 100);
+
+    DWORD newest_first[100]{};
+    ASSERT(registry.copy_newest_first(newest_first) == 100);
+    ASSERT(newest_first[0] == 100);
+    ASSERT(newest_first[99] == 1);
+
+    DWORD filtered[100]{};
+    ASSERT(registry.copy_for_group(0, filtered) == 100);
+    ASSERT(registry.copy_for_group(1000, filtered) == 0);
+
+    registry.remove(7);
+    registry.add(7, 1000);
+    ASSERT(registry.count() == 100); // 7 已存在，只更新/去重，不新增
+    ASSERT(registry.copy_for_group(1000, filtered) == 1);
+    ASSERT(filtered[0] == 7);
+
+    registry.remove(100);
+    ASSERT(registry.count() == 99);
+    registry.remove(100); // 不存在时不变
+    ASSERT(registry.count() == 99);
+    registry.add(200, 0);
+    ASSERT(registry.count() == 100);
+    ASSERT(registry.copy_newest_first(newest_first) == 100);
+    ASSERT(newest_first[0] == 200);
+    return true;
+}
+
 int main()
 {
     std::wcout << L"=== console_state Tests ===" << std::endl;
@@ -3311,6 +3349,7 @@ RUN_TEST(test_read_console_output_clamps_oversized_region, L"ReadConsoleOutput c
     RUN_TEST(test_regression_l3_selection_info_validation_and_copy, L"L3 SelectionInfo validation and copy");
     RUN_TEST(test_regression_l3_process_list_validation_and_output_size, L"L3 ProcessList validation and output size");
     RUN_TEST(test_ctrl_event_filters_by_process_group, L"Ctrl event filters by process group");
+RUN_TEST(test_process_registry_operations, L"Process registry operations");
     RUN_TEST(test_window_size_event_gated_and_deduplicated, L"Window size event gated and deduped");
     RUN_TEST(test_regression_l3_history_info_validation_get_set, L"L3 HistoryInfo validation get/set");
     RUN_TEST(test_regression_l3_set_current_font_validation_and_store, L"L3 SetCurrentFont validation and store");

@@ -37,7 +37,7 @@
 #include "output_buffer.hpp"
 #include "pipe_bridge_io.hpp"
 #include "conversion_buffers.hpp"
-#include "process_list_snapshot.hpp"
+#include "process_registry.hpp"
 #include "terminal_cursor_state.hpp"
 #include "pending_io_state.hpp"
 #include "command_history_state.hpp"
@@ -231,18 +231,17 @@ struct pipe_bridge
             complete_pending_console_input();
     }
 
-    // 把 CTRL_C_EVENT / CTRL_BREAK_EVENT 送给控制台上的每个进程。
-    // corehost 不是该控制台的附属进程，GenerateConsoleCtrlEvent 到不了客户端；
-    // 必须经 CSRSS 的 ConsoleControl(ConsoleEndTask)，与 conhost 的
-    // ProcessCtrlEvents 走同一条路。
-    // 把 CTRL_C_EVENT / CTRL_BREAK_EVENT / CTRL_CLOSE_EVENT 投递给控制台进程。
-    // group == 0 表示全部进程（conhost 的 ProcessGroupId=0 语义），否则只投递
-    // 给该进程组的成员。corehost 不在该控制台上，GenerateConsoleCtrlEvent
-    // 到不了客户端；必须走 CSRSS 的 ConsoleControl(ConsoleEndTask)。
+    // 把 CTRL_C_EVENT / CTRL_BREAK_EVENT 投递给控制台进程。
+    // group == 0 表示全部（conhost 的 ProcessGroupId=0 语义），否则只投递给
+    // 该进程组的成员。corehost 不在该控制台上，GenerateConsoleCtrlEvent 到不了
+    // 客户端；必须走 CSRSS 的 ConsoleControl(ConsoleEndTask)（conhost 的
+    // ProcessCtrlEvents 也是同一条路）。
     void send_ctrl_event(DWORD event, DWORD group) noexcept
     {
-        std::array<DWORD, process_list_snapshot::max_processes> targets{};
-        const auto count = _processes.copy_for_group(group, targets.data(), targets.size());
+        // 先复制目标 pid：EndTask 可能阻塞，期间 CONNECT/DISCONNECT 仍可能
+        // 在会话锁内修改注册表。
+        std::vector<DWORD> targets(_processes->count());
+        const auto count = _processes->copy_for_group(group, std::span<DWORD>{targets.data(), targets.size()});
         LOG2("ctrl event %lu group=%lu pids=%zu", event, group, count);
         for (size_t index = 0; index < count; ++index)
         {
@@ -252,23 +251,25 @@ struct pipe_bridge
         }
     }
 
-    // 关闭会话时向所有客户端投递 CTRL_CLOSE_EVENT。对应 conhost 的
-    // CloseConsoleProcessState()：HandleCtrlEvent(CTRL_CLOSE_EVENT) 之后
-    // ProcessCtrlEvents 对每个进程调用 ConsoleControl(ConsoleEndTask)，
-    // EndTask 会阻塞到客户端处理器返回（或 CSRSS 的 ~5s 超时）。
 
-
-    // 更新 GetConsoleProcessList 可见的进程快照（pid 与进程组同序）。
-    // message_router 在 CONNECT/DISCONNECT 后把 io_state 的真实列表同步到这里。
-    void set_process_list(std::span<const DWORD> processes, std::span<const DWORD> groups) noexcept
+    // 绑定会话共享的进程注册表（message_router 构造时调用）。未绑定时 bridge
+    // 使用自己的本地实例，供独立单测使用。
+    void set_process_registry(process_registry &registry) noexcept
     {
-        _processes.assign(processes, groups);
+        _processes = &registry;
     }
 
-    // 返回当前进程快照数量；仅用于日志和 L3 GetConsoleProcessList 响应。
+    // 测试/独立使用：用给定 pid/group 列表替换注册表内容。生产路径由
+    // io_state 的 CONNECT/DISCONNECT 直接修改同一个 process_registry。
+    void set_process_list(std::span<const DWORD> processes, std::span<const DWORD> groups)
+    {
+        _processes->assign(processes, groups);
+    }
+
+    // 当前连接进程数；用于日志和 L3 GetConsoleProcessList 响应。
     size_t process_count() const noexcept
     {
-        return _processes.count();
+        return _processes->count();
     }
 
     [[nodiscard]] PendingKind pending_kind() const noexcept
@@ -305,7 +306,7 @@ struct pipe_bridge
     // 返回实际写入数量。
     size_t copy_process_list_newest_first(DWORD *output, size_t capacity) const noexcept
     {
-        return _processes.copy_newest_first(output, capacity);
+        return _processes->copy_newest_first(std::span<DWORD>{output, capacity});
     }
 
   private:
@@ -382,7 +383,9 @@ struct pipe_bridge
     // API handler 和输入/输出转换复用的临时缓冲集合。
     conversion_buffers _conversion;
     // GetConsoleProcessList 可见的连接进程快照（pid 与进程组同序）。
-    process_list_snapshot _processes;
+    // 进程列表由 io_state 拥有（单一真相）；测试/独立使用时回退到本地实例。
+    process_registry _local_processes;
+    process_registry *_processes = &_local_processes;
     // 最近一次 WINDOW_BUFFER_SIZE_EVENT 的尺寸（conhost 的 InputBuffer 去重）。
     COORD _last_window_size_event{};
     // SGR 鼠标按下状态（移动/松开事件沿用，conhost 的 _mouseButtonState）。
@@ -390,7 +393,6 @@ struct pipe_bridge
     bool _window_size_event_valid = false;
     // 控制事件投递函数。默认走 CSRSS ConsoleControl；测试可替换为记录器。
     ctrl_event_sender _ctrl_sender = &console_end_task;
-    // WM_CLOSE 只投递一次 CTRL_CLOSE_EVENT（conhost VtIo::_closeEventSent）。
 
     // bridge 对宿主终端当前光标和 cooked input 编辑边界的本地追踪。
     terminal_cursor_state _terminal;

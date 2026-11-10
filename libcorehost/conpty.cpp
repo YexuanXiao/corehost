@@ -26,13 +26,6 @@
 namespace corehost::conpty
 {
 
-// 把 io_state 中的连接进程列表同步到 bridge 的 API 可见快照。io_state 是
-// CONNECT/DISCONNECT 的真实来源；bridge 只保存供 GetConsoleProcessList 读取的副本。
-void copy_process_list(io_state &io, pipe_bridge &bridge) noexcept
-{
-    bridge.set_process_list(std::span<const DWORD>{io.process_list.data(), io.process_count},
-                            std::span<const DWORD>{io.process_groups.data(), io.process_count});
-}
 
 void run_conpty_session(win32::handle_view server, win32::handle_view event, win32::handle condrv_input,
                         win32::handle condrv_output, win32::handle_view vt_in, win32::handle_view vt_out,
@@ -182,8 +175,7 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     {
         // defterm headless 路径在进入 libcorehost 前已经 accept 首个 CONNECT。
         // 该 pid 不会再经过 io_state::handle_connect，因此这里手动补进列表。
-        io.add_process(config.attached_process_id, config.attached_process_id);
-        copy_process_list(io, bridge);
+        io.process_list().add(config.attached_process_id, config.attached_process_id);
     }
 
     // ── 进入 I/O 循环 ──

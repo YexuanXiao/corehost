@@ -10,12 +10,10 @@
 //    缓存最近返回的 input/output 句柄值用于 CLOSE_OBJECT 识别。
 #pragma once
 #include <windows.h>
-#include <algorithm>
-#include <array>
 #include <cstddef>
-#include <cstring>
 #include "win32/handle.hpp"
 #include "condrv_io.hpp"
+#include "process_registry.hpp"
 #include "ntapi/condrv.hpp"
 #include "os/Console/conmsgl1.h"
 #include "utility/log.hpp"
@@ -65,49 +63,18 @@ struct io_state
     // 最近一次 CONNECT 的客户端 pid。0 表示尚未收到 CONNECT。
     ULONG_PTR client_pid = 0;
 
-    // GetConsoleProcessList 兼容数据。数组保存当前已连接进程 pid；
-    // 超过容量的新 pid 会被忽略，以避免写越界。
-    static constexpr size_t max_processes = 64;
-    std::array<DWORD, max_processes> process_list{};
-    // 与 process_list 同序的进程组 id（CONSOLE_SERVER_MSG::ProcessGroupId，
-    // 缺省回退到客户端 pid）。GenerateConsoleCtrlEvent(group) 的过滤依据。
-    std::array<DWORD, max_processes> process_groups{};
-    size_t process_count = 0;
+    // 当前控制台已连接进程（pid + 进程组）的单一真相。CONNECT/DISCONNECT 在
+    // 会话锁内修改；pipe_bridge 通过 process_list() 读取同一对象（不再复制快照）。
+    process_registry processes;
 
-    // 将 pid 加入当前控制台进程列表。重复 pid 不改变列表；超过容量时忽略
-    // 新 pid，避免破坏已有 GetConsoleProcessList 快照。
-    void add_process(DWORD pid, DWORD group) noexcept
+    [[nodiscard]] process_registry &process_list() noexcept
     {
-        // pid 来自 CONNECT descriptor.Process 或 defterm 预附加进程；同一
-        // 进程重复 CONNECT 时只保留一份，匹配 GetConsoleProcessList 语义。
-        const auto end = process_list.begin() + static_cast<std::ptrdiff_t>(process_count);
-        if (std::find(process_list.begin(), end, pid) != end)
-            return;
-        if (process_count < max_processes)
-        {
-            process_list[process_count] = pid;
-            process_groups[process_count] = group != 0 ? group : pid;
-            ++process_count;
-        }
+        return processes;
     }
 
-    // 从当前控制台进程列表删除 pid。找不到 pid 时不改变列表；删除后数组
-    // 前 process_count 项保持紧凑。
-    void remove_process(DWORD pid) noexcept
+    [[nodiscard]] const process_registry &process_list() const noexcept
     {
-        // pid 来自 DISCONNECT descriptor.Process。数组保持紧凑，便于直接
-        // 复制给 pipe_bridge 的进程快照。
-        const auto end = process_list.begin() + static_cast<std::ptrdiff_t>(process_count);
-        const auto it = std::find(process_list.begin(), end, pid);
-        if (it == end)
-            return;
-        const auto offset = static_cast<std::ptrdiff_t>(it - process_list.begin());
-        std::move(it + 1, end, it);
-        std::move(process_groups.begin() + offset + 1,
-                  process_groups.begin() + static_cast<std::ptrdiff_t>(process_count), process_groups.begin() + offset);
-        --process_count;
-        process_list[process_count] = 0;
-        process_groups[process_count] = 0;
+        return processes;
     }
 
     // 消费一条 CONNECT 消息，把回复写进 msg.complete 但不提交。
@@ -134,11 +101,11 @@ struct io_state
         }
         // first_connect 决定是否需要真正 accept \Input/\Output；后续 CONNECT
         // 只增加进程列表，不替换已有控制台对象句柄。
-        LOG2("handle_connect pid=%llu first=%d processCount=%zu", client_pid, first_connect, process_count);
+        LOG2("handle_connect pid=%llu first=%d processCount=%zu", client_pid, first_connect, processes.count());
 
-        // 同一 pid 可能重复 CONNECT；add_process 会去重，避免
+        // 同一 pid 可能重复 CONNECT；processes.add 会去重，避免
         // GetConsoleProcessList 返回重复项。
-        add_process(static_cast<DWORD>(client_pid), client_group);
+        processes.add(static_cast<DWORD>(client_pid), client_group);
         if (first_connect)
         {
             // 首个 CONNECT 需要创建 \Input/\Output。accept_connection 把
@@ -146,7 +113,7 @@ struct io_state
             // 提交交给下一轮 READ_IO。
             condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
             LOG2("CONNECT accepted input=%p output=%p processCount=%zu", condrv_input.get(), condrv_output.get(),
-                 process_count);
+                 processes.count());
             return;
         }
         else
@@ -167,7 +134,7 @@ struct io_state
             // 请求体（CONSOLE_SERVER_MSG）此时已经不再被读取，可以安全重用。
             condrv_io::prepare_connection_completion(msg, condrv_input.view(), condrv_output.view(),
                                                 static_cast<ULONG_PTR>(client_pid));
-            LOG2("CONNECT joined existing console processCount=%zu", process_count);
+            LOG2("CONNECT joined existing console processCount=%zu", processes.count());
             return;
         }
     }
@@ -177,8 +144,8 @@ struct io_state
         // msg.descriptor.Process 是要从当前控制台进程列表删除的 pid；ConDrv
         // 对象句柄不随单个进程 DISCONNECT 释放。
         auto pid = static_cast<DWORD>(msg.descriptor.Process);
-        remove_process(pid);
-        LOG2("DISCONNECT pid=%lu processCount=%zu", pid, process_count);
+        processes.remove(pid);
+        LOG2("DISCONNECT pid=%lu processCount=%zu", pid, processes.count());
 
         // DISCONNECT 没有输出载荷，成功 completion 足以让 ConDrv 继续派发消息。
         condrv_io::prepare_completion(msg);

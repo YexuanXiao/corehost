@@ -134,3 +134,28 @@ corehost 当前把 0 归一化为 pid，效果上覆盖了"按普通子进程 pi
 - **不建议**：只删快照而保持"锁内直接遍历共享列表并 EndTask"（重入/阻塞风险）；
   继续用 64 上限（>64 时行为错误）；为了简化直接去掉 group（破坏
   GenerateConsoleCtrlEvent(group)）。
+## 7. 实施状态（阶段 A 已完成）
+
+已提交的改动：
+- 新增 [process_registry.hpp](libcorehost/process_registry.hpp)：`vector<process_entry>`
+  保存 `(pid, group)`，提供 `add/remove/count/copy_for_group/copy_newest_first/assign`。
+- `io_state` 持有唯一的 registry，删除两个并行数组、`max_processes=64` 与
+  `add_process/remove_process`；CONNECT/DISCONNECT 直接修改 registry。
+- `message_router` 构造时调用 `bridge.set_process_registry(io.process_list())`，
+  bridge 不再保存快照；删除 `sync_process_snapshot()`、`conpty.cpp::copy_process_list()`
+  与 `process_list_snapshot.hpp`。
+- `pipe_bridge` 的 Ctrl 事件投递、GetConsoleProcessList 直接读同一 registry；
+  独立单测未绑定 registry 时回退到本地实例。
+- 删除 64 上限：超过 64 个进程不再漏投 Ctrl+C / 截断进程列表。
+- 行为保持：group 0→pid 归一化、group 过滤、GetConsoleProcessList 新到旧顺序不变。
+- 新增单测 `Process registry operations` 覆盖去重、移除/重加、无上限（100 项）、
+  组过滤、新到旧顺序。
+
+未做（阶段 B，仍记录在 §4）：
+1. GetConsoleProcessList 缓冲不足时按 conhost 不写数据；
+2. 未知 group 的 GenerateConsoleCtrlEvent 返回 `E_INVALIDARG`；
+3. 控制事件延迟到解锁后投递（消除持锁 EndTask，并可去掉"发送前复制"）。
+
+代码量说明：删除 snapshot（80 行）与各处同步/数组维护，新增 registry（约 95 行），
+**净行数接近持平**；简化体现在状态从"三份数据保持同序"降为"一份数据"，并消除了
+同步调用与固定容量截断。

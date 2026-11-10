@@ -21,7 +21,7 @@ namespace corehost::conpty
 struct message_router
 {
     // io 维护 ConDrv 连接对象、CREATE/CLOSE_OBJECT 返回的客户端句柄值和
-    // GetConsoleProcessList 使用的进程快照。router 只调用它消费对象层消息。
+    // GetConsoleProcessList 使用的进程列表（bridge 共享同一注册表）。router 只调用它消费对象层消息。
     io_state &io;
 
     // bridge 是 VT 侧状态机：RAW_READ、ReadConsole/GetConsoleInput 的 pending
@@ -32,7 +32,14 @@ struct message_router
     // CONSOLE_MSG_HEADER 之后的 API body，只把完整消息交给 api_router。
     api_router &api;
 
-    // 消费 CONNECT 消息，并把 io_state 的进程列表同步给 pipe_bridge。
+    message_router(io_state &io_state_ref, pipe_bridge &bridge_ref, api_router &api_ref) noexcept
+        : io(io_state_ref), bridge(bridge_ref), api(api_ref)
+    {
+        // 单一进程注册表：bridge 直接读 io_state 拥有的列表，不再复制快照。
+        bridge.set_process_registry(io.process_list());
+    }
+
+    // 消费 CONNECT 消息；进程列表由 io_state 的 process_registry 直接共享。
     //
     // CONNECT 走独立入口而不共用 on_message：它总是把 completion 留给下一轮
     // READ_IO 携带，不参与 dispatch 的“挂起/已就绪”判定。
@@ -41,11 +48,11 @@ struct message_router
         // msg 是 ConDrv 的 CONNECT 请求；handle_connect 只填 msg.complete，
         // 由 io_loop 在下一轮 READ_IO 提交。
         log_descriptor("enter CONNECT", msg);
-        LOG2("consume CONNECT via io_state; before processCount=%zu bridgeProcessCount=%zu", io.process_count,
+        LOG2("consume CONNECT via io_state; before processCount=%zu bridgeProcessCount=%zu", io.process_list().count(),
              bridge.process_count());
         io.handle_connect(msg);
-        sync_process_snapshot();
-        LOG2("CONNECT consumed after processCount=%zu bridgeProcessCount=%zu", io.process_count,
+
+        LOG2("CONNECT consumed after processCount=%zu bridgeProcessCount=%zu", io.process_list().count(),
              bridge.process_count());
         log_completion("CONNECT completion", msg);
     }
@@ -161,8 +168,8 @@ struct message_router
                  bridge.buffered_vt_output_bytes());
             bridge.vt_flush();
             bool ok = io.handle_disconnect(msg);
-            sync_process_snapshot();
-            LOG2("DISCONNECT consumed ok=%d processCount=%zu bridgeProcessCount=%zu", ok, io.process_count,
+
+            LOG2("DISCONNECT consumed ok=%d processCount=%zu bridgeProcessCount=%zu", ok, io.process_list().count(),
                  bridge.process_count());
             return ok;
         }
@@ -201,15 +208,6 @@ struct message_router
         }
     }
 
-    // CONNECT/DISCONNECT 后把 io_state 的实时进程列表复制到 bridge 的 API 快照。
-    void sync_process_snapshot() noexcept
-    {
-        // io_state 保存的是当前真实连接进程列表；bridge 保存的是 API 查询可见
-        // 快照。CONNECT/DISCONNECT 后必须同步，否则 GetConsoleProcessList 会滞后。
-        bridge.set_process_list(std::span<const DWORD>{io.process_list.data(), io.process_count},
-                                std::span<const DWORD>{io.process_groups.data(), io.process_count});
-        LOG2("process snapshot copied count=%zu", io.process_count);
-    }
 };
 
 } // namespace corehost::conpty
