@@ -9,6 +9,14 @@
 namespace
 {
 
+std::wstring quote_self()
+{
+    wchar_t module[MAX_PATH]{};
+    if (::GetModuleFileNameW(nullptr, module, ARRAYSIZE(module)) == 0)
+        return {};
+    return L"" + std::wstring{module} + L"";
+}
+
 corehost::test::result tool_output_is_captured()
 {
     const auto cmd = corehost::test::system32_path(L"cmd.exe");
@@ -38,10 +46,8 @@ corehost::test::result timeout_terminates_child()
     REQUIRE(!cmd.empty());
 
     const auto start = std::chrono::steady_clock::now();
-    const auto powershell = corehost::test::system32_path(L"WindowsPowerShell\\v1.0\\powershell.exe");
-    REQUIRE(corehost::test::file_exists(powershell));
     const auto result =
-        corehost::test::run_tool(powershell, L"-NoProfile -NonInteractive -Command \"Start-Sleep -Seconds 5\"", 600);
+        corehost::test::run_process(quote_self() + L" --sleep-forever", 600);
     const auto elapsed =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 
@@ -68,6 +74,13 @@ corehost::test::result environment_predicates_are_stable()
 
 int main()
 {
+    // 自派生模式：作为"长时间运行的子进程"被 timeout 用例创建，不依赖任何
+    // 外部控制台程序（避免 0xc0000142 弹窗）。
+    if (std::wstring_view{::GetCommandLineW()}.find(L"--sleep-forever") != std::wstring_view::npos)
+    {
+        ::Sleep(60000);
+        return 0;
+    }
     constexpr corehost::test::test_case cases[] = {
         {"tool_output", "platform", &tool_output_is_captured},
         {"exit_code", "platform", &exit_code_is_propagated},

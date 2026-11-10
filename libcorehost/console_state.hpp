@@ -183,6 +183,8 @@ struct console_state
     // 销毁前清空；0 表示当前没有窗口。会话线程写，API 处理线程读，均在
     // 会话锁内。
     HWND window_handle = nullptr;
+    // Ctrl+C / Ctrl+Break 的投递目标（CONNECT 的 ProcessGroupId）。
+    DWORD foreground_process_group = 0;
     // 伪窗口对象（会话持有，生命周期覆盖 console_state 的使用期）。API handler
     // 通过它更新窗口标题；窗口对象自身负责跨线程同步。
     pseudo_window *window = nullptr;

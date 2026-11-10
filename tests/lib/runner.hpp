@@ -38,6 +38,14 @@
 namespace corehost::test
 {
 
+// 测试进程统一抑制系统错误对话框：被测程序初始化失败（0xc0000142 等）时
+// 只应表现为退出码，不允许在用户桌面上弹窗。
+inline const bool error_dialogs_suppressed = []
+{
+    ::SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+    return true;
+}();
+
 enum class result
 {
     pass,

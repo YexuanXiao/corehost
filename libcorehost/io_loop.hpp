@@ -1,19 +1,15 @@
 // ── conpty/io_loop.hpp ────────────────────────────────────
 // ConDrv I/O 主循环（事件驱动，无轮询）。
 //
-// 职责：
-// 1. READ_IO 双缓冲：本轮 READ_IO 提交上一条 completion，同时读取下一条
-//    消息，因此接收缓冲不能覆盖上一条消息的 completion 数据。
-// 2. 同步处理：每一轮在会话锁内完成 READ_IO、消息分派与输出 flush；锁外
-//    只做无限等待。
-// 3. 等待集：{ConDrv InputAvailableEvent, state_changed}。输入/信号线程在
-//    锁内处理完数据后置位 state_changed，主循环醒来重读真实状态，不依赖
-//    事件携带任何数据。
-// 4. 挂起请求：handler 返回 false 时请求已交给 bridge 的 pending 状态，主
-//    循环只等 state_changed；输入线程完成它之后主循环自然继续 READ_IO。
+// 关键约束：READ_IO 在没有消息时会阻塞。它**不能**持有会话锁执行，否则输入
+// 线程拿不到锁，终端按键要等到下一次 ConDrv 消息才被处理（表现为输入卡死）。
+// 因此每轮分成三段：
+//   1. 持锁：判断是否有挂起请求、准备上一条 completion、按需 flush 输出；
+//   2. 不持锁：执行 READ_IO（阻塞等待由驱动完成）；
+//   3. 持锁：分派收到的消息、提交 completion、判断退出。
 //
-// 这里没有任何超时参数：所有等待都是 INFINITE，终止性由"输入线程 EOF/取消"
-// 与"ConDrv 断开"保证（见 doc/design/0001.md 4.6、4.9）。
+// 等待集：{ConDrv InputAvailableEvent, state_changed}。输入/信号线程在锁内
+// 处理完数据后置位 state_changed；这里没有超时参数（见 design/0001 4.6/4.9）。
 #pragma once
 #include <cassert>
 #include <mutex>
@@ -27,12 +23,9 @@
 namespace corehost::conpty
 {
 
-// 运行 ConDrv READ_IO/COMPLETE_IO 主循环。server/input_available/state_changed
-// 都是非拥有句柄；router 持有实际状态机，session_lock 保护全部控制台共享状态。
 inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view input_available,
                                  win32::shared_mutex &session_lock, win32::handle_view state_changed,
-                                 win32::handle_view close_requested,
-                                 message_router &router)
+                                 win32::handle_view close_requested, message_router &router)
 {
     LOG("run_io_loop_no_setup: enter");
 
@@ -52,39 +45,49 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
         bool exit_loop = false;
         bool wait_for_state = false;
         bool wait_for_any = false;
+        bool do_read = false;
+        bool submitted_previous = false;
 
+        // ── 阶段 1：持锁准备 ──
         {
-            // 整个处理阶段持有会话锁：输入线程与信号线程只在拿不到锁时等待。
             std::unique_lock guard{session_lock};
 
             if (router.has_pending())
             {
-                // 挂起请求仍未完成：不能复用接收缓冲，只等状态变化。
+                // 挂起请求未完成：不能复用接收缓冲，也不 READ_IO。
                 wait_for_state = true;
             }
-            else
+            else if (prev_done != nullptr)
             {
-                CD_IO_COMPLETE *prev_comp = prev_done ? &prev_done->complete : nullptr;
-                if (prev_comp)
-                {
-                    // handler 返回 true 必须已准备 completion，否则会把上一轮
-                    // 残留的标识符交给驱动。
-                    assert(condrv_io::completion_matches_descriptor(*prev_done));
-                }
-                LOG2_IF(prev_comp != nullptr, "submitting completion status=0x%08lx info=%llu",
-                        prev_done->complete.IoStatus.Status, prev_done->complete.IoStatus.Information);
+                // handler 返回 true 必须已准备 completion。
+                assert(condrv_io::completion_matches_descriptor(*prev_done));
+                LOG2_IF(true, "submitting completion status=0x%08lx info=%llu", prev_done->complete.IoStatus.Status,
+                        prev_done->complete.IoStatus.Information);
+                submitted_previous = true;
 
-                // 提交 completion 前先把缓冲的 VT 输出交给终端，避免应用输出
-                // 落后于它已经完成的 I/O。
-                if (prev_comp != nullptr && router.has_buffered_vt_output())
+                // 提交 completion 前先把缓冲的 VT 输出交给终端。
+                if (router.has_buffered_vt_output())
                     router.flush_vt_output();
+            }
 
-                auto read_result = condrv_io::read_io_result::no_message;
-                {
-                    COREHOST_PERF_SCOPE(io_read_io_try);
-                    read_result = condrv_io::read_io_try(server, prev_comp, *cur);
-                }
+            do_read = !wait_for_state;
+        }
 
+        // ── 阶段 2：不持锁执行 READ_IO（可能阻塞到有消息）──
+        condrv_io::read_io_result read_result = condrv_io::read_io_result::no_message;
+        if (do_read)
+        {
+            CD_IO_COMPLETE *prev_comp = submitted_previous ? &prev_done->complete : nullptr;
+            COREHOST_PERF_SCOPE(io_read_io_try);
+            read_result = condrv_io::read_io_try(server, prev_comp, *cur);
+        }
+
+        // ── 阶段 3：持锁处理结果 ──
+        {
+            std::unique_lock guard{session_lock};
+
+            if (do_read)
+            {
                 if (read_result == condrv_io::read_io_result::disconnected)
                 {
                     router.flush_vt_output();
@@ -105,7 +108,7 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
                 else
                 {
                     prev_done = nullptr; // completion 已被 read_io 消费
-                    if (prev_comp != nullptr && router.should_flush_vt_output())
+                    if (submitted_previous && router.should_flush_vt_output())
                         router.flush_vt_output();
 
                     if (cur->descriptor.Function == 0)
@@ -118,12 +121,10 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
                     {
                         LOG2("dispatch message func=%lu id=%08lx:%08lx", cur->descriptor.Function,
                              cur->descriptor.Identifier.HighPart, cur->descriptor.Identifier.LowPart);
-                        // true 表示 router 已经填好 cur->complete，下一轮 READ_IO 提交。
-                        // false 表示请求挂起，输入线程会在后续 VT 输入到达时完成它。
                         if (router.on_message(*cur))
                         {
-                            // 应用输出可能包含 CPR/DA/OSC 查询，终端响应只会从
-                            // vt_in 回来。先把输出交给终端并显式完成本条 I/O。
+                            // 输出里可能含 CPR/DA/OSC 查询，终端响应只会从 vt_in
+                            // 回来。先把输出交给终端并显式完成本条 I/O。
                             if (router.has_buffered_vt_output())
                             {
                                 router.flush_vt_output();
@@ -146,8 +147,6 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
                     {
                         LOG2("dispatch CONNECT id=%08lx:%08lx", cur->descriptor.Identifier.HighPart,
                              cur->descriptor.Identifier.LowPart);
-                        // CONNECT 的 completion 总是由 on_connect 填好并留在 msg 里，
-                        // 作为下一轮 READ_IO 的 piggyback completion 提交。
                         router.on_connect(*cur);
                         prev_done = cur;
                         cur = (cur == &msgA) ? &msgB : &msgA;
@@ -157,7 +156,7 @@ inline void run_io_loop_no_setup(win32::handle_view server, win32::handle_view i
 
             if (router.should_exit())
                 exit_loop = true;
-        } // 释放会话锁
+        }
 
         if (exit_loop)
             break;
