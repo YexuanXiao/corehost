@@ -165,6 +165,27 @@ add_custom_command(TARGET test_defterm_connect_selftest POST_BUILD
 add_test(NAME Defterm.Connect COMMAND test_defterm_connect_selftest)
 set_tests_properties(Defterm.Connect PROPERTIES LABELS "defterm" TIMEOUT 120)
 
+# ── test_conpty_robustness ────────────────────────
+# resize / clear / 非法尺寸 / 退出码 / 重复会话。
+add_executable(test_conpty_robustness
+    test_conpty_robustness.cpp
+)
+target_include_directories(test_conpty_robustness PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_conpty_robustness PRIVATE test_common conpty_static)
+add_dependencies(test_conpty_robustness corehost)
+add_custom_command(TARGET test_conpty_robustness POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:corehost>"
+        "$<TARGET_FILE_DIR:test_conpty_robustness>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_conpty_robustness>/logs"
+)
+add_test(NAME ConPTY.Robustness COMMAND test_conpty_robustness)
+set_tests_properties(ConPTY.Robustness PROPERTIES LABELS "conpty;robust" TIMEOUT 180)
+
 # ── test_conpty_programs ──────────────────────────
 # 真实程序矩阵：cmd、嵌套子进程、powershell、vim、输入时延。
 add_executable(test_conpty_programs

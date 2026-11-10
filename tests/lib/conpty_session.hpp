@@ -117,6 +117,14 @@ class conpty_session
         return SUCCEEDED(ConptyResizePseudoConsole(_pty, size));
     }
 
+    // 清空可见缓冲区（keep_cursor_row 决定是否保留光标所在行）。
+    bool clear(bool keep_cursor_row = false)
+    {
+        if (_pty == nullptr)
+            return false;
+        return SUCCEEDED(ConptyClearPseudoConsole(_pty, keep_cursor_row ? TRUE : FALSE));
+    }
+
     // 等待客户端退出；false 表示超时（超时后终止它，避免泄漏）。
     bool wait_exit(DWORD timeout_ms, DWORD *exit_code = nullptr)
     {
