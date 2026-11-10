@@ -329,6 +329,54 @@ int mouse_probe()
     return 0;
 }
 
+// 差分测试用：调用一组稳定的控制台 API，把结果写成 JSON（单行）。
+int api_probe(const wchar_t *output_path)
+{
+    if (output_path == nullptr || output_path[0] == 0)
+        return 21;
+
+    const HANDLE input = ::GetStdHandle(STD_INPUT_HANDLE);
+    const HANDLE output = ::GetStdHandle(STD_OUTPUT_HANDLE);
+
+    DWORD input_mode = 0;
+    DWORD output_mode = 0;
+    ::GetConsoleMode(input, &input_mode);
+    ::GetConsoleMode(output, &output_mode);
+
+    CONSOLE_SCREEN_BUFFER_INFO before{};
+    ::GetConsoleScreenBufferInfo(output, &before);
+
+    ::SetConsoleTextAttribute(output, 0x1E);
+    CONSOLE_SCREEN_BUFFER_INFO after_attr{};
+    ::GetConsoleScreenBufferInfo(output, &after_attr);
+
+    CONSOLE_CURSOR_INFO cursor{50, TRUE};
+    ::SetConsoleCursorInfo(output, &cursor);
+    CONSOLE_CURSOR_INFO read_back{};
+    ::GetConsoleCursorInfo(output, &read_back);
+
+    ::SetConsoleTitleW(L"diff-title-42");
+    wchar_t title[128]{};
+    DWORD title_length = ::GetConsoleTitleW(title, ARRAYSIZE(title));
+
+    const HWND window = ::GetConsoleWindow();
+
+    FILE *file = nullptr;
+    if (::_wfopen_s(&file, output_path, L"wb") != 0 || file == nullptr)
+        return 22;
+    std::fprintf(file,
+                 "{\"in_mode\":%lu,\"out_mode\":%lu,\"size_x\":%d,\"size_y\":%d,\"cursor_x\":%d,\"cursor_y\":%d,"
+                 "\"attr_before\":%u,\"attr_after\":%u,\"cursor_size\":%lu,\"cursor_visible\":%lu,"
+                 "\"title\":\"%ls\",\"title_len\":%lu,\"has_window\":%d}\n",
+                 static_cast<unsigned long>(input_mode), static_cast<unsigned long>(output_mode), before.dwSize.X,
+                 before.dwSize.Y, before.dwCursorPosition.X, before.dwCursorPosition.Y, before.wAttributes,
+                 after_attr.wAttributes, static_cast<unsigned long>(read_back.dwSize),
+                 static_cast<unsigned long>(read_back.bVisible), title, static_cast<unsigned long>(title_length),
+                 window != nullptr ? 1 : 0);
+    std::fclose(file);
+    return 0;
+}
+
 int wmain(int argc, wchar_t **argv)
 {
     if (argc < 2 || argc > 3)
@@ -343,6 +391,8 @@ int wmain(int argc, wchar_t **argv)
         return serve_probe();
     if (::wcscmp(argv[1], L"--wake-probe") == 0)
         return wake_probe();
+    if (::wcscmp(argv[1], L"--api-probe") == 0)
+        return api_probe(argc >= 3 ? argv[2] : nullptr);
     if (::wcscmp(argv[1], L"--mouse-probe") == 0)
         return mouse_probe();
     if (::wcscmp(argv[1], L"--size-event-probe") == 0)

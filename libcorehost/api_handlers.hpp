@@ -1143,7 +1143,10 @@ inline bool api_get_mode(condrv_io::io_msg &msg, console_state &state, screen_bu
                          bool input_handle) noexcept
 {
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    r->Mode = input_handle ? state.input_mode : state.output_mode;
+    // conhost 的 GetConsoleMode 在输入句柄上补私有标志：EXTENDED_FLAGS 总是置位，
+    // INSERT/QUICK_EDIT/AUTO_POSITION 来自控制台内部状态
+    // （terminal/src/host/getset.cpp::GetConsoleInputModeImpl）。
+    r->Mode = input_handle ? (state.input_mode | ENABLE_EXTENDED_FLAGS | state.input_mode_private) : state.output_mode;
     ucomplete_sz(msg, sizeof(CONSOLE_MODE_MSG));
     return true;
 }
@@ -1158,6 +1161,12 @@ inline bool api_set_mode(condrv_io::io_msg &msg, console_state &state, screen_bu
     {
         const auto requested_mode = r->Mode;
         state.input_mode = requested_mode & ~private_input_modes;
+        // 私有标志的更新规则（conhost SetConsoleInputModeImpl）：带
+        // ENABLE_EXTENDED_FLAGS 才允许整体替换，否则只能置位。
+        if ((requested_mode & ENABLE_EXTENDED_FLAGS) != 0)
+            state.input_mode_private = requested_mode & private_input_modes;
+        else
+            state.input_mode_private |= requested_mode & private_input_modes;
 
         // 原版为了兼容会先保存模式，再返回 E_INVALIDARG。PSReadLine 依赖
         // “ECHO 开启但 LINE 关闭”这种无效组合仍然影响后续 Ctrl+C 行为。
@@ -2619,7 +2628,8 @@ inline bool api_get_title(condrv_io::io_msg &msg, console_state &state, screen_b
 
     if (r->Unicode)
     {
-        // TitleLength 返回不含结尾 NUL 的字节数；completion size 包含写入的 NUL。
+        // conhost 的语义（ApiDispatchers::ServerGetConsoleTitle）：TitleLength 是
+        // **字符数**（不含 NUL），reply information 是实际写入的字节数（不含 NUL）。
         auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
         auto maxc = std::min<size_t>(data_capacity,
                                      sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG)) /
@@ -2628,8 +2638,8 @@ inline bool api_get_title(condrv_io::io_msg &msg, console_state &state, screen_b
         auto cp = convert_u32_to_wide_raw(copied_text, out, maxc);
         if (cp < maxc)
             out[cp] = L'\0';
-        r->TitleLength = static_cast<ULONG>(u32_to_wide_exact_len(src) * sizeof(wchar_t));
-        const auto written = cp * sizeof(wchar_t) + (cp < maxc ? sizeof(wchar_t) : 0);
+        r->TitleLength = static_cast<ULONG>(u32_to_wide_exact_len(src));
+        const auto written = cp * sizeof(wchar_t);
         ucomplete_sz(msg, static_cast<ULONG>(sizeof(CONSOLE_GETTITLE_MSG) + written));
     }
     else

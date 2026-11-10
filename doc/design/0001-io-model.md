@@ -263,3 +263,22 @@ SetConsoleScreenBufferInfo(Ex)、SetConsoleWindowInfo、VT `\x1b[8;h;wt`。
 `\x1b[<b;x;yM/m` 在**非** VT 输入模式下转换成 `MOUSE_EVENT`（按下/松开/移动/滚轮、
 修饰键，按 conhost 的状态保留语义）；VT 输入模式或 RAW_READ 下原样透传，由应用
 自行解析。conhost 的双击/悬停启发式没有复刻（记录在 G20 备注）。
+## 4.16 与系统 conhost 的差分测试
+
+`tests/test_conpty_differential.cpp` 让同一组 Console API 分别在 corehost 与系统
+conhost 宿主下运行。机制：libconpty 按"测试可执行文件同目录的 corehost.exe"选择
+宿主（`libconpty/libconpty.hpp:189-211`），把 `%SystemRoot%\System32\conhost.exe`
+复制成独立目录里的 `corehost.exe`，即可让会话跑在系统 conhost 上，不需要注册表
+或服务。
+
+只比较稳定、有意义的行为：`in_mode`、`SetConsoleTextAttribute` 后的 `wAttributes`、
+光标大小/可见性、标题与标题长度。`out_mode` 不比较——conhost 是否默认打开
+`ENABLE_VIRTUAL_TERMINAL_PROCESSING` 取决于用户注册表 `VirtualTerminalLevel`
+（`terminal/src/host/screenInfo.cpp:30-37`），属于机器配置差异。
+
+差分首批发现并修复的真实差异：
+- `GetConsoleTitleW` 的 `TitleLength` 是字符数，不是字节数
+  （conhost `ApiDispatchers::ServerGetConsoleTitle`）。
+- `GetConsoleMode(input)` 会在回读时补 `EXTENDED_FLAGS` 和
+  `INSERT/QUICK_EDIT/AUTO_POSITION`（`host/getset.cpp::GetConsoleInputModeImpl`）；
+  `SetConsoleMode` 只有带 `EXTENDED_FLAGS` 才允许整体替换私有位。

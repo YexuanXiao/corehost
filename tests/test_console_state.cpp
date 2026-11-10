@@ -1652,7 +1652,8 @@ bool test_regression_get_title_output_size_limits_copy()
     auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
 
     ASSERT(api_get_title(msg, st, sb, inp, bridge));
-    ASSERT(get->TitleLength == 8);
+    // conhost 语义：TitleLength 是字符数（不是字节数），"test" = 4。
+    ASSERT(get->TitleLength == 4);
     ASSERT(out[0] == L't');
     ASSERT(out[1] == L'e');
     return true;
@@ -2467,6 +2468,50 @@ bool test_regression_write_console_parser_sgr_applies_params_in_order()
     return true;
 }
 
+// 输入模式的私有标志：回读时补 EXTENDED_FLAGS 与 INSERT/QUICK_EDIT/AUTO_POSITION，
+// set 时只有带 EXTENDED_FLAGS 才整体替换（conhost getset.cpp 语义）。
+bool test_console_mode_private_flags_round_trip()
+{
+    corehost::condrv_io::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
+
+    auto read_mode = [&]() -> DWORD {
+        std::memset(&msg, 0, sizeof(msg));
+        msg.descriptor.OutputSize = sizeof(CONSOLE_MODE_MSG);
+        (void)api_get_mode(msg, st, sb, inp, bridge, true);
+        return reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER))->Mode;
+    };
+
+    const DWORD default_mode = read_mode();
+    ASSERT_EQ(default_mode, static_cast<DWORD>(0x1F7));
+    ASSERT((default_mode & ENABLE_EXTENDED_FLAGS) != 0);
+    ASSERT((default_mode & ENABLE_INSERT_MODE) != 0);
+    ASSERT((default_mode & ENABLE_QUICK_EDIT_MODE) != 0);
+    ASSERT((default_mode & ENABLE_AUTO_POSITION) != 0);
+
+    // 带 EXTENDED_FLAGS：只保留 INSERT，清掉 QUICK_EDIT/AUTO_POSITION。
+    std::memset(&msg, 0, sizeof(msg));
+    auto *mode = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    mode->Mode = ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_ECHO_INPUT | ENABLE_MOUSE_INPUT |
+                 ENABLE_EXTENDED_FLAGS | ENABLE_INSERT_MODE;
+    ASSERT(api_set_mode(msg, st, sb, inp, bridge, true));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT_EQ(read_mode() & (ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE | ENABLE_AUTO_POSITION),
+              static_cast<DWORD>(ENABLE_INSERT_MODE));
+
+    // 不带 EXTENDED_FLAGS：只允许置位。
+    std::memset(&msg, 0, sizeof(msg));
+    mode = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    mode->Mode = ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_ECHO_INPUT | ENABLE_QUICK_EDIT_MODE;
+    ASSERT(api_set_mode(msg, st, sb, inp, bridge, true));
+    ASSERT_EQ(read_mode() & (ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE | ENABLE_AUTO_POSITION),
+              static_cast<DWORD>(ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE));
+    return true;
+}
+
 bool test_regression_set_console_mode_validation()
 {
     corehost::condrv_io::io_msg msg{};
@@ -2716,7 +2761,7 @@ bool test_regression_get_history_zero()
 }
 
 // 回归: GetTitle 的 TitleLength 应为字节数
-bool test_regression_get_title_length_bytes()
+bool test_regression_get_title_length_chars()
 {
     console_state st;
     std::u32string u32title;
@@ -2737,8 +2782,8 @@ bool test_regression_get_title_length_bytes()
 
     api_get_title(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
-    // "test" = 4 wchars × 2 = 8 字节
-    ASSERT(r->TitleLength == 8);
+    // conhost 语义：TitleLength 是字符数（"test" = 4），不是字节数。
+    ASSERT(r->TitleLength == 4);
     return true;
 }
 
@@ -3196,6 +3241,7 @@ int main()
     RUN_TEST(test_regression_write_console_parser_sgr_applies_params_in_order,
              L"WriteConsole parser SGR applies params in order");
     RUN_TEST(test_regression_set_console_mode_validation, L"SetConsoleMode validation");
+    RUN_TEST(test_console_mode_private_flags_round_trip, L"Console mode private flags round trip");
     RUN_TEST(test_regression_add_alias_msg_layout, L"Alias msg layout (Exe+Src+Tgt)");
     RUN_TEST(test_regression_add_alias_zero_exe, L"Alias msg zero exe");
     RUN_TEST(test_regression_alias_expand_after_store, L"Alias expand after store");
@@ -3207,7 +3253,7 @@ int main()
     RUN_TEST(test_regression_get_aliases_length_ansi, L"GetAliasesLength ANSI bytes");
     RUN_TEST(test_regression_get_history_length_zero, L"GetHistoryLength returns 0");
     RUN_TEST(test_regression_get_history_zero, L"GetHistory returns 0");
-    RUN_TEST(test_regression_get_title_length_bytes, L"GetTitle length in bytes");
+    RUN_TEST(test_regression_get_title_length_chars, L"GetTitle length in characters");
     RUN_TEST(test_regression_add_alias_ansi_ascii, L"AddAlias ANSI ASCII parsing");
     RUN_TEST(test_regression_get_alias_ansi_output, L"GetAlias ANSI output char*");
     RUN_TEST(test_regression_get_aliases_ansi_output, L"GetAliases ANSI output char*");

@@ -158,6 +158,9 @@ struct console_state
     // ── 模式 ──
     // 取值为 ENABLE_* 标志位组合；输入/输出的默认集合与原版不同对象一致。
     DWORD input_mode = DEFAULT_INPUT_MODE;
+    // GetConsoleMode 回读时补上的私有标志（默认与 conhost 一致：INSERT 开、
+    // QUICK_EDIT 开、AUTO_POSITION 关；EXTENDED_FLAGS 在回读时总是置位）。
+    DWORD input_mode_private = ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE | ENABLE_AUTO_POSITION;
     DWORD output_mode = DEFAULT_OUTPUT_MODE;
 
     // ── 代码页 ──

@@ -182,7 +182,8 @@ add_custom_command(TARGET console_probe POST_BUILD
         "$<TARGET_FILE_DIR:test_conpty_robustness>"
 )
 
-# ── test_conpty_robustness ────────────────────────# resize / clear / 非法尺寸 / 退出码 / 重复会话。
+# ── test_conpty_robustness ────────────────────────
+# resize / clear / 非法尺寸 / 退出码 / 重复会话。
 add_executable(test_conpty_robustness
     test_conpty_robustness.cpp
 )
@@ -232,8 +233,31 @@ target_link_libraries(test_defterm_wt_real PRIVATE test_common)
 add_test(NAME Defterm.RealTerminal COMMAND test_defterm_wt_real)
 set_tests_properties(Defterm.RealTerminal PROPERTIES LABELS "defterm;real" TIMEOUT 60)
 
-# ── test_conpty_programs ──────────────────────────
-# 真实程序矩阵：cmd、嵌套子进程、powershell、vim、输入时延。
+# ── test_conpty_differential ─────────────────────
+# 与系统 conhost 的差分测试：同一场景分别在 corehost 与 conhost 宿主下运行。
+add_executable(test_conpty_differential
+    test_conpty_differential.cpp
+)
+target_include_directories(test_conpty_differential PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_conpty_differential PRIVATE test_common conpty_static)
+add_dependencies(test_conpty_differential corehost console_probe)
+add_custom_command(TARGET test_conpty_differential POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:corehost>"
+        "$<TARGET_FILE_DIR:test_conpty_differential>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:console_probe>"
+        "$<TARGET_FILE_DIR:test_conpty_differential>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_conpty_differential>/logs"
+)
+add_test(NAME ConPTY.Differential COMMAND test_conpty_differential)
+set_tests_properties(ConPTY.Differential PROPERTIES LABELS "conpty;differential" TIMEOUT 180)
+
+# ── test_conpty_programs ──────────────────────────# 真实程序矩阵：cmd、嵌套子进程、powershell、vim、输入时延。
 add_executable(test_conpty_programs
     test_conpty_programs.cpp
 )
