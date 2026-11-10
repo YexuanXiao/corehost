@@ -5,6 +5,8 @@
 #include "lib/runner.hpp"
 
 #include <cstdio>
+#include <fstream>
+#include <iterator>
 
 namespace
 {
@@ -288,6 +290,39 @@ corehost::test::result signal_delivery_is_repeatable()
     return corehost::test::result::pass;
 }
 
+// Ctrl+C 语义对齐 conhost：等待中的 ReadConsole 以 STATUS_ALERTED 结束
+// （客户端 FALSE + ERROR_OPERATION_ABORTED），不是收到一个按键。
+corehost::test::result ctrl_c_aborts_pending_read()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --ctrl-read-probe"));
+    REQUIRE(session.wait_output("CTRL-READ-READY", 15000));
+
+    // 等客户端真正进入 ReadConsole（READY 之后才发起的调用）。
+    ::Sleep(1000);
+    REQUIRE(session.write("\x1b[67;46;3;1;8;1_"));
+
+    const bool saw = session.wait_output("CTRL-READ-RESULT", 15000);
+    const auto output = session.take_output();
+    if (!saw)
+        std::fwprintf(stderr, L"[ctrl_c_read] missing result, output: %hs\n", output.c_str());
+    else
+        std::fwprintf(stderr, L"[ctrl_c_read] %hs\n", output.c_str());
+    session.close();
+    REQUIRE(saw);
+
+    // 宿主返回 STATUS_ALERTED（与 conhost 的 COOKED_READ_DATA::Notify 一致），
+    // 客户端库把它映射成"0 字节读取 + ERROR_OPERATION_ABORTED"。
+    REQUIRE(output.find("read=0 err=995") != std::string::npos);
+    return corehost::test::result::pass;
+}
+
+// 参考基准：让真实 conhost 跑同一个探针（CREATE_NEW_CONSOLE），
+// 通过 AttachConsole + GenerateConsoleCtrlEvent 投递 Ctrl+C，
+// 记录 ReadConsole 的返回，用于核对 corehost 是否与 conhost 一致。
 } // namespace
 
 int main()
@@ -304,6 +339,7 @@ int main()
         {"vt", "conpty;robust;input", &vt_input_passthrough_sends_raw_sequences},
         {"ctrl_break", "conpty;robust;signal", &ctrl_break_interrupts_foreground},
         {"signal_repeat", "conpty;robust;signal", &signal_delivery_is_repeatable},
+        {"ctrl_c_read", "conpty;robust;signal", &ctrl_c_aborts_pending_read},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))

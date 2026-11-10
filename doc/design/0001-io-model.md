@@ -114,7 +114,22 @@ flush），与应用输出在同一把锁下串行。因此"按键回显"与"程
 Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额外简化：不需要
 "模式快照 + 版本号 + 陈旧窗口"这一整套机制。
 
-### 4.6 阻塞读的取消
+### 4.6 Ctrl+C / Ctrl+Break 的读语义（与 conhost 对齐）
+
+依据 `terminal/src/host/input.cpp::HandleGenericKeyEvent` 与
+`readDataCooked.cpp::Notify`：
+
+- **Ctrl+C**：仅 processed input、无 Alt、key down、`VK == 'C'`。投递
+  `CTRL_C_EVENT`，并以 `STATUS_ALERTED`（0x101）结束等待中的
+  ReadConsole/ReadFile/GetConsoleInput；**不 Flush** 输入缓冲；按键不写入输入缓冲。
+- **Ctrl+Break**：不看 processed input。先 `Flush` 输入缓冲，再投递
+  `CTRL_BREAK_EVENT`，同样以 `STATUS_ALERTED` 结束读。
+- 事件投递走 CSRSS `ConsoleControl(ConsoleEndTask)`（corehost 不在控制台上，
+  `GenerateConsoleCtrlEvent` 到不了客户端），与 conhost 的 `ProcessCtrlEvents` 同路。
+- 客户端观察到的结果由 Windows 控制台客户端库映射：0 字节读取 +
+  `ERROR_OPERATION_ABORTED`。
+
+### 4.7 阻塞读的取消
 
 匿名管道不支持 overlapped，也没有"可等待的可读事件"。选定
 `CancelSynchronousIo` 方案：
@@ -150,17 +165,17 @@ Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额�
 （调用方给的句柄不可控）；`TerminateThread`（破坏进程状态，违背"正确处理线程
 退出"）。
 
-### 4.7 致命错误不能跨线程抛出
+### 4.8 致命错误不能跨线程抛出
 
 异常无法跨线程传播：主线程致命错误抛 `win32::error`/`std::bad_alloc`；工作
 线程致命错误记录诊断后 `std::abort()`。全仓库不新增 `catch`。
 
-### 4.8 线程命名
+### 4.9 线程命名
 
 每个工作线程入口设置可读名称（终端输入 / 信号管道 / 控制台窗口 + 会话标识），
 由 `common/win32` 统一提供，避免各写一套。
 
-### 4.9 禁止探测式等待
+### 4.10 禁止探测式等待
 
 "先 `WaitForSingleObject(handle, 0)` 看一眼，再决定要不要做事"与轮询没有本质区别：
 它仍然是"没输入时也在主动检查"。这类代码在旧实现里用来决定"提交 completion 前
@@ -198,7 +213,7 @@ INFINITE；"探查状态"必须通过读取真实状态完成，不能通过等�
 5. `ReadFile` 返回 0 字节（对端关闭）与 `ERROR_OPERATION_ABORTED`（取消）必须
    严格区分：前者是 EOF，后者是"停止"，不能混为一谈。
 
-### 4.10 实测发现：ConDrv READ_IO 是阻塞的
+### 4.11 实测发现：ConDrv READ_IO 是阻塞的
 
 B6 的伪窗口用例暴露出一个此前被注释误导的事实：`DeviceIoControl(IOCTL_READ_IO)`
 在没有消息时会**阻塞**，而不是立即返回 `ERROR_IO_PENDING`。证据：窗口线程在

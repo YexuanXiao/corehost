@@ -29,6 +29,7 @@ ctest --test-dir build --output-on-failure
 | 挂起读期间仍服务其它请求 | `serve` 用例（ReadConsole 挂起时另一线程查询光标立即返回） |
 | WriteConsoleInput 唤醒挂起读 | `wake` 用例 |
 | VT 输入程序收到原始序列 | `vt` 用例（Up+Backspace = `1b 5b 41 7f`） |
+| Ctrl+C 语义（对齐 conhost） | `ctrl_c_read`：挂起读以 STATUS_ALERTED 结束（0 字节 + err=995）；单测覆盖"C 不清缓冲 / Break 清缓冲"；依据 `terminal/` 源码 |
 | 退出与 join | `Deferm`/`ConPTY` 各用例的宿主进程都在 5s 内退出；线程停止走事件驱动取消 + 无限 join |
 
 ## 3. 任务 2（GetConsoleWindow 伪窗口）证据

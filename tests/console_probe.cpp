@@ -8,6 +8,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <cstring>
 
 namespace
 {
@@ -159,11 +160,62 @@ int vt_probe()
     return 0;
 }
 
+BOOL WINAPI ignore_ctrl_handler(DWORD event)
+{
+    (void)event;
+    return TRUE; // 吞掉事件，进程存活，便于观察 ReadConsole 的返回
+}
+
+// 把一行结果追加到文件（用于跨控制台比较：conhost 参考实现读不到管道）。
+void append_result_file(const wchar_t *path, const char *text)
+{
+    if (path == nullptr || path[0] == 0)
+        return;
+    FILE *file = nullptr;
+    if (::_wfopen_s(&file, path, L"ab") != 0 || file == nullptr)
+        return;
+    std::fwrite(text, 1, std::strlen(text), file);
+    std::fclose(file);
+}
+
+// Ctrl+C 对齐 conhost 的语义：等待中的 ReadConsole 以 STATUS_ALERTED 结束
+// （客户端以 0 字节返回并设置 ERROR_OPERATION_ABORTED），而不是收到一个按键。
+int ctrl_read_probe(const wchar_t *result_file)
+{
+    ::SetConsoleCtrlHandler(&ignore_ctrl_handler, TRUE);
+
+    const HANDLE input = ::GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode = 0;
+    if (::GetConsoleMode(input, &mode) == FALSE)
+        return 10;
+    mode |= ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT;
+    if (::SetConsoleMode(input, mode) == FALSE)
+        return 11;
+
+    constexpr char ready[] = "CTRL-READ-READY\r\n";
+    DWORD written = 0;
+    ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), ready, sizeof(ready) - 1, &written, nullptr);
+    append_result_file(result_file, ready);
+
+    char buffer[64]{};
+    DWORD read = 0;
+    ::SetLastError(0);
+    const BOOL ok = ::ReadConsoleA(input, buffer, sizeof(buffer), &read, nullptr);
+    const DWORD error = ::GetLastError();
+
+    char marker[128]{};
+    ::sprintf_s(marker, "CTRL-READ-RESULT ok=%d read=%lu err=%lu\r\n", static_cast<int>(ok),
+                static_cast<unsigned long>(read), static_cast<unsigned long>(error));
+    ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), marker, static_cast<DWORD>(::strlen(marker)), &written, nullptr);
+    append_result_file(result_file, marker);
+    return 0;
+}
+
 int wmain(int argc, wchar_t **argv)
 {
-    if (argc != 2)
+    if (argc < 2 || argc > 3)
     {
-        ::fwprintf(stderr, L"usage: console_probe --ctrl-probe | --serve-probe | --wake-probe | --vt-probe\n");
+        ::fwprintf(stderr, L"usage: console_probe --ctrl-probe | --ctrl-read-probe | --serve-probe | --wake-probe | --vt-probe\n");
         return 2;
     }
 
@@ -173,6 +225,8 @@ int wmain(int argc, wchar_t **argv)
         return serve_probe();
     if (::wcscmp(argv[1], L"--wake-probe") == 0)
         return wake_probe();
+    if (::wcscmp(argv[1], L"--ctrl-read-probe") == 0)
+        return ctrl_read_probe(argc >= 3 ? argv[2] : nullptr);
     if (::wcscmp(argv[1], L"--vt-probe") == 0)
         return vt_probe();
 
