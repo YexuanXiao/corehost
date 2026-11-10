@@ -125,6 +125,60 @@ corehost::test::result input_latency()
     return corehost::test::result::pass;
 }
 
+corehost::test::result edit_help_runs()
+{
+    const auto edit = corehost::test::system32_path(L"edit.exe");
+    if (!corehost::test::file_exists(edit))
+        SKIP(L"edit.exe not found");
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(edit) + L" /?"));
+
+    REQUIRE(session.wait_output("Usage: edit", 20000));
+
+    DWORD exit_code = static_cast<DWORD>(-1);
+    REQUIRE(session.wait_exit(20000, &exit_code));
+    REQUIRE(exit_code == 0);
+    return corehost::test::result::pass;
+}
+
+// ssh 远程组合：本机 sshd + ssh -tt 远程命令。
+// 前置：sshd 服务已运行（需要管理员启动）且当前用户已配置密钥登录。
+corehost::test::result ssh_remote_command()
+{
+    const auto ssh = corehost::test::system32_path(L"OpenSSH\\ssh.exe");
+    if (!corehost::test::file_exists(ssh))
+        SKIP(L"ssh.exe not found");
+
+    const DWORD state = corehost::test::service_state(L"sshd");
+    if (state != SERVICE_RUNNING)
+        SKIP(L"sshd service is not running (start requires administrator)");
+
+    corehost::test::conpty_session session;
+    const std::wstring known_hosts = L"C:\\Windows\\Temp\\corehost_ssh_known_hosts";
+    const std::wstring command =
+        quote(ssh) + L" -tt -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=" + known_hosts +
+        L" localhost \"cmd /c echo ssh-marker\"";
+    REQUIRE(session.start(command));
+
+    const bool saw_marker = session.wait_output("ssh-marker", 30000);
+
+    DWORD exit_code = static_cast<DWORD>(-1);
+    REQUIRE(session.wait_exit(30000, &exit_code));
+
+    const auto output = session.take_output();
+    if (!saw_marker && exit_code != 0 &&
+        (output.find("Permission denied") != std::string::npos ||
+         output.find("Host key verification failed") != std::string::npos))
+    {
+        SKIP(L"sshd running but key authentication is not configured for this user");
+    }
+
+    REQUIRE(saw_marker);
+    REQUIRE(exit_code == 0);
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -135,6 +189,8 @@ int main()
         {"powershell", "conpty;program", &powershell_command},
         {"vim", "conpty;program;interactive", &vim_starts_and_quits},
         {"latency", "conpty;perf", &input_latency},
+        {"edit", "conpty;program", &edit_help_runs},
+        {"ssh", "conpty;program;network", &ssh_remote_command},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))

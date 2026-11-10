@@ -7,6 +7,7 @@
 // - 超时只用于测试基础设施判定失败，不是产品等待上限。
 #pragma once
 #include <windows.h>
+#include <winsvc.h>
 
 #include <string>
 #include <cstdio>
@@ -59,6 +60,26 @@ inline bool has_ssh()
 inline bool has_sshd()
 {
     return file_exists(system32_path(L"OpenSSH\\sshd.exe"));
+}
+
+// 查询服务状态；0 表示查询失败或服务不存在。不需要管理员权限。
+inline DWORD service_state(std::wstring_view name)
+{
+    const SC_HANDLE manager = ::OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (manager == nullptr)
+        return 0;
+
+    DWORD state = 0;
+    const SC_HANDLE service = ::OpenServiceW(manager, std::wstring{name}.c_str(), SERVICE_QUERY_STATUS);
+    if (service != nullptr)
+    {
+        SERVICE_STATUS status{};
+        if (::QueryServiceStatus(service, &status) != FALSE)
+            state = status.dwCurrentState;
+        ::CloseServiceHandle(service);
+    }
+    ::CloseServiceHandle(manager);
+    return state;
 }
 
 // 交互式会话（有可见 window station）才能跑 GUI 相关用例。

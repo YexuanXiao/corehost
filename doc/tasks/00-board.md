@@ -57,8 +57,8 @@
 | D1 | 测试库：会话驱动、输出泵、VT 屏幕模型、诊断 | TODO | | 复用 C1 |
 | D2 | 控制台测试程序（脚本化 API/VT/子进程） | TODO | | |
 | D3 | 基础用例：输出、光标、输入、resize、异常 | DOING | ConPTY.Programs | 输出/子进程继承/输入时延已有；resize/异常/光标断言待补 |
-| D4 | 真实程序用例：cmd、powershell、vim、edit | DOING | ConPTY.Programs | cmd/嵌套子进程/powershell/vim 已通过（vim 需在 PATH，否则 SKIP）；edit 与 ssh 待补 |
-| D5 | ssh 远程组合：专用 sshd、连接、远程交互、清理 | TODO | | |
+| D4 | 真实程序用例：cmd、powershell、vim、edit | DONE | ConPTY.Programs | cmd/嵌套子进程/powershell/vim/edit 全部通过；缺程序时 SKIP |
+| D5 | ssh 远程组合：专用 sshd、连接、远程交互、清理 | BLOCKED | ConPTY.Programs | 用例已实现（`ssh -tt localhost` + 标记校验）：sshd 服务未运行，启动需要管理员权限；服务可用时自动执行，否则 SKIP 并输出原因 |
 | D6 | 子进程继承用例、稳定性、文档 | TODO | | |
 
 ## 当前迭代
