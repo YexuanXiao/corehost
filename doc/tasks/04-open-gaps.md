@@ -7,7 +7,7 @@
 | 编号 | 项 | 现状 | 解除条件 | 归属 |
 | --- | --- | --- | --- | --- |
 | G1 | ~~defterm 直连客户端的 `GetConsoleMode` 失败~~ | RESOLVED：传本进程 STD 句柄会被判未知对象（测试环境没有客户端句柄表）；改传 `nullptr`（object=0）后成功。真实客户端有句柄表，不受影响 | — | C5 |
-| G2 | ssh 远程组合用例 | 用例已实现（`ssh -tt localhost` + 标记校验 + 环境 SKIP），但本机 sshd 服务 **Stopped**，启动需管理员 | 以管理员启动 sshd 并为当前用户配置公钥登录；代码无需改动 | D5 |
+| G2 | ~~ssh 远程组合~~ | DONE：测试库 `tests/lib/ssh_server.hpp` 在测试目录旁生成密钥与最小 sshd_config，以当前用户身份在高端口拉起**临时 sshd**（非管理员），`ssh` 非交互命令与 `ssh_pty` 交互会话两条用例均通过；不再依赖系统 sshd 服务 | — | D3 |
 | G3 | ~~伪窗口 show/hide 信号~~ | DONE：`WM_SIZE(SIZE_MINIMIZED/RESTORED)`、`WM_SHOWWINDOW` 在会话锁内向 vt_out 写 `ESC[2t/1t`（原版 `VtIo::Writer::WriteWindowVisibility` 同款）；`ConPTY.Programs` 的 visibility 用例验证 | — | B7 |
 | G4 | 真实 WindowsTerminal 层（L2） | 未开始：defterm 测试目前覆盖 L0（ConDrv 直连），没有真正拉起 WT 并做端到端交互 | 需要交互式桌面 + 已安装 WT；用例要能探测并 SKIP | C6 |
 | G5 | Handoff 替身层（L1） | 未开始：没有测试实现的 COM handoff 接收方 | 需要一个最小 `IConsoleHandoff` 本地服务器；可先在 defterm 分支上做 | C6 |
@@ -41,5 +41,5 @@ handoff 替身层）、G11（Ctrl+C）仍未完成，解除条件见对应行。
 | --- | --- | --- |
 | 受限文件沙箱下 CMake `try_compile` 挂起 | 配置/构建需要完整权限 | 看板基线表 |
 | 测试进程写 HKCU 返回 ACCESS_DENIED | 与 defterm 方案无关了（不再写注册表）；未继续排查 | 已删除相关代码 |
-| sshd 服务未运行 | D5 用例 SKIP | G2 |
+| sshd 服务未运行 | D5 用例 SKIP | G2 | ~~ssh 远程组合~~ | DONE：测试库 `tests/lib/ssh_server.hpp` 在测试目录旁生成密钥与最小 sshd_config，以当前用户身份在高端口拉起**临时 sshd**（非管理员），`ssh` 非交互命令与 `ssh_pty` 交互会话两条用例均通过；不再依赖系统 sshd 服务 | — | D3 |
 | 本机未验证 WindowsTerminal 交互 | C6 未开始 | G4 |

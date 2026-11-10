@@ -17,7 +17,7 @@ ctest --test-dir build --output-on-failure
 | 空闲 CPU | `ConPTY.IdleCpu`：3 秒空闲 **0 ms**（阈值 100 ms） |
 | 输入时延 | `ConPTY.Programs/latency`：20 次按键 p95 **10–13 ms**（阈值 250 ms） |
 | 会话稳定性 | `ConPTY.Robustness/repeat`：50 次会话，测试进程句柄 104 → 107 |
-| 真实程序 | cmd / 嵌套子进程 / powershell / vim / edit / visibility 全部通过；ssh SKIP（sshd 未运行） |
+| 真实程序 | cmd / 嵌套子进程 / powershell / vim / edit / visibility / **ssh（临时 sshd）** / **ssh_pty** 全部通过 |
 
 ## 2. 任务 1（I/O 模型）证据
 
@@ -56,7 +56,7 @@ ctest --test-dir build --output-on-failure
 
 ## 5. 已知缺口（详见 `04-open-gaps.md`）
 
-- **G2**：sshd 未运行（需管理员），ssh 用例 SKIP；
+- ~~G2~~：已用临时 sshd 解决；
 - **G4/G5**：真实 WindowsTerminal 层与 handoff 替身层未实现；
 
 - 偶发：一次完整 `ctest` 出现 1 个失败，立即复跑通过；未定位到具体用例（日志被覆盖）。后续应给失败用例保留产物（`--output-on-failure` 已开，但需归档日志）。
@@ -82,7 +82,7 @@ ctest --test-dir build --output-on-failure
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-第 61 轮实测：**23/23 通过，25.85s**。
+第 62 轮实测：**23/23 通过，27.64s**；`ConPTY.Programs` 9 passed / 0 skipped。
 
 ## 7. 结论''
 
