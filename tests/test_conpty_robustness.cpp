@@ -112,13 +112,16 @@ corehost::test::result exit_code_is_propagated()
     return corehost::test::result::pass;
 }
 
-// 连续会话：每次都干净退出（粗粒度泄漏/稳定性观察）。
+// 连续 20 次会话：每次都干净退出，测试进程自身句柄不泄漏。
 corehost::test::result repeated_sessions()
 {
     const auto cmd = corehost::test::system32_path(L"cmd.exe");
     REQUIRE(!cmd.empty());
 
-    for (int iteration = 0; iteration < 5; ++iteration)
+    DWORD handles_before = 0;
+    REQUIRE(::GetProcessHandleCount(::GetCurrentProcess(), &handles_before) != FALSE);
+
+    for (int iteration = 0; iteration < 20; ++iteration)
     {
         corehost::test::conpty_session session;
         REQUIRE(session.start(quote(cmd) + L" /c \"echo repeat-marker\""));
@@ -128,6 +131,13 @@ corehost::test::result repeated_sessions()
         REQUIRE(session.wait_exit(15000, &exit_code));
         REQUIRE(exit_code == 0);
     }
+
+    DWORD handles_after = 0;
+    REQUIRE(::GetProcessHandleCount(::GetCurrentProcess(), &handles_after) != FALSE);
+
+    std::fwprintf(stdout, L"[repeat] handles %lu -> %lu ", handles_before, handles_after);
+    // 每次会话允许少量临时对象；20 次后不应线性增长。
+    REQUIRE(handles_after <= handles_before + 40);
     return corehost::test::result::pass;
 }
 
