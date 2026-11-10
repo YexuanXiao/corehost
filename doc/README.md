@@ -47,6 +47,7 @@
 | `plan/03-defterm-tests.md` | 任务 3：defterm 自动化测试 | DONE |
 | `plan/04-conpty-tests.md` | 任务 4：conpty 自动化测试 | DONE |
 | `tasks/00-board.md` | 子任务看板与实现状态 | DONE |
+| `tasks/01-a1-baseline.md` | A1 基线调查：轮询点、状态归属、回归与测量方法 | DONE |
 | `design/0001-io-model.md` | I/O 模型：线程、状态归属、退出协议 | DONE |
 | `design/0002-console-window.md` | 伪窗口：窗口类型、消息策略、生命周期 | DONE |
 | `design/0003-conhost-test-library.md` | 测试库：框架、隔离、驱动方式 | DONE |
