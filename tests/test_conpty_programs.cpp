@@ -12,6 +12,7 @@
 #include <chrono>
 #include <string>
 #include <cstdio>
+#include <fstream>
 #include <algorithm>
 #include <vector>
 
@@ -402,6 +403,106 @@ corehost::test::result screen_erase_removes_old_text()
     return corehost::test::result::pass;
 }
 
+// 脚本化客户端：API 序列（写文本/读 SBI/mode/标题）。
+corehost::test::result script_console_api()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    wchar_t module[MAX_PATH]{};
+    REQUIRE(::GetModuleFileNameW(nullptr, module, ARRAYSIZE(module)) != 0);
+    const auto script = (std::filesystem::path{module}.parent_path() / L"script_api.txt");
+    {
+        std::ofstream file{script, std::ios::binary};
+        file << "write hello\nsbi\ngetmode\nsettitle script-title\ngettitle\nexit 0\n";
+    }
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --script \"" + script.wstring() + L"\""));
+    REQUIRE(session.wait_output("[script] gettitle", 15000));
+    DWORD exit_code = static_cast<DWORD>(-1);
+    REQUIRE(session.wait_exit(15000, &exit_code));
+    const auto output = session.take_output();
+    session.close();
+    std::filesystem::remove(script);
+
+    if (output.find("[script] write ok") == std::string::npos || output.find("sbi size=") == std::string::npos ||
+        output.find("[script] gettitle \"script-title\"") == std::string::npos)
+        std::fprintf(stderr, "[script_api] output: %s\n", output.c_str());
+    REQUIRE(output.find("[script] write ok") != std::string::npos);
+    REQUIRE(output.find("sbi size=") != std::string::npos);
+    REQUIRE(output.find("[script] gettitle \"script-title\"") != std::string::npos);
+    REQUIRE(exit_code == 0);
+    return corehost::test::result::pass;
+}
+
+// 脚本化客户端：窗口消息（标题长度/内容、show 不影响可见性）。
+corehost::test::result script_window_messages()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    wchar_t module[MAX_PATH]{};
+    REQUIRE(::GetModuleFileNameW(nullptr, module, ARRAYSIZE(module)) != 0);
+    const auto script = (std::filesystem::path{module}.parent_path() / L"script_window.txt");
+    {
+        std::ofstream file{script, std::ios::binary};
+        file << "settitle script-window\nwindow\nmsg gettextlength\nmsg gettext\nmsg showon\nwindow\n"
+                "msg minimize\nmsg restore\nexit 0\n";
+    }
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --script \"" + script.wstring() + L"\""));
+    REQUIRE(session.wait_output("[script] msg restore", 15000));
+    DWORD exit_code = static_cast<DWORD>(-1);
+    REQUIRE(session.wait_exit(15000, &exit_code));
+    const auto output = session.take_output();
+    session.close();
+    std::filesystem::remove(script);
+
+    if (output.find("[script] window valid=1 visible=0") == std::string::npos ||
+        output.find("[script] msg gettextlength result=13") == std::string::npos ||
+        output.find("[script] msg gettext \"script-window\"") == std::string::npos)
+        std::fprintf(stderr, "[script_window] output: %s\n", output.c_str());
+    REQUIRE(output.find("[script] window valid=1 visible=0") != std::string::npos);
+    REQUIRE(output.find("[script] msg gettextlength result=13") != std::string::npos);
+    REQUIRE(output.find("[script] msg gettext \"script-window\"") != std::string::npos);
+    REQUIRE(exit_code == 0);
+    return corehost::test::result::pass;
+}
+
+// 脚本化客户端：写文本后由测试用 VT 屏幕模型断言（ReadConsoleOutputCharacter
+// 在 ConPTY 下会让客户端崩溃，见 gaps G28，因此不在探针里回读）。
+corehost::test::result script_expect_screen_text()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    wchar_t module[MAX_PATH]{};
+    REQUIRE(::GetModuleFileNameW(nullptr, module, ARRAYSIZE(module)) != 0);
+    const auto script = (std::filesystem::path{module}.parent_path() / L"script_expect.txt");
+    {
+        std::ofstream file{script, std::ios::binary};
+        file << "write EXPECT-TEXT\nexit 0\n";
+    }
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --script \"" + script.wstring() + L"\""));
+    DWORD exit_code = static_cast<DWORD>(-1);
+    REQUIRE(session.wait_exit(15000, &exit_code));
+    const auto output = session.take_output();
+    session.close();
+    std::filesystem::remove(script);
+
+    corehost::test::vt_screen screen{80, 25};
+    screen.feed(output);
+    if (!screen.contains("EXPECT-TEXT"))
+        std::fprintf(stderr, "[script_screen] output: %s\n", output.c_str());
+    REQUIRE(screen.contains("EXPECT-TEXT"));
+    REQUIRE(exit_code == 0);
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -409,6 +510,9 @@ int main()
     constexpr corehost::test::test_case cases[] = {
         {"cmd", "conpty;program", &cmd_echo_and_exit},
         {"screen_erase", "conpty;program;screen", &screen_erase_removes_old_text},
+        {"script_api", "conpty;program;script", &script_console_api},
+        {"script_window", "conpty;program;script", &script_window_messages},
+        {"script_expect", "conpty;program;script", &script_expect_screen_text},
         {"nested", "conpty;program;inherit", &nested_child_inherits_console},
         {"powershell", "conpty;program", &powershell_command},
         {"vim", "conpty;program;interactive", &vim_starts_and_quits},

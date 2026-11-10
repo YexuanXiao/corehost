@@ -46,7 +46,7 @@
 | C1 | 测试库骨架：runner/断言/隔离/超时/环境探测 + 自测 | DONE | C1 测试库 runner | runner/断言/过滤/子进程隔离/超时/失败归档均有自测（`Runner.SelfTest`、`Platform.SelfTest`） |
 | C2 | 进程/会话驱动；诊断产物；ConDrv 客户端 | DONE | C2 宿主层：环境探测与子进程运行器 | `tests/lib/platform.hpp`：PATH/System32/WT/sshd/交互式探测 + `run_process`（Job 对象管进程树、600ms 超时实测终止）；会话驱动完成并通过；**defterm 测试不碰注册表**：测试进程自建 ConDrv server/reference，启动 `corehost.exe <handle>`，再打开 `\\Connect` 完成客户端 CONNECT 并绑定 PEB ConsoleHandle（见 `tests/lib/condrv.hpp`）。已修：首轮 READ_IO 前误等事件导致 CONNECT 收不到。`Defterm.Connect` 已注册并通过：测试进程自建 ConDrv 会话 → corehost defterm → GetConsoleCP/GetConsoleOutputCP=65001。遗留：GetConsoleMode 等依赖对象 id 的 API 需拿到 CONNECT 返回的句柄值
 | C3 | defterm 启动路径：测试进程自建 ConDrv 会话，驱动 defterm 入口 | DONE | C3 defterm 直连用例 | `tests/lib/condrv.hpp`；`Defterm.Connect` 覆盖 CONNECT + 代码页往返；新增 window 用例覆盖 `GetConsoleWindow` 归属与 `WM_CLOSE` 结束会话；不碰注册表 |
-| C4 | 控制台测试客户端（脚本化 API/VT/窗口消息） | TODO | | `tests/console_probe.cpp` 已有 ctrl/serve/wake/vt/close 等专用模式；脚本化客户端见 W9 |
+| C4 | 控制台测试客户端（脚本化 API/VT/窗口消息） | DONE | | `console_probe --script`：write/settitle/gettitle/sbi/getmode/window/msg/sleep/exit；专用模式保留 |
 | C5 | 用例矩阵：控制台/窗口/输入/子进程/关闭 | DONE | C5 defterm 用例矩阵 | 已有 CONNECT、GetConsoleMode、GetConsoleWindow、窗口标题/矩形、WM_CLOSE、GetConsoleProcessList、压力/重复会话；子进程继承在直连客户端下不可行（SKIP 并注明改由 ConPTY 覆盖） |
 | C6 | 真实 WT 层、稳定性、文档 | DONE | | `Defterm.RealTerminal` 机会式委托冒烟；真实 handoff 与 `-Embedding` 按决定不扩展（gaps §3） |
 
@@ -55,7 +55,7 @@
 | 编号 | 子任务 | 状态 | 提交 | 备注 |
 | --- | --- | --- | --- | --- |
 | D1 | 测试库：会话驱动、输出泵、VT 屏幕模型、诊断 | TODO | | 会话驱动与输出泵完成；VT 屏幕模型见 W8（gaps G23）；失败日志归档已实现 |
-| D2 | 控制台测试程序（脚本化 API/VT/子进程） | TODO | | `console_probe` 专用模式可用；脚本化见 W9 |
+| D2 | 控制台测试程序（脚本化 API/VT/子进程） | DONE | | `console_probe --script` + VT 屏幕模型；三个脚本用例 |
 | D3 | 基础用例：输出、光标、输入、resize、异常 | DONE | ConPTY.Robustness | resize（mode con 读到 100x30）、clear 后仍可用、非法尺寸拒绝、退出码 7 传播、5 次重复会话全部通过 |
 | D4 | 真实程序用例：cmd、powershell、vim、edit | DONE | ConPTY.Programs | cmd/嵌套子进程/powershell/vim/edit 全部通过；缺程序时 SKIP |
 | D5 | ssh 远程组合：专用 sshd、连接、远程交互、清理 | DONE | ConPTY.Programs | 临时 sshd（当前用户、高端口、密钥认证）；`ssh` 非交互与 `ssh_pty` 交互均通过 |

@@ -37,6 +37,7 @@
 | G24 | ~~缺与系统 conhost 的差分测试~~ | DONE：`tests/test_conpty_differential.cpp` 把测试目录里的 corehost.exe 换成复制的 `%SystemRoot%\System32\conhost.exe`（libconpty 按名查找宿主），同一 API 探针在两个宿主下运行并比较。用差分发现并修复了两个真实差异：`GetConsoleTitleW` 的 `TitleLength` 应为字符数（原实现返回字节数）、`GetConsoleMode(input)` 应补 `EXTENDED_FLAGS/INSERT/QUICK_EDIT/AUTO_POSITION`。`out_mode` 不比较：conhost 默认 VT processing 取决于用户注册表 `VirtualTerminalLevel` | 继续扩充场景（resize/换行等已知 conhost bug 领域只记录） | D |
 | G25 | ~~ssh 负路径缺失~~ | DONE：未授权密钥（Permission denied + 非 0 退出）、远端 `exit 7` 传播、交互会话 ^C 中断远端命令三条用例通过；raw read 改为"有字节即返回"（conhost readDataRaw 语义） | — | D3 |
 | G26 | ~~defterm handoff 失败后为无窗口 headless~~ | 已文档化：`design/0001` §4.13 记录该取舍与影响（handoff 失败时无输入/输出，conhost 会回退本地窗口；本实现按"委托失败即通知并打断客户端"设计） | 若需要本地窗口回退，另立计划 | A |
+| G28 | `ReadConsoleOutputCharacter` 在 ConPTY 下让客户端崩溃 | 探针脚本 `expect` 用 `ReadConsoleOutputCharacterW` 回读屏幕时，客户端以 ASAN `ABORTING` 结束（宿主侧该请求的 completion 大小/缓冲区可能超出 `io_msg::body`）；移除该回读路径后测试改为用 VT 屏幕模型断言。同一探针在真实控制台（非 ConPTY）下不崩 | 检查 `api_read_output_string` 的 completion 长度与 `msg.body` 容量、大 payload（> body）路径，补最小复现用例 | D |
 | G27 | ~~零断言/未注册测试~~ | DONE：删除未注册的 `test_width_verify.cpp` 与 0 断言的 `test_conpty_sbattr_probe`（差分测试覆盖其目的）；测试目标 26 个 | — | C/D |
 
 ## 3. 已决定不做（有理由）

@@ -7,6 +7,9 @@
 #include <windows.h>
 
 #include <cstdio>
+#include <cstdarg>
+#include <cstdlib>
+#include <string>
 #include <cwchar>
 #include <cstring>
 #include <cstring>
@@ -492,6 +495,149 @@ int api_ctrl_probe(const wchar_t *result_path)
     return 0;
 }
 
+// ── 脚本化控制台客户端（W9）─────────────────────────────
+// 每条指令一行，结果以 "[script] ..." 写回 stdout，供测试断言。
+// 指令：write/settitle/gettitle/sbi/getmode/window/msg/expect/sleep/exit。
+void script_print(const char *format, ...)
+{
+    char buffer[512]{};
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    DWORD written = 0;
+    ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), buffer, static_cast<DWORD>(std::strlen(buffer)), &written,
+                nullptr);
+}
+
+std::wstring utf8_to_wide(const std::string &text)
+{
+    if (text.empty())
+        return {};
+    const int needed = ::MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), nullptr, 0);
+    std::wstring result(static_cast<size_t>(needed), L'\0');
+    ::MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), result.data(), needed);
+    return result;
+}
+
+bool script_msg(const std::wstring &name)
+{
+    const HWND window = ::GetConsoleWindow();
+    if (window == nullptr)
+    {
+        script_print("[script] msg %ls window=0\n", name.c_str());
+        return true;
+    }
+
+    DWORD_PTR result = 0;
+    if (name == L"gettextlength")
+        ::SendMessageTimeoutW(window, WM_GETTEXTLENGTH, 0, 0, SMTO_ABORTIFHUNG, 2000, &result);
+    else if (name == L"gettext")
+    {
+        wchar_t text[128]{};
+        ::SendMessageTimeoutW(window, WM_GETTEXT, ARRAYSIZE(text), reinterpret_cast<LPARAM>(text), SMTO_ABORTIFHUNG,
+                              2000, &result);
+        script_print("[script] msg gettext \"%ls\"\n", text);
+        return true;
+    }
+    else if (name == L"showon")
+        ::SendMessageTimeoutW(window, WM_SHOWWINDOW, TRUE, 0, SMTO_ABORTIFHUNG, 2000, &result);
+    else if (name == L"showoff")
+        ::SendMessageTimeoutW(window, WM_SHOWWINDOW, FALSE, 0, SMTO_ABORTIFHUNG, 2000, &result);
+    else if (name == L"minimize")
+        ::SendMessageTimeoutW(window, WM_SIZE, SIZE_MINIMIZED, 0, SMTO_ABORTIFHUNG, 2000, &result);
+    else if (name == L"restore")
+        ::SendMessageTimeoutW(window, WM_SIZE, SIZE_RESTORED, 0, SMTO_ABORTIFHUNG, 2000, &result);
+    else
+        return false;
+
+    script_print("[script] msg %ls result=%llu\n", name.c_str(), static_cast<unsigned long long>(result));
+    return true;
+}
+
+int run_script(const wchar_t *script_path)
+{
+    if (script_path == nullptr || script_path[0] == 0)
+        return 30;
+    FILE *file = nullptr;
+    if (::_wfopen_s(&file, script_path, L"rb") != 0 || file == nullptr)
+        return 31;
+
+    int exit_code = 0;
+    char line[512]{};
+    while (std::fgets(line, sizeof(line), file) != nullptr)
+    {
+        std::string command{line};
+        while (!command.empty() && (command.back() == '\n' || command.back() == '\r'))
+            command.pop_back();
+        if (command.empty() || command.front() == '#')
+            continue;
+        const size_t space = command.find(' ');
+        const std::string name = command.substr(0, space);
+        const std::string rest = space == std::string::npos ? std::string{} : command.substr(space + 1);
+
+        if (name == "write")
+        {
+            const auto text = utf8_to_wide(rest);
+            DWORD written = 0;
+            ::WriteConsoleW(::GetStdHandle(STD_OUTPUT_HANDLE), text.c_str(), static_cast<DWORD>(text.size()), &written,
+                            nullptr);
+            script_print("[script] write ok\n");
+        }
+        else if (name == "settitle")
+        {
+            ::SetConsoleTitleW(utf8_to_wide(rest).c_str());
+            script_print("[script] settitle ok\n");
+        }
+        else if (name == "gettitle")
+        {
+            wchar_t title[128]{};
+            ::GetConsoleTitleW(title, ARRAYSIZE(title));
+            script_print("[script] gettitle \"%ls\"\n", title);
+        }
+        else if (name == "sbi")
+        {
+            CONSOLE_SCREEN_BUFFER_INFO info{};
+            if (::GetConsoleScreenBufferInfo(::GetStdHandle(STD_OUTPUT_HANDLE), &info) != FALSE)
+                script_print("[script] sbi size=%dx%d cursor=%d,%d attr=0x%04X\n", info.dwSize.X, info.dwSize.Y,
+                             info.dwCursorPosition.X, info.dwCursorPosition.Y, info.wAttributes);
+            else
+                script_print("[script] sbi failed\n");
+        }
+        else if (name == "getmode")
+        {
+            DWORD in_mode = 0;
+            DWORD out_mode = 0;
+            ::GetConsoleMode(::GetStdHandle(STD_INPUT_HANDLE), &in_mode);
+            ::GetConsoleMode(::GetStdHandle(STD_OUTPUT_HANDLE), &out_mode);
+            script_print("[script] getmode in=0x%08lX out=0x%08lX\n", static_cast<unsigned long>(in_mode),
+                         static_cast<unsigned long>(out_mode));
+        }
+        else if (name == "window")
+        {
+            const HWND window = ::GetConsoleWindow();
+            script_print("[script] window valid=%d visible=%d\n", window != nullptr ? 1 : 0,
+                         window != nullptr && ::IsWindowVisible(window) ? 1 : 0);
+        }
+        else if (name == "msg")
+        {
+            if (!script_msg(utf8_to_wide(rest)))
+                script_print("[script] msg %s unsupported\n", rest.c_str());
+        }
+        else if (name == "sleep")
+            ::Sleep(static_cast<DWORD>(std::strtoul(rest.c_str(), nullptr, 10)));
+        else if (name == "exit")
+        {
+            exit_code = static_cast<int>(std::strtol(rest.c_str(), nullptr, 10));
+            break;
+        }
+        else
+            script_print("[script] unknown %s\n", name.c_str());
+    }
+    std::fclose(file);
+    return exit_code;
+}
+
 int wmain(int argc, wchar_t **argv)
 {
     if (argc < 2 || argc > 3)
@@ -513,7 +659,9 @@ int wmain(int argc, wchar_t **argv)
     if (::wcscmp(argv[1], L"--no-processed-probe") == 0)
         return no_processed_probe(argc >= 3 ? argv[2] : nullptr);
     if (::wcscmp(argv[1], L"--api-ctrl-probe") == 0)
-        return api_ctrl_probe(argc >= 3 ? argv[2] : nullptr);    if (::wcscmp(argv[1], L"--api-probe") == 0)
+        return api_ctrl_probe(argc >= 3 ? argv[2] : nullptr);    if (::wcscmp(argv[1], L"--script") == 0)
+        return run_script(argc >= 3 ? argv[2] : nullptr);
+    if (::wcscmp(argv[1], L"--api-probe") == 0)
         return api_probe(argc >= 3 ? argv[2] : nullptr);
     if (::wcscmp(argv[1], L"--mouse-probe") == 0)
         return mouse_probe();
