@@ -1,6 +1,6 @@
 # 设计取舍 0002：GetConsoleWindow 伪窗口
 
-状态：方向已定，细节待 B1 分析确认（见文末"待确认"）
+状态：B1 分析完成，需求已定；B2 起实现（原版实现分析基于 `terminal/src` 只读研究）
 
 ## 1. 需求边界
 
@@ -16,79 +16,114 @@
 因此伪窗口是"消息端点"，不是"渲染目标"。这是本设计的第一原则：凡是与渲染、
 可见性、真实用户交互相关的能力，一律不实现，只保证不崩溃、返回值合理。
 
-## 2. 候选方案
+## 2. 原版 conhost 的实现（分析结论，不是照抄对象）
 
-### 方案 A：不可见的普通顶层窗口（选定）
+原版在 ConPTY 模式下由 host 进程创建伪窗口，关键事实（`terminal/src/interactivity/base/InteractivityFactory.cpp`）：
 
-`WS_POPUP`，不带 `WS_VISIBLE`，独立线程创建，常规窗口类注册。
+| 项 | 原版做法 | 真正需求 |
+| --- | --- | --- |
+| 类名 | `PseudoConsoleWindow` | 依赖方按类名 `FindWindow` 的兼容性；沿用同名最稳 |
+| 窗口样式 | `WS_POPUP` + `WS_EX_TOOLWINDOW \| WS_EX_NOACTIVATE \| WS_EX_NOREDIRECTIONBITMAP` | 不可见、不抢焦点、无重定向表面；`WS_POPUP` 是硬需求 |
+| 父子关系 | `CreateWindowEx` 的 owner 参数 + `SetWindowLongPtr(GWLP_HWNDPARENT)` | 必须是 owned 而不是 child：`GetAncestor(GA_ROOTOWNER)` 要能返回终端窗口，且不改变坐标语义 |
+| 位置/尺寸 | 创建时 0,0,0,0 | 伪窗口不渲染，尺寸由后续查询按字符网格换算 |
+| 窗口过程 | 静态过程 + `GWLP_USERDATA` 存实例，转发到成员函数 | 每个会话一个窗口、状态随会话 |
+| `WM_SIZE` | `SIZE_RESTORED`→"显示"，`SIZE_MINIMIZED`→"隐藏"，写回终端 | 任务栏 `SwitchToWindow` 的边角行为；伪窗口需要把可见性变化告诉终端 |
+| `WM_SHOWWINDOW` | `lParam==0`（显式 `ShowWindow`）时上报可见性 | 依赖方 `ShowWindow` 不能石沉大海 |
+| `WM_ACTIVATE` | 把焦点交还给 owner | 不可见窗口不能被激活 |
+| `WM_GETOBJECT` | 返回 UIA provider | 仅 UI 自动化需要；corehost 不渲染，可只返回 0 |
+| IME | 进程内 `ImmDisableIME(DWORD_MAX)` | 无输入法窗口；corehost 无窗口控件，可省略或同样禁用 |
+| 可见性上报 | 通过 VT writer 写 `ShowHideWindow` 序列 | **corehost 已有 `PtySignal::ShowHideWindow`**，直接复用信号管道 |
+| 明确否决 | `HWND_MESSAGE` | 某些软件（Azure PowerShell 扩展）会直接崩溃；必须可被枚举/查找 |
+| 明确否决 | `SetParent` | 会让 `WS_VISIBLE` 窗口被系统隐藏再 `SW_SHOW`，抢走前台 |
 
-- 可被 `EnumWindows`/`FindWindow` 找到（部分依赖方按类名/标题查找窗口）；
-- 可以接收广播消息、可以作为其他窗口的 owner/parent；
-- 不进任务栏、不抢前台（无 `WS_VISIBLE` 且不 `ShowWindow`）。
+结论：原版伪窗口的复杂度主要来自"可见性/焦点的边角行为"，而不是窗口本身。
+corehost 需要的是同一套**对外契约**，不需要照搬它的渲染、UIA、菜单实现。
 
-### 方案 B：message-only 窗口（`HWND_MESSAGE`）
+## 3. corehost 的取舍
 
-否决。message-only 窗口不会出现在 `EnumWindows`/`FindWindow`/`GetWindow` 的
-查找结果里，也不能作为 owner/parent；依赖方一旦用查找接口就会得到 NULL，
-行为与"没有窗口"一样，等于没解决问题。它只适合纯内部通信，不适合对外暴露。
+### 3.1 窗口类型
 
-### 方案 C：返回一个伪造/借用句柄（例如桌面窗口或自身隐藏窗口的固定句柄）
+沿用 `WS_POPUP` + `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP`，
+类名 `PseudoConsoleWindow`，owner 设为宿主终端窗口（defterm 下 WT 通过
+`PtySignal::SetParent` 传来 hwnd；conpty 下没有 owner，用空）。
 
-否决。伪造句柄会让 `SendMessage` 打到错误目标，轻则返回值异常，重则让依赖方
-误以为在操作控制台；借用桌面窗口更会造成对系统的副作用。
+- 不用 `HWND_MESSAGE`：会失去 `EnumWindows`/`FindWindow` 可见性，等于没实现。
+- 不用 child window：坐标语义会变成相对父窗口，依赖方 `GetWindowRect` 会错。
+- `WS_EX_NOREDIRECTIONBITMAP`：省掉无用的 GDI 重定向表面。
 
-### 方案 D：不实现，保持返回 NULL
+### 3.2 线程与生命周期
 
-否决。任务明确要求实现，且 NULL 会让依赖方的交互路径整体失效。
+窗口在**独立线程**创建并跑消息循环；线程名 `corehost-window`。与会话同生命周期：
+会话建立后创建、会话结束前销毁。窗口线程不直接读写控制台状态：
 
-## 3. 选定方案的结构
+- 需要对控制台产生副作用的动作（关闭会话、可见性变化）投递给主线程，或在
+  锁内执行有界状态更新；
+- 需要窗口信息的主线程动作（标题、尺寸）通过快照或请求完成事件获取；
+- 禁止窗口线程同步等待主线程（避免与主线程等待窗口线程形成环）。
 
-- **窗口线程**：独立线程创建窗口并跑消息循环；线程名固定（"console-window"）。
-  线程只处理消息与自身状态，不直接读写控制台状态。
-- **消息策略**：白名单实现 + 默认处理。查询类消息同步返回自洽值；状态改变类
-  消息只更新窗口对象的本地状态（如标题）并投递命令给主线程；未知消息交给
-  `DefWindowProc`。禁止在窗口线程里同步等待主线程（会造成双向等待死锁），需要
-  主线程结果时用快照或异步命令。
-- **关闭**：`WM_CLOSE` 不在窗口线程直接 `DestroyWindow` 结束一切，而是投递
-  "请求关闭会话"命令；主线程走与真实关闭事件一致的退出路径，最后通知窗口
-  线程销毁窗口并退出消息循环。这样关闭语义只有一条实现。
-- **不可见性**：不调用 `ShowWindow`；不设置 `WS_VISIBLE`；`WM_SHOWWINDOW` 等
-  消息只记录状态，不真正显示。`IsWindowVisible` 返回 false 是预期行为。
-- **尺寸**：`GetWindowRect` 由字符尺寸 × 近似字体度量换算，保证非零、随 resize
-  变化；不使用真实 GDI 字体测量（避免引入渲染依赖），换算系数需与依赖方预期
-  一致（B1 确认）。
-- **生命周期**：窗口对象归会话所有；窗口线程在会话结束前必须完成销毁与 join。
+### 3.3 消息策略
 
-## 4. 与 I/O 模型的关系
+只实现对外契约需要的消息：
 
-窗口消息是本设计的第四个输入源，按 `design/0001` 的同一模式接入：
-
-- 窗口线程 → 命令队列 → 主线程（关闭会话、更新标题等）；
-- 主线程 → 窗口线程：仅"退出"通知，不反向同步等待；
-- 主线程等待集不直接包含窗口消息（窗口线程自己阻塞在 `GetMessage`），只在
-  有跨线程命令时通过输入就绪事件唤醒主线程。
-
-## 5. 被明确排除的能力
-
-| 能力 | 原因 |
+| 消息 | 行为 |
 | --- | --- |
-| 真实渲染、滚轮滚动、滚动条 | 伪窗口不可见，终端负责显示 |
-| 菜单、系统菜单交互 | 没有可交互的窗口 |
-| DPI 感知与 `WM_DPICHANGED` 的真实处理 | 无渲染，只需要返回合理值 |
-| 完整 UIA provider | 成本高；测试优先用消息驱动 |
-| 多窗口/多控制台 | 一会话一窗口；进程级多会话另行评估 |
+| `WM_CREATE` | 保存 this 指针（`GWLP_USERDATA`） |
+| `WM_SIZE` | `SIZE_MINIMIZED` → 向终端发隐藏信号；`SIZE_RESTORED` → 发显示信号 |
+| `WM_SHOWWINDOW` | `lParam==0` 时按 `wParam` 发显示/隐藏信号 |
+| `WM_ACTIVATE` | 有 owner 时 `SetFocus(owner)`，返回 0 |
+| `WM_GETOBJECT` | 返回 0（不提供 UIA；阶段 C 的测试用消息驱动） |
+| `WM_CLOSE` | 投递"请求关闭会话"命令，不直接 `DestroyWindow` |
+| `WM_NCDESTROY`/`WM_DESTROY` | 记日志，`PostQuitMessage` |
+| 其他 | `DefWindowProcW` |
 
-## 6. 待确认（B1 必须回答）
+### 3.4 可见性信号
 
-1. 依赖方是否真的用 `FindWindow`/`EnumWindows` 查找窗口？若是，类名与窗口
-   标题的兼容要求是什么（是否必须与系统 conhost 一致）？
-2. `GetWindowRect` 的期望单位与数值：真实 conhost 返回的矩形基于字体度量，
-   依赖方常用它计算"可显示多少行列"。伪窗口不渲染，换算必须自洽。
-3. `ShowWindow`/`IsWindowVisible` 的语义：依赖方是否用它们判断"控制台是否
-   可见"？若需要，伪窗口要维护一个"逻辑可见性"状态并与终端窗口状态联动
-   （联动需要终端侧信号，defterm 下不可得，可能只能返回固定值）。
-4. `WM_CLOSE` 与 `CTRL_CLOSE_EVENT` 的映射：真实 conhost 关闭窗口时先发
-   关闭事件给客户端，超时后终止。伪窗口必须复用同一路径。
-5. 窗口线程与 defterm handoff 的时序：handoff 后 corehost 仍在运行，窗口应
-   在 handoff 前还是后创建？依赖方拿到句柄时窗口必须已就绪。
-6. 是否需要响应 `WM_QUERYENDSESSION`/`WM_ENDSESSION`（注销/关机）。
+corehost 已有 `PtySignal::ShowHideWindow`（`libcorehost/signal.hpp`），目前
+"只消费、不发送"。伪窗口的显示/隐藏回调通过**信号管道**发给终端（与
+`ConptyShowHidePseudoConsole` 的方向一致），因此不需要新增协议。
+
+### 3.5 关闭语义
+
+`WM_CLOSE` 不直接销毁窗口，而是：
+
+1. 窗口线程把"请求关闭"标记为待处理并唤醒主线程；
+2. 主线程走与真实关闭一致的路径：向客户端投递关闭事件（`CTRL_CLOSE_EVENT`）、
+   超时后终止进程组（由系统关闭协议决定，不是我们的等待上限）；
+3. 会话退出时通知窗口线程 `PostThreadMessage(WM_QUIT)`，join。
+
+理由：关闭语义只能有一条实现，否则测试会看到"发消息关闭"和"终端关闭"两条
+不一致的行为。
+
+### 3.6 `GetConsoleWindow` 返回值
+
+`api_handlers` 里当前的 `::GetConsoleWindow()` 调用替换为：返回伪窗口 HWND；
+窗口尚未创建（启动竞态）时返回 0——与原版"没有窗口就是 0"一致，但正常路径
+必须在首个 CONNECT 前创建完成，避免调用方拿到 0。
+
+## 4. 需求规格（实现验收）
+
+| 编号 | 需求 | 验收 |
+| --- | --- | --- |
+| B-R1 | `GetConsoleWindow` 返回非 NULL、进程内唯一、稳定 | 连续调用同一值；`IsWindow` 真 |
+| B-R2 | `GetWindowThreadProcessId` 返回专用窗口线程（有名字） | 线程 id 稳定，名称 `corehost-window` |
+| B-R3 | 不可见：不显示、不抢前台、不进任务栏 | 运行期间无可见窗口，前台窗口不变 |
+| B-R4 | 同步消息不挂起 | 100 次 `SendMessageTimeout(…, 1s)` 无超时 |
+| B-R5 | 查询类返回自洽值 | 矩形非零且随 resize 变化；标题为控制台标题 |
+| B-R6 | `WM_CLOSE` 结束会话、客户端收到关闭事件 | 2 秒内会话退出；重复发送不重复关闭 |
+| B-R7 | 销毁干净 | 100 次会话后 USER 对象数回到基线，无残留线程 |
+| B-R8 | 状态修改不跨线程直接写 | 代码审查 + 并发压力无崩溃 |
+| B-R9 | 未知消息不崩溃 | 消息清单逐条发送 |
+
+## 5. 不做
+
+- 渲染、滚动条、菜单、图标、DPI 真实处理、UIA provider、IME 窗口。
+- 多窗口/多控制台（一会话一窗口）。
+
+## 6. 待实现确认
+
+1. defterm 下 owner 何时可知：`PtySignal::SetParent` 在 handoff 后由 WT 发送，
+   伪窗口可能在 owner 未知时创建（先无 owner，收到 SetParent 后
+   `SetWindowLongPtr(GWLP_HWNDPARENT)`）。需要确认该时序。
+2. `GetWindowRect` 的换算：用字符尺寸 × 固定字体度量（例如 8×16）保证非零且
+   随 resize 变化；依赖方多用它计算行列，具体系数在 B5 用真实程序校准。
+3. `WM_CLOSE` 与客户端关闭事件的时序需要与 `conpty` 现有的 EOF/断开路径统一。
