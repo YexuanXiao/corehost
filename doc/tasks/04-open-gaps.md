@@ -13,8 +13,8 @@
 | G5 | ~~handoff 替身层~~ | DONE：handoff 协议拆到 `corehost/defterm/handoff_session.hpp`，测试用进程内 `IConsoleHandoff` 替身驱动 `perform_handoff()`（`Defterm.Handoff`，2 个用例），不碰注册表、不启动 WindowsTerminal | — | C6 |
 | G6 | ~~输出侧 `vt_output_buffer::flush` 的 `noexcept` 路径~~ | DONE：对端关闭仍按预期失败丢弃；其它写失败改为记录后 `abort`（致命） | — | A9 |
 | G7 | ~~`defterm.cpp` 的 `connect_handler::on_idle()` 空实现~~ | DONE：调用点与方法已删除 | — | A9/A6b |
-| G8 | CR/LF 跨批次 lookahead 在线程模型下的归属 | `_on_line_terminator` 会在批次末尾 `PeekNamedPipe` 找 LF；threaded 模式下由输入线程执行，但缺专门用例 | 增加"CR 与 LF 分两次到达"的用例，断言不产生多余行 | A10 |
-| G9 | 中断/信号压力测试 | 未做：Ctrl+C/Ctrl+Break 与信号线程交互只在少数用例间接覆盖 | 在 defterm/conpty 两侧补"信号到达时无丢失、无重复"的压力用例 | A10 |
+| G8 | ~~CR/LF 跨批次 lookahead~~ | DONE：不再在处理函数里 Peek 管道（输入线程是唯一读者）；改为 `vt_input_state.swallow_lf_after_cr` 批间状态——上一批以 CR 结尾时，下一批首个 LF 被吞掉。新增单测 `CRLF split across batches`（CR 与 LF 分两批喂入，终端只下移一行） | — | D2 |
+| G9 | ~~中断/信号压力测试~~ | DONE：`ctrl_c`、`ctrl_break`、`signal_repeat`（5 轮 Ctrl+C/Ctrl+Break 交替，每次都必须结束探针）；defterm 侧信号管道关闭路径由 handoff 用例覆盖 | — | A10 |
 | G10 | ~~20 次以上会话的泄漏观察~~ | DONE：repeat 扩到 50 次（句柄 104→107） | — | A10 |
 | G15 | ~~WriteConsoleInput 唤醒挂起读~~ | DONE：移植的 `on_console_input_written` 端到端成立——探针 `--wake-probe` 在行读挂起时写一个 Enter 记录，`ReadConsole` 立即返回（`READ-RETURNED`）。此前失败原因是探针缺少 `--wake-probe` 分派（输出 "unknown mode"），不是宿主问题 | — | D3 |
 | G14 | ~~挂起读期间不服务其它 ConDrv 请求~~ | DONE：移植 fork `5104668`——挂起读时用独立 scratch 缓冲继续 READ_IO，其余请求处理完立即显式 COMPLETE_IO；`serve` 用例验证（ReadConsole 挂起时另一线程的 GetConsoleScreenBufferInfo 立即返回 QUERY-OK） | — | D3 |

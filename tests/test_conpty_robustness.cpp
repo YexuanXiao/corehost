@@ -257,6 +257,37 @@ corehost::test::result ctrl_break_interrupts_foreground()
     return corehost::test::result::pass;
 }
 
+// 信号压力：连续多次 Ctrl+C / Ctrl+Break 会话，每次都必须结束探针（不丢失、不串）。
+corehost::test::result signal_delivery_is_repeatable()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    constexpr int rounds = 5;
+    for (int round = 0; round < rounds; ++round)
+    {
+        corehost::test::conpty_session session;
+        REQUIRE(session.start(quote(probe) + L" --ctrl-probe"));
+        REQUIRE(session.wait_output("CTRL-PROBE-READY", 15000));
+        ::Sleep(200);
+
+        // 偶数轮 Ctrl+C，奇数轮 Ctrl+Break。
+        const bool ctrl_break = (round % 2) != 0;
+        REQUIRE(session.write(ctrl_break ? "\x1b[3;46;3;1;8;1_" : "\x1b[67;46;3;1;8;1_"));
+
+        DWORD exit_code = static_cast<DWORD>(-1);
+        const bool exited = session.wait_exit(15000, &exit_code);
+        if (!exited)
+        {
+            const auto output = session.take_output();
+            std::fwprintf(stderr, L"[signal_%d] missing termination, output: %hs\n", round, output.c_str());
+            session.close();
+        }
+        REQUIRE(exited);
+    }
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -272,6 +303,7 @@ int main()
         {"wake", "conpty;robust;input", &write_console_input_wakes_read},
         {"vt", "conpty;robust;input", &vt_input_passthrough_sends_raw_sequences},
         {"ctrl_break", "conpty;robust;signal", &ctrl_break_interrupts_foreground},
+        {"signal_repeat", "conpty;robust;signal", &signal_delivery_is_repeatable},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))
