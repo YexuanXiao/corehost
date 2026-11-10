@@ -17,6 +17,7 @@
 #include "win32/handle.hpp"
 #include "condrv_io.hpp"
 #include "ntapi/condrv.hpp"
+#include "os/Console/conmsgl1.h"
 #include "utility/log.hpp"
 
 namespace corehost::conpty
@@ -64,6 +65,10 @@ struct io_state
     // 最近一次 CONNECT 的客户端 pid。0 表示尚未收到 CONNECT。
     ULONG_PTR client_pid = 0;
 
+    // Ctrl+C / Ctrl+Break 的投递目标（CONSOLE_SERVER_MSG::ProcessGroupId，
+    // 缺省回退到客户端 pid）。
+    DWORD foreground_process_group = 0;
+
     // GetConsoleProcessList 兼容数据。数组保存当前已连接进程 pid；
     // 超过容量的新 pid 会被忽略，以避免写越界。
     static constexpr size_t max_processes = 64;
@@ -109,6 +114,17 @@ struct io_state
         // DWORD，因为 Win32 进程列表 API 以 DWORD 表示 pid。
         client_pid = msg.descriptor.Process;
         const bool first_connect = !condrv_input.valid();
+
+        // CONNECT 请求体带 CONSOLE_SERVER_MSG，其中 ProcessGroupId 是 Ctrl+C /
+        // Ctrl+Break 的投递目标。必须在 accept_connection 覆盖 msg.body 之前读。
+        if (msg.descriptor.InputSize >= sizeof(CONSOLE_SERVER_MSG))
+        {
+            const auto *connect_info = reinterpret_cast<const CONSOLE_SERVER_MSG *>(msg.body);
+            if (connect_info->ProcessGroupId != 0)
+                foreground_process_group = connect_info->ProcessGroupId;
+        }
+        if (foreground_process_group == 0)
+            foreground_process_group = static_cast<DWORD>(client_pid);
         // first_connect 决定是否需要真正 accept \Input/\Output；后续 CONNECT
         // 只增加进程列表，不替换已有控制台对象句柄。
         LOG2("handle_connect pid=%llu first=%d processCount=%zu", client_pid, first_connect, process_count);

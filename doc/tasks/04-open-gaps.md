@@ -16,8 +16,9 @@
 | G8 | CR/LF 跨批次 lookahead 在线程模型下的归属 | `_on_line_terminator` 会在批次末尾 `PeekNamedPipe` 找 LF；threaded 模式下由输入线程执行，但缺专门用例 | 增加"CR 与 LF 分两次到达"的用例，断言不产生多余行 | A10 |
 | G9 | 中断/信号压力测试 | 未做：Ctrl+C/Ctrl+Break 与信号线程交互只在少数用例间接覆盖 | 在 defterm/conpty 两侧补"信号到达时无丢失、无重复"的压力用例 | A10 |
 | G10 | ~~20 次以上会话的泄漏观察~~ | DONE：repeat 扩到 50 次（句柄 104→107） | — | A10 |
-| G12 | 输入时延用例在隔离子进程下不稳定 | 手动运行稳定（p95 0–1ms），CI 隔离进程里交互式 cmd 首轮可能 EOF；用例暂时 SKIP 并注明 | 找出隔离进程与手动运行的差异（控制台/stdio），或改用非交互式回显程序 | D3 |
-| G11 | **Ctrl+C 未投递到前台进程组** | 收到 Win32 Ctrl+C 键事件后，宿主没有生成 `CTRL_C_EVENT`（代码中只有 `GenerateConsoleCtrlEvent` API 透传）；`ctrl_c` 用例因此 SKIP 并注明 | 需要记录 CONNECT 的 ProcessGroupId，并在 processed input 下于会话锁内调用 `GenerateConsoleCtrlEvent(CTRL_C_EVENT, group)` | A 阶段遗留 |
+| G12 | 交互式客户端在 headless ConPTY 下可能立刻退出 | 不带参数的 cmd 有时在收到首个输入前就断开（宿主 READ_IO 立即返回 disconnected），导致 resize/时延用例只能 SKIP | 对比 WindowsTerminal 的客户端启动参数与 std 句柄处理；怀疑客户端控制台初始化路径差异 | D3 |
+| G13 | **部分控制台程序在 corehost 的 ConPTY 下以 0xc0000142 启动失败**（mode.com、ping、powershell 各出现过） | 会在用户桌面弹"无法启动"对话框，已用 `SetErrorMode` 在测试进程树内抑制弹窗；失败现在表现为退出码 | 抓取失败进程的加载器日志/对比 conhost；可能是 ConDrv 连接与 CRT 初始化时序 | A/D 交叉 |
+| G11 | **Ctrl+C 未投递到前台进程组** | 已实现：记录 CONNECT 的 ProcessGroupId，Win32 Ctrl+C 键事件在 processed input 下调用 `GenerateConsoleCtrlEvent`。实测调用返回成功但客户端不退出——调用方未与目标共享 Win32 控制台，信号没有到达 pseudoconsole 客户端 | 改走 CSRSS `ConsoleControl`（与 defterm 的 console_control_thread 同一路径），或确认 ConPTY 下正确的信号投递通道 | A 阶段遗留 |
 
 ## 2. 已明确不做（有理由）
 

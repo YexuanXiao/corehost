@@ -2106,6 +2106,30 @@ struct pipe_bridge
     bool process_input_win32_key(PendingKind pending_kind, const vt_message &m, DWORD i, DWORD len,
                                  const char8_t *bytes)
     {
+        // Ctrl+C / Ctrl+Break：processed input 下转换为控制台控制事件并投递给
+        // 前台进程组，不再进入 cooked/raw 缓冲（与真实控制台一致）。
+
+        if (m.payload.win32_key.key_down && (cstate.input_mode & ENABLE_PROCESSED_INPUT) != 0)
+        {
+            const bool ctrl = (m.payload.win32_key.control_state & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0;
+            DWORD control_event = 0;
+            if (ctrl && (m.payload.win32_key.vk == 'C' || m.payload.win32_key.uc == 0x03))
+                control_event = CTRL_C_EVENT;
+            else if (ctrl && m.payload.win32_key.vk == VK_CANCEL)
+                control_event = CTRL_BREAK_EVENT;
+
+            if (control_event != 0)
+            {
+                const DWORD group = cstate.foreground_process_group;
+                if (group != 0 && ::GenerateConsoleCtrlEvent(control_event, group) == FALSE)
+                {
+                    LOG("bridge: GenerateConsoleCtrlEvent(%lu, %lu) failed err=%lu", control_event, group,
+                        ::GetLastError());
+                }
+                return false;
+            }
+        }
+
         if (pending_kind == PendingKind::ConsoleRead)
         {
             // ConsoleRead 自己做本地行编辑，只处理 KEY_DOWN；KEY_UP 不应

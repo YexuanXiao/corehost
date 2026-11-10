@@ -45,6 +45,7 @@ struct message_router
              bridge.process_count());
         io.handle_connect(msg);
         sync_process_snapshot();
+        api.state.foreground_process_group = io.foreground_process_group;
         LOG2("CONNECT consumed after processCount=%zu bridgeProcessCount=%zu", io.process_count,
              bridge.process_count());
         log_completion("CONNECT completion", msg);
