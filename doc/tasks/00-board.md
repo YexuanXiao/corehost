@@ -24,7 +24,7 @@
 | A8 | 退出协议：停止标志、事件驱动取消、无限 join | DONE | A4/A5 输入与信号线程 | 终止性由构造保证；压力验证归 A10 |
 | A9 | 错误分类审计：所有系统调用检查、致命路径统一 | DONE | A9 审计新建路径 | 见 `doc/tasks/03-a9-error-audit.md`；输出 flush、死代码、空 `on_idle` 均已处理；本轮新发现项见 gaps G16/G17/G21/G22 |
 | A10 | 性能与唤醒验证：空转计数、CPU、时延、压力、泄漏 | DONE | A10 空闲 CPU 用例 | `ConPTY.IdleCpu` 3 秒空闲 **0 ms**；`latency` p95 9–13ms；`repeat` 50 次句柄 104→107；`signal_repeat` 5 轮交替 |
-| A11 | 文档更新与提交 | DOING | | 本轮 W0 起持续更新；看板/gaps/05-final-status 已纠偏 |
+| A11 | 文档更新与提交 | DONE | | 每子任务提交并更新看板/gaps/05-final-status；gaps 现有 G16–G28 |
 
 ## 阶段 B：GetConsoleWindow 伪窗口（任务 2）
 

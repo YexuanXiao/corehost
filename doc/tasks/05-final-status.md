@@ -17,7 +17,7 @@ ctest --test-dir build --output-on-failure
 | 空闲 CPU | `ConPTY.IdleCpu`：3 秒空闲 **0 ms**（阈值 100 ms） |
 | 输入时延 | `ConPTY.Programs/latency`：20 次按键 p95 **10–13 ms**（阈值 250 ms） |
 | 会话稳定性 | `ConPTY.Robustness/repeat`：50 次会话，测试进程句柄 104 → 107 |
-| 真实程序 | cmd / 嵌套子进程 / powershell / vim / edit / visibility / **ssh（临时 sshd）** / **ssh_pty** 全部通过 |
+| 真实程序 | cmd / screen_erase / 脚本（API、窗口消息、屏幕文本）/ 嵌套子进程 / powershell / vim / edit / ssh（正负路径）/ ssh_pty / ssh_interrupt / visibility 全部通过 |
 
 ## 2. 任务 1（I/O 模型）证据
 
@@ -76,7 +76,8 @@ ctest --test-dir build --output-on-failure
 | 1. I/O 模型 | 完成 | — |
 | 2. GetConsoleWindow 伪窗口 | 完成 | — |
 | 3. defterm 测试 | L0 直连 + L1 handoff 替身 + 系统委托冒烟（按决定不扩展真实 handoff / -Embedding） | 真实 handoff、-Embedding、UI 自动化（gaps §3 决策） |
-| 4. conpty 测试 | 主矩阵完成；语义缺口在补齐（G16–G27） | 尺寸/鼠标事件、进程组过滤、关闭事件、VT 屏幕模型、差分 |
+新增证据：差分测试（corehost vs 系统 conhost）发现并修复 TitleLength 字符数、GetConsoleMode 私有标志两处差异；raw read 改为有字节即返回；VT 屏幕模型与脚本化客户端落地。
+| 4. conpty 测试 | 主矩阵 + 语义补齐完成 | 关闭事件（G18 决策不实现）；`ReadConsoleOutputCharacter` 客户端崩溃（G28） |
 
 最终一次完整运行：构建通过，`ctest` **23/23 通过，41.46s**。
 
@@ -90,7 +91,7 @@ ctest --test-dir build --output-on-failure
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-第 64 轮实测：**25/25 通过，29.84s**；`ConPTY.Programs` 9 passed / 0 skipped；`ConPTY.Robustness` 11 passed。
+第 65 轮（差距补齐后）实测：**27/27 通过，约 57s**；`ConPTY.Programs` **16 passed / 0 skipped**；`ConPTY.Robustness` **19 passed**；新增 `ConPTY.Differential`、`VT.ScreenSelfTest`、`Defterm.ClientNotify`。
 
 ## 7. 结论''
 
