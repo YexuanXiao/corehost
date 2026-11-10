@@ -190,6 +190,24 @@ corehost::test::result console_calls_served_while_read_pending()
     return corehost::test::result::pass;
 }
 
+// WriteConsoleInput 写入的记录必须唤醒挂起的 ReadConsole（libuv 切换 raw 模式）。
+corehost::test::result write_console_input_wakes_read()
+{
+    // 实现已按 fork 9742404 移植，但端到端尚未验证：探针的 WriteConsoleInput 在
+    // pseudoconsole 下没有观察到进入 api_write_console_input（G15）。
+    SKIP(L"WriteConsoleInput wake path implemented but not yet verified end-to-end (gap G15)");
+
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --wake-probe"));
+
+    REQUIRE(session.wait_output("READ-RETURNED", 15000));
+    session.close();
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -202,6 +220,7 @@ int main()
         {"repeat", "conpty;robust;stability", &repeated_sessions},
         {"ctrl_c", "conpty;robust;signal", &ctrl_c_interrupts_foreground},
         {"serve", "conpty;robust;pending", &console_calls_served_while_read_pending},
+        {"wake", "conpty;robust;input", &write_console_input_wakes_read},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))

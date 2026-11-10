@@ -65,13 +65,55 @@ int serve_probe()
     return 0;
 }
 
+DWORD WINAPI read_line_thread(LPVOID)
+{
+    char buffer[64]{};
+    DWORD read = 0;
+    if (::ReadConsoleA(::GetStdHandle(STD_INPUT_HANDLE), buffer, sizeof(buffer), &read, nullptr) != FALSE)
+    {
+        constexpr char returned[] = "READ-RETURNED\r\n";
+        DWORD written = 0;
+        ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), returned, sizeof(returned) - 1, &written, nullptr);
+    }
+    return 0;
+}
+
+// 主线程写一个 Enter 键记录，应结束挂起的行读（libuv 的 raw 模式切换方式）。
+int wake_probe()
+{
+    const HANDLE thread = ::CreateThread(nullptr, 0, &read_line_thread, nullptr, 0, nullptr);
+    if (thread == nullptr)
+        return 6;
+
+    ::Sleep(300);
+
+    INPUT_RECORD record{};
+    record.EventType = KEY_EVENT;
+    record.Event.KeyEvent.bKeyDown = TRUE;
+    record.Event.KeyEvent.wRepeatCount = 1;
+    record.Event.KeyEvent.wVirtualKeyCode = VK_RETURN;
+    record.Event.KeyEvent.uChar.AsciiChar = '\r';
+    record.Event.KeyEvent.uChar.UnicodeChar = L'\r';
+
+    DWORD written = 0;
+    if (::WriteConsoleInputW(::GetStdHandle(STD_INPUT_HANDLE), &record, 1, &written) == FALSE || written != 1)
+    {
+        ::CloseHandle(thread);
+        return 7;
+    }
+
+    ::WaitForSingleObject(thread, 10000);
+    ::CloseHandle(thread);
+    return 0;
+}
+
 } // namespace
 
 int wmain(int argc, wchar_t **argv)
 {
     if (argc != 2)
     {
-        ::fwprintf(stderr, L"usage: console_probe --ctrl-probe | --serve-probe\n");
+        ::fwprintf(stderr, L"usage: console_probe --ctrl-probe | --serve-probe | --wake-probe\n");
         return 2;
     }
 
