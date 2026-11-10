@@ -64,7 +64,7 @@ C1 建一次，C、D 共用，避免两套测试风格。
 | C defterm 测试 | 进行中 | 测试库（runner/隔离/超时/宿主层）+ ConDrv 直连客户端可用；对象 id（G1）、WT 真机层（G4/G5）未完成 |
 | D conpty 测试 | 进行中 | 真实程序矩阵（cmd/嵌套/powershell/vim/edit）、健壮性、时延、20 次稳定性通过；ssh 受环境阻塞（G2）、100 次泄漏与中断压力未做（G9/G10） |
 
-详细状态以 `tasks/00-board.md` 为准，未完成项与解除条件见 `tasks/04-open-gaps.md`。
+详细状态以 `tasks/00-board.md` 为准，最终证据见 `tasks/05-final-status.md`，未完成项与解除条件见 `tasks/04-open-gaps.md`。
 
 ## 4. 完成定义（DoD）
 
