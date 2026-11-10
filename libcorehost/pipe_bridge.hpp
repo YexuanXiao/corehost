@@ -2452,6 +2452,66 @@ struct pipe_bridge
             _write_char_key_event(ch, static_cast<BYTE>(ch & 0xFF));
     }
 
+    // 解析器会解码成虚拟键的那些按键：方向键、Home/End、编辑键、功能键、
+    // Backspace/Esc 等。它们的原文序列保存在 parsed.raw_sequence。
+    static constexpr bool is_decoded_key(vt_message_id id) noexcept
+    {
+        switch (id)
+        {
+        case vt_message_id::cursor_up:
+        case vt_message_id::cursor_down:
+        case vt_message_id::cursor_forward:
+        case vt_message_id::cursor_backward:
+        case vt_message_id::cursor_next_line:
+        case vt_message_id::cursor_prev_line:
+        case vt_message_id::cursor_position:
+        case vt_message_id::cursor_vert_absolute:
+        case vt_message_id::cursor_horiz_absolute:
+        case vt_message_id::key_up:
+        case vt_message_id::key_down:
+        case vt_message_id::key_right:
+        case vt_message_id::key_left:
+        case vt_message_id::key_home:
+        case vt_message_id::key_end:
+        case vt_message_id::key_insert:
+        case vt_message_id::key_delete:
+        case vt_message_id::key_page_up:
+        case vt_message_id::key_page_down:
+        case vt_message_id::key_f1:
+        case vt_message_id::key_f2:
+        case vt_message_id::key_f3:
+        case vt_message_id::key_f4:
+        case vt_message_id::key_f5:
+        case vt_message_id::key_f6:
+        case vt_message_id::key_f7:
+        case vt_message_id::key_f8:
+        case vt_message_id::key_f9:
+        case vt_message_id::key_f10:
+        case vt_message_id::key_f11:
+        case vt_message_id::key_f12:
+        case vt_message_id::key_ctrl_up:
+        case vt_message_id::key_ctrl_down:
+        case vt_message_id::key_ctrl_right:
+        case vt_message_id::key_ctrl_left:
+        case vt_message_id::char_del:
+        case vt_message_id::char_sub:
+        case vt_message_id::char_esc:
+        case vt_message_id::char_nul:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // 启用 ENABLE_VIRTUAL_TERMINAL_INPUT 的程序（如 Windows OpenSSH 的 ssh.exe）
+    // 期望拿到终端原始字符，而不是解码后的键：ssh.exe 只转发 uChar，解码后
+    // Backspace 会变成 ^H，方向键/功能键的 uChar 是 0，远端完全收不到。
+    [[nodiscard]] bool vt_input_passthrough(PendingKind pending_kind) const noexcept
+    {
+        return (cstate.input_mode & ENABLE_VIRTUAL_TERMINAL_INPUT) != 0 &&
+               pending_kind != PendingKind::ConsoleRead && pending_kind != PendingKind::RawRead;
+    }
+
     // ── process_input: 解码 → 解析 → echo → 分发 ──
     // 在同一遍输入处理中检测 \r/\n/Ctrl+Z 并设置 _line_found。
     void process_input(const char8_t *bytes, DWORD len)
@@ -2517,6 +2577,15 @@ struct pipe_bridge
                  id == vt_message_id::cursor_forward_tab) &&
                 pending_kind == PendingKind::ConsoleRead)
                 _echo_byte(b);
+
+            if (is_decoded_key(id) && vt_input_passthrough(pending_kind))
+            {
+                // 单个控制字符（DEL/BS/SUB）没有 ESC 序列，按自身字节发送。
+                emit_raw_sequence_as_input(parsed.raw_sequence.empty() ? std::u32string_view{&ch, 1}
+                                                                       : parsed.raw_sequence);
+                _input_parser.reset();
+                continue;
+            }
 
             const auto &msg = parsed.message;
             switch (id)

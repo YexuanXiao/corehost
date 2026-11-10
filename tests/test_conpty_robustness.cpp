@@ -213,6 +213,24 @@ corehost::test::result write_console_input_wakes_read()
     return corehost::test::result::pass;
 }
 
+// VT 输入程序应收到原始按键序列（ssh/vim 依赖；fork 319ed56）。
+corehost::test::result vt_input_passthrough_sends_raw_sequences()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --vt-probe"));
+    REQUIRE(session.wait_output("VT-PROBE-READY", 15000));
+
+    // 上方向键 = ESC [ A；Backspace = 0x7F。
+    REQUIRE(session.write("\x1b[A\x7f"));
+
+    REQUIRE(session.wait_output("VT-GOT: 1b 5b 41 7f", 15000));
+    session.close();
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -226,6 +244,7 @@ int main()
         {"ctrl_c", "conpty;robust;signal", &ctrl_c_interrupts_foreground},
         {"serve", "conpty;robust;pending", &console_calls_served_while_read_pending},
         {"wake", "conpty;robust;input", &write_console_input_wakes_read},
+        {"vt", "conpty;robust;input", &vt_input_passthrough_sends_raw_sequences},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))
