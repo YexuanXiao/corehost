@@ -172,6 +172,9 @@ add_executable(console_probe
 )
 target_link_libraries(console_probe PRIVATE test_common)
 add_custom_command(TARGET console_probe POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:console_probe>"
+        "$<TARGET_FILE_DIR:test_conpty_programs>"
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "$<TARGET_FILE_DIR:test_conpty_robustness>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

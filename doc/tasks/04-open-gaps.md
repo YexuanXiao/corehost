@@ -18,7 +18,7 @@
 | G10 | ~~20 次以上会话的泄漏观察~~ | DONE：repeat 扩到 50 次（句柄 104→107） | — | A10 |
 | G12 | 交互式客户端在隔离进程下连续会话不稳定 | 已确认：`cmd`/`cmd /k` 能出提示符并存活；输入到达宿主并完成一次 ReadConsole（`complete_pending cooked_len=7`）；但测试侧在写入后读到 0 字节（echo 与命令回显都没有）。回显链路（`on_input_bytes → process_new_vt_input → _edit_insert → edit_insert_char → echo_byte → vt_append_char/apply_echo_byte`，`on_input_bytes` 末尾有 `vt_flush`）在代码上完整 | 下一步：在 `vt_output_buffer::flush` 加临时计数日志（写入字节数、目标句柄、失败原因），确认 `vt_flush` 是否真的把回显写入 vt_out；再对比 `handle_console_read` 前后 `_terminal` 状态 | D3 |
 | G13 | ~~部分控制台程序 0xc0000142~~ | 已定位为**测试拆除竞态**：正常会话里 `cmd /c mode con` 成功（exit 0、输出正常）；弹窗发生在"子进程初始化期间关闭伪控制台"。缓解：测试进程树 `SetErrorMode` 抑制弹窗 + 会话驱动用 Job 对象先杀整棵客户端进程树再关伪控制台 | 若日后在正常会话中复现再升级为产品 BUG | A/D 交叉 |
-| G11 | Ctrl+C 投递（实现已移植，缺可验证的前台程序） | 参照 corehost_another-fork `42ef837`：1) CONNECT 记录 pid/ProcessGroupId；2) processed input 下 Ctrl+C 不排队为按键；3) 用 `user32!ConsoleControl(ConsoleEndTask)` 向控制台进程逐个投递（`GenerateConsoleCtrlEvent` 在 corehost 里到不了客户端）。已实现 `console_ctrl.hpp` + `bridge.send_ctrl_event` | 现有环境没有"保持 ENABLE_PROCESSED_INPUT 且长时间运行"的前台程序可做端到端验证（ping 会弹窗、powershell 清 processed、cmd /c 也清）；需要写一个测试用控制台探针（C4）——它自己 SetConsoleMode(ENABLE_PROCESSED_INPUT) 后等待 Ctrl+C | A 阶段遗留 |
+| G11 | Ctrl+C 投递（ConsoleControl 返回成功但客户端不被结束） | 已移植：processed input 下 Ctrl+C 不排队为按键；`bridge.send_ctrl_event` 用 `ConsoleControl(ConsoleEndTask)` 逐进程投递（`GenerateConsoleCtrlEvent` 到不了客户端）。用专用探针（`tests/console_probe.cpp`，保持 ENABLE_PROCESSED_INPUT）验证：READY 后发 Ctrl+C，探针未在 15s 内结束，日志无失败输出（调用返回成功） | 对照 fork 完整实现找缺失环节（可能需要把 console 的 CONSOLE_INFORMATION/hwnd 正确交给 CSRSS，或 fork 另有 console 注册步骤）；下一步 diff `console_ctrl.hpp` 调用点与 `send_ctrl_event` 的 flags/hwnd | A 阶段遗留 |
 
 ## 2. 已明确不做（有理由）
 

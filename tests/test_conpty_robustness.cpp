@@ -151,26 +151,26 @@ corehost::test::result repeated_sessions()
 // Ctrl+C 应投递到前台进程组并结束长时间运行的前台进程。
 corehost::test::result ctrl_c_interrupts_foreground()
 {
-    const auto powershell = corehost::test::system32_path(L"WindowsPowerShell\\v1.0\\powershell.exe");
-    if (!corehost::test::file_exists(powershell))
-        SKIP(L"powershell.exe not found");
+    // 专用探针：自己保持 ENABLE_PROCESSED_INPUT 后长眠，Ctrl+C 应由 CSRSS 结束。
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
 
     corehost::test::conpty_session session;
-    REQUIRE(session.start(quote(powershell) + L" -NoLogo -NoProfile -Command \"Start-Sleep -Seconds 60\""));
+    REQUIRE(session.start(quote(probe) + L" --ctrl-probe"));
+    REQUIRE(session.wait_output("CTRL-PROBE-READY", 15000));
 
-    // 让前台进程真正跑起来，再发送 Win32 Input Mode 的 Ctrl+C 键事件。
-    ::Sleep(1500);
+    ::Sleep(300);
     REQUIRE(session.write("\x1b[67;46;3;1;8;1_"));
 
     DWORD exit_code = static_cast<DWORD>(-1);
     if (!session.wait_exit(15000, &exit_code))
     {
-        // GenerateConsoleCtrlEvent 返回成功，但信号没有到达 pseudoconsole 客户端：
-        // 调用方必须与目标进程共享同一个 Win32 控制台，而 corehost 不是它的
-        // 附属进程。正确路径与 defterm 一致：走 CSRSS ConsoleControl。
         session.close();
         SKIP(L"CTRL_C_EVENT does not reach the pseudoconsole client yet (gap G11)");
     }
+
+    // 被 Ctrl+C 结束的进程退出码是 STATUS_CONTROL_C_EXIT (0xC000013A)。
+    REQUIRE(exit_code != 0);
     return corehost::test::result::pass;
 }
 
