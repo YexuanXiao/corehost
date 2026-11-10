@@ -43,7 +43,7 @@
 
 | 编号 | 子任务 | 状态 | 提交 | 备注 |
 | --- | --- | --- | --- | --- |
-| C1 | 测试库骨架：runner/断言/隔离/超时/环境探测 + 自测 | TODO | | D 阶段共用 |
+| C1 | 测试库骨架：runner/断言/隔离/超时/环境探测 + 自测 | DOING | C1 测试库 runner | `tests/lib/runner.hpp`：表驱动、REQUIRE/SKIP、标签过滤、自测（Runner.SelfTest）；隔离/超时/环境探测待做 |
 | C2 | 进程/会话驱动；诊断；注册表隔离与恢复 | TODO | | |
 | C3 | defterm 启动路径：delegation 切换、启动客户端、等待就绪 | TODO | | |
 | C4 | 控制台测试客户端（脚本化 API/VT/窗口消息） | TODO | | |

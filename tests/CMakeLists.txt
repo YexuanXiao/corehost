@@ -32,6 +32,18 @@ target_include_directories(test_common INTERFACE
 target_link_libraries(test_common INTERFACE common)
 target_compile_features(test_common INTERFACE cxx_std_23)
 
+# ── test_runner_selftest ──────────────────────────
+# 测试库 runner 自身的行为（通过/失败/跳过/过滤）。
+add_executable(test_runner_selftest
+    test_runner_selftest.cpp
+)
+target_include_directories(test_runner_selftest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(test_runner_selftest PRIVATE test_common)
+add_test(NAME Runner.SelfTest COMMAND test_runner_selftest)
+set_tests_properties(Runner.SelfTest PROPERTIES LABELS "testlib;selftest" TIMEOUT 30)
+
 # ── test_vt_parser_utf32 ───────────────────────────
 add_executable(test_vt_parser_utf32
     test_vt_parser_utf32.cpp

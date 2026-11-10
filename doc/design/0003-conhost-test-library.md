@@ -102,6 +102,15 @@ WindowsTerminal 并交互"，所以 L2 是验收项，L1 是日常回归主力�
 4. 失败产物默认落盘到构建目录下的 `test-artifacts/<用例>/`，包含：用例参数、
    子进程 stdout/stderr、会话日志、屏幕快照、耗时段。
 
+## 4.1 已实现（C1 第一批）
+
+- `tests/lib/runner.hpp`：表驱动用例（`test_case{name, tags, fn}`）、`REQUIRE` 失败即结束
+  当前用例、`SKIP(reason)` 记录跳过原因、按名称/标签过滤、返回 `run_stats`。
+- 断言用返回值而不是异常，避免在测试库引入 `try/catch`。
+- 自测 `tests/test_runner_selftest.cpp`（`Runner.SelfTest`）覆盖通过/失败/跳过/过滤。
+- 未实现：子进程隔离、用例超时、环境探测。它们落地前，新用例必须保证自己不会
+  无限阻塞（否则整个测试进程挂起）。
+
 ## 5. 备选与后续
 
 - 若后续允许引入第三方框架，runner 的断言与用例注册接口保持"可迁移"形态，
