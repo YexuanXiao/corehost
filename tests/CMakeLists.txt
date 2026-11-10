@@ -212,7 +212,20 @@ target_link_libraries(test_defterm_handoff_mock PRIVATE test_common conhost_prox
 add_test(NAME Defterm.Handoff COMMAND test_defterm_handoff_mock)
 set_tests_properties(Defterm.Handoff PROPERTIES LABELS "defterm;handoff" TIMEOUT 30)
 
-# ── test_conpty_programs ──────────────────────────# 真实程序矩阵：cmd、嵌套子进程、powershell、vim、输入时延。
+# ── test_defterm_wt_real ─────────────────────────
+# L2 真实终端层：只在当前用户默认终端是 WindowsTerminal 时执行，SKIP 不写注册表。
+add_executable(test_defterm_wt_real
+    test_defterm_wt_real.cpp
+)
+target_include_directories(test_defterm_wt_real PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(test_defterm_wt_real PRIVATE test_common)
+add_test(NAME Defterm.RealTerminal COMMAND test_defterm_wt_real)
+set_tests_properties(Defterm.RealTerminal PROPERTIES LABELS "defterm;real" TIMEOUT 60)
+
+# ── test_conpty_programs ──────────────────────────
+# 真实程序矩阵：cmd、嵌套子进程、powershell、vim、输入时延。
 add_executable(test_conpty_programs
     test_conpty_programs.cpp
 )
