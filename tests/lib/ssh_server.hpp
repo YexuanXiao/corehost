@@ -273,6 +273,12 @@ class ssh_server
         return (_dir / L"clientkey").wstring();
     }
 
+    // 服务器自己的主机私钥（不在 authorized_keys 中），用做"未授权客户端密钥"。
+    [[nodiscard]] std::wstring host_key() const
+    {
+        return (_dir / L"hostkey").wstring();
+    }
+
     // 连接参数：非交互命令与交互式会话共用。
     [[nodiscard]] std::wstring client_options() const
     {
