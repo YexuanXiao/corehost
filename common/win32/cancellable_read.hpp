@@ -9,13 +9,13 @@
 // FILE_FLAG_OVERLAPPED by us.
 //
 // This wrapper makes such a read cancellable by another thread:
-// - The reader marks "in read" before calling ReadFile.
-// - A stopper sets the stop flag and then calls cancel_pending(),
-//   which calls CancelSynchronousIo() while the reader is inside
-//   ReadFile.
-// - There is a window between "stop check" and "enter ReadFile"; the
-//   stopper must therefore keep calling cancel_pending() until the
-//   reader thread has exited. See wait_for_exit() for that loop.
+// - The reader signals an "in read" auto-reset event immediately
+//   before calling ReadFile and resets it afterwards.
+// - A stopper waits on {reader thread, "in read" event} with no
+//   timeout: whenever the event signals, the reader has just entered
+//   ReadFile, so cancelling is meaningful; when the thread handle
+//   signals, the reader has exited.
+// - No timer, no retry interval and no wait limit is involved.
 // - A cancelled read returns status::cancelled, which is NOT EOF.
 //   A closed write end returns status::closed (ReadFile succeeds with
 //   zero bytes). Unexpected ReadFile failures throw, because a
@@ -28,13 +28,15 @@
 //
 // Usage (stopper thread):
 //   reader.request_stop();
-//   reader.wait_for_exit(thread, timeout);
+//   reader.wait_for_exit(thread);   // 无限等待，事件驱动
 //
 // Only one thread may call read() on a given instance.
 
 #include "win32/error.hpp"
+#include "win32/event.hpp"
 #include "win32/handle.hpp"
 #include "win32/thread.hpp"
+#include "win32/wait.hpp"
 
 #include <Windows.h>
 
@@ -59,7 +61,10 @@ class cancellable_read
         cancelled,
     };
 
-    explicit cancellable_read(win32::handle_view pipe) noexcept : _pipe{pipe}
+    // Creating the "in read" event can fail; that is fatal, so the
+    // constructor is intentionally not noexcept.
+    explicit cancellable_read(win32::handle_view pipe)
+        : _pipe{pipe}, _in_read{win32::create_tag, /*manual_reset=*/false, /*initial=*/false}
     {
     }
 
@@ -75,10 +80,10 @@ class cancellable_read
         assert(!destination.empty());
         read_bytes = 0;
 
-        _in_read.store(true, std::memory_order_release);
+        _in_read.set();
         const BOOL ok = ::ReadFile(_pipe.get(), destination.data(), static_cast<DWORD>(destination.size()), &read_bytes,
                                    nullptr);
-        _in_read.store(false, std::memory_order_release);
+        _in_read.reset();
 
         if (ok != FALSE)
             return read_bytes == 0 ? status::closed : status::data;
@@ -115,16 +120,11 @@ class cancellable_read
 
     // Cancels the reader's blocking ReadFile if it is inside one.
     // Returns true when a cancellation request was issued. Returns
-    // false when the reader is not currently inside ReadFile (or just
-    // left it); the caller must retry, because the reader may enter
-    // ReadFile right after this check.
+    // false when the reader is not inside ReadFile (it either has not
+    // entered yet or already left); the caller then waits for the
+    // "in read" event again instead of re-checking on a timer.
     [[nodiscard]] bool cancel_pending(win32::handle_view reader_thread) const
     {
-        // Read the flag first: CancelSynchronousIo on a thread that is
-        // not inside a synchronous read fails with ERROR_NOT_FOUND.
-        if (!_in_read.load(std::memory_order_acquire))
-            return false;
-
         if (::CancelSynchronousIo(reader_thread.get()) != FALSE)
             return true;
 
@@ -135,26 +135,31 @@ class cancellable_read
         win32::throw_last_error(err);
     }
 
-    // Waits until the reader thread exits, cancelling its pending read
-    // whenever it is inside one.
+    // Waits until the reader thread exits, cancelling the read it is
+    // currently blocked in. Pure event-driven: waits on {reader thread,
+    // "in read" event} with no timeout, no retry interval and no wait
+    // limit.
     //
-    // There is deliberately NO timeout: a bounded wait would mean
-    // "give up on a thread that is still running", which is exactly the
-    // kind of silent failure this project forbids. Termination is
-    // guaranteed by construction: the reader checks the stop flag before
-    // every read, and every read it does enter is cancelled here. If
-    // cancellation itself fails unexpectedly, that is fatal and throws.
-    //
-    // The 5ms retry period bounds the window in which the reader can slip
-    // into ReadFile between the flag check and the cancellation; it is a
-    // polling interval for a shutdown-only loop, not a wait limit.
+    // Termination is guaranteed by construction: the "in read" event is
+    // set immediately before ReadFile, so every read the reader enters
+    // wakes this loop; every such read is cancelled; the reader checks
+    // the stop flag after each read and exits. If cancellation itself
+    // fails unexpectedly, that is fatal and throws.
     void wait_for_exit(basic_thread &reader_thread)
     {
         for (;;)
         {
-            if (reader_thread.join_for(5))
+            const auto wait = win32::wait_any(reader_thread.view(), _in_read.view(), INFINITE);
+            if (wait.abandoned())
+                win32::throw_last_error(win32::error::invalid_state);
+
+            // index 0: the reader thread has exited.
+            if (wait.index == 0)
                 return;
 
+            // index 1: the reader just entered ReadFile; cancel it. If it
+            // completed normally in the meantime, the next wait simply
+            // observes either the thread exit or the next read.
             (void)cancel_pending(reader_thread.view());
         }
     }
@@ -163,9 +168,10 @@ class cancellable_read
     // Non-owning pipe handle; the session owns it.
     win32::handle_view _pipe;
 
-    // True while this thread is inside ReadFile. Set before the call so
-    // the stopper can decide whether CancelSynchronousIo is meaningful.
-    std::atomic<bool> _in_read{false};
+    // Auto-reset: signaled while this thread is inside ReadFile. The
+    // stopper waits on it instead of polling; no memory ordering is
+    // needed because the wait itself is the synchronization.
+    win32::event _in_read;
 
     // Set by request_stop(); distinguishes "cancelled" from "aborted by
     // somebody else", which is fatal.

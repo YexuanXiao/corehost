@@ -120,8 +120,9 @@ Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额�
 `CancelSynchronousIo` 方案：
 
 1. 线程进入 `ReadFile` 前置位 `in_read`，返回后清除（原子标记，不在锁内）。
-2. 主线程请求停止，然后循环"若 `in_read` 置位则 `CancelSynchronousIo`；每 5ms
-   重试一次"直到线程真正退出。
+2. 主线程请求停止，然后等待 {读线程句柄, "in_read" 事件}：事件一置位就说明读线程
+   刚进入 `ReadFile`，此时调用 `CancelSynchronousIo`；线程句柄一置位就说明读线程
+   已退出。**纯事件驱动，没有重试间隔、没有超时、没有轮询。**
 3. 被取消的 `ReadFile` 返回 `ERROR_OPERATION_ABORTED`，线程检查停止标志后
    正常退出（不当作 EOF，不产生输入事件）。
 4. 循环而不是只取消一次，是为了覆盖"线程已通过停止检查、尚未进入 ReadFile"
@@ -141,9 +142,9 @@ Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额�
    剩余等待全部是无限等待 + 事件/取消唤醒）。测试框架里的截止时间是"判定
    失败并结束用例"的手段，属于测试基础设施，不是产品逻辑，不得回流到产品代码。
 
-实现载体：`common/win32/cancellable_read.hpp` 封装了 `in_read` 标记、`request_stop`、
-`cancel_pending` 与"每 5ms 重试取消直到线程退出"的无限 `wait_for_exit`；线程句柄与
-命名由 `common/win32/thread.hpp` 的 `basic_thread` 提供（`join()` 为无限等待）。
+实现载体：`common/win32/cancellable_read.hpp` 负责 `in_read` 事件、`request_stop`、
+`cancel_pending` 与事件驱动的无限 `wait_for_exit`；线程句柄与命名由
+`common/win32/thread.hpp` 的 `basic_thread` 提供（`join()` 为无限等待）。
 
 被否决的替代：关闭读端句柄（行为未定义，I/O 可能继续挂起）；改 overlapped
 （调用方给的句柄不可控）；`TerminateThread`（破坏进程状态，违背"正确处理线程
@@ -158,6 +159,21 @@ Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额�
 
 每个工作线程入口设置可读名称（终端输入 / 信号管道 / 控制台窗口 + 会话标识），
 由 `common/win32` 统一提供，避免各写一套。
+
+### 4.9 禁止探测式等待
+
+"先 `WaitForSingleObject(handle, 0)` 看一眼，再决定要不要做事"与轮询没有本质区别：
+它仍然是"没输入时也在主动检查"。这类代码在旧实现里用来决定"提交 completion 前
+是否先 flush 输出"，在新模型里一律删除：
+
+- 输出 flush 的时机由"这一轮已经处理完消息、即将进入无限等待"决定，而不是由
+  一次 0ms 探测决定；
+- 需要知道"ConDrv 是否还有消息"时，直接 `READ_IO`，返回 `no_message` 就是答案；
+- 需要知道"输入线程是否完成挂起请求"时，等 `state_changed` 事件，醒来后读真实
+  状态，不轮询 `has_pending()`。
+
+判断标准：**等待只能出现在"我要阻塞直到某件事发生"的位置，且超时参数必须是
+INFINITE；"探查状态"必须通过读取真实状态完成，不能通过等待实现。**
 
 ## 5. 影响
 
