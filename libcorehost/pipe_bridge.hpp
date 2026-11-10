@@ -41,6 +41,7 @@
 #include "terminal_cursor_state.hpp"
 #include "pending_io_state.hpp"
 #include "command_history_state.hpp"
+#include "console_ctrl.hpp"
 #include "vt_input_state.hpp"
 #include "signal.hpp"
 #include "perf_diag.hpp"

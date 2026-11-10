@@ -24,6 +24,7 @@ target_sources(libcorehost
                 command_history_state.hpp
                 vt_input_state.hpp
                 condrv_io.hpp
+                console_ctrl.hpp
                 console_state.hpp
                 console_viewport.hpp
                 conpty.hpp
