@@ -161,10 +161,6 @@ struct connect_handler
         return true;
     }
 
-    void on_idle() noexcept
-    {
-    }
-
     bool has_pending() const noexcept
     {
         // 当前 handler 没有自有异步操作；false 让主循环只等待 ConDrv 事件。
@@ -245,7 +241,6 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
         if (read_result == condrv_io::read_io_result::no_message)
         {
             completed_previous = nullptr;
-            handler.on_idle();
             if (handler.should_exit())
                 break;
             wait_for_message = true;
@@ -261,7 +256,6 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
 
         if (current->descriptor.Function == no_console_io_function)
         {
-            handler.on_idle();
             if (handler.should_exit())
                 break;
             continue;
@@ -284,7 +278,6 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
         if (handler.on_message(*current))
         {
             completed_previous = current;
-            handler.on_idle();
             if (handler.should_exit())
                 break;
         }
@@ -292,8 +285,7 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
         {
             while (handler.has_pending())
             {
-                handler.on_idle();
-                if (handler.has_pending())
+                    if (handler.has_pending())
                 {
                     // handler 自报仍有 pending 时同样无限等待，由消息唤醒。
                     const auto wait = win32::wait_one(input_event, INFINITE);

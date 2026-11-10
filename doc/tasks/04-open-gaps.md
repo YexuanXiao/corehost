@@ -11,8 +11,8 @@
 | G3 | 伪窗口 show/hide 信号 | 未实现：`WM_SHOWWINDOW`/`WM_SIZE` 不上报给终端，`PtySignal::ShowHideWindow` 只消费不发送 | 需要确认 ConPTY 下可见性上报的协议方向（原版走 VT writer，corehost 走信号管道） | B7 |
 | G4 | 真实 WindowsTerminal 层（L2） | 未开始：defterm 测试目前覆盖 L0（ConDrv 直连），没有真正拉起 WT 并做端到端交互 | 需要交互式桌面 + 已安装 WT；用例要能探测并 SKIP | C6 |
 | G5 | Handoff 替身层（L1） | 未开始：没有测试实现的 COM handoff 接收方 | 需要一个最小 `IConsoleHandoff` 本地服务器；可先在 defterm 分支上做 | C6 |
-| G6 | 输出侧 `vt_output_buffer::flush` 的 `noexcept` 路径 | 写 `vt_out` 失败时的行为未审计（既有输出路径） | 阅读实现，确认失败是记录 + 终止还是静默；按"任何可失败调用必须检查"整改 | A9 |
-| G7 | `defterm.cpp` 的 `connect_handler::on_idle()` 空实现 | 初始循环仍调用；已无实际动作 | 删除调用与空方法（低风险，纯清理） | A9/A6b |
+| G6 | ~~输出侧 `vt_output_buffer::flush` 的 `noexcept` 路径~~ | DONE：对端关闭仍按预期失败丢弃；其它写失败改为记录后 `abort`（致命） | — | A9 |
+| G7 | ~~`defterm.cpp` 的 `connect_handler::on_idle()` 空实现~~ | DONE：调用点与方法已删除 | — | A9/A6b |
 | G8 | CR/LF 跨批次 lookahead 在线程模型下的归属 | `_on_line_terminator` 会在批次末尾 `PeekNamedPipe` 找 LF；threaded 模式下由输入线程执行，但缺专门用例 | 增加"CR 与 LF 分两次到达"的用例，断言不产生多余行 | A10 |
 | G9 | 中断/信号压力测试 | 未做：Ctrl+C/Ctrl+Break 与信号线程交互只在少数用例间接覆盖 | 在 defterm/conpty 两侧补"信号到达时无丢失、无重复"的压力用例 | A10 |
 | G10 | 20 次以上会话的泄漏观察 | 已做 20 次（句柄 122→125）；100 次未做 | 延长 `repeat` 或新增慢速用例 | A10 |

@@ -59,7 +59,13 @@ class vt_output_buffer
             return;
         COREHOST_PERF_SCOPE_AMOUNT(vt_output_write_file, _buffer.size());
         const auto result = win32::write_all(_output, std::span<const char8_t>{_buffer.data(), _buffer.size()});
-        LOG_IF(result.failed(), "vt_output_buffer: write failed err=%u", static_cast<unsigned>(result.error));
+        // 对端关闭是预期失败（终端已退出），丢弃剩余输出即可；其它写失败属于
+        // "本不应失败却失败"，按致命错误处理（noexcept 路径用 abort）。
+        if (result.failed())
+        {
+            LOG("vt_output_buffer: unexpected write failure err=%u", static_cast<unsigned>(result.error));
+            std::abort();
+        }
         LOG_IF(result.closed(), "vt_output_buffer: output pipe closed err=%u", static_cast<unsigned>(result.error));
         _buffer.clear();
     }
