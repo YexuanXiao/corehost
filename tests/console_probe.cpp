@@ -498,6 +498,9 @@ int api_ctrl_probe(const wchar_t *result_path)
 // ── 脚本化控制台客户端（W9）─────────────────────────────
 // 每条指令一行，结果以 "[script] ..." 写回 stdout，供测试断言。
 // 指令：write/settitle/gettitle/sbi/getmode/window/msg/expect/sleep/exit。
+// 屏幕回读在脚本 expect 与 --screen-read-probe 中复用；定义在文件后部。
+std::wstring read_screen_rows();
+
 void script_print(const char *format, ...)
 {
     char buffer[512]{};
@@ -624,6 +627,13 @@ int run_script(const wchar_t *script_path)
             if (!script_msg(utf8_to_wide(rest)))
                 script_print("[script] msg %s unsupported\n", rest.c_str());
         }
+        else if (name == "expect")
+        {
+            const auto screen_text = read_screen_rows();
+            const auto needle = utf8_to_wide(rest);
+            const bool found = screen_text.find(needle) != std::wstring::npos;
+            script_print("[script] expect \"%s\" ok=%d\n", rest.c_str(), found ? 1 : 0);
+        }
         else if (name == "sleep")
             ::Sleep(static_cast<DWORD>(std::strtoul(rest.c_str(), nullptr, 10)));
         else if (name == "exit")
@@ -636,6 +646,50 @@ int run_script(const wchar_t *script_path)
     }
     std::fclose(file);
     return exit_code;
+}
+
+// 用 ReadConsoleOutputCharacterW 逐行回读可见屏幕。容量按 SBI 的可见窗口计算，
+// 不假设固定宽度；这是 G28 崩溃的原始调用形态，现在应安全返回。
+std::wstring read_screen_rows()
+{
+    const HANDLE output = ::GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO info{};
+    if (::GetConsoleScreenBufferInfo(output, &info) == FALSE)
+        return {};
+    const SHORT width = static_cast<SHORT>(info.srWindow.Right - info.srWindow.Left + 1);
+    if (width <= 0)
+        return {};
+    std::wstring text;
+    std::wstring row(static_cast<size_t>(width), L' ');
+    for (SHORT y = info.srWindow.Top; y <= info.srWindow.Bottom; ++y)
+    {
+        DWORD chars = 0;
+        if (::ReadConsoleOutputCharacterW(output, row.data(), width, COORD{info.srWindow.Left, y}, &chars) == FALSE)
+            break;
+        text.append(row, 0, chars);
+        text.push_back(L'\n');
+    }
+    return text;
+}
+
+// G28 回归探针：逐行 ReadConsoleOutputCharacter + ReadConsoleOutput 矩形。
+int screen_read_probe(const wchar_t *result_path)
+{
+    if (result_path == nullptr || result_path[0] == 0)
+        return 32;
+    const HANDLE output = ::GetStdHandle(STD_OUTPUT_HANDLE);
+    constexpr wchar_t banner[] = L"SCREEN-READBACK\r\n";
+    DWORD written = 0;
+    ::WriteConsoleW(output, banner, ARRAYSIZE(banner) - 1, &written, nullptr);
+
+    const auto screen = read_screen_rows();
+    SMALL_RECT region{0, 0, 7, 2};
+    CHAR_INFO cells[8 * 3]{};
+    const BOOL region_ok = ::ReadConsoleOutputW(output, cells, COORD{8, 3}, COORD{0, 0}, &region);
+    char marker[160]{};
+    ::sprintf_s(marker, "SCREEN chars=%zu region=%d\r\n", screen.size(), region_ok ? 1 : 0);
+    write_text_file(result_path, marker);
+    return screen.empty() || region_ok == FALSE ? 33 : 0;
 }
 
 int wmain(int argc, wchar_t **argv)
@@ -659,7 +713,10 @@ int wmain(int argc, wchar_t **argv)
     if (::wcscmp(argv[1], L"--no-processed-probe") == 0)
         return no_processed_probe(argc >= 3 ? argv[2] : nullptr);
     if (::wcscmp(argv[1], L"--api-ctrl-probe") == 0)
-        return api_ctrl_probe(argc >= 3 ? argv[2] : nullptr);    if (::wcscmp(argv[1], L"--script") == 0)
+        return api_ctrl_probe(argc >= 3 ? argv[2] : nullptr);
+    if (::wcscmp(argv[1], L"--screen-read-probe") == 0)
+        return screen_read_probe(argc >= 3 ? argv[2] : nullptr);
+    if (::wcscmp(argv[1], L"--script") == 0)
         return run_script(argc >= 3 ? argv[2] : nullptr);
     if (::wcscmp(argv[1], L"--api-probe") == 0)
         return api_probe(argc >= 3 ? argv[2] : nullptr);

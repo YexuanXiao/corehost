@@ -282,3 +282,24 @@ conhost 宿主下运行。机制：libconpty 按"测试可执行文件同目录�
 - `GetConsoleMode(input)` 会在回读时补 `EXTENDED_FLAGS` 和
   `INSERT/QUICK_EDIT/AUTO_POSITION`（`host/getset.cpp::GetConsoleInputModeImpl`）；
   `SetConsoleMode` 只有带 `EXTENDED_FLAGS` 才允许整体替换私有位。
+## 4.17 Completion 的 Information 语义与输入负载边界
+
+ConDrv 客户端把 `CD_IO_COMPLETE.IoStatus.Information` 当作**数据区字节数**
+（conhost 的 `ServerReadConsoleOutputString` / `ServerReadConsoleOutput` /
+`ServerReadConsole` / `ServerGetConsoleInput` 都用 `SetReplyInformation(cb*)`
+回报纯数据长度），而 corehost 的单 region 完成同时携带 "API struct + 数据"。
+因此约定：
+
+- `Write.Size = sizeof(API struct) + 数据区字节数`（客户端一次拷入 API 消息体）；
+- `Information = 数据区字节数`（不含 struct）。
+
+早期实现把 struct 也算进 `Information`，`ReadConsoleOutputCharacter` 在 80 字符
+精确缓冲下会让客户端多写 `sizeof(struct)` 字节，触发 ASAN 堆越界（G28）。
+`api_handlers.hpp` 的 `ucomplete_data` 封装了该约定；`message_output_data_capacity`
+同时按客户端 `OutputSize` 与本地 `io_msg::body` 余量收缩数据区，未写区域清零，
+避免把上一条消息的 body 回传给客户端。
+
+输入方向同理：`InputSize` 是客户端声明值，可能大于本地 body。所有变长输入
+（ReadConsole initial data、WriteConsoleInput/Output/OutputString、SetTitle）
+统一经 `pipe_bridge::read_input_payload` 取数据：body 放得下就直接切片，否则用
+READ_INPUT 读入临时缓冲，并拒绝超过 16 MiB 的单次负载。
