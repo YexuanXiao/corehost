@@ -150,7 +150,7 @@ target_include_directories(test_defterm_connect_selftest PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}
 )
-target_link_libraries(test_defterm_connect_selftest PRIVATE test_common)
+target_link_libraries(test_defterm_connect_selftest PRIVATE test_common user32.lib)
 add_dependencies(test_defterm_connect_selftest corehost)
 add_custom_command(TARGET test_defterm_connect_selftest POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

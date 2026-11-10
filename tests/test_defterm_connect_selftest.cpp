@@ -123,6 +123,106 @@ corehost::test::result get_console_window_then_close()
     return corehost::test::result::pass;
 }
 
+corehost::test::result pressure_does_not_leak()
+{
+    const auto corehost = corehost_next_to_test();
+    REQUIRE(!corehost.empty());
+
+    corehost::test::condrv_session session{};
+    DWORD error = 0;
+    REQUIRE(corehost::test::create_condrv_server(session, error));
+
+    PROCESS_INFORMATION host{};
+    REQUIRE(corehost::test::launch_defterm_host(corehost, session.server.view(), error, &host));
+    REQUIRE(corehost::test::connect_client(session, L"defterm-pressure", L"defterm-pressure.exe", false, error));
+    corehost::test::bind_console_connection(session.connection.view());
+
+    const auto metrics = [](HANDLE process, DWORD &handles, DWORD &user_objects) {
+        if (::GetProcessHandleCount(process, &handles) == FALSE)
+            return false;
+        user_objects = ::GetGuiResources(process, GR_USEROBJECTS);
+        return true;
+    };
+
+    DWORD handles_before = 0;
+    DWORD user_before = 0;
+    REQUIRE(metrics(host.hProcess, handles_before, user_before));
+
+    const HWND window = ::GetConsoleWindow();
+    REQUIRE(window != nullptr);
+
+    for (int i = 0; i < 200; ++i)
+        REQUIRE(::GetConsoleCP() != 0);
+
+    DWORD_PTR result = 0;
+    for (int i = 0; i < 50; ++i)
+        REQUIRE(::SendMessageTimeoutW(window, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 2000, &result) != 0);
+
+    // 给异步完成一点时间稳定下来（不依赖固定时间长短：轮询直到计数不变或上限）。
+    DWORD handles_after = handles_before;
+    DWORD user_after = user_before;
+    for (int attempt = 0; attempt < 50; ++attempt)
+    {
+        DWORD h = 0;
+        DWORD u = 0;
+        REQUIRE(metrics(host.hProcess, h, u));
+        if (h == handles_after && u == user_after && attempt > 5)
+            break;
+        handles_after = h;
+        user_after = u;
+        ::Sleep(20);
+    }
+
+    corehost::test::unbind_console_connection();
+    REQUIRE(::SendMessageTimeoutW(window, WM_CLOSE, 0, 0, SMTO_ABORTIFHUNG, 2000, &result) != 0);
+    session.connection = win32::handle{};
+    const DWORD wait = ::WaitForSingleObject(host.hProcess, 5000);
+    if (wait != WAIT_OBJECT_0)
+        ::TerminateProcess(host.hProcess, 1);
+    ::CloseHandle(host.hThread);
+    ::CloseHandle(host.hProcess);
+
+    REQUIRE(wait == WAIT_OBJECT_0);
+    // 句柄增长只允许来自进程内正常的连接/事件对象；USER 对象不能增长。
+    REQUIRE(handles_after <= handles_before + 32);
+    REQUIRE(user_after <= user_before + 4);
+    return corehost::test::result::pass;
+}
+
+corehost::test::result repeated_sessions_exit_cleanly()
+{
+    const auto corehost = corehost_next_to_test();
+    REQUIRE(!corehost.empty());
+
+    for (int iteration = 0; iteration < 5; ++iteration)
+    {
+        corehost::test::condrv_session session{};
+        DWORD error = 0;
+        REQUIRE(corehost::test::create_condrv_server(session, error));
+
+        PROCESS_INFORMATION host{};
+        REQUIRE(corehost::test::launch_defterm_host(corehost, session.server.view(), error, &host));
+        REQUIRE(corehost::test::connect_client(session, L"defterm-repeat", L"defterm-repeat.exe", false, error));
+        corehost::test::bind_console_connection(session.connection.view());
+
+        const HWND window = ::GetConsoleWindow();
+        corehost::test::unbind_console_connection();
+        REQUIRE(window != nullptr);
+
+        DWORD_PTR result = 0;
+        REQUIRE(::SendMessageTimeoutW(window, WM_CLOSE, 0, 0, SMTO_ABORTIFHUNG, 2000, &result) != 0);
+
+        session.connection = win32::handle{};
+        const DWORD wait = ::WaitForSingleObject(host.hProcess, 5000);
+        if (wait != WAIT_OBJECT_0)
+            ::TerminateProcess(host.hProcess, 1);
+        ::CloseHandle(host.hThread);
+        ::CloseHandle(host.hProcess);
+        REQUIRE(wait == WAIT_OBJECT_0);
+    }
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -130,6 +230,8 @@ int main()
     constexpr corehost::test::test_case cases[] = {
         {"connect", "defterm", &connect_and_call_console_api},
         {"window", "defterm", &get_console_window_then_close},
+        {"pressure", "defterm", &pressure_does_not_leak},
+        {"sessions", "defterm", &repeated_sessions_exit_cleanly},
     };
 
     if (const auto child = corehost::test::run_child_case(cases))
