@@ -9,7 +9,7 @@
 | G1 | ~~defterm 直连客户端的 `GetConsoleMode` 失败~~ | RESOLVED：传本进程 STD 句柄会被判未知对象（测试环境没有客户端句柄表）；改传 `nullptr`（object=0）后成功。真实客户端有句柄表，不受影响 | — | C5 |
 | G2 | ~~ssh 远程组合~~ | DONE：测试库 `tests/lib/ssh_server.hpp` 在测试目录旁生成密钥与最小 sshd_config，以当前用户身份在高端口拉起**临时 sshd**（非管理员），`ssh` 非交互命令与 `ssh_pty` 交互会话两条用例均通过；不再依赖系统 sshd 服务 | — | D3 |
 | G3 | ~~伪窗口 show/hide 信号~~ | DONE：`WM_SIZE(SIZE_MINIMIZED/RESTORED)`、`WM_SHOWWINDOW` 在会话锁内向 vt_out 写 `ESC[2t/1t`（原版 `VtIo::Writer::WriteWindowVisibility` 同款）；`ConPTY.Programs` 的 visibility 用例验证 | — | B7 |
-| G4 | 真实 WindowsTerminal 层（L2） | 未开始：defterm 测试目前覆盖 L0（ConDrv 直连），没有真正拉起 WT 并做端到端交互 | 需要交互式桌面 + 已安装 WT；用例要能探测并 SKIP | C6 |
+| G4 | ~~真实 WindowsTerminal 层~~ | DONE（机会式）：`Defterm.RealTerminal` 只读默认终端配置，是 WT 时用 `CREATE_NEW_CONSOLE` 触发系统委托并断言命令在委托后的控制台执行；conhost/第三方/未配置时 SKIP。不写注册表 | — | C6 |
 | G5 | ~~handoff 替身层~~ | DONE：handoff 协议拆到 `corehost/defterm/handoff_session.hpp`，测试用进程内 `IConsoleHandoff` 替身驱动 `perform_handoff()`（`Defterm.Handoff`，2 个用例），不碰注册表、不启动 WindowsTerminal | — | C6 |
 | G6 | ~~输出侧 `vt_output_buffer::flush` 的 `noexcept` 路径~~ | DONE：对端关闭仍按预期失败丢弃；其它写失败改为记录后 `abort`（致命） | — | A9 |
 | G7 | ~~`defterm.cpp` 的 `connect_handler::on_idle()` 空实现~~ | DONE：调用点与方法已删除 | — | A9/A6b |
@@ -42,4 +42,4 @@ handoff 替身层）、G11（Ctrl+C）仍未完成，解除条件见对应行。
 | 受限文件沙箱下 CMake `try_compile` 挂起 | 配置/构建需要完整权限 | 看板基线表 |
 | 测试进程写 HKCU 返回 ACCESS_DENIED | 与 defterm 方案无关了（不再写注册表）；未继续排查 | 已删除相关代码 |
 | sshd 服务未运行 | D5 用例 SKIP | G2 | ~~ssh 远程组合~~ | DONE：测试库 `tests/lib/ssh_server.hpp` 在测试目录旁生成密钥与最小 sshd_config，以当前用户身份在高端口拉起**临时 sshd**（非管理员），`ssh` 非交互命令与 `ssh_pty` 交互会话两条用例均通过；不再依赖系统 sshd 服务 | — | D3 |
-| 本机未验证 WindowsTerminal 交互 | C6 未开始 | G4 |
+| 本机未验证 WindowsTerminal 交互 | C6 未开始 | G4 | ~~真实 WindowsTerminal 层~~ | DONE（机会式）：`Defterm.RealTerminal` 只读默认终端配置，是 WT 时用 `CREATE_NEW_CONSOLE` 触发系统委托并断言命令在委托后的控制台执行；conhost/第三方/未配置时 SKIP。不写注册表 | — | C6 |

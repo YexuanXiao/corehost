@@ -58,7 +58,7 @@ ctest --test-dir build --output-on-failure
 ## 5. 已知缺口（详见 `04-open-gaps.md`）
 
 - ~~G2~~：已用临时 sshd 解决；
-- **G4**：真实 WindowsTerminal 层未实现（G5 已用替身层覆盖）；
+- ~~G4~~：真实 WT 层已有机会式冒烟用例（`Defterm.RealTerminal`）；
 
 - 偶发：一次完整 `ctest` 出现 1 个失败，立即复跑通过；未定位到具体用例（日志被覆盖）。后续应给失败用例保留产物（`--output-on-failure` 已开，但需归档日志）。
 
@@ -68,7 +68,7 @@ ctest --test-dir build --output-on-failure
 | --- | --- | --- |
 | 1. I/O 模型 | 完成 | — |
 | 2. GetConsoleWindow 伪窗口 | 完成 | — |
-| 3. defterm 测试 | 确定性层 + handoff 替身层完成 | 真实 WT 层（G4） |
+| 3. defterm 测试 | 完成（确定性层、handoff 替身层、真实 WT 机会式） | — |
 | 4. conpty 测试 | 主矩阵完成 | ssh（G2，环境）、Ctrl+C（G11，暂停） |
 
 最终一次完整运行：构建通过，`ctest` **23/23 通过，41.46s**。
@@ -83,7 +83,7 @@ ctest --test-dir build --output-on-failure
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-第 63 轮实测：**24/24 通过，27.75s**；`ConPTY.Programs` 9 passed / 0 skipped。
+第 64 轮实测：**25/25 通过，27.66s**；`ConPTY.Programs` 9 passed / 0 skipped。
 
 ## 7. 结论''
 
