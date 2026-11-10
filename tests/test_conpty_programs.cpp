@@ -97,7 +97,6 @@ corehost::test::result input_latency()
     // 探针已确认回显链路工作（cmd /k 输入 abc 后收到 \r\nabc\r\n）。但连续
     // 交互式 cmd 会话在隔离子进程里会提前结束，等待标记随之失败；稳定化前
     // 保持 SKIP，见 doc/tasks/04-open-gaps.md G12。
-    SKIP(L"repeated interactive cmd sessions are unstable under isolated child (gap G12)");
 
     const auto cmd = corehost::test::system32_path(L"cmd.exe");
     REQUIRE(!cmd.empty());
