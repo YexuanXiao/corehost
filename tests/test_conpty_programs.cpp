@@ -270,6 +270,112 @@ corehost::test::result ssh_interactive_session()
     return corehost::test::result::pass;
 }
 
+// ssh 负路径 1：客户端密钥未授权 → 认证失败（非 0 退出 + Permission denied）。
+corehost::test::result ssh_rejects_unknown_key()
+{
+    const auto ssh = corehost::test::system32_path(L"OpenSSH\\ssh.exe");
+    if (!corehost::test::file_exists(ssh))
+        SKIP(L"ssh.exe not found");
+
+    corehost::test::ssh_server server;
+    std::wstring error;
+    if (!server.start(error))
+        SKIP((L"cannot start temporary sshd: " + error).c_str());
+
+    corehost::test::conpty_session session;
+    // 只用未授权的 hostkey，构造独立的选项串（client_options 里已含 -i 客户端密钥，
+    // 再加 -i 会让 ssh 同时尝试合法密钥而认证成功）。
+    const std::wstring command = quote(ssh) + L" -p " + std::to_wstring(server.port()) + L" -i \"" +
+                                 server.host_key() + L"\" -o IdentitiesOnly=yes -o IdentityAgent=NUL" +
+                                 L" -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o BatchMode=yes" +
+                                 L" -o LogLevel=ERROR " + server.user() + L"@127.0.0.1 \"cmd /c echo should-not-run\"";
+    REQUIRE(session.start(command));
+
+    const bool saw = session.wait_output("Permission denied", 30000);
+    DWORD exit_code = static_cast<DWORD>(-1);
+    const bool exited = session.wait_exit(30000, &exit_code);
+    if (!saw)
+    {
+        const auto output = session.take_output();
+        std::fprintf(stderr, "[ssh-bad-key] output: %s\n", output.c_str());
+    }
+    server.stop();
+    REQUIRE(saw);
+    REQUIRE(exited);
+    REQUIRE(exit_code != 0);
+    return corehost::test::result::pass;
+}
+
+// ssh 负路径 2：远端命令的退出码应传播回 ssh。
+corehost::test::result ssh_propagates_remote_exit_code()
+{
+    const auto ssh = corehost::test::system32_path(L"OpenSSH\\ssh.exe");
+    if (!corehost::test::file_exists(ssh))
+        SKIP(L"ssh.exe not found");
+
+    corehost::test::ssh_server server;
+    std::wstring error;
+    if (!server.start(error))
+        SKIP((L"cannot start temporary sshd: " + error).c_str());
+
+    corehost::test::conpty_session session;
+    const std::wstring command = quote(ssh) + L" " + server.client_options() + L" " + server.user() +
+                                 L"@127.0.0.1 \"exit 7\"";
+    REQUIRE(session.start(command));
+
+    DWORD exit_code = static_cast<DWORD>(-1);
+    const bool exited = session.wait_exit(30000, &exit_code);
+    if (!exited || exit_code != 7)
+    {
+        const auto output = session.take_output();
+        std::fprintf(stderr, "[ssh-exit] exited=%d code=%lu output: %s\n", exited ? 1 : 0,
+                     static_cast<unsigned long>(exit_code), output.c_str());
+    }
+    server.stop();
+    REQUIRE(exited);
+    REQUIRE(exit_code == 7);
+    return corehost::test::result::pass;
+}
+
+// ssh 负路径 3：交互会话里把 ^C 转发到远端，远端命令被中断、ssh 退出。
+corehost::test::result ssh_interactive_interrupt()
+{
+    const auto ssh = corehost::test::system32_path(L"OpenSSH\\ssh.exe");
+    if (!corehost::test::file_exists(ssh))
+        SKIP(L"ssh.exe not found");
+
+    corehost::test::ssh_server server;
+    std::wstring error;
+    if (!server.start(error))
+        SKIP((L"cannot start temporary sshd: " + error).c_str());
+
+    corehost::test::conpty_session session;
+    const std::wstring command = quote(ssh) + L" -tt " + server.client_options() + L" " + server.user() +
+                                 L"@127.0.0.1 \"powershell -NoProfile -Command Start-Sleep -Seconds 30\"";
+    REQUIRE(session.start(command));
+
+    // 等 ssh 建立会话并进入 raw 模式，再把 ^C 作为字节发给远端。重复发送覆盖
+    // "字节早于 raw read 挂起"的窗口。
+    ::Sleep(1500);
+    bool exited = false;
+    for (int attempt = 0; attempt < 10 && !exited; ++attempt)
+    {
+        REQUIRE(session.write("\x03"));
+        exited = session.wait_exit(1000);
+    }
+    if (!exited)
+        exited = session.wait_exit(20000);
+    if (!exited)
+    {
+        const auto output = session.take_output();
+        std::fprintf(stderr, "[ssh-interrupt] output: %s\n", output.c_str());
+        session.close();
+    }
+    server.stop();
+    REQUIRE(exited);
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
@@ -283,6 +389,9 @@ int main()
         {"edit", "conpty;program", &edit_help_runs},
         {"ssh", "conpty;program;network", &ssh_remote_command},
         {"ssh_pty", "conpty;program;network", &ssh_interactive_session},
+        {"ssh_bad_key", "conpty;program;network", &ssh_rejects_unknown_key},
+        {"ssh_exit_code", "conpty;program;network", &ssh_propagates_remote_exit_code},
+        {"ssh_interrupt", "conpty;program;network", &ssh_interactive_interrupt},
         {"visibility", "conpty;window", &visibility_is_reported_to_terminal},
     };
 
