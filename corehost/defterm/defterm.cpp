@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <cassert>
 #include <utility>
+#include "client_notify.hpp"
 #include "connect_policy.hpp"
 #include "io.hpp"
 #include "terminal_handoff.hpp"
@@ -113,8 +114,8 @@ struct connect_handler
             auto command_line = query_process_command_line(client_pid);
             LOG(L"elevated client command line: %ls", command_line.c_str());
 
-            // ProcessGroupId 为 0 时没有显式进程组，只能用 pid 作为
-            // GenerateConsoleCtrlEvent 的目标。
+            // ProcessGroupId 为 0 时没有显式进程组，诊断报告里用客户端 pid
+            // 作为目标；事件投递本身按进程进行（见下方 notify_client_ctrl）。
             const DWORD target_process_group_id =
                 connect_info.ProcessGroupId ? connect_info.ProcessGroupId : client_pid;
             const auto report_path = diagnostic_report::write_elevated_terminal_blocked(
@@ -125,8 +126,10 @@ struct connect_handler
             env::show_elevated_notification(report_path);
             condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
 
-            LOG("sending immediate CTRL_BREAK to process group=%lu", target_process_group_id);
-            ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, target_process_group_id);
+            // corehost 不在客户端控制台上，GenerateConsoleCtrlEvent 无效
+            // （gaps G16）。初始 handoff 阶段只有一个已 CONNECT 的客户端。
+            LOG("sending immediate CTRL_BREAK to client pid=%lu", client_pid);
+            notify_client_ctrl(client_pid, CTRL_BREAK_EVENT);
             return connect_action::continue_loop;
         }
 
@@ -149,8 +152,8 @@ struct connect_handler
             connect_info.WindowVisible, connect_info.ConsoleApp, command_line);
         env::show_not_found_notification(report_path);
         condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
-        // 没有可用终端时立即打断客户端进程组，避免它永久等待不可见控制台。
-        ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, target_process_group_id);
+        // 没有可用终端时立即打断客户端，避免它永久等待不可见控制台。
+        notify_client_ctrl(client_pid, CTRL_BREAK_EVENT);
         return connect_action::continue_loop;
     }
 
