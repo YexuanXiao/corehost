@@ -16,7 +16,7 @@
 | G8 | CR/LF 跨批次 lookahead 在线程模型下的归属 | `_on_line_terminator` 会在批次末尾 `PeekNamedPipe` 找 LF；threaded 模式下由输入线程执行，但缺专门用例 | 增加"CR 与 LF 分两次到达"的用例，断言不产生多余行 | A10 |
 | G9 | 中断/信号压力测试 | 未做：Ctrl+C/Ctrl+Break 与信号线程交互只在少数用例间接覆盖 | 在 defterm/conpty 两侧补"信号到达时无丢失、无重复"的压力用例 | A10 |
 | G10 | ~~20 次以上会话的泄漏观察~~ | DONE：repeat 扩到 50 次（句柄 104→107） | — | A10 |
-| G12 | 交互式客户端在 headless ConPTY 下可能立刻退出 | 不带参数的 cmd 有时在收到首个输入前就断开（宿主 READ_IO 立即返回 disconnected），导致 resize/时延用例只能 SKIP | 对比 WindowsTerminal 的客户端启动参数与 std 句柄处理；怀疑客户端控制台初始化路径差异 | D3 |
+| G12 | 交互式客户端在 headless ConPTY 下的回显/存活性不稳定 | 探针结果：`cmd` 与 `cmd /k` 都能出提示符并存活 1s；输入也确实完成了一次 ReadConsole（宿主日志 `complete_pending cooked_len=7`），但测试侧读不到后续输出（echo/命令回显为 0 字节） | 需要确认 cooked 回显路径（`_terminal.apply_echo_byte` → vt_flush）在无 pending 时的输出是否真的写入 vt_out；用宿主日志逐字节核对 | D3 |
 | G13 | ~~部分控制台程序 0xc0000142~~ | 已定位为**测试拆除竞态**：正常会话里 `cmd /c mode con` 成功（exit 0、输出正常）；弹窗发生在"子进程初始化期间关闭伪控制台"。缓解：测试进程树 `SetErrorMode` 抑制弹窗 + 会话驱动用 Job 对象先杀整棵客户端进程树再关伪控制台 | 若日后在正常会话中复现再升级为产品 BUG | A/D 交叉 |
 | G11 | **Ctrl+C 未投递到前台进程组** | 已实现：记录 CONNECT 的 ProcessGroupId，Win32 Ctrl+C 键事件在 processed input 下调用 `GenerateConsoleCtrlEvent`。实测调用返回成功但客户端不退出——调用方未与目标共享 Win32 控制台，信号没有到达 pseudoconsole 客户端 | 改走 CSRSS `ConsoleControl`（与 defterm 的 console_control_thread 同一路径），或确认 ConPTY 下正确的信号投递通道 | A 阶段遗留 |
 
