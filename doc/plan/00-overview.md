@@ -54,6 +54,18 @@
 是因为 defterm 用例里"用 GetConsoleWindow 发消息"是核心交互手段。测试库骨架只在
 C1 建一次，C、D 共用，避免两套测试风格。
 
+## 3.1 进度快照（2026-11-11）
+
+| 阶段 | 状态 | 说明 |
+| --- | --- | --- |
+| 0 文档 | DONE | plan/tasks/design 三类文档齐备 |
+| A I/O 模型 | 基本完成 | 输入/信号线程、事件驱动主循环、无限 join、defterm 循环去轮询均已完成；剩 A9 输出侧审计、A10 若干压力项（见 `tasks/04-open-gaps.md`） |
+| B 伪窗口 | 基本完成 | GetConsoleWindow、消息、关闭、标题/矩形、泄漏压力均有自动化证据；show/hide 信号未做（G3） |
+| C defterm 测试 | 进行中 | 测试库（runner/隔离/超时/宿主层）+ ConDrv 直连客户端可用；对象 id（G1）、WT 真机层（G4/G5）未完成 |
+| D conpty 测试 | 进行中 | 真实程序矩阵（cmd/嵌套/powershell/vim/edit）、健壮性、时延、20 次稳定性通过；ssh 受环境阻塞（G2）、100 次泄漏与中断压力未做（G9/G10） |
+
+详细状态以 `tasks/00-board.md` 为准，未完成项与解除条件见 `tasks/04-open-gaps.md`。
+
 ## 4. 完成定义（DoD）
 
 单个子任务完成必须同时满足：
