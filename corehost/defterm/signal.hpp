@@ -31,7 +31,9 @@
 #include <windows.h>
 #include <cstddef>
 #include "ntapi/conwinuserrefs.h"
+#include "win32/cancellable_read.hpp"
 #include "win32/handle.hpp"
+#include "win32/thread.hpp"
 
 using PFN_ConsoleControl = NTSTATUS(WINAPI *)(CONSOLECONTROL Command, PVOID ConsoleInformation,
                                               DWORD ConsoleInformationLength);
@@ -58,13 +60,46 @@ class console_control_forwarder
         return _pipe.valid();
     }
 
-    // 非阻塞推进消息读取并转发完整消息。函数不等待新数据；返回 true 表示
-    // 管道已断开，会话应停止等待终端。
-    [[nodiscard]] bool poll();
+    // 阻塞读取并转发一条完整消息（信号线程使用）。返回 false 表示管道
+    // 已断开或读被取消，调用方应结束循环。
+    [[nodiscard]] bool read_and_forward(win32::cancellable_read &reader);
 
   private:
+    // 由 code 确定结构体最小长度；未知 code 返回 0（协议损坏）。
+    static size_t min_payload_for(CONSOLECONTROL code) noexcept;
+
+    // 把一条已完整读出的消息转发给 CSRSS。
+    void forward_message(CONSOLECONTROL code, DWORD dw_size, std::span<const std::byte> body, size_t body_len);
+
     PFN_ConsoleControl ConsoleControl;
     win32::handle_view _pipe;
+};
+
+// 手递手（defterm）阶段的信号转发线程：阻塞读取终端写入的
+// Ctrl+C/Break/Close 消息并转发到 CSRSS。管道断开时置位 closed_event。
+class console_control_thread
+{
+  public:
+    console_control_thread(console_control_forwarder &forwarder, win32::handle_view pipe,
+                           win32::handle_view closed_event)
+        : _reader{pipe}, _forwarder{forwarder}, _closed_event{closed_event}
+    {
+    }
+
+    console_control_thread(const console_control_thread &) = delete;
+    console_control_thread &operator=(const console_control_thread &) = delete;
+
+    void start();
+    void stop_and_join();
+
+  private:
+    static DWORD WINAPI entry(LPVOID self);
+    void run();
+
+    win32::cancellable_read _reader;
+    console_control_forwarder &_forwarder;
+    win32::handle_view _closed_event;
+    win32::basic_thread _thread;
 };
 
 } // namespace corehost::defterm

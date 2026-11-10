@@ -96,34 +96,32 @@ namespace corehost::defterm
     signal_write.clear();
     corehost_process.clear();
 
-    // 信号管道由 console_control_forwarder 在主线程轮询：Ctrl+C/Break/Close
-    // 消息被转发到 CSRSS，管道断开由 poll() 报告。不再创建独立信号线程，
-    // signal_read 在函数栈上保持到等待结束。
+    // Ctrl+C/Break/Close 由信号线程阻塞读取并转发到 CSRSS；管道断开时置位
+    // signals_closed。主线程只在 {终端进程, signals_closed} 上无限等待，
+    // 不轮询、不设超时。
     console_control_forwarder signals;
     signals.set_pipe(signal_read.view());
-    LOG("signal pipe bound to handoff polling loop pipe=%p", signal_read.get());
+    win32::event signals_closed{win32::create_tag, /*manual_reset=*/true, /*initial=*/false};
+    console_control_thread signal_thread{signals, signal_read.view(), signals_closed.view()};
+    LOG("signal pipe bound to handoff signal thread pipe=%p", signal_read.get());
+    signal_thread.start();
 
-    // 等待终端进程退出或信号管道断开（等价于终端侧停止服务）。每个 16ms
-    // 时间片先轮询一次信号管道，保证 Ctrl+C 等消息不被饿死。
-    for (;;)
+    const auto wait = win32::wait_any(terminal_process, signals_closed, INFINITE);
+    if (wait.abandoned())
     {
-        if (signals.poll())
-        {
-            LOG("signal pipe closed; terminal no longer serviced");
-            return true;
-        }
-        const auto wait = win32::wait_one(terminal_process, 16);
-        if (wait.abandoned())
-        {
-            LOG("terminal handoff wait abandoned");
-            return true;
-        }
-        if (wait.signaled())
-        {
-            LOG("terminal handoff wait completed; terminal process exited");
-            return true;
-        }
+        LOG("terminal handoff wait abandoned");
     }
+    else if (wait.index == 0)
+    {
+        LOG("terminal handoff wait completed; terminal process exited");
+    }
+    else
+    {
+        LOG("signal pipe closed; terminal no longer serviced");
+    }
+
+    signal_thread.stop_and_join();
+    return true;
 }
 
 [[nodiscard]] inline bool try_terminal_handoff(win32::handle_view server, win32::handle_view input_event,

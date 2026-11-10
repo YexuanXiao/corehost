@@ -206,8 +206,8 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
                 break;
             if (!handler.has_pending())
             {
-                // 16ms 只用于空闲节流，避免没有消息时空转。
-                const auto wait = win32::wait_one(input_event, 16);
+                // 没有待提交 completion 时无限等待下一条 ConDrv 消息：没有消息就不唤醒。
+                const auto wait = win32::wait_one(input_event, INFINITE);
                 if (wait.abandoned())
                 {
                     LOG3("initial CONNECT loop idle wait abandoned");
@@ -292,8 +292,8 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
                 handler.on_idle();
                 if (handler.has_pending())
                 {
-                    // 16ms 约等于一帧；只在 handler 自己仍有 pending 工作时让步。
-                    const auto wait = win32::wait_one(input_event, 16);
+                    // handler 自报仍有 pending 时同样无限等待，由消息唤醒。
+                    const auto wait = win32::wait_one(input_event, INFINITE);
                     if (wait.abandoned())
                     {
                         LOG3("initial CONNECT loop pending wait abandoned");
