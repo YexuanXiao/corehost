@@ -200,6 +200,20 @@ struct pipe_bridge
             (void)consume_input_buffer_for_console_read();
     }
 
+    // 把 CTRL_C_EVENT / CTRL_BREAK_EVENT 送给控制台上的每个进程。
+    // corehost 不是该控制台的附属进程，GenerateConsoleCtrlEvent 到不了客户端；
+    // 必须经 CSRSS 的 ConsoleControl(ConsoleEndTask)，与 conhost 的
+    // ProcessCtrlEvents 走同一条路。
+    void send_ctrl_event(DWORD event) noexcept
+    {
+        LOG2("ctrl event %lu pids=%zu", event, _processes.count());
+        for (const DWORD pid : _processes.view())
+        {
+            const auto status = console_end_task(pid, event, nullptr);
+            LOG2("ctrl event %lu to pid=%lu status=0x%08lx", event, pid, static_cast<unsigned long>(status));
+        }
+    }
+
     // 更新 GetConsoleProcessList 可见的进程快照。message_router 在
     // CONNECT/DISCONNECT 后把 io_state 的真实列表同步到这里。
     void set_process_list(std::span<const DWORD> processes) noexcept
@@ -2147,19 +2161,25 @@ struct pipe_bridge
         {
             const bool ctrl = (m.payload.win32_key.control_state & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0;
             DWORD control_event = 0;
+            // Ctrl+C 的事件码是 CTRL_C_EVENT == 0，不能用 0 表示"没有事件"。
+            bool has_control_event = false;
             if (ctrl && (m.payload.win32_key.vk == 'C' || m.payload.win32_key.uc == 0x03))
-                control_event = CTRL_C_EVENT;
-            else if (ctrl && m.payload.win32_key.vk == VK_CANCEL)
-                control_event = CTRL_BREAK_EVENT;
-
-            if (control_event != 0)
             {
-                const DWORD group = cstate.foreground_process_group;
-                if (group != 0 && ::GenerateConsoleCtrlEvent(control_event, group) == FALSE)
-                {
-                    LOG("bridge: GenerateConsoleCtrlEvent(%lu, %lu) failed err=%lu", control_event, group,
-                        ::GetLastError());
-                }
+                control_event = CTRL_C_EVENT;
+                has_control_event = true;
+            }
+            else if (ctrl && m.payload.win32_key.vk == VK_CANCEL)
+            {
+                control_event = CTRL_BREAK_EVENT;
+                has_control_event = true;
+            }
+
+            if (has_control_event)
+            {
+                // corehost 不在该控制台上，GenerateConsoleCtrlEvent 到不了客户端；
+                // 走 CSRSS 的 ConsoleControl(ConsoleEndTask)，与 conhost 的
+                // ProcessCtrlEvents 同一路径。
+                send_ctrl_event(control_event);
                 return false;
             }
         }

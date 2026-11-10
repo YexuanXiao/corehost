@@ -58,7 +58,7 @@ ctest --test-dir build --output-on-failure
 
 - **G2**：sshd 未运行（需管理员），ssh 用例 SKIP；
 - **G4/G5**：真实 WindowsTerminal 层与 handoff 替身层未实现；
-- **G11**：Ctrl+C 投递暂停——探针场景下分支未触发，已记录排查入口；
+
 - 偶发：一次完整 `ctest` 出现 1 个失败，立即复跑通过；未定位到具体用例（日志被覆盖）。后续应给失败用例保留产物（`--output-on-failure` 已开，但需归档日志）。
 
 '## 6. 完成度总表（第 60 轮收尾）
@@ -74,7 +74,17 @@ ctest --test-dir build --output-on-failure
 
 遗留项均已在 `04-open-gaps.md` 登记，每项都有解除条件；没有"静默跳过"的验收项。
 
-## 7. 结论'
+'## 6.1 验证命令补充
+
+本仓库的 `build/` 是 Visual Studio 多配置生成器，`ctest` 必须带配置：
+
+```powershell
+ctest --test-dir build -C Debug --output-on-failure
+```
+
+第 61 轮实测：**23/23 通过，25.85s**。
+
+## 7. 结论''
 
 任务 1、2 的验收项都有自动化证据；任务 3 的确定性层（L0 直连）与任务 4 的
 主要矩阵已完成，真实 WT 层与 ssh 受环境限制。剩余项均登记在 gaps，且都有明确的

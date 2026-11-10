@@ -29,6 +29,12 @@ class process_list_snapshot
         return _count;
     }
 
+    // 遍历快照中的 pid（Ctrl+C / Ctrl+Break 投递用）。
+    [[nodiscard]] std::span<const DWORD> view() const noexcept
+    {
+        return {_processes.data(), _count};
+    }
+
     // 按 Win32 GetConsoleProcessList 期望的新到旧顺序复制 pid。
     size_t copy_newest_first(DWORD *output, size_t capacity) const noexcept
     {
