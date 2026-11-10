@@ -271,6 +271,7 @@ class conpty_session
     win32::handle _input;
     win32::handle _output;
     win32::handle _process;
+    HANDLE _job = nullptr;
     win32::basic_thread _pump;
     std::unique_ptr<std::max_align_t[]> _attributes;
 
