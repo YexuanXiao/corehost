@@ -44,6 +44,18 @@ target_link_libraries(test_runner_selftest PRIVATE test_common)
 add_test(NAME Runner.SelfTest COMMAND test_runner_selftest)
 set_tests_properties(Runner.SelfTest PROPERTIES LABELS "testlib;selftest" TIMEOUT 30)
 
+# ── test_vt_screen_selftest ───────────────────────
+# VT 屏幕模型自测（tests/lib/vt_screen.hpp）。
+add_executable(test_vt_screen_selftest
+    test_vt_screen_selftest.cpp
+)
+target_include_directories(test_vt_screen_selftest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(test_vt_screen_selftest PRIVATE test_common)
+add_test(NAME VT.ScreenSelfTest COMMAND test_vt_screen_selftest)
+set_tests_properties(VT.ScreenSelfTest PROPERTIES LABELS "testlib;screen" TIMEOUT 30)
+
 # ── test_vt_parser_utf32 ───────────────────────────
 add_executable(test_vt_parser_utf32
     test_vt_parser_utf32.cpp

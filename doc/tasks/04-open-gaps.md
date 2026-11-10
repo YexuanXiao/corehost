@@ -33,7 +33,7 @@
 | G20 | ~~鼠标输入未实现~~ | DONE：parser 识别 `\x1b[<b;x;yM/m`（0x3C..0x3F 私有参数字节）；非 VT 输入模式合成 `MOUSE_EVENT`（按下/松开/移动/滚轮、修饰键，按 conhost `_UpdateSGRMouseButtonState` 的状态保留语义），VT 输入模式/RAW_READ 透传原文；单测 `SGR mouse sequence` + 端到端 `mouse` 用例（按下→滚轮→松开） | 未实现 conhost 的双击/悬停启发式 | D |
 | G21 | ~~Ctrl+Esc / Alt+Esc 未按 conhost 抑制~~ | DONE：`process_input_win32_key` 在 key_down 且带 Ctrl/Alt 的 VK_ESCAPE 上直接返回（不写输入缓冲）；单测 `Ctrl+Esc and Alt+Esc consumed` | — | A |
 | G22 | ~~输入状态所有权文档与实现不符~~ | DONE：`vt_input_state.hpp` 头部改为"输入线程独占 vt_in 读取；bridge 状态由会话锁串行访问"，并说明主线程会消费批间残留字节 | — | A |
-| G23 | 测试库缺 VT 屏幕模型 | 现有断言依赖字节子串（`tests/lib/conpty_session.hpp` 只有输出泵）；无法验证单元格/属性/光标 | 新增 `tests/lib/vt_screen.hpp` 并迁移至少 2 个用例 | D1 |
+| G23 | ~~测试库缺 VT 屏幕模型~~ | DONE：`tests/lib/vt_screen.hpp`（文本/换行/退格/TAB、CUP/CUU/CUD/CUF/CUB、ED/EL、SGR、主/备用缓冲区），自测 `VT.ScreenSelfTest` 7 组；`ConPTY.Programs` 的 `cmd` 与新增 `screen_erase` 用例改为断言渲染屏幕 | — | D1 |
 | G24 | ~~缺与系统 conhost 的差分测试~~ | DONE：`tests/test_conpty_differential.cpp` 把测试目录里的 corehost.exe 换成复制的 `%SystemRoot%\System32\conhost.exe`（libconpty 按名查找宿主），同一 API 探针在两个宿主下运行并比较。用差分发现并修复了两个真实差异：`GetConsoleTitleW` 的 `TitleLength` 应为字符数（原实现返回字节数）、`GetConsoleMode(input)` 应补 `EXTENDED_FLAGS/INSERT/QUICK_EDIT/AUTO_POSITION`。`out_mode` 不比较：conhost 默认 VT processing 取决于用户注册表 `VirtualTerminalLevel` | 继续扩充场景（resize/换行等已知 conhost bug 领域只记录） | D |
 | G25 | ~~ssh 负路径缺失~~ | DONE：未授权密钥（Permission denied + 非 0 退出）、远端 `exit 7` 传播、交互会话 ^C 中断远端命令三条用例通过；raw read 改为"有字节即返回"（conhost readDataRaw 语义） | — | D3 |
 | G26 | ~~defterm handoff 失败后为无窗口 headless~~ | 已文档化：`design/0001` §4.13 记录该取舍与影响（handoff 失败时无输入/输出，conhost 会回退本地窗口；本实现按"委托失败即通知并打断客户端"设计） | 若需要本地窗口回退，另立计划 | A |

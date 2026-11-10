@@ -5,6 +5,7 @@
 // 外部程序缺失时 SKIP 而不是假装通过。
 #include "lib/conpty_session.hpp"
 #include "lib/ssh_server.hpp"
+#include "lib/vt_screen.hpp"
 #include "lib/platform.hpp"
 #include "lib/runner.hpp"
 
@@ -376,12 +377,38 @@ corehost::test::result ssh_interactive_interrupt()
     return corehost::test::result::pass;
 }
 
+// cls（ED 2）之后旧文本必须从渲染屏幕上消失，新文本可见。
+corehost::test::result screen_erase_removes_old_text()
+{
+    const auto cmd = corehost::test::system32_path(L"cmd.exe");
+    REQUIRE(!cmd.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(cmd) + L" /c \"echo AAA & cls & echo BBB\""));
+    REQUIRE(session.wait_output("BBB", 15000));
+
+    corehost::test::vt_screen screen{80, 25};
+    screen.feed(session.take_output());
+    const bool saw_bbb = screen.contains("BBB");
+    const bool saw_aaa = screen.contains("AAA");
+
+    DWORD exit_code = static_cast<DWORD>(-1);
+    (void)session.wait_exit(15000, &exit_code);
+    session.close();
+    if (!saw_bbb || saw_aaa)
+        std::fprintf(stderr, "[screen] bbb=%d aaa=%d\n", saw_bbb ? 1 : 0, saw_aaa ? 1 : 0);
+    REQUIRE(saw_bbb);
+    REQUIRE(!saw_aaa);
+    return corehost::test::result::pass;
+}
+
 } // namespace
 
 int main()
 {
     constexpr corehost::test::test_case cases[] = {
         {"cmd", "conpty;program", &cmd_echo_and_exit},
+        {"screen_erase", "conpty;program;screen", &screen_erase_removes_old_text},
         {"nested", "conpty;program;inherit", &nested_child_inherits_console},
         {"powershell", "conpty;program", &powershell_command},
         {"vim", "conpty;program;interactive", &vim_starts_and_quits},
