@@ -118,11 +118,52 @@ int wake_probe()
 
 } // namespace
 
+// VT 输入程序（如 ssh.exe）应收到终端原始字符：方向键是 ESC [ A 三字符，
+// Backspace 是自身字节，而不是解码后的 VK_UP/VK_BACK。
+int vt_probe()
+{
+    const HANDLE input = ::GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode = 0;
+    if (::GetConsoleMode(input, &mode) == FALSE)
+        return 8;
+    if (::SetConsoleMode(input, ENABLE_VIRTUAL_TERMINAL_INPUT) == FALSE)
+        return 9;
+
+    constexpr char ready[] = "VT-PROBE-READY\r\n";
+    DWORD written = 0;
+    ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), ready, sizeof(ready) - 1, &written, nullptr);
+
+    char hex[64]{};
+    size_t used = 0;
+    int collected = 0;
+    while (collected < 4 && used + 4 < sizeof(hex))
+    {
+        INPUT_RECORD record{};
+        DWORD got = 0;
+        if (::ReadConsoleInputW(input, &record, 1, &got) == FALSE || got == 0)
+            break;
+        if (record.EventType != KEY_EVENT || record.Event.KeyEvent.bKeyDown == FALSE)
+            continue;
+
+        const auto ch = static_cast<unsigned char>(record.Event.KeyEvent.uChar.AsciiChar);
+        const int n = ::sprintf_s(hex + used, sizeof(hex) - used, "%02x ", ch);
+        if (n <= 0)
+            break;
+        used += static_cast<size_t>(n);
+        ++collected;
+    }
+
+    char marker[128]{};
+    ::sprintf_s(marker, "VT-GOT: %s\r\n", hex);
+    ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), marker, static_cast<DWORD>(::strlen(marker)), &written, nullptr);
+    return 0;
+}
+
 int wmain(int argc, wchar_t **argv)
 {
     if (argc != 2)
     {
-        ::fwprintf(stderr, L"usage: console_probe --ctrl-probe | --serve-probe | --wake-probe\n");
+        ::fwprintf(stderr, L"usage: console_probe --ctrl-probe | --serve-probe | --wake-probe | --vt-probe\n");
         return 2;
     }
 
@@ -132,6 +173,8 @@ int wmain(int argc, wchar_t **argv)
         return serve_probe();
     if (::wcscmp(argv[1], L"--wake-probe") == 0)
         return wake_probe();
+    if (::wcscmp(argv[1], L"--vt-probe") == 0)
+        return vt_probe();
 
     ::fwprintf(stderr, L"unknown mode\n");
     return 2;
