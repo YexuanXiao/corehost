@@ -11,6 +11,7 @@
 #include <span>
 #include "io_loop.hpp"
 #include "io_threads.hpp"
+#include "pseudo_window.hpp"
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
 #include "input_buffer.hpp"
@@ -177,6 +178,7 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     // 先启动输入线程：会话锁已建立、bridge 已绑定，线程可以在主循环等待时
     // 立即处理终端输入。
     LOG("corehost::conpty::run_conpty_session: starting io threads");
+    pseudo_window::instance().start();
     input_thread.start();
     if (signal_pipe.valid())
         signal_thread.start();
@@ -187,6 +189,7 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
 
     // ── 退出：先停输入源，再释放会话状态 ──
     // 停止是无限等待：停止标志 + 取消阻塞读 + join，由线程自身保证退出。
+    pseudo_window::instance().stop_and_join();
     input_thread.stop_and_join();
     if (signal_pipe.valid())
         signal_thread.stop_and_join();

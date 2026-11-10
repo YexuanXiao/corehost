@@ -22,6 +22,7 @@ target_sources(libcorehost
                 char_convert.hpp
                 char_width.hpp
                 command_history_state.hpp
+                vt_input_state.hpp
                 condrv_io.hpp
                 console_state.hpp
                 console_viewport.hpp
@@ -32,11 +33,13 @@ target_sources(libcorehost
                 input_buffer.hpp
                 io_loop.hpp
                 io_state.hpp
+                io_threads.hpp
                 message_router.hpp
                 pending_io_state.hpp
                 perf_diag.hpp
                 pipe_bridge.hpp
                 pipe_bridge_io.hpp
+                pseudo_window.hpp
                 process_list_snapshot.hpp
                 raw_byte_allocator.hpp
                 screen_buffer.hpp

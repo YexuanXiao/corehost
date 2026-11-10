@@ -31,10 +31,10 @@
 | 编号 | 子任务 | 状态 | 提交 | 备注 |
 | --- | --- | --- | --- | --- |
 | B1 | 原版 window/windowproc 分析：消息面、类、生命周期 | DONE | B1 伪窗口需求分析 | 分析对象是 `InteractivityFactory`（ConPTY 伪窗口），结论写入 `design/0002` |
-| B2 | 伪窗口设计：窗口类型、消息矩阵、状态机 | DOING | | 需求与消息矩阵已在 `design/0002` 第 3/4 节 |
-| B3 | 窗口线程 + 消息循环 + 命名 + 停止协议 | TODO | | |
-| B4 | 消息处理骨架：查询类消息、默认处理 | TODO | | |
-| B5 | `GetConsoleWindow` 返回句柄 + 生命周期绑定 | TODO | | |
+| B2 | 伪窗口设计：窗口类型、消息矩阵、状态机 | DONE | B2/B3 伪窗口与窗口线程 | `design/0002` 3/4 节 |
+| B3 | 窗口线程 + 消息循环 + 命名 + 停止协议 | DONE | B2/B3 伪窗口与窗口线程 | `pseudo_window.hpp`；GetMessage 阻塞，WM_QUIT + 无限 join |
+| B4 | 消息处理骨架：查询类消息、默认处理 | DONE | B2/B3 伪窗口与窗口线程 | WM_CREATE/CLOSE/DESTROY/ACTIVATE/GETOBJECT + DefWindowProc |
+| B5 | `GetConsoleWindow` 返回句柄 + 生命周期绑定 | DONE | B2/B3 伪窗口与窗口线程 | API 返回 `instance().hwnd()`；会话内创建/退出销毁（日志实测 hwnd） |
 | B6 | 关闭语义：`WM_CLOSE` → 会话关闭事件 | TODO | | |
 | B7 | 状态联动：标题、尺寸、show/hide 最小支持 | TODO | | |
 | B8 | 泄漏/并发/压力验证 + 文档 | TODO | | |
