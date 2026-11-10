@@ -86,6 +86,7 @@
 | 2026-11-10 | `common/` 的内容不写测试 | 删除 `test_srwlock`；`common` 正确性由使用方测试覆盖 |
 | 2026-11-10 | 不用"每输入一个队列"，控制台是同步处理，多线程只为消除轮询 | `design/0001` 方案 D：会话锁 + 数据到达即处理 |
 | 2026-11-10 | **禁止任何等待上限**：不许用超时放弃等待 | `design/0001` 4.6；`plan/01` 第 2/6 节；`cancellable_read::wait_for_exit` 改为无限等待 |
+| 2026-11-11 | **禁止单例与全局可变状态**，依赖必须参数传递 | 删除 `pseudo_window::instance()`；窗口实例由会话持有，hwnd 经 `console_state::window_handle` 传给 API handler |
 
 ## 阻碍
 

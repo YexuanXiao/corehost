@@ -9,8 +9,8 @@
 // - 独立线程跑 GetMessage 循环，没有消息时不唤醒；
 // - 窗口线程不直接读写控制台状态：关闭请求只置位事件，由主线程执行。
 //
-// 每个进程一个控制台会话，因此实例是进程级单例；GetConsoleWindow 的 API
-// handler 直接取 instance().hwnd()。
+// 实例由会话装配处持有，hwnd 通过 console_state 传给 GetConsoleWindow 的
+// API handler；不使用单例、不使用全局变量。
 #pragma once
 #include <windows.h>
 #include <atomic>
@@ -28,10 +28,10 @@ namespace corehost::conpty
 class pseudo_window
 {
   public:
-    static pseudo_window &instance()
+    // 会话装配处构造一个实例，按引用/指针传给需要它的组件；不使用单例。
+    pseudo_window() : _ready{win32::create_tag, /*manual_reset=*/true, /*initial=*/false},
+                      _close_requested{win32::create_tag, /*manual_reset=*/true, /*initial=*/false}
     {
-        static pseudo_window window;
-        return window;
     }
 
     pseudo_window(const pseudo_window &) = delete;
@@ -85,11 +85,6 @@ class pseudo_window
     }
 
   private:
-    pseudo_window() : _ready{win32::create_tag, /*manual_reset=*/true, /*initial=*/false},
-                      _close_requested{win32::create_tag, /*manual_reset=*/true, /*initial=*/false}
-    {
-    }
-
     static DWORD WINAPI thread_entry(LPVOID self)
     {
         static_cast<pseudo_window *>(self)->run();

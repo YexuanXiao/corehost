@@ -176,6 +176,11 @@ struct console_state
     std::array<COLORREF, 16> color_table{};
 
     // ── 标题 (char32_t 内部存储) ──
+    // 伪窗口句柄（GetConsoleWindow 返回值）。由会话在窗口创建后写入，窗口
+    // 销毁前清空；0 表示当前没有窗口。会话线程写，API 处理线程读，均在
+    // 会话锁内。
+    HWND window_handle = nullptr;
+
     std::u32string title;
     // original_title 为空表示尚未捕获初始标题。
     std::u32string original_title;

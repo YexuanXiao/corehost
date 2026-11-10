@@ -8,7 +8,6 @@
 #include <cwctype>
 #include <array>
 #include <iterator>
-#include "pseudo_window.hpp"
 #include <numeric>
 #include <vector>
 #include "condrv_io.hpp"
@@ -3389,8 +3388,8 @@ inline bool api_l3_get_history(condrv_io::io_msg &msg, console_state &state, scr
 
 // ── 0x1F GetConsoleWindow ──
 // GetConsoleWindow：返回当前宿主窗口句柄。corehost 不保存单独窗口状态。
-inline bool api_l3_get_console_window(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
-                                      pipe_bridge &) noexcept
+inline bool api_l3_get_console_window(condrv_io::io_msg &msg, console_state &state, screen_buffer &,
+                                      input_buffer &, pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEWINDOW_MSG))
     {
@@ -3399,7 +3398,7 @@ inline bool api_l3_get_console_window(condrv_io::io_msg &msg, console_state &, s
     }
 
     auto *r = reinterpret_cast<CONSOLE_GETCONSOLEWINDOW_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    r->hwnd = pseudo_window::instance().hwnd(); // 伪窗口句柄；尚未创建时为 NULL
+    r->hwnd = state.window_handle; // 伪窗口句柄；尚未创建时为 NULL
     ucomplete_sz(msg, sizeof(CONSOLE_GETCONSOLEWINDOW_MSG));
     return true;
 }

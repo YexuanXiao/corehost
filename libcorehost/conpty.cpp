@@ -178,21 +178,25 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     // 先启动输入线程：会话锁已建立、bridge 已绑定，线程可以在主循环等待时
     // 立即处理终端输入。
     LOG("corehost::conpty::run_conpty_session: starting io threads");
-    // 主线程句柄交给窗口对象：WM_CLOSE 时要打断阻塞中的 READ_IO。
-    // server 句柄交给窗口对象：WM_CLOSE 时用 CancelIoEx 打断阻塞的 READ_IO。
-    pseudo_window::instance().set_server(server);
-    pseudo_window::instance().start();
+    // 伪窗口：GetConsoleWindow 返回它的句柄；关闭请求通过 close_requested
+    // 事件交给主循环。实例由本函数持有，不使用单例或全局变量。
+    pseudo_window window;
+    window.set_server(server);
+    window.start();
+    state.window_handle = window.hwnd();
+
     input_thread.start();
     if (signal_pipe.valid())
         signal_thread.start();
 
     LOG("corehost::conpty::run_conpty_session: entering io loop");
-    corehost::conpty::run_io_loop_no_setup(server, event, session_lock, state_changed.view(), pseudo_window::instance().close_requested(), router);
+    corehost::conpty::run_io_loop_no_setup(server, event, session_lock, state_changed.view(), window.close_requested(), router);
     LOG("corehost::conpty::run_conpty_session: loop returned");
 
     // ── 退出：先停输入源，再释放会话状态 ──
     // 停止是无限等待：停止标志 + 取消阻塞读 + join，由线程自身保证退出。
-    pseudo_window::instance().stop_and_join();
+    state.window_handle = nullptr;
+    window.stop_and_join();
     input_thread.stop_and_join();
     if (signal_pipe.valid())
         signal_thread.stop_and_join();
