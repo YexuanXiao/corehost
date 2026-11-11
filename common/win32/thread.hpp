@@ -64,32 +64,29 @@ class basic_thread
         // succeeds; on failure it is released here.
         auto context = std::make_unique<start_context>(start_address, parameter);
 
-        HANDLE raw = ::CreateThread(opts.attributes, opts.stack_size, &basic_thread::trampoline, context.get(),
-                                    opts.creation_flags | CREATE_SUSPENDED, nullptr);
-        if (raw == nullptr)
+        _handle = win32::handle{::CreateThread(opts.attributes, opts.stack_size, &basic_thread::trampoline,
+                                               context.get(), opts.creation_flags | CREATE_SUSPENDED, nullptr)};
+        if (!_handle.valid())
             win32::throw_last_error();
 
         // Naming is part of the creation contract. The thread is still
         // suspended, so a failure can be cleaned up without running any
         // user code.
-        if (::SetThreadDescription(raw, opts.name.data()) == FALSE)
+        if (::SetThreadDescription(_handle.get(), opts.name.data()) == FALSE)
         {
             const auto err = ::GetLastError();
-            ::TerminateThread(raw, 1);
-            ::CloseHandle(raw);
+            ::TerminateThread(_handle.get(), 1);
             win32::throw_last_error(static_cast<win32::error>(err));
         }
 
-        if (::ResumeThread(raw) == static_cast<DWORD>(-1))
+        if (::ResumeThread(_handle.get()) == static_cast<DWORD>(-1))
         {
             const auto err = ::GetLastError();
-            ::TerminateThread(raw, 1);
-            ::CloseHandle(raw);
+            ::TerminateThread(_handle.get(), 1);
             win32::throw_last_error(static_cast<win32::error>(err));
         }
 
         context.release();
-        _handle = win32::handle{raw};
     }
 
     // ── Default (no thread) ──────────────────────────────────

@@ -337,8 +337,8 @@ corehost 只服务 ConPTY，因此在会话初始化时：
 `WideCharToMultiByte`/`MultiByteToWideChar`。分配时使用保守上界而不是精确
 长度探测：
 
-- UTF-8 长度 N → UTF-32/UTF-16 按最多 `4N` 分配；
-- 任意 ANSI 代码页按 DBCS 处理，长度 M → UTF-32 按最多 `2M` 分配；
+- UTF-8 长度 N → UTF-32/UTF-16 最多 N 个单元（每个 codepoint 至少 1 字节）；
+- ANSI 长度 N → UTF-32/UTF-16 最多 N 个单元；
 - 转换后以实际写入长度作为 API 返回、`NumRecords` 或 `Information`。
 
 `*_exact_len` 仅保留给需要精确长度契约的 API 长度查询，不参与分配决策。

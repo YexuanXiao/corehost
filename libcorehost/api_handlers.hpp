@@ -2757,10 +2757,10 @@ inline bool api_set_title(condrv_io::io_msg &msg, console_state &state, screen_b
     state.title.clear();
     state.title.append(u32title.data(), u32title.size());
 
-    // 同步到伪窗口：依赖 GetConsoleWindow + WM_GETTEXT 的程序要能拿到标题。
-    if (state.window != nullptr)
-        state.window->set_title(state.title);
-
+    // 同步到伪窗口：窗口线程处理 WM_SETTEXT，标题只由窗口线程保存。
+    std::wstring wide_title;
+    convert_u32_to_wstr(state.title, wide_title);
+    ::SetWindowTextW(state.window_handle, wide_title.c_str());
     // 状态更新后立即用 OSC 0 同步宿主终端标题。
     vt_message m{};
     m.payload.title = state.title;

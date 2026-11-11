@@ -172,10 +172,9 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     // 立即处理终端输入。
     LOG("corehost::conpty::run_conpty_session: starting io threads");
     // 伪窗口在 router 之前已构造；这里启动窗口线程并发布 hwnd。
+    window.set_title(state.title);
     window.start();
     state.window_handle = window.hwnd();
-    state.window = &window;
-    window.set_title(state.title);
 
     input_thread.start();
     if (signal_pipe.valid())
@@ -187,8 +186,6 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
 
     // ── 退出：先停输入源，再释放会话状态 ──
     // 停止是无限等待：停止标志 + 取消阻塞读 + join，由线程自身保证退出。
-    state.window_handle = nullptr;
-    state.window = nullptr;
     window.stop_and_join();
     input_thread.stop_and_join();
     if (signal_pipe.valid())

@@ -8,11 +8,11 @@
 //   window（坐标语义会变）；
 // - 独立线程跑 GetMessage 循环，没有消息时不唤醒；
 // - 窗口线程不直接访问控制台状态：可见性/关闭只置位事件，由主线程处理；
-// - 标题通过 WM_SETTEXT/SendMessage 交给窗口线程，标题只由窗口线程读写。
+// - 标题在 start 前由主线程初始化；start 后经 WM_SETTEXT 交给窗口线程。
 #pragma once
 #include <windows.h>
 #include <algorithm>
-#include <atomic>
+
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -35,7 +35,8 @@ class pseudo_window
     explicit pseudo_window(win32::handle_view server)
         : _server{server}, _ready{win32::create_tag, /*manual_reset=*/true, /*initial=*/false},
           _close_requested{win32::create_tag, /*manual_reset=*/true, /*initial=*/false},
-          _visibility_event{win32::create_tag, /*manual_reset=*/false, /*initial=*/false}
+          _show_event{win32::create_tag, /*manual_reset=*/false, /*initial=*/false},
+          _hide_event{win32::create_tag, /*manual_reset=*/false, /*initial=*/false}
     {
     }
 
@@ -61,16 +62,16 @@ class pseudo_window
     void stop_and_join()
     {
         assert(_thread.valid());
-        if (::PostMessageW(_hwnd.load(std::memory_order_acquire), wm_stop_thread, 0, 0) == FALSE)
+        if (::PostMessageW(_hwnd, wm_stop_thread, 0, 0) == FALSE)
             win32::throw_last_error();
 
         _thread.join();
-        _hwnd = nullptr;
+
     }
 
     [[nodiscard]] HWND hwnd() const noexcept
     {
-        return _hwnd.load(std::memory_order_acquire);
+        return _hwnd;
     }
 
     [[nodiscard]] win32::handle_view close_requested() const noexcept
@@ -78,30 +79,28 @@ class pseudo_window
         return _close_requested.view();
     }
 
-    [[nodiscard]] win32::handle_view visibility_event() const noexcept
+    [[nodiscard]] win32::handle_view show_event() const noexcept
     {
-        return _visibility_event.view();
+        return _show_event.view();
     }
 
-    // 窗口线程只写原子状态；主线程通过 take_visibility 取走一次变化。
-    [[nodiscard]] bool take_visibility(bool &visible) noexcept
+    [[nodiscard]] win32::handle_view hide_event() const noexcept
     {
-        const int pending = _visibility_pending.exchange(-1, std::memory_order_acq_rel);
-        if (pending < 0)
-            return false;
-        visible = pending != 0;
-        return true;
+        return _hide_event.view();
     }
 
-    // 主线程调用；通过同步窗口消息把标题交给窗口线程，不共享标题存储。
+    // start() 前直接初始化窗口线程的标题；start() 后通过 WM_SETTEXT 交给窗口线程。
     void set_title(std::u32string_view title)
     {
         std::wstring converted;
         convert_u32_to_wstr(title, converted);
-        const HWND window = _hwnd.load(std::memory_order_acquire);
-        if (window == nullptr)
+        if (_hwnd == nullptr)
+        {
+            // start() 前窗口线程尚未运行，直接初始化窗口线程自己的标题。
+            _title = std::move(converted);
             return;
-        if (::SendMessageW(window, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(converted.c_str())) == FALSE)
+        }
+        if (::SendMessageW(_hwnd, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(converted.c_str())) == FALSE)
             win32::throw_last_error();
     }
 
@@ -137,7 +136,7 @@ class pseudo_window
         if (created == nullptr)
             win32::throw_last_error();
 
-        _hwnd.store(created, std::memory_order_release);
+        _hwnd = created;
         _ready.set();
         LOG("pseudo_window: created hwnd=%p", created);
 
@@ -219,14 +218,23 @@ class pseudo_window
         }
     }
 
-    // 窗口线程只写原子值；可见性由主线程消费并写 VT 输出。
+    // 窗口线程只置位事件；可见性由主线程消费并写 VT 输出。
     void post_visibility(bool visible) noexcept
     {
-        _visible_value.store(visible, std::memory_order_release);
-        _visibility_pending.store(visible ? 1 : 0, std::memory_order_release);
-        _visibility_event.set();
+        if (visible)
+        {
+            _hide_event.reset();
+            _show_event.set();
+        }
+        else
+        {
+            _show_event.reset();
+            _hide_event.set();
+        }
         cancel_server_io();
     }
+
+    static constexpr UINT wm_stop_thread = WM_APP + 1;
 
     // 打断主线程阻塞中的 READ_IO，让主循环处理可见性/关闭事件。
     void cancel_server_io() const noexcept
@@ -241,19 +249,19 @@ class pseudo_window
         LOG("pseudo_window: CancelIoEx failed err=%u", static_cast<unsigned>(err));
         std::abort();
     }
-
-    static constexpr UINT wm_stop_thread = WM_APP + 1;
     static constexpr const wchar_t *class_name = L"PseudoConsoleWindow";
 
     win32::handle_view _server;
     win32::event _ready;
     win32::event _close_requested;
-    win32::event _visibility_event;
+    win32::event _show_event;
+    win32::event _hide_event;
     win32::basic_thread _thread;
-    std::atomic<HWND> _hwnd{nullptr};
-    std::atomic<bool> _visible_value{true};
-    std::atomic<int> _visibility_pending{-1};
-    std::wstring _title; // 只由窗口线程读写
+    HWND _hwnd = nullptr;
+
+
+    // start 前由主线程初始化；start 后只由窗口线程读写。
+    std::wstring _title;
 };
 
 } // namespace corehost::conpty

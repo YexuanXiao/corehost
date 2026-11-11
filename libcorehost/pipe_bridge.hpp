@@ -2382,8 +2382,7 @@ const auto cp = cstate.output_code_page;
             _write_char_key_event(ch, static_cast<BYTE>(ch & 0xFF));
     }
 
-    // SGR 1006 鼠标 → MOUSE_EVENT。conhost 在非 VT 输入模式下做同样的合成
-    // （InputStateMachineEngine::_UpdateSGRMouseButtonState / _WriteMouseEvent），
+    // SGR 1006 鼠标 → MOUSE_EVENT。非 VT 输入模式下按控制台鼠标记录合成；
     // VT 输入模式或 RAW_READ 下应用要的是原始字节，直接透传/留给 completion。
     void process_input_mouse(PendingKind pending_kind, const vt_message &m, std::u32string_view raw) noexcept
     {

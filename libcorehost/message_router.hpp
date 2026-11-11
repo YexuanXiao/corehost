@@ -302,10 +302,10 @@ inline void message_router::run()
 
         if (wait_for_any)
         {
-            if (_window != nullptr && _window->visibility_event().valid())
+            if (_window != nullptr)
             {
-                const auto wait = win32::wait_any(_input_available, _window->close_requested(),
-                                                   _window->visibility_event(), INFINITE);
+                const auto wait = win32::wait_any(_input_available, _window->close_requested(), _window->show_event(),
+                                                   _window->hide_event(), INFINITE);
                 if (wait.abandoned())
                     win32::throw_last_error(win32::error::invalid_state);
                 if (wait.index == 1)
@@ -314,22 +314,9 @@ inline void message_router::run()
                     break;
                 }
                 if (wait.index == 2)
-                {
-                    bool visible = false;
-                    if (_window->take_visibility(visible))
-                        on_window_visibility(visible);
-                }
-            }
-            else if (_window != nullptr)
-            {
-                const auto wait = win32::wait_any(_input_available, _window->close_requested(), INFINITE);
-                if (wait.abandoned())
-                    win32::throw_last_error(win32::error::invalid_state);
-                if (wait.index == 1)
-                {
-                    LOG("message_router::run: close requested by window");
-                    break;
-                }
+                    on_window_visibility(true);
+                else if (wait.index == 3)
+                    on_window_visibility(false);
             }
             else
             {

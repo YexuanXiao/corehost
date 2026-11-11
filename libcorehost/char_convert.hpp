@@ -155,8 +155,8 @@ inline size_t utf16_to_u32_max_units(size_t utf16_units) noexcept
 // 返回 UTF-8 转 UTF-32 的最大输出 codepoint 数。
 inline size_t utf8_to_u32_max_units(size_t utf8_bytes) noexcept
 {
-    // 保守上界：按每字节最多 4 个输出 code point 估算。
-    return utf8_bytes * 4;
+    // UTF-8 的字节数就是 codepoint 数的上界（每个 codepoint 至少 1 字节）。
+    return utf8_bytes;
 }
 
 // 返回 UTF-32 转 UTF-16 的最大输出 code unit 数。
@@ -174,8 +174,8 @@ inline size_t u32_to_utf8_max_bytes(size_t code_points) noexcept
 // 返回 UTF-8 转 UTF-16 的最大输出 code unit 数。
 inline size_t utf8_to_wide_max_units(size_t utf8_bytes) noexcept
 {
-    // UTF-8 1–4 字节变长；按每字节最多 4 个 UTF-16 unit 保守分配。
-    return utf8_bytes * 4;
+    // UTF-8 的字节数就是 UTF-16 code unit 数的上界。
+    return utf8_bytes;
 }
 
 // 返回 UTF-16 转 UTF-8 的最大输出字节数。
@@ -600,8 +600,8 @@ inline size_t wstr_to_gbk_len(std::wstring_view ws) noexcept
 // 返回 ANSI 字节转换到 UTF-16 的最大 code unit 数。
 inline size_t ansi_to_wide_max_units(size_t ansi_bytes) noexcept
 {
-    // 所有 ANSI 代码页都按 DBCS 假设：最坏情况下输出不超过 2 倍输入字节。
-    return ansi_bytes * 2;
+    // ANSI/DBCS 每个输入字节最多产生一个 UTF-16 code unit。
+    return ansi_bytes;
 }
 // 返回 UTF-16 转指定 ANSI/UTF-8 代码页的最大字节数。
 inline size_t wide_to_ansi_max_bytes(size_t wlen, UINT cp) noexcept
@@ -691,40 +691,11 @@ inline void convert_ansi_to_utf8(const char *s, size_t len, UINT cp, ByteBuffer 
     convert_wstr_to_utf8(std::wstring_view{wbuf.data(), wbuf.size()}, out);
 }
 
-// 返回 UTF-16/wchar_t 文本转指定 ANSI 代码页后的字节数；UTF-8 分支返回上界。
-// 返回 UTF-16 文本转 UTF-8 后的精确字节数（用于 API 长度契约，不用于分配）。
-inline size_t wstr_to_utf8_exact_len(std::wstring_view ws) noexcept
-{
-    size_t bytes = 0;
-    for (size_t i = 0; i < ws.size(); ++i)
-    {
-        char32_t codepoint = static_cast<char32_t>(ws[i]);
-        if (ws[i] >= 0xD800 && ws[i] <= 0xDBFF)
-        {
-            if (i + 1 >= ws.size() || ws[i + 1] < 0xDC00 || ws[i + 1] > 0xDFFF)
-                return bytes;
-            codepoint = 0x10000 + ((static_cast<char32_t>(ws[i]) - 0xD800) << 10) +
-                        (static_cast<char32_t>(ws[i + 1]) - 0xDC00);
-            ++i;
-        }
-        char encoded[4]{};
-        const auto *end = to_utf8(codepoint, encoded);
-        bytes += static_cast<size_t>(end - encoded);
-    }
-    return bytes;
-}
-
 inline size_t wstr_to_ansi_len(std::wstring_view ws, UINT cp) noexcept
 {
     if (ws.empty())
         return 0;
-    if (cp == CP_UTF8 || cp == 65001)
-        return wstr_to_utf8_exact_len(ws);
-#ifdef COREHOST_ANSI_OPT
-    if (cp == code_page_gbk)
-        return wstr_to_gbk_len(ws);
-#endif
-    int n = ::WideCharToMultiByte(cp, 0, ws.data(), static_cast<int>(ws.size()), nullptr, 0, nullptr, nullptr);
+    const int n = ::WideCharToMultiByte(cp, 0, ws.data(), static_cast<int>(ws.size()), nullptr, 0, nullptr, nullptr);
     return n > 0 ? static_cast<size_t>(n) : 0;
 }
 
@@ -919,23 +890,10 @@ inline size_t u32_to_ansi_exact_len(std::u32string_view text, UINT code_page) no
 inline size_t convert_ansi_to_wide_raw(const char *s, size_t len, UINT cp, wchar_t *out, size_t out_cap,
                                        DWORD flags = 0) noexcept
 {
-    if (len == 0)
+    if (len == 0 || out_cap == 0)
         return 0;
-    if (cp == CP_UTF8 || cp == 65001)
-    {
-        if (len > out_cap)
-            return 0;
-        return unicode::detail::convert_utf8_to_utf16(s, len, reinterpret_cast<char16_t *>(out));
-    }
-#ifdef COREHOST_ANSI_OPT
-    if (cp == code_page_gbk)
-    {
-        size_t written = 0;
-        return convert_gbk_to_wide_raw(s, len, out, out_cap, written) ? written : 0;
-    }
-#endif
-    int wl = ::MultiByteToWideChar(cp, flags, s, static_cast<int>(len), out, static_cast<int>(out_cap));
-    return wl > 0 ? static_cast<size_t>(wl) : 0;
+    const int written = ::MultiByteToWideChar(cp, flags, s, static_cast<int>(len), out, static_cast<int>(out_cap));
+    return written > 0 ? static_cast<size_t>(written) : 0;
 }
 
 // 将 UTF-16/wchar_t 文本写入有限 ANSI raw 缓冲并追加 NUL；失败返回 0。
@@ -953,54 +911,17 @@ inline size_t convert_wide_to_ansi_raw(const wchar_t *s, size_t len, UINT cp, ch
 
     const auto reserve = nul_terminate ? size_t{1} : size_t{0};
     const auto payload_cap = out_cap - reserve;
+    if (payload_cap == 0)
+        return 0;
 
-    size_t written = 0;
-    if (cp == CP_UTF8 || cp == 65001)
-    {
-        for (size_t i = 0; i < len; ++i)
-        {
-            char32_t codepoint = static_cast<char32_t>(s[i]);
-            if (s[i] >= 0xD800 && s[i] <= 0xDBFF)
-            {
-                if (i + 1 >= len || s[i + 1] < 0xDC00 || s[i + 1] > 0xDFFF)
-                    return 0;
-                codepoint = 0x10000 + ((static_cast<char32_t>(s[i]) - 0xD800) << 10) +
-                            (static_cast<char32_t>(s[i + 1]) - 0xDC00);
-                ++i;
-            }
-            else if (s[i] >= 0xDC00 && s[i] <= 0xDFFF)
-            {
-                return 0;
-            }
+    const int written = ::WideCharToMultiByte(cp, 0, s, static_cast<int>(len), out, static_cast<int>(payload_cap),
+                                              nullptr, nullptr);
+    if (written <= 0)
+        return 0;
 
-            char encoded[4]{};
-            const auto *encoded_end = to_utf8(codepoint, encoded);
-            const auto count = static_cast<size_t>(encoded_end - encoded);
-            if (written + count > payload_cap)
-                return 0;
-            std::memcpy(out + written, encoded, count);
-            written += count;
-        }
-    }
-#ifdef COREHOST_ANSI_OPT
-    else if (cp == code_page_gbk)
-    {
-        if (!convert_wide_to_gbk_raw(s, len, out, payload_cap, written))
-            return 0;
-    }
-#endif
-    else
-    {
-        const int n = ::WideCharToMultiByte(cp, 0, s, static_cast<int>(len), out, static_cast<int>(payload_cap),
-                                            nullptr, nullptr);
-        if (n <= 0)
-            return 0;
-        written = static_cast<size_t>(n);
-    }
-
-    if (nul_terminate && written < out_cap)
+    if (nul_terminate)
         out[written] = '\0';
-    return written;
+    return static_cast<size_t>(written);
 }
 
 // 单个 ANSI 字节转 UTF-16；DBCS 首字节单独转换会失败，返回 0。
@@ -1018,26 +939,6 @@ inline size_t convert_wide_char_to_ansi_raw(wchar_t ch, UINT cp, char *out, size
 {
     if (out_cap == 0)
         return 0;
-
-    if (cp == CP_UTF8 || cp == 65001)
-    {
-        if (ch >= 0xD800 && ch <= 0xDFFF)
-            return 0;
-        char encoded[4]{};
-        const auto *encoded_end = to_utf8(static_cast<char32_t>(ch), encoded);
-        const auto count = static_cast<size_t>(encoded_end - encoded);
-        if (count > out_cap)
-            return 0;
-        std::memcpy(out, encoded, count);
-        return count;
-    }
-#ifdef COREHOST_ANSI_OPT
-    if (cp == code_page_gbk)
-    {
-        size_t written = 0;
-        return convert_wide_to_gbk_raw(&ch, 1, out, out_cap, written) ? written : 0;
-    }
-#endif
     const int written = ::WideCharToMultiByte(cp, 0, &ch, 1, out, static_cast<int>(out_cap), nullptr, nullptr);
     return written > 0 ? static_cast<size_t>(written) : 0;
 }
