@@ -607,6 +607,7 @@ bool test_regression_read_console_initial_bytes_clamped_to_payload()
     ASSERT(msg.complete.IoStatus.Status != status_invalid_parameter);
     ASSERT(bridge.has_pending());
     bridge.cancel_pending_read();
+    return true;
 }
 
 bool test_regression_write_console_rejects_short_message()
