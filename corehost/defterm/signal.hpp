@@ -63,7 +63,7 @@ class console_control_forwarder
     static size_t min_payload_for(CONSOLECONTROL code) noexcept;
 
     // 把一条已完整读出的消息转发给 CSRSS。
-    void forward_message(CONSOLECONTROL code, DWORD dw_size, std::span<const std::byte> body, size_t body_len);
+    void forward_message(CONSOLECONTROL code, std::span<const std::byte> body, size_t body_len);
 
     PFN_ConsoleControl ConsoleControl;
     win32::handle_view _pipe;

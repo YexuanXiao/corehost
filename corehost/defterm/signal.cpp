@@ -108,23 +108,18 @@ bool console_control_forwarder::read_and_forward(win32::cancellable_read &reader
         extra -= want;
     }
 
-    forward_message(code, dw_size, std::span{body}.first(body_len), body_len);
+    forward_message(code, std::span{body}.first(body_len), body_len);
     return true;
 }
 
 // 把完整消息转发给 CSRSS。结构体 = [dwSize(4)][body]。
-void console_control_forwarder::forward_message(CONSOLECONTROL code, DWORD dw_size, std::span<const std::byte> body,
-                                               size_t body_len)
+void console_control_forwarder::forward_message(CONSOLECONTROL code, std::span<const std::byte> body, size_t body_len)
 {
-    std::array<std::byte, sizeof(CONSOLEENDTASKDATA)> data{};
-    std::memcpy(data.data(), &dw_size, sizeof(dw_size));
-    std::memcpy(data.data() + sizeof(DWORD), body.data(), body_len);
-
     switch (code)
     {
     case ConsoleNotifyConsoleApplication: {
         CONSOLENOTIFYAPPDATA d{};
-        std::memcpy(&d, data.data(), sizeof(d));
+        std::memcpy(reinterpret_cast<std::byte *>(&d) + sizeof(DWORD), body.data(), body_len);
         CONSOLE_PROCESS_INFO cpi{d.dwProcessID, CPI_NEWPROCESSWINDOW};
         LOG("console_control_forwarder: NotifyConsoleApplication pid=%lu", d.dwProcessID);
         ConsoleControl(ConsoleNotifyConsoleApplication, &cpi, sizeof(cpi));
@@ -134,13 +129,13 @@ void console_control_forwarder::forward_message(CONSOLECONTROL code, DWORD dw_si
         // GH#13211: 新版 WT 不再发送此消息，改为本地处理；这里只
         // 消费消息保持协议同步（老版本 WT 可能仍发送）。
         CONSOLESETFOREGROUNDDATA d{};
-        std::memcpy(&d, data.data(), sizeof(d));
+        std::memcpy(reinterpret_cast<std::byte *>(&d) + sizeof(DWORD), body.data(), body_len);
         LOG("console_control_forwarder: ConsoleSetForeground pid=%lu foreground=%d", d.ProcessId, d.Foreground);
         break;
     }
     case ConsoleEndTask: {
         CONSOLEENDTASKDATA d{};
-        std::memcpy(&d, data.data(), sizeof(d));
+        std::memcpy(reinterpret_cast<std::byte *>(&d) + sizeof(DWORD), body.data(), body_len);
         CONSOLEENDTASK c{reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(d.ProcessId)), nullptr,
                          d.ConsoleEventCode, d.ConsoleFlags};
         LOG("console_control_forwarder: ConsoleEndTask pid=%lu event=%lu flags=0x%08lx", d.ProcessId,
