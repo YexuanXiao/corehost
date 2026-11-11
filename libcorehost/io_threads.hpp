@@ -121,7 +121,7 @@ class pty_signal_thread
     {
         LOG("pty_signal_thread: enter");
 
-        std::array<std::byte, 256> staging{};
+        std::array<std::byte, max_signal_packet_size> staging{};
         for (;;)
         {
             DWORD read = 0;

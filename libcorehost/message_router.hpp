@@ -8,7 +8,7 @@
 // 4. run() 是主 I/O 循环；输入线程只调用 on_* 入口，每个入口只加一次锁。
 #pragma once
 #include <windows.h>
-#include <cassert>
+#include <array>\n#include <cassert>
 #include <cstddef>
 #include <cstring>
 #include <mutex>
@@ -103,8 +103,9 @@ class message_router
     win32::handle_view _server;
     win32::handle_view _input_available;
 
-    // 信号帧跨批次的尾部；由 _mutex 保护。
-    std::vector<std::byte> _signal_bytes;
+    // 信号帧跨批次的尾部；容量是单条消息最大字节数，由 _mutex 保护。
+    std::array<std::byte, max_signal_packet_size> _signal_bytes{};
+    std::size_t _signal_used = 0;
 
     void signal_state()
     {
@@ -377,26 +378,32 @@ inline void message_router::on_input_eof()
 
 inline void message_router::on_pty_signal(std::span<const std::byte> batch)
 {
+    assert(_window != nullptr);
     std::vector<std::pair<DWORD, DWORD>> ctrl_events;
     {
         std::unique_lock guard{_mutex};
-        _signal_bytes.insert(_signal_bytes.end(), batch.begin(), batch.end());
 
-        size_t offset = 0;
-        while (_signal_bytes.size() - offset >= sizeof(unsigned short))
+        for (const std::byte byte : batch)
         {
-            unsigned short id = 0;
-            std::memcpy(&id, _signal_bytes.data() + offset, sizeof(id));
-            const auto payload_size = pty_signal_reader::payload_size_for(id);
-            if (payload_size == 0)
+            if (_signal_used == _signal_bytes.size())
                 win32::throw_last_error(win32::error::invalid_state);
-            if (_signal_bytes.size() - offset < sizeof(id) + payload_size)
-                break;
+            _signal_bytes[_signal_used++] = byte;
 
-            const auto payload = std::span<const std::byte>{_signal_bytes.data() + offset + sizeof(id), payload_size};
-            bridge.signal_reader().apply(id, payload);
-            if (_window != nullptr)
+            while (_signal_used >= sizeof(unsigned short))
             {
+                unsigned short id = 0;
+                std::memcpy(&id, _signal_bytes.data(), sizeof(id));
+                const auto payload_size = pty_signal_reader::payload_size_for(id);
+                if (payload_size == 0 || payload_size > _signal_bytes.size() - sizeof(unsigned short))
+                    win32::throw_last_error(win32::error::invalid_state);
+
+                const auto packet_size = sizeof(unsigned short) + payload_size;
+                if (_signal_used < packet_size)
+                    break;
+
+                const auto payload =
+                    std::span<const std::byte>{_signal_bytes.data() + sizeof(unsigned short), payload_size};
+                bridge.signal_reader().apply(id, payload);
                 if (id == static_cast<unsigned short>(PtySignal::ShowHideWindow))
                 {
                     unsigned short show = 0;
@@ -405,22 +412,20 @@ inline void message_router::on_pty_signal(std::span<const std::byte> batch)
                 }
                 else if (id == static_cast<unsigned short>(PtySignal::SetParent))
                 {
-                    ULONG_PTR owner = 0;
+                    std::uint64_t owner = 0;
                     std::memcpy(&owner, payload.data(), sizeof(owner));
                     _window->set_owner(reinterpret_cast<HWND>(owner));
                 }
-            }
-            if (id == static_cast<unsigned short>(PtySignal::ResizeWindow))
-            {
-                bridge.queue_window_buffer_size_event();
-                if (_window != nullptr)
+                if (id == static_cast<unsigned short>(PtySignal::ResizeWindow))
+                {
+                    bridge.queue_window_buffer_size_event();
                     _window->set_size(api.state.screen_buffer_size);
-            }
-            offset += sizeof(id) + payload_size;
-        }
+                }
 
-        if (offset != 0)
-            _signal_bytes.erase(_signal_bytes.begin(), _signal_bytes.begin() + static_cast<std::ptrdiff_t>(offset));
+                _signal_used -= packet_size;
+                std::memmove(_signal_bytes.data(), _signal_bytes.data() + packet_size, _signal_used);
+            }
+        }
 
         bridge.take_ctrl_events(ctrl_events);
     }
@@ -433,6 +438,8 @@ inline void message_router::on_signal_closed()
     std::vector<std::pair<DWORD, DWORD>> ctrl_events;
     {
         std::unique_lock guard{_mutex};
+        if (_signal_used != 0)
+            win32::throw_last_error(win32::error::invalid_state);
         bridge.on_signal_closed();
         bridge.pump_pending();
         bridge.take_ctrl_events(ctrl_events);

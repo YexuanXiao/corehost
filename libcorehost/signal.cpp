@@ -25,7 +25,7 @@ size_t pty_signal_reader::payload_size_for(unsigned short id) noexcept
     case PtySignal::ClearBuffer:
         return sizeof(unsigned short);
     case PtySignal::SetParent:
-        return sizeof(ULONG_PTR);
+        return sizeof(std::uint64_t);
     case PtySignal::ResizeWindow:
         return sizeof(COORD);
     default:
@@ -63,7 +63,7 @@ void pty_signal_reader::apply(unsigned short id, std::span<const std::byte> payl
     case PtySignal::SetParent: {
         // WT 按 ULONG_PTR 发送 HWND；窗口 owner 由 message_router 更新。
         // 保持后续信号边界正确。
-        ULONG_PTR hwnd = 0;
+        std::uint64_t hwnd = 0;
         std::memcpy(&hwnd, payload.data(), sizeof(hwnd));
         LOG2("PtySignal SetParent hwnd=%p", reinterpret_cast<void *>(hwnd));
         break;
