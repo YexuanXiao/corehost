@@ -8,7 +8,7 @@
 //   window（坐标语义会变）；
 // - 独立线程跑 GetMessage 循环，没有消息时不唤醒；
 // - 窗口线程不直接访问控制台状态：可见性/关闭只置位事件，由主线程处理；
-// - 标题在 start 前由主线程初始化；start 后经 WM_SETTEXT 交给窗口线程。
+// - 标题由主线程在构造时传入，作为 CreateWindowEx 的初始窗口文本。
 #pragma once
 #include <windows.h>
 #include <algorithm>
@@ -38,7 +38,7 @@ class pseudo_window
           _show_event{win32::create_tag, /*manual_reset=*/false, /*initial=*/false},
           _hide_event{win32::create_tag, /*manual_reset=*/false, /*initial=*/false}
     {
-        convert_u32_to_wstr(title, _title);
+        convert_u32_to_wstr(title, _initial_title);
     }
 
     pseudo_window(const pseudo_window &) = delete;
@@ -117,11 +117,8 @@ class pseudo_window
 
         // WS_POPUP 是硬需求：否则 GetAncestor(GetConsoleWindow(), GA_ROOTOWNER)
         // 会返回伪窗口自己，而不是宿主终端窗口。
-        // 使用窗口线程自己的标题副本：即使 CreateWindowEx 内部发送 WM_SETTEXT，
-        // lParam 也不会指向 _title 自身缓冲。
-        std::wstring initial_title = _title;
         const HWND created = ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
-                                               class_name, initial_title.c_str(), WS_POPUP, 0, 0, 640, 400, nullptr, nullptr, nullptr,
+                                               class_name, _initial_title.c_str(), WS_POPUP, 0, 0, 640, 400, nullptr, nullptr, nullptr,
                                                this);
         if (created == nullptr)
             win32::throw_last_error();
@@ -185,24 +182,6 @@ class pseudo_window
             return ::DefWindowProcW(hwnd, message, wparam, lparam);
         case WM_GETOBJECT:
             return 0;
-        case WM_SETTEXT:
-            if (lparam != 0)
-                self->_title = reinterpret_cast<const wchar_t *>(lparam);
-            else
-                self->_title.clear();
-            return TRUE;
-        case WM_GETTEXTLENGTH:
-            return static_cast<LRESULT>(self->_title.size());
-        case WM_GETTEXT: {
-            const auto capacity = static_cast<size_t>(wparam);
-            if (capacity != 0)
-            {
-                const auto count = capacity > self->_title.size() ? self->_title.size() : capacity - 1;
-                std::memcpy(reinterpret_cast<wchar_t *>(lparam), self->_title.data(), count * sizeof(wchar_t));
-                reinterpret_cast<wchar_t *>(lparam)[count] = L'\0';
-            }
-            return static_cast<LRESULT>(self->_title.size());
-        }
         default:
             return ::DefWindowProcW(hwnd, message, wparam, lparam);
         }
@@ -249,9 +228,8 @@ class pseudo_window
     win32::basic_thread _thread;
     HWND _hwnd = nullptr;
 
-
-    // start 前由主线程初始化；start 后只由窗口线程读写。
-    std::wstring _title;
+    // 构造时写入，窗口线程创建窗口时读取。
+    std::wstring _initial_title;
 };
 
 } // namespace corehost::conpty
