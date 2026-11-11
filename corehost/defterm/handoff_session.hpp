@@ -4,8 +4,7 @@
 // 管道断开。
 //
 // 与 COM 创建分离（terminal_handoff.hpp 负责 CoCreateInstance 与 marker
-// 检查）之后，这一段可以脱离注册表与真实终端，用替身对象在测试里驱动
-// （见 tests/test_defterm_handoff_mock.cpp）。
+// 检查）；这一段只执行协议，不依赖注册表或真实终端。
 #pragma once
 #include <windows.h>
 

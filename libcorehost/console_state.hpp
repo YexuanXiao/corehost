@@ -30,20 +30,17 @@ class pseudo_window;
 inline constexpr DWORD DEFAULT_INPUT_MODE =
     ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_MOUSE_INPUT;
 inline constexpr DWORD DEFAULT_OUTPUT_MODE = ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT;
-// conhost 在创建屏幕缓冲区时读 HKCU\Console\VirtualTerminalLevel：非 0 时默认
-// 打开 ENABLE_VIRTUAL_TERMINAL_PROCESSING（terminal/src/host/screenInfo.cpp 的
-// GetDefaultVirtTermLevel）。这里拆成"纯映射"和"注册表读取"两步：映射可单测，
-// 注册表只在会话初始化时读一次。
+// 普通控制台窗口在创建屏幕缓冲区时读 HKCU\Console\VirtualTerminalLevel：
+// 非 0 时默认打开 ENABLE_VIRTUAL_TERMINAL_PROCESSING。这里拆成"纯映射"和
+// "注册表读取"两步：映射可单测，注册表只在会话初始化时读一次。
 inline DWORD output_mode_for_virtual_terminal_level(DWORD level) noexcept
 {
     return level != 0 ? (DEFAULT_OUTPUT_MODE | ENABLE_VIRTUAL_TERMINAL_PROCESSING) : DEFAULT_OUTPUT_MODE;
 }
 
-// conhost 的 VirtualTerminalLevel 决策：普通控制台窗口读注册表；ConPTY 模式
-// 强制 level=1，忽略注册表（terminal/src/host/srvinit.cpp:169-173：
-// "Let's just always enable VT processing by default for conpty clients"）。
-// corehost 只服务 ConPTY，但保留 registry_level 参数是为了把这个决策写清楚，
-// 也便于将来处理非 ConPTY 入口与单测。
+// VirtualTerminalLevel 决策：普通控制台窗口读注册表；ConPTY 模式强制
+// level=1，忽略注册表。corehost 只服务 ConPTY，但保留 registry_level 参数
+// 是为了把决策写清楚，也便于处理非 ConPTY 入口与单测。
 inline DWORD effective_virtual_terminal_level(DWORD registry_level, bool conpty_mode) noexcept
 {
     return conpty_mode ? 1u : registry_level;

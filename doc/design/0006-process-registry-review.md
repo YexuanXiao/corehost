@@ -55,7 +55,7 @@ CONNECT/DISCONNECT（`io_state`），读取方是 Ctrl 事件投递与两个 L3 
 - `io_state` 的两个数组、`max_processes`、双数组 `remove`；
 - `message_router::sync_process_snapshot`、`conpty.cpp::copy_process_list`；
 - `assign`/`view`/`group_view` 与两处 64 常量；
-- bridge 里 `set_process_list` 与临时 `std::array<...,64>`。
+- bridge 的测试注入改为 `set_process_registry`，不再保留旧的列表注入接口。
 
 收益：
 - 单一真相，不会再出现"CONNECT 后忘了 sync"的漂移（当前日志专门记录
@@ -68,7 +68,7 @@ CONNECT/DISCONNECT（`io_state`），读取方是 Ctrl 事件投递与两个 L3 
 **但不能只删除快照**：`send_ctrl_event` 在持会话锁时调用 `EndTask`，一次可能
 阻塞约 5s；期间主循环无法处理 DISCONNECT/CONNECT（需要同一把锁）。当前"先复制
 targets"恰好把"读列表"和"发送"分开，但复制并不能解决持锁发送。conhost 的模型是
-`HandleCtrlEvent` 只设置 CtrlFlags，`ProcessCtrlEvents` 在解锁后逐个 EndTask。
+控制事件只先记录目标/标志，解锁后再逐个投递 EndTask。
 要真正简化并保持正确，应分两步。
 
 ## 4. 推荐的两阶段方案
@@ -92,7 +92,7 @@ targets"恰好把"读列表"和"发送"分开，但复制并不能解决持锁�
 3. defterm 预附加改为 `registry.add(pid, pid)`；CONNECT 仍由 `io_state` 调
    `registry.add`。
 4. 发送语义暂时保持不变（锁内复制 targets 再 EndTask），确保这一步无行为变化。
-5. 测试：`bridge.set_process_list` 替换为向 registry 注入；现有 group 过滤、
+5. 测试：向 `process_registry` 注入后调用 `bridge.set_process_registry`；现有 group 过滤、
    GetConsoleProcessList、defterm 自测全部保持通过。
 
 ### 阶段 B（行为修正 + 进一步简化，建议分项提交）
@@ -108,7 +108,7 @@ targets"恰好把"读列表"和"发送"分开，但复制并不能解决持锁�
    `{event, targets}`，由 io_loop 在释放会话锁后调用 EndTask。这样：
    - 不再需要"发送前复制 targets"这一层；
    - 修复持锁 EndTask 阻塞其它客户端的最长 5s 问题；
-   - 与 conhost 的 `HandleCtrlEvent` + `ProcessCtrlEvents` 模型一致。
+   - 与系统宿主"记录事件、解锁后逐进程投递"的模型一致。
    代价：需要一个小队列/一次性 pending 字段（事件频率低，不需要通用队列）。
 
 ## 5. 关于 group 0 归一化（需要明确决策）
@@ -163,7 +163,7 @@ corehost 当前把 0 归一化为 pid，效果上覆盖了"按普通子进程 pi
    dispatch 后，在锁外调用 `deliver_ctrl_events()` 执行 `EndTask`。这消除了
    持锁 `EndTask` 最长约 5s 阻塞其它客户端的问题；事件队列用独立 SRW 锁保护，
    输入线程与主循环都可以安全 drain。行为对齐 conhost 的
-   `HandleCtrlEvent`（置标志）+ `ProcessCtrlEvents`（解锁后投递）模型。
+   "记录事件（置标志）+ 解锁后逐进程投递"模型。
 
 代码量说明：删除 snapshot（80 行）与各处同步/数组维护，新增 registry（约 95 行），
 **净行数接近持平**；简化体现在状态从"三份数据保持同序"降为"一份数据"，并消除了

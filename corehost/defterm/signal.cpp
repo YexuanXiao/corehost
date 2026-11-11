@@ -42,13 +42,7 @@ size_t console_control_forwarder::min_payload_for(CONSOLECONTROL code) noexcept
 
 console_control_forwarder::console_control_forwarder()
 {
-    HMODULE hUser32 = nullptr;
-    auto res = GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, L"user32.dll", &hUser32);
-
-    assert(hUser32 != nullptr);
-    assert(res != 0);
-    ConsoleControl = (PFN_ConsoleControl)GetProcAddress(hUser32, "ConsoleControl");
-    assert(ConsoleControl != nullptr);
+    ConsoleControl = load_console_control();
 }
 
 // 阻塞读取一条完整消息并转发。返回 false 表示管道断开或读被取消。
@@ -137,7 +131,8 @@ void console_control_forwarder::forward_message(CONSOLECONTROL code, DWORD dw_si
         break;
     }
     case ConsoleSetForeground: {
-        // 新版 WT 不再发送此消息，改为本地处理；这里只消费消息保持协议同步。
+        // GH#13211: 新版 WT 不再发送此消息，改为本地处理；这里只
+        // 消费消息保持协议同步（老版本 WT 可能仍发送）。
         CONSOLESETFOREGROUNDDATA d{};
         std::memcpy(&d, data.data(), sizeof(d));
         LOG("console_control_forwarder: ConsoleSetForeground pid=%lu foreground=%d", d.ProcessId, d.Foreground);
@@ -166,8 +161,7 @@ void console_control_thread::start()
 
 void console_control_thread::stop_and_join()
 {
-    if (!_thread.valid())
-        return;
+    assert(_thread.valid());
     _reader.request_stop();
     _reader.wait_for_exit(_thread);
     _thread.join();

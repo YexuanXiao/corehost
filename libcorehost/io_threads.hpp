@@ -62,8 +62,7 @@ class vt_input_thread
     // 停止并无限等待线程退出。只允许在没有持有会话锁时调用。
     void stop_and_join()
     {
-        if (!_thread.valid())
-            return;
+        assert(_thread.valid());
         _reader.request_stop();
         _reader.wait_for_exit(_thread);
         _thread.join();
@@ -97,7 +96,7 @@ class vt_input_thread
                     std::unique_lock guard{*_session_lock};
                     _bridge->on_input_eof();
                 }
-                // 由输入线程在 EOF 时向仍存活的客户端投递 CTRL_CLOSE_EVENT。
+                // 输入 EOF 后通知主循环结束会话；close 事件不在 corehost 实现。
                 signal_state();
                 return;
             }
@@ -107,7 +106,7 @@ class vt_input_thread
                 _bridge->on_input_bytes(std::span<const std::byte>{staging.data(), read});
             }
             // 控制事件在释放会话锁后投递：EndTask 可能阻塞到客户端处理器返回/
-            // CSRSS 超时，不能占着会话锁（conhost 的 ProcessCtrlEvents 也在解锁后）。
+            // CSRSS 超时，不能占着会话锁。
             _bridge->deliver_ctrl_events();
             signal_state();
         }
@@ -154,8 +153,7 @@ class pty_signal_thread
 
     void stop_and_join()
     {
-        if (!_thread.valid())
-            return;
+        assert(_thread.valid());
         _reader.request_stop();
         _reader.wait_for_exit(_thread);
         _thread.join();

@@ -182,10 +182,6 @@ inline bool is_line_terminator_echo(std::u32string_view text) noexcept
     return text == U"\r"sv || text == U"\n"sv || text == U"\r\n"sv;
 }
 
-inline bool is_printable_ascii_text(std::u32string_view text) noexcept
-{
-    return std::ranges::all_of(text, [](char32_t ch) { return ch >= U' ' && ch < U'\x7f'; });
-}
 
 // 判断当前 viewport 是否覆盖整个 screen_buffer。覆盖时清屏/滚动可以用更
 // 简单的全屏 VT 序列；否则必须只改 viewport 可见区域。
@@ -1171,9 +1167,9 @@ inline bool api_get_mode(condrv_io::io_msg &msg, console_state &state, screen_bu
                          bool input_handle) noexcept
 {
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    // conhost 的 GetConsoleMode 在输入句柄上补私有标志：EXTENDED_FLAGS 总是置位，
-    // INSERT/QUICK_EDIT/AUTO_POSITION 来自控制台内部状态
-    // （terminal/src/host/getset.cpp::GetConsoleInputModeImpl）。
+    // GetConsoleMode 在输入句柄上补私有标志：EXTENDED_FLAGS 总是置位，
+    // INSERT/QUICK_EDIT/AUTO_POSITION 来自控制台内部状态。
+
     r->Mode = input_handle ? (state.input_mode | ENABLE_EXTENDED_FLAGS | state.input_mode_private) : state.output_mode;
     ucomplete_sz(msg, sizeof(CONSOLE_MODE_MSG));
     return true;
@@ -1189,7 +1185,7 @@ inline bool api_set_mode(condrv_io::io_msg &msg, console_state &state, screen_bu
     {
         const auto requested_mode = r->Mode;
         state.input_mode = requested_mode & ~private_input_modes;
-        // 私有标志的更新规则（conhost SetConsoleInputModeImpl）：带
+        // 私有标志的更新规则：带
         // ENABLE_EXTENDED_FLAGS 才允许整体替换，否则只能置位。
         if ((requested_mode & ENABLE_EXTENDED_FLAGS) != 0)
             state.input_mode_private = requested_mode & private_input_modes;
@@ -1271,7 +1267,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
     if (bytes > 0)
     {
         auto &u32s = bridge.conv_u32();
-        const UINT output_code_page = state.output_code_page ? state.output_code_page : CP_ACP;
+        const UINT output_code_page = state.output_code_page;
         {
             COREHOST_PERF_SCOPE_AMOUNT(write_console_convert, bytes);
             if (unicode)
@@ -1493,7 +1489,7 @@ inline bool api_write_console(condrv_io::io_msg &msg, console_state &state, scre
 inline bool api_raw_write_console(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                                   pipe_bridge &bridge)
 {
-    // 原版 IoSorter 把 CONSOLE_IO_RAW_WRITE 伪造成 WriteConsoleA，而不是把
+    // CONSOLE_IO_RAW_WRITE 按 WriteConsoleA 语义处理，而不是把
     // 客户端字节直接透传给终端。否则 WriteFile 写入的 OEM/ANSI 字节会被
     // 宿主终端当 UTF-8 显示，CJK live echo 会乱码。
     auto payload = bridge.read_input_payload(msg, 0);
@@ -1595,7 +1591,7 @@ inline bool api_fill_output(condrv_io::io_msg &msg, console_state &state, screen
     if (r->ElementType == CONSOLE_ASCII)
     {
         const char byte = static_cast<char>(r->Element & 0xFF);
-        convert_ansi_to_u32(&byte, 1, state.output_code_page ? state.output_code_page : CP_ACP, bridge.conv_u32(),
+        convert_ansi_to_u32(&byte, 1, state.output_code_page, bridge.conv_u32(),
                             bridge.conv_wstr());
         if (!bridge.conv_u32().empty())
             fill_char = bridge.conv_u32().front();
@@ -1715,8 +1711,8 @@ inline bool api_fill_output(condrv_io::io_msg &msg, console_state &state, screen
     return true;
 }
 
-// GenerateConsoleCtrlEvent：把事件投递给请求的进程组（0 = 全部），与 conhost
-// 的 ProcessCtrlEvents 一致。corehost 不在该控制台上，直接调用 Win32
+// GenerateConsoleCtrlEvent：把事件投递给请求的进程组（0 = 全部）。
+// corehost 不在该控制台上，直接调用 Win32
 // GenerateConsoleCtrlEvent 到不了客户端；统一走 bridge::send_ctrl_event。
 inline bool api_ctrl_event(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
                            pipe_bridge &bridge) noexcept
@@ -1940,7 +1936,7 @@ inline bool api_set_sb_size(condrv_io::io_msg &msg, console_state &state, screen
     }
     state.screen_buffer_size = new_size;
     sb.resize(new_size);
-    // VT 输入模式的客户端需要知道缓冲区尺寸变了（conhost 的 _CommitViewport）。
+    // VT 输入模式的客户端需要知道缓冲区尺寸变了。
     bridge.queue_window_buffer_size_event();
     const bool viewport_changed = sb.viewport.clamp_to_buffer(sb.size);
     state.clamp_cursor_to_buffer();
@@ -2033,7 +2029,7 @@ inline bool api_scroll_sb(condrv_io::io_msg &msg, console_state &state, screen_b
     if (!r->Unicode)
     {
         const char byte = r->Fill.Char.AsciiChar;
-        convert_ansi_to_u32(&byte, 1, state.output_code_page ? state.output_code_page : CP_ACP, bridge.conv_u32(),
+        convert_ansi_to_u32(&byte, 1, state.output_code_page, bridge.conv_u32(),
                             bridge.conv_wstr());
         if (!bridge.conv_u32().empty())
             fill_char = bridge.conv_u32().front();
@@ -2242,14 +2238,16 @@ inline bool api_read_output_string(condrv_io::io_msg &msg, console_state &state,
     }
     else if (r->StringType == CONSOLE_ASCII)
     {
-        const auto cp = state.output_code_page ? state.output_code_page : CP_ACP;
+        const auto cp = state.output_code_page;
         auto &wbuf = bridge.conv_wstr();
         wbuf.resize(capacity);
         const auto wchar_count = sb.read_wchars_linear(r->ReadCoord, wbuf.data(), wbuf.size());
-        const int bytes = ::WideCharToMultiByte(cp, 0, wbuf.data(), static_cast<int>(wchar_count),
-                                                reinterpret_cast<char *>(data), static_cast<int>(capacity), nullptr,
-                                                nullptr);
-        r->NumRecords = bytes > 0 ? static_cast<ULONG>(bytes) : 0;
+        auto &ansi = bridge.conv_u8();
+        convert_wstr_to_ansi(std::wstring_view{wbuf.data(), wchar_count}, cp, ansi);
+        const auto bytes = std::min<size_t>(ansi.size(), capacity);
+        if (bytes != 0)
+            std::memcpy(data, ansi.data(), bytes);
+        r->NumRecords = static_cast<ULONG>(bytes);
     }
     else
     {
@@ -2294,7 +2292,7 @@ inline bool api_write_console_input(condrv_io::io_msg &msg, console_state &state
         auto &converted = bridge.conv_input_records();
         converted.clear();
         converted.reserve(nrec);
-        const auto cp = state.input_code_page ? state.input_code_page : CP_ACP;
+        const auto cp = state.input_code_page;
         for (size_t i = 0; i < nrec; ++i)
         {
             auto rec = records[i];
@@ -2317,7 +2315,7 @@ inline bool api_write_console_input(condrv_io::io_msg &msg, console_state &state
             }
 
             wchar_t wide[2]{};
-            const auto wide_count = ::MultiByteToWideChar(cp, 0, bytes, byte_count, wide, 2);
+            const auto wide_count = convert_ansi_to_wide_raw(bytes, byte_count, cp, wide, 2);
             for (int j = 0; j != wide_count; ++j)
             {
                 rec.Event.KeyEvent.uChar.UnicodeChar = wide[j];
@@ -2387,12 +2385,12 @@ inline bool api_write_console_output(condrv_io::io_msg &msg, console_state &stat
         const auto cell_count = static_cast<size_t>(w) * static_cast<size_t>(h);
         unicode_data.clear();
         unicode_data.reserve(cell_count);
-        const auto cp = state.output_code_page ? state.output_code_page : CP_ACP;
+        const auto cp = state.output_code_page;
         std::transform(data, data + cell_count, std::back_inserter(unicode_data), [cp](const CHAR_INFO &ci) {
             auto converted = ci;
             auto ch = static_cast<char>(ci.Char.AsciiChar);
             wchar_t wc = L' ';
-            ::MultiByteToWideChar(cp, MB_USEGLYPHCHARS, &ch, 1, &wc, 1);
+            convert_ansi_char_to_wide_raw(ch, cp, &wc, 1, MB_USEGLYPHCHARS);
             converted.Char.UnicodeChar = wc;
             return converted;
         });
@@ -2512,7 +2510,7 @@ inline bool api_write_output_string(condrv_io::io_msg &msg, console_state &state
         if (r->StringType == CONSOLE_ASCII)
         {
             convert_ansi_to_u32(reinterpret_cast<const char *>(bytes), ib,
-                                state.output_code_page ? state.output_code_page : CP_ACP, u32text,
+                                state.output_code_page, u32text,
                                 bridge.conv_wstr());
         }
         else
@@ -2526,7 +2524,7 @@ inline bool api_write_output_string(condrv_io::io_msg &msg, console_state &state
         if (r->StringType == CONSOLE_ASCII)
         {
             r->NumRecords = static_cast<ULONG>(u32_to_ansi_exact_len(
-                written_text, state.output_code_page ? state.output_code_page : CP_ACP, bridge.conv_wstr()));
+                written_text, state.output_code_page, bridge.conv_wstr()));
         }
         else
         {
@@ -2646,12 +2644,12 @@ inline bool api_read_console_output(condrv_io::io_msg &msg, console_state &state
         }
         else
         {
-            const auto cp = state.output_code_page ? state.output_code_page : CP_ACP;
+            const auto cp = state.output_code_page;
             for (SHORT x = clipped.Left; x <= clipped.Right; ++x)
             {
                 auto &src = tmp[static_cast<size_t>(x)];
                 char mb = ' ';
-                ::WideCharToMultiByte(cp, 0, &src.Char.UnicodeChar, 1, &mb, 1, nullptr, nullptr);
+                convert_wide_char_to_ansi_raw(src.Char.UnicodeChar, cp, &mb, 1);
                 auto &target = dst[x - clipped.Left];
                 target.Char.AsciiChar = mb;
                 target.Attributes = src.Attributes;
@@ -2683,7 +2681,7 @@ inline bool api_get_title(condrv_io::io_msg &msg, console_state &state, screen_b
 
     if (r->Unicode)
     {
-        // conhost 的语义（ApiDispatchers::ServerGetConsoleTitle）：TitleLength 是
+        // TitleLength 是
         // **字符数**（不含 NUL），reply information 是实际写入的字节数（不含 NUL）。
         auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
         auto maxc = std::min<size_t>(data_capacity,
@@ -2703,7 +2701,7 @@ inline bool api_get_title(condrv_io::io_msg &msg, console_state &state, screen_b
         auto *out = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
         auto maxb = std::min<size_t>(data_capacity,
                                      sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG));
-        const auto cp = state.input_code_page ? state.input_code_page : CP_ACP;
+        const auto cp = state.input_code_page;
         const auto encoded_size = u32_to_ansi_exact_len(src, cp, bridge.conv_wstr());
         size_t written = 0;
         if (maxb >= encoded_size)
@@ -2750,7 +2748,7 @@ inline bool api_set_title(condrv_io::io_msg &msg, console_state &state, screen_b
     else
     {
         convert_ansi_to_u32(reinterpret_cast<const char *>(payload.data()), payload.size(),
-                            state.input_code_page ? state.input_code_page : CP_ACP, u32title, bridge.conv_wstr());
+                            state.input_code_page, u32title, bridge.conv_wstr());
     }
     if (state.title.empty())
     {
@@ -2978,8 +2976,7 @@ inline bool api_l3_add_alias(condrv_io::io_msg &msg, console_state &state, scree
     return true;
 }
 
-// 将 ANSI alias 字段转换成 console_state 使用的 UTF-16 key/value。code_page
-// 来自当前输入代码页；out 是调用方复用缓冲。
+// 将 ANSI alias 字段转换成 console_state 使用的 UTF-16 key/value。
 inline void alias_ansi_to_wstring(const char *text, size_t bytes, UINT code_page, std::wstring &out) noexcept
 {
     out.clear();
@@ -2987,28 +2984,22 @@ inline void alias_ansi_to_wstring(const char *text, size_t bytes, UINT code_page
         return;
 
     const UINT cp = code_page ? code_page : CP_ACP;
-    const int chars = ::MultiByteToWideChar(cp, 0, text, static_cast<int>(bytes), nullptr, 0);
-    assert(chars >= 0);
-    if (chars == 0)
-        return;
-
-    out.resize(static_cast<size_t>(chars));
-    const int written = ::MultiByteToWideChar(cp, 0, text, static_cast<int>(bytes), out.data(), chars);
-    assert(written == chars);
+    out.resize(ansi_to_wide_max_units(bytes));
+    const auto written = convert_ansi_to_wide_raw(text, bytes, cp, out.data(), out.size());
+    out.resize(written);
 }
 
-// 计算 UTF-16 alias 字段导出为 ANSI 时需要的字节数，不包含结尾 NUL。
-[[nodiscard]] inline size_t alias_wstring_to_ansi_length(std::wstring_view text, UINT code_page) noexcept
+// 计算 UTF-16 alias 字段导出为 ANSI 时需要的字节数（不含结尾 NUL）。
+inline size_t alias_wstring_to_ansi_length(std::wstring_view text, UINT code_page) noexcept
 {
     if (text.empty())
         return 0;
 
     const UINT cp = code_page ? code_page : CP_ACP;
-    const int bytes =
-        ::WideCharToMultiByte(cp, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
-    assert(bytes >= 0);
-    return static_cast<size_t>(bytes);
+    return wstr_to_ansi_len(text, cp);
 }
+
+// 计算 UTF-16 alias 字段导出为 ANSI 时需要的字节数，不包含结尾 NUL。
 
 // 将 UTF-16 alias 字段写回 ANSI API 输出缓冲。调用方已按
 // alias_wstring_to_ansi_length 校验容量，因此这里用断言表达容量不变量。
@@ -3023,10 +3014,7 @@ inline size_t alias_wstring_to_ansi(std::wstring_view text, UINT code_page, char
         return 0;
 
     const UINT cp = code_page ? code_page : CP_ACP;
-    const int written = ::WideCharToMultiByte(cp, 0, text.data(), static_cast<int>(text.size()), out,
-                                              static_cast<int>(out_cap), nullptr, nullptr);
-    assert(written == static_cast<int>(needed));
-    return needed;
+    return convert_wide_to_ansi_raw(text.data(), text.size(), cp, out, out_cap, false);
 }
 
 // ── 0x13 GetAlias ──

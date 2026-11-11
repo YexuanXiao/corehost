@@ -91,9 +91,9 @@ ctest --test-dir build --output-on-failure
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-第 66 轮实测：**26/26 通过，约 33s**。相较上一轮：删除环境依赖的 `Defterm.RealTerminal`；`Defterm.Connect` 删除必然 SKIP 的 slow case（7.3s → 0.9s）；`ConPTY.Differential` 默认只跑 corehost 冒烟（18s → 0.2s），与 conhost 比较改为 opt-in（`COREHOST_TEST_DIFFERENTIAL=1`）。测试选项见 `06-test-options.md`。
+第 66 轮实测：**26/26 通过，约 33s**。相较上一轮：删除环境依赖的 `Defterm.RealTerminal`；`Defterm.Connect` 删除必然 SKIP 的 slow case（7.3s → 0.9s）；`ConPTY.Differential` 默认只跑 corehost 冒烟（18s → 0.2s），与 conhost 比较改为 opt-in（`COREHOST_TEST_DIFFERENTIAL=1`）。测试选项见 `06-test-options.md`。本轮同时统一线程创建（CREATE_SUSPENDED→命名→Resume）、删除线程 id 与延迟命名、共享 ConsoleControl 加载器、扁平化控制事件队列，并把转码集中到 `char_convert.hpp`（UTF-8 按 4N、ANSI 按 DBCS 2M 的粗略上界）。
 
-## 7. 结论''
+## 7. 结论
 
 任务 1、2 的验收项都有自动化证据；任务 3 的确定性层（L0 直连）与任务 4 的
 主要矩阵已完成，真实 WT 层与 ssh 受环境限制。剩余项均登记在 gaps，且都有明确的

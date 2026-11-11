@@ -44,28 +44,30 @@ class pseudo_window
     pseudo_window &operator=(const pseudo_window &) = delete;
     ~pseudo_window()
     {
-        stop_and_join();
+        // start() 可能因创建线程失败而抛出；此时没有可 join 的线程。
+        if (_thread.valid())
+            stop_and_join();
     }
 
     // 启动窗口线程并等待窗口创建完成。创建失败是致命错误：GetConsoleWindow
     // 的契约无法满足。
     void start()
     {
-        if (_thread.valid())
-            return;
+        // 只允许启动一次；重复启动是调用方错误，用断言暴露。
+        assert(!_thread.valid());
+
 
         _thread = win32::basic_thread{&pseudo_window::thread_entry, this, {.name = L"corehost-window"}};
         _ready.wait();
     }
 
-    // 通知窗口线程退出并无限等待。PostThreadMessage(WM_QUIT) 让 GetMessage
-    // 返回 0，线程退出；join 不设超时。
+    // 通过窗口消息请求退出；窗口过程 PostQuitMessage 后 join 无限等待。
     void stop_and_join()
     {
-        if (!_thread.valid())
-            return;
+        assert(_thread.valid());
 
-        if (::PostThreadMessageW(_thread.id(), WM_QUIT, 0, 0) == FALSE)
+        // 用窗口消息唤醒 GetMessage，不需要保存线程 id；
+        if (::PostMessageW(_hwnd.load(std::memory_order_acquire), wm_stop_thread, 0, 0) == FALSE)
             win32::throw_last_error();
 
         _thread.join();
@@ -102,8 +104,10 @@ class pseudo_window
     // 保护；窗口线程只复制，不回调主线程。
     void set_title(std::u32string_view title)
     {
+        std::wstring converted;
+        convert_u32_to_wstr(title, converted);
         std::unique_lock lock{_text_lock};
-        _title.assign(title.begin(), title.end());
+        _title = std::move(converted);
     }
 
   private:
@@ -126,12 +130,9 @@ class pseudo_window
         wc.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
         wc.hbrBackground = nullptr;
 
+        // 一个进程只创建一个伪窗口；类注册失败是致命错误。
         if (::RegisterClassExW(&wc) == 0)
-        {
-            const auto err = win32::get_last_error();
-            if (err != win32::error::class_already_exists)
-                win32::throw_last_error(err);
-        }
+            win32::throw_last_error();
 
         // WS_POPUP 是硬需求：否则 GetAncestor(GetConsoleWindow(), GA_ROOTOWNER)
         // 会返回伪窗口自己，而不是宿主终端窗口。
@@ -195,8 +196,10 @@ class pseudo_window
             self->_close_requested.set();
             self->cancel_server_io();
             return 0;
-        case WM_DESTROY:
+        case wm_stop_thread:
             ::PostQuitMessage(0);
+            return 0;
+        case WM_DESTROY:
             return 0;
         case WM_ACTIVATE:
             // 不可见窗口不能被激活；让系统继续默认处理。
@@ -205,9 +208,9 @@ class pseudo_window
             // 不提供 UIA provider；返回 0 表示没有可访问对象。
             return 0;
         case WM_GETTEXTLENGTH:
-            return static_cast<LRESULT>(self->title_copy().size());
+            return static_cast<LRESULT>(self->title_snapshot().size());
         case WM_GETTEXT: {
-            const auto text = self->title_copy();
+            const auto text = self->title_snapshot();
             const auto capacity = static_cast<size_t>(wparam);
             if (capacity != 0)
             {
@@ -222,30 +225,14 @@ class pseudo_window
         }
     }
 
-    // 把 UTF-32 标题转换成 UTF-16（含代理对）。
-    [[nodiscard]] std::wstring title_copy() const
+    // 返回标题副本；窗口线程只复制，不回调主线程。
+    [[nodiscard]] std::wstring title_snapshot() const
     {
         std::unique_lock lock{_text_lock};
-        std::wstring result;
-        result.reserve(_title.size());
-        for (const char32_t ch : _title)
-        {
-            if (ch <= 0xFFFF)
-            {
-                result.push_back(static_cast<wchar_t>(ch));
-            }
-            else
-            {
-                const auto value = static_cast<char32_t>(ch - 0x10000);
-                result.push_back(static_cast<wchar_t>(0xD800 + (value >> 10)));
-                result.push_back(static_cast<wchar_t>(0xDC00 + (value & 0x3FF)));
-            }
-        }
-        return result;
+        return _title;
     }
 
-    // 把可见性变化写成 VT 序列（ESC[1t 显示 / ESC[2t 隐藏），与原版
-    // VtIo::Writer::WriteWindowVisibility 一致。
+    // 把可见性变化写成 VT 序列（ESC[1t 显示 / ESC[2t 隐藏）。
     void send_visibility(bool visible) const
     {
         if (_bridge == nullptr || _session_lock == nullptr)
@@ -272,8 +259,8 @@ class pseudo_window
         std::abort();
     }
 
+    static constexpr UINT wm_stop_thread = WM_APP + 1;
     static constexpr const wchar_t *class_name = L"PseudoConsoleWindow";
-
     win32::event _ready;
     win32::event _close_requested;
     win32::basic_thread _thread;
@@ -282,7 +269,7 @@ class pseudo_window
     pipe_bridge *_bridge = nullptr;
     win32::shared_mutex *_session_lock = nullptr;
     mutable win32::shared_mutex _text_lock;
-    std::u32string _title;
+    std::wstring _title;
 };
 
 } // namespace corehost::conpty

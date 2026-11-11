@@ -116,8 +116,7 @@ Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额�
 
 ### 4.6 Ctrl+C / Ctrl+Break 的读语义（与 conhost 对齐）
 
-依据 `terminal/src/host/input.cpp::HandleGenericKeyEvent` 与
-`readDataCooked.cpp::Notify`：
+行为依据是系统控制台的 Ctrl+C / Ctrl+Break 观测语义：
 
 - **Ctrl+C**：仅 processed input、无 Alt、key down、`VK == 'C'`。投递
   `CTRL_C_EVENT`，并以 `STATUS_ALERTED`（0x101）结束等待中的
@@ -125,11 +124,11 @@ Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额�
 - **Ctrl+Break**：不看 processed input。先 `Flush` 输入缓冲，再投递
   `CTRL_BREAK_EVENT`，同样以 `STATUS_ALERTED` 结束读。
 - 事件投递走 CSRSS `ConsoleControl(ConsoleEndTask)`（corehost 不在控制台上，
-  `GenerateConsoleCtrlEvent` 到不了客户端），与 conhost 的 `ProcessCtrlEvents` 同路。
+  `GenerateConsoleCtrlEvent` 到不了客户端）。
 - `ConsoleControl(EndTask)` 不在会话锁内执行：处理 Ctrl+C/Break 时只把事件与目标
   pid 入队，输入线程/io_loop 在释放会话锁后调用 `deliver_ctrl_events()` 投递；
-  与 conhost 的 `HandleCtrlEvent`（置标志）+ `ProcessCtrlEvents`（解锁后 EndTask）
-  模型一致，避免客户端处理器阻塞期间其它客户端被会话锁卡住。
+  与系统控制台宿主"先记录事件、解锁后逐进程投递"的模型一致，避免客户端处理器
+  阻塞期间其它客户端被会话锁卡住。
 - 客户端观察到的结果由 Windows 控制台客户端库映射：0 字节读取 +
   `ERROR_OPERATION_ABORTED`。
 
@@ -162,8 +161,8 @@ Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额�
    失败并结束用例"的手段，属于测试基础设施，不是产品逻辑，不得回流到产品代码。
 
 实现载体：`common/win32/cancellable_read.hpp` 负责 `in_read` 事件、`request_stop`、
-`cancel_pending` 与事件驱动的无限 `wait_for_exit`；线程句柄与命名由
-`common/win32/thread.hpp` 的 `basic_thread` 提供（`join()` 为无限等待）。
+`cancel_pending` 与事件驱动的无限 `wait_for_exit`；线程句柄由
+`common/win32/thread.hpp` 的 `basic_thread` 提供（`join()` 为无限等待，不保存线程 id）。
 
 被否决的替代：关闭读端句柄（行为未定义，I/O 可能继续挂起）；改 overlapped
 （调用方给的句柄不可控）；`TerminateThread`（破坏进程状态，违背"正确处理线程
@@ -174,10 +173,12 @@ Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额�
 异常无法跨线程传播：主线程致命错误抛 `win32::error`/`std::bad_alloc`；工作
 线程致命错误记录诊断后 `std::abort()`。全仓库不新增 `catch`。
 
-### 4.9 线程命名
+### 4.9 线程命名与创建
 
-每个工作线程入口设置可读名称（终端输入 / 信号管道 / 控制台窗口 + 会话标识），
-由 `common/win32` 统一提供，避免各写一套。
+每个工作线程在创建时传入可读名称（终端输入 / 信号管道 / 控制台窗口），由
+`common/win32/thread.hpp` 的 `basic_thread` 统一处理：`CreateThread` 以
+`CREATE_SUSPENDED` 创建，创建者调用 `SetThreadDescription` 后 `ResumeThread`。
+不提供创建后改名接口，也不把线程 id 保存在线程对象里。
 
 ### 4.10 禁止探测式等待
 
@@ -257,9 +258,9 @@ B6 的伪窗口用例暴露出一个此前被注释误导的事实：`DeviceIoCo
 
 ## 4.14 WINDOW_BUFFER_SIZE_EVENT 的触发条件
 
-与 conhost `_CommitViewport` 一致：只有 `ENABLE_VIRTUAL_TERMINAL_INPUT` 且缓冲区
-尺寸变化时产生；事件写入 input_buffer 前按"最近一次上报尺寸"去重（对齐
-`InputBuffer` 的重复事件抑制）。触发点：PtySignal resize、SetConsoleScreenBufferSize、
+与系统宿主行为一致：只有 `ENABLE_VIRTUAL_TERMINAL_INPUT` 且缓冲区
+尺寸变化时产生；事件写入 input_buffer 前按"最近一次上报尺寸"去重（
+重复尺寸不重复上报）。触发点：PtySignal resize、SetConsoleScreenBufferSize、
 SetConsoleScreenBufferInfo(Ex)、SetConsoleWindowInfo、VT `\x1b[8;h;wt`。
 
 ## 4.15 SGR 鼠标的转换边界
@@ -269,29 +270,24 @@ SetConsoleScreenBufferInfo(Ex)、SetConsoleWindowInfo、VT `\x1b[8;h;wt`。
 自行解析。conhost 的双击/悬停启发式没有复刻（记录在 G20 备注）。
 ## 4.16 与系统 conhost 的差分测试
 
-`tests/test_conpty_differential.cpp` 让同一组 Console API 分别在 corehost 与系统
-conhost 宿主下运行。机制：libconpty 按"测试可执行文件同目录的 corehost.exe"选择
-宿主（`libconpty/libconpty.hpp:189-211`），把 `%SystemRoot%\System32\conhost.exe`
-复制成独立目录里的 `corehost.exe`，即可让会话跑在系统 conhost 上，不需要注册表
-或服务。
+`tests/test_conpty_differential.cpp` 默认只跑 corehost 侧冒烟，不与系统宿主比较；
+设置 `COREHOST_TEST_DIFFERENTIAL=1` 时才把 `%SystemRoot%\System32\conhost.exe`
+复制成独立目录里的 `corehost.exe`，让同一组 Console API 分别在两个宿主下运行。
+raw/record Ctrl+C 的记录需要再设置 `COREHOST_TEST_DIFFERENTIAL_CTRL=1`。
 
-只比较稳定、有意义的行为：`in_mode`、`SetConsoleTextAttribute` 后的 `wAttributes`、
-光标大小/可见性、标题与标题长度。`out_mode` 不比较——conhost 是否默认打开
-`ENABLE_VIRTUAL_TERMINAL_PROCESSING` 取决于用户注册表 `VirtualTerminalLevel`
-（`terminal/src/host/screenInfo.cpp:30-37`），属于机器配置差异。
+比较稳定字段：`in_mode`、`out_mode`、`SetConsoleTextAttribute` 后的 `wAttributes`、
+光标大小/可见性、标题与标题长度。`out_mode` 在 ConPTY 下两边都强制启用
+`ENABLE_VIRTUAL_TERMINAL_PROCESSING`，因此纳入比较。
 
-差分首批发现并修复的真实差异：
-- `GetConsoleTitleW` 的 `TitleLength` 是字符数，不是字节数
-  （conhost `ApiDispatchers::ServerGetConsoleTitle`）。
-- `GetConsoleMode(input)` 会在回读时补 `EXTENDED_FLAGS` 和
-  `INSERT/QUICK_EDIT/AUTO_POSITION`（`host/getset.cpp::GetConsoleInputModeImpl`）；
-  `SetConsoleMode` 只有带 `EXTENDED_FLAGS` 才允许整体替换私有位。
+差分发现并修复的真实差异：
+- `GetConsoleTitleW` 的 `TitleLength` 是字符数，不是字节数；
+- `GetConsoleMode(input)` 回读时补 `EXTENDED_FLAGS` 和
+  `INSERT/QUICK_EDIT/AUTO_POSITION`；`SetConsoleMode` 只有带 `EXTENDED_FLAGS`
+  才允许整体替换私有位。
+
 ## 4.17 Completion 的 Information 语义与输入负载边界
 
-ConDrv 客户端把 `CD_IO_COMPLETE.IoStatus.Information` 当作**数据区字节数**
-（conhost 的 `ServerReadConsoleOutputString` / `ServerReadConsoleOutput` /
-`ServerReadConsole` / `ServerGetConsoleInput` 都用 `SetReplyInformation(cb*)`
-回报纯数据长度），而 corehost 的单 region 完成同时携带 "API struct + 数据"。
+ConDrv 客户端把 `CD_IO_COMPLETE.IoStatus.Information` 当作**数据区字节数**；corehost 的单 region 完成同时携带 API struct + 数据。
 因此约定：
 
 - `Write.Size = sizeof(API struct) + 数据区字节数`（客户端一次拷入 API 消息体）；
@@ -303,17 +299,15 @@ ConDrv 客户端把 `CD_IO_COMPLETE.IoStatus.Information` 当作**数据区字�
 同时按客户端 `OutputSize` 与本地 `io_msg::body` 余量收缩数据区，未写区域清零，
 避免把上一条消息的 body 回传给客户端。
 
-输入方向同理：`InputSize` 是客户端声明值，可能大于本地 body。所有变长输入
+输入方向同理：`InputSize` 由 ConDrv 消息提供，可能大于本地 body。所有变长输入
 （ReadConsole initial data、WriteConsoleInput/Output/OutputString、SetTitle）
 统一经 `pipe_bridge::read_input_payload` 取数据：body 放得下就直接切片，否则用
-READ_INPUT 读入临时缓冲，并拒绝超过 16 MiB 的单次负载。
+READ_INPUT 读入临时缓冲；实际长度由 ConDrv 的读取结果校验，不设任意上限。
 ## 4.18 WM_CLOSE 与 CTRL_CLOSE_EVENT：不实现（记录平台限制）
 
-conhost 的伪窗口（`InteractivityFactory::PseudoWindowProc`）不处理 WM_CLOSE，落到
-`DefWindowProc` 只是销毁窗口；ConPTY 下真正的关闭事件由 pty 管道关闭触发
-（`VtIo::SendCloseEvent` → `CloseConsoleProcessState` → 对每个进程
-`ConsoleControl(ConsoleEndTask, CTRL_CLOSE_EVENT)`），差分测试中系统 conhost 的
-客户端确实收到 `EVENT=2`。
+伪窗口不处理 WM_CLOSE，关闭请求直接结束会话；ConPTY 下系统控制台宿主会在 pty
+管道关闭时向客户端投递 `CTRL_CLOSE_EVENT`，差分测试中系统宿主客户端确实收到
+`EVENT=2`。
 
 corehost 用同一 EndTask 路径投递 close 时（io 主线程、vt 输入线程、hwnd 为
 nullptr 或伪窗口、flags 变体都试过），CSRSS 阻塞约 5 秒后返回成功，但客户端
@@ -324,9 +318,9 @@ nullptr 或伪窗口、flags 变体都试过），CSRSS 阻塞约 5 秒后返回
 依赖 close 处理器（该差异记录在 gaps G18）。
 ## 4.19 默认 out_mode 与 conhost 一致
 
-conhost 的 `srvinit.cpp:169-173` 在 **ConPTY 模式**下强制
+系统控制台宿主在 **ConPTY 模式**下强制
 `SetDefaultVirtTermLevel(1)`，忽略用户注册表 `HKCU\Console\VirtualTerminalLevel`；
-只有普通控制台窗口才使用注册表值。`screenInfo.cpp` 据此在创建屏幕缓冲区时把
+只有普通控制台窗口才使用注册表值；普通窗口在创建屏幕缓冲区时把
 `ENABLE_VIRTUAL_TERMINAL_PROCESSING` 加入 `OutputMode`。
 
 corehost 只服务 ConPTY，因此在会话初始化时：
@@ -336,3 +330,15 @@ corehost 只服务 ConPTY，因此在会话初始化时：
 3. `state.output_mode = output_mode_for_virtual_terminal_level(1)`。
 
 差分测试已把 `out_mode` 纳入比较（此前 corehost=3、conhost=7 的差异即由此修复）。
+
+### 4.20 字符转码边界
+
+所有字符转码集中在 `libcorehost/char_convert.hpp`，其它模块不再直接调用
+`WideCharToMultiByte`/`MultiByteToWideChar`。分配时使用保守上界而不是精确
+长度探测：
+
+- UTF-8 长度 N → UTF-32/UTF-16 按最多 `4N` 分配；
+- 任意 ANSI 代码页按 DBCS 处理，长度 M → UTF-32 按最多 `2M` 分配；
+- 转换后以实际写入长度作为 API 返回、`NumRecords` 或 `Information`。
+
+`*_exact_len` 仅保留给需要精确长度契约的 API 长度查询，不参与分配决策。

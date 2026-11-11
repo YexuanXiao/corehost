@@ -186,7 +186,7 @@ struct message_router
             LOG2("dispatch consumes CLOSE_OBJECT through io_state object=%llu", msg.descriptor.Object);
             return io.handle_close_object(msg);
         case CONSOLE_IO_RAW_WRITE:
-            // 对齐原版 IoSorter: RAW_WRITE 按 WriteConsoleA 处理，再转成 VT 输出。
+            // RAW_WRITE 按 WriteConsoleA 语义处理，再转成 VT 输出。
             LOG2("dispatch consumes RAW_WRITE through api_raw_write_console bytes=%lu", msg.descriptor.InputSize);
             return api_raw_write_console(msg, api.state, api.active_screen_buffer(), api.inp, bridge);
         case CONSOLE_IO_RAW_READ:
@@ -200,7 +200,7 @@ struct message_router
                  msg.descriptor.InputSize, msg.descriptor.OutputSize);
             return api.handle_user_defined(msg);
         case CONSOLE_IO_RAW_FLUSH:
-            // 原版 RAW_FLUSH 复用 ServerFlushConsoleInputBuffer；这里没有
+            // RAW_FLUSH 复用同一套输入缓冲清理逻辑；这里没有
             // USER_DEFINED header，因此只清空事件队列并返回普通 IO completion。
             LOG2("dispatch consumes RAW_FLUSH through input_buffer/io_state");
             api.inp.flush();

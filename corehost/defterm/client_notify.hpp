@@ -3,7 +3,7 @@
 //
 // corehost 不是该控制台的附属进程，GenerateConsoleCtrlEvent 到不了客户端
 // （见 gaps G11/G16）；必须经 CSRSS 的 ConsoleControl(ConsoleEndTask)，
-// 与 conhost 的 ProcessCtrlEvents 同路。
+// 控制事件的投递语义与系统控制台宿主一致。
 //
 // 投递函数做成参数是为了可注入测试：defterm 的 elevated/fallback 分支在
 // 测试环境里无法真正进入，但"向哪个 pid 投递什么事件"可以单测。

@@ -204,7 +204,7 @@ struct pipe_bridge
 
     // 缓冲区尺寸变化时给 VT 输入模式的客户端补一条 WINDOW_BUFFER_SIZE_EVENT。
     // conhost 在 viewport 变化且 IsInVirtualTerminalInputMode() 时这么做
-    // （screenInfo.cpp::_CommitViewport），并由 InputBuffer 对重复尺寸去重。
+    // ；重复尺寸由本地状态去重。
     // 调用方必须持有会话锁；没有尺寸变化/非 VT 输入模式时什么也不做。
     void queue_window_buffer_size_event() noexcept
     {
@@ -234,10 +234,10 @@ struct pipe_bridge
     }
 
     // 把 CTRL_C_EVENT / CTRL_BREAK_EVENT 投递给控制台进程。
-    // group == 0 表示全部（conhost 的 ProcessGroupId=0 语义），否则只投递给
+    // group == 0 表示全部（group 0 表示全部），否则只投递给
     // 该进程组的成员。corehost 不在该控制台上，GenerateConsoleCtrlEvent 到不了
-    // 客户端；必须走 CSRSS 的 ConsoleControl(ConsoleEndTask)（conhost 的
-    // ProcessCtrlEvents 也是同一条路）。
+    // 客户端；必须走 CSRSS 的 ConsoleControl(ConsoleEndTask)
+    // 客户端只能经 CSRSS 转发控制事件）。
     void send_ctrl_event(DWORD event, DWORD group) noexcept
     {
         // 只入队，不在这里 EndTask：EndTask 可能阻塞到客户端处理器返回或
@@ -250,26 +250,24 @@ struct pipe_bridge
         if (count == 0)
             return;
         std::unique_lock guard{_ctrl_event_lock};
-        _ctrl_events.push_back(ctrl_event_request{event, std::move(targets)});
+        for (const auto pid : targets)
+            _ctrl_events.push_back(ctrl_event{event, pid});
     }
 
     // 在释放会话锁后调用（输入线程处理完一批输入、io_loop 完成一次 dispatch）。
-    // 与 conhost 的 ProcessCtrlEvents 一致：EndTask 不在控制台锁内执行。
+    // EndTask 不在控制台锁内执行。
     void deliver_ctrl_events() noexcept
     {
-        std::vector<ctrl_event_request> pending;
+        std::vector<ctrl_event> pending;
         {
             std::unique_lock guard{_ctrl_event_lock};
             pending.swap(_ctrl_events);
         }
-        for (const auto &request : pending)
+        for (const auto &entry : pending)
         {
-            for (const auto pid : request.targets)
-            {
-                const auto status = _ctrl_sender(pid, request.event, nullptr);
-                LOG2("ctrl event %lu to pid=%lu status=0x%08lx", request.event, pid,
-                     static_cast<unsigned long>(status));
-            }
+            const auto status = _ctrl_sender(entry.pid, entry.event, nullptr);
+            LOG2("ctrl event %lu to pid=%lu status=0x%08lx", entry.event, entry.pid,
+                 static_cast<unsigned long>(status));
         }
     }
 
@@ -281,12 +279,6 @@ struct pipe_bridge
         _processes = &registry;
     }
 
-    // 测试/独立使用：用给定 pid/group 列表替换注册表内容。生产路径由
-    // io_state 的 CONNECT/DISCONNECT 直接修改同一个 process_registry。
-    void set_process_list(std::span<const DWORD> processes, std::span<const DWORD> groups)
-    {
-        _processes->assign(processes, groups);
-    }
 
     // 当前连接进程数；用于日志和 L3 GetConsoleProcessList 响应。
     size_t process_count() const noexcept
@@ -385,7 +377,7 @@ struct pipe_bridge
 
     // 当前 handler 正在服务的读请求。若输入已就绪、handler 内就完成它并返回
     // true，I/O loop 会提交这次 completion；complete_pending 不能再发一次，
-    // 否则 ConDrv 拒绝第二次 COMPLETE_IO 并结束进程（fork 9742404）。
+    // 否则 ConDrv 会拒绝第二次 COMPLETE_IO。
     const condrv_io::io_msg *_serving = nullptr;
     struct serving_guard
     {
@@ -404,8 +396,7 @@ struct pipe_bridge
 
     // 低级 Win32/ConDrv I/O 封装，bridge 只通过它访问 server/vt_in。
     pipe_bridge_io _io;
-    // 非阻塞轮询 WT 信号管道的 PtySignal 消息；会话主循环在 idle/pending
-    // 等待路径中推进它。无信号管道时 has_pipe() 为 false。
+    // 由信号线程阻塞读取 WT 信号管道；无信号管道时保持未绑定。
     pty_signal_reader _signal{cstate, sbuf};
     // VT 输出批量缓冲，所有发送到宿主终端的字节最终从这里 flush 到 vt_out。
     vt_output_buffer _vt_output;
@@ -415,23 +406,24 @@ struct pipe_bridge
     // 进程列表由 io_state 拥有（单一真相）；测试/独立使用时回退到本地实例。
     process_registry _local_processes;
     process_registry *_processes = &_local_processes;
-    // 最近一次 WINDOW_BUFFER_SIZE_EVENT 的尺寸（conhost 的 InputBuffer 去重）。
+    // 最近一次 WINDOW_BUFFER_SIZE_EVENT 的尺寸。
     COORD _last_window_size_event{};
-    // SGR 鼠标按下状态（移动/松开事件沿用，conhost 的 _mouseButtonState）。
+    // SGR 鼠标按下状态（移动/松开事件沿用）。
     DWORD _mouse_button_state = 0;
     bool _window_size_event_valid = false;
-    // 控制事件投递函数。默认走 CSRSS ConsoleControl；测试可替换为记录器。
+    // 控制事件投递函数：默认走 CSRSS ConsoleControl(EndTask)；测试辅助类
+    // 可注入 sender 以验证进程组过滤和延迟投递目标。
     ctrl_event_sender _ctrl_sender = &console_end_task;
 
     // 待投递的控制事件队列。send_ctrl_event 在会话锁内入队，deliver_ctrl_events
     // 在解锁后投递；输入线程与主循环都可能调用，故用独立 SRW 锁保护。
-    struct ctrl_event_request
+    struct ctrl_event
     {
         DWORD event = 0;
-        std::vector<DWORD> targets;
+        DWORD pid = 0;
     };
     win32::shared_mutex _ctrl_event_lock;
-    std::vector<ctrl_event_request> _ctrl_events;
+    std::vector<ctrl_event> _ctrl_events;
 
     // bridge 对宿主终端当前光标和 cooked input 编辑边界的本地追踪。
     terminal_cursor_state _terminal;
@@ -488,7 +480,7 @@ struct pipe_bridge
                 inp.read(out_records, records_to_copy);
         }
 
-        // Information 只报记录数据字节（conhost ServerGetConsoleInput 的
+        // Information 只报记录数据字节（GetConsoleInput 的
         // SetReplyInformation(cbWritten)）；Write.Size 覆盖 struct+数据。
         const auto data_bytes = static_cast<ULONG>(size - sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
         condrv_io::prepare_completion(msg, 0, data_bytes, _console_input_output_buffer.data(),
@@ -617,12 +609,6 @@ struct pipe_bridge
         complete_pending();
     }
 
-    // 非阻塞推进信号管道。信号由独立线程阻塞读取，主线程不再轮询它；
-    // 保留此入口只为旧测试路径不会误读管道。
-    [[nodiscard]] bool poll_signal_closed() const noexcept
-    {
-        return false;
-    }
 
     // ── 持久转换缓冲区访问器 ──
     // 返回共享 UTF-32 转换缓冲。API handlers 只在单次请求内使用该缓冲；
@@ -661,15 +647,6 @@ struct pipe_bridge
         const auto size = static_cast<size_t>(msg.descriptor.InputSize) - offset;
         if (offset <= sizeof(msg.body) && size <= sizeof(msg.body) - offset)
             return {msg.body + offset, size};
-
-        // 客户端可以伪造超大 InputSize；限制单次 API 负载，避免 resize 巨量内存
-        // 或读取实际不存在的数据。16 MiB 足以覆盖控制台 API 的正常大负载。
-        constexpr size_t max_payload = 16u * 1024 * 1024;
-        if (size > max_payload)
-        {
-            LOG("read_input_payload: oversized payload %zu rejected", size);
-            return {};
-        }
 
         auto &buffer = _input_payload_buffer;
         buffer.resize(size);
@@ -1492,7 +1469,7 @@ struct pipe_bridge
         else
         {
             auto *s = reinterpret_cast<const char *>(data);
-            const auto cp = cstate.output_code_page ? cstate.output_code_page : CP_ACP;
+const auto cp = cstate.output_code_page;
             if (cp == CP_UTF8)
             {
                 vt_append_str(std::string_view{s, bytes});
@@ -2264,10 +2241,10 @@ struct pipe_bridge
     bool process_input_win32_key(PendingKind pending_kind, const vt_message &m, DWORD i, DWORD len,
                                  const char8_t *bytes)
     {
-        // 与 conhost 的已知差异（差分 G24，只记录不比较）：
+        // 与系统宿主的已知差异（差分 G24，只记录不比较）：
         // ConPTY 下，挂起中的 raw ReadFile / ReadConsoleInput 收到 Ctrl+C 时，
         // 系统 conhost 不会让读返回——探针打印 READY 后 ReadFile 永不完成、
-        // 进程不退出；corehost 按 conhost 源码 readDataRaw / 读记录的
+        // 进程不退出；corehost 按 raw/record 读的实际行为实现，
         // TerminateRead(CtrlC) 语义，以 STATUS_ALERTED 结束，客户端看到
         // 0 字节 / 0 条记录。
         // 复现：tests/test_conpty_differential.cpp 的 raw_ctrl / input_ctrl
@@ -2275,7 +2252,7 @@ struct pipe_bridge
         // 收到 Win32Input 的 Ctrl+C 序列）。挂起永不返回比返回 0 字节更差，
         // 因此不把 conhost 的行为固化成 corehost 的测试期望。
 
-        // Ctrl+C / Ctrl+Break：与 conhost 的 HandleGenericKeyEvent 对齐——
+        // Ctrl+C / Ctrl+Break：与系统宿主的行为对齐——
         //   Ctrl+C（processed input、无 Alt）：投递 CTRL_C_EVENT，并以
         //     STATUS_ALERTED 结束等待中的读；不清空输入缓冲。
         //   Ctrl+Break（不看 processed input）：先清空输入缓冲，再投递
@@ -2303,7 +2280,7 @@ struct pipe_bridge
             }
         }
 
-        // conhost 的 HandleGenericKeyEvent 不把 Ctrl+Esc / Alt+Esc 写进输入缓冲
+        // 系统宿主不把 Ctrl+Esc / Alt+Esc 写进输入缓冲
         // （它们属于系统快捷键）。这里同样吞掉，避免应用读到本不该出现的键。
         if (m.payload.win32_key.key_down)
         {
@@ -3232,7 +3209,7 @@ struct pipe_bridge
             cp = static_cast<DWORD>(written);
         }
         req->NumBytes = cp;
-        // ReadConsole 的 Information 是文本字节数（conhost 的
+        // ReadConsole 的 Information 是文本字节数
         // SetReplyInformation(a->NumBytes)）；Write.Size 覆盖 struct+文本。
         const auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG) + cp);
         condrv_io::prepare_completion(m, 0, cp, m.body + sizeof(CONSOLE_MSG_HEADER), sz);

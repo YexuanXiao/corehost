@@ -10,12 +10,11 @@
 // - Move-only (no copy).
 // - Throws win32::error on failure.
 // - Compatible with win32::handle_view.
-// - Optional thread name: applied from inside the new thread before
-//   the entry point runs, so the name is visible to debuggers as
-//   early as possible and a naming failure cannot leak a running
-//   thread (it aborts, since a failed SetThreadDescription is fatal
-//   by project policy).
-// - join()/join_for() never close the handle; the destructor does.
+// - A thread name is required. It is applied by the creator while the
+//   thread is still suspended, then the thread is resumed. This makes
+//   the name visible before the entry point runs and keeps naming a
+//   creation-time invariant instead of a later mutation.
+// - join() never closes the handle; the destructor does.
 //   CancelSynchronousIo() needs the handle, so it must stay valid
 //   until the thread has been joined.
 //
@@ -28,39 +27,16 @@
 
 #include "win32/error.hpp"
 #include "win32/handle.hpp"
+#include "win32/string.hpp"
 
 #include <Windows.h>
 
+#include <cassert>
 #include <memory>
-#include <span>
-#include <string>
-#include <string_view>
 #include <utility>
 
 namespace win32
 {
-
-// ── Thread naming ─────────────────────────────────────────────
-//
-// Sets the debugger/ETW-visible description of a thread. Throws on
-// failure: naming is part of diagnostics, and a silent failure would
-// make thread-level debugging guesswork.
-inline void set_thread_name(win32::handle_view thread, std::wstring_view name)
-{
-    if (name.empty())
-        return;
-
-    // SetThreadDescription requires the wide string to be null-terminated.
-    const std::wstring terminated{name};
-    if (::SetThreadDescription(thread.get(), terminated.c_str()) == FALSE)
-        win32::throw_last_error();
-}
-
-inline void set_thread_name(win32::handle_view thread, const wchar_t *name)
-{
-    if (name != nullptr)
-        set_thread_name(thread, std::wstring_view{name});
-}
 
 // ── Thread RAII wrapper ────────────────────────────────────────
 class basic_thread
@@ -69,36 +45,51 @@ class basic_thread
     // ── Creation options ──────────────────────────────────────
     struct options
     {
-        // Debugger/ETW-visible name; empty means unnamed.
-        std::wstring_view name{};
+        // Debugger/ETW-visible name. Must be null-terminated; required.
+        win32::wcstring_view name{};
         DWORD creation_flags = 0;
         DWORD stack_size = 0;
         LPSECURITY_ATTRIBUTES attributes = nullptr;
-        // Optional output for the thread id (zero if not requested).
-        DWORD *thread_id_out = nullptr;
     };
 
     // ── Construction ──────────────────────────────────────────
     //
-    // Creates a new thread. Throws win32::error on failure.
+    // Creates a suspended thread, names it, then resumes it. Throws
+    // win32::error on failure.
     basic_thread(LPTHREAD_START_ROUTINE start_address, LPVOID parameter = nullptr, options opts = {})
     {
+        assert(!opts.name.empty());
+
         // The start context is owned by the new thread once CreateThread
         // succeeds; on failure it is released here.
-        auto context = std::make_unique<start_context>(start_address, parameter, opts.name);
+        auto context = std::make_unique<start_context>(start_address, parameter);
 
-        DWORD thread_id{};
         HANDLE raw = ::CreateThread(opts.attributes, opts.stack_size, &basic_thread::trampoline, context.get(),
-                                    opts.creation_flags, &thread_id);
-
+                                    opts.creation_flags | CREATE_SUSPENDED, nullptr);
         if (raw == nullptr)
             win32::throw_last_error();
 
+        // Naming is part of the creation contract. The thread is still
+        // suspended, so a failure can be cleaned up without running any
+        // user code.
+        if (::SetThreadDescription(raw, opts.name.data()) == FALSE)
+        {
+            const auto err = ::GetLastError();
+            ::TerminateThread(raw, 1);
+            ::CloseHandle(raw);
+            win32::throw_last_error(static_cast<win32::error>(err));
+        }
+
+        if (::ResumeThread(raw) == static_cast<DWORD>(-1))
+        {
+            const auto err = ::GetLastError();
+            ::TerminateThread(raw, 1);
+            ::CloseHandle(raw);
+            win32::throw_last_error(static_cast<win32::error>(err));
+        }
+
         context.release();
         _handle = win32::handle{raw};
-        _id = thread_id;
-        if (opts.thread_id_out != nullptr)
-            *opts.thread_id_out = thread_id;
     }
 
     // ── Default (no thread) ──────────────────────────────────
@@ -128,43 +119,16 @@ class basic_thread
         return _handle.view();
     }
 
-    [[nodiscard]] DWORD id() const noexcept
-    {
-        return _id;
-    }
-
     // ── Waiting ──────────────────────────────────────────────
     //
-    // join() waits forever; it is the only production way to wait
-    // for a worker. join_for() exists for progress polling inside the
-    // cancellation loop (see cancellable_read::wait_for_exit) and for
-    // tests; using it as a "give up after N ms" bound is forbidden by
-    // project policy (see doc/design/0001.md 4.6).
+    // join() waits forever; it is the only production way to wait for
+    // a worker. Timeouts are forbidden by project policy (see
+    // doc/design/0001.md 4.7).
     void join()
     {
-        if (!valid())
-            return;
-        (void)join_for(INFINITE);
-    }
-
-    [[nodiscard]] bool join_for(DWORD timeout_ms)
-    {
-        if (!valid())
-            return true;
-
-        const DWORD result = ::WaitForSingleObject(_handle.get(), timeout_ms);
-        if (result == WAIT_OBJECT_0)
-            return true;
-        if (result == WAIT_TIMEOUT)
-            return false;
-
-        win32::throw_last_error();
-    }
-
-    // ── Operations ───────────────────────────────────────────
-    void *release() noexcept
-    {
-        return _handle.release();
+        assert(valid());
+        if (::WaitForSingleObject(_handle.get(), INFINITE) != WAIT_OBJECT_0)
+            win32::throw_last_error();
     }
 
   private:
@@ -172,14 +136,12 @@ class basic_thread
     // can be moved while the thread is starting.
     struct start_context
     {
-        start_context(LPTHREAD_START_ROUTINE entry, LPVOID parameter, std::wstring_view thread_name)
-            : entry_point{entry}, parameter{parameter}, name{thread_name}
+        start_context(LPTHREAD_START_ROUTINE entry, LPVOID parameter) : entry_point{entry}, parameter{parameter}
         {
         }
 
         LPTHREAD_START_ROUTINE entry_point;
         LPVOID parameter;
-        std::wstring name;
     };
 
     static DWORD WINAPI trampoline(LPVOID raw_context)
@@ -187,15 +149,10 @@ class basic_thread
         // The context belongs to this thread; release it even if the
         // entry point exits through a fatal error path.
         std::unique_ptr<start_context> context{static_cast<start_context *>(raw_context)};
-
-        if (!context->name.empty())
-            set_thread_name(win32::handle_view{::GetCurrentThread()}, context->name);
-
         return context->entry_point(context->parameter);
     }
 
     win32::handle _handle{};
-    DWORD _id = 0;
 };
 
 } // namespace win32

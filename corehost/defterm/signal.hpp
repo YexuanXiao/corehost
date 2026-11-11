@@ -1,17 +1,16 @@
 // ── defterm/signal.hpp ────────────────────────────────────
-// Ctrl+C / Break / Close 信号管道轮询器
+// Ctrl+C / Break / Close 信号管道转发
 //
 // COM 移交后, 按键事件 (Ctrl+C / Ctrl+Break / 关闭按钮) 实际发生在
 // 终端窗口中——但控制台子系统 (CSRSS) 需要被通知才能生成控制台事件
 // (CTRL_C_EVENT 等) 并发送给客户端进程。
 //
 // 信号通道:
-//   键盘 → WT 窗口 → 写入信号管道 → corehost 轮询读取 →
+//   键盘 → WT 窗口 → 写入信号管道 → corehost 信号线程阻塞读取 →
 //   user32!ConsoleControl → CSRSS → 客户端进程
 //
-// 原实现为独立信号线程（signal_thread_proc），从管道阻塞读取并转发。本
-// 实现改为非阻塞轮询器：由 handoff 等待循环在主线程周期调用 poll()，
-// 管道断开同样由 poll() 返回 true 报告，消除独立线程。
+// 由独立信号线程从管道阻塞读取并转发；管道断开时置位 closed_event，
+// handoff 等待循环据此退出。
 //
 // 协议（与 WT 的 RemoteConsoleControl/HostSignals 一致，code 值等同
 // CONSOLECONTROL 枚举）:
@@ -31,12 +30,11 @@
 #include <windows.h>
 #include <cstddef>
 #include "ntapi/conwinuserrefs.h"
+#include "ntapi/consolecontrol.hpp"
 #include "win32/cancellable_read.hpp"
 #include "win32/handle.hpp"
 #include "win32/thread.hpp"
 
-using PFN_ConsoleControl = NTSTATUS(WINAPI *)(CONSOLECONTROL Command, PVOID ConsoleInformation,
-                                              DWORD ConsoleInformationLength);
 
 namespace corehost::defterm
 {
@@ -55,10 +53,6 @@ class console_control_forwarder
         _pipe = pipe;
     }
 
-    [[nodiscard]] bool has_pipe() const noexcept
-    {
-        return _pipe.valid();
-    }
 
     // 阻塞读取并转发一条完整消息（信号线程使用）。返回 false 表示管道
     // 已断开或读被取消，调用方应结束循环。

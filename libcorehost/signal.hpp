@@ -13,7 +13,7 @@
 // 每次 WriteFile 原子写入一条完整消息，因此管道里要么没有数据，要么
 // 至少有一条完整消息：每次 ReadFile 必然读满请求的字节数，读不满或
 // 未知 id 都是协议损坏，抛出异常由会话入口统一处理后退出程序，等价于
-// 官方 conhost PtySignalConsumer 把协议损坏当作断开并请求关闭会话的行为。
+// 系统控制台宿主把协议损坏当作断开并请求关闭会话。
 #pragma once
 #include <windows.h>
 #include <cstddef>
@@ -59,10 +59,6 @@ class pty_signal_reader
         _pipe = pipe;
     }
 
-    [[nodiscard]] bool has_pipe() const noexcept
-    {
-        return _pipe.valid();
-    }
 
     // 由消息 id 返回 payload 长度；0 表示未知 id（协议损坏，退出程序）。
     // 公开给信号线程：它需要在读 payload 之前知道精确长度。
@@ -72,8 +68,8 @@ class pty_signal_reader
     void apply(unsigned short id, std::span<const std::byte> payload);
 
   private:
-    // 执行一条已完整解析的信号动作。
-    void handle_message(unsigned short id, std::span<const std::byte> payload);
+    // 应用一条已完整解析的信号。
+
 
     win32::handle_view _pipe;
     console_state &_state;

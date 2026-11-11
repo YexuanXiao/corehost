@@ -2059,7 +2059,9 @@ bool test_ctrl_event_filters_by_process_group()
 
     const DWORD processes[] = {11, 22, 33};
     const DWORD groups[] = {100, 200, 100};
-    bridge.set_process_list(processes, groups);
+    process_registry registry;
+    registry.assign(std::span{processes}, std::span{groups});
+    bridge.set_process_registry(registry);
     bridge.test_set_ctrl_sender(&record_ctrl_target);
 
     g_ctrl_targets.clear();
@@ -2094,7 +2096,9 @@ bool test_regression_ctrl_event_rejects_unknown_group()
 
     const DWORD processes[] = {11, 22};
     const DWORD groups[] = {100, 200};
-    bridge.set_process_list(processes, groups);
+    process_registry registry;
+    registry.assign(std::span{processes}, std::span{groups});
+    bridge.set_process_registry(registry);
     bridge.test_set_ctrl_sender(&record_ctrl_target);
 
     auto invoke = [&](DWORD group) {
@@ -2174,7 +2178,9 @@ bool test_regression_l3_process_list_validation_and_output_size()
 
     const DWORD processes[] = {11, 22, 33};
     const DWORD groups[] = {100, 200, 100};
-    bridge.set_process_list(processes, groups);
+    process_registry registry;
+    registry.assign(std::span{processes}, std::span{groups});
+    bridge.set_process_registry(registry);
 
     std::memset(&msg, 0, sizeof(msg));
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG);
