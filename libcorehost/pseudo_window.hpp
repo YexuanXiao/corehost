@@ -117,8 +117,11 @@ class pseudo_window
 
         // WS_POPUP 是硬需求：否则 GetAncestor(GetConsoleWindow(), GA_ROOTOWNER)
         // 会返回伪窗口自己，而不是宿主终端窗口。
+        // 使用窗口线程自己的标题副本：即使 CreateWindowEx 内部发送 WM_SETTEXT，
+        // lParam 也不会指向 _title 自身缓冲。
+        std::wstring initial_title = _title;
         const HWND created = ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
-                                               class_name, _title.c_str(), WS_POPUP, 0, 0, 640, 400, nullptr, nullptr, nullptr,
+                                               class_name, initial_title.c_str(), WS_POPUP, 0, 0, 640, 400, nullptr, nullptr, nullptr,
                                                this);
         if (created == nullptr)
             win32::throw_last_error();
@@ -182,13 +185,12 @@ class pseudo_window
             return ::DefWindowProcW(hwnd, message, wparam, lparam);
         case WM_GETOBJECT:
             return 0;
-        case WM_SETTEXT: {
-            const auto *text = reinterpret_cast<const wchar_t *>(lparam);
-            // CreateWindowEx 会把 _title.c_str() 作为初始文本传进来；避免从自身缓冲赋值。
-            if (text != self->_title.c_str())
-                self->_title = text != nullptr ? text : L"";
+        case WM_SETTEXT:
+            if (lparam != 0)
+                self->_title = reinterpret_cast<const wchar_t *>(lparam);
+            else
+                self->_title.clear();
             return TRUE;
-        }
         case WM_GETTEXTLENGTH:
             return static_cast<LRESULT>(self->_title.size());
         case WM_GETTEXT: {
