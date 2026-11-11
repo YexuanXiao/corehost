@@ -43,7 +43,7 @@ void pty_signal_reader::apply(unsigned short id, std::span<const std::byte> payl
     switch (static_cast<PtySignal>(id))
     {
     case PtySignal::ShowHideWindow: {
-        // 当前不管理真实窗口，但必须消费 show payload；否则下一次读到的
+        // 记录 show payload；窗口动作由 message_router 在此之后触发。
         // payload 会被误当作信号 id，破坏协议同步。
         unsigned short show = 0;
         std::memcpy(&show, payload.data(), sizeof(show));
@@ -61,7 +61,7 @@ void pty_signal_reader::apply(unsigned short id, std::span<const std::byte> payl
         break;
     }
     case PtySignal::SetParent: {
-        // WT 按 ULONG_PTR 发送 HWND；corehost 不重新设置父窗口，只消费字段
+        // WT 按 ULONG_PTR 发送 HWND；窗口 owner 由 message_router 更新。
         // 保持后续信号边界正确。
         ULONG_PTR hwnd = 0;
         std::memcpy(&hwnd, payload.data(), sizeof(hwnd));

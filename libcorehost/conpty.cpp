@@ -122,7 +122,7 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     api_router api{state, sbuf, alt_sbuf, ibuf, io, bridge};
 
     // 伪窗口先于 message_router 构造；router 依赖它处理标题/可见性/关闭。
-    pseudo_window window{server, state.title};
+    pseudo_window window{server, state.title, state.screen_buffer_size};
 
     // ── Layer 1: message_router ──
     // message_router 同时是唯一持会话状态锁的 IO 模块：分派 ConDrv 消息、

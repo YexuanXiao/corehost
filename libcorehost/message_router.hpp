@@ -199,6 +199,14 @@ inline void message_router::run()
 
     for (;;)
     {
+        // 窗口可能在主线程进入 READ_IO 前关闭；先处理已置位的关闭事件，
+        // 避免 CancelIoEx 发生在 READ_IO 之前导致关闭丢失。
+        if (_window != nullptr && ::WaitForSingleObject(_window->close_requested().get(), 0) == WAIT_OBJECT_0)
+        {
+            LOG("message_router::run: close requested before read");
+            break;
+        }
+
         const bool serving_pending = pending;
         condrv_io::io_msg &target = serving_pending ? scratch : *cur;
         CD_IO_COMPLETE *prev_comp = prev_done ? &prev_done->complete : nullptr;
@@ -393,8 +401,27 @@ inline void message_router::on_pty_signal(std::span<const std::byte> batch)
 
             const auto payload = std::span<const std::byte>{_signal_bytes.data() + offset + sizeof(id), payload_size};
             bridge.signal_reader().apply(id, payload);
+            if (_window != nullptr)
+            {
+                if (id == static_cast<unsigned short>(PtySignal::ShowHideWindow))
+                {
+                    unsigned short show = 0;
+                    std::memcpy(&show, payload.data(), sizeof(show));
+                    _window->set_visibility(show != 0);
+                }
+                else if (id == static_cast<unsigned short>(PtySignal::SetParent))
+                {
+                    ULONG_PTR owner = 0;
+                    std::memcpy(&owner, payload.data(), sizeof(owner));
+                    _window->set_owner(reinterpret_cast<HWND>(owner));
+                }
+            }
             if (id == static_cast<unsigned short>(PtySignal::ResizeWindow))
+            {
                 bridge.queue_window_buffer_size_event();
+                if (_window != nullptr)
+                    _window->set_size(api.state.screen_buffer_size);
+            }
             offset += sizeof(id) + payload_size;
         }
 

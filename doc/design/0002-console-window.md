@@ -1,6 +1,6 @@
 # 设计取舍 0002：GetConsoleWindow 伪窗口
 
-状态：B1 分析完成，需求已定；B2 起实现（行为分析基于系统控制台宿主的只读观察）
+状态：已实现（行为分析基于系统控制台宿主的只读观察）
 
 ## 1. 需求边界
 
@@ -73,14 +73,14 @@ corehost 需要的是同一套**对外契约**，不需要照搬它的渲染、U
 | `WM_ACTIVATE` | 有 owner 时 `SetFocus(owner)`，返回 0 |
 | `WM_GETOBJECT` | 返回 0（不提供 UIA；阶段 C 的测试用消息驱动） |
 | `WM_CLOSE` | 投递"请求关闭会话"命令，不直接 `DestroyWindow` |
-| `WM_NCDESTROY`/`WM_DESTROY` | 记日志，`PostQuitMessage` |
+| `WM_DESTROY` | 置关闭事件、取消 READ_IO、`PostQuitMessage` |
 | 其他 | `DefWindowProcW` |
 
 ### 3.4 可见性信号
 
-corehost 已有 `PtySignal::ShowHideWindow`（`libcorehost/signal.hpp`），目前
-"只消费、不发送"。伪窗口的显示/隐藏回调通过**信号管道**发给终端（与
-`ConptyShowHidePseudoConsole` 的方向一致），因此不需要新增协议。
+`PtySignal::ShowHideWindow`（`libcorehost/signal.hpp`）由 message_router 转成
+伪窗口的 `ShowWindow` 请求；窗口线程执行期间抑制 `WM_SIZE`/`WM_SHOWWINDOW`
+回显。外部 `ShowWindow`/直接 `WM_SIZE` 仍通过信号管道上报终端，因此不需要新增协议。
 
 ### 3.5 关闭语义
 
@@ -119,7 +119,7 @@ corehost 已有 `PtySignal::ShowHideWindow`（`libcorehost/signal.hpp`），目�
 - 渲染、滚动条、菜单、图标、DPI 真实处理、UIA provider、IME 窗口。
 - 多窗口/多控制台（一会话一窗口）。
 
-## 6. 待实现确认
+## 6. 实现前确认（已解决）
 
 1. defterm 下 owner 何时可知：`PtySignal::SetParent` 在 handoff 后由 WT 发送，
    伪窗口可能在 owner 未知时创建（先无 owner，收到 SetParent 后
@@ -127,3 +127,18 @@ corehost 已有 `PtySignal::ShowHideWindow`（`libcorehost/signal.hpp`），目�
 2. `GetWindowRect` 的换算：用字符尺寸 × 固定字体度量（例如 8×16）保证非零且
    随 resize 变化；依赖方多用它计算行列，具体系数在 B5 用真实程序校准。
 3. `WM_CLOSE` 与客户端关闭事件的时序需要与 `conpty` 现有的 EOF/断开路径统一。
+
+以上三项均已按第 7 节落地。
+
+## 7. 实现状态（2026-11）
+
+以下契约已落地并纳入 `ConPTY.PseudoWindow`：
+
+- owner：`PtySignal::SetParent` → `SetWindowLongPtrW(GWLP_HWNDPARENT)`；`GetAncestor(GA_ROOTOWNER)` 返回 owner。
+- 可见性：`PtySignal::ShowHideWindow` → 窗口线程 `ShowWindow(SW_SHOWNOACTIVATE/SW_MINIMIZE)`；`IsIconic` 随之变化。窗口线程执行系统调用期间用私有 `_suppress_visibility` 抑制 `WM_SIZE`/`WM_SHOWWINDOW` 回调，避免把 WT 发起的 show/hide 再回显成 VT 序列。
+- resize：`PtySignal::ResizeWindow` 更新 `screen_buffer_size` 后，窗口线程 `SetWindowPos` 到 `cells * 8x16`；创建尺寸也使用同一字符网格，`<=0` 时回退 640x400。
+- `WM_ACTIVATE`：有有效 owner 时 `SetFocus(owner)`，不抢前台。
+- `WM_DESTROY`：置关闭事件、取消 READ_IO、`PostQuitMessage`；`stop_and_join` 在窗口已销毁时直接 join，避免向失效 HWND 发消息。
+- 保留：`WM_CLOSE` 的 corehost 会话关闭语义、默认窗口文本标题、初始隐藏、同步消息不挂起。
+
+仍刻意不做：UIA provider、进程级 ImmDisableIME、`GWL_CONSOLE_WNDALLOC` 的 PID/TID/BKCOLOR 额外字节、把窗口尺寸改回 0x0。

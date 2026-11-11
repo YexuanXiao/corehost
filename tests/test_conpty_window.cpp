@@ -99,6 +99,64 @@ bool pseudo_window_contract()
     const auto send = ::SendMessageTimeoutW(search.found, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 2000, &result);
     ASSERT(send != 0);
 
+    // B-R5：初始窗口按 80x25 字符网格换算，resize 后同步变化。
+    RECT rect{};
+    ASSERT(::GetWindowRect(search.found, &rect) != FALSE);
+    ASSERT(rect.right - rect.left == 80 * 8);
+    ASSERT(rect.bottom - rect.top == 25 * 16);
+
+    ASSERT(SUCCEEDED(ConptyResizePseudoConsole(ci.hpc, COORD{100, 30})));
+    for (int attempt = 0; attempt < 100; ++attempt)
+    {
+        ::GetWindowRect(search.found, &rect);
+        if (rect.right - rect.left == 100 * 8 && rect.bottom - rect.top == 30 * 16)
+            break;
+        sleep_ms(20);
+    }
+    ASSERT(rect.right - rect.left == 100 * 8);
+    ASSERT(rect.bottom - rect.top == 30 * 16);
+
+    // owner：SetParent 信号必须落到 GWLP_HWNDPARENT，并反映到 GA_ROOTOWNER。
+    const HWND owner = ::GetDesktopWindow();
+    ASSERT(SUCCEEDED(ConptyReparentPseudoConsole(ci.hpc, owner)));
+    for (int attempt = 0; attempt < 100; ++attempt)
+    {
+        if (reinterpret_cast<HWND>(::GetWindowLongPtrW(search.found, GWLP_HWNDPARENT)) == owner)
+            break;
+        sleep_ms(20);
+    }
+    ASSERT(reinterpret_cast<HWND>(::GetWindowLongPtrW(search.found, GWLP_HWNDPARENT)) == owner);
+    ASSERT(::GetAncestor(search.found, GA_ROOTOWNER) == owner);
+
+    // 可见性：WT 发起的 show/hide 改变 IsIconic，且不产生 VT 回显。
+    drain_output(ci.hOutput);
+    ASSERT(SUCCEEDED(ConptyShowHidePseudoConsole(ci.hpc, FALSE)));
+    for (int attempt = 0; attempt < 100; ++attempt)
+    {
+        if (::IsIconic(search.found) != FALSE)
+            break;
+        sleep_ms(20);
+    }
+    ASSERT(::IsIconic(search.found) != FALSE);
+
+    ASSERT(SUCCEEDED(ConptyShowHidePseudoConsole(ci.hpc, TRUE)));
+    for (int attempt = 0; attempt < 100; ++attempt)
+    {
+        if (::IsIconic(search.found) == FALSE)
+            break;
+        sleep_ms(20);
+    }
+    ASSERT(::IsIconic(search.found) == FALSE);
+
+    const auto visibility_output = read_output_string(ci.hOutput, 300);
+    ASSERT(visibility_output.find("\x1b[1t") == std::string::npos);
+    ASSERT(visibility_output.find("\x1b[2t") == std::string::npos);
+
+    // WM_ACTIVATE 在有 owner 时只把焦点交还 owner，不应改变前台窗口。
+    const HWND foreground = ::GetForegroundWindow();
+    (void)::SendMessageTimeoutW(search.found, WM_ACTIVATE, WA_ACTIVE, 0, SMTO_ABORTIFHUNG, 2000, &result);
+    ASSERT(::GetForegroundWindow() == foreground);
+
     // B-R6：WM_CLOSE 必须及时返回，并结束会话（corehost 进程退出）。
     // 主线程阻塞在 READ_IO 上，窗口线程会 CancelSynchronousIo 打断它。
     const auto close = ::SendMessageTimeoutW(search.found, WM_CLOSE, 0, 0, SMTO_ABORTIFHUNG, 2000, &result);
@@ -113,12 +171,49 @@ bool pseudo_window_contract()
     return true;
 }
 
+bool pseudo_window_destroy_contract()
+{
+    conpty_instance ci;
+    ASSERT(create_conpty(ci, {80, 25}));
+
+    DWORD pid = 0;
+    for (int attempt = 0; attempt < 100 && pid == 0; ++attempt)
+    {
+        pid = find_corehost_child();
+        if (pid == 0)
+            sleep_ms(20);
+    }
+    ASSERT(pid != 0);
+
+    window_search search{pid, nullptr};
+    for (int attempt = 0; attempt < 100 && search.found == nullptr; ++attempt)
+    {
+        ::EnumWindows(&enum_window_proc, reinterpret_cast<LPARAM>(&search));
+        if (search.found == nullptr)
+            sleep_ms(20);
+    }
+    ASSERT(search.found != nullptr);
+
+    DWORD_PTR result = 0;
+    ASSERT(::SendMessageTimeoutW(search.found, WM_DESTROY, 0, 0, SMTO_ABORTIFHUNG, 2000, &result) != 0);
+
+    HANDLE process = ::OpenProcess(SYNCHRONIZE | PROCESS_TERMINATE, FALSE, pid);
+    ASSERT(process != nullptr);
+    DWORD wait = ::WaitForSingleObject(process, 5000);
+    if (wait != WAIT_OBJECT_0)
+        ::TerminateProcess(process, 1);
+    ::CloseHandle(process);
+    ASSERT(wait == WAIT_OBJECT_0);
+    return true;
+}
+
 } // namespace
 
 int main()
 {
     std::wcout << L"=== ConPTY Pseudo Window ===" << std::endl;
     RUN_TEST(pseudo_window_contract, L"GetConsoleWindow pseudo window");
+    RUN_TEST(pseudo_window_destroy_contract, L"WM_DESTROY ends pseudo window thread");
     std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, "
                << (tests_passed + tests_failed) << L" total." << std::endl;
     return tests_failed > 0 ? 1 : 0;

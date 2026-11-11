@@ -39,7 +39,9 @@ ctest --test-dir build --output-on-failure
 | 有效句柄、可枚举、属于专用线程 | `Defterm.Connect/window`：`IsWindow`、`GetWindowThreadProcessId` = corehost 进程 |
 | 不可见 | `IsWindowVisible == FALSE` |
 | 同步消息不挂起 | 50 次 `SendMessageTimeout` + pressure 用例 |
-| 查询类自洽 | `WM_GETTEXT`/`WM_GETTEXTLENGTH` 返回控制台标题与长度；`GetWindowRect` 非零；显式 `WM_SHOWWINDOW` 只上报、不改变可见性 |
+| 查询类自洽 | 默认窗口文本返回控制台标题与长度；`GetWindowRect` 随 80x25→100x30 resize 从 640x400 变为 800x480；显式 `WM_SHOWWINDOW` 仍上报 |
+| owner/可见性 | `SetParent` 后 `GWLP_HWNDPARENT`/`GA_ROOTOWNER` 为 owner；`ShowHidePseudoConsole` 改变 `IsIconic` 且不产生 VT 回显 |
+| 销毁 | 外部 `WM_DESTROY` 后 corehost 进程退出，窗口线程 join |
 | 关闭语义 | `WM_CLOSE` → `CancelIoEx` 打断 READ_IO → 宿主退出（0.11s 级） |
 | show/hide 上报 | `ConPTY.Programs/visibility`：`WM_SIZE` 触发 `ESC[2t/1t` |
 | 无泄漏 | `pressure`：200 次 API + 50 次消息后句柄/ USER 对象有界 |

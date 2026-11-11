@@ -27,12 +27,12 @@ namespace corehost::conpty
 
 enum class PtySignal
 {
-    // WT 通知可见性变化。corehost 当前不维护窗口可见状态，所以只消费消息。
+    // WT 通知可见性变化。message_router 把它转成伪窗口的 ShowWindow 请求。
     ShowHideWindow = 1,
     // WT 请求清空回滚/可见缓冲区。轮询路径把本地 screen_buffer 清空，并把
     // cursor 移回 viewport 左上角。
     ClearBuffer = 2,
-    // WT 设置父窗口。corehost 不创建真实窗口，当前只消费消息以保持管道同步。
+    // WT 设置父窗口。message_router 更新伪窗口的 GWLP_HWNDPARENT。
     SetParent = 3,
     // WT 通知终端行列变化。轮询路径更新 screen_buffer 尺寸、viewport 和
     // console_state 的有效范围。
