@@ -122,13 +122,13 @@ class pty_signal_thread
     {
         LOG("pty_signal_thread: enter");
 
-        std::array<std::byte, sizeof(unsigned short)> id_bytes{};
+        unsigned short id = 0;
         std::array<std::byte, max_signal_payload_size> payload{};
 
         for (;;)
         {
             DWORD read = 0;
-            auto status = _reader.read_exact(id_bytes, read);
+            auto status = _reader.read_exact(std::as_writable_bytes(std::span{&id, 1}), read);
             if (status == win32::cancellable_read::status::cancelled)
                 return;
             if (status == win32::cancellable_read::status::closed)
@@ -141,8 +141,6 @@ class pty_signal_thread
             if (status != win32::cancellable_read::status::data)
                 win32::throw_last_error(win32::error::invalid_state);
 
-            unsigned short id = 0;
-            std::memcpy(&id, id_bytes.data(), sizeof(id));
             const auto payload_size = pty_signal_reader::payload_size_for(id);
             if (payload_size == 0 || payload_size > payload.size())
                 win32::throw_last_error(win32::error::invalid_state);
