@@ -185,6 +185,9 @@ class message_router
 inline void message_router::run()
 {
     LOG("message_router::run: enter");
+    assert(_window != nullptr);
+    assert(_server.valid());
+    assert(_input_available.valid());
 
     // READ_IO 会在同一次调用中提交上一条 completion 并读取下一条消息。
     // 双缓冲保证 completion 中指向的 body 不会被下一条消息覆盖。
@@ -201,7 +204,7 @@ inline void message_router::run()
     {
         // 窗口可能在主线程进入 READ_IO 前关闭；先处理已置位的关闭事件，
         // 避免 CancelIoEx 发生在 READ_IO 之前导致关闭丢失。
-        if (_window != nullptr && ::WaitForSingleObject(_window->close_requested().get(), 0) == WAIT_OBJECT_0)
+        if (::WaitForSingleObject(_window->close_requested().get(), 0) == WAIT_OBJECT_0)
         {
             LOG("message_router::run: close requested before read");
             break;
@@ -320,28 +323,19 @@ inline void message_router::run()
 
         if (wait_for_any)
         {
-            if (_window != nullptr)
+            const auto wait = win32::wait_any(_input_available, _window->close_requested(), _window->show_event(),
+                                              _window->hide_event(), _state_changed.view(), INFINITE);
+            if (wait.abandoned())
+                win32::throw_last_error(win32::error::invalid_state);
+            if (wait.index == 1)
             {
-                const auto wait = win32::wait_any(_input_available, _window->close_requested(), _window->show_event(),
-                                                   _window->hide_event(), _state_changed.view(), INFINITE);
-                if (wait.abandoned())
-                    win32::throw_last_error(win32::error::invalid_state);
-                if (wait.index == 1)
-                {
-                    LOG("message_router::run: close requested by window");
-                    break;
-                }
-                if (wait.index == 2)
-                    on_window_visibility(true);
-                else if (wait.index == 3)
-                    on_window_visibility(false);
+                LOG("message_router::run: close requested by window");
+                break;
             }
-            else
-            {
-                const auto wait = win32::wait_any(_input_available, INFINITE);
-                if (wait.abandoned())
-                    win32::throw_last_error(win32::error::invalid_state);
-            }
+            if (wait.index == 2)
+                on_window_visibility(true);
+            else if (wait.index == 3)
+                on_window_visibility(false);
         }
     }
 
