@@ -11,6 +11,7 @@
 #include <array>
 #include <cassert>
 #include <cstddef>
+#include <cstring>
 #include <span>
 #include "message_router.hpp"
 #include "win32/cancellable_read.hpp"
@@ -121,23 +122,38 @@ class pty_signal_thread
     {
         LOG("pty_signal_thread: enter");
 
-        std::array<std::byte, max_signal_packet_size> staging{};
+        std::array<std::byte, sizeof(unsigned short)> id_bytes{};
+        std::array<std::byte, max_signal_payload_size> payload{};
+
         for (;;)
         {
             DWORD read = 0;
-            const auto status = _reader.read(staging, read);
+            auto status = _reader.read_exact(id_bytes, read);
             if (status == win32::cancellable_read::status::cancelled)
                 return;
             if (status == win32::cancellable_read::status::closed)
             {
                 if (read != 0)
-                    _router.on_pty_signal(std::span<const std::byte>{staging.data(), read});
+                    win32::throw_last_error(win32::error::invalid_state);
                 _router.on_signal_closed();
                 return;
             }
+            if (status != win32::cancellable_read::status::data)
+                win32::throw_last_error(win32::error::invalid_state);
 
-            if (read != 0)
-                _router.on_pty_signal(std::span<const std::byte>{staging.data(), read});
+            unsigned short id = 0;
+            std::memcpy(&id, id_bytes.data(), sizeof(id));
+            const auto payload_size = pty_signal_reader::payload_size_for(id);
+            if (payload_size == 0 || payload_size > payload.size())
+                win32::throw_last_error(win32::error::invalid_state);
+
+            status = _reader.read_exact(std::span{payload}.first(payload_size), read);
+            if (status == win32::cancellable_read::status::cancelled)
+                return;
+            if (status != win32::cancellable_read::status::data)
+                win32::throw_last_error(win32::error::invalid_state);
+
+            _router.on_pty_signal(id, std::span{payload}.first(payload_size));
         }
     }
 

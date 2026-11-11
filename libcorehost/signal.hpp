@@ -8,10 +8,8 @@
 // 阻塞读取，由信号线程独占调用；没有数据时线程不唤醒，信号
 // 到达的延迟不超过现有 16ms 轮询粒度，且消除了跨线程数据竞争。
 //
-// 读取策略：信号线程每次最多读 max_signal_packet_size 字节；message_router
-// 用固定容量缓冲跨 ReadFile 的残帧，完整帧立即消费。超过最大包、未知 id
-// 或关闭时仍有残帧都视为协议损坏，抛出异常由会话入口统一处理后退出程序，
-// 等价于系统控制台宿主把协议损坏当作断开并请求关闭会话。
+// 读取策略：信号线程先精确读 2 字节 id，再按 payload_size_for(id) 精确读
+// payload；两次读取保证不会把相邻消息切断或合并。
 #pragma once
 #include <windows.h>
 #include <cstddef>
@@ -24,8 +22,8 @@
 namespace corehost::conpty
 {
 
-// 单条信号消息的最大字节数：id(2) + SetParent 的 ULONG_PTR payload。
-inline constexpr std::size_t max_signal_packet_size = sizeof(unsigned short) + sizeof(std::uint64_t);
+// SetParent 的 payload 是 uint64_t；其余信号不超过它。
+inline constexpr std::size_t max_signal_payload_size = sizeof(std::uint64_t);
 
 enum class PtySignal
 {

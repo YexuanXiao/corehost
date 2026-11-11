@@ -61,7 +61,7 @@ void pty_signal_reader::apply(unsigned short id, std::span<const std::byte> payl
         break;
     }
     case PtySignal::SetParent: {
-        // WT 按 ULONG_PTR 发送 HWND；窗口 owner 由 message_router 更新。
+        // WT 按 uint64 发送 HWND；窗口 owner 由 message_router 更新。
         // 保持后续信号边界正确。
         std::uint64_t hwnd = 0;
         std::memcpy(&hwnd, payload.data(), sizeof(hwnd));
