@@ -126,7 +126,7 @@ Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额�
 - 事件投递走 CSRSS `ConsoleControl(ConsoleEndTask)`（corehost 不在控制台上，
   `GenerateConsoleCtrlEvent` 到不了客户端）。
 - `ConsoleControl(EndTask)` 不在会话锁内执行：处理 Ctrl+C/Break 时只把事件与目标
-  pid 入队，输入线程/io_loop 在释放会话锁后调用 `deliver_ctrl_events()` 投递；
+  pid 入队，输入线程/message_router 在释放会话锁后调用 `deliver_ctrl_event()` 投递；
   与系统控制台宿主"先记录事件、解锁后逐进程投递"的模型一致，避免客户端处理器
   阻塞期间其它客户端被会话锁卡住。
 - 客户端观察到的结果由 Windows 控制台客户端库映射：0 字节读取 +
@@ -189,8 +189,8 @@ Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额�
 - 输出 flush 的时机由"这一轮已经处理完消息、即将进入无限等待"决定，而不是由
   一次 0ms 探测决定；
 - 需要知道"ConDrv 是否还有消息"时，直接 `READ_IO`，返回 `no_message` 就是答案；
-- 需要知道"输入线程是否完成挂起请求"时，等 `state_changed` 事件，醒来后读真实
-  状态，不轮询 `has_pending()`。
+- 输入线程/AIO 事件由 `message_router` 的入口处理；需要知道挂起请求是否完成时，
+  直接读 `has_pending()`，不等待/轮询状态。
 
 判断标准：**等待只能出现在"我要阻塞直到某件事发生"的位置，且超时参数必须是
 INFINITE；"探查状态"必须通过读取真实状态完成，不能通过等待实现。**
@@ -342,3 +342,19 @@ corehost 只服务 ConPTY，因此在会话初始化时：
 - 转换后以实际写入长度作为 API 返回、`NumRecords` 或 `Information`。
 
 `*_exact_len` 仅保留给需要精确长度契约的 API 长度查询，不参与分配决策。
+
+### 4.21 会话状态锁与 IO 模块
+
+主循环、输入线程入口和窗口事件都收敛到现有 `message_router`：
+
+- `message_router` 私有持有 `win32::shared_mutex`，所有 `std::unique_lock` 只出现在
+  `message_router.hpp`；其他模块不包含锁、不提供 lock/guard。
+- 输入线程每次读到一批数据只调用一次入口（`on_input_bytes`/`on_pty_signal`/
+  `on_input_eof`），入口内加一次锁并处理整批；窗口可见性一次入口一次锁；
+  ConDrv 每条消息在主循环内只加一次锁完成分派、pump、completion 准备。
+- `pipe_bridge` 不再自己加锁；Ctrl 事件队列由 `message_router` 的同一把锁保护，
+  解锁后逐项调用 `ConsoleControl(EndTask)`。
+- `pseudo_window` 不持有锁：标题经 `WM_SETTEXT` 交给窗口线程，可见性/关闭只置位
+  事件；主线程在 `message_router` 中处理。
+- 依赖通过构造函数注入：state/buffers → bridge → api → window → message_router →
+  输入/信号线程；没有后绑定。

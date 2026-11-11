@@ -9,7 +9,6 @@
 
 #include "conpty.hpp"
 #include <span>
-#include "io_loop.hpp"
 #include "io_threads.hpp"
 #include "pseudo_window.hpp"
 #include "console_state.hpp"
@@ -102,26 +101,19 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     io.condrv_input = std::move(condrv_input);
     io.condrv_output = std::move(condrv_output);
 
-    // ── Layer 2: 会话锁与输入线程 ──
-    // 输入线程拥有 vt_input_state；会话锁保护控制台共享状态；state_changed
-    // 只用于唤醒主循环重新评估真实状态（不携带数据、不排队）。
-    win32::shared_mutex session_lock;
-    win32::event state_changed{win32::create_tag, /*manual_reset=*/false, /*initial=*/false};
-
-    vt_input_thread input_thread{vt_in};
+    // ── Layer 2: 输入状态 ──
+    // vt_input_state 由会话持有；输入线程只读管道，message_router 在锁内
+    // 解析输入并更新该状态。
+    vt_input_state input_state;
 
     // ── Layer 2: pipe bridge ──
     // pipe_bridge 是 VT 输入输出和 Console API 状态的交汇点。它直接引用
     // ibuf/state/sbuf，因此主缓冲区和 API 查询能看到同一份光标与文本状态。
-    pipe_bridge bridge{ibuf, state, sbuf, input_thread.state()};
-
-    // 信号线程与 bridge 共享同一个 signal reader，管道由信号线程独占读取。
-    pty_signal_thread signal_thread{signal_pipe.view(), bridge.signal_reader(), bridge, session_lock};
+    pipe_bridge bridge{ibuf, state, sbuf, input_state};
 
     // vt_in 是终端到 corehost 的输入/控制字节流；VT 输出句柄由
     // vt_output_buffer 负责缓冲写入；server 用于 bridge 完成挂起 ConDrv I/O。
     bridge.set_server(server);
-    bridge.set_vt_input(vt_in);
     bridge.set_vt_output(vt_out);
 
     // ── Layer 2: api router ──
@@ -129,25 +121,22 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     // 两个缓冲区，是为了在 DECSET 1049 后让同一套 handler 操作 active buffer。
     api_router api{state, sbuf, alt_sbuf, ibuf, io, bridge};
 
-    // ── Layer 1: message router ──
-    // message_router 是 ConDrv Function 号的第一层分派：对象管理进 io_state，
-    // raw I/O 进 pipe_bridge，Console API 进 api_router。
-    message_router router{io, bridge, api};
+    // 伪窗口先于 message_router 构造；router 依赖它处理标题/可见性/关闭。
+    pseudo_window window{server};
 
-    // ── 信号管道 ──
-    // signal_pipe 为空表示当前会话没有 WT 信号通道。有效时由信号线程阻塞读取
-    // resize/clear/parent 消息，在会话锁内应用到控制台状态；断管等价于会话 EOF。
+    // ── Layer 1: message_router ──
+    // message_router 同时是唯一持会话状态锁的 IO 模块：分派 ConDrv 消息、
+    // 处理输入批次、驱动 pump；其他对象只通过它的构造函数注入。
+    message_router router{io, bridge, api, window, server, event};
+
+    // 信号管道：有效时由信号线程阻塞读取；帧解析在 message_router 内。
     if (signal_pipe.valid())
-    {
         bridge.set_signal_pipe(signal_pipe.view());
-        bridge.set_signal_threaded();
-        signal_thread.bind(state_changed);
-        LOG("corehost::conpty::run_conpty_session: signal pipe bound to signal thread");
-    }
 
-    // 输入线程从此刻起独占读取 vt_in；bridge 的主线程路径不再窥探管道。
-    bridge.set_input_threaded();
-    input_thread.bind(bridge, session_lock, state_changed);
+    // 输入线程/信号线程依赖 message_router，必须在 router 构造后创建。
+    vt_input_thread input_thread{vt_in, router};
+    pty_signal_thread signal_thread{signal_pipe.view(), router};
+
 
     // ── 继承光标位置 ──
     // 终端 CPR 应答会在主 I/O 循环的 on_idle() 中统一读取并处理。
@@ -179,24 +168,21 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     }
 
     // ── 进入 I/O 循环 ──
-    // 先启动输入线程：会话锁已建立、bridge 已绑定，线程可以在主循环等待时
+    // 先启动输入线程：message_router 已构造，线程可以在主循环等待时
     // 立即处理终端输入。
     LOG("corehost::conpty::run_conpty_session: starting io threads");
-    // 伪窗口：GetConsoleWindow 返回它的句柄；关闭请求通过 close_requested
-    // 事件交给主循环。实例由本函数持有，不使用单例或全局变量。
-    pseudo_window window;
-    window.set_server(server);
+    // 伪窗口在 router 之前已构造；这里启动窗口线程并发布 hwnd。
     window.start();
     state.window_handle = window.hwnd();
     state.window = &window;
-    window.bind_output(bridge, session_lock);
+    window.set_title(state.title);
 
     input_thread.start();
     if (signal_pipe.valid())
         signal_thread.start();
 
     LOG("corehost::conpty::run_conpty_session: entering io loop");
-    corehost::conpty::run_io_loop_no_setup(server, event, session_lock, state_changed.view(), window.close_requested(), router);
+    router.run();
     LOG("corehost::conpty::run_conpty_session: loop returned");
 
     // ── 退出：先停输入源，再释放会话状态 ──

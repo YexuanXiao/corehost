@@ -1225,7 +1225,6 @@ inline bool api_set_mode(condrv_io::io_msg &msg, console_state &state, screen_bu
 inline bool api_get_num_input(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
                               pipe_bridge &bridge)
 {
-    bridge.prepare_console_input_events();
     auto *r = reinterpret_cast<CONSOLE_GETNUMBEROFINPUTEVENTS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->ReadyEvents = static_cast<DWORD>(inp.available());
     ucomplete_sz(msg, sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG));

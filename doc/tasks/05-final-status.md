@@ -25,7 +25,7 @@ ctest --test-dir build --output-on-failure
 | --- | --- |
 | 无固定时间片轮询 | 生产代码检索无 `wait_one(..., <n>)`/`sleep_for`/轮询 Peek；会话循环只等事件与 ConDrv |
 | 无输入不唤醒 | `ConPTY.IdleCpu` 0 ms/3s |
-| 输入线程拥有自己的状态 | `vt_input_state`（读缓冲/解码器/解析器/键盘/行编辑）由 `vt_input_thread` 持有，见 `design/0004` |
+| 输入线程拥有自己的状态 | `vt_input_state` 由会话持有、主线程在 `message_router` 锁内更新；输入线程只负责读管道 |
 | 挂起读期间仍服务其它请求 | `serve` 用例（ReadConsole 挂起时另一线程查询光标立即返回） |
 | WriteConsoleInput 唤醒挂起读 | `wake` 用例 |
 | VT 输入程序收到原始序列 | `vt` 用例（Up+Backspace = `1b 5b 41 7f`） |

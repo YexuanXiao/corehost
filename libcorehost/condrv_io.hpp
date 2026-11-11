@@ -229,7 +229,7 @@ inline void prepare_completion(io_msg &msg, LONG status = 0, ULONG_PTR info = 0)
 
 // 把 \Input/\Output 句柄写成 CD_CONNECTION_INFORMATION，放进 msg.body 并
 // 填充 msg.complete。放 msg.body 而不是栈变量，是因为 completion 可能由
-// 下一轮 READ_IO 携带：io_loop 的双缓冲保证该缓冲在提交前不被覆盖。
+// 下一轮 READ_IO 携带：message_router 的双缓冲保证该缓冲在提交前不被覆盖。
 inline void prepare_connection_completion(io_msg &msg, win32::handle_view input, win32::handle_view output,
                                          ULONG_PTR process_token) noexcept
 {

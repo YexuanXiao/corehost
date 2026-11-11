@@ -32,7 +32,6 @@ target_sources(libcorehost
                 default_console_size.hpp
                 gbk_table.hpp
                 input_buffer.hpp
-                io_loop.hpp
                 io_state.hpp
                 io_threads.hpp
                 message_router.hpp

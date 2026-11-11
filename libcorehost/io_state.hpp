@@ -79,7 +79,7 @@ struct io_state
 
     // 消费一条 CONNECT 消息，把回复写进 msg.complete 但不提交。
     //
-    // 两种 CONNECT 都走 piggyback：completion 由 io_loop 的下一轮 READ_IO
+    // 两种 CONNECT 都走 piggyback：completion 由 message_router 的下一轮 READ_IO
     // 携带提交，因此每条 CONNECT 都省掉一次 COMPLETE_IO 往返。
     void handle_connect(condrv_io::io_msg &msg)
     {
@@ -125,11 +125,11 @@ struct io_state
             // 都被路由为输入句柄调用：
             // SetConsoleMode(stdout)失败，甚至覆盖了输入模式。重用第一个连接的id。
             //
-            // 这里用 piggyback：只填 msg.complete，由 io_loop 的下一轮 READ_IO
+            // 这里用 piggyback：只填 msg.complete，由 message_router 的下一轮 READ_IO
             // 携带提交，省掉一次 COMPLETE_IO 往返。
             //
             // 回复载荷必须活到那次 READ_IO，因此 prepare_connection_completion
-            // 把它放在 msg.body 而不是栈变量：io_loop 的双缓冲保证本缓冲在
+            // 把它放在 msg.body 而不是栈变量：message_router 的双缓冲保证本缓冲在
             // completion 被提交前不会被下一条消息覆盖。CONNECT 的
             // 请求体（CONSOLE_SERVER_MSG）此时已经不再被读取，可以安全重用。
             condrv_io::prepare_connection_completion(msg, condrv_input.view(), condrv_output.view(),

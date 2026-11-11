@@ -222,7 +222,7 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
         auto *completion = completed_previous ? &completed_previous->complete : nullptr;
         if (completion)
         {
-            // 与 io_loop 相同：handler 返回 true 必须已准备 completion，否则
+            // 与主 I/O 循环相同：handler 返回 true 必须已准备 completion，否则
             // 会把上一轮残留的标识符交给驱动。
             assert(condrv_io::completion_matches_descriptor(*completed_previous));
             LOG3("submitting previous completion id=%08lx:%08lx status=0x%08lx info=%llu",

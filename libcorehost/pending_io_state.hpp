@@ -28,7 +28,7 @@ class pending_io_state
         return _kind;
     }
 
-    // true 表示当前有一个 ConDrv 请求被 bridge 持有，io_loop 不能继续用同一
+    // true 表示当前有一个 ConDrv 请求被 bridge 持有，message_router 不能继续用同一
     // msg 缓冲提交下一条 completion。
     bool has_pending() const noexcept
     {
@@ -38,7 +38,7 @@ class pending_io_state
     void begin_raw_read(condrv_io::io_msg &msg, bool process_control_z) noexcept
     {
         // msg 是 READ_IO 提供的原始请求缓冲。返回 false 的 handler 会让
-        // io_loop 停止提交它；complete_pending 后必须用 COMPLETE_IO 显式完成。
+        // message_router 停止提交它；complete_pending 后必须用 COMPLETE_IO 显式完成。
         _kind = PendingKind::RawRead;
         _raw_read = &msg;
         _console_read = nullptr;
@@ -71,7 +71,7 @@ class pending_io_state
     }
 
     // 返回当前 RAW_READ 请求消息；仅当 kind()==RawRead 时非空。pending_io_state
-    // 不拥有该消息，生命周期由 io_loop 的请求缓冲保证。
+    // 不拥有该消息，生命周期由 message_router 的请求缓冲保证。
     condrv_io::io_msg *raw_read() const noexcept
     {
         return _raw_read;
@@ -123,7 +123,7 @@ class pending_io_state
   private:
     // 当前等待完成的请求类别。None 时下面三个 msg 指针都必须为空。
     PendingKind _kind = PendingKind::None;
-    // RawRead/ConsoleRead/ConsoleInput 三者互斥；非空指针指向仍由 io_loop
+    // RawRead/ConsoleRead/ConsoleInput 三者互斥；非空指针指向仍由 message_router
     // 双缓冲持有的请求消息，complete_pending 会在完成前复制 completion 数据。
     condrv_io::io_msg *_raw_read = nullptr;
     condrv_io::io_msg *_console_read = nullptr;

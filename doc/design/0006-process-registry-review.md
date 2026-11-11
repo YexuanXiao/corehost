@@ -105,7 +105,7 @@ targets"恰好把"读列表"和"发送"分开，但复制并不能解决持锁�
    `status_invalid_parameter`（客户端 FALSE）。conhost 的"group 当作 pid + 父进程
    在列表"兜底属于 legacy，可在文档中标注不复刻。
 3. **控制事件延迟投递**（这一步才是真正的简化）：`bridge` 在锁内只记录
-   `{event, targets}`，由 io_loop 在释放会话锁后调用 EndTask。这样：
+   `{event, targets}`，由 message_router 在释放会话锁后调用 EndTask。这样：
    - 不再需要"发送前复制 targets"这一层；
    - 修复持锁 EndTask 阻塞其它客户端的最长 5s 问题；
    - 与系统宿主"记录事件、解锁后逐进程投递"的模型一致。
@@ -159,7 +159,7 @@ corehost 当前把 0 归一化为 pid，效果上覆盖了"按普通子进程 pi
    `E_INVALIDARG`（客户端 `FALSE`）；conhost 的 "group 当 pid + 父进程兜底"
    legacy 不复刻，已在 `api_ctrl_event` 注释中说明。
 3. **控制事件延迟投递**：`send_ctrl_event` 在会话锁内只入队 `{event, targets}`
-   （targets 在锁内从 registry 解析），输入线程处理完一批输入、io_loop 完成一次
+   （targets 在锁内从 registry 解析），输入线程处理完一批输入、message_router 完成一次
    dispatch 后，在锁外调用 `deliver_ctrl_events()` 执行 `EndTask`。这消除了
    持锁 `EndTask` 最长约 5s 阻塞其它客户端的问题；事件队列用独立 SRW 锁保护，
    输入线程与主循环都可以安全 drain。行为对齐 conhost 的

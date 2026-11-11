@@ -118,7 +118,7 @@ struct api_router
             return true;
         }
 
-        // completed=false 表示 handler 已挂起请求；io_loop 不会提交 msg.complete，
+        // completed=false 表示 handler 已挂起请求；message_router 不会提交 msg.complete，
         // 等 bridge 在收到 VT 输入后显式 COMPLETE_IO。
         bool completed = true;
         switch (layer)
