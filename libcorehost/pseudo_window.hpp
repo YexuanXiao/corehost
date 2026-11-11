@@ -32,12 +32,13 @@ namespace corehost::conpty
 class pseudo_window
 {
   public:
-    explicit pseudo_window(win32::handle_view server)
+    pseudo_window(win32::handle_view server, std::u32string_view title)
         : _server{server}, _ready{win32::create_tag, /*manual_reset=*/true, /*initial=*/false},
           _close_requested{win32::create_tag, /*manual_reset=*/true, /*initial=*/false},
           _show_event{win32::create_tag, /*manual_reset=*/false, /*initial=*/false},
           _hide_event{win32::create_tag, /*manual_reset=*/false, /*initial=*/false}
     {
+        convert_u32_to_wstr(title, _title);
     }
 
     pseudo_window(const pseudo_window &) = delete;
@@ -89,20 +90,6 @@ class pseudo_window
         return _hide_event.view();
     }
 
-    // start() 前直接初始化窗口线程的标题；start() 后通过 WM_SETTEXT 交给窗口线程。
-    void set_title(std::u32string_view title)
-    {
-        std::wstring converted;
-        convert_u32_to_wstr(title, converted);
-        if (_hwnd == nullptr)
-        {
-            // start() 前窗口线程尚未运行，直接初始化窗口线程自己的标题。
-            _title = std::move(converted);
-            return;
-        }
-        if (::SendMessageW(_hwnd, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(converted.c_str())) == FALSE)
-            win32::throw_last_error();
-    }
 
   private:
     static DWORD WINAPI thread_entry(LPVOID self)

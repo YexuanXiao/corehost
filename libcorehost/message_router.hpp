@@ -23,6 +23,7 @@
 #include "pseudo_window.hpp"
 #include "perf_diag.hpp"
 #include "utility/log.hpp"
+#include "win32/event.hpp"
 #include "win32/srwlock.hpp"
 #include "win32/wait.hpp"
 
@@ -91,6 +92,9 @@ class message_router
     // 会话状态锁：全仓库只在 message_router.hpp 内出现。
     win32::shared_mutex _mutex;
 
+    // 输入线程改变状态后唤醒 wait_any 中的主循环。
+    win32::event _state_changed{win32::create_tag, /*manual_reset=*/false, /*initial=*/false};
+
     // 由构造函数注入，生命周期由 conpty 会话覆盖。
     io_state &io;
     pipe_bridge &bridge;
@@ -101,6 +105,12 @@ class message_router
 
     // 信号帧跨批次的尾部；由 _mutex 保护。
     std::vector<std::byte> _signal_bytes;
+
+    void signal_state()
+    {
+        _state_changed.set();
+    }
+
 
     static void deliver_ctrl_events(pipe_bridge &target, std::span<const std::pair<DWORD, DWORD>> events) noexcept
     {
@@ -305,7 +315,7 @@ inline void message_router::run()
             if (_window != nullptr)
             {
                 const auto wait = win32::wait_any(_input_available, _window->close_requested(), _window->show_event(),
-                                                   _window->hide_event(), INFINITE);
+                                                   _window->hide_event(), _state_changed.view(), INFINITE);
                 if (wait.abandoned())
                     win32::throw_last_error(win32::error::invalid_state);
                 if (wait.index == 1)
@@ -347,6 +357,7 @@ inline void message_router::on_input_bytes(std::span<const std::byte> bytes)
         bridge.take_ctrl_events(ctrl_events);
     }
     deliver_ctrl_events(bridge, ctrl_events);
+    signal_state();
 }
 
 inline void message_router::on_input_eof()
@@ -359,6 +370,7 @@ inline void message_router::on_input_eof()
         bridge.take_ctrl_events(ctrl_events);
     }
     deliver_ctrl_events(bridge, ctrl_events);
+    signal_state();
 }
 
 inline void message_router::on_pty_signal(std::span<const std::byte> batch)
@@ -392,6 +404,7 @@ inline void message_router::on_pty_signal(std::span<const std::byte> batch)
         bridge.take_ctrl_events(ctrl_events);
     }
     deliver_ctrl_events(bridge, ctrl_events);
+    signal_state();
 }
 
 inline void message_router::on_signal_closed()
@@ -404,6 +417,7 @@ inline void message_router::on_signal_closed()
         bridge.take_ctrl_events(ctrl_events);
     }
     deliver_ctrl_events(bridge, ctrl_events);
+    signal_state();
 }
 
 inline void message_router::on_window_visibility(bool visible)
