@@ -1101,6 +1101,9 @@ inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parse
     case vt_message_id::char_nul:
         consume_write_console_vt_message<vt_message_id::char_nul>(parser, parsed, state, sb, bridge, emit_vt);
         break;
+    case vt_message_id::mouse_sgr:
+        // SGR 鼠标只属于输入方向；输出 parser 不应产生该消息。
+        break;
     }
 }
 

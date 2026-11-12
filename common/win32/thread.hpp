@@ -56,7 +56,7 @@ class basic_thread
     //
     // Creates a suspended thread, names it, then resumes it. Throws
     // win32::error on failure.
-    basic_thread(LPTHREAD_START_ROUTINE start_address, LPVOID parameter = nullptr, options opts = {})
+    basic_thread(LPTHREAD_START_ROUTINE start_address, LPVOID parameter, options opts)
     {
         assert(!opts.name.empty());
 
