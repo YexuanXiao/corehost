@@ -105,9 +105,8 @@ class pseudo_window
     {
         if (_hwnd == nullptr || ::IsWindow(_hwnd) == FALSE)
             return;
-        ::SetWindowLongPtrW(_hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(owner));
+        ::SendMessageW(_hwnd, wm_set_owner, reinterpret_cast<WPARAM>(owner), 0);
     }
-
   private:
     static DWORD WINAPI thread_entry(LPVOID self)
     {
@@ -185,6 +184,9 @@ class pseudo_window
             if (lparam == 0)
                 self->post_visibility(wparam != 0);
             return 0;
+        case wm_set_owner:
+            ::SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, static_cast<LONG_PTR>(wparam));
+            return 0;
         case wm_set_visibility:
             self->_suppress_visibility = true;
             ::ShowWindow(hwnd, wparam != 0 ? SW_SHOWNOACTIVATE : SW_MINIMIZE);
@@ -235,6 +237,7 @@ class pseudo_window
 
     static constexpr UINT wm_stop_thread = WM_APP + 1;
     static constexpr UINT wm_set_visibility = WM_APP + 2;
+    static constexpr UINT wm_set_owner = WM_APP + 3;
 
 
 
