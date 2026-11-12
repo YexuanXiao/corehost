@@ -62,7 +62,6 @@ build\Debug\test_conpty_programs.exe --case-index 4
 | 目标 | 内容 | 约耗时 |
 | --- | --- | --- |
 | `Defterm.Connect` | 直连 ConDrv 的 defterm 路径：控制台 API、伪窗口、压力、5 次重复、进程列表 | 0.9s |
-| `Defterm.ClientNotify` | `notify_client_ctrl` 注入式单测 | 0.03s |
 | `Defterm.Handoff` | handoff 协议替身（COM 边界 mock） | 0.03s |
 | `ConPTY.Differential` | 默认 corehost 冒烟；opt-in 时与 conhost 比较 | 0.2s（默认）/0.3s（比较）/8s（含 Ctrl 记录） |
 | `ConPTY.Programs` | cmd / 脚本 / powershell / vim / edit / ssh 正负路径 / 窗口可见性 | 9s |

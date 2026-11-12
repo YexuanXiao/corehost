@@ -216,14 +216,6 @@ add_custom_command(TARGET test_conpty_robustness POST_BUILD
 add_test(NAME ConPTY.Robustness COMMAND test_conpty_robustness)
 set_tests_properties(ConPTY.Robustness PROPERTIES LABELS "conpty;robust" TIMEOUT 180)
 
-# ── test_defterm_client_notify ───────────────────
-# defterm 控制事件投递的注入式单测（G16）。
-add_executable(test_defterm_client_notify
-    test_defterm_client_notify.cpp
-)
-target_link_libraries(test_defterm_client_notify PRIVATE test_common common)
-add_test(NAME Defterm.ClientNotify COMMAND test_defterm_client_notify)
-set_tests_properties(Defterm.ClientNotify PROPERTIES LABELS "defterm;signal" TIMEOUT 30)
 
 # ── test_defterm_handoff_mock ────────────────────
 # handoff 协议替身测试：不做 COM 注册、不需要 WindowsTerminal。

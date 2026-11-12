@@ -18,8 +18,7 @@ target_sources(corehost
                 cli/console_arguments.hpp
                 client/client.hpp
                 comserver/com_server.hpp
-                defterm/client_notify.hpp
-                defterm/connect_policy.hpp
+                            defterm/connect_policy.hpp
                 defterm/defterm.hpp
                 defterm/io.hpp
                 defterm/signal.hpp
