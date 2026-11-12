@@ -121,14 +121,13 @@ inline bool launch_defterm_host(std::wstring_view corehost_path, win32::handle_v
     startup.lpAttributeList = attributes;
 
     wchar_t buffer[1024]{};
-    ::swprintf_s(buffer, L"\"%.*s\" 0x%llx",
-                 static_cast<int>(corehost_path.size()), corehost_path.data(),
+    ::swprintf_s(buffer, L"\"%.*s\" 0x%llx", static_cast<int>(corehost_path.size()), corehost_path.data(),
                  static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(server.get())));
 
     PROCESS_INFORMATION process{};
-    const BOOL created = ::CreateProcessW(nullptr, buffer, nullptr, nullptr, TRUE,
-                                          EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW,
-                                          nullptr, nullptr, &startup.StartupInfo, &process);
+    const BOOL created =
+        ::CreateProcessW(nullptr, buffer, nullptr, nullptr, TRUE, EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW,
+                         nullptr, nullptr, &startup.StartupInfo, &process);
     ::DeleteProcThreadAttributeList(attributes);
 
     if (created == FALSE)
@@ -204,8 +203,8 @@ inline bool connect_client(condrv_session &session, std::wstring_view title, std
     HANDLE connection = nullptr;
     const NTSTATUS status =
         ::NtCreateFile(&connection, FILE_GENERIC_READ | FILE_GENERIC_WRITE, &attributes, &io_status, nullptr, 0,
-                       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_CREATE, FILE_SYNCHRONOUS_IO_NONALERT,
-                       ea_buffer, static_cast<ULONG>(cursor - ea_buffer));
+                       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_CREATE,
+                       FILE_SYNCHRONOUS_IO_NONALERT, ea_buffer, static_cast<ULONG>(cursor - ea_buffer));
     if (status < 0)
     {
         error = ::RtlNtStatusToDosError(status);

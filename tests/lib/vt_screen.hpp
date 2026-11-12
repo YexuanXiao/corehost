@@ -22,8 +22,8 @@ namespace corehost::test
 struct screen_cell
 {
     char32_t ch = U' ';
-    uint8_t fg = 7;     // 0..15
-    uint8_t bg = 0;     // 0..15
+    uint8_t fg = 7; // 0..15
+    uint8_t bg = 0; // 0..15
     bool bold = false;
     bool reverse = false;
 

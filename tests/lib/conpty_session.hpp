@@ -104,9 +104,9 @@ class conpty_session
     bool wait_output(std::string_view needle, DWORD timeout_ms)
     {
         std::unique_lock lock{_mutex};
-        return _changed.wait_for(lock, std::chrono::milliseconds(timeout_ms),
-                                 [&] { return _output_text.find(needle) != std::string::npos || _closed; }) &&
-               _output_text.find(needle) != std::string::npos;
+        return _changed.wait_for(lock, std::chrono::milliseconds(timeout_ms), [&] {
+            return _output_text.find(needle) != std::string::npos || _closed;
+        }) && _output_text.find(needle) != std::string::npos;
     }
 
     // 取走并清空当前累计输出。
@@ -168,7 +168,6 @@ class conpty_session
         if (exit_code != nullptr)
             ::GetExitCodeProcess(_process.get(), exit_code);
         return wait != WAIT_TIMEOUT;
-
     }
 
     void close()
@@ -228,8 +227,8 @@ class conpty_session
             return false;
 
         // 属性表要求指针对齐：用 max_align_t 分配，而不是 std::string/vector<byte>。
-        _attributes = std::make_unique<std::max_align_t[]>(
-            (attribute_size + sizeof(std::max_align_t) - 1) / sizeof(std::max_align_t));
+        _attributes = std::make_unique<std::max_align_t[]>((attribute_size + sizeof(std::max_align_t) - 1) /
+                                                           sizeof(std::max_align_t));
         auto *attributes = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(_attributes.get());
         if (::InitializeProcThreadAttributeList(attributes, 1, 0, &attribute_size) == FALSE)
             return false;

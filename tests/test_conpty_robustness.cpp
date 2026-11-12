@@ -70,11 +70,11 @@ corehost::test::result resize_changes_client_size()
     for (int attempt = 0; attempt < 3; ++attempt)
     {
         if (!session.resize(COORD{100, 30}))
-    {
-        // 交互式客户端（不带参数的 cmd）在 headless ConPTY 下可能立刻退出，
-        // 会话先于 resize 结束；这与 G12 同源，记录后跳过而不是误报失败。
-        SKIP(L"interactive client exited before resize (gap G12)");
-    }
+        {
+            // 交互式客户端（不带参数的 cmd）在 headless ConPTY 下可能立刻退出，
+            // 会话先于 resize 结束；这与 G12 同源，记录后跳过而不是误报失败。
+            SKIP(L"interactive client exited before resize (gap G12)");
+        }
         REQUIRE(session.write("powershell -NoProfile -Command \"Write-Output ('SIZE=' + [Console]::WindowWidth + 'x' + "
                               "[Console]::WindowHeight)\"\r"));
         for (int slice = 0; slice < 60; ++slice)
@@ -367,8 +367,7 @@ corehost::test::result handler_receives_ctrl_c()
 
     wchar_t module[MAX_PATH]{};
     REQUIRE(::GetModuleFileNameW(nullptr, module, ARRAYSIZE(module)) != 0);
-    const std::wstring marker =
-        (std::filesystem::path{module}.parent_path() / L"handler-ctrl-c.txt").wstring();
+    const std::wstring marker = (std::filesystem::path{module}.parent_path() / L"handler-ctrl-c.txt").wstring();
     ::DeleteFileW(marker.c_str());
 
     corehost::test::conpty_session session;

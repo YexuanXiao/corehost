@@ -133,7 +133,7 @@ struct io_state
             // completion 被提交前不会被下一条消息覆盖。CONNECT 的
             // 请求体（CONSOLE_SERVER_MSG）此时已经不再被读取，可以安全重用。
             condrv_io::prepare_connection_completion(msg, condrv_input.view(), condrv_output.view(),
-                                                static_cast<ULONG_PTR>(client_pid));
+                                                     static_cast<ULONG_PTR>(client_pid));
             LOG2("CONNECT joined existing console processCount=%zu", processes.count());
             return;
         }

@@ -27,8 +27,8 @@ namespace win32
 
     IO_STATUS_BLOCK status_block{};
     file_mode_information mode{};
-    const auto status = ::NtQueryInformationFile(handle.get(), &status_block, &mode, sizeof(mode),
-                                                 16 /* FileModeInformation */);
+    const auto status =
+        ::NtQueryInformationFile(handle.get(), &status_block, &mode, sizeof(mode), 16 /* FileModeInformation */);
     return status >= 0 && (mode.Mode & (0x10u | 0x20u)) == 0;
 }
 

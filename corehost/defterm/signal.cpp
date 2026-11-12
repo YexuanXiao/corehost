@@ -133,8 +133,8 @@ void console_control_thread::forward_message(CONSOLECONTROL code, std::span<cons
         std::memcpy(reinterpret_cast<std::byte *>(&d) + sizeof(DWORD), body.data(), body_len);
         CONSOLEENDTASK c{reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(d.ProcessId)), nullptr,
                          d.ConsoleEventCode, d.ConsoleFlags};
-        LOG("console_control_thread: ConsoleEndTask pid=%lu event=%lu flags=0x%08lx", d.ProcessId,
-            d.ConsoleEventCode, d.ConsoleFlags);
+        LOG("console_control_thread: ConsoleEndTask pid=%lu event=%lu flags=0x%08lx", d.ProcessId, d.ConsoleEventCode,
+            d.ConsoleFlags);
         _console_control(ConsoleEndTask, &c, sizeof(c));
         break;
     }

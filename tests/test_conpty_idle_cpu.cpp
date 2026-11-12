@@ -99,7 +99,7 @@ int main()
 {
     std::wcout << L"=== ConPTY Idle CPU ===" << std::endl;
     RUN_TEST(idle_does_not_burn_cpu, L"Idle CPU without input");
-    std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, "
-               << (tests_passed + tests_failed) << L" total." << std::endl;
+    std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, " << (tests_passed + tests_failed)
+               << L" total." << std::endl;
     return tests_failed > 0 ? 1 : 0;
 }

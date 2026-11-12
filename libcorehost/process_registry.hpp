@@ -39,12 +39,10 @@ class process_registry
             _entries.erase(it);
     }
 
-
     [[nodiscard]] size_t count() const noexcept
     {
         return _entries.size();
     }
-
 
     // 用两组同序 span 替换列表（测试注入/会话初始化）。groups 缺省时按 pid
     // 归一化；保持旧实现的行为。
@@ -64,9 +62,8 @@ class process_registry
     // 是否存在指定进程组（GenerateConsoleCtrlEvent 的未知 group 校验）。
     [[nodiscard]] bool contains_group(DWORD group) const noexcept
     {
-        return std::any_of(_entries.begin(), _entries.end(), [group](const process_entry &entry) {
-            return entry.group == group;
-        });
+        return std::any_of(_entries.begin(), _entries.end(),
+                           [group](const process_entry &entry) { return entry.group == group; });
     }
 
     size_t copy_for_group(DWORD group, std::span<DWORD> output) const noexcept
@@ -94,9 +91,8 @@ class process_registry
   private:
     [[nodiscard]] std::vector<process_entry>::iterator find(DWORD pid) noexcept
     {
-        return std::find_if(_entries.begin(), _entries.end(), [pid](const process_entry &entry) {
-            return entry.pid == pid;
-        });
+        return std::find_if(_entries.begin(), _entries.end(),
+                            [pid](const process_entry &entry) { return entry.pid == pid; });
     }
 
     // 连接顺序从旧到新；GetConsoleProcessList 反向输出。

@@ -231,7 +231,7 @@ inline void prepare_completion(io_msg &msg, LONG status = 0, ULONG_PTR info = 0)
 // 填充 msg.complete。放 msg.body 而不是栈变量，是因为 completion 可能由
 // 下一轮 READ_IO 携带：message_router 的双缓冲保证该缓冲在提交前不被覆盖。
 inline void prepare_connection_completion(io_msg &msg, win32::handle_view input, win32::handle_view output,
-                                         ULONG_PTR process_token) noexcept
+                                          ULONG_PTR process_token) noexcept
 {
     CD_CONNECTION_INFORMATION conn{};
     // ConDrv 会把 Process 原样带回后续消息（含 DISCONNECT）；必须用客户端 pid，

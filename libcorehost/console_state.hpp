@@ -52,8 +52,8 @@ inline DWORD read_virtual_terminal_level() noexcept
     DWORD value = 0;
     DWORD size = sizeof(value);
     DWORD type = 0;
-    if (::RegGetValueW(HKEY_CURRENT_USER, L"Console", L"VirtualTerminalLevel", RRF_RT_REG_DWORD, &type, &value, &size) !=
-        ERROR_SUCCESS)
+    if (::RegGetValueW(HKEY_CURRENT_USER, L"Console", L"VirtualTerminalLevel", RRF_RT_REG_DWORD, &type, &value,
+                       &size) != ERROR_SUCCESS)
         return 0;
     return value;
 }

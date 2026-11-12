@@ -81,8 +81,8 @@ class cancellable_read
         read_bytes = 0;
 
         _in_read.set();
-        const BOOL ok = ::ReadFile(_pipe.get(), destination.data(), static_cast<DWORD>(destination.size()), &read_bytes,
-                                   nullptr);
+        const BOOL ok =
+            ::ReadFile(_pipe.get(), destination.data(), static_cast<DWORD>(destination.size()), &read_bytes, nullptr);
         _in_read.reset();
 
         if (ok != FALSE)

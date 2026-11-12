@@ -65,8 +65,7 @@ int run_scenario(std::wstring_view name)
         if (!exited || !exists)
         {
             std::ofstream diag{std::filesystem::current_path() / L"diag.txt"};
-            diag << "exited=" << (exited ? 1 : 0) << " exists=" << (exists ? 1 : 0) << " output=" << api_output
-                 << "\n";
+            diag << "exited=" << (exited ? 1 : 0) << " exists=" << (exists ? 1 : 0) << " output=" << api_output << "\n";
         }
         return exited && exists ? 0 : 5;
     }
@@ -214,8 +213,8 @@ bool prepare_conhost_dir(const std::filesystem::path &base, std::filesystem::pat
         return false;
 
     // 系统 conhost 改名成 corehost.exe：libconpty 按名查找宿主。
-    std::filesystem::copy_file(system_conhost, dir / L"corehost.exe",
-                               std::filesystem::copy_options::overwrite_existing, error);
+    std::filesystem::copy_file(system_conhost, dir / L"corehost.exe", std::filesystem::copy_options::overwrite_existing,
+                               error);
     return !error;
 }
 
@@ -225,15 +224,15 @@ bool env_enabled(const wchar_t *name) noexcept
 }
 bool run_in_dir(const std::filesystem::path &dir, std::wstring_view scenario, DWORD &exit_code)
 {
-    std::wstring command = quoted((dir / std::filesystem::path{module_path()}.filename()).wstring()) +
-                           L" --scenario " + std::wstring{scenario};
+    std::wstring command = quoted((dir / std::filesystem::path{module_path()}.filename()).wstring()) + L" --scenario " +
+                           std::wstring{scenario};
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     startup.dwFlags = STARTF_USESHOWWINDOW;
     startup.wShowWindow = SW_HIDE;
     PROCESS_INFORMATION process{};
-    if (::CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr,
-                         dir.c_str(), &startup, &process) == FALSE)
+    if (::CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, dir.c_str(),
+                         &startup, &process) == FALSE)
         return false;
 
     const DWORD wait = ::WaitForSingleObject(process.hProcess, 60000);
@@ -328,8 +327,7 @@ int wmain(int argc, wchar_t **argv)
     auto run_scenario_pair = [&](const scenario &item) {
         DWORD corehost_exit = 0;
         DWORD conhost_exit = 0;
-        if (!run_in_dir(corehost_dir, item.name, corehost_exit) ||
-            !run_in_dir(conhost_dir, item.name, conhost_exit))
+        if (!run_in_dir(corehost_dir, item.name, corehost_exit) || !run_in_dir(conhost_dir, item.name, conhost_exit))
         {
             std::printf("  FAILED: scenario %ls run failed (corehost exit=%lu conhost exit=%lu)\n", item.name,
                         static_cast<unsigned long>(corehost_exit), static_cast<unsigned long>(conhost_exit));

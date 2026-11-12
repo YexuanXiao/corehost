@@ -104,8 +104,8 @@ inline std::string to_ansi(const std::wstring &text)
 {
     if (text.empty())
         return {};
-    const int needed = ::WideCharToMultiByte(CP_ACP, 0, text.c_str(), static_cast<int>(text.size()), nullptr, 0,
-                                             nullptr, nullptr);
+    const int needed =
+        ::WideCharToMultiByte(CP_ACP, 0, text.c_str(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
     if (needed <= 0)
         return {};
     std::string result(static_cast<size_t>(needed), '\0');
@@ -177,9 +177,8 @@ class ssh_server
 
         // authorized_keys 用客户端公钥。
         std::error_code copy_error;
-        std::filesystem::copy_file(std::filesystem::path{client_key.wstring() + L".pub"},
-                                   _dir / L"authorized_keys", std::filesystem::copy_options::overwrite_existing,
-                                   copy_error);
+        std::filesystem::copy_file(std::filesystem::path{client_key.wstring() + L".pub"}, _dir / L"authorized_keys",
+                                   std::filesystem::copy_options::overwrite_existing, copy_error);
         if (copy_error)
         {
             error = L"cannot install authorized_keys";
@@ -198,8 +197,8 @@ class ssh_server
         // sshd 为非 PTY 远程命令创建的子进程（cmd/powershell）会新建可见的
         // 控制台窗口。把 sshd 及其子进程放到一个隐藏桌面上，窗口就不会出现在
         // 用户桌面（CreateDesktop 失败时退回默认桌面，测试仍可运行）。
-        _desktop_name = L"corehost-ssh-" + std::to_wstring(::GetCurrentProcessId()) + L"-" +
-                        std::to_wstring(::GetTickCount64());
+        _desktop_name =
+            L"corehost-ssh-" + std::to_wstring(::GetCurrentProcessId()) + L"-" + std::to_wstring(::GetTickCount64());
         _desktop = ::CreateDesktopW(_desktop_name.c_str(), nullptr, nullptr, 0, GENERIC_ALL, nullptr);
 
         // 端口从随机起点向上试，直到 sshd 能起来并可连接。
@@ -325,9 +324,9 @@ class ssh_server
 
         std::wstring command = L"\"" + sshd + L"\" -D -f \"" + config.wstring() + L"\" -e";
         PROCESS_INFORMATION process{};
-        const BOOL created = ::CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE,
-                                              CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP, nullptr, nullptr, &startup,
-                                              &process);
+        const BOOL created =
+            ::CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE,
+                             CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP, nullptr, nullptr, &startup, &process);
         if (_log != nullptr)
         {
             ::CloseHandle(_log);

@@ -35,7 +35,6 @@
 #include "win32/handle.hpp"
 #include "win32/thread.hpp"
 
-
 namespace corehost::defterm
 {
 

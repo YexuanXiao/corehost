@@ -25,7 +25,6 @@
 namespace corehost::conpty
 {
 
-
 void run_conpty_session(win32::handle_view server, win32::handle_view event, win32::handle condrv_input,
                         win32::handle condrv_output, win32::handle_view vt_in, win32::handle_view vt_out,
                         win32::handle signal_pipe, const conpty_session_config &config)
@@ -49,7 +48,8 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     // 注册表仍读取并记录，便于诊断用户设置。
     const auto registry_vt_level = read_virtual_terminal_level();
     LOG2("output_mode: VirtualTerminalLevel=%lu (conpty forces level=1)", registry_vt_level);
-    state.output_mode = output_mode_for_virtual_terminal_level(effective_virtual_terminal_level(registry_vt_level, true));
+    state.output_mode =
+        output_mode_for_virtual_terminal_level(effective_virtual_terminal_level(registry_vt_level, true));
 
     // screen_buffer_size 是控制台 API 看到的主尺寸。config.width/height <= 0
     // 代表“未指定”，统一回退到 default_console_size，避免不同入口产生
@@ -137,7 +137,6 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     vt_input_thread input_thread{vt_in, router};
     pty_signal_thread signal_thread{signal_pipe.view(), router};
 
-
     // ── 继承光标位置 ──
     // 终端 CPR 应答会在主 I/O 循环的 on_idle() 中统一读取并处理。
     if (config.inherit_cursor)
@@ -187,10 +186,8 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     // 都归因于 vt_in/vt_out。GetHandleInformation 只查询，不做 I/O。
     DWORD flags = 0;
     LOG("corehost::conpty::run_conpty_session: handles server=%d event=%d vt_in=%d vt_out=%d signal=%d",
-        ::GetHandleInformation(server.get(), &flags) != FALSE,
-        ::GetHandleInformation(event.get(), &flags) != FALSE,
-        ::GetHandleInformation(vt_in.get(), &flags) != FALSE,
-        ::GetHandleInformation(vt_out.get(), &flags) != FALSE,
+        ::GetHandleInformation(server.get(), &flags) != FALSE, ::GetHandleInformation(event.get(), &flags) != FALSE,
+        ::GetHandleInformation(vt_in.get(), &flags) != FALSE, ::GetHandleInformation(vt_out.get(), &flags) != FALSE,
         ::GetHandleInformation(signal_pipe.get(), &flags) != FALSE);
 
     // ── 退出：先停输入源，再释放会话状态 ──

@@ -55,8 +55,6 @@ corehost::test::result connect_and_call_console_api()
 
     corehost::test::unbind_console_connection();
 
-
-
     // 清理：先断开客户端连接，再终止宿主。
     session.connection = win32::handle{};
     ::TerminateProcess(host.hProcess, 0);
@@ -100,7 +98,7 @@ corehost::test::result get_console_window_then_close()
     wchar_t title[128]{};
     DWORD_PTR copied = 0;
     REQUIRE(::SendMessageTimeoutW(window, WM_GETTEXT, ARRAYSIZE(title), reinterpret_cast<LPARAM>(title),
-                                 SMTO_ABORTIFHUNG, 2000, &copied) != 0);
+                                  SMTO_ABORTIFHUNG, 2000, &copied) != 0);
     REQUIRE(::wcsstr(title, L"corehost-window-title") != nullptr);
 
     // WM_GETTEXTLENGTH 必须与标题长度一致。

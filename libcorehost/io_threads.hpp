@@ -99,8 +99,8 @@ class vt_input_thread
         {
             ::ResetEvent(io_event.get());
             DWORD read = 0;
-            const BOOL started = ::ReadFile(_vt_in.get(), staging.data(),
-                                            static_cast<DWORD>(staging.size()), &read, &overlapped);
+            const BOOL started =
+                ::ReadFile(_vt_in.get(), staging.data(), static_cast<DWORD>(staging.size()), &read, &overlapped);
             if (started == FALSE)
             {
                 const auto err = win32::get_last_error();

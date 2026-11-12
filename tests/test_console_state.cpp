@@ -2098,7 +2098,8 @@ bool test_regression_l3_process_list_validation_and_output_size()
     std::memset(&msg, 0, sizeof(msg));
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG);
     msg.descriptor.OutputSize = sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG) + 2 * sizeof(DWORD);
-    std::memset(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG), 0xCD, 2 * sizeof(DWORD));
+    std::memset(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG), 0xCD,
+                2 * sizeof(DWORD));
     auto *plist = reinterpret_cast<CONSOLE_GETCONSOLEPROCESSLIST_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     ASSERT(api_l3_get_process_list(msg, st, sb, inp, bridge));
     ASSERT(msg.complete.IoStatus.Status == 0);
@@ -3144,14 +3145,12 @@ bool test_input_apis_reject_output_handle()
 bool test_output_mode_follows_virtual_terminal_level()
 {
     ASSERT(output_mode_for_virtual_terminal_level(0) == DEFAULT_OUTPUT_MODE);
-    ASSERT(output_mode_for_virtual_terminal_level(1) ==
-           (DEFAULT_OUTPUT_MODE | ENABLE_VIRTUAL_TERMINAL_PROCESSING));
+    ASSERT(output_mode_for_virtual_terminal_level(1) == (DEFAULT_OUTPUT_MODE | ENABLE_VIRTUAL_TERMINAL_PROCESSING));
     // ConPTY 强制 level=1，忽略注册表；普通窗口才用注册表值。
     ASSERT(effective_virtual_terminal_level(0, true) == 1);
     ASSERT(effective_virtual_terminal_level(0, false) == 0);
     ASSERT(effective_virtual_terminal_level(5, false) == 5);
-    ASSERT(output_mode_for_virtual_terminal_level(7) ==
-           (DEFAULT_OUTPUT_MODE | ENABLE_VIRTUAL_TERMINAL_PROCESSING));
+    ASSERT(output_mode_for_virtual_terminal_level(7) == (DEFAULT_OUTPUT_MODE | ENABLE_VIRTUAL_TERMINAL_PROCESSING));
     return true;
 }
 
@@ -3234,7 +3233,8 @@ int main()
     RUN_TEST(test_regression_raw_read_completion_writes_only_bytes, L"RawRead writes only bytes");
     RUN_TEST(test_regression_raw_read_completion_respects_output_size, L"RawRead respects OutputSize");
     RUN_TEST(test_regression_read_console_a_uses_input_codepage, L"ReadConsoleA uses input codepage");
-    RUN_TEST(test_regression_read_console_initial_bytes_clamped_to_payload, L"ReadConsole initial bytes clamped to payload");
+    RUN_TEST(test_regression_read_console_initial_bytes_clamped_to_payload,
+             L"ReadConsole initial bytes clamped to payload");
     RUN_TEST(test_regression_write_console_rejects_short_message, L"WriteConsole rejects short message");
     RUN_TEST(test_regression_write_console_w_reports_complete_utf16_units, L"WriteConsoleW reports complete UTF16");
     RUN_TEST(test_regression_write_console_answers_terminal_cpr_and_da_queries,
@@ -3292,9 +3292,9 @@ int main()
     RUN_TEST(test_regression_read_console_output_output_size_and_clipping,
              L"ReadConsoleOutput output size and clipping");
     RUN_TEST(test_regression_get_title_output_size_limits_copy, L"GetTitle output size limits copy");
-RUN_TEST(test_read_output_string_clamps_oversized_output, L"ReadConsoleOutputString clamps oversized output");
-RUN_TEST(test_output_mode_follows_virtual_terminal_level, L"Output mode follows VirtualTerminalLevel");
-RUN_TEST(test_read_console_output_clamps_oversized_region, L"ReadConsoleOutput clamps oversized region");
+    RUN_TEST(test_read_output_string_clamps_oversized_output, L"ReadConsoleOutputString clamps oversized output");
+    RUN_TEST(test_output_mode_follows_virtual_terminal_level, L"Output mode follows VirtualTerminalLevel");
+    RUN_TEST(test_read_console_output_clamps_oversized_region, L"ReadConsoleOutput clamps oversized region");
     RUN_TEST(test_regression_set_title_a_uses_input_codepage, L"SetTitleA uses input codepage");
     RUN_TEST(test_regression_l3_mouse_info_rejects_short_message, L"L3 MouseInfo rejects short message");
     RUN_TEST(test_regression_l3_font_size_validation, L"L3 FontSize validation");
@@ -3319,7 +3319,7 @@ RUN_TEST(test_read_console_output_clamps_oversized_region, L"ReadConsoleOutput c
     RUN_TEST(test_regression_l3_get_console_window_rejects_short_message, L"L3 GetConsoleWindow rejects short message");
     RUN_TEST(test_regression_l3_selection_info_validation_and_copy, L"L3 SelectionInfo validation and copy");
     RUN_TEST(test_regression_l3_process_list_validation_and_output_size, L"L3 ProcessList validation and output size");
-RUN_TEST(test_process_registry_operations, L"Process registry operations");
+    RUN_TEST(test_process_registry_operations, L"Process registry operations");
     RUN_TEST(test_window_size_event_gated_and_deduplicated, L"Window size event gated and deduped");
     RUN_TEST(test_regression_l3_history_info_validation_get_set, L"L3 HistoryInfo validation get/set");
     RUN_TEST(test_regression_l3_set_current_font_validation_and_store, L"L3 SetCurrentFont validation and store");

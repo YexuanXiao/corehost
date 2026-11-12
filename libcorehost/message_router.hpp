@@ -37,8 +37,8 @@ class message_router
 {
   public:
     // 生产路径：所有依赖先构造，再由构造函数接收。
-    message_router(io_state &io_state_ref, pipe_bridge &bridge_ref, api_router &api_ref,
-                   pseudo_window &window, win32::handle_view server, win32::handle_view input_available) noexcept
+    message_router(io_state &io_state_ref, pipe_bridge &bridge_ref, api_router &api_ref, pseudo_window &window,
+                   win32::handle_view server, win32::handle_view input_available) noexcept
         : io(io_state_ref), bridge(bridge_ref), api(api_ref), _window(&window), _server(server),
           _input_available(input_available)
     {
@@ -62,9 +62,8 @@ class message_router
         io.handle_connect(msg);
         _console_connected = true;
         apply_early_pty_signals();
-        _client_process =
-            win32::handle{::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE,
-                                        static_cast<DWORD>(msg.descriptor.Process))};
+        _client_process = win32::handle{::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE,
+                                                      static_cast<DWORD>(msg.descriptor.Process))};
         if (_client_process.valid())
         {
             wchar_t image[512]{};
@@ -108,7 +107,6 @@ class message_router
     // 输入线程改变状态后唤醒 wait_any 中的主循环。
     win32::event _state_changed{win32::create_tag, /*manual_reset=*/false, /*initial=*/false};
 
-
     // 由构造函数注入，生命周期由 conpty 会话覆盖。
     io_state &io;
     pipe_bridge &bridge;
@@ -123,12 +121,10 @@ class message_router
     std::optional<bool> _initial_visibility;
     std::optional<COORD> _early_resize;
 
-
     void signal_state()
     {
         _state_changed.set();
     }
-
 
     static void deliver_ctrl_events(pipe_bridge &target, std::span<const std::pair<DWORD, DWORD>> events) noexcept
     {
@@ -155,7 +151,6 @@ class message_router
                 _window->set_visibility(visible);
         }
     }
-
 
     // 记录 ConDrv descriptor 的路由关键字段，用于诊断消息进入 router 时的
     // 原始状态。
@@ -269,8 +264,6 @@ inline void message_router::run()
         bool wait_for_any = false;
         std::vector<std::pair<DWORD, DWORD>> ctrl_events;
 
-
-
         {
             std::unique_lock guard{_mutex};
 
@@ -358,9 +351,6 @@ inline void message_router::run()
         }
 
         deliver_ctrl_events(bridge, ctrl_events);
-
-
-
 
         if (exit_loop)
             break;

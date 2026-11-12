@@ -215,7 +215,6 @@ int ctrl_read_probe(const wchar_t *result_file)
     return 0;
 }
 
-
 HANDLE g_handler_event = nullptr;
 volatile ULONG g_handler_code = 0;
 
@@ -291,8 +290,7 @@ int size_event_probe()
         char marker[96]{};
         ::sprintf_s(marker, "SIZE-EVENT=%dx%d\r\n", record.Event.WindowBufferSizeEvent.dwSize.X,
                     record.Event.WindowBufferSizeEvent.dwSize.Y);
-        ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), marker, static_cast<DWORD>(::strlen(marker)), &written,
-                    nullptr);
+        ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), marker, static_cast<DWORD>(::strlen(marker)), &written, nullptr);
         return 0;
     }
 }
@@ -326,8 +324,7 @@ int mouse_probe()
                     record.Event.MouseEvent.dwMousePosition.X, record.Event.MouseEvent.dwMousePosition.Y,
                     static_cast<unsigned long>(record.Event.MouseEvent.dwButtonState),
                     static_cast<unsigned long>(record.Event.MouseEvent.dwEventFlags));
-        ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), marker, static_cast<DWORD>(::strlen(marker)), &written,
-                    nullptr);
+        ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), marker, static_cast<DWORD>(::strlen(marker)), &written, nullptr);
         ++seen;
     }
     return 0;
@@ -516,8 +513,7 @@ void script_print(const char *format, ...)
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
     DWORD written = 0;
-    ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), buffer, static_cast<DWORD>(std::strlen(buffer)), &written,
-                nullptr);
+    ::WriteFile(::GetStdHandle(STD_OUTPUT_HANDLE), buffer, static_cast<DWORD>(std::strlen(buffer)), &written, nullptr);
 }
 
 std::wstring utf8_to_wide(const std::string &text)
@@ -705,10 +701,11 @@ int wmain(int argc, wchar_t **argv)
 {
     if (argc < 2 || argc > 3)
     {
-        ::fwprintf(stderr, L"usage: console_probe --ctrl-probe | --ctrl-read-probe | --serve-probe | --wake-probe | --vt-probe\n");
+        ::fwprintf(
+            stderr,
+            L"usage: console_probe --ctrl-probe | --ctrl-read-probe | --serve-probe | --wake-probe | --vt-probe\n");
         return 2;
     }
-
 
     if (::wcscmp(argv[1], L"--ctrl-probe") == 0)
         return ctrl_probe();

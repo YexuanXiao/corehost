@@ -15,7 +15,8 @@ corehost::test::result client_output_and_exit()
     REQUIRE(!cmd.empty());
 
     corehost::test::conpty_session session;
-    const std::wstring command = L"\"" + cmd + L"\" /c \"echo conpty-marker & for /l %i in (1,1,20000) do @rem & exit /b 0\"";
+    const std::wstring command =
+        L"\"" + cmd + L"\" /c \"echo conpty-marker & for /l %i in (1,1,20000) do @rem & exit /b 0\"";
     REQUIRE(session.start(command));
 
     REQUIRE(session.wait_output("conpty-marker", 10000));

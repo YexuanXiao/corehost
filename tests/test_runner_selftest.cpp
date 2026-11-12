@@ -82,7 +82,8 @@ int main()
     // 超时：挂起的用例必须在超时后被终止并记为失败，且不能拖到用例自己醒来。
     const auto start = std::chrono::steady_clock::now();
     const auto timed_out = corehost::test::run_isolated(cases, "hang", 800);
-    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
+    const auto elapsed =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
     std::fwprintf(stdout, L"  timeout: %d failed, elapsed=%lldms\n", timed_out.failed,
                   static_cast<long long>(elapsed.count()));
     ok = ok && timed_out.failed == 1 && elapsed.count() < 5000;

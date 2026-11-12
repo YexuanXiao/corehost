@@ -230,8 +230,8 @@ inline process_result run_process(std::wstring_view command_line, DWORD timeout_
         return result;
     }
 
-    const HANDLE nul = ::CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-                                     0, nullptr);
+    const HANDLE nul =
+        ::CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
 
     // 用 Job 对象托管子进程树：超时时 TerminateJobObject 能连孙进程一起结束，
     // 否则 cmd 拉起的子进程会继承管道写端，让读线程一直等到它们自然退出。

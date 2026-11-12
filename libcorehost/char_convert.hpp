@@ -898,7 +898,7 @@ inline size_t convert_ansi_to_wide_raw(const char *s, size_t len, UINT cp, wchar
 
 // 将 UTF-16/wchar_t 文本写入有限 ANSI raw 缓冲并追加 NUL；失败返回 0。
 inline size_t convert_wide_to_ansi_raw(const wchar_t *s, size_t len, UINT cp, char *out, size_t out_cap,
-                                      bool nul_terminate = true) noexcept
+                                       bool nul_terminate = true) noexcept
 {
     if (len == 0)
     {
@@ -914,8 +914,8 @@ inline size_t convert_wide_to_ansi_raw(const wchar_t *s, size_t len, UINT cp, ch
     if (payload_cap == 0)
         return 0;
 
-    const int written = ::WideCharToMultiByte(cp, 0, s, static_cast<int>(len), out, static_cast<int>(payload_cap),
-                                              nullptr, nullptr);
+    const int written =
+        ::WideCharToMultiByte(cp, 0, s, static_cast<int>(len), out, static_cast<int>(payload_cap), nullptr, nullptr);
     if (written <= 0)
         return 0;
 
@@ -925,8 +925,7 @@ inline size_t convert_wide_to_ansi_raw(const wchar_t *s, size_t len, UINT cp, ch
 }
 
 // 单个 ANSI 字节转 UTF-16；DBCS 首字节单独转换会失败，返回 0。
-inline size_t convert_ansi_char_to_wide_raw(char ch, UINT cp, wchar_t *out, size_t out_cap,
-                                            DWORD flags = 0) noexcept
+inline size_t convert_ansi_char_to_wide_raw(char ch, UINT cp, wchar_t *out, size_t out_cap, DWORD flags = 0) noexcept
 {
     if (out_cap == 0)
         return 0;

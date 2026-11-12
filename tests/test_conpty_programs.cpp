@@ -168,8 +168,8 @@ corehost::test::result ssh_remote_command()
         SKIP((L"cannot start temporary sshd: " + error).c_str());
 
     corehost::test::conpty_session session;
-    const std::wstring command = quote(ssh) + L" " + server.client_options() + L" " + server.user() +
-                                 L"@127.0.0.1 \"cmd /c echo ssh-marker\"";
+    const std::wstring command =
+        quote(ssh) + L" " + server.client_options() + L" " + server.user() + L"@127.0.0.1 \"cmd /c echo ssh-marker\"";
     REQUIRE(session.start(command));
 
     const bool saw_marker = session.wait_output("ssh-marker", 60000);
@@ -287,8 +287,8 @@ corehost::test::result ssh_rejects_unknown_key()
     corehost::test::conpty_session session;
     // 只用未授权的 hostkey，构造独立的选项串（client_options 里已含 -i 客户端密钥，
     // 再加 -i 会让 ssh 同时尝试合法密钥而认证成功）。
-    const std::wstring command = quote(ssh) + L" -p " + std::to_wstring(server.port()) + L" -i \"" +
-                                 server.host_key() + L"\" -o IdentitiesOnly=yes -o IdentityAgent=NUL" +
+    const std::wstring command = quote(ssh) + L" -p " + std::to_wstring(server.port()) + L" -i \"" + server.host_key() +
+                                 L"\" -o IdentitiesOnly=yes -o IdentityAgent=NUL" +
                                  L" -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -o BatchMode=yes" +
                                  L" -o LogLevel=ERROR " + server.user() + L"@127.0.0.1 \"cmd /c echo should-not-run\"";
     REQUIRE(session.start(command));
@@ -321,8 +321,8 @@ corehost::test::result ssh_propagates_remote_exit_code()
         SKIP((L"cannot start temporary sshd: " + error).c_str());
 
     corehost::test::conpty_session session;
-    const std::wstring command = quote(ssh) + L" " + server.client_options() + L" " + server.user() +
-                                 L"@127.0.0.1 \"exit 7\"";
+    const std::wstring command =
+        quote(ssh) + L" " + server.client_options() + L" " + server.user() + L"@127.0.0.1 \"exit 7\"";
     REQUIRE(session.start(command));
 
     DWORD exit_code = static_cast<DWORD>(-1);

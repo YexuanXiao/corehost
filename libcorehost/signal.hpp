@@ -59,7 +59,6 @@ class pty_signal_reader
         _pipe = pipe;
     }
 
-
     // 由消息 id 返回 payload 长度；0 表示未知 id（协议损坏，退出程序）。
     // 公开给信号线程：它需要在读 payload 之前知道精确长度。
     static size_t payload_size_for(unsigned short id) noexcept;
@@ -69,7 +68,6 @@ class pty_signal_reader
 
   private:
     // 应用一条已完整解析的信号。
-
 
     win32::handle_view _pipe;
     console_state &_state;

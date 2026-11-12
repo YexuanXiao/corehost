@@ -41,8 +41,7 @@ namespace corehost::test
 
 // 测试进程统一抑制系统错误对话框：被测程序初始化失败（0xc0000142 等）时
 // 只应表现为退出码，不允许在用户桌面上弹窗。
-inline const bool error_dialogs_suppressed = []
-{
+inline const bool error_dialogs_suppressed = [] {
     ::SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
     return true;
 }();
@@ -184,8 +183,6 @@ inline std::optional<int> run_child_case(std::span<const test_case> cases)
     return child_result;
 }
 
-
-
 // 把本用例期间写出的 corehost 日志复制到 test-artifacts/<case>/。
 // 偶发失败如果没有产物，就只能靠复跑碰运气；这里至少保住会话日志。
 inline void archive_case_logs(const char *case_name, std::filesystem::file_time_type since)
@@ -216,12 +213,10 @@ inline void archive_case_logs(const char *case_name, std::filesystem::file_time_
     }
 }
 
-
 // timeout_ms 是测试基础设施的判定期限：超时即终止子进程并记为失败，避免一个
 // 挂起的用例拖死整组（产品代码不允许等待上限，测试基础设施需要它来判定失败）。
 // 子进程隔离执行：每个用例重启自身（--case-index N），父进程等待并汇总。
-inline run_stats run_isolated(std::span<const test_case> cases, std::string_view filter = {},
-                               DWORD timeout_ms = 60000)
+inline run_stats run_isolated(std::span<const test_case> cases, std::string_view filter = {}, DWORD timeout_ms = 60000)
 {
     run_stats stats{};
 
@@ -252,8 +247,8 @@ inline run_stats run_isolated(std::span<const test_case> cases, std::string_view
         // 新建一个可见控制台窗口（conhost 闪窗）；用一个无窗口控制台代替。
         // 父进程有控制台时保持继承，保留隔离用例的失败诊断输出。
         const DWORD creation_flags = (::GetConsoleWindow() == nullptr) ? CREATE_NO_WINDOW : 0;
-        if (::CreateProcessW(module_path, command.data(), nullptr, nullptr, FALSE, creation_flags, nullptr, nullptr, &startup,
-                             &process) == FALSE)
+        if (::CreateProcessW(module_path, command.data(), nullptr, nullptr, FALSE, creation_flags, nullptr, nullptr,
+                             &startup, &process) == FALSE)
         {
             std::fwprintf(stderr, L"  %hs ... CREATE FAILED (err=%lu)\n", test.name, ::GetLastError());
             ++stats.failed;
@@ -273,8 +268,7 @@ inline run_stats run_isolated(std::span<const test_case> cases, std::string_view
             ++stats.failed;
             case_failed = true;
         }
-        else if (wait != WAIT_OBJECT_0 ||
-                 ::GetExitCodeProcess(process.hProcess, &exit_code_value) == FALSE)
+        else if (wait != WAIT_OBJECT_0 || ::GetExitCodeProcess(process.hProcess, &exit_code_value) == FALSE)
         {
             std::fwprintf(stderr, L"  %hs ... WAIT FAILED (err=%lu)\n", test.name, ::GetLastError());
             ++stats.failed;

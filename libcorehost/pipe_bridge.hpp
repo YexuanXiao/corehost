@@ -60,7 +60,7 @@ struct pipe_bridge
 {
     // 有信号管道时等待 pending VT 输入的时间片。信号消息和 VT 输入是两个
     // 独立来源，任一方都不能用无限阻塞等待。
-    
+
     // ── 子系统 ──
     // inp 是 Console API 事件队列；bridge 在终端输入到达时写入 KEY_EVENT，
     // GetConsoleInput 挂起请求也从这里完成。
@@ -74,8 +74,7 @@ struct pipe_bridge
     // api_router 切换 alternate buffer 时改指向。
     screen_buffer *_active_screen = nullptr;
 
-    pipe_bridge(input_buffer &input, console_state &state, screen_buffer &screen,
-                vt_input_state &input_state) noexcept
+    pipe_bridge(input_buffer &input, console_state &state, screen_buffer &screen, vt_input_state &input_state) noexcept
         : inp(input), cstate(state), sbuf(screen), _input_state(input_state),
           _console_control{resolve_console_control()}
     {
@@ -208,8 +207,7 @@ struct pipe_bridge
         const COORD size = cstate.screen_buffer_size;
         if (size.X <= 0 || size.Y <= 0)
             return;
-        if (_window_size_event_valid && _last_window_size_event.X == size.X &&
-            _last_window_size_event.Y == size.Y)
+        if (_window_size_event_valid && _last_window_size_event.X == size.X && _last_window_size_event.Y == size.Y)
             return;
 
         _last_window_size_event = size;
@@ -247,8 +245,6 @@ struct pipe_bridge
             _ctrl_events.push_back(ctrl_event{event, pid});
     }
 
-
-
     // 由 message_router 在持有会话锁时调用；不在这里加锁。
     void take_ctrl_events(std::vector<std::pair<DWORD, DWORD>> &out) noexcept
     {
@@ -273,13 +269,11 @@ struct pipe_bridge
         _processes = &registry;
     }
 
-
     // 当前连接进程数；用于日志和 L3 GetConsoleProcessList 响应。
     size_t process_count() const noexcept
     {
         return _processes->count();
     }
-
 
     // 是否存在指定进程组；供 GenerateConsoleCtrlEvent 校验未知 group。
     bool has_process_group(DWORD group) const noexcept
@@ -371,7 +365,6 @@ struct pipe_bridge
     // 稳定保存当前 ConsoleInput 请求，避免 READ_IO 重新使用原缓冲后指针失效。
     condrv_io::io_msg _console_input_pending_msg{};
 
-
     // 低级 Win32/ConDrv I/O 封装，bridge 只通过它访问 server/vt_in。
     pipe_bridge_io _io;
     // 由信号线程阻塞读取 WT 信号管道；无信号管道时保持未绑定。
@@ -427,7 +420,6 @@ struct pipe_bridge
             return raw_read_capacity(*_pending.raw_read());
         return _readbuf.size();
     }
-
 
     void prepare_console_input_completion(condrv_io::io_msg &msg, CONSOLE_GETCONSOLEINPUT_MSG *req, bool peek,
                                           size_t max_count) noexcept
@@ -504,7 +496,6 @@ struct pipe_bridge
         _pending.set_vt_eof(true);
         complete_pending();
     }
-
 
     // ── 持久转换缓冲区访问器 ──
     // 返回共享 UTF-32 转换缓冲。API handlers 只在单次请求内使用该缓冲；
@@ -1208,7 +1199,6 @@ struct pipe_bridge
 
         LOG3("[bridge] handle_console_read: pending ConsoleRead, unicode=%d", req->Unicode != 0);
 
-
         LOG3("[bridge] handle_console_read: pending, returning false");
         return false;
     }
@@ -1313,7 +1303,6 @@ struct pipe_bridge
         return !_pending.has_pending();
     }
 
-
     // 取消当前挂起读取并立即完成给 ConDrv。Flush/Disconnect 类路径用它把
     // bridge 从 pending 状态拉回可继续 READ_IO 的状态。
     void cancel_pending_read()
@@ -1342,7 +1331,7 @@ struct pipe_bridge
         else
         {
             auto *s = reinterpret_cast<const char *>(data);
-const auto cp = cstate.output_code_page;
+            const auto cp = cstate.output_code_page;
             if (cp == CP_UTF8)
             {
                 vt_append_str(std::string_view{s, bytes});
@@ -2004,7 +1993,6 @@ const auto cp = cstate.output_code_page;
         return true;
     }
 
-
     // 把当前输入批次中 consumed 之后的字节放回队首。行终止符完成 pending 后，
     // 同一 ReadFile 批次里的下一行输入必须留给下一次请求。
     void queue_unprocessed_vt_input(const char8_t *bytes, DWORD consumed, DWORD len) noexcept
@@ -2531,8 +2519,8 @@ const auto cp = cstate.output_code_page;
     // Backspace 会变成 ^H，方向键/功能键的 uChar 是 0，远端完全收不到。
     [[nodiscard]] bool vt_input_passthrough(PendingKind pending_kind) const noexcept
     {
-        return (cstate.input_mode & ENABLE_VIRTUAL_TERMINAL_INPUT) != 0 &&
-               pending_kind != PendingKind::ConsoleRead && pending_kind != PendingKind::RawRead;
+        return (cstate.input_mode & ENABLE_VIRTUAL_TERMINAL_INPUT) != 0 && pending_kind != PendingKind::ConsoleRead &&
+               pending_kind != PendingKind::RawRead;
     }
 
     // ── process_input: 解码 → 解析 → echo → 分发 ──
@@ -3108,18 +3096,16 @@ const auto cp = cstate.output_code_page;
         if (_pending.kind() != PendingKind::ConsoleInput || !_pending.console_input())
             return;
 
-        const bool from_queue = !_queued_console_inputs.empty() &&
-                                _pending.console_input() == &_queued_console_inputs.front();
+        const bool from_queue =
+            !_queued_console_inputs.empty() && _pending.console_input() == &_queued_console_inputs.front();
 
         if (status != 0)
         {
             // Ctrl+C / Ctrl+Break：0 条记录 + STATUS_ALERTED。
             auto &pending_msg = *_pending.console_input();
             _console_input_output_buffer.resize(sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
-            auto *out_req =
-                reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(_console_input_output_buffer.data());
-            *out_req = *reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(pending_msg.body +
-                                                                        sizeof(CONSOLE_MSG_HEADER));
+            auto *out_req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(_console_input_output_buffer.data());
+            *out_req = *reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(pending_msg.body + sizeof(CONSOLE_MSG_HEADER));
             out_req->NumRecords = 0;
             condrv_io::prepare_completion(pending_msg, status, 0, _console_input_output_buffer.data(),
                                           sizeof(CONSOLE_GETCONSOLEINPUT_MSG));

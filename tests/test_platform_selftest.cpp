@@ -46,8 +46,7 @@ corehost::test::result timeout_terminates_child()
     REQUIRE(!cmd.empty());
 
     const auto start = std::chrono::steady_clock::now();
-    const auto result =
-        corehost::test::run_process(quote_self() + L" --sleep-forever", 600);
+    const auto result = corehost::test::run_process(quote_self() + L" --sleep-forever", 600);
     const auto elapsed =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 

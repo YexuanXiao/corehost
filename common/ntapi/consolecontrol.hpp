@@ -15,8 +15,7 @@ using PFN_ConsoleControl = NTSTATUS(WINAPI *)(CONSOLECONTROL Command, PVOID Cons
 [[nodiscard]] inline PFN_ConsoleControl resolve_console_control() noexcept
 {
     HMODULE user32 = nullptr;
-    const auto result =
-        ::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, L"user32.dll", &user32);
+    const auto result = ::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, L"user32.dll", &user32);
     if (result == 0 || user32 == nullptr)
         user32 = ::LoadLibraryExW(L"user32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     assert(user32 != nullptr);

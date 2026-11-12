@@ -381,7 +381,7 @@ struct vt_mouse_payload
 union vt_message_payload {
     // continue_text/text/unknown_sequence 的字符视图；continue_text 指向
     // 本次 parse 输入，其它文本消息指向 parser raw 缓冲。
-    std::u32string_view text;    // OSC 0/2 标题视图，指向 parser raw 缓冲。
+    std::u32string_view text; // OSC 0/2 标题视图，指向 parser raw 缓冲。
     std::u32string_view title;
     // 共用 count 参数，适用于 cursor/scroll/insert/delete 等消息。
     vt_count_payload count;

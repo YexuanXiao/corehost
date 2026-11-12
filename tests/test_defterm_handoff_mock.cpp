@@ -43,9 +43,8 @@ class mock_handoff final : public IConsoleHandoff
         return 1;
     }
 
-    HRESULT STDMETHODCALLTYPE EstablishHandoff(HANDLE server, HANDLE input_event,
-                                               PCCONSOLE_PORTABLE_ATTACH_MSG message, HANDLE signal_pipe,
-                                               HANDLE inbox_process, HANDLE *process) override
+    HRESULT STDMETHODCALLTYPE EstablishHandoff(HANDLE server, HANDLE input_event, PCCONSOLE_PORTABLE_ATTACH_MSG message,
+                                               HANDLE signal_pipe, HANDLE inbox_process, HANDLE *process) override
     {
         ++calls;
         seen_server = server;
@@ -111,7 +110,8 @@ bool handoff_receives_console_connection()
     auto server = win32::duplicate_self();
     win32::event input_event{win32::create_tag, /*manual_reset=*/false, /*initial=*/false};
 
-    const bool accepted = corehost::defterm::perform_handoff(terminal, server.view(), input_event.view(), portable, 4242);
+    const bool accepted =
+        corehost::defterm::perform_handoff(terminal, server.view(), input_event.view(), portable, 4242);
     ASSERT(accepted);
     ASSERT_EQ(terminal.calls, 1);
 
@@ -150,7 +150,7 @@ int main()
     std::wcout << L"=== Defterm Handoff (mock) ===" << std::endl;
     RUN_TEST(handoff_receives_console_connection, L"Handoff passes connection to terminal");
     RUN_TEST(handoff_rejection_is_reported, L"Handoff rejection is reported");
-    std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, "
-               << (tests_passed + tests_failed) << L" total." << std::endl;
+    std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, " << (tests_passed + tests_failed)
+               << L" total." << std::endl;
     return tests_failed > 0 ? 1 : 0;
 }

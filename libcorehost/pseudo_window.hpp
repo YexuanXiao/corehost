@@ -107,6 +107,7 @@ class pseudo_window
             return;
         ::SendMessageW(_hwnd, wm_set_owner, reinterpret_cast<WPARAM>(owner), 0);
     }
+
   private:
     static DWORD WINAPI thread_entry(LPVOID self)
     {
@@ -133,9 +134,9 @@ class pseudo_window
 
         // WS_POPUP 是硬需求：否则 GetAncestor(GetConsoleWindow(), GA_ROOTOWNER)
         // 会返回伪窗口自己，而不是宿主终端窗口。
-        const HWND created = ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
-                                               class_name, _initial_title.c_str(), WS_POPUP, 0, 0, 0, 0,
-                                               nullptr, nullptr, nullptr, this);
+        const HWND created =
+            ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP, class_name,
+                              _initial_title.c_str(), WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, nullptr, this);
         if (created == nullptr)
             win32::throw_last_error();
 
@@ -238,9 +239,6 @@ class pseudo_window
     static constexpr UINT wm_stop_thread = WM_APP + 1;
     static constexpr UINT wm_set_visibility = WM_APP + 2;
     static constexpr UINT wm_set_owner = WM_APP + 3;
-
-
-
 
     // 打断主线程阻塞中的 READ_IO，让主循环处理可见性/关闭事件。
     void cancel_server_io() const noexcept

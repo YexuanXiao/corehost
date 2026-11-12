@@ -183,7 +183,6 @@ inline bool is_line_terminator_echo(std::u32string_view text) noexcept
     return text == U"\r"sv || text == U"\n"sv || text == U"\r\n"sv;
 }
 
-
 // 判断当前 viewport 是否覆盖整个 screen_buffer。覆盖时清屏/滚动可以用更
 // 简单的全屏 VT 序列；否则必须只改 viewport 可见区域。
 inline bool viewport_covers_screen_buffer(const screen_buffer &sb) noexcept
@@ -1135,8 +1134,7 @@ inline void ucomplete_sz(condrv_io::io_msg &msg, ULONG sz) noexcept
 // ReadConsoleOutputCharacter 在 80 字符精确缓冲下触发了 ASAN abort。
 inline void ucomplete_data(condrv_io::io_msg &msg, size_t api_size, size_t data_bytes) noexcept
 {
-    condrv_io::prepare_completion(msg, 0, static_cast<ULONG_PTR>(data_bytes),
-                                  msg.body + sizeof(CONSOLE_MSG_HEADER),
+    condrv_io::prepare_completion(msg, 0, static_cast<ULONG_PTR>(data_bytes), msg.body + sizeof(CONSOLE_MSG_HEADER),
                                   static_cast<ULONG>(api_size + data_bytes));
 }
 
@@ -1438,7 +1436,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                 COREHOST_PERF_SCOPE(write_console_sync_cursor);
                 bridge.sync_cursor_after_write(state.cursor.position, !replay_utf8_to_terminal);
             }
-
         }
     }
 }
@@ -1516,7 +1513,8 @@ inline bool api_read_console(condrv_io::io_msg &msg, console_state &state, scree
         // ExeName 和 InitialData 位于 API descriptor 之后；body 放不下的部分由
         // read_input_payload 通过 READ_INPUT 读入临时缓冲。不能用 InputSize 直接
         // 算 body 偏移：InputSize 是客户端声明的，可以大于本地 body。
-        const auto payload = bridge.read_input_payload(msg, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+        const auto payload =
+            bridge.read_input_payload(msg, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
         // ExeNameLength 是 wchar_t 字符数，不是字节数。
         const auto exe_bytes = static_cast<size_t>(req->ExeNameLength) * sizeof(wchar_t);
         if (exe_bytes > payload.size())
@@ -1576,8 +1574,7 @@ inline bool api_fill_output(condrv_io::io_msg &msg, console_state &state, screen
     if (r->ElementType == CONSOLE_ASCII)
     {
         const char byte = static_cast<char>(r->Element & 0xFF);
-        convert_ansi_to_u32(&byte, 1, state.output_code_page, bridge.conv_u32(),
-                            bridge.conv_wstr());
+        convert_ansi_to_u32(&byte, 1, state.output_code_page, bridge.conv_u32(), bridge.conv_wstr());
         if (!bridge.conv_u32().empty())
             fill_char = bridge.conv_u32().front();
     }
@@ -2014,8 +2011,7 @@ inline bool api_scroll_sb(condrv_io::io_msg &msg, console_state &state, screen_b
     if (!r->Unicode)
     {
         const char byte = r->Fill.Char.AsciiChar;
-        convert_ansi_to_u32(&byte, 1, state.output_code_page, bridge.conv_u32(),
-                            bridge.conv_wstr());
+        convert_ansi_to_u32(&byte, 1, state.output_code_page, bridge.conv_u32(), bridge.conv_wstr());
         if (!bridge.conv_u32().empty())
             fill_char = bridge.conv_u32().front();
     }
@@ -2494,8 +2490,7 @@ inline bool api_write_output_string(condrv_io::io_msg &msg, console_state &state
         auto &u32text = bridge.conv_u32();
         if (r->StringType == CONSOLE_ASCII)
         {
-            convert_ansi_to_u32(reinterpret_cast<const char *>(bytes), ib,
-                                state.output_code_page, u32text,
+            convert_ansi_to_u32(reinterpret_cast<const char *>(bytes), ib, state.output_code_page, u32text,
                                 bridge.conv_wstr());
         }
         else
@@ -2508,8 +2503,8 @@ inline bool api_write_output_string(condrv_io::io_msg &msg, console_state &state
         const auto written_text = std::u32string_view{u32text.data(), written_u32};
         if (r->StringType == CONSOLE_ASCII)
         {
-            r->NumRecords = static_cast<ULONG>(u32_to_ansi_exact_len(
-                written_text, state.output_code_page, bridge.conv_wstr()));
+            r->NumRecords =
+                static_cast<ULONG>(u32_to_ansi_exact_len(written_text, state.output_code_page, bridge.conv_wstr()));
         }
         else
         {
@@ -2576,8 +2571,8 @@ inline bool api_read_console_output(condrv_io::io_msg &msg, console_state &state
     // 可以把 OutputSize 放大到超过 body，若直接用它算矩形容量会越界写 body
     // （与 G28 同类的输入驱动越界）。
     const auto capacity = message_output_data_capacity(msg, sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
-    auto *out = reinterpret_cast<CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                              sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
+    auto *out =
+        reinterpret_cast<CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
     // 未覆盖区域发送 0，而不是上一条消息的残留 body 内容。
     std::memset(out, 0, capacity);
 
@@ -2732,8 +2727,8 @@ inline bool api_set_title(condrv_io::io_msg &msg, console_state &state, screen_b
     }
     else
     {
-        convert_ansi_to_u32(reinterpret_cast<const char *>(payload.data()), payload.size(),
-                            state.input_code_page, u32title, bridge.conv_wstr());
+        convert_ansi_to_u32(reinterpret_cast<const char *>(payload.data()), payload.size(), state.input_code_page,
+                            u32title, bridge.conv_wstr());
     }
     if (state.title.empty())
     {
@@ -3447,8 +3442,8 @@ inline bool api_l3_get_history(condrv_io::io_msg &msg, console_state &state, scr
 
 // ── 0x1F GetConsoleWindow ──
 // GetConsoleWindow：返回当前宿主窗口句柄。corehost 不保存单独窗口状态。
-inline bool api_l3_get_console_window(condrv_io::io_msg &msg, console_state &state, screen_buffer &,
-                                      input_buffer &, pipe_bridge &) noexcept
+inline bool api_l3_get_console_window(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                                      pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEWINDOW_MSG))
     {

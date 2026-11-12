@@ -225,7 +225,6 @@ class pipe_bridge_testable : private pipe_bridge_input_holder, public pipe_bridg
     {
         _terminal.set_enter_newline_pending(v);
     }
-
 };
 
 } // namespace corehost::conpty

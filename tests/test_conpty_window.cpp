@@ -106,7 +106,6 @@ bool pseudo_window_contract()
     ASSERT(rect.right == rect.left);
     ASSERT(rect.bottom == rect.top);
 
-
     // owner：SetParent 信号必须落到 GWLP_HWNDPARENT，并反映到 GA_ROOTOWNER。
     const HWND owner = ::GetDesktopWindow();
     ASSERT(SUCCEEDED(ConptyReparentPseudoConsole(ci.hpc, owner)));
@@ -290,7 +289,7 @@ int main()
     RUN_TEST(pseudo_window_after_connect, L"Pseudo window signals after connect");
     RUN_TEST(interactive_pwsh_preconnect_signals, L"Interactive pwsh pre-connect signals");
     RUN_TEST(interactive_pwsh_survives_signals, L"Interactive pwsh signals");
-    std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, "
-               << (tests_passed + tests_failed) << L" total." << std::endl;
+    std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, " << (tests_passed + tests_failed)
+               << L" total." << std::endl;
     return tests_failed > 0 ? 1 : 0;
 }

@@ -54,10 +54,10 @@ namespace corehost::defterm
     win32::event terminal_process;
 
     LOG("calling EstablishHandoff server=%p event=%p signalWrite=%p self=%p id=%08lx:%08lx pid=%lu", server.get(),
-        input_event.get(), signal_write.get(), corehost_process.get(), portable_msg.IdHighPart,
-        portable_msg.IdLowPart, client_pid);
+        input_event.get(), signal_write.get(), corehost_process.get(), portable_msg.IdHighPart, portable_msg.IdLowPart,
+        client_pid);
     const HRESULT hr = handoff.EstablishHandoff(server.get(), input_event.get(), &portable_msg, signal_write.get(),
-                                               corehost_process.get(), terminal_process.put());
+                                                corehost_process.get(), terminal_process.put());
     LOG("EstablishHandoff returned hr=0x%08lx terminalProcess=%p", static_cast<unsigned long>(hr),
         terminal_process.get());
     if (win32::failed(static_cast<win32::hresult>(hr)))
