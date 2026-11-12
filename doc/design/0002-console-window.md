@@ -134,7 +134,7 @@ corehost 需要的是同一套**对外契约**，不需要照搬它的渲染、U
 
 以下契约已落地并纳入 `ConPTY.PseudoWindow`：
 
-- owner：`PtySignal::SetParent` → `SetWindowLongPtrW(GWLP_HWNDPARENT)`；`GetAncestor(GA_ROOTOWNER)` 返回 owner。
+- owner：`PtySignal::SetParent` → 窗口线程 `wm_set_owner` → `SetWindowLongPtrW(GWLP_HWNDPARENT)`；`GetAncestor(GA_ROOTOWNER)` 返回 owner。
 - 可见性：`PtySignal::ShowHideWindow` → 窗口线程通过 `wm_set_visibility` 执行 `ShowWindow(SW_SHOWNOACTIVATE/SW_MINIMIZE)`；调用期间用窗口线程私有的 `_suppress_visibility` 抑制 `WM_SIZE`/`WM_SHOWWINDOW` 回调，避免把 WT 发起的 show/hide 再回显成 VT 序列。创建期 `WM_SIZE` 不 `CancelIoEx`；真实外部可见性变化仍取消 READ_IO 以唤醒主循环。
 - resize：伪窗口按原版创建为 0×0，且**不随** `PtySignal::ResizeWindow` 改变；resize 只更新 `screen_buffer_size`/screen buffer，与伪 HWND 无关。
 - `WM_ACTIVATE`：按原版，只要有有效 owner 就 `SetFocus(owner)`，不区分 active/inactive。
