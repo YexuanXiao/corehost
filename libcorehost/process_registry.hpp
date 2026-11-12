@@ -10,7 +10,7 @@ namespace corehost::conpty
 
 // 当前控制台上已连接进程的唯一条目：pid + 进程组 id。
 // group 来自 CONNECT 的 CONSOLE_SERVER_MSG::ProcessGroupId；0 归一化为 pid，
-// 与 conhost 的"按进程 id 定向普通子进程"的常见用法保持兼容（详见
+// 与 系统控制台 的"按进程 id 定向普通子进程"的常见用法保持兼容（详见
 // doc/design/0006-process-registry-review.md）。
 struct process_entry
 {
@@ -59,7 +59,7 @@ class process_registry
         }
     }
 
-    // 进程组过滤：group == 0 表示"所有进程"（conhost 的 ProcessGroupId=0
+    // 进程组过滤：group == 0 表示"所有进程"（系统控制台 的 ProcessGroupId=0
     // 语义），否则只保留组 id 匹配的 pid。返回写入 output 的数量。
     // 是否存在指定进程组（GenerateConsoleCtrlEvent 的未知 group 校验）。
     [[nodiscard]] bool contains_group(DWORD group) const noexcept

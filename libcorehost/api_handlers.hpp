@@ -1124,7 +1124,7 @@ inline void ucomplete_sz(condrv_io::io_msg &msg, ULONG sz) noexcept
 // ════════════════════════════════════════════════════════
 // 完成一个返回 "API struct + 数据区" 的 USER_DEFINED API。
 //
-// ConDrv 客户端把 Information 当成**数据区字节数**（conhost 的
+// ConDrv 客户端把 Information 当成**数据区字节数**（系统控制台 的
 // ServerReadConsoleOutputString / ServerReadConsoleOutput 用
 // SetReplyInformation(cbBuffer) 回报数据区容量，且 Complete.Write.Size 只含
 // API struct）。corehost 的完成是单 region（Write.Data 指向 body+header），
@@ -1343,7 +1343,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                 }
                 else
                 {
-                    // 真实 conhost 的 WriteConsole 从当前 Console 光标输出；宿主
+                    // 真实 系统控制台 的 WriteConsole 从当前 Console 光标输出；宿主
                     // 终端光标可能因本地 echo 不同；若 bridge 已确认二者同步，
                     // 则跳过重复 CUP，避免按行小写入产生大量无意义 VT。
                     if (sb.viewport.snap_to_cursor(state.cursor.position, state.screen_buffer_size))
@@ -1734,8 +1734,8 @@ inline bool api_ctrl_event(condrv_io::io_msg &msg, console_state &, screen_buffe
         return true;
     }
 
-    // group 非 0 时必须存在匹配的进程组；conhost 对未知 group 返回
-    // E_INVALIDARG（客户端 GenerateConsoleCtrlEvent 得到 FALSE）。conhost 还有
+    // group 非 0 时必须存在匹配的进程组；系统控制台 对未知 group 返回
+    // E_INVALIDARG（客户端 GenerateConsoleCtrlEvent 得到 FALSE）。系统控制台 还有
     // "group 当 pid、父进程在控制台则合成 entry"的 legacy 兜底，这里不复刻。
     if (r->ProcessGroupId != 0 && !bridge.has_process_group(r->ProcessGroupId))
     {
@@ -3513,7 +3513,7 @@ inline bool api_l3_get_process_list(condrv_io::io_msg &msg, console_state &, scr
     const auto capacity = message_output_tail_capacity(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG)) / sizeof(DWORD);
     const auto total = bridge.process_count();
 
-    // conhost 语义：缓冲不足时 GetProcessList 返回 E_NOT_SUFFICIENT_BUFFER，
+    // 系统控制台 语义：缓冲不足时 GetProcessList 返回 E_NOT_SUFFICIENT_BUFFER，
     // dispatcher 不写任何 pid、Information=0，但 dwProcessCount 仍是所需数量
     // （客户端据此扩容后重试）。只有容量足够时才返回数据。
     if (capacity < total)

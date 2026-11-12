@@ -185,7 +185,7 @@ inline void prepare_completion(io_msg &msg, LONG status, ULONG_PTR info, PVOID d
 }
 
 // 无输出载荷的完成：Write 清零，失败分支据此不会回写客户端缓冲区，
-// 与 conhost 只在 SUCCEEDED_NTSTATUS 时 WriteOutput 的行为一致。
+// 与 系统控制台 只在 SUCCEEDED_NTSTATUS 时 WriteOutput 的行为一致。
 inline void prepare_completion(io_msg &msg, LONG status = 0, ULONG_PTR info = 0) noexcept
 {
     prepare_completion(msg, status, info, nullptr, 0);
@@ -211,7 +211,7 @@ inline void prepare_completion(io_msg &msg, LONG status = 0, ULONG_PTR info = 0)
 //
 // CD_CONNECTION_INFORMATION 中 Process 为何复用 Input 句柄值？
 //   ConDrv 的 PutHandle/GetHandle 最终调用 ObReferenceObjectByPointer，
-//   ULONG_PTR 只是不透明令牌。三个字段可以不互异——原版 conhost 的
+//   ULONG_PTR 只是不透明令牌。三个字段可以不互异——原版 系统控制台 的
 //   ProcessHandleList 也只在首次连接时创建 Process 句柄。
 //
 // accept_connection() 通过出参返回客户端 I/O 句柄：

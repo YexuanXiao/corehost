@@ -45,7 +45,7 @@ inline DWORD effective_virtual_terminal_level(DWORD registry_level, bool conpty_
     return conpty_mode ? 1u : registry_level;
 }
 
-// 读 HKCU\Console\VirtualTerminalLevel；缺失/类型不符/读取失败按 conhost 的默认
+// 读 HKCU\Console\VirtualTerminalLevel；缺失/类型不符/读取失败按 系统控制台 的默认
 // 值 0 处理（即不打开 VT processing）。
 inline DWORD read_virtual_terminal_level() noexcept
 {
@@ -99,7 +99,7 @@ using alias_map = std::flat_map<std::wstring, std::wstring, ascii_case_insensiti
 
 struct cursor_state
 {
-    // 1-100 是 Win32 控制台光标高度百分比；默认 25 与传统 conhost 一致。
+    // 1-100 是 Win32 控制台光标高度百分比；默认 25 与传统 系统控制台 一致。
     ULONG size = 25;
 
     // true 表示终端应显示光标；false 对应 SetConsoleCursorInfo 隐藏光标。
@@ -185,7 +185,7 @@ struct console_state
     // ── 模式 ──
     // 取值为 ENABLE_* 标志位组合；输入/输出的默认集合与原版不同对象一致。
     DWORD input_mode = DEFAULT_INPUT_MODE;
-    // GetConsoleMode 回读时补上的私有标志（默认与 conhost 一致：INSERT 开、
+    // GetConsoleMode 回读时补上的私有标志（默认与 系统控制台 一致：INSERT 开、
     // QUICK_EDIT 开、AUTO_POSITION 关；EXTENDED_FLAGS 在回读时总是置位）。
     DWORD input_mode_private = ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE | ENABLE_AUTO_POSITION;
     DWORD output_mode = DEFAULT_OUTPUT_MODE;

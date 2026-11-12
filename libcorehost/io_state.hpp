@@ -120,7 +120,7 @@ struct io_state
         {
             // 后续 CONNECT 只代表子进程加入现有控制台。它共享首个连接的
             // \Input/\Output，因此不需要新建句柄。
-            // 加入的进程仍然需要为stdin和stdout获取对象id，就像conhost为每个进程提供的一样。
+            // 加入的进程仍然需要为stdin和stdout获取对象id，就像系统控制台为每个进程提供的一样。
             // 空的回复将它们留为0，因此对子进程的stdout的每次调用（从shell启动的ssh.exe）
             // 都被路由为输入句柄调用：
             // SetConsoleMode(stdout)失败，甚至覆盖了输入模式。重用第一个连接的id。

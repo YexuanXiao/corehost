@@ -46,7 +46,7 @@ inline void dispatch_console(win32::handle_view server, condrv_io::io_msg &msg, 
     case CONSOLE_IO_CREATE_OBJECT: {
         // request 指向 ConDrv 消息体中的 CD_CREATE_OBJECT_INFORMATION。
         // msg.descriptor.InputSize 必须由驱动保证足够大；这里沿用原始
-        // conhost 的信任边界，不重复做短包校验。
+        // 系统控制台 的信任边界，不重复做短包校验。
         auto *request = reinterpret_cast<CD_CREATE_OBJECT_INFORMATION *>(msg.body);
 
         // ObjectType 可能是明确的 CurrentInput/CurrentOutput/NewOutput，

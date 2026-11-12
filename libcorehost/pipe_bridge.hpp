@@ -186,7 +186,7 @@ struct pipe_bridge
     }
 
     // WriteConsoleInput 写入了记录：唤醒等待中的 ReadConsoleInput，或让等待中的
-    // ReadConsole 用这些记录编辑当前行（conhost 行为）。libuv（node/bun 等）在
+    // ReadConsole 用这些记录编辑当前行（系统控制台 行为）。libuv（node/bun 等）在
     // 切换 raw 模式时就是写一个 Enter 键来结束挂起的行读，读不返回会让程序卡住。
     void on_console_input_written()
     {
@@ -197,7 +197,7 @@ struct pipe_bridge
     }
 
     // 缓冲区尺寸变化时给 VT 输入模式的客户端补一条 WINDOW_BUFFER_SIZE_EVENT。
-    // conhost 在 viewport 变化且 IsInVirtualTerminalInputMode() 时这么做
+    // 系统控制台 在 viewport 变化且 IsInVirtualTerminalInputMode() 时这么做
     // ；重复尺寸由本地状态去重。
     // 调用方必须持有会话锁；没有尺寸变化/非 VT 输入模式时什么也不做。
     void queue_window_buffer_size_event() noexcept
@@ -2046,14 +2046,14 @@ const auto cp = cstate.output_code_page;
     {
         // 与系统宿主的已知差异（差分 G24，只记录不比较）：
         // ConPTY 下，挂起中的 raw ReadFile / ReadConsoleInput 收到 Ctrl+C 时，
-        // 系统 conhost 不会让读返回——探针打印 READY 后 ReadFile 永不完成、
+        // 系统 系统控制台 不会让读返回——探针打印 READY 后 ReadFile 永不完成、
         // 进程不退出；corehost 按 raw/record 读的实际行为实现，
         // TerminateRead(CtrlC) 语义，以 STATUS_ALERTED 结束，客户端看到
         // 0 字节 / 0 条记录。
         // 复现：tests/test_conpty_differential.cpp 的 raw_ctrl / input_ctrl
         // 场景（console_probe --raw-read-probe / --input-record-probe 挂起后
         // 收到 Win32Input 的 Ctrl+C 序列）。挂起永不返回比返回 0 字节更差，
-        // 因此不把 conhost 的行为固化成 corehost 的测试期望。
+        // 因此不把 系统控制台 的行为固化成 corehost 的测试期望。
 
         // Ctrl+C / Ctrl+Break：与系统宿主的行为对齐——
         //   Ctrl+C（processed input、无 Alt）：投递 CTRL_C_EVENT，并以
@@ -2075,7 +2075,7 @@ const auto cp = cstate.output_code_page;
 
             if (m.payload.win32_key.vk == VK_CANCEL)
             {
-                // conhost 只在 Break 时清空输入缓冲（Ctrl+C 不清）。
+                // 系统控制台 只在 Break 时清空输入缓冲（Ctrl+C 不清）。
                 inp.flush();
                 send_ctrl_event(CTRL_BREAK_EVENT, 0);
                 complete_pending(condrv_io::status_alerted);
@@ -2850,7 +2850,7 @@ const auto cp = cstate.output_code_page;
     {
         _line_found = true;
 
-        // 行终止符本地回显统一为 CRLF，与真实 conhost 一致。旧实现非 raw
+        // 行终止符本地回显统一为 CRLF，与真实 系统控制台 一致。旧实现非 raw
         // echo 模式只输出裸 LF；Windows Terminal 中裸 LF 只下移不回车，
         // Enter 后 shell 的输出会接在行尾而不是新行首。
         vt_append_str("\r\n"sv);
@@ -2961,7 +2961,7 @@ const auto cp = cstate.output_code_page;
 
         if (status != 0)
         {
-            // Ctrl+C / Ctrl+Break：0 字节 + STATUS_ALERTED（conhost 同款语义）。
+            // Ctrl+C / Ctrl+Break：0 字节 + STATUS_ALERTED（系统控制台 同款语义）。
             req->NumBytes = 0;
             auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
             condrv_io::prepare_completion(m, status, 0, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
@@ -3056,7 +3056,7 @@ const auto cp = cstate.output_code_page;
         _pending.clear();
         _read_total = 0;
 
-        // Ctrl+C / Ctrl+Break 结束的读不进入命令历史（conhost 只在正常提交时记录）。
+        // Ctrl+C / Ctrl+Break 结束的读不进入命令历史（系统控制台 只在正常提交时记录）。
         if (status == 0)
             history_push();
 

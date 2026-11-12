@@ -173,7 +173,7 @@ class console_arguments
             // 只允许以下三个值：
             //   "graphemes" Unicode 字簇（grapheme cluster）测量宽度
             //   "wcswidth" wcswidth 规则测量宽度
-            //   "console" 传统 conhost 规则测量宽度
+            //   "console" 传统 系统控制台 规则测量宽度
             if (token == text_measurement_arg)
             {
                 using enum corehost::conpty::text_measurement_mode;
