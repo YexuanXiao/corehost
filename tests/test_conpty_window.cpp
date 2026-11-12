@@ -193,6 +193,42 @@ bool pseudo_window_preconnect_signals()
     return true;
 }
 
+// 连接前信号后启动交互式 PowerShell，客户端必须保持运行。
+bool interactive_pwsh_preconnect_signals()
+{
+    conpty_session session;
+    ASSERT(session.create({120, 30}));
+    ASSERT(session.reparent(::GetDesktopWindow()));
+    ASSERT(session.show(true));
+    ASSERT(session.show(false));
+    ASSERT(session.show(true));
+    ASSERT(session.resize({100, 30}));
+
+    ASSERT(session.launch(L"pwsh.exe -NoLogo -NoProfile -Command \"Write-Output READY; Start-Sleep -Seconds 10\""));
+    ASSERT(session.wait_output("READY", 10000));
+    sleep_ms(1000);
+    ASSERT(session.is_running());
+    session.close();
+    return true;
+}
+
+// 交互式 PowerShell 在收到宿主信号后不应主动退出。
+bool interactive_pwsh_survives_signals()
+{
+    conpty_session session;
+    ASSERT(session.start(L"pwsh.exe -NoLogo -NoProfile", {120, 30}));
+    ASSERT(session.write("Write-Output READY\r"));
+    ASSERT(session.wait_output("READY", 10000));
+
+    ASSERT(session.reparent(::GetDesktopWindow()));
+    ASSERT(session.show(true));
+    ASSERT(session.resize({100, 30}));
+    sleep_ms(1000);
+    ASSERT(session.is_running());
+    session.close();
+    return true;
+}
+
 // 连接后的 show/hide 才应用到窗口；用独立客户端模拟宿主时机。
 bool pseudo_window_after_connect()
 {
@@ -249,6 +285,8 @@ int main()
     RUN_TEST(pseudo_window_contract, L"GetConsoleWindow pseudo window");
     RUN_TEST(pseudo_window_preconnect_signals, L"Pseudo window pre-connect signals");
     RUN_TEST(pseudo_window_after_connect, L"Pseudo window signals after connect");
+    RUN_TEST(interactive_pwsh_preconnect_signals, L"Interactive pwsh pre-connect signals");
+    RUN_TEST(interactive_pwsh_survives_signals, L"Interactive pwsh signals");
     std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, "
                << (tests_passed + tests_failed) << L" total." << std::endl;
     return tests_failed > 0 ? 1 : 0;

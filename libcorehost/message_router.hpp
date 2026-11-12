@@ -62,6 +62,16 @@ class message_router
         io.handle_connect(msg);
         _console_connected = true;
         apply_early_pty_signals();
+        _client_process =
+            win32::handle{::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE,
+                                        static_cast<DWORD>(msg.descriptor.Process))};
+        if (_client_process.valid())
+        {
+            wchar_t image[512]{};
+            DWORD image_size = ARRAYSIZE(image);
+            if (::QueryFullProcessImageNameW(_client_process.get(), 0, image, &image_size) != FALSE)
+                LOG("message_router: client image=%ls", image);
+        }
         LOG2("CONNECT consumed after processCount=%zu bridgeProcessCount=%zu", io.process_list().count(),
              bridge.process_count());
         log_completion("CONNECT completion", msg);
@@ -106,6 +116,7 @@ class message_router
     pseudo_window *_window = nullptr;
     win32::handle_view _server;
     win32::handle_view _input_available;
+    win32::handle _client_process;
 
     // 连接前到达的 show/hide 与 resize 必须像系统宿主一样暂存，连接后再应用。
     bool _console_connected = false;
@@ -392,6 +403,13 @@ inline void message_router::on_input_bytes(std::span<const std::byte> bytes)
 
 inline void message_router::on_input_eof()
 {
+    LOG("message_router::on_input_eof");
+    if (_client_process.valid())
+    {
+        DWORD exit_code = 0;
+        if (::GetExitCodeProcess(_client_process.get(), &exit_code) != FALSE)
+            LOG("message_router: client exit=0x%08lx", static_cast<unsigned long>(exit_code));
+    }
     std::vector<std::pair<DWORD, DWORD>> ctrl_events;
     {
         std::unique_lock guard{_mutex};
