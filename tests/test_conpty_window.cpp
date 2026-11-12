@@ -8,6 +8,7 @@
 //   - WM_CLOSE 在有限步内结束会话（corehost 进程退出）。
 #include "test_common.hpp"
 #include "conpty_test_helpers.hpp"
+#include "lib/conpty_session.hpp"
 
 #include <tlhelp32.h>
 
@@ -118,24 +119,13 @@ bool pseudo_window_contract()
     ASSERT(reinterpret_cast<HWND>(::GetWindowLongPtrW(search.found, GWLP_HWNDPARENT)) == owner);
     ASSERT(::GetAncestor(search.found, GA_ROOTOWNER) == owner);
 
-    // 可见性：WT 发起的 show/hide 改变 IsIconic，且不产生 VT 回显。
+    // 未 CONNECT 时 show/hide 只暂存，窗口保持原状且不回显 VT。
     drain_output(ci.hOutput);
     ASSERT(SUCCEEDED(ConptyShowHidePseudoConsole(ci.hpc, FALSE)));
-    for (int attempt = 0; attempt < 100; ++attempt)
-    {
-        if (::IsIconic(search.found) != FALSE)
-            break;
-        sleep_ms(20);
-    }
-    ASSERT(::IsIconic(search.found) != FALSE);
-
+    sleep_ms(100);
+    ASSERT(::IsIconic(search.found) == FALSE);
     ASSERT(SUCCEEDED(ConptyShowHidePseudoConsole(ci.hpc, TRUE)));
-    for (int attempt = 0; attempt < 100; ++attempt)
-    {
-        if (::IsIconic(search.found) == FALSE)
-            break;
-        sleep_ms(20);
-    }
+    sleep_ms(100);
     ASSERT(::IsIconic(search.found) == FALSE);
 
     const auto visibility_output = read_output_string(ci.hOutput, 300);
@@ -161,12 +151,61 @@ bool pseudo_window_contract()
     return true;
 }
 
+// 连接后的 show/hide 才应用到窗口；用独立客户端模拟宿主时机。
+bool pseudo_window_after_connect()
+{
+    conpty_session session;
+    ASSERT(session.start(L"cmd.exe /c \"echo READY & timeout /t 10 /nobreak >nul\"", {80, 25}));
+    ASSERT(session.wait_output("READY", 5000));
+
+    DWORD pid = 0;
+    for (int attempt = 0; attempt < 100 && pid == 0; ++attempt)
+    {
+        pid = find_corehost_child();
+        if (pid == 0)
+            sleep_ms(20);
+    }
+    ASSERT(pid != 0);
+
+    window_search search{pid, nullptr};
+    for (int attempt = 0; attempt < 100 && search.found == nullptr; ++attempt)
+    {
+        ::EnumWindows(&enum_window_proc, reinterpret_cast<LPARAM>(&search));
+        if (search.found == nullptr)
+            sleep_ms(20);
+    }
+    ASSERT(search.found != nullptr);
+
+    ASSERT(session.reparent(::GetDesktopWindow()));
+    ASSERT(session.show(false));
+    for (int attempt = 0; attempt < 100; ++attempt)
+    {
+        if (::IsIconic(search.found) != FALSE)
+            break;
+        sleep_ms(20);
+    }
+    ASSERT(::IsIconic(search.found) != FALSE);
+
+    ASSERT(session.show(true));
+    for (int attempt = 0; attempt < 100; ++attempt)
+    {
+        if (::IsIconic(search.found) == FALSE)
+            break;
+        sleep_ms(20);
+    }
+    ASSERT(::IsIconic(search.found) == FALSE);
+
+    session.close();
+    return true;
+}
+
 } // namespace
 
 int main()
 {
     std::wcout << L"=== ConPTY Pseudo Window ===" << std::endl;
     RUN_TEST(pseudo_window_contract, L"GetConsoleWindow pseudo window");
+    RUN_TEST(pseudo_window_after_connect, L"Pseudo window signals after connect");
     std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, "
                << (tests_passed + tests_failed) << L" total." << std::endl;
     return tests_failed > 0 ? 1 : 0;

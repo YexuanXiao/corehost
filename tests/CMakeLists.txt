@@ -95,6 +95,7 @@ set_tests_properties(ScreenBuffer PROPERTIES LABELS "sb" TIMEOUT 30)
 # ── test_console_state ────────────────────────────
 add_executable(test_console_state
     test_console_state.cpp
+    ${CMAKE_SOURCE_DIR}/libcorehost/signal.cpp
 )
 target_link_libraries(test_console_state PRIVATE test_common unicode::unicode)
 add_test(NAME ConsoleState COMMAND test_console_state)

@@ -118,6 +118,25 @@ class conpty_session
     }
 
     // 清空可见缓冲区（keep_cursor_row 决定是否保留光标所在行）。
+    bool show(bool visible)
+    {
+        if (_pty == nullptr)
+            return false;
+        return SUCCEEDED(ConptyShowHidePseudoConsole(_pty, visible ? TRUE : FALSE));
+    }
+
+    bool reparent(HWND owner)
+    {
+        if (_pty == nullptr)
+            return false;
+        return SUCCEEDED(ConptyReparentPseudoConsole(_pty, owner));
+    }
+
+    bool is_running() const noexcept
+    {
+        return _process.valid() && ::WaitForSingleObject(_process.get(), 0) == WAIT_TIMEOUT;
+    }
+
     bool clear(bool keep_cursor_row = false)
     {
         if (_pty == nullptr)

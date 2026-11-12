@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstring>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
@@ -59,6 +60,8 @@ class message_router
         LOG2("consume CONNECT via io_state; before processCount=%zu bridgeProcessCount=%zu", io.process_list().count(),
              bridge.process_count());
         io.handle_connect(msg);
+        _console_connected = true;
+        apply_early_pty_signals();
         {
             _client_process = win32::handle{::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, static_cast<DWORD>(msg.descriptor.Process))};
             win32::handle &process = _client_process;
@@ -120,6 +123,11 @@ class message_router
     win32::handle_view _server;
     win32::handle_view _input_available;
 
+    // 连接前到达的 show/hide 与 resize 必须像系统宿主一样暂存，连接后再应用。
+    bool _console_connected = false;
+    std::optional<bool> _initial_visibility;
+    std::optional<COORD> _early_resize;
+
 
     void signal_state()
     {
@@ -131,6 +139,26 @@ class message_router
     {
         for (const auto &[event, pid] : events)
             (void)target.deliver_ctrl_event(pid, event);
+    }
+
+    // 连接前的 show/hide/resize 只在 CONNECT 后应用；ClearBuffer 在连接前丢弃。
+    void apply_early_pty_signals()
+    {
+        if (_early_resize)
+        {
+            const COORD size = *_early_resize;
+            _early_resize.reset();
+            const auto bytes = std::as_bytes(std::span{&size, 1});
+            bridge.signal_reader().apply(static_cast<unsigned short>(PtySignal::ResizeWindow), bytes);
+            bridge.queue_window_buffer_size_event();
+        }
+        if (_initial_visibility)
+        {
+            const bool visible = *_initial_visibility;
+            _initial_visibility.reset();
+            if (_window != nullptr)
+                _window->set_visibility(visible);
+        }
     }
 
 
@@ -430,8 +458,33 @@ inline void message_router::on_pty_signal(unsigned short id, std::span<const std
         if (expected == 0 || payload.size() != expected)
             win32::throw_last_error(win32::error::invalid_state);
 
-        bridge.signal_reader().apply(id, payload);
-        if (id == static_cast<unsigned short>(PtySignal::ShowHideWindow))
+        bool apply_state = true;
+        if (!_console_connected)
+        {
+            if (id == static_cast<unsigned short>(PtySignal::ShowHideWindow))
+            {
+                unsigned short show = 0;
+                std::memcpy(&show, payload.data(), sizeof(show));
+                _initial_visibility = show != 0;
+                apply_state = false;
+            }
+            else if (id == static_cast<unsigned short>(PtySignal::ResizeWindow))
+            {
+                COORD size{};
+                std::memcpy(&size, payload.data(), sizeof(size));
+                _early_resize = size;
+                apply_state = false;
+            }
+            else if (id == static_cast<unsigned short>(PtySignal::ClearBuffer))
+            {
+                apply_state = false;
+            }
+        }
+
+        if (apply_state)
+            bridge.signal_reader().apply(id, payload);
+
+        if (id == static_cast<unsigned short>(PtySignal::ShowHideWindow) && _console_connected)
         {
             unsigned short show = 0;
             std::memcpy(&show, payload.data(), sizeof(show));
@@ -443,7 +496,7 @@ inline void message_router::on_pty_signal(unsigned short id, std::span<const std
             std::memcpy(&owner, payload.data(), sizeof(owner));
             _window->set_owner(reinterpret_cast<HWND>(owner));
         }
-        if (id == static_cast<unsigned short>(PtySignal::ResizeWindow))
+        if (id == static_cast<unsigned short>(PtySignal::ResizeWindow) && _console_connected)
             bridge.queue_window_buffer_size_event();
 
         bridge.take_ctrl_events(ctrl_events);

@@ -170,8 +170,8 @@
 | --- | --- | --- |
 | 读取 agent.md、基线/HEAD/日志 | DONE | 5e9a3bf；日志 35345 字节 |
 | 生成过滤 diff | DONE | `build/audit-5e9a3bf-head.diff`（427255 字节，58 文件） |
-| 日志生命周期排序 | TODO | 已知 SetParent/ShowHide 早于 CONNECT |
-| P1 根因排除 | TODO | 优先检查输入端关闭所有权与 handoff |
+| 日志生命周期排序 | DONE | SetParent/ShowHide 早于首次 CONNECT |
+| P1 根因排除 | IN PROGRESS | 已确认连接前 show/hide 被提前应用；修复并加测试 |
 | P2 文件级审查 | TODO | 58 个非测试/文档文件 |
 | 独立复现测试 | TODO | 不依赖 WT+corehost |
 | 修复/提交 | TODO | 每项独立 |
