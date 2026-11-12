@@ -1048,9 +1048,8 @@ struct pipe_bridge
 
             // Win32 的默认属性 0x07 会生成 fg=7/bg=0。显式 37;40 会把
             // 白底宿主的背景强制成黑色；没有其它属性时直接恢复终端默认色。
-            if (msg.payload.sgr.set_flags == 0 && msg.payload.sgr.clear_flags == 0 &&
-                msg.payload.sgr.fg.is_indexed() && msg.payload.sgr.fg.value == 7 &&
-                msg.payload.sgr.bg.is_indexed() && msg.payload.sgr.bg.value == 0)
+            if (msg.payload.sgr.set_flags == 0 && msg.payload.sgr.clear_flags == 0 && msg.payload.sgr.fg.is_indexed() &&
+                msg.payload.sgr.fg.value == 7 && msg.payload.sgr.bg.is_indexed() && msg.payload.sgr.bg.value == 0)
             {
                 vt_append_char('0');
                 vt_append_char('m');
