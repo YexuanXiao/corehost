@@ -736,7 +736,11 @@ struct pipe_bridge
         vt_append_char(';');
         vt_append_int(fg_map[fg & 15]);
         vt_append_char(';');
-        vt_append_int(bg_map[bg & 15]);
+        if (bg == 0)
+            // 传统默认背景交给终端配色，避免白底方案被强制成黑色。
+            vt_append_str("49"sv);
+        else
+            vt_append_int(bg_map[bg & 15]);
         vt_append_char('m');
     }
 
@@ -1121,6 +1125,9 @@ struct pipe_bridge
                 vt_append_sgr_param(first, msg.payload.sgr.bg.g);
                 vt_append_sgr_param(first, msg.payload.sgr.bg.b);
             }
+            else if (msg.payload.sgr.bg.is_indexed() && msg.payload.sgr.bg.value == 0)
+                // Win32 背景索引 0 是传统默认背景；白底配色应由终端决定。
+                vt_append_sgr_param(first, 49);
             else if (msg.payload.sgr.bg.is_indexed() && msg.payload.sgr.bg.value <= 7)
                 vt_append_sgr_param(first, 40 + msg.payload.sgr.bg.value);
             else if (msg.payload.sgr.bg.is_indexed() && msg.payload.sgr.bg.value <= 15)
