@@ -166,7 +166,8 @@ DWORD WINAPI console_control_thread::entry(LPVOID self)
 void console_control_thread::run()
 {
     LOG("console_control_thread: enter");
-    while (_forwarder.read_and_forward(_reader))
+    console_control_forwarder forwarder;
+    while (forwarder.read_and_forward(_reader))
     {
     }
 

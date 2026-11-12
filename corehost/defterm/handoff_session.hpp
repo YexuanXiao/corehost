@@ -68,10 +68,8 @@ namespace corehost::defterm
 
     // Ctrl+C/Break/Close 由信号线程阻塞读取并转发到 CSRSS；管道断开时置位
     // signals_closed。主线程只在 {终端进程, signals_closed} 上无限等待。
-    console_control_forwarder signals;
-    signals.set_pipe(signal_read.view());
     win32::event signals_closed{win32::create_tag, /*manual_reset=*/true, /*initial=*/false};
-    console_control_thread signal_thread{signals, signal_read.view(), signals_closed.view()};
+    console_control_thread signal_thread{signal_read.view(), signals_closed.view()};
     LOG("signal pipe bound to handoff signal thread pipe=%p", signal_read.get());
     signal_thread.start();
 

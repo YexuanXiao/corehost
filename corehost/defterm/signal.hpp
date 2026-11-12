@@ -47,13 +47,6 @@ class console_control_forwarder
   public:
     console_control_forwarder() : _console_control{resolve_console_control()} {}
 
-    // 绑定信号管道读端。句柄所有权仍归调用方，本对象只保存视图。
-    void set_pipe(win32::handle_view pipe) noexcept
-    {
-        _pipe = pipe;
-    }
-
-
     // 阻塞读取并转发一条完整消息（信号线程使用）。返回 false 表示管道
     // 已断开或读被取消，调用方应结束循环。
     [[nodiscard]] bool read_and_forward(win32::cancellable_read &reader);
@@ -66,7 +59,6 @@ class console_control_forwarder
     void forward_message(CONSOLECONTROL code, std::span<const std::byte> body, size_t body_len);
 
     PFN_ConsoleControl _console_control = nullptr;
-    win32::handle_view _pipe;
 };
 
 // 手递手（defterm）阶段的信号转发线程：阻塞读取终端写入的
@@ -74,9 +66,8 @@ class console_control_forwarder
 class console_control_thread
 {
   public:
-    console_control_thread(console_control_forwarder &forwarder, win32::handle_view pipe,
-                           win32::handle_view closed_event)
-        : _reader{pipe}, _forwarder{forwarder}, _closed_event{closed_event}
+    console_control_thread(win32::handle_view pipe, win32::handle_view closed_event)
+        : _reader{pipe}, _closed_event{closed_event}
     {
     }
 
@@ -91,7 +82,6 @@ class console_control_thread
     void run();
 
     win32::cancellable_read _reader;
-    console_control_forwarder &_forwarder;
     win32::handle_view _closed_event;
     win32::basic_thread _thread;
 };
