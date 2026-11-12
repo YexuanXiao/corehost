@@ -51,8 +51,6 @@ int __stdcall wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
         return 0;
     }
 
-    // todo:
-    // https://github.com/microsoft/terminal/blob/694db4c0bc6e506db51ad98937db6ea062ab8a00/src/interactivity/win32/windowio.cpp#L927
     if (args.is_headless())
     {
         LOG("entering conpty (--headless) mode, server=0x%Ix", args.server_handle());
