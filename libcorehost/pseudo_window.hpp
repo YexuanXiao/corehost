@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <cstdlib>
+#include <atomic>
 #include <cassert>
 #include "char_convert.hpp"
 #include "utility/log.hpp"
@@ -102,8 +103,9 @@ class pseudo_window
         if (_hwnd == nullptr || ::IsWindow(_hwnd) == FALSE)
             return;
         LOG("pseudo_window::set_visibility: show=%d hwnd=%p", visible ? 1 : 0, _hwnd);
-        const LRESULT result = ::SendMessageW(_hwnd, wm_set_visibility, visible ? TRUE : FALSE, 0);
-        LOG("pseudo_window::set_visibility: result=%lld err=%lu iconic=%d visible=%d", static_cast<long long>(result), ::GetLastError(), ::IsIconic(_hwnd) != FALSE, ::IsWindowVisible(_hwnd) != FALSE);
+        _suppress_visibility.store(true, std::memory_order_relaxed);
+        ::ShowWindow(_hwnd, visible ? SW_SHOWNOACTIVATE : SW_MINIMIZE);
+        _suppress_visibility.store(false, std::memory_order_relaxed);
     }
 
     // GWLP_HWNDPARENT 是 owner 的唯一存储；不在这里缓存。
@@ -185,14 +187,14 @@ class pseudo_window
         switch (message)
         {
         case WM_SIZE:
-            LOG("pseudo_window::WM_SIZE: wparam=%llu suppress=%d iconic=%d", static_cast<unsigned long long>(wparam), self->_suppress_visibility ? 1 : 0, ::IsIconic(hwnd) != FALSE);
+            LOG("pseudo_window::WM_SIZE: wparam=%llu suppress=%d iconic=%d", static_cast<unsigned long long>(wparam), self->_suppress_visibility.load(std::memory_order_relaxed) ? 1 : 0, ::IsIconic(hwnd) != FALSE);
             if (wparam == SIZE_MINIMIZED)
                 self->post_visibility(false);
             else if (wparam == SIZE_RESTORED)
                 self->post_visibility(true);
             return 0;
         case WM_SHOWWINDOW:
-            LOG("pseudo_window::WM_SHOWWINDOW: wparam=%llu lparam=%lld suppress=%d", static_cast<unsigned long long>(wparam), static_cast<long long>(lparam), self->_suppress_visibility ? 1 : 0);
+            LOG("pseudo_window::WM_SHOWWINDOW: wparam=%llu lparam=%lld suppress=%d", static_cast<unsigned long long>(wparam), static_cast<long long>(lparam), self->_suppress_visibility.load(std::memory_order_relaxed) ? 1 : 0);
             if (lparam == 0)
                 self->post_visibility(wparam != 0);
             return 0;
@@ -205,15 +207,6 @@ class pseudo_window
         case wm_stop_thread:
             ::PostQuitMessage(0);
             return 0;
-        case wm_set_visibility: {
-            LOG("pseudo_window::wm_set_visibility: show=%llu before iconic=%d visible=%d", static_cast<unsigned long long>(wparam), ::IsIconic(hwnd) != FALSE, ::IsWindowVisible(hwnd) != FALSE);
-            self->_suppress_visibility = true;
-            const BOOL show_result = ::ShowWindow(hwnd, wparam != 0 ? SW_SHOWNOACTIVATE : SW_MINIMIZE);
-            LOG("pseudo_window::wm_set_visibility: ShowWindow result=%d err=%lu after iconic=%d visible=%d", show_result, ::GetLastError(), ::IsIconic(hwnd) != FALSE, ::IsWindowVisible(hwnd) != FALSE);
-            self->_suppress_visibility = false;
-            return 0;
-        }
-            LOG("pseudo_window::WM_DESTROY: hwnd=%p", hwnd);
             LOG("pseudo_window: WM_DESTROY");
             self->_close_requested.set();
             self->cancel_server_io();
@@ -240,7 +233,7 @@ class pseudo_window
     // 窗口线程只置位事件；可见性由主线程消费并写 VT 输出。
     void post_visibility(bool visible) noexcept
     {
-        if (_suppress_visibility)
+        if (_suppress_visibility.load(std::memory_order_relaxed))
         {
             LOG("pseudo_window::post_visibility: suppressed visible=%d", visible ? 1 : 0);
             return;
@@ -262,7 +255,6 @@ class pseudo_window
     }
 
     static constexpr UINT wm_stop_thread = WM_APP + 1;
-    static constexpr UINT wm_set_visibility = WM_APP + 2;
 
 
 
@@ -286,7 +278,7 @@ class pseudo_window
 
     win32::handle_view _server;
 
-    bool _suppress_visibility = false; // 仅窗口线程访问
+    std::atomic<bool> _suppress_visibility{false}; // 原版同样用原子抑制跨线程可见性回调
     win32::event _ready;
     win32::event _close_requested;
     win32::event _show_event;

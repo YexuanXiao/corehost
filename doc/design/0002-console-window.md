@@ -79,7 +79,7 @@ corehost 需要的是同一套**对外契约**，不需要照搬它的渲染、U
 ### 3.4 可见性信号
 
 `PtySignal::ShowHideWindow`（`libcorehost/signal.hpp`）由 message_router 转成
-伪窗口的 `ShowWindow` 请求；窗口线程执行期间抑制 `WM_SIZE`/`WM_SHOWWINDOW`
+伪窗口的 `ShowWindow` 调用；调用期间抑制 `WM_SIZE`/`WM_SHOWWINDOW`
 回显。外部 `ShowWindow`/直接 `WM_SIZE` 仍通过信号管道上报终端，因此不需要新增协议。
 
 ### 3.5 关闭语义
@@ -135,7 +135,7 @@ corehost 需要的是同一套**对外契约**，不需要照搬它的渲染、U
 以下契约已落地并纳入 `ConPTY.PseudoWindow`：
 
 - owner：`PtySignal::SetParent` → `SetWindowLongPtrW(GWLP_HWNDPARENT)`；`GetAncestor(GA_ROOTOWNER)` 返回 owner。
-- 可见性：`PtySignal::ShowHideWindow` → 窗口线程 `ShowWindow(SW_SHOWNOACTIVATE/SW_MINIMIZE)`。窗口线程执行系统调用期间用私有 `_suppress_visibility` 抑制 `WM_SIZE`/`WM_SHOWWINDOW` 回调，避免把 WT 发起的 show/hide 再回显成 VT 序列。创建期 `WM_SIZE` 不 `CancelIoEx`；真实外部可见性变化仍取消 READ_IO 以唤醒主循环。
+- 可见性：`PtySignal::ShowHideWindow` → 信号线程直接 `ShowWindow(SW_SHOWNOACTIVATE/SW_MINIMIZE)`（与原版一致，不新增窗口消息）。调用期间用 `_suppress_visibility` 原子抑制 `WM_SIZE`/`WM_SHOWWINDOW` 回调，避免把 WT 发起的 show/hide 再回显成 VT 序列。创建期 `WM_SIZE` 不 `CancelIoEx`；真实外部可见性变化仍取消 READ_IO 以唤醒主循环。
 - resize：伪窗口按原版创建为 0×0，且**不随** `PtySignal::ResizeWindow` 改变；resize 只更新 `screen_buffer_size`/screen buffer，与伪 HWND 无关。
 - `WM_ACTIVATE`：按原版，只要有有效 owner 就 `SetFocus(owner)`，不区分 active/inactive。
 - `WM_DESTROY`：置关闭事件、取消 READ_IO、`PostQuitMessage`；`stop_and_join` 在窗口已销毁时直接 join，避免向失效 HWND 发消息。
