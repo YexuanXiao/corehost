@@ -25,10 +25,3 @@ using PFN_ConsoleControl = NTSTATUS(WINAPI *)(CONSOLECONTROL Command, PVOID Cons
     assert(function != nullptr);
     return function;
 }
-
-// 进程内只解析一次；之后所有模块共享同一个函数指针。
-[[nodiscard]] inline PFN_ConsoleControl console_control() noexcept
-{
-    static const PFN_ConsoleControl function = resolve_console_control();
-    return function;
-}

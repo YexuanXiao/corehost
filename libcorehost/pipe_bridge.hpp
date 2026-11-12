@@ -76,7 +76,8 @@ struct pipe_bridge
 
     pipe_bridge(input_buffer &input, console_state &state, screen_buffer &screen,
                 vt_input_state &input_state) noexcept
-        : inp(input), cstate(state), sbuf(screen), _input_state(input_state)
+        : inp(input), cstate(state), sbuf(screen), _input_state(input_state),
+          _console_control{resolve_console_control()}
     {
         _active_screen = &screen;
         _history.set_capacity(state.history_buffer_size);
@@ -254,17 +255,22 @@ struct pipe_bridge
         out.swap(_ctrl_events);
     }
 
-    // 在解锁后逐项投递；sender 是 ConsoleControl(EndTask)。
+    // 在解锁后逐项投递；_console_control 在构造时解析一次。
     NTSTATUS deliver_ctrl_event(DWORD pid, DWORD event) noexcept
     {
-        return console_end_task(pid, event, nullptr);
+        CONSOLEENDTASK task{};
+        task.ProcessId = ULongToHandle(pid);
+        task.hwnd = nullptr;
+        task.ConsoleEventCode = event;
+        task.ConsoleFlags = console_ctrl_flags(event);
+        return _console_control(ConsoleEndTask, &task, sizeof(task));
     }
 
     // 测试/单线程路径：取出并投递整个队列。
     void deliver_ctrl_events() noexcept
     {
         for (const auto &entry : _ctrl_events)
-            (void)console_end_task(entry.second, entry.first, nullptr);
+            (void)deliver_ctrl_event(entry.second, entry.first);
         _ctrl_events.clear();
     }
 
@@ -333,6 +339,8 @@ struct pipe_bridge
     // 别名访问，历史代码保留原名。输入线程是唯一写者，主线程只在会话锁内读取
     // 已完成的结果（例如 pending 的返回字节）。
     vt_input_state &_input_state;
+    // 每个 pipe_bridge 在构造时解析一次 ConsoleControl，不共享静态缓存。
+    PFN_ConsoleControl _console_control = nullptr;
     std::array<char8_t, sizeof(condrv_io::io_msg::body)> &_readbuf = _input_state.readbuf;
     DWORD &_read_total = _input_state.read_total;
     bool &_line_found = _input_state.line_found;
@@ -389,9 +397,6 @@ struct pipe_bridge
     // SGR 鼠标按下状态（移动/松开事件沿用）。
     DWORD _mouse_button_state = 0;
     bool _window_size_event_valid = false;
-    // 控制事件投递函数：默认走 CSRSS ConsoleControl(EndTask)；测试辅助类
-    // 可注入 sender 以验证进程组过滤和延迟投递目标。
-
     // 待投递的控制事件队列；由 message_router 的会话锁保护。
     using ctrl_event = std::pair<DWORD, DWORD>; // {event, pid}
     std::vector<ctrl_event> _ctrl_events;

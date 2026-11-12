@@ -36,14 +36,4 @@ inline ULONG console_ctrl_flags(DWORD event) noexcept
     }
 }
 
-inline NTSTATUS console_end_task(DWORD pid, DWORD event, HWND console_window) noexcept
-{
-    CONSOLEENDTASK task{};
-    task.ProcessId = ULongToHandle(pid);
-    task.hwnd = console_window;
-    task.ConsoleEventCode = event;
-    task.ConsoleFlags = console_ctrl_flags(event);
-    return console_control()(ConsoleEndTask, &task, sizeof(task));
-}
-
 } // namespace corehost::conpty

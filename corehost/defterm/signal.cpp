@@ -117,7 +117,7 @@ void console_control_forwarder::forward_message(CONSOLECONTROL code, std::span<c
         std::memcpy(reinterpret_cast<std::byte *>(&d) + sizeof(DWORD), body.data(), body_len);
         CONSOLE_PROCESS_INFO cpi{d.dwProcessID, CPI_NEWPROCESSWINDOW};
         LOG("console_control_forwarder: NotifyConsoleApplication pid=%lu", d.dwProcessID);
-        console_control()(ConsoleNotifyConsoleApplication, &cpi, sizeof(cpi));
+        _console_control(ConsoleNotifyConsoleApplication, &cpi, sizeof(cpi));
         break;
     }
     case ConsoleSetForeground: {
@@ -135,7 +135,7 @@ void console_control_forwarder::forward_message(CONSOLECONTROL code, std::span<c
                          d.ConsoleEventCode, d.ConsoleFlags};
         LOG("console_control_forwarder: ConsoleEndTask pid=%lu event=%lu flags=0x%08lx", d.ProcessId,
             d.ConsoleEventCode, d.ConsoleFlags);
-        console_control()(ConsoleEndTask, &c, sizeof(c));
+        _console_control(ConsoleEndTask, &c, sizeof(c));
         break;
     }
     default:
