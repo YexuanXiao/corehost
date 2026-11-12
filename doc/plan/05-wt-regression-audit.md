@@ -172,7 +172,7 @@
 | 生成过滤 diff | DONE | `build/audit-5e9a3bf-head.diff`（427255 字节，58 文件） |
 | 日志生命周期排序 | DONE | SetParent/ShowHide 早于首次 CONNECT |
 | P1 根因排除 | FIXED (independent evidence) | 连接前 ShowHide/Resize 改为暂存；pre/post-connect 独立用例通过；待用户用 WT 外部复验 |
-| P2 文件级审查 | IN PROGRESS | 58 个非测试/文档文件；先审生命周期 |
+| P2 文件级审查 | IN PROGRESS | 58 个非测试/文档文件；已完成 conpty/message_router/io_threads/signal/pseudo_window 生命周期段 |
 | 独立复现测试 | DONE (lifecycle) | pre/post-CONNECT 窗口信号用例 |
 | 修复/提交 | TODO | 每项独立 |
 | 全量验证/文档 | TODO | ctest + board |
