@@ -23,7 +23,7 @@ PTY 信号管道在客户端第一次 CONNECT 之前就可能收到：
 - `ShowHideWindow` 只记录最后一个可见性值，不调用 `ShowWindow`；
 - `ResizeWindow` 只记录最后一个尺寸，不修改 screen buffer，也不产生
   `WINDOW_BUFFER_SIZE_EVENT`；
-- `ClearBuffer` 丢弃；
+- `ClearBuffer` 丢弃；`WM_SIZE`/`WM_SHOWWINDOW` 产生的可见性事件也不向终端上报；
 - `SetParent` 立即更新 `GWLP_HWNDPARENT`。
 
 第一次 CONNECT 成功后：
