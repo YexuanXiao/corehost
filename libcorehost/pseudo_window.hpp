@@ -32,8 +32,8 @@ namespace corehost::conpty
 class pseudo_window
 {
   public:
-    pseudo_window(win32::handle_view server, std::u32string_view title, COORD cells)
-        : _server{server}, _cells{cells}, _ready{win32::create_tag, /*manual_reset=*/true, /*initial=*/false},
+    pseudo_window(win32::handle_view server, std::u32string_view title)
+        : _server{server}, _ready{win32::create_tag, /*manual_reset=*/true, /*initial=*/false},
           _close_requested{win32::create_tag, /*manual_reset=*/true, /*initial=*/false},
           _show_event{win32::create_tag, /*manual_reset=*/false, /*initial=*/false},
           _hide_event{win32::create_tag, /*manual_reset=*/false, /*initial=*/false}
@@ -54,14 +54,17 @@ class pseudo_window
     // 的契约无法满足。
     void start()
     {
+        LOG("pseudo_window::start: begin");
         assert(!_thread.valid());
         _thread = win32::basic_thread{&pseudo_window::thread_entry, this, {.name = L"corehost-window"}};
         _ready.wait();
+        LOG("pseudo_window::start: ready hwnd=%p", _hwnd);
     }
 
     // 通过窗口消息请求退出；窗口过程 PostQuitMessage 后 join 无限等待。
     void stop_and_join()
     {
+        LOG("pseudo_window::stop_and_join: hwnd=%p isWindow=%d", _hwnd, _hwnd != nullptr && ::IsWindow(_hwnd) != FALSE);
         assert(_thread.valid());
         if (_hwnd != nullptr && ::IsWindow(_hwnd) != FALSE)
         {
@@ -70,6 +73,7 @@ class pseudo_window
         }
 
         _thread.join();
+        LOG("pseudo_window::stop_and_join: joined");
     }
 
     [[nodiscard]] HWND hwnd() const noexcept
@@ -97,14 +101,18 @@ class pseudo_window
     {
         if (_hwnd == nullptr || ::IsWindow(_hwnd) == FALSE)
             return;
-        ::SendMessageW(_hwnd, wm_set_visibility, visible ? TRUE : FALSE, 0);
+        LOG("pseudo_window::set_visibility: show=%d hwnd=%p", visible ? 1 : 0, _hwnd);
+        const LRESULT result = ::SendMessageW(_hwnd, wm_set_visibility, visible ? TRUE : FALSE, 0);
+        LOG("pseudo_window::set_visibility: result=%lld err=%lu iconic=%d visible=%d", static_cast<long long>(result), ::GetLastError(), ::IsIconic(_hwnd) != FALSE, ::IsWindowVisible(_hwnd) != FALSE);
     }
 
     void set_size(COORD cells)
     {
         if (_hwnd == nullptr || ::IsWindow(_hwnd) == FALSE)
             return;
-        ::SendMessageW(_hwnd, wm_set_size, 0, static_cast<LPARAM>(MAKELPARAM(cells.X, cells.Y)));
+        LOG("pseudo_window::set_size: cells=%dx%d hwnd=%p", cells.X, cells.Y, _hwnd);
+        const LRESULT result = ::SendMessageW(_hwnd, wm_set_size, 0, static_cast<LPARAM>(MAKELPARAM(cells.X, cells.Y)));
+        LOG("pseudo_window::set_size: result=%lld err=%lu", static_cast<long long>(result), ::GetLastError());
     }
 
     // GWLP_HWNDPARENT 是 owner 的唯一存储；不在这里缓存。
@@ -112,7 +120,10 @@ class pseudo_window
     {
         if (_hwnd == nullptr || ::IsWindow(_hwnd) == FALSE)
             return;
-        ::SetWindowLongPtrW(_hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(owner));
+        const auto previous = reinterpret_cast<HWND>(::GetWindowLongPtrW(_hwnd, GWLP_HWNDPARENT));
+        ::SetLastError(0);
+        const LRESULT result = ::SetWindowLongPtrW(_hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(owner));
+        LOG("pseudo_window::set_owner: old=%p new=%p result=%lld err=%lu", previous, owner, static_cast<long long>(result), ::GetLastError());
     }
 
   private:
@@ -141,10 +152,8 @@ class pseudo_window
 
         // WS_POPUP 是硬需求：否则 GetAncestor(GetConsoleWindow(), GA_ROOTOWNER)
         // 会返回伪窗口自己，而不是宿主终端窗口。
-        const int width = _cells.X > 0 ? static_cast<int>(_cells.X) * cell_width : 640;
-        const int height = _cells.Y > 0 ? static_cast<int>(_cells.Y) * cell_height : 400;
         const HWND created = ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
-                                               class_name, _initial_title.c_str(), WS_POPUP, 0, 0, width, height,
+                                               class_name, _initial_title.c_str(), WS_POPUP, 0, 0, 0, 0,
                                                nullptr, nullptr, nullptr, this);
         if (created == nullptr)
             win32::throw_last_error();
@@ -185,16 +194,19 @@ class pseudo_window
         switch (message)
         {
         case WM_SIZE:
+            LOG("pseudo_window::WM_SIZE: wparam=%llu suppress=%d iconic=%d", static_cast<unsigned long long>(wparam), self->_suppress_visibility ? 1 : 0, ::IsIconic(hwnd) != FALSE);
             if (wparam == SIZE_MINIMIZED)
                 self->post_visibility(false);
             else if (wparam == SIZE_RESTORED)
                 self->post_visibility(true);
             return 0;
         case WM_SHOWWINDOW:
+            LOG("pseudo_window::WM_SHOWWINDOW: wparam=%llu lparam=%lld suppress=%d", static_cast<unsigned long long>(wparam), static_cast<long long>(lparam), self->_suppress_visibility ? 1 : 0);
             if (lparam == 0)
                 self->post_visibility(wparam != 0);
             return 0;
         case WM_CLOSE:
+            LOG("pseudo_window::WM_CLOSE: hwnd=%p", hwnd);
             LOG("pseudo_window: WM_CLOSE requested");
             self->_close_requested.set();
             self->cancel_server_io();
@@ -202,32 +214,41 @@ class pseudo_window
         case wm_stop_thread:
             ::PostQuitMessage(0);
             return 0;
-        case wm_set_visibility:
+        case wm_set_visibility: {
+            LOG("pseudo_window::wm_set_visibility: show=%llu before iconic=%d visible=%d", static_cast<unsigned long long>(wparam), ::IsIconic(hwnd) != FALSE, ::IsWindowVisible(hwnd) != FALSE);
             self->_suppress_visibility = true;
-            ::ShowWindow(hwnd, wparam != 0 ? SW_SHOWNOACTIVATE : SW_MINIMIZE);
+            const BOOL show_result = ::ShowWindow(hwnd, wparam != 0 ? SW_SHOWNOACTIVATE : SW_MINIMIZE);
+            LOG("pseudo_window::wm_set_visibility: ShowWindow result=%d err=%lu after iconic=%d visible=%d", show_result, ::GetLastError(), ::IsIconic(hwnd) != FALSE, ::IsWindowVisible(hwnd) != FALSE);
             self->_suppress_visibility = false;
             return 0;
+        }
         case wm_set_size: {
+            LOG("pseudo_window::wm_set_size: cells=%dx%d", static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam)));
             const COORD cells{static_cast<SHORT>(LOWORD(lparam)), static_cast<SHORT>(HIWORD(lparam))};
             const int width = cells.X > 0 ? static_cast<int>(cells.X) * cell_width : 640;
             const int height = cells.Y > 0 ? static_cast<int>(cells.Y) * cell_height : 400;
             self->_suppress_visibility = true;
-            ::SetWindowPos(hwnd, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+            const BOOL pos_result = ::SetWindowPos(hwnd, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+            LOG("pseudo_window::wm_set_size: SetWindowPos result=%d err=%lu size=%dx%d", pos_result, ::GetLastError(), width, height);
             self->_suppress_visibility = false;
             return 0;
         }
         case WM_DESTROY:
+            LOG("pseudo_window::WM_DESTROY: hwnd=%p", hwnd);
             LOG("pseudo_window: WM_DESTROY");
             self->_close_requested.set();
             self->cancel_server_io();
             ::PostQuitMessage(0);
             return 0;
         case WM_ACTIVATE: {
-            if (LOWORD(wparam) == WA_INACTIVE)
-                return 0;
+            LOG("pseudo_window::WM_ACTIVATE: wparam=%llu", static_cast<unsigned long long>(wparam));
             const auto owner = reinterpret_cast<HWND>(::GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT));
+            LOG("pseudo_window::WM_ACTIVATE: owner=%p isWindow=%d", owner, owner != nullptr && ::IsWindow(owner) != FALSE);
             if (owner != nullptr && ::IsWindow(owner) != FALSE)
-                ::SetFocus(owner);
+            {
+                const HWND focus = ::SetFocus(owner);
+                LOG("pseudo_window::WM_ACTIVATE: SetFocus owner result=%p err=%lu", focus, ::GetLastError());
+            }
             return 0;
         }
         case WM_GETOBJECT:
@@ -241,7 +262,11 @@ class pseudo_window
     void post_visibility(bool visible) noexcept
     {
         if (_suppress_visibility)
+        {
+            LOG("pseudo_window::post_visibility: suppressed visible=%d", visible ? 1 : 0);
             return;
+        }
+        LOG("pseudo_window::post_visibility: visible=%d", visible ? 1 : 0);
         if (visible)
         {
             _hide_event.reset();
@@ -252,7 +277,9 @@ class pseudo_window
             _show_event.reset();
             _hide_event.set();
         }
-        cancel_server_io();
+        // 创建期的 WM_SIZE 不打断尚未开始的 READ_IO；真实外部可见性变化才唤醒主循环。
+        if (_hwnd != nullptr)
+            cancel_server_io();
     }
 
     static constexpr UINT wm_stop_thread = WM_APP + 1;
@@ -264,6 +291,7 @@ class pseudo_window
     // 打断主线程阻塞中的 READ_IO，让主循环处理可见性/关闭事件。
     void cancel_server_io() const noexcept
     {
+        LOG("pseudo_window::cancel_server_io: server=%p", _server.get());
         if (!_server.valid())
             return;
         if (::CancelIoEx(_server.get(), nullptr) != FALSE)
@@ -272,12 +300,13 @@ class pseudo_window
         if (err == win32::error::not_found)
             return;
         LOG("pseudo_window: CancelIoEx failed err=%u", static_cast<unsigned>(err));
+        LOG("pseudo_window::cancel_server_io: aborting err=%u", static_cast<unsigned>(err));
         std::abort();
     }
     static constexpr const wchar_t *class_name = L"PseudoConsoleWindow";
 
     win32::handle_view _server;
-    COORD _cells{};
+
     bool _suppress_visibility = false; // 仅窗口线程访问
     win32::event _ready;
     win32::event _close_requested;

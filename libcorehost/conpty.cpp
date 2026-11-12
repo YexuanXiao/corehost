@@ -32,7 +32,7 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
 {
     // 此日志记录会话的外部输入：ConDrv server/event、VT 管道、信号管道和
     // config。后续代码只在本函数内展开这些输入，不再重新查询环境。
-    LOG("corehost::conpty::run_conpty_session: s=%p vi=%p vo=%p ev=%p w=%d h=%d sig=%p ambi=%d pollVt=%d "
+    LOG("corehost::conpty::run_conpty_session: s=%p vi=%p vo=%p ev=%p w=%d h=%d sig=%p ambi=%d "
         "attachedPid=%lu",
         server.get(), vt_in.get(), vt_out.get(), event.get(), config.width, config.height, signal_pipe.get(),
         config.ambiguous_is_wide, config.attached_process_id);
@@ -122,7 +122,7 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     api_router api{state, sbuf, alt_sbuf, ibuf, io, bridge};
 
     // 伪窗口先于 message_router 构造；router 依赖它处理标题/可见性/关闭。
-    pseudo_window window{server, state.title, state.screen_buffer_size};
+    pseudo_window window{server, state.title};
 
     // ── Layer 1: message_router ──
     // message_router 同时是唯一持会话状态锁的 IO 模块：分派 ConDrv 消息、

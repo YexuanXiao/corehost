@@ -112,11 +112,11 @@ corehost::test::result get_console_window_then_close()
     REQUIRE(::SendMessageTimeoutW(window, WM_SHOWWINDOW, TRUE, 0, SMTO_ABORTIFHUNG, 2000, &copied) != 0);
     REQUIRE(::IsWindowVisible(window) == FALSE);
 
-    // 查询类：窗口矩形必须非零，依赖方用它估算可用尺寸。
+    // 原版初始伪窗口为 0x0；ResizeWindow 后才按字符网格变化。
     RECT rect{};
     REQUIRE(::GetWindowRect(window, &rect) != FALSE);
-    REQUIRE(rect.right > rect.left);
-    REQUIRE(rect.bottom > rect.top);
+    REQUIRE(rect.right == rect.left);
+    REQUIRE(rect.bottom == rect.top);
 
     corehost::test::unbind_console_connection();
 

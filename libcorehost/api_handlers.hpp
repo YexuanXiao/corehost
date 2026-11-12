@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstring>
 #include <cwctype>
+#include <cwchar>
 #include <array>
 #include <iterator>
 #include "pseudo_window.hpp"
@@ -1171,6 +1172,7 @@ inline bool api_get_mode(condrv_io::io_msg &msg, console_state &state, screen_bu
     // INSERT/QUICK_EDIT/AUTO_POSITION 来自控制台内部状态。
 
     r->Mode = input_handle ? (state.input_mode | ENABLE_EXTENDED_FLAGS | state.input_mode_private) : state.output_mode;
+    LOG("api_get_mode: input=%d mode=0x%08X", input_handle ? 1 : 0, static_cast<unsigned>(r->Mode));
     ucomplete_sz(msg, sizeof(CONSOLE_MODE_MSG));
     return true;
 }
@@ -1289,9 +1291,12 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
         {
             COORD start_pos = state.cursor.position;
             auto preview_len = static_cast<int>(std::min<size_t>(60, u32s.size()));
+            std::wstring preview;
+            convert_u32_to_wstr(std::u32string_view{u32s.data(), u32s.size()}, preview);
             LOG2("[api_write_console] start: u32s_len=%zu sbytes=%lu start=(%d,%d) first=%.*ls", u32s.size(),
                  static_cast<unsigned long>(bytes), static_cast<int>(start_pos.X), static_cast<int>(start_pos.Y),
-                 preview_len, reinterpret_cast<const wchar_t *>(u32s.data()));
+                 preview_len, preview.c_str());
+            LOG("[api_write_console] text=[%ls]", preview.c_str());
 
             if (state.dec_line_drawing_mode)
             {

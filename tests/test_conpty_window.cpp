@@ -99,11 +99,11 @@ bool pseudo_window_contract()
     const auto send = ::SendMessageTimeoutW(search.found, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 2000, &result);
     ASSERT(send != 0);
 
-    // B-R5：初始窗口按 80x25 字符网格换算，resize 后同步变化。
+    // 原版初始伪窗口是 0x0；只有 ResizeWindow 后才按字符网格变化。
     RECT rect{};
     ASSERT(::GetWindowRect(search.found, &rect) != FALSE);
-    ASSERT(rect.right - rect.left == 80 * 8);
-    ASSERT(rect.bottom - rect.top == 25 * 16);
+    ASSERT(rect.right == rect.left);
+    ASSERT(rect.bottom == rect.top);
 
     ASSERT(SUCCEEDED(ConptyResizePseudoConsole(ci.hpc, COORD{100, 30})));
     for (int attempt = 0; attempt < 100; ++attempt)

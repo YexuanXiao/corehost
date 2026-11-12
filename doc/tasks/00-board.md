@@ -36,9 +36,9 @@
 | B4 | 消息处理骨架：查询类消息、默认处理 | DONE | B2/B3 伪窗口与窗口线程 | WM_CREATE/CLOSE/DESTROY/ACTIVATE/GETOBJECT + DefWindowProc |
 | B5 | `GetConsoleWindow` 返回句柄 + 生命周期绑定 | DONE | B2/B3 伪窗口与窗口线程 | API 返回 `console_state::window_handle`（窗口实例由会话持有，无单例）；会话内创建/退出销毁 |
 | B6 | 关闭语义：`WM_CLOSE` → 会话关闭事件 | DONE | B6 WM_CLOSE 结束会话 | CancelIoEx(server) 打断 READ_IO；用例实测 0.11s 内进程退出 |
-| B7 | 状态联动：标题、尺寸、show/hide 最小支持 | DONE | B7 伪窗口标题与矩形 | 默认窗口文本返回标题；初始尺寸按字符网格，`ResizeWindow` 改变矩形；外部 `WM_SIZE`/`WM_SHOWWINDOW` 仍上报 `ESC[1t`/`ESC[2t`，WT 发起的 show/hide 抑制回显 |
+| B7 | 状态联动：标题、尺寸、show/hide 最小支持 | DONE | B7 伪窗口标题与矩形 | 默认窗口文本返回标题；初始 0×0，`ResizeWindow` 后按字符网格变化；外部 `WM_SIZE`/`WM_SHOWWINDOW` 上报 `ESC[1t`/`ESC[2t`，WT 发起的 show/hide 抑制回显 |
 | B8 | 泄漏/并发/压力验证 + 文档 | DONE | B8 句柄与压力验证 | defterm 用例：200 次 API + 50 次窗口消息后 corehost 句柄增长 ≤32、USER 对象增长 ≤4；连续 5 次会话均干净退出 |
-| B9 | owner/可见性/resize/WM_ACTIVATE/WM_DESTROY | DONE | 伪窗口完整契约 | `SetParent`→GWLP_HWNDPARENT，`ShowHideWindow`→IsIconic，`ResizeWindow`→窗口矩形，WM_DESTROY 结束消息线程；`ConPTY.PseudoWindow` 验证 |
+| B9 | owner/可见性/resize/WM_ACTIVATE/WM_DESTROY | DONE（行为对齐原版） | 伪窗口完整契约 | `SetParent`→GWLP_HWNDPARENT，`ShowHideWindow`→IsIconic，初始 0×0/`ResizeWindow`→矩形，WM_ACTIVATE 始终交还 owner，WM_DESTROY 结束消息线程；旧矩形断言待调整 |
 
 ## 阶段 C：defterm 测试（任务 3）
 
