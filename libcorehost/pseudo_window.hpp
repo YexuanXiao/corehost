@@ -207,11 +207,6 @@ class pseudo_window
         case wm_stop_thread:
             ::PostQuitMessage(0);
             return 0;
-            LOG("pseudo_window: WM_DESTROY");
-            self->_close_requested.set();
-            self->cancel_server_io();
-            ::PostQuitMessage(0);
-            return 0;
         case WM_ACTIVATE: {
             LOG("pseudo_window::WM_ACTIVATE: wparam=%llu", static_cast<unsigned long long>(wparam));
             const auto owner = reinterpret_cast<HWND>(::GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT));

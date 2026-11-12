@@ -38,7 +38,7 @@
 | B6 | 关闭语义：`WM_CLOSE` → 会话关闭事件 | DONE | B6 WM_CLOSE 结束会话 | CancelIoEx(server) 打断 READ_IO；用例实测 0.11s 内进程退出 |
 | B7 | 状态联动：标题、尺寸、show/hide 最小支持 | DONE | B7 伪窗口标题与矩形 | 默认窗口文本返回标题；伪窗口始终 0×0，`ResizeWindow` 只改 screen buffer；外部 `WM_SIZE`/`WM_SHOWWINDOW` 上报 `ESC[1t`/`ESC[2t`，WT 发起的 show/hide 抑制回显 |
 | B8 | 泄漏/并发/压力验证 + 文档 | DONE | B8 句柄与压力验证 | defterm 用例：200 次 API + 50 次窗口消息后 corehost 句柄增长 ≤32、USER 对象增长 ≤4；连续 5 次会话均干净退出 |
-| B9 | owner/可见性/resize/WM_ACTIVATE/WM_DESTROY | DONE（行为对齐原版） | 伪窗口完整契约 | `SetParent`→GWLP_HWNDPARENT，`ShowHideWindow`→IsIconic，伪窗口固定 0×0（resize 只改 screen buffer），WM_ACTIVATE 始终交还 owner，WM_DESTROY 结束消息线程 |
+| B9 | owner/可见性/resize/WM_ACTIVATE/WM_DESTROY | DONE（行为对齐原版） | 伪窗口完整契约 | `SetParent`→GWLP_HWNDPARENT，`ShowHideWindow`→IsIconic，伪窗口固定 0×0（resize 只改 screen buffer），WM_ACTIVATE 始终交还 owner，WM_DESTROY 按原版不特殊处理 |
 
 ## 阶段 C：defterm 测试（任务 3）
 

@@ -73,7 +73,7 @@ corehost 需要的是同一套**对外契约**，不需要照搬它的渲染、U
 | `WM_ACTIVATE` | 有 owner 时 `SetFocus(owner)`，返回 0 |
 | `WM_GETOBJECT` | 返回 0（不提供 UIA；阶段 C 的测试用消息驱动） |
 | `WM_CLOSE` | 投递"请求关闭会话"命令，不直接 `DestroyWindow` |
-| `WM_DESTROY` | 置关闭事件、取消 READ_IO、`PostQuitMessage` |
+| `WM_DESTROY` | 与原版一致，不特殊处理；外部销毁由 `stop_and_join` 的 `IsWindow` 检查兜底 |
 | 其他 | `DefWindowProcW` |
 
 ### 3.4 可见性信号
@@ -138,7 +138,7 @@ corehost 需要的是同一套**对外契约**，不需要照搬它的渲染、U
 - 可见性：`PtySignal::ShowHideWindow` → 信号线程直接 `ShowWindow(SW_SHOWNOACTIVATE/SW_MINIMIZE)`（与原版一致，不新增窗口消息）。调用期间用 `_suppress_visibility` 原子抑制 `WM_SIZE`/`WM_SHOWWINDOW` 回调，避免把 WT 发起的 show/hide 再回显成 VT 序列。创建期 `WM_SIZE` 不 `CancelIoEx`；真实外部可见性变化仍取消 READ_IO 以唤醒主循环。
 - resize：伪窗口按原版创建为 0×0，且**不随** `PtySignal::ResizeWindow` 改变；resize 只更新 `screen_buffer_size`/screen buffer，与伪 HWND 无关。
 - `WM_ACTIVATE`：按原版，只要有有效 owner 就 `SetFocus(owner)`，不区分 active/inactive。
-- `WM_DESTROY`：置关闭事件、取消 READ_IO、`PostQuitMessage`；`stop_and_join` 在窗口已销毁时直接 join，避免向失效 HWND 发消息。
+- `WM_DESTROY`：与原版一致不做特殊处理；`stop_and_join` 在窗口已销毁时直接 join。
 - 保留：`WM_CLOSE` 的 corehost 会话关闭语义、默认窗口文本标题、初始隐藏、同步消息不挂起。
 
 仍刻意不做：UIA provider、进程级 ImmDisableIME、`GWL_CONSOLE_WNDALLOC` 的 PID/TID/BKCOLOR 额外字节。原版 0×0 初始尺寸已恢复。
