@@ -1948,10 +1948,100 @@ bool test_write_console_does_not_emit_final_cup()
     return true;
 }
 
+// CRLF 跨批次：CR 在上一批末尾、LF 在下一批开头时，只应产生一次行终止
+// （否则 raw 读者会多出一个空行，终端也会多回显一次换行）。
+bool test_crlf_split_across_batches_terminates_once()
+{
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
+    bridge.test_enter_console_read_mode(13);
+
+    bridge.test_feed_raw_bytes((const BYTE *)"ab\r", 3);
+    const COORD after_cr = bridge.test_get_term_cursor();
+    ASSERT(after_cr.Y == 1);
+
+    bridge.test_feed_raw_bytes((const BYTE *)"\n", 1);
+    const COORD after_lf = bridge.test_get_term_cursor();
+    ASSERT(after_lf.Y == after_cr.Y);
+    return true;
+}
+
 // ==================================================================
 // ══════════════════════════════════════════════════════════
 // 入口
 // ══════════════════════════════════════════════════════════
+// Ctrl+C（processed input）结束等待中的读：STATUS_ALERTED、0 字节，且输入缓冲
+// 不清空（conhost 只在 Ctrl+Break 时 Flush）。
+bool test_ctrl_c_alerts_pending_read_without_flushing()
+{
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
+    bridge.test_enter_console_read_mode(13);
+
+    INPUT_RECORD record{};
+    record.EventType = KEY_EVENT;
+    record.Event.KeyEvent.bKeyDown = TRUE;
+    record.Event.KeyEvent.uChar.UnicodeChar = L'x';
+    record.Event.KeyEvent.wVirtualKeyCode = 'X';
+    ASSERT(ctx.input.write(&record, 1) == 1);
+
+    auto seq = make_win32_seq(0x43 /* 'C' */, 46, L'\x03', true, LEFT_CTRL_PRESSED);
+    bridge.test_feed_raw_bytes(seq.data(), static_cast<DWORD>(seq.size()));
+
+    // 挂起读以 STATUS_ALERTED 结束，输入缓冲里的记录保留。
+    ASSERT(bridge.test_get_pend_kind() == 0);
+    ASSERT(bridge._test_console_read_msg.complete.IoStatus.Status == 0x101);
+    ASSERT(ctx.input.available() == 1);
+    return true;
+}
+
+// Ctrl+Break 先清空输入缓冲，再以 STATUS_ALERTED 结束读（conhost 行为）。
+bool test_ctrl_break_flushes_input_and_alerts()
+{
+    pipe_bridge_test_context ctx;
+    auto &bridge = ctx.bridge;
+    bridge.test_enter_console_read_mode(13);
+
+    INPUT_RECORD record{};
+    record.EventType = KEY_EVENT;
+    record.Event.KeyEvent.bKeyDown = TRUE;
+    record.Event.KeyEvent.uChar.UnicodeChar = L'y';
+    record.Event.KeyEvent.wVirtualKeyCode = 'Y';
+    ASSERT(ctx.input.write(&record, 1) == 1);
+
+    auto seq = make_win32_seq(VK_CANCEL, 46, L'\x03', true, LEFT_CTRL_PRESSED);
+    bridge.test_feed_raw_bytes(seq.data(), static_cast<DWORD>(seq.size()));
+
+    ASSERT(bridge.test_get_pend_kind() == 0);
+    ASSERT(bridge._test_console_read_msg.complete.IoStatus.Status == 0x101);
+    ASSERT(ctx.input.available() == 0);
+    return true;
+}
+
+// Ctrl+Esc / Alt+Esc 是系统快捷键：conhost 不把它们写进输入缓冲。
+bool test_ctrl_and_alt_escape_are_consumed()
+{
+    {
+        pipe_bridge_test_context ctx;
+        auto &bridge = ctx.bridge;
+        bridge.test_enter_console_read_mode(13);
+        auto seq = make_win32_seq(VK_ESCAPE, 1, L'\x1b', true, LEFT_CTRL_PRESSED);
+        bridge.test_feed_raw_bytes(seq.data(), static_cast<DWORD>(seq.size()));
+        ASSERT(bridge.test_get_pend_kind() != 0); // 读仍然挂起
+        ASSERT(bridge.test_get_cooked_buf() == U"");
+    }
+    {
+        pipe_bridge_test_context ctx;
+        auto &bridge = ctx.bridge;
+        bridge.test_enter_console_read_mode(13);
+        auto seq = make_win32_seq(VK_ESCAPE, 1, L'\x1b', true, LEFT_ALT_PRESSED);
+        bridge.test_feed_raw_bytes(seq.data(), static_cast<DWORD>(seq.size()));
+        ASSERT(bridge.test_get_pend_kind() != 0);
+        ASSERT(bridge.test_get_cooked_buf() == U"");
+    }
+    return true;
+}
+
 int main()
 {
     std::wcout.sync_with_stdio(false);
@@ -2051,6 +2141,10 @@ int main()
 
     std::wcout << L"\nWin32Input → ConsoleRead Regression (cmd shell) :\n";
     RUN_TEST(test_win32_console_read_enter_submits_line, L"Enter submits line");
+    RUN_TEST(test_crlf_split_across_batches_terminates_once, L"CRLF split across batches");
+    RUN_TEST(test_ctrl_c_alerts_pending_read_without_flushing, L"Ctrl+C alerts read, keeps input");
+    RUN_TEST(test_ctrl_break_flushes_input_and_alerts, L"Ctrl+Break flushes input and alerts");
+    RUN_TEST(test_ctrl_and_alt_escape_are_consumed, L"Ctrl+Esc and Alt+Esc consumed");
     RUN_TEST(test_win32_console_read_printable_inserts_char, L"Printable inserts char");
     RUN_TEST(test_console_read_utf8_text_decodes_once, L"UTF-8 text decodes once");
     RUN_TEST(test_win32_console_read_backspace_deletes_char, L"Backspace deletes char");

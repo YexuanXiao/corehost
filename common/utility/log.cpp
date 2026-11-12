@@ -44,7 +44,10 @@ FILE *init_log_file() noexcept
     exe_dir.append(L"logs");
 
     if (!::CreateDirectoryW(exe_dir.c_str(), nullptr) && ::GetLastError() != ERROR_ALREADY_EXISTS)
-        return nullptr;
+    {
+        ::MessageBoxW(nullptr, exe_dir.c_str(), L"CoreHost Create Log Dir Error", MB_OK | MB_ICONERROR);
+        std::abort();
+    }
 
     exe_dir.push_back(L'\\');
 

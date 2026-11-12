@@ -70,10 +70,22 @@ struct connect_handler
     win32::handle_view server;
     win32::handle_view input_event;
 
+    // 没有可用终端时不再向客户端注入 CTRL_BREAK：先完成 CONNECT，让客户端
+    // 拿到 \Input/\Output；随后 defterm_entry 在 start_conpty=false 时返回，
+    // connect_handler 析构会关闭这两个服务端句柄，客户端后续 I/O 自然得到
+    // ERROR_BROKEN_PIPE，初始 CONNECT 循环也无需继续等待。
+    connect_action disconnect_client(condrv_io::io_msg &msg)
+    {
+        condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
+        condrv_io::complete_io(server, msg.complete);
+        LOG("defterm: accepted CONNECT; client handles close on handler destruction");
+        return connect_action::exit_loop;
+    }
+
     [[nodiscard]] connect_action on_connect(condrv_io::io_msg &msg)
     {
         // client_pid 来自 CD_IO_DESCRIPTOR::Process。它必须是当前 CONNECT
-        // 的客户端 pid，后续通知、进程列表和 CTRL_BREAK 都依赖它。
+        // 的客户端 pid，诊断报告和进程列表都依赖它。
         const auto client_pid = static_cast<DWORD>(msg.descriptor.Process);
 
         // CONNECT 是初始路径唯一直接解析的消息体；ConDrv 保证 body 至少
@@ -107,14 +119,13 @@ struct connect_handler
 
         if (env::is_elevated())
         {
-            LOG("elevated process cannot handoff to user terminal; notification and immediate CTRL_BREAK expected");
+            LOG("elevated process cannot handoff to user terminal; disconnect client handles after CONNECT");
 
-            // command_line 只进入低频诊断事件；查询失败时为空，主流程继续通知并打断客户端。
+            // command_line 只进入低频诊断事件；查询失败时为空，主流程继续断开客户端。
             auto command_line = query_process_command_line(client_pid);
             LOG(L"elevated client command line: %ls", command_line.c_str());
 
-            // ProcessGroupId 为 0 时没有显式进程组，只能用 pid 作为
-            // GenerateConsoleCtrlEvent 的目标。
+            // ProcessGroupId 为 0 时没有显式进程组，诊断报告里用客户端 pid 作为目标。
             const DWORD target_process_group_id =
                 connect_info.ProcessGroupId ? connect_info.ProcessGroupId : client_pid;
             const auto report_path = diagnostic_report::write_elevated_terminal_blocked(
@@ -123,11 +134,8 @@ struct connect_handler
                 client_pid, target_process_group_id, connect_info.ShowWindow, connect_info.StartupFlags,
                 connect_info.WindowVisible, connect_info.ConsoleApp, command_line);
             env::show_elevated_notification(report_path);
-            condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
-
-            LOG("sending immediate CTRL_BREAK to process group=%lu", target_process_group_id);
-            ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, target_process_group_id);
-            return connect_action::continue_loop;
+            // 不接受一个无法显示的控制台：完成 CONNECT 后立即断开 \Input/\Output。
+            return disconnect_client(msg);
         }
 
         LOG("GUI expected; trying default-terminal COM handoff (failure is allowed)");
@@ -138,7 +146,7 @@ struct connect_handler
             return connect_action::exit_loop;
         }
 
-        LOG("no terminal accepted handoff; notification and CTRL_BREAK are expected fallback");
+        LOG("no terminal accepted handoff; disconnect client handles after CONNECT");
         auto command_line = query_process_command_line(client_pid);
         LOG(L"no-terminal client command line: %ls", command_line.c_str());
         const DWORD target_process_group_id = connect_info.ProcessGroupId ? connect_info.ProcessGroupId : client_pid;
@@ -148,10 +156,8 @@ struct connect_handler
             client_pid, target_process_group_id, connect_info.ShowWindow, connect_info.StartupFlags,
             connect_info.WindowVisible, connect_info.ConsoleApp, command_line);
         env::show_not_found_notification(report_path);
-        condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
-        // 没有可用终端时立即打断客户端进程组，避免它永久等待不可见控制台。
-        ::GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, target_process_group_id);
-        return connect_action::continue_loop;
+        // 不接受一个无法显示的控制台：完成 CONNECT 后立即断开 \Input/\Output。
+        return disconnect_client(msg);
     }
 
     bool on_message(condrv_io::io_msg &msg)
@@ -159,10 +165,6 @@ struct connect_handler
         LOG3("fallback message: func=%lu", msg.descriptor.Function);
         dispatch_console(server, msg, condrv_input, condrv_output);
         return true;
-    }
-
-    void on_idle() noexcept
-    {
     }
 
     bool has_pending() const noexcept
@@ -197,31 +199,33 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
     // 已由 handler 填好 complete 字段的消息。
     condrv_io::io_msg *completed_previous = nullptr;
 
+    // 只有"上一次 READ_IO 已确认没有消息"时才等待事件。首次进入循环必须先
+    // READ_IO：CONNECT 可能在宿主注册 InputAvailableEvent 之前就已排队，此时
+    // 事件不会被置位，先等待就会永久阻塞。
+    bool wait_for_message = false;
+
     for (;;)
     {
-        if (!handler.has_pending() && completed_previous == nullptr)
+        if (wait_for_message)
         {
-            handler.on_idle();
-            if (handler.should_exit())
-                break;
-            if (!handler.has_pending())
+            wait_for_message = false;
+            const auto wait = win32::wait_one(input_event, INFINITE);
+            if (wait.abandoned())
             {
-                // 16ms 只用于空闲节流，避免没有消息时空转。
-                const auto wait = win32::wait_one(input_event, 16);
-                if (wait.abandoned())
-                {
-                    LOG3("initial CONNECT loop idle wait abandoned");
-                    return;
-                }
+                LOG3("initial CONNECT loop idle wait abandoned");
+                return;
             }
         }
+
+        if (handler.should_exit())
+            break;
 
         // completion 为 nullptr 或 completed_previous->complete。READ_IO 返回
         // no_message 时，驱动已经消费该 completion，下一轮不能重复提交。
         auto *completion = completed_previous ? &completed_previous->complete : nullptr;
         if (completion)
         {
-            // 与 io_loop 相同：handler 返回 true 必须已准备 completion，否则
+            // 与主 I/O 循环相同：handler 返回 true 必须已准备 completion，否则
             // 会把上一轮残留的标识符交给驱动。
             assert(condrv_io::completion_matches_descriptor(*completed_previous));
             LOG3("submitting previous completion id=%08lx:%08lx status=0x%08lx info=%llu",
@@ -243,9 +247,9 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
         if (read_result == condrv_io::read_io_result::no_message)
         {
             completed_previous = nullptr;
-            handler.on_idle();
             if (handler.should_exit())
                 break;
+            wait_for_message = true;
             continue;
         }
         completed_previous = nullptr;
@@ -258,7 +262,6 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
 
         if (current->descriptor.Function == no_console_io_function)
         {
-            handler.on_idle();
             if (handler.should_exit())
                 break;
             continue;
@@ -281,7 +284,6 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
         if (handler.on_message(*current))
         {
             completed_previous = current;
-            handler.on_idle();
             if (handler.should_exit())
                 break;
         }
@@ -289,16 +291,12 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
         {
             while (handler.has_pending())
             {
-                handler.on_idle();
-                if (handler.has_pending())
+                // handler 自报仍有 pending 时同样无限等待，由消息唤醒。
+                const auto wait = win32::wait_one(input_event, INFINITE);
+                if (wait.abandoned())
                 {
-                    // 16ms 约等于一帧；只在 handler 自己仍有 pending 工作时让步。
-                    const auto wait = win32::wait_one(input_event, 16);
-                    if (wait.abandoned())
-                    {
-                        LOG3("initial CONNECT loop pending wait abandoned");
-                        return;
-                    }
+                    LOG3("initial CONNECT loop pending wait abandoned");
+                    return;
                 }
             }
             if (handler.should_exit())

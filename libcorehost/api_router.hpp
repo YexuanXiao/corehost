@@ -118,7 +118,7 @@ struct api_router
             return true;
         }
 
-        // completed=false 表示 handler 已挂起请求；io_loop 不会提交 msg.complete，
+        // completed=false 表示 handler 已挂起请求；message_router 不会提交 msg.complete，
         // 等 bridge 在收到 VT 输入后显式 COMPLETE_IO。
         bool completed = true;
         switch (layer)
@@ -336,6 +336,14 @@ struct api_router
         // api==4 是 GetConsoleInput，PSReadLine 会高频轮询；不记录以免刷屏。
         if (api != 4)
             LOG2("[dispatch] L1 api=%lu", api);
+        // GetNumberOfConsoleInputEvents / GetConsoleInput / ReadConsole 需要输入
+        // 句柄；conhost 在屏幕缓冲区句柄上让它们失败。libuv 靠这个失败区分
+        // stdin/stdout，否则 node 把 stdout 当 stdin，输出全部 EPIPE（fork 42ef837）。
+        if ((api == 3 || api == 4 || api == 5) && !input_handle)
+        {
+            corehost::condrv_io::prepare_completion(msg, status_invalid_handle);
+            return true;
+        }
         switch (api)
         {
         case 0:

@@ -86,10 +86,6 @@ class terminal_cursor_state
     }
 
     // 设置光标列且不检查坐标可信度；只给已经手动维护状态的测试/内部路径使用。
-    void set_cursor_x_unchecked(SHORT x) noexcept
-    {
-        _cursor.X = x;
-    }
 
     // 新 prompt 或 Console API 输出结束后重建可编辑输入区间。
     void reset_bounds(SHORT x) noexcept

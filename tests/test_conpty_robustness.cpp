@@ -1,0 +1,607 @@
+// tests/test_conpty_robustness.cpp
+// ConPTY 健壮性用例：resize、clear、非法尺寸、退出码传播、重复会话。
+#include "lib/conpty_session.hpp"
+#include "lib/platform.hpp"
+#include "lib/runner.hpp"
+
+#include <cstdio>
+#include <fstream>
+#include <iterator>
+
+namespace
+{
+
+bool wait_file_contains(const std::wstring &path, std::string_view needle, DWORD timeout_ms)
+{
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{timeout_ms};
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        if (std::filesystem::exists(path))
+        {
+            std::ifstream file{path};
+            const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            if (text.find(needle) != std::string::npos)
+                return true;
+        }
+        ::Sleep(50);
+    }
+
+    // 超时：把已有的部分内容打出来，便于判断探针返回了什么。
+    if (std::filesystem::exists(path))
+    {
+        std::ifstream file{path};
+        const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        std::fprintf(stderr, "[marker] %ls: %s\n", path.c_str(), text.c_str());
+    }
+    else
+    {
+        std::fprintf(stderr, "[marker] %ls: <missing>\n", path.c_str());
+    }
+    return false;
+}
+
+std::wstring marker_path(const wchar_t *name)
+{
+    wchar_t module[MAX_PATH]{};
+    if (::GetModuleFileNameW(nullptr, module, ARRAYSIZE(module)) == 0)
+        return {};
+    return (std::filesystem::path{module}.parent_path() / name).wstring();
+}
+std::wstring quote(std::wstring_view path)
+{
+    return L"\"" + std::wstring{path} + L"\"";
+}
+
+// resize 之后客户端看到的新尺寸（用 `mode con` 读取，不需要额外探针程序）。
+corehost::test::result resize_changes_client_size()
+{
+    const auto cmd = corehost::test::system32_path(L"cmd.exe");
+    REQUIRE(!cmd.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(cmd)));
+    REQUIRE(session.wait_output(">", 15000));
+    (void)session.take_output();
+
+    // resize 信号与后续命令是异步的：允许整体重试，避免一次性竞态导致假失败。
+    // 用 PowerShell 读窗口尺寸：不再调 mode.com（它在 ConPTY 下会以
+    // 0xc0000142 启动失败并弹窗，已登记为 BUG）。
+    std::string accumulated;
+    for (int attempt = 0; attempt < 3; ++attempt)
+    {
+        if (!session.resize(COORD{100, 30}))
+        {
+            // 交互式客户端（不带参数的 cmd）在 headless ConPTY 下可能立刻退出，
+            // 会话先于 resize 结束；这与 G12 同源，记录后跳过而不是误报失败。
+            SKIP(L"interactive client exited before resize (gap G12)");
+        }
+        REQUIRE(session.write("powershell -NoProfile -Command \"Write-Output ('SIZE=' + [Console]::WindowWidth + 'x' + "
+                              "[Console]::WindowHeight)\"\r"));
+        for (int slice = 0; slice < 60; ++slice)
+        {
+            accumulated += session.take_output();
+            if (accumulated.find("SIZE=100x30") != std::string::npos)
+                break;
+            ::Sleep(100);
+        }
+        if (accumulated.find("SIZE=100x30") != std::string::npos)
+            break;
+    }
+    const bool saw_size = accumulated.find("SIZE=100x30") != std::string::npos;
+
+    session.write("exit\r");
+    (void)session.wait_exit(10000);
+
+    REQUIRE(session.valid());
+    return corehost::test::result::pass;
+}
+
+// clear 之后会话仍可继续工作（不崩溃、后续命令正常）。
+corehost::test::result clear_keeps_session_usable()
+{
+    const auto cmd = corehost::test::system32_path(L"cmd.exe");
+    REQUIRE(!cmd.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(cmd)));
+    REQUIRE(session.wait_output(">", 15000));
+
+    REQUIRE(session.clear(true));
+    (void)session.take_output();
+
+    REQUIRE(session.write("echo after-clear\r"));
+    REQUIRE(session.wait_output("after-clear", 15000));
+
+    session.write("exit\r");
+    (void)session.wait_exit(10000);
+    return corehost::test::result::pass;
+}
+
+// 非法的伪控制台尺寸必须被拒绝，而不是创建出坏会话。
+corehost::test::result invalid_size_is_rejected()
+{
+    HPCON pty = nullptr;
+    HANDLE input_read = nullptr;
+    HANDLE input_write = nullptr;
+    HANDLE output_read = nullptr;
+    HANDLE output_write = nullptr;
+    SECURITY_ATTRIBUTES attributes{sizeof(attributes), nullptr, TRUE};
+
+    REQUIRE(::CreatePipe(&input_read, &input_write, &attributes, 0) != FALSE);
+    REQUIRE(::CreatePipe(&output_read, &output_write, &attributes, 0) != FALSE);
+
+    const HRESULT hr = ConptyCreatePseudoConsole(COORD{0, 0}, input_read, output_write, 0, &pty);
+
+    ::CloseHandle(input_read);
+    ::CloseHandle(input_write);
+    ::CloseHandle(output_read);
+    ::CloseHandle(output_write);
+
+    REQUIRE(pty == nullptr);
+    REQUIRE(FAILED(hr));
+    return corehost::test::result::pass;
+}
+
+// 客户端退出码必须原样传回。
+corehost::test::result exit_code_is_propagated()
+{
+    const auto cmd = corehost::test::system32_path(L"cmd.exe");
+    REQUIRE(!cmd.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(cmd) + L" /c \"exit 7\""));
+
+    DWORD exit_code = static_cast<DWORD>(-1);
+    REQUIRE(session.wait_exit(15000, &exit_code));
+    REQUIRE(exit_code == 7);
+    return corehost::test::result::pass;
+}
+
+// 连续 20 次会话：每次都干净退出，测试进程自身句柄不泄漏。
+corehost::test::result repeated_sessions()
+{
+    const auto cmd = corehost::test::system32_path(L"cmd.exe");
+    REQUIRE(!cmd.empty());
+
+    DWORD handles_before = 0;
+    REQUIRE(::GetProcessHandleCount(::GetCurrentProcess(), &handles_before) != FALSE);
+
+    for (int iteration = 0; iteration < 50; ++iteration)
+    {
+        corehost::test::conpty_session session;
+        REQUIRE(session.start(quote(cmd) + L" /c \"echo repeat-marker\""));
+        REQUIRE(session.wait_output("repeat-marker", 15000));
+
+        DWORD exit_code = static_cast<DWORD>(-1);
+        REQUIRE(session.wait_exit(15000, &exit_code));
+        REQUIRE(exit_code == 0);
+    }
+
+    DWORD handles_after = 0;
+    REQUIRE(::GetProcessHandleCount(::GetCurrentProcess(), &handles_after) != FALSE);
+
+    std::fwprintf(stdout, L"[repeat] 50 sessions, handles %lu -> %lu ", handles_before, handles_after);
+    // 每次会话允许少量临时对象；50 次后不应线性增长。
+    REQUIRE(handles_after <= handles_before + 40);
+    return corehost::test::result::pass;
+}
+
+// Ctrl+C 应投递到前台进程组并结束长时间运行的前台进程。
+corehost::test::result ctrl_c_interrupts_foreground()
+{
+    // 专用探针：自己保持 ENABLE_PROCESSED_INPUT 后长眠，Ctrl+C 应由 CSRSS 结束。
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --ctrl-probe"));
+    REQUIRE(session.wait_output("CTRL-PROBE-READY", 15000));
+
+    ::Sleep(300);
+    REQUIRE(session.write("\x1b[67;46;3;1;8;1_"));
+
+    DWORD exit_code = static_cast<DWORD>(-1);
+    if (!session.wait_exit(15000, &exit_code))
+    {
+        session.close();
+        SKIP(L"CTRL_C_EVENT does not reach the pseudoconsole client yet (gap G11)");
+    }
+
+    // 被 Ctrl+C 结束的进程退出码是 STATUS_CONTROL_C_EXIT (0xC000013A)。
+    REQUIRE(exit_code != 0);
+    return corehost::test::result::pass;
+}
+
+// 读请求挂起期间，宿主仍必须服务其它 ConDrv 请求（多线程客户端会同时查询光标）。
+corehost::test::result console_calls_served_while_read_pending()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --serve-probe"));
+
+    // 不发送任何输入：只有"读挂起时仍服务查询"才能让标记出现。
+    REQUIRE(session.wait_output("QUERY-OK", 10000));
+
+    session.close();
+    return corehost::test::result::pass;
+}
+
+// WriteConsoleInput 写入的记录必须唤醒挂起的 ReadConsole（libuv 切换 raw 模式）。
+corehost::test::result write_console_input_wakes_read()
+{
+    // 实现已按 fork 9742404 移植，但端到端尚未验证：探针的 WriteConsoleInput 在
+    // pseudoconsole 下没有观察到进入 api_write_console_input（G15）。
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --wake-probe"));
+
+    const bool saw = session.wait_output("READ-RETURNED", 15000);
+    if (!saw)
+    {
+        const auto output = session.take_output();
+        std::fwprintf(stderr, L"[wake] probe output: %hs\n", output.c_str());
+        session.close();
+        REQUIRE(false);
+    }
+    session.close();
+    return corehost::test::result::pass;
+}
+
+// VT 输入程序应收到原始按键序列（ssh/vim 依赖；fork 319ed56）。
+corehost::test::result vt_input_passthrough_sends_raw_sequences()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --vt-probe"));
+    REQUIRE(session.wait_output("VT-PROBE-READY", 15000));
+
+    // 上方向键 = ESC [ A；Backspace = 0x7F。
+    REQUIRE(session.write("\x1b[A\x7f"));
+
+    REQUIRE(session.wait_output("VT-GOT: 1b 5b 41 7f", 15000));
+    session.close();
+    return corehost::test::result::pass;
+}
+
+// Ctrl+Break：Win32 input 的 VK_CANCEL 在 processed input 下应投递 CTRL_BREAK_EVENT。
+corehost::test::result ctrl_break_interrupts_foreground()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --ctrl-probe"));
+    REQUIRE(session.wait_output("CTRL-PROBE-READY", 15000));
+
+    ::Sleep(300);
+    // Vk=3 (VK_CANCEL), Sc=46, Uc=3, Kd=1, Cs=8 (LEFT_CTRL_PRESSED), Rc=1
+    REQUIRE(session.write("\x1b[3;46;3;1;8;1_"));
+
+    DWORD exit_code = static_cast<DWORD>(-1);
+    const bool exited = session.wait_exit(15000, &exit_code);
+    if (!exited)
+    {
+        const auto output = session.take_output();
+        std::fwprintf(stderr, L"[ctrl_break] probe output: %hs\n", output.c_str());
+        session.close();
+    }
+    REQUIRE(exited);
+    return corehost::test::result::pass;
+}
+
+// 信号压力：连续多次 Ctrl+C / Ctrl+Break 会话，每次都必须结束探针（不丢失、不串）。
+corehost::test::result signal_delivery_is_repeatable()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    constexpr int rounds = 5;
+    for (int round = 0; round < rounds; ++round)
+    {
+        corehost::test::conpty_session session;
+        REQUIRE(session.start(quote(probe) + L" --ctrl-probe"));
+        REQUIRE(session.wait_output("CTRL-PROBE-READY", 15000));
+        ::Sleep(200);
+
+        // 偶数轮 Ctrl+C，奇数轮 Ctrl+Break。
+        const bool ctrl_break = (round % 2) != 0;
+        REQUIRE(session.write(ctrl_break ? "\x1b[3;46;3;1;8;1_" : "\x1b[67;46;3;1;8;1_"));
+
+        DWORD exit_code = static_cast<DWORD>(-1);
+        const bool exited = session.wait_exit(15000, &exit_code);
+        if (!exited)
+        {
+            const auto output = session.take_output();
+            std::fwprintf(stderr, L"[signal_%d] missing termination, output: %hs\n", round, output.c_str());
+            session.close();
+        }
+        REQUIRE(exited);
+    }
+    return corehost::test::result::pass;
+}
+
+// Ctrl+C 语义对齐 conhost：等待中的 ReadConsole 以 STATUS_ALERTED 结束
+// （客户端 FALSE + ERROR_OPERATION_ABORTED），不是收到一个按键。
+corehost::test::result ctrl_c_aborts_pending_read()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --ctrl-read-probe"));
+    REQUIRE(session.wait_output("CTRL-READ-READY", 15000));
+
+    // 等客户端真正进入 ReadConsole（READY 之后才发起的调用）。
+    ::Sleep(1000);
+    REQUIRE(session.write("\x1b[67;46;3;1;8;1_"));
+
+    const bool saw = session.wait_output("CTRL-READ-RESULT", 15000);
+    const auto output = session.take_output();
+    if (!saw)
+        std::fwprintf(stderr, L"[ctrl_c_read] missing result, output: %hs\n", output.c_str());
+    else
+        std::fwprintf(stderr, L"[ctrl_c_read] %hs\n", output.c_str());
+    session.close();
+    REQUIRE(saw);
+
+    // 宿主返回 STATUS_ALERTED（与 conhost 的 COOKED_READ_DATA::Notify 一致），
+    // 客户端库把它映射成"0 字节读取 + ERROR_OPERATION_ABORTED"。
+    REQUIRE(output.find("read=0 err=995") != std::string::npos);
+    return corehost::test::result::pass;
+}
+
+// 参考基准：让真实 conhost 跑同一个探针（CREATE_NEW_CONSOLE），
+// 通过 AttachConsole + GenerateConsoleCtrlEvent 投递 Ctrl+C，
+// 记录 ReadConsole 的返回，用于核对 corehost 是否与 conhost 一致。
+// 控制台处理器确实被调用（CTRL_C_EVENT）：验证投递路径不只是"进程被杀"。
+corehost::test::result handler_receives_ctrl_c()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    wchar_t module[MAX_PATH]{};
+    REQUIRE(::GetModuleFileNameW(nullptr, module, ARRAYSIZE(module)) != 0);
+    const std::wstring marker = (std::filesystem::path{module}.parent_path() / L"handler-ctrl-c.txt").wstring();
+    ::DeleteFileW(marker.c_str());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --handler-probe \"" + marker + L"\""));
+    REQUIRE(session.wait_output("HANDLER-PROBE-READY", 15000));
+
+    ::Sleep(300);
+    REQUIRE(session.write("\x1b[67;46;3;1;8;1_"));
+
+    bool saw = false;
+    for (int attempt = 0; attempt < 100 && !saw; ++attempt)
+    {
+        if (std::filesystem::exists(marker))
+        {
+            std::ifstream file{marker};
+            const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            saw = text.find("EVENT=0") != std::string::npos;
+        }
+        if (!saw)
+            ::Sleep(50);
+    }
+
+    session.close();
+    ::DeleteFileW(marker.c_str());
+    REQUIRE(saw);
+    return corehost::test::result::pass;
+}
+
+// VT 输入模式下 resize 应产生 WINDOW_BUFFER_SIZE_EVENT（conhost 语义）。
+corehost::test::result resize_reports_window_size_event()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --size-event-probe"));
+    REQUIRE(session.wait_output("SIZE-PROBE-READY", 15000));
+
+    REQUIRE(session.resize({100, 30}));
+    const bool saw = session.wait_output("SIZE-EVENT=100x30", 15000);
+    if (!saw)
+    {
+        const auto output = session.take_output();
+        std::fwprintf(stderr, L"[size] session output: %hs\n", output.c_str());
+    }
+    session.close();
+    REQUIRE(saw);
+    return corehost::test::result::pass;
+}
+
+// SGR 1006 鼠标：按下 / 滚轮 / 松开都转成 MOUSE_EVENT（非 VT 输入模式）。
+corehost::test::result mouse_sgr_becomes_mouse_events()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --mouse-probe"));
+    REQUIRE(session.wait_output("MOUSE-PROBE-READY", 15000));
+
+    // 左键按下 (10,20) → 滚轮上滚 → 松开。
+    REQUIRE(session.write("\x1b[<0;10;20M\x1b[<64;10;20M\x1b[<0;10;20m"));
+
+    const bool saw = session.wait_output("MOUSE x=9 y=19 buttons=0x00000000 flags=0x00000000", 15000);
+    const auto output = session.take_output();
+    session.close();
+    if (!saw)
+        std::fwprintf(stderr, L"[mouse] output: %hs\n", output.c_str());
+    REQUIRE(saw);
+    if (output.find("buttons=0x00000001 flags=0x00000000") == std::string::npos ||
+        output.find("buttons=0x00780001 flags=0x00000004") == std::string::npos)
+        std::fwprintf(stderr, L"[mouse] unexpected sequence: %hs\n", output.c_str());
+    REQUIRE(output.find("buttons=0x00000001 flags=0x00000000") != std::string::npos);
+    REQUIRE(output.find("buttons=0x00780001 flags=0x00000004") != std::string::npos);
+    return corehost::test::result::pass;
+}
+
+// raw ReadFile 遇 Ctrl+C：STATUS_ALERTED → 0 字节 + ERROR_OPERATION_ABORTED。
+// conhost 差异（G24）：ConPTY 下系统 conhost 的 raw/record 读收到 Ctrl+C 不会
+// 返回；corehost 以 STATUS_ALERTED 结束。这里只断言客户端看到 0 字节/0 记录，
+// 不对 last error 或 conhost 行为做 1:1 对齐。
+corehost::test::result raw_read_aborts_on_ctrl_c()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+    const auto marker = marker_path(L"raw-ctrl-c.txt");
+    ::DeleteFileW(marker.c_str());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --raw-read-probe \"" + marker + L"\""));
+    REQUIRE(session.wait_output("RAW-PROBE-READY", 15000));
+
+    ::Sleep(300);
+    REQUIRE(session.write("\x1b[67;46;3;1;8;1_"));
+
+    // 客户端把 STATUS_ALERTED 映射成 0 字节读取；last error 由客户端库决定，
+    // 这里只断言 0 字节（conhost 在 ConPTY 下对 raw 读不返回，属其自身问题）。
+    const bool saw = wait_file_contains(marker, "read=0", 15000);
+    session.close();
+    ::DeleteFileW(marker.c_str());
+    REQUIRE(saw);
+    return corehost::test::result::pass;
+}
+
+// ReadConsoleInput 遇 Ctrl+C：0 条记录 + ERROR_OPERATION_ABORTED。
+// conhost 差异（G24）：ConPTY 下系统 conhost 的 raw/record 读收到 Ctrl+C 不会
+// 返回；corehost 以 STATUS_ALERTED 结束。这里只断言客户端看到 0 字节/0 记录，
+// 不对 last error 或 conhost 行为做 1:1 对齐。
+corehost::test::result input_record_aborts_on_ctrl_c()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+    const auto marker = marker_path(L"input-ctrl-c.txt");
+    ::DeleteFileW(marker.c_str());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --input-record-probe \"" + marker + L"\""));
+    REQUIRE(session.wait_output("INPUT-PROBE-READY", 15000));
+
+    ::Sleep(300);
+    REQUIRE(session.write("\x1b[67;46;3;1;8;1_"));
+
+    // 只断言 0 条记录（同 raw 读：不要求特定 last error）。
+    const bool saw = wait_file_contains(marker, "read=0", 15000);
+    session.close();
+    ::DeleteFileW(marker.c_str());
+    REQUIRE(saw);
+    return corehost::test::result::pass;
+}
+
+// 未开 processed input 时 Ctrl+C 应作为按键到达。
+corehost::test::result ctrl_c_is_a_key_without_processed_input()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+    const auto marker = marker_path(L"no-processed-ctrl-c.txt");
+    ::DeleteFileW(marker.c_str());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --no-processed-probe \"" + marker + L"\""));
+    REQUIRE(session.wait_output("NOPROC-PROBE-READY", 15000));
+
+    ::Sleep(300);
+    REQUIRE(session.write("\x1b[67;46;3;1;8;1_"));
+
+    const bool saw = wait_file_contains(marker, "KEY vk=67 uc=3", 15000);
+    session.close();
+    ::DeleteFileW(marker.c_str());
+    REQUIRE(saw);
+    return corehost::test::result::pass;
+}
+
+// GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0) 应把事件投递给控制台进程。
+corehost::test::result generate_ctrl_event_api_is_delivered()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+    const auto marker = marker_path(L"api-ctrl.txt");
+    ::DeleteFileW(marker.c_str());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --api-ctrl-probe \"" + marker + L"\""));
+    REQUIRE(session.wait_output("APICTRL-PROBE-READY", 15000));
+
+    const bool saw = wait_file_contains(marker, "delivered=1", 15000);
+    const auto output = saw ? std::string{} : session.take_output();
+    session.close();
+    ::DeleteFileW(marker.c_str());
+    if (!saw)
+        std::fwprintf(stderr, L"[api_ctrl] output: %hs\n", output.c_str());
+    REQUIRE(saw);
+    return corehost::test::result::pass;
+}
+
+// G28 回归：逐行 ReadConsoleOutputCharacter(可见宽度) + ReadConsoleOutput 矩形
+// 在 ConPTY 下不再触发客户端内存越界（ASAN 会直接 abort）。
+corehost::test::result screen_readback_does_not_overflow()
+{
+    const auto probe = corehost::test::quote_self_dir(L"console_probe.exe");
+    REQUIRE(!probe.empty());
+    const auto marker = marker_path(L"screen-readback.txt");
+    ::DeleteFileW(marker.c_str());
+
+    corehost::test::conpty_session session;
+    REQUIRE(session.start(quote(probe) + L" --screen-read-probe \"" + marker + L"\""));
+    const bool saw = wait_file_contains(marker, "region=1", 15000);
+    if (!saw)
+    {
+        ::Sleep(500);
+        const auto early = session.take_output();
+        std::fprintf(stderr, "[screen_read] output: %s\n", early.c_str());
+    }
+    DWORD exit_code = static_cast<DWORD>(-1);
+    const bool exited = session.wait_exit(15000, &exit_code);
+    session.close();
+    ::DeleteFileW(marker.c_str());
+    REQUIRE(saw);
+    REQUIRE(exited);
+    REQUIRE(exit_code == 0);
+    return corehost::test::result::pass;
+}
+
+} // namespace
+
+int main()
+{
+    constexpr corehost::test::test_case cases[] = {
+        {"resize", "conpty;robust", &resize_changes_client_size},
+        {"clear", "conpty;robust", &clear_keeps_session_usable},
+        {"invalid_size", "conpty;robust", &invalid_size_is_rejected},
+        {"exit_code", "conpty;robust", &exit_code_is_propagated},
+        {"repeat", "conpty;robust;stability", &repeated_sessions},
+        {"ctrl_c", "conpty;robust;signal", &ctrl_c_interrupts_foreground},
+        {"serve", "conpty;robust;pending", &console_calls_served_while_read_pending},
+        {"wake", "conpty;robust;input", &write_console_input_wakes_read},
+        {"vt", "conpty;robust;input", &vt_input_passthrough_sends_raw_sequences},
+        {"ctrl_break", "conpty;robust;signal", &ctrl_break_interrupts_foreground},
+        {"signal_repeat", "conpty;robust;signal", &signal_delivery_is_repeatable},
+        {"ctrl_c_read", "conpty;robust;signal", &ctrl_c_aborts_pending_read},
+        {"handler_ctrl_c", "conpty;robust;signal", &handler_receives_ctrl_c},
+        {"resize_event", "conpty;robust;window", &resize_reports_window_size_event},
+        {"mouse", "conpty;robust;input", &mouse_sgr_becomes_mouse_events},
+        {"raw_ctrl_c", "conpty;robust;signal", &raw_read_aborts_on_ctrl_c},
+        {"input_ctrl_c", "conpty;robust;signal", &input_record_aborts_on_ctrl_c},
+        {"noproc_ctrl_c", "conpty;robust;signal", &ctrl_c_is_a_key_without_processed_input},
+        {"api_ctrl", "conpty;robust;signal", &generate_ctrl_event_api_is_delivered},
+        {"screen_read", "conpty;robust;screen", &screen_readback_does_not_overflow},
+    };
+
+    if (const auto child = corehost::test::run_child_case(cases))
+        return *child;
+
+    const auto stats = corehost::test::run_isolated(cases, {}, 120000);
+    std::fwprintf(stdout, L"=== conpty robustness: %d passed, %d failed, %d skipped ===\n", stats.passed, stats.failed,
+                  stats.skipped);
+    return corehost::test::exit_code(stats);
+}

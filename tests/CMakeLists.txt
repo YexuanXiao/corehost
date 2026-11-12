@@ -32,6 +32,30 @@ target_include_directories(test_common INTERFACE
 target_link_libraries(test_common INTERFACE common)
 target_compile_features(test_common INTERFACE cxx_std_23)
 
+# ── test_runner_selftest ──────────────────────────
+# 测试库 runner 自身的行为（通过/失败/跳过/过滤）。
+add_executable(test_runner_selftest
+    test_runner_selftest.cpp
+)
+target_include_directories(test_runner_selftest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(test_runner_selftest PRIVATE test_common)
+add_test(NAME Runner.SelfTest COMMAND test_runner_selftest)
+set_tests_properties(Runner.SelfTest PROPERTIES LABELS "testlib;selftest" TIMEOUT 30)
+
+# ── test_vt_screen_selftest ───────────────────────
+# VT 屏幕模型自测（tests/lib/vt_screen.hpp）。
+add_executable(test_vt_screen_selftest
+    test_vt_screen_selftest.cpp
+)
+target_include_directories(test_vt_screen_selftest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(test_vt_screen_selftest PRIVATE test_common)
+add_test(NAME VT.ScreenSelfTest COMMAND test_vt_screen_selftest)
+set_tests_properties(VT.ScreenSelfTest PROPERTIES LABELS "testlib;screen" TIMEOUT 30)
+
 # ── test_vt_parser_utf32 ───────────────────────────
 add_executable(test_vt_parser_utf32
     test_vt_parser_utf32.cpp
@@ -71,6 +95,7 @@ set_tests_properties(ScreenBuffer PROPERTIES LABELS "sb" TIMEOUT 30)
 # ── test_console_state ────────────────────────────
 add_executable(test_console_state
     test_console_state.cpp
+    ${CMAKE_SOURCE_DIR}/libcorehost/signal.cpp
 )
 target_link_libraries(test_console_state PRIVATE test_common unicode::unicode)
 add_test(NAME ConsoleState COMMAND test_console_state)
@@ -129,6 +154,205 @@ add_custom_command(TARGET test_conpty_e2e POST_BUILD
 add_test(NAME ConPTY.E2E COMMAND test_conpty_e2e)
 set_tests_properties(ConPTY.E2E PROPERTIES LABELS "conpty;e2e" TIMEOUT 60)
 
+# ── test_defterm_connect_selftest ─────────────────
+# 测试进程自建 ConDrv 会话并跑 corehost 的 defterm 入口（不碰注册表）。
+add_executable(test_defterm_connect_selftest
+    test_defterm_connect_selftest.cpp
+)
+target_include_directories(test_defterm_connect_selftest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_defterm_connect_selftest PRIVATE test_common user32.lib)
+add_dependencies(test_defterm_connect_selftest corehost)
+add_custom_command(TARGET test_defterm_connect_selftest POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:corehost>"
+        "$<TARGET_FILE_DIR:test_defterm_connect_selftest>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_defterm_connect_selftest>/logs"
+)
+# TODO(C3): 宿主已进入 defterm_entry 并阻塞在 READ_IO，但测试进程的 \Connect
+# 消息没有送达（无 "CONNECT received" 日志）；需对照 ConsoleBench 的时序与 EA
+# 结构逐项比对。修复前不注册，避免超时红灯。
+add_test(NAME Defterm.Connect COMMAND test_defterm_connect_selftest)
+set_tests_properties(Defterm.Connect PROPERTIES LABELS "defterm" TIMEOUT 120)
+
+# ── console_probe ─────────────────────────────────
+# 被测会话里的真实控制台客户端探针（Ctrl+C 等需要保持 processed input）。
+add_executable(console_probe
+    console_probe.cpp
+)
+target_link_libraries(console_probe PRIVATE test_common)
+add_custom_command(TARGET console_probe POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:console_probe>"
+        "$<TARGET_FILE_DIR:test_conpty_programs>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_conpty_robustness>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:console_probe>"
+        "$<TARGET_FILE_DIR:test_conpty_robustness>"
+)
+
+# ── test_conpty_robustness ────────────────────────
+# resize / clear / 非法尺寸 / 退出码 / 重复会话。
+add_executable(test_conpty_robustness
+    test_conpty_robustness.cpp
+)
+target_include_directories(test_conpty_robustness PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_conpty_robustness PRIVATE test_common conpty_static)
+add_dependencies(test_conpty_robustness corehost)
+add_custom_command(TARGET test_conpty_robustness POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:corehost>"
+        "$<TARGET_FILE_DIR:test_conpty_robustness>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_conpty_robustness>/logs"
+)
+add_test(NAME ConPTY.Robustness COMMAND test_conpty_robustness)
+set_tests_properties(ConPTY.Robustness PROPERTIES LABELS "conpty;robust" TIMEOUT 180)
+
+
+# ── test_defterm_handoff_mock ────────────────────
+# handoff 协议替身测试：不做 COM 注册、不需要 WindowsTerminal。
+add_executable(test_defterm_handoff_mock
+    test_defterm_handoff_mock.cpp
+    ${CMAKE_SOURCE_DIR}/corehost/defterm/signal.cpp
+)
+target_link_libraries(test_defterm_handoff_mock PRIVATE test_common conhost_proxy_headers ole32)
+add_test(NAME Defterm.Handoff COMMAND test_defterm_handoff_mock)
+set_tests_properties(Defterm.Handoff PROPERTIES LABELS "defterm;handoff" TIMEOUT 30)
+
+
+# ── test_conpty_differential ─────────────────────
+# 差分测试：默认只跑 corehost 侧冒烟（快）；设置 COREHOST_TEST_DIFFERENTIAL=1
+# 才与系统 conhost 比较（见 doc/tasks/06-test-options.md）。
+add_executable(test_conpty_differential
+    test_conpty_differential.cpp
+)
+target_include_directories(test_conpty_differential PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_conpty_differential PRIVATE test_common conpty_static)
+add_dependencies(test_conpty_differential corehost console_probe)
+add_custom_command(TARGET test_conpty_differential POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:corehost>"
+        "$<TARGET_FILE_DIR:test_conpty_differential>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:console_probe>"
+        "$<TARGET_FILE_DIR:test_conpty_differential>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_conpty_differential>/logs"
+)
+add_test(NAME ConPTY.Differential COMMAND test_conpty_differential)
+set_tests_properties(ConPTY.Differential PROPERTIES LABELS "conpty;differential" TIMEOUT 90)
+
+# ── test_conpty_programs ──────────────────────────# 真实程序矩阵：cmd、嵌套子进程、powershell、vim、输入时延。
+add_executable(test_conpty_programs
+    test_conpty_programs.cpp
+)
+target_include_directories(test_conpty_programs PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_conpty_programs PRIVATE test_common conpty_static ws2_32)
+add_dependencies(test_conpty_programs corehost)
+add_custom_command(TARGET test_conpty_programs POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:corehost>"
+        "$<TARGET_FILE_DIR:test_conpty_programs>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_conpty_programs>/logs"
+)
+add_test(NAME ConPTY.Programs COMMAND test_conpty_programs)
+set_tests_properties(ConPTY.Programs PROPERTIES LABELS "conpty;program" TIMEOUT 300)
+
+# ── test_conpty_session_selftest ──────────────────# 会话驱动自测：真实客户端、输出捕获、退出码、resize。
+add_executable(test_conpty_session_selftest
+    test_conpty_session_selftest.cpp
+)
+target_include_directories(test_conpty_session_selftest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_conpty_session_selftest PRIVATE test_common conpty_static)
+add_dependencies(test_conpty_session_selftest corehost)
+add_custom_command(TARGET test_conpty_session_selftest POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:corehost>"
+        "$<TARGET_FILE_DIR:test_conpty_session_selftest>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_conpty_session_selftest>/logs"
+)
+# TODO(C2): 会话驱动尚未把客户端挂到伪控制台（corehost 侧收不到 CONNECT），
+# 自测因此失败；修复前不注册到 ctest，避免长期红灯。修复后恢复下面两行。
+add_test(NAME ConPTY.SessionSelfTest COMMAND test_conpty_session_selftest)
+set_tests_properties(ConPTY.SessionSelfTest PROPERTIES LABELS "testlib;conpty" TIMEOUT 180)
+
+# ── test_platform_selftest ────────────────────────
+# 测试库宿主层：环境探测与子进程运行器。
+add_executable(test_platform_selftest
+    test_platform_selftest.cpp
+)
+target_include_directories(test_platform_selftest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_link_libraries(test_platform_selftest PRIVATE test_common)
+add_test(NAME Platform.SelfTest COMMAND test_platform_selftest)
+set_tests_properties(Platform.SelfTest PROPERTIES LABELS "testlib;selftest" TIMEOUT 120)
+
+# ── test_conpty_window ─────────────────────────────
+# GetConsoleWindow 伪窗口端到端：枚举、不可见、同步消息、WM_CLOSE 结束会话。
+add_executable(test_conpty_window
+    test_conpty_window.cpp
+)
+target_include_directories(test_conpty_window PRIVATE
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_conpty_window PRIVATE test_common conpty_static)
+add_dependencies(test_conpty_window corehost)
+add_custom_command(TARGET test_conpty_window POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:corehost>"
+        "$<TARGET_FILE_DIR:test_conpty_window>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_conpty_window>/logs"
+)
+add_test(NAME ConPTY.PseudoWindow COMMAND test_conpty_window)
+set_tests_properties(ConPTY.PseudoWindow PROPERTIES
+    LABELS "conpty;window"
+    TIMEOUT 60
+)
+
+# ── test_conpty_idle_cpu ───────────────────────────
+# 空闲 CPU 回归：验证消除轮询后没有输入时不空转。
+add_executable(test_conpty_idle_cpu
+    test_conpty_idle_cpu.cpp
+)
+target_include_directories(test_conpty_idle_cpu PRIVATE
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_conpty_idle_cpu PRIVATE test_common conpty_static)
+add_dependencies(test_conpty_idle_cpu corehost)
+add_custom_command(TARGET test_conpty_idle_cpu POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:corehost>"
+        "$<TARGET_FILE_DIR:test_conpty_idle_cpu>"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_FILE_DIR:test_conpty_idle_cpu>/logs"
+)
+add_test(NAME ConPTY.IdleCpu COMMAND test_conpty_idle_cpu)
+set_tests_properties(ConPTY.IdleCpu PROPERTIES
+    LABELS "conpty;perf"
+    TIMEOUT 60
+)
+
 # ── test_edit_conpty_real ───────────────────────────
 add_executable(test_edit_conpty_real
     edit_conpty_real.cpp
@@ -175,29 +399,6 @@ set_tests_properties(ConPTY.PowerShellError PROPERTIES
     TIMEOUT 45
 )
 
-# ── test_conpty_sbattr_probe ────────────────────
-# 探针：对比 corehost 与系统 conhost 对 SetConsoleTextAttribute /
-# GetConsoleScreenBufferInfo 的响应（颜色语义差异诊断用）。
-add_executable(test_conpty_sbattr_probe
-    test_conpty_sbattr_probe.cpp
-)
-target_include_directories(test_conpty_sbattr_probe PRIVATE
-    ${CMAKE_SOURCE_DIR}
-)
-target_link_libraries(test_conpty_sbattr_probe PRIVATE test_common conpty_static)
-add_dependencies(test_conpty_sbattr_probe corehost)
-add_custom_command(TARGET test_conpty_sbattr_probe POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:corehost>"
-        "$<TARGET_FILE_DIR:test_conpty_sbattr_probe>"
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-        "$<TARGET_FILE_DIR:test_conpty_sbattr_probe>/logs"
-)
-add_test(NAME ConPTY.SbAttrProbe COMMAND test_conpty_sbattr_probe)
-set_tests_properties(ConPTY.SbAttrProbe PROPERTIES
-    LABELS "conpty;diagnostic"
-    TIMEOUT 45
-)
 
 # ── test_conpty_writeconsole_cursor ──────────────────
 add_executable(test_conpty_writeconsole_cursor

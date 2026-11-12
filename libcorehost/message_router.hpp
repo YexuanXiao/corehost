@@ -1,63 +1,85 @@
 // ── conpty/message_router.hpp ─────────────────────
-// Layer 1: ConDrv 消息路由器。
+// Layer 1: ConDrv 消息路由器，同时是唯一持有会话状态锁的 IO 模块。
 //
 // 功能分解：
 // 1. CONNECT/DISCONNECT/CREATE/CLOSE/FLUSH 交给 io_state 维护 ConDrv 状态。
 // 2. RAW_READ/RAW_WRITE 交给 pipe_bridge 处理 VT 管道。
 // 3. USER_DEFINED 交给 api_router 分派到具体 Console API handler。
+// 4. run() 是主 I/O 循环；输入线程只调用 on_* 入口，每个入口只加一次锁。
 #pragma once
 #include <windows.h>
+#include <cassert>
+#include <cstddef>
+#include <cstring>
+#include <mutex>
+#include <optional>
 #include <span>
+#include <string>
 #include <utility>
+#include <vector>
 #include "condrv_io.hpp"
 #include "io_state.hpp"
 #include "pipe_bridge.hpp"
 #include "api_router.hpp"
+#include "pseudo_window.hpp"
+#include "perf_diag.hpp"
 #include "utility/log.hpp"
+#include "win32/event.hpp"
+#include "win32/srwlock.hpp"
+#include "win32/wait.hpp"
 
 namespace corehost::conpty
 {
 
-struct message_router
+using namespace std::literals;
+
+class message_router
 {
-    // io 维护 ConDrv 连接对象、CREATE/CLOSE_OBJECT 返回的客户端句柄值和
-    // GetConsoleProcessList 使用的进程快照。router 只调用它消费对象层消息。
-    io_state &io;
+  public:
+    // 生产路径：所有依赖先构造，再由构造函数接收。
+    message_router(io_state &io_state_ref, pipe_bridge &bridge_ref, api_router &api_ref, pseudo_window &window,
+                   win32::handle_view server, win32::handle_view input_available) noexcept
+        : io(io_state_ref), bridge(bridge_ref), api(api_ref), _window(&window), _server(server),
+          _input_available(input_available)
+    {
+        bridge.set_process_registry(io.process_list());
+    }
 
-    // bridge 是 VT 侧状态机：RAW_READ、ReadConsole/GetConsoleInput 的 pending
-    // 请求、终端输入字节和待刷 VT 输出都在这里推进。
-    pipe_bridge &bridge;
+    // 测试路径：只分派消息，不跑循环。
+    message_router(io_state &io_state_ref, pipe_bridge &bridge_ref, api_router &api_ref) noexcept
+        : io(io_state_ref), bridge(bridge_ref), api(api_ref)
+    {
+        bridge.set_process_registry(io.process_list());
+    }
 
-    // api 是 USER_DEFINED Console API 的第二层分派器。message_router 不解析
-    // CONSOLE_MSG_HEADER 之后的 API body，只把完整消息交给 api_router。
-    api_router &api;
-
-    // 消费 CONNECT 消息，并把 io_state 的进程列表同步给 pipe_bridge。
-    //
-    // CONNECT 走独立入口而不共用 on_message：它总是把 completion 留给下一轮
-    // READ_IO 携带，不参与 dispatch 的“挂起/已就绪”判定。
+    // 消费 CONNECT 消息；进程列表由 io_state 的 process_registry 直接共享。
+    // 本函数不自己加锁：由 run()/测试在持锁或单线程下调用。
     void on_connect(condrv_io::io_msg &msg)
     {
-        // msg 是 ConDrv 的 CONNECT 请求；handle_connect 只填 msg.complete，
-        // 由 io_loop 在下一轮 READ_IO 提交。
         log_descriptor("enter CONNECT", msg);
-        LOG2("consume CONNECT via io_state; before processCount=%zu bridgeProcessCount=%zu", io.process_count,
+        LOG2("consume CONNECT via io_state; before processCount=%zu bridgeProcessCount=%zu", io.process_list().count(),
              bridge.process_count());
         io.handle_connect(msg);
-        sync_process_snapshot();
-        LOG2("CONNECT consumed after processCount=%zu bridgeProcessCount=%zu", io.process_count,
+        _console_connected = true;
+        apply_early_pty_signals();
+        _client_process = win32::handle{::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE,
+                                                      static_cast<DWORD>(msg.descriptor.Process))};
+        if (_client_process.valid())
+        {
+            wchar_t image[512]{};
+            DWORD image_size = ARRAYSIZE(image);
+            if (::QueryFullProcessImageNameW(_client_process.get(), 0, image, &image_size) != FALSE)
+                LOG("message_router: client image=%ls", image);
+        }
+        LOG2("CONNECT consumed after processCount=%zu bridgeProcessCount=%zu", io.process_list().count(),
              bridge.process_count());
         log_completion("CONNECT completion", msg);
     }
 
-    // 消费一条非首个 CONNECT 的 ConDrv 消息。返回 true 表示 msg.complete 可由
-    // io_loop 提交；false 表示 bridge 已持有该请求等待 VT 输入。
+    // 消费一条非首个 CONNECT 的消息。返回 true 表示 msg.complete 可以提交；
+    // false 表示请求已挂起，调用方应继续 pump_pending。
     bool on_message(condrv_io::io_msg &msg)
     {
-        // msg 是除首个 CONNECT 外的一条 ConDrv 消息。返回 true 表示 msg.complete
-        // 已准备好，可由下一轮 READ_IO 提交；false 表示 bridge 挂起了请求。
-        // 非 CONNECT 消息不需要额外 completion 分类，dispatch 的 bool 直接
-        // 告诉 I/O loop 是否可以下一轮提交 completion。
         log_descriptor("enter message", msg);
         const bool completed_inline = dispatch(msg);
         LOG2("message consumed func=%lu completedInline=%d pendingKind=%d vtInBuffered=%lu vtInQueued=%zu vtOut=%zu",
@@ -68,91 +90,72 @@ struct message_router
         return completed_inline;
     }
 
-    // 没有新的 ConDrv 消息时推进 VT 输入和 EOF 检测。它不提交 completion，
-    // 只让 bridge 有机会把终端输入转成 pending 结果或 input_buffer 事件。
-    void on_idle()
-    {
-        // idle 阶段没有新的 ConDrv 消息；corehost 必须主动抽取 vt_in，因为
-        // 终端键盘输入不会唤醒 ConDrv server 句柄。
-        LOG3("idle enter pendingKind=%d vtEof=%d vtInBuffered=%lu vtInQueued=%zu vtOut=%zu",
-             static_cast<int>(bridge.pending_kind()), bridge.pending_vt_eof(), bridge.buffered_vt_input_bytes(),
-             bridge.queued_vt_input_bytes(), bridge.buffered_vt_output_bytes());
-        bridge.on_idle();
-        LOG3("idle consumed pendingKind=%d vtEof=%d vtInBuffered=%lu vtInQueued=%zu vtOut=%zu",
-             static_cast<int>(bridge.pending_kind()), bridge.pending_vt_eof(), bridge.buffered_vt_input_bytes(),
-             bridge.queued_vt_input_bytes(), bridge.buffered_vt_output_bytes());
-    }
+    // 主循环：READ_IO 在锁外，收到消息后只加一次锁处理。
+    void run();
 
-    // 将 bridge 中已缓冲的 VT 输出写到终端。I/O loop 在 completion 边界和
-    // 退出前调用它，避免终端可见输出滞留。
-    void flush_vt_output() noexcept
-    {
-        // vt_out 由 bridge 内部批量缓冲；router 在 completion 前后根据 I/O
-        // loop 时序调用这里，避免应用已完成但终端仍看不到输出。
-        LOG2_IF(bridge.buffered_vt_output_bytes() != 0, "flushing VT output bytes=%zu",
-                bridge.buffered_vt_output_bytes());
-        bridge.vt_flush();
-    }
-
-    // 查询是否有等待写入终端的 VT 输出字节。
-    [[nodiscard]] bool has_buffered_vt_output() const noexcept
-    {
-        const bool result = bridge.has_buffered_vt_output();
-        LOG3_IF(result, "VT output buffered bytes=%zu", bridge.buffered_vt_output_bytes());
-        return result;
-    }
-
-    // 查询 VT 输出缓冲是否达到主动刷新阈值。
-    [[nodiscard]] bool should_flush_vt_output() const noexcept
-    {
-        const bool result = bridge.should_flush_vt_output();
-        LOG3_IF(result, "VT output reached flush threshold bytes=%zu", bridge.buffered_vt_output_bytes());
-        return result;
-    }
-
-    // 查询 bridge 是否持有尚未完成的 RawRead/ReadConsole/GetConsoleInput 请求。
-    bool has_pending() const noexcept
-    {
-        // pending 状态只存在于 bridge：RawRead/ReadConsole/GetConsoleInput。
-        const bool result = bridge.has_pending();
-        LOG3_IF(result, "pending request kind=%d vtEof=%d vtInBuffered=%lu vtInQueued=%zu",
-                static_cast<int>(bridge.pending_kind()), bridge.pending_vt_eof(), bridge.buffered_vt_input_bytes(),
-                bridge.queued_vt_input_bytes());
-        return result;
-    }
-
-    // 等待并推进当前 pending 输入请求。函数返回时 pending 可能完成，也可能
-    // 因短时间片轮询仍然存在。
-    void wait_for_pending_input()
-    {
-        // pending 请求只能靠 VT 输入或终端关闭推进，不能靠 ConDrv 消息推进。
-        LOG3("wait pending input begin kind=%d vtEof=%d vtInBuffered=%lu vtInQueued=%zu",
-             static_cast<int>(bridge.pending_kind()), bridge.pending_vt_eof(), bridge.buffered_vt_input_bytes(),
-             bridge.queued_vt_input_bytes());
-        bridge.wait_for_pending_vt_input();
-        LOG3("wait pending input end kind=%d vtEof=%d vtInBuffered=%lu vtInQueued=%zu",
-             static_cast<int>(bridge.pending_kind()), bridge.pending_vt_eof(), bridge.buffered_vt_input_bytes(),
-             bridge.queued_vt_input_bytes());
-    }
-
-    // 查询会话是否可以退出。只有 VT 输入 EOF 且没有 pending 请求时返回 true。
-    bool should_exit() const noexcept
-    {
-        // vt_in EOF 且没有 pending 请求时，bridge 认为会话可以退出。
-        const bool result = bridge.should_exit();
-        LOG2_IF(result, "session exit requested vtEof=%d vtInBuffered=%lu vtInQueued=%zu vtOut=%zu",
-                bridge.pending_vt_eof(), bridge.buffered_vt_input_bytes(), bridge.queued_vt_input_bytes(),
-                bridge.buffered_vt_output_bytes());
-        return result;
-    }
+    // 输入源入口：每次调用只加一次锁，处理完整批次。
+    void on_input_bytes(std::span<const std::byte> bytes);
+    void on_input_eof();
+    void on_pty_signal(unsigned short id, std::span<const std::byte> payload);
+    void on_signal_closed();
+    void on_window_visibility(bool visible);
 
   private:
+    // 会话状态锁：全仓库只在 message_router.hpp 内出现。
+    win32::srwlock _mutex;
+
+    // 输入线程改变状态后唤醒 wait_any 中的主循环。
+    win32::event _state_changed{win32::create_tag, /*manual_reset=*/false, /*initial=*/false};
+
+    // 由构造函数注入，生命周期由 conpty 会话覆盖。
+    io_state &io;
+    pipe_bridge &bridge;
+    api_router &api;
+    pseudo_window *_window = nullptr;
+    win32::handle_view _server;
+    win32::handle_view _input_available;
+    win32::handle _client_process;
+
+    // 连接前到达的 show/hide 与 resize 必须像系统宿主一样暂存，连接后再应用。
+    bool _console_connected = false;
+    std::optional<bool> _initial_visibility;
+    std::optional<COORD> _early_resize;
+
+    void signal_state()
+    {
+        _state_changed.set();
+    }
+
+    static void deliver_ctrl_events(pipe_bridge &target, std::span<const std::pair<DWORD, DWORD>> events) noexcept
+    {
+        for (const auto &[event, pid] : events)
+            (void)target.deliver_ctrl_event(pid, event);
+    }
+
+    // 连接前的 show/hide/resize 只在 CONNECT 后应用；ClearBuffer 在连接前丢弃。
+    void apply_early_pty_signals()
+    {
+        if (_early_resize)
+        {
+            const COORD size = *_early_resize;
+            _early_resize.reset();
+            const auto bytes = std::as_bytes(std::span{&size, 1});
+            bridge.signal_reader().apply(static_cast<unsigned short>(PtySignal::ResizeWindow), bytes);
+            bridge.queue_window_buffer_size_event();
+        }
+        if (_initial_visibility)
+        {
+            const bool visible = *_initial_visibility;
+            _initial_visibility.reset();
+            if (_window != nullptr)
+                _window->set_visibility(visible);
+        }
+    }
+
     // 记录 ConDrv descriptor 的路由关键字段，用于诊断消息进入 router 时的
     // 原始状态。
     static void log_descriptor(const char *label, const condrv_io::io_msg &msg)
     {
-        // label 标识消息进入 router 的阶段；msg.descriptor 是 ConDrv 给
-        // corehost 的原始路由数据，后续 dispatch 只依据这些字段决定消费路径。
         LOG2("%hs func=%lu id=%08lx:%08lx pid=%llu object=%llu inputSize=%lu outputSize=%lu", label,
              msg.descriptor.Function, msg.descriptor.Identifier.HighPart, msg.descriptor.Identifier.LowPart,
              msg.descriptor.Process, msg.descriptor.Object, msg.descriptor.InputSize, msg.descriptor.OutputSize);
@@ -161,8 +164,6 @@ struct message_router
     // 记录 corehost 准备交回 ConDrv 的 completion 状态。
     static void log_completion(const char *label, const condrv_io::io_msg &msg)
     {
-        // label 标识 completion 的来源；msg.complete 是 corehost 回给 ConDrv
-        // 的结果，io_loop 可能同步提交，也可能由 bridge 显式 COMPLETE_IO。
         LOG2("%hs id=%08lx:%08lx status=0x%08lx information=%llu", label, msg.descriptor.Identifier.HighPart,
              msg.descriptor.Identifier.LowPart, msg.complete.IoStatus.Status, msg.complete.IoStatus.Information);
     }
@@ -171,25 +172,16 @@ struct message_router
     // 返回 false 只表示请求被挂起，不表示失败。
     bool dispatch(condrv_io::io_msg &msg)
     {
-        // msg.body 的解释权由 Function 决定：对象管理消息由 io_state 解释，
-        // RAW_* 由 bridge/API raw 路径解释，USER_DEFINED 由 api_router 解释。
-        // descriptor.Function 只使用 ConDrv 定义的 CONSOLE_IO_* 值。
-        // 未识别值按成功完成，避免未知/废弃请求阻塞客户端。
         switch (msg.descriptor.Function)
         {
         case CONSOLE_IO_CONNECT:
-            // CONNECT 只能由 on_connect 进入：它总是把 completion 留给下一轮
-            // READ_IO 携带，不经过 dispatch 的 bool 判定。
-            // unreachable 让任何把 CONNECT 重新接回 dispatch 的改动立即暴露，
-            // 而不是静默产生双完成。
             std::unreachable();
         case CONSOLE_IO_DISCONNECT: {
             LOG2("dispatch consumes DISCONNECT through io_state after flushing vtOut=%zu",
                  bridge.buffered_vt_output_bytes());
             bridge.vt_flush();
             bool ok = io.handle_disconnect(msg);
-            sync_process_snapshot();
-            LOG2("DISCONNECT consumed ok=%d processCount=%zu bridgeProcessCount=%zu", ok, io.process_count,
+            LOG2("DISCONNECT consumed ok=%d processCount=%zu bridgeProcessCount=%zu", ok, io.process_list().count(),
                  bridge.process_count());
             return ok;
         }
@@ -200,42 +192,308 @@ struct message_router
             LOG2("dispatch consumes CLOSE_OBJECT through io_state object=%llu", msg.descriptor.Object);
             return io.handle_close_object(msg);
         case CONSOLE_IO_RAW_WRITE:
-            // 对齐原版 IoSorter: RAW_WRITE 按 WriteConsoleA 处理，再转成 VT 输出。
             LOG2("dispatch consumes RAW_WRITE through api_raw_write_console bytes=%lu", msg.descriptor.InputSize);
             return api_raw_write_console(msg, api.state, api.active_screen_buffer(), api.inp, bridge);
         case CONSOLE_IO_RAW_READ:
-            // 客户端请求原始输入。若当前没有足够 VT 输入，bridge 会挂起请求。
             LOG2("dispatch consumes RAW_READ through pipe_bridge outputSize=%lu pendingKindBefore=%d",
                  msg.descriptor.OutputSize, static_cast<int>(bridge.pending_kind()));
             return bridge.handle_raw_read(msg);
         case CONSOLE_IO_USER_DEFINED:
-            // Console API 消息体以 CONSOLE_MSG_HEADER 开头，由 api_router 继续拆层。
             LOG2("dispatch consumes USER_DEFINED through api_router inputSize=%lu outputSize=%lu",
                  msg.descriptor.InputSize, msg.descriptor.OutputSize);
             return api.handle_user_defined(msg);
         case CONSOLE_IO_RAW_FLUSH:
-            // 原版 RAW_FLUSH 复用 ServerFlushConsoleInputBuffer；这里没有
-            // USER_DEFINED header，因此只清空事件队列并返回普通 IO completion。
             LOG2("dispatch consumes RAW_FLUSH through input_buffer/io_state");
             api.inp.flush();
             io.handle_raw_flush(msg);
             return true;
         default:
-            // 未实现的 Function 不能阻塞客户端；按空成功完成。
             LOG2("dispatch consumes unknown function as empty completion func=%lu", msg.descriptor.Function);
             condrv_io::prepare_completion(msg);
             return true;
         }
     }
-
-    // CONNECT/DISCONNECT 后把 io_state 的实时进程列表复制到 bridge 的 API 快照。
-    void sync_process_snapshot() noexcept
-    {
-        // io_state 保存的是当前真实连接进程列表；bridge 保存的是 API 查询可见
-        // 快照。CONNECT/DISCONNECT 后必须同步，否则 GetConsoleProcessList 会滞后。
-        bridge.set_process_list(std::span<const DWORD>{io.process_list.data(), io.process_count});
-        LOG2("process snapshot copied count=%zu", io.process_count);
-    }
 };
+
+inline void message_router::run()
+{
+    LOG("message_router::run: enter");
+    assert(_window != nullptr);
+    assert(_server.valid());
+    assert(_input_available.valid());
+
+    // READ_IO 会在同一次调用中提交上一条 completion 并读取下一条消息。
+    // 双缓冲保证 completion 中指向的 body 不会被下一条消息覆盖。
+    condrv_io::io_msg msgA{}, msgB{};
+    condrv_io::io_msg scratch{};
+    condrv_io::io_msg *cur = &msgA;
+
+    // nullptr 表示本轮不提交 completion；非空表示上一轮 handler 已完成，
+    // 其 completion 由本轮 READ_IO 携带。
+    condrv_io::io_msg *prev_done = nullptr;
+    bool pending = false;
+
+    for (;;)
+    {
+        // 窗口可能在主线程进入 READ_IO 前关闭；先处理已置位的关闭事件，
+        // 避免 CancelIoEx 发生在 READ_IO 之前导致关闭丢失。
+        if (::WaitForSingleObject(_window->close_requested().get(), 0) == WAIT_OBJECT_0)
+        {
+            LOG("message_router::run: close requested before read");
+            LOG("message_router::run: close event was already signaled before READ_IO");
+            break;
+        }
+
+        // 输入线程可能已经完成当前 pending（显式 COMPLETE_IO）；主线程的
+        // pending 标志必须在此之前重读，否则会把刚完成的请求继续当 pending。
+        if (pending)
+        {
+            std::unique_lock guard{_mutex};
+            if (!bridge.has_pending())
+                pending = false;
+        }
+
+        const bool serving_pending = pending;
+        condrv_io::io_msg &target = serving_pending ? scratch : *cur;
+        CD_IO_COMPLETE *prev_comp = prev_done ? &prev_done->complete : nullptr;
+
+        COREHOST_PERF_SCOPE(io_read_io_try);
+        const auto read_result = condrv_io::read_io_try(_server, prev_comp, target);
+
+        bool exit_loop = false;
+        bool wait_for_any = false;
+        std::vector<std::pair<DWORD, DWORD>> ctrl_events;
+
+        {
+            std::unique_lock guard{_mutex};
+
+            if (read_result == condrv_io::read_io_result::disconnected)
+            {
+                bridge.vt_flush();
+                LOG("message_router::run: disconnected, exiting");
+                exit_loop = true;
+            }
+            else if (read_result == condrv_io::read_io_result::no_message)
+            {
+                prev_done = nullptr;
+                if (bridge.has_buffered_vt_output())
+                    bridge.vt_flush();
+                wait_for_any = true;
+            }
+            else
+            {
+                prev_done = nullptr;
+                condrv_io::io_msg &msg = target;
+
+                if (msg.descriptor.Function == 0)
+                {
+                    LOG2("empty ConDrv descriptor");
+                    wait_for_any = true;
+                }
+                else if (msg.descriptor.Function == CONSOLE_IO_CONNECT)
+                {
+                    LOG2("dispatch CONNECT id=%08lx:%08lx", msg.descriptor.Identifier.HighPart,
+                         msg.descriptor.Identifier.LowPart);
+                    on_connect(msg);
+                    if (serving_pending)
+                        condrv_io::complete_io(_server, msg.complete);
+                    else
+                    {
+                        prev_done = &msg;
+                        cur = (cur == &msgA) ? &msgB : &msgA;
+                    }
+                }
+                else
+                {
+                    LOG2("dispatch message func=%lu id=%08lx:%08lx", msg.descriptor.Function,
+                         msg.descriptor.Identifier.HighPart, msg.descriptor.Identifier.LowPart);
+                    const bool completed = on_message(msg);
+                    if (completed)
+                    {
+                        if (bridge.has_buffered_vt_output())
+                            bridge.vt_flush();
+                        if (serving_pending)
+                            condrv_io::complete_io(_server, msg.complete);
+                        else
+                        {
+                            prev_done = &msg;
+                            cur = (cur == &msgA) ? &msgB : &msgA;
+                        }
+                    }
+                    else
+                    {
+                        // handler 只建立 pending；在这里推进它。完成时 completion
+                        // 直接提交，不由本轮 READ_IO 再次携带。
+                        if (bridge.pump_pending())
+                        {
+                            if (bridge.has_buffered_vt_output())
+                                bridge.vt_flush();
+                        }
+                        // 输入线程可能刚完成旧 pending，此时 handler 建立的是
+                        // 一个新的合法 pending；不能再按“第二个 pending”退出。
+                        // 真正的覆盖由 pipe_bridge 在 handler 入口避免。
+                    }
+                }
+
+                pending = bridge.has_pending();
+
+                if (bridge.should_flush_vt_output())
+                    bridge.vt_flush();
+
+                bridge.take_ctrl_events(ctrl_events);
+
+                if (bridge.should_exit())
+                {
+                    LOG("message_router::run: session exit requested");
+                    exit_loop = true;
+                }
+            }
+        }
+
+        deliver_ctrl_events(bridge, ctrl_events);
+
+        if (exit_loop)
+            break;
+
+        if (wait_for_any)
+        {
+            const auto wait = win32::wait_any(_input_available, _window->close_requested(), _window->show_event(),
+                                              _window->hide_event(), _state_changed.view(), INFINITE);
+            if (wait.abandoned())
+                win32::throw_last_error(win32::error::invalid_state);
+            if (wait.index == 1)
+            {
+                LOG("message_router::run: close requested by window");
+                break;
+            }
+            if (wait.index == 2)
+                on_window_visibility(true);
+            else if (wait.index == 3)
+                on_window_visibility(false);
+        }
+    }
+
+    // 退出前提交可能残留的 completion、控制事件和输出。
+    {
+        std::unique_lock guard{_mutex};
+        if (prev_done != nullptr && condrv_io::completion_matches_descriptor(*prev_done))
+            condrv_io::complete_io(_server, prev_done->complete);
+        bridge.vt_flush();
+    }
+    LOG("message_router::run: exit");
+}
+
+inline void message_router::on_input_bytes(std::span<const std::byte> bytes)
+{
+    std::vector<std::pair<DWORD, DWORD>> ctrl_events;
+    {
+        std::unique_lock guard{_mutex};
+        bridge.on_input_bytes(bytes);
+        bridge.pump_pending();
+        bridge.take_ctrl_events(ctrl_events);
+    }
+    deliver_ctrl_events(bridge, ctrl_events);
+    signal_state();
+}
+
+inline void message_router::on_input_eof()
+{
+    LOG("message_router::on_input_eof");
+    if (_client_process.valid())
+    {
+        DWORD exit_code = 0;
+        if (::GetExitCodeProcess(_client_process.get(), &exit_code) != FALSE)
+            LOG("message_router: client exit=0x%08lx", static_cast<unsigned long>(exit_code));
+    }
+    std::vector<std::pair<DWORD, DWORD>> ctrl_events;
+    {
+        std::unique_lock guard{_mutex};
+        bridge.on_input_eof();
+        bridge.pump_pending();
+        bridge.take_ctrl_events(ctrl_events);
+    }
+    deliver_ctrl_events(bridge, ctrl_events);
+    signal_state();
+}
+
+inline void message_router::on_pty_signal(unsigned short id, std::span<const std::byte> payload)
+{
+    assert(_window != nullptr);
+    std::vector<std::pair<DWORD, DWORD>> ctrl_events;
+    {
+        std::unique_lock guard{_mutex};
+        const auto expected = pty_signal_reader::payload_size_for(id);
+        if (expected == 0 || payload.size() != expected)
+            win32::throw_last_error(win32::error::invalid_state);
+
+        bool apply_state = true;
+        if (!_console_connected)
+        {
+            if (id == static_cast<unsigned short>(PtySignal::ShowHideWindow))
+            {
+                unsigned short show = 0;
+                std::memcpy(&show, payload.data(), sizeof(show));
+                _initial_visibility = show != 0;
+                apply_state = false;
+            }
+            else if (id == static_cast<unsigned short>(PtySignal::ResizeWindow))
+            {
+                COORD size{};
+                std::memcpy(&size, payload.data(), sizeof(size));
+                _early_resize = size;
+                apply_state = false;
+            }
+            else if (id == static_cast<unsigned short>(PtySignal::ClearBuffer))
+            {
+                apply_state = false;
+            }
+        }
+
+        if (apply_state)
+            bridge.signal_reader().apply(id, payload);
+
+        if (id == static_cast<unsigned short>(PtySignal::ShowHideWindow) && _console_connected)
+        {
+            unsigned short show = 0;
+            std::memcpy(&show, payload.data(), sizeof(show));
+            _window->set_visibility(show != 0);
+        }
+        else if (id == static_cast<unsigned short>(PtySignal::SetParent))
+        {
+            std::uint64_t owner = 0;
+            std::memcpy(&owner, payload.data(), sizeof(owner));
+            _window->set_owner(reinterpret_cast<HWND>(owner));
+        }
+        if (id == static_cast<unsigned short>(PtySignal::ResizeWindow) && _console_connected)
+            bridge.queue_window_buffer_size_event();
+
+        bridge.take_ctrl_events(ctrl_events);
+    }
+    deliver_ctrl_events(bridge, ctrl_events);
+    signal_state();
+}
+
+inline void message_router::on_signal_closed()
+{
+    std::vector<std::pair<DWORD, DWORD>> ctrl_events;
+    {
+        std::unique_lock guard{_mutex};
+        bridge.on_signal_closed();
+        bridge.pump_pending();
+        bridge.take_ctrl_events(ctrl_events);
+    }
+    deliver_ctrl_events(bridge, ctrl_events);
+    signal_state();
+}
+
+inline void message_router::on_window_visibility(bool visible)
+{
+    // 连接前的窗口状态变化没有可上报的终端会话；CONNECT 后再回报。
+    if (!_console_connected)
+        return;
+    std::unique_lock guard{_mutex};
+    bridge.vt_append_str(visible ? "\x1b[1t"sv : "\x1b[2t"sv);
+    bridge.vt_flush();
+}
 
 } // namespace corehost::conpty

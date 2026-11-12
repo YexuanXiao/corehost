@@ -22,6 +22,7 @@ target_sources(corehost
                 defterm/defterm.hpp
                 defterm/io.hpp
                 defterm/signal.hpp
+                defterm/handoff_session.hpp
                 defterm/terminal_handoff.hpp
 )
 

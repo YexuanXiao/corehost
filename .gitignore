@@ -3,4 +3,6 @@
 build
 contour
 terminal
-build-libunicode-tablegen
+build_*
+build-*
+build

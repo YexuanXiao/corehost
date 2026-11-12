@@ -9,7 +9,8 @@
 
 #include "conpty.hpp"
 #include <span>
-#include "io_loop.hpp"
+#include "io_threads.hpp"
+#include "pseudo_window.hpp"
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
 #include "input_buffer.hpp"
@@ -24,26 +25,31 @@
 namespace corehost::conpty
 {
 
-// 把 io_state 中的连接进程列表同步到 bridge 的 API 可见快照。io_state 是
-// CONNECT/DISCONNECT 的真实来源；bridge 只保存供 GetConsoleProcessList 读取的副本。
-void copy_process_list(io_state &io, pipe_bridge &bridge) noexcept
-{
-    bridge.set_process_list(std::span<const DWORD>{io.process_list.data(), io.process_count});
-}
-
 void run_conpty_session(win32::handle_view server, win32::handle_view event, win32::handle condrv_input,
                         win32::handle condrv_output, win32::handle_view vt_in, win32::handle_view vt_out,
                         win32::handle signal_pipe, const conpty_session_config &config)
 {
     // 此日志记录会话的外部输入：ConDrv server/event、VT 管道、信号管道和
     // config。后续代码只在本函数内展开这些输入，不再重新查询环境。
-    LOG("corehost::conpty::run_conpty_session: s=%p vi=%p vo=%p ev=%p w=%d h=%d sig=%p ambi=%d pollVt=%d "
+    LOG("corehost::conpty::run_conpty_session: s=%p vi=%p vo=%p ev=%p w=%d h=%d sig=%p ambi=%d "
         "attachedPid=%lu",
         server.get(), vt_in.get(), vt_out.get(), event.get(), config.width, config.height, signal_pipe.get(),
         config.ambiguous_is_wide, config.attached_process_id);
 
     // ── Layer 4: 控制台状态 ──
     console_state state;
+
+    // 与 conhost 的默认行为一致：启动时读用户注册表 VirtualTerminalLevel，
+    // 非 0 则默认打开 ENABLE_VIRTUAL_TERMINAL_PROCESSING。读取时机不必与
+    // conhost 相同，只要 GetConsoleMode 与 WriteConsole 的 VT 行为一致。
+    // ConPTY 下强制 VirtualTerminalLevel=1，
+    // 忽略用户注册表；非 ConPTY 窗口才用注册表值。corehost 只服务 ConPTY，
+    // 因此行为与 conhost 一致：默认 out_mode 带 ENABLE_VIRTUAL_TERMINAL_PROCESSING。
+    // 注册表仍读取并记录，便于诊断用户设置。
+    const auto registry_vt_level = read_virtual_terminal_level();
+    LOG2("output_mode: VirtualTerminalLevel=%lu (conpty forces level=1)", registry_vt_level);
+    state.output_mode =
+        output_mode_for_virtual_terminal_level(effective_virtual_terminal_level(registry_vt_level, true));
 
     // screen_buffer_size 是控制台 API 看到的主尺寸。config.width/height <= 0
     // 代表“未指定”，统一回退到 default_console_size，避免不同入口产生
@@ -95,15 +101,19 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     io.condrv_input = std::move(condrv_input);
     io.condrv_output = std::move(condrv_output);
 
+    // ── Layer 2: 输入状态 ──
+    // vt_input_state 由会话持有；输入线程只读管道，message_router 在锁内
+    // 解析输入并更新该状态。
+    vt_input_state input_state;
+
     // ── Layer 2: pipe bridge ──
     // pipe_bridge 是 VT 输入输出和 Console API 状态的交汇点。它直接引用
     // ibuf/state/sbuf，因此主缓冲区和 API 查询能看到同一份光标与文本状态。
-    pipe_bridge bridge{ibuf, state, sbuf};
+    pipe_bridge bridge{ibuf, state, sbuf, input_state};
 
     // vt_in 是终端到 corehost 的输入/控制字节流；VT 输出句柄由
     // vt_output_buffer 负责缓冲写入；server 用于 bridge 完成挂起 ConDrv I/O。
     bridge.set_server(server);
-    bridge.set_vt_input(vt_in);
     bridge.set_vt_output(vt_out);
 
     // ── Layer 2: api router ──
@@ -111,21 +121,21 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     // 两个缓冲区，是为了在 DECSET 1049 后让同一套 handler 操作 active buffer。
     api_router api{state, sbuf, alt_sbuf, ibuf, io, bridge};
 
-    // ── Layer 1: message router ──
-    // message_router 是 ConDrv Function 号的第一层分派：对象管理进 io_state，
-    // raw I/O 进 pipe_bridge，Console API 进 api_router。
-    message_router router{io, bridge, api};
+    // 伪窗口先于 message_router 构造；router 依赖它处理标题/可见性/关闭。
+    pseudo_window window{server, state.title};
 
-    // ── 信号管道轮询器 ──
-    // signal_pipe 为空表示当前会话没有 WT 信号通道，resize/clear/close 信号
-    // 不会进入会话。有效时由 pipe_bridge 在主 I/O 循环的 idle/pending 等待
-    // 路径中轮询，不再创建独立信号线程；断管被检测后推进会话 EOF，等效于
-    // 原 shutdown_event 的退出语义。
+    // ── Layer 1: message_router ──
+    // message_router 同时是唯一持会话状态锁的 IO 模块：分派 ConDrv 消息、
+    // 处理输入批次、驱动 pump；其他对象只通过它的构造函数注入。
+    message_router router{io, bridge, api, window, server, event};
+
+    // 信号管道：有效时由信号线程阻塞读取；帧解析在 message_router 内。
     if (signal_pipe.valid())
-    {
         bridge.set_signal_pipe(signal_pipe.view());
-        LOG("corehost::conpty::run_conpty_session: signal pipe bound to io loop");
-    }
+
+    // 输入线程/信号线程依赖 message_router，必须在 router 构造后创建。
+    vt_input_thread input_thread{vt_in, router};
+    pty_signal_thread signal_thread{signal_pipe.view(), router};
 
     // ── 继承光标位置 ──
     // 终端 CPR 应答会在主 I/O 循环的 on_idle() 中统一读取并处理。
@@ -153,16 +163,40 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     {
         // defterm headless 路径在进入 libcorehost 前已经 accept 首个 CONNECT。
         // 该 pid 不会再经过 io_state::handle_connect，因此这里手动补进列表。
-        io.add_process(config.attached_process_id);
-        copy_process_list(io, bridge);
+        io.process_list().add(config.attached_process_id, config.attached_process_id);
     }
 
     // ── 进入 I/O 循环 ──
-    // router 持有所有分派入口；run_io_loop_no_setup 只负责 READ_IO 时序、
-    // completion 提交和 pending 等待。
+    // 先启动输入线程：message_router 已构造，线程可以在主循环等待时
+    // 立即处理终端输入。
+    LOG("corehost::conpty::run_conpty_session: starting io threads");
+    // 伪窗口在 router 之前已构造；这里启动窗口线程并发布 hwnd。
+    window.start();
+    state.window_handle = window.hwnd();
+
+    input_thread.start();
+    if (signal_pipe.valid())
+        signal_thread.start();
+
     LOG("corehost::conpty::run_conpty_session: entering io loop");
-    corehost::conpty::run_io_loop_no_setup(server, event, router);
+    router.run();
     LOG("corehost::conpty::run_conpty_session: loop returned");
+
+    // 诊断：退出时逐个记录 corehost 仍持有的输入/控制句柄，避免把所有情况
+    // 都归因于 vt_in/vt_out。GetHandleInformation 只查询，不做 I/O。
+    DWORD flags = 0;
+    LOG("corehost::conpty::run_conpty_session: handles server=%d event=%d vt_in=%d vt_out=%d signal=%d",
+        ::GetHandleInformation(server.get(), &flags) != FALSE, ::GetHandleInformation(event.get(), &flags) != FALSE,
+        ::GetHandleInformation(vt_in.get(), &flags) != FALSE, ::GetHandleInformation(vt_out.get(), &flags) != FALSE,
+        ::GetHandleInformation(signal_pipe.get(), &flags) != FALSE);
+
+    // ── 退出：先停输入源，再释放会话状态 ──
+    // 停止是无限等待：停止标志 + 取消阻塞读 + join，由线程自身保证退出。
+    window.stop_and_join();
+    input_thread.stop_and_join();
+    if (signal_pipe.valid())
+        signal_thread.stop_and_join();
+    LOG("corehost::conpty::run_conpty_session: io threads joined");
 }
 
 void conpty_entry(win32::handle_view server, win32::handle_view event, win32::handle condrv_input,

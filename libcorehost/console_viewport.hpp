@@ -48,11 +48,6 @@ class console_viewport
     }
 
     // 判断一个 screen buffer 绝对坐标是否位于当前可见 viewport 内。
-    bool contains(COORD buffer_position) const noexcept
-    {
-        return buffer_position.X >= _rect.Left && buffer_position.X <= _rect.Right && buffer_position.Y >= _rect.Top &&
-               buffer_position.Y <= _rect.Bottom;
-    }
 
     // 把 screen buffer 绝对坐标转换成终端 viewport-relative 坐标。
     COORD relative_position(COORD buffer_position) const noexcept
@@ -111,11 +106,6 @@ class console_viewport
     }
 
     // 按 delta 移动 viewport origin；delta 可为负，最终位置仍钳制到 buffer 内。
-    bool move_origin(COORD delta, COORD buffer_size) noexcept
-    {
-        return set_origin({static_cast<SHORT>(_rect.Left + delta.X), static_cast<SHORT>(_rect.Top + delta.Y)},
-                          buffer_size);
-    }
 
     // 缓冲区尺寸改变后重新钳制现有 viewport；返回 true 表示 viewport 被移动或缩放。
     bool clamp_to_buffer(COORD buffer_size) noexcept

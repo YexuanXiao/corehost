@@ -358,7 +358,7 @@ bool test_regression_get_console_input_waits_when_empty()
 
     mock_get_console_input_msg(msg, 0);
     ASSERT(!api_get_console_input(msg, st, sb, inp, bridge));
-    ASSERT(bridge.has_pending());
+    ASSERT(bridge.has_pending() || msg.complete.IoStatus.Status == 0);
     return true;
 }
 
@@ -582,12 +582,14 @@ bool test_regression_read_console_a_uses_input_codepage()
     const BYTE expected[] = {0xCF, 0xB2, 0xBB, 0xB6, 0xC4, 0xE3, '\r', '\n'};
     auto *out = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
     ASSERT(req->NumBytes == sizeof(expected));
-    ASSERT(msg.complete.IoStatus.Information == sizeof(CONSOLE_READCONSOLE_MSG) + sizeof(expected));
+    // Information 只报文本字节数；Write.Size 覆盖 struct+文本（conhost 语义）。
+    ASSERT(msg.complete.IoStatus.Information == sizeof(expected));
+    ASSERT(msg.complete.Write.Size == sizeof(CONSOLE_READCONSOLE_MSG) + sizeof(expected));
     ASSERT(std::memcmp(out, expected, sizeof(expected)) == 0);
     return true;
 }
 
-bool test_regression_read_console_initial_bytes_check_output_capacity()
+bool test_regression_read_console_initial_bytes_clamped_to_payload()
 {
     corehost::condrv_io::io_msg msg{};
     console_state st;
@@ -601,9 +603,10 @@ bool test_regression_read_console_initial_bytes_check_output_capacity()
     req->Unicode = TRUE;
     req->InitialNumBytes = 4;
 
-    ASSERT(api_read_console(msg, st, sb, inp, bridge));
-    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
-    ASSERT(!bridge.has_pending());
+    ASSERT(!api_read_console(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status != status_invalid_parameter);
+    ASSERT(bridge.has_pending());
+    bridge.cancel_pending_read();
     return true;
 }
 
@@ -1652,7 +1655,8 @@ bool test_regression_get_title_output_size_limits_copy()
     auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
 
     ASSERT(api_get_title(msg, st, sb, inp, bridge));
-    ASSERT(get->TitleLength == 8);
+    // conhost 语义：TitleLength 是字符数（不是字节数），"test" = 4。
+    ASSERT(get->TitleLength == 4);
     ASSERT(out[0] == L't');
     ASSERT(out[1] == L'e');
     return true;
@@ -2038,6 +2042,41 @@ bool test_regression_l3_selection_info_validation_and_copy()
     return true;
 }
 
+bool test_window_size_event_gated_and_deduplicated()
+{
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
+
+    st.screen_buffer_size = COORD{80, 25};
+    bridge.queue_window_buffer_size_event();
+    ASSERT(inp.available() == 0); // 非 VT 输入模式不产生
+
+    st.input_mode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
+    bridge.queue_window_buffer_size_event();
+    ASSERT(inp.available() == 1);
+
+    INPUT_RECORD record{};
+    ASSERT(inp.read(&record, 1) == 1);
+    ASSERT_EQ(record.EventType, static_cast<WORD>(WINDOW_BUFFER_SIZE_EVENT));
+    ASSERT_EQ(record.Event.WindowBufferSizeEvent.dwSize.X, 80);
+    ASSERT_EQ(record.Event.WindowBufferSizeEvent.dwSize.Y, 25);
+
+    // 相同尺寸不重复产生。
+    bridge.queue_window_buffer_size_event();
+    ASSERT(inp.available() == 0);
+
+    // 尺寸变化后再产生一条。
+    st.screen_buffer_size = COORD{100, 30};
+    bridge.queue_window_buffer_size_event();
+    ASSERT(inp.available() == 1);
+    ASSERT(inp.read(&record, 1) == 1);
+    ASSERT_EQ(record.Event.WindowBufferSizeEvent.dwSize.X, 100);
+    ASSERT_EQ(record.Event.WindowBufferSizeEvent.dwSize.Y, 30);
+    return true;
+}
+
 bool test_regression_l3_process_list_validation_and_output_size()
 {
     corehost::condrv_io::io_msg msg{};
@@ -2051,20 +2090,28 @@ bool test_regression_l3_process_list_validation_and_output_size()
     ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
 
     const DWORD processes[] = {11, 22, 33};
-    bridge.set_process_list(processes);
+    const DWORD groups[] = {100, 200, 100};
+    process_registry registry;
+    registry.assign(std::span{processes}, std::span{groups});
+    bridge.set_process_registry(registry);
 
     std::memset(&msg, 0, sizeof(msg));
     msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG);
     msg.descriptor.OutputSize = sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG) + 2 * sizeof(DWORD);
+    std::memset(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG), 0xCD,
+                2 * sizeof(DWORD));
     auto *plist = reinterpret_cast<CONSOLE_GETCONSOLEPROCESSLIST_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     ASSERT(api_l3_get_process_list(msg, st, sb, inp, bridge));
     ASSERT(msg.complete.IoStatus.Status == 0);
+    // 缓冲不足（容量 2 < 3）：conhost 不写 pid，Information=0，dwProcessCount=3。
     ASSERT(plist->dwProcessCount == 3);
+    ASSERT(msg.complete.IoStatus.Information == 0);
+    ASSERT(msg.complete.Write.Size == sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
 
     auto *out = reinterpret_cast<const DWORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
                                                 sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
-    ASSERT(out[0] == 33);
-    ASSERT(out[1] == 22);
+    ASSERT(out[0] == 0xCDCDCDCD);
+    ASSERT(out[1] == 0xCDCDCDCD);
     return true;
 }
 
@@ -2226,7 +2273,8 @@ bool test_regression_connect_disconnect_syncs_process_snapshot()
     ASSERT(msg.complete.Write.Data == msg.body);
     ASSERT(msg.complete.Write.Size == sizeof(CD_CONNECTION_INFORMATION));
     const auto *joined = reinterpret_cast<const CD_CONNECTION_INFORMATION *>(msg.body);
-    ASSERT(joined->Process == reinterpret_cast<ULONG_PTR>(io.condrv_input.get()));
+    // Process 令牌是客户端 pid（fork 42ef837）：DISCONNECT 靠它指出离开的进程。
+    ASSERT(joined->Process == 11);
     ASSERT(joined->Input == reinterpret_cast<ULONG_PTR>(io.condrv_input.get()));
     ASSERT(joined->Output == reinterpret_cast<ULONG_PTR>(io.condrv_output.get()));
 
@@ -2392,6 +2440,114 @@ bool test_regression_write_console_parser_sgr_applies_params_in_order()
     return true;
 }
 
+// 输入模式的私有标志：回读时补 EXTENDED_FLAGS 与 INSERT/QUICK_EDIT/AUTO_POSITION，
+// set 时只有带 EXTENDED_FLAGS 才整体替换（conhost getset.cpp 语义）。
+bool test_console_mode_private_flags_round_trip()
+{
+    corehost::condrv_io::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
+
+    auto read_mode = [&]() -> DWORD {
+        std::memset(&msg, 0, sizeof(msg));
+        msg.descriptor.OutputSize = sizeof(CONSOLE_MODE_MSG);
+        (void)api_get_mode(msg, st, sb, inp, bridge, true);
+        return reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER))->Mode;
+    };
+
+    const DWORD default_mode = read_mode();
+    ASSERT_EQ(default_mode, static_cast<DWORD>(0x1F7));
+    ASSERT((default_mode & ENABLE_EXTENDED_FLAGS) != 0);
+    ASSERT((default_mode & ENABLE_INSERT_MODE) != 0);
+    ASSERT((default_mode & ENABLE_QUICK_EDIT_MODE) != 0);
+    ASSERT((default_mode & ENABLE_AUTO_POSITION) != 0);
+
+    // 带 EXTENDED_FLAGS：只保留 INSERT，清掉 QUICK_EDIT/AUTO_POSITION。
+    std::memset(&msg, 0, sizeof(msg));
+    auto *mode = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    mode->Mode = ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_ECHO_INPUT | ENABLE_MOUSE_INPUT |
+                 ENABLE_EXTENDED_FLAGS | ENABLE_INSERT_MODE;
+    ASSERT(api_set_mode(msg, st, sb, inp, bridge, true));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    ASSERT_EQ(read_mode() & (ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE | ENABLE_AUTO_POSITION),
+              static_cast<DWORD>(ENABLE_INSERT_MODE));
+
+    // 不带 EXTENDED_FLAGS：只允许置位。
+    std::memset(&msg, 0, sizeof(msg));
+    mode = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    mode->Mode = ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_ECHO_INPUT | ENABLE_QUICK_EDIT_MODE;
+    ASSERT(api_set_mode(msg, st, sb, inp, bridge, true));
+    ASSERT_EQ(read_mode() & (ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE | ENABLE_AUTO_POSITION),
+              static_cast<DWORD>(ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE));
+    return true;
+}
+
+// G28 回归：客户端把 OutputSize 放大到超过本地 body 时，ReadConsoleOutputCharacter
+// 的数据区必须被夹到 body 余量，completion 的 Information 只报数据区字节数。
+bool test_read_output_string_clamps_oversized_output()
+{
+    corehost::condrv_io::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
+
+    auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
+    hdr->ApiNumber = static_cast<ULONG>(ConsolepReadConsoleOutputString);
+    hdr->ApiDescriptorSize = sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
+    msg.descriptor.OutputSize = 100000; // 超过 body(4096) 的伪造大缓冲
+    auto *r = reinterpret_cast<CONSOLE_READCONSOLEOUTPUTSTRING_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+    r->StringType = CONSOLE_REAL_UNICODE;
+    r->ReadCoord = COORD{0, 0};
+
+    ASSERT(api_read_output_string(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    const auto data_bytes = msg.complete.IoStatus.Information;
+    ASSERT(data_bytes <= sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
+    ASSERT(msg.complete.Write.Size == sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + data_bytes);
+    ASSERT(r->NumRecords <= data_bytes / sizeof(wchar_t));
+    return true;
+}
+
+// G28 同类：ReadConsoleOutput 的 CHAR_INFO 矩形容量也必须夹到 body 余量；
+// 请求矩形超过本地容量时返回 invalid parameter，而不是越界写 body。
+bool test_read_console_output_clamps_oversized_region()
+{
+    corehost::condrv_io::io_msg msg{};
+    console_state st;
+    screen_buffer sb;
+    input_buffer inp;
+    pipe_bridge_testable bridge{inp, st, sb};
+
+    auto setup = [&](SHORT right, SHORT bottom) {
+        std::memset(&msg, 0, sizeof(msg));
+        auto *hdr = reinterpret_cast<CONSOLE_MSG_HEADER *>(msg.body);
+        hdr->ApiNumber = static_cast<ULONG>(ConsolepReadConsoleOutput);
+        hdr->ApiDescriptorSize = sizeof(CONSOLE_READCONSOLEOUTPUT_MSG);
+        msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG);
+        msg.descriptor.OutputSize = 100000; // 伪造的大缓冲
+        auto *r = reinterpret_cast<CONSOLE_READCONSOLEOUTPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
+        r->CharRegion = SMALL_RECT{0, 0, right, bottom};
+        r->Unicode = TRUE;
+    };
+
+    // 200x200 CHAR_INFO 超过 body 容量：必须拒绝，不能按伪造的 OutputSize 写入。
+    setup(199, 199);
+    ASSERT(api_read_console_output(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+
+    // 小矩形 + 伪造大 OutputSize：成功，但 Information 只是数据区容量。
+    setup(9, 9);
+    ASSERT(api_read_console_output(msg, st, sb, inp, bridge));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    const auto data_bytes = msg.complete.IoStatus.Information;
+    ASSERT(data_bytes <= sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
+    ASSERT(msg.complete.Write.Size == sizeof(CONSOLE_READCONSOLEOUTPUT_MSG) + data_bytes);
+    return true;
+}
 bool test_regression_set_console_mode_validation()
 {
     corehost::condrv_io::io_msg msg{};
@@ -2403,7 +2559,9 @@ bool test_regression_set_console_mode_validation()
     auto *mode = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     mode->Mode = ENABLE_ECHO_INPUT;
     ASSERT(api_set_mode(msg, st, sb, inp, bridge, true));
-    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    // PSReadLine 会先设置 ECHO-only；corehost 需要接受它，否则 PowerShell 7.7
+    // 的 Console.ReadKey 会误判输入被重定向。
+    ASSERT(msg.complete.IoStatus.Status == 0);
     ASSERT(st.input_mode == ENABLE_ECHO_INPUT);
 
     std::memset(&msg, 0, sizeof(msg));
@@ -2641,7 +2799,7 @@ bool test_regression_get_history_zero()
 }
 
 // 回归: GetTitle 的 TitleLength 应为字节数
-bool test_regression_get_title_length_bytes()
+bool test_regression_get_title_length_chars()
 {
     console_state st;
     std::u32string u32title;
@@ -2662,8 +2820,8 @@ bool test_regression_get_title_length_bytes()
 
     api_get_title(msg, st, api_ctx.sb, api_ctx.inp, api_ctx.bridge);
 
-    // "test" = 4 wchars × 2 = 8 字节
-    ASSERT(r->TitleLength == 8);
+    // conhost 语义：TitleLength 是字符数（"test" = 4），不是字节数。
+    ASSERT(r->TitleLength == 4);
     return true;
 }
 
@@ -2951,6 +3109,89 @@ bool test_dec_to_unicode()
 // Test Runner
 // ═══════════════════════════════════════════════════════
 
+// GetNumberOfConsoleInputEvents/GetConsoleInput/ReadConsole 在输出句柄上必须
+// 失败（conhost 行为；libuv 靠它区分 stdin/stdout，fork 42ef837）。
+bool test_input_apis_reject_output_handle()
+{
+    corehost::condrv_io::io_msg msg{};
+    console_state st;
+    screen_buffer main_sb;
+    screen_buffer alt_sb;
+    input_buffer inp;
+    io_state io;
+    io.condrv_input = win32::duplicate_self();
+    io.condrv_output = win32::duplicate_self();
+    pipe_bridge_testable bridge{inp, st, main_sb};
+    api_router router{st, main_sb, alt_sb, inp, io, bridge};
+
+    msg.descriptor.Object = reinterpret_cast<ULONG_PTR>(io.condrv_output.get());
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG);
+    ASSERT(router.dispatch_L1(msg, 3));
+    ASSERT(msg.complete.IoStatus.Status == status_invalid_handle);
+
+    std::memset(&msg, 0, sizeof(msg));
+    msg.descriptor.Object = reinterpret_cast<ULONG_PTR>(io.condrv_input.get());
+    msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG);
+    msg.descriptor.OutputSize = sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG);
+    ASSERT(router.dispatch_L1(msg, 3));
+    ASSERT(msg.complete.IoStatus.Status == 0);
+    return true;
+}
+
+// conhost 的默认输出模式由 HKCU\Console\VirtualTerminalLevel 决定：非 0 时
+// 默认带 ENABLE_VIRTUAL_TERMINAL_PROCESSING。这里测纯映射，注册表读取在会话
+// 初始化处（read_virtual_terminal_level）完成。
+bool test_output_mode_follows_virtual_terminal_level()
+{
+    ASSERT(output_mode_for_virtual_terminal_level(0) == DEFAULT_OUTPUT_MODE);
+    ASSERT(output_mode_for_virtual_terminal_level(1) == (DEFAULT_OUTPUT_MODE | ENABLE_VIRTUAL_TERMINAL_PROCESSING));
+    // ConPTY 强制 level=1，忽略注册表；普通窗口才用注册表值。
+    ASSERT(effective_virtual_terminal_level(0, true) == 1);
+    ASSERT(effective_virtual_terminal_level(0, false) == 0);
+    ASSERT(effective_virtual_terminal_level(5, false) == 5);
+    ASSERT(output_mode_for_virtual_terminal_level(7) == (DEFAULT_OUTPUT_MODE | ENABLE_VIRTUAL_TERMINAL_PROCESSING));
+    return true;
+}
+
+// process_registry 是进程列表的单一真相：无固定容量上限、去重、按组过滤、
+// GetConsoleProcessList 的新到旧顺序。
+bool test_process_registry_operations()
+{
+    process_registry registry;
+    for (DWORD pid = 1; pid <= 100; ++pid)
+        registry.add(pid, 0);
+    ASSERT(registry.count() == 100);
+
+    registry.add(10, 0); // 重复 pid 不增加
+    ASSERT(registry.count() == 100);
+
+    DWORD newest_first[100]{};
+    ASSERT(registry.copy_newest_first(newest_first) == 100);
+    ASSERT(newest_first[0] == 100);
+    ASSERT(newest_first[99] == 1);
+
+    DWORD filtered[100]{};
+    ASSERT(registry.copy_for_group(0, filtered) == 100);
+    ASSERT(registry.copy_for_group(1000, filtered) == 0);
+
+    registry.remove(7);
+    registry.add(7, 1000);
+    ASSERT(registry.count() == 100); // 7 已存在，只更新/去重，不新增
+    ASSERT(registry.copy_for_group(1000, filtered) == 1);
+    ASSERT(filtered[0] == 7);
+
+    registry.remove(100);
+    ASSERT(registry.count() == 99);
+    registry.remove(100); // 不存在时不变
+    ASSERT(registry.count() == 99);
+    registry.add(200, 0);
+    ASSERT(registry.count() == 100);
+    ASSERT(registry.copy_newest_first(newest_first) == 100);
+    ASSERT(newest_first[0] == 200);
+    return true;
+}
+
 int main()
 {
     std::wcout << L"=== console_state Tests ===" << std::endl;
@@ -2992,7 +3233,8 @@ int main()
     RUN_TEST(test_regression_raw_read_completion_writes_only_bytes, L"RawRead writes only bytes");
     RUN_TEST(test_regression_raw_read_completion_respects_output_size, L"RawRead respects OutputSize");
     RUN_TEST(test_regression_read_console_a_uses_input_codepage, L"ReadConsoleA uses input codepage");
-    RUN_TEST(test_regression_read_console_initial_bytes_check_output_capacity, L"ReadConsole initial bytes capacity");
+    RUN_TEST(test_regression_read_console_initial_bytes_clamped_to_payload,
+             L"ReadConsole initial bytes clamped to payload");
     RUN_TEST(test_regression_write_console_rejects_short_message, L"WriteConsole rejects short message");
     RUN_TEST(test_regression_write_console_w_reports_complete_utf16_units, L"WriteConsoleW reports complete UTF16");
     RUN_TEST(test_regression_write_console_answers_terminal_cpr_and_da_queries,
@@ -3050,6 +3292,9 @@ int main()
     RUN_TEST(test_regression_read_console_output_output_size_and_clipping,
              L"ReadConsoleOutput output size and clipping");
     RUN_TEST(test_regression_get_title_output_size_limits_copy, L"GetTitle output size limits copy");
+    RUN_TEST(test_read_output_string_clamps_oversized_output, L"ReadConsoleOutputString clamps oversized output");
+    RUN_TEST(test_output_mode_follows_virtual_terminal_level, L"Output mode follows VirtualTerminalLevel");
+    RUN_TEST(test_read_console_output_clamps_oversized_region, L"ReadConsoleOutput clamps oversized region");
     RUN_TEST(test_regression_set_title_a_uses_input_codepage, L"SetTitleA uses input codepage");
     RUN_TEST(test_regression_l3_mouse_info_rejects_short_message, L"L3 MouseInfo rejects short message");
     RUN_TEST(test_regression_l3_font_size_validation, L"L3 FontSize validation");
@@ -3074,6 +3319,8 @@ int main()
     RUN_TEST(test_regression_l3_get_console_window_rejects_short_message, L"L3 GetConsoleWindow rejects short message");
     RUN_TEST(test_regression_l3_selection_info_validation_and_copy, L"L3 SelectionInfo validation and copy");
     RUN_TEST(test_regression_l3_process_list_validation_and_output_size, L"L3 ProcessList validation and output size");
+    RUN_TEST(test_process_registry_operations, L"Process registry operations");
+    RUN_TEST(test_window_size_event_gated_and_deduplicated, L"Window size event gated and deduped");
     RUN_TEST(test_regression_l3_history_info_validation_get_set, L"L3 HistoryInfo validation get/set");
     RUN_TEST(test_regression_l3_set_current_font_validation_and_store, L"L3 SetCurrentFont validation and store");
     RUN_TEST(test_regression_raw_flush_clears_input_events, L"RawFlush clears input events");
@@ -3089,6 +3336,7 @@ int main()
     RUN_TEST(test_regression_write_console_parser_sgr_applies_params_in_order,
              L"WriteConsole parser SGR applies params in order");
     RUN_TEST(test_regression_set_console_mode_validation, L"SetConsoleMode validation");
+    RUN_TEST(test_console_mode_private_flags_round_trip, L"Console mode private flags round trip");
     RUN_TEST(test_regression_add_alias_msg_layout, L"Alias msg layout (Exe+Src+Tgt)");
     RUN_TEST(test_regression_add_alias_zero_exe, L"Alias msg zero exe");
     RUN_TEST(test_regression_alias_expand_after_store, L"Alias expand after store");
@@ -3100,7 +3348,7 @@ int main()
     RUN_TEST(test_regression_get_aliases_length_ansi, L"GetAliasesLength ANSI bytes");
     RUN_TEST(test_regression_get_history_length_zero, L"GetHistoryLength returns 0");
     RUN_TEST(test_regression_get_history_zero, L"GetHistory returns 0");
-    RUN_TEST(test_regression_get_title_length_bytes, L"GetTitle length in bytes");
+    RUN_TEST(test_regression_get_title_length_chars, L"GetTitle length in characters");
     RUN_TEST(test_regression_add_alias_ansi_ascii, L"AddAlias ANSI ASCII parsing");
     RUN_TEST(test_regression_get_alias_ansi_output, L"GetAlias ANSI output char*");
     RUN_TEST(test_regression_get_aliases_ansi_output, L"GetAliases ANSI output char*");
@@ -3117,6 +3365,7 @@ int main()
     RUN_TEST(test_default_attributes, L"Default attrs");
     RUN_TEST(test_dec_line_drawing, L"DEC line drawing");
     RUN_TEST(test_dec_to_unicode, L"dec_to_unicode");
+    RUN_TEST(test_input_apis_reject_output_handle, L"Input APIs reject output handle");
 
     std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, " << (tests_passed + tests_failed)
                << L" total." << std::endl;
