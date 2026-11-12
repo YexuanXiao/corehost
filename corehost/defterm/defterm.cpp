@@ -291,15 +291,12 @@ void run_initial_connect_loop(win32::handle_view server, win32::handle_view inpu
         {
             while (handler.has_pending())
             {
-                    if (handler.has_pending())
+                // handler 自报仍有 pending 时同样无限等待，由消息唤醒。
+                const auto wait = win32::wait_one(input_event, INFINITE);
+                if (wait.abandoned())
                 {
-                    // handler 自报仍有 pending 时同样无限等待，由消息唤醒。
-                    const auto wait = win32::wait_one(input_event, INFINITE);
-                    if (wait.abandoned())
-                    {
-                        LOG3("initial CONNECT loop pending wait abandoned");
-                        return;
-                    }
+                    LOG3("initial CONNECT loop pending wait abandoned");
+                    return;
                 }
             }
             if (handler.should_exit())
