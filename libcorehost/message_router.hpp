@@ -444,10 +444,7 @@ inline void message_router::on_pty_signal(unsigned short id, std::span<const std
             _window->set_owner(reinterpret_cast<HWND>(owner));
         }
         if (id == static_cast<unsigned short>(PtySignal::ResizeWindow))
-        {
             bridge.queue_window_buffer_size_event();
-            _window->set_size(api.state.screen_buffer_size);
-        }
 
         bridge.take_ctrl_events(ctrl_events);
     }

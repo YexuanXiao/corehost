@@ -108,7 +108,7 @@ corehost 需要的是同一套**对外契约**，不需要照搬它的渲染、U
 | B-R2 | `GetWindowThreadProcessId` 返回专用窗口线程（有名字） | 线程 id 稳定，名称 `corehost-window` |
 | B-R3 | 不可见：不显示、不抢前台、不进任务栏 | 运行期间无可见窗口，前台窗口不变 |
 | B-R4 | 同步消息不挂起 | 100 次 `SendMessageTimeout(…, 1s)` 无超时 |
-| B-R5 | 查询类返回自洽值 | 初始 0×0（与原版一致）；收到 `ResizeWindow` 后矩形非零且随字符网格变化；标题为控制台标题 |
+| B-R5 | 查询类返回自洽值 | 伪窗口矩形始终 0×0（与原版一致）；`ResizeWindow` 只改变控制台缓冲区；标题为控制台标题 |
 | B-R6 | `WM_CLOSE` 结束会话、客户端收到关闭事件 | 2 秒内会话退出；重复发送不重复关闭 |
 | B-R7 | 销毁干净 | 100 次会话后 USER 对象数回到基线，无残留线程 |
 | B-R8 | 状态修改不跨线程直接写 | 代码审查 + 并发压力无崩溃 |
@@ -124,7 +124,7 @@ corehost 需要的是同一套**对外契约**，不需要照搬它的渲染、U
 1. defterm 下 owner 何时可知：`PtySignal::SetParent` 在 handoff 后由 WT 发送，
    伪窗口可能在 owner 未知时创建（先无 owner，收到 SetParent 后
    `SetWindowLongPtr(GWLP_HWNDPARENT)`）。需要确认该时序。
-2. `GetWindowRect` 的换算：创建时恢复原版的 0×0；只有收到 `ResizeWindow` 后才按字符网格 × 8×16 调整，因此依赖初始非零矩形的旧测试需要调整。
+2. `GetWindowRect`：原版伪窗口始终为 0×0；`PtySignal::ResizeWindow` 只调整 screen buffer/window info，不调整伪 HWND。
 
 3. `WM_CLOSE` 与客户端关闭事件的时序需要与 `conpty` 现有的 EOF/断开路径统一。
 
@@ -136,7 +136,7 @@ corehost 需要的是同一套**对外契约**，不需要照搬它的渲染、U
 
 - owner：`PtySignal::SetParent` → `SetWindowLongPtrW(GWLP_HWNDPARENT)`；`GetAncestor(GA_ROOTOWNER)` 返回 owner。
 - 可见性：`PtySignal::ShowHideWindow` → 窗口线程 `ShowWindow(SW_SHOWNOACTIVATE/SW_MINIMIZE)`。窗口线程执行系统调用期间用私有 `_suppress_visibility` 抑制 `WM_SIZE`/`WM_SHOWWINDOW` 回调，避免把 WT 发起的 show/hide 再回显成 VT 序列。创建期 `WM_SIZE` 不 `CancelIoEx`；真实外部可见性变化仍取消 READ_IO 以唤醒主循环。
-- resize：初始窗口按原版创建为 0×0；`PtySignal::ResizeWindow` 更新 `screen_buffer_size` 后，窗口线程 `SetWindowPos` 到 `cells * 8x16`（`<=0` 回退 640×400）。
+- resize：伪窗口按原版创建为 0×0，且**不随** `PtySignal::ResizeWindow` 改变；resize 只更新 `screen_buffer_size`/screen buffer，与伪 HWND 无关。
 - `WM_ACTIVATE`：按原版，只要有有效 owner 就 `SetFocus(owner)`，不区分 active/inactive。
 - `WM_DESTROY`：置关闭事件、取消 READ_IO、`PostQuitMessage`；`stop_and_join` 在窗口已销毁时直接 join，避免向失效 HWND 发消息。
 - 保留：`WM_CLOSE` 的 corehost 会话关闭语义、默认窗口文本标题、初始隐藏、同步消息不挂起。

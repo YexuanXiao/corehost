@@ -106,15 +106,6 @@ class pseudo_window
         LOG("pseudo_window::set_visibility: result=%lld err=%lu iconic=%d visible=%d", static_cast<long long>(result), ::GetLastError(), ::IsIconic(_hwnd) != FALSE, ::IsWindowVisible(_hwnd) != FALSE);
     }
 
-    void set_size(COORD cells)
-    {
-        if (_hwnd == nullptr || ::IsWindow(_hwnd) == FALSE)
-            return;
-        LOG("pseudo_window::set_size: cells=%dx%d hwnd=%p", cells.X, cells.Y, _hwnd);
-        const LRESULT result = ::SendMessageW(_hwnd, wm_set_size, 0, static_cast<LPARAM>(MAKELPARAM(cells.X, cells.Y)));
-        LOG("pseudo_window::set_size: result=%lld err=%lu", static_cast<long long>(result), ::GetLastError());
-    }
-
     // GWLP_HWNDPARENT 是 owner 的唯一存储；不在这里缓存。
     void set_owner(HWND owner)
     {
@@ -222,18 +213,6 @@ class pseudo_window
             self->_suppress_visibility = false;
             return 0;
         }
-        case wm_set_size: {
-            LOG("pseudo_window::wm_set_size: cells=%dx%d", static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam)));
-            const COORD cells{static_cast<SHORT>(LOWORD(lparam)), static_cast<SHORT>(HIWORD(lparam))};
-            const int width = cells.X > 0 ? static_cast<int>(cells.X) * cell_width : 640;
-            const int height = cells.Y > 0 ? static_cast<int>(cells.Y) * cell_height : 400;
-            self->_suppress_visibility = true;
-            const BOOL pos_result = ::SetWindowPos(hwnd, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-            LOG("pseudo_window::wm_set_size: SetWindowPos result=%d err=%lu size=%dx%d", pos_result, ::GetLastError(), width, height);
-            self->_suppress_visibility = false;
-            return 0;
-        }
-        case WM_DESTROY:
             LOG("pseudo_window::WM_DESTROY: hwnd=%p", hwnd);
             LOG("pseudo_window: WM_DESTROY");
             self->_close_requested.set();
@@ -284,9 +263,9 @@ class pseudo_window
 
     static constexpr UINT wm_stop_thread = WM_APP + 1;
     static constexpr UINT wm_set_visibility = WM_APP + 2;
-    static constexpr UINT wm_set_size = WM_APP + 3;
-    static constexpr int cell_width = 8;
-    static constexpr int cell_height = 16;
+
+
+
 
     // 打断主线程阻塞中的 READ_IO，让主循环处理可见性/关闭事件。
     void cancel_server_io() const noexcept

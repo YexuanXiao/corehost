@@ -112,7 +112,7 @@ corehost::test::result get_console_window_then_close()
     REQUIRE(::SendMessageTimeoutW(window, WM_SHOWWINDOW, TRUE, 0, SMTO_ABORTIFHUNG, 2000, &copied) != 0);
     REQUIRE(::IsWindowVisible(window) == FALSE);
 
-    // 原版初始伪窗口为 0x0；ResizeWindow 后才按字符网格变化。
+    // 原版伪窗口始终是 0x0。
     RECT rect{};
     REQUIRE(::GetWindowRect(window, &rect) != FALSE);
     REQUIRE(rect.right == rect.left);
