@@ -4,12 +4,12 @@
 //
 // Provides standard-library-shaped wrappers around SRWLOCK and
 // CONDITION_VARIABLE. The project does not use CRITICAL_SECTION,
-// std::mutex or std::shared_mutex directly: SRWLock is smaller,
+// std::mutex or std::srwlock directly: SRWLock is smaller,
 // allocation-free and supports shared (reader) acquisition.
 //
 // Design:
 // - noexcept acquire/release: the SRWLock API cannot fail.
-// - Behaves like std::shared_mutex: lock/unlock for exclusive,
+// - Behaves like std::srwlock: lock/unlock for exclusive,
 //   lock_shared/unlock_shared for shared, so it can be used with
 //   std::unique_lock and std::shared_lock.
 // - NOT recursive. Acquiring the same lock twice on one thread
@@ -24,7 +24,7 @@
 //   ERROR_TIMEOUT.
 //
 // Usage:
-//   win32::shared_mutex m;
+//   win32::srwlock m;
 //   {
 //       std::shared_lock lock{m};      // shared (reader)
 //   }
@@ -47,18 +47,18 @@ namespace win32
 {
 
 // ── Shared/exclusive lock ──────────────────────────────────────
-class shared_mutex
+class srwlock
 {
   public:
-    shared_mutex() noexcept
+    srwlock() noexcept
     {
         ::InitializeSRWLock(&_lock);
     }
 
-    ~shared_mutex() noexcept = default;
+    ~srwlock() noexcept = default;
 
-    shared_mutex(const shared_mutex &) = delete;
-    shared_mutex &operator=(const shared_mutex &) = delete;
+    srwlock(const srwlock &) = delete;
+    srwlock &operator=(const srwlock &) = delete;
 
     // ── Exclusive ────────────────────────────────────────────
     void lock() noexcept
@@ -131,7 +131,7 @@ class condition_variable
 
     // ── Untimed wait ─────────────────────────────────────────
     // Re-acquires the exclusive lock before returning.
-    void wait(std::unique_lock<shared_mutex> &lock)
+    void wait(std::unique_lock<srwlock> &lock)
     {
         if (!lock.owns_lock())
             win32::throw_last_error(win32::error::invalid_state);
@@ -141,7 +141,7 @@ class condition_variable
 
     // Predicate form: returns only when pred() is true.
     template <typename Predicate>
-    void wait(std::unique_lock<shared_mutex> &lock, Predicate pred)
+    void wait(std::unique_lock<srwlock> &lock, Predicate pred)
     {
         while (!pred())
             wait(lock);
@@ -150,14 +150,14 @@ class condition_variable
     // ── Timed wait ───────────────────────────────────────────
     // ERROR_TIMEOUT is a normal result, not an error.
     template <typename Rep, typename Period>
-    [[nodiscard]] std::cv_status wait_for(std::unique_lock<shared_mutex> &lock,
+    [[nodiscard]] std::cv_status wait_for(std::unique_lock<srwlock> &lock,
                                           const std::chrono::duration<Rep, Period> &relative_time)
     {
         return wait_for_impl(lock, to_milliseconds(relative_time));
     }
 
     template <typename Rep, typename Period, typename Predicate>
-    [[nodiscard]] bool wait_for(std::unique_lock<shared_mutex> &lock,
+    [[nodiscard]] bool wait_for(std::unique_lock<srwlock> &lock,
                                 const std::chrono::duration<Rep, Period> &relative_time, Predicate pred)
     {
         const auto deadline = std::chrono::steady_clock::now() + relative_time;
@@ -187,7 +187,7 @@ class condition_variable
         return static_cast<DWORD>(ms);
     }
 
-    [[nodiscard]] std::cv_status wait_for_impl(std::unique_lock<shared_mutex> &lock, DWORD timeout_ms)
+    [[nodiscard]] std::cv_status wait_for_impl(std::unique_lock<srwlock> &lock, DWORD timeout_ms)
     {
         if (!lock.owns_lock())
             win32::throw_last_error(win32::error::invalid_state);

@@ -103,7 +103,7 @@ class message_router
 
   private:
     // 会话状态锁：全仓库只在 message_router.hpp 内出现。
-    win32::shared_mutex _mutex;
+    win32::srwlock _mutex;
 
     // 输入线程改变状态后唤醒 wait_any 中的主循环。
     win32::event _state_changed{win32::create_tag, /*manual_reset=*/false, /*initial=*/false};

@@ -307,7 +307,7 @@ class conpty_session
     win32::basic_thread _pump;
     std::unique_ptr<std::max_align_t[]> _attributes;
 
-    win32::shared_mutex _mutex;
+    win32::srwlock _mutex;
     win32::condition_variable _changed;
     std::string _output_text;
     bool _closed = false;

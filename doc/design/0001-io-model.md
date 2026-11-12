@@ -62,7 +62,7 @@ ConDrv 挂起请求、VT 输出）必须在同一时刻只被一个线程推进�
 
 ### 4.1 会话锁
 
-- 一把 `win32::shared_mutex`，全程以**独占**方式使用（`std::unique_lock`）。
+- 一把 `win32::srwlock`，全程以**独占**方式使用（`std::unique_lock`）。
   共享模式不用：控制台状态不是读多写少，且读也需要与处理串行。
 - 锁覆盖：ConDrv 消息分派、输入解析与行编辑、pending 请求完成、`input_buffer`
   更新、VT 输出缓冲追加与 flush、退出判定。
@@ -347,7 +347,7 @@ corehost 只服务 ConPTY，因此在会话初始化时：
 
 主循环、输入线程入口和窗口事件都收敛到现有 `message_router`：
 
-- `message_router` 私有持有 `win32::shared_mutex`，所有 `std::unique_lock` 只出现在
+- `message_router` 私有持有 `win32::srwlock`，所有 `std::unique_lock` 只出现在
   `message_router.hpp`；其他模块不包含锁、不提供 lock/guard。
 - 输入线程每次读到一批数据只调用一次入口（`on_input_bytes`/`on_pty_signal`/
   `on_input_eof`），入口内加一次锁并处理整批；窗口可见性一次入口一次锁；
