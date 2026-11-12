@@ -1,16 +1,21 @@
 // ── conpty/io_threads.hpp ─────────────────────────────────
 // 输入源线程：终端输入与 WT 信号管道。
 //
-// 输入线程与信号线程都阻塞在各自管道上，只调用一次 message_router 入口；
-// 会话状态锁和批处理都在 message_router 内完成，线程本身不持有锁/状态。
+// 终端输入有两种完全独立的实现：
+// - overlapped_vt_input_thread：WT 的异步 duplex 管道，OVERLAPPED ReadFile；
+// - blocking_vt_input_thread：同步 CreatePipe，阻塞 ReadFile + 取消协议。
 //
-// 退出：request_stop + 事件驱动的 wait_for_exit，再无限 join。
+// 每个线程只调用一次 message_router 入口；会话锁和批处理都在
+// message_router 内完成，线程本身不持有锁/状态。
+//
+// 退出：事件驱动的停止协议 + 无限 join，不使用任何超时。
 #pragma once
 #include <windows.h>
 #include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstring>
+#include <memory>
 #include <span>
 #include "message_router.hpp"
 #include "win32/cancellable_read.hpp"
@@ -23,59 +28,53 @@
 namespace corehost::conpty
 {
 
-// 终端输入线程。
+// 终端输入线程的公共接口。两种句柄模式的生命周期入口相同，但读循环完全分离。
 class vt_input_thread
 {
   public:
-    vt_input_thread(win32::handle_view vt_in, message_router &router)
-        : _vt_in{vt_in}, _router{router}, _async{win32::handle_is_async(vt_in)},
-          _stop{win32::create_tag, /*manual_reset=*/true, /*initial=*/false}, _reader{vt_in}
+    virtual ~vt_input_thread() = default;
+    virtual void start() = 0;
+    virtual void stop_and_join() = 0;
+};
+
+// WT 异步输入：OVERLAPPED ReadFile + completion event + 停止事件。
+class overlapped_vt_input_thread final : public vt_input_thread
+{
+  public:
+    overlapped_vt_input_thread(win32::handle_view vt_in, message_router &router)
+        : _vt_in{vt_in}, _router{router},
+          _stop{win32::create_tag, /*manual_reset=*/true, /*initial=*/false}
     {
     }
 
-    vt_input_thread(const vt_input_thread &) = delete;
-    vt_input_thread &operator=(const vt_input_thread &) = delete;
+    overlapped_vt_input_thread(const overlapped_vt_input_thread &) = delete;
+    overlapped_vt_input_thread &operator=(const overlapped_vt_input_thread &) = delete;
 
-    void start()
+    void start() override
     {
-        _thread = win32::basic_thread{&vt_input_thread::thread_entry, this, {.name = L"corehost-input"}};
+        _thread = win32::basic_thread{&overlapped_vt_input_thread::thread_entry, this,
+                                      {.name = L"corehost-input"}};
     }
 
-    void stop_and_join()
+    void stop_and_join() override
     {
         if (!_thread.valid())
             return;
-        if (_async)
-        {
-            _stop.set();
-            _thread.join();
-            return;
-        }
-        _reader.request_stop();
-        _reader.wait_for_exit(_thread);
+        _stop.set();
         _thread.join();
     }
 
   private:
     static DWORD WINAPI thread_entry(LPVOID self)
     {
-        static_cast<vt_input_thread *>(self)->run();
+        static_cast<overlapped_vt_input_thread *>(self)->run();
         return 0;
     }
 
     void run()
     {
-        LOG("vt_input_thread: enter");
-        if (_async)
-            run_overlapped();
-        else
-            run_blocking();
-    }
+        LOG("vt_input_thread: enter (overlapped)");
 
-    // WT 的异步 duplex 管道使用 OVERLAPPED ReadFile；没有数据时等待
-    // completion event，不轮询。停止时 CancelIoEx 打断唯一的挂起读。
-    void run_overlapped()
-    {
         win32::event io_event{win32::create_tag, /*manual_reset=*/true, /*initial=*/false};
         OVERLAPPED overlapped{};
         overlapped.hEvent = io_event.get();
@@ -141,9 +140,49 @@ class vt_input_thread
         }
     }
 
-    // 普通 CreatePipe 的同步句柄走阻塞 ReadFile + 事件驱动取消。
-    void run_blocking()
+    win32::handle_view _vt_in;
+    message_router &_router;
+    win32::event _stop;
+    win32::basic_thread _thread;
+};
+
+// 同步输入：阻塞 ReadFile + 事件驱动取消。
+class blocking_vt_input_thread final : public vt_input_thread
+{
+  public:
+    blocking_vt_input_thread(win32::handle_view vt_in, message_router &router) : _reader{vt_in}, _router{router}
     {
+    }
+
+    blocking_vt_input_thread(const blocking_vt_input_thread &) = delete;
+    blocking_vt_input_thread &operator=(const blocking_vt_input_thread &) = delete;
+
+    void start() override
+    {
+        _thread = win32::basic_thread{&blocking_vt_input_thread::thread_entry, this,
+                                      {.name = L"corehost-input"}};
+    }
+
+    void stop_and_join() override
+    {
+        if (!_thread.valid())
+            return;
+        _reader.request_stop();
+        _reader.wait_for_exit(_thread);
+        _thread.join();
+    }
+
+  private:
+    static DWORD WINAPI thread_entry(LPVOID self)
+    {
+        static_cast<blocking_vt_input_thread *>(self)->run();
+        return 0;
+    }
+
+    void run()
+    {
+        LOG("vt_input_thread: enter (blocking)");
+
         std::array<std::byte, 64 * 1024> staging{};
         for (;;)
         {
@@ -165,13 +204,21 @@ class vt_input_thread
         }
     }
 
-    win32::handle_view _vt_in;
-    message_router &_router;
-    bool _async = false;
-    win32::event _stop;
     win32::cancellable_read _reader;
+    message_router &_router;
     win32::basic_thread _thread;
 };
+
+// 按句柄模式选择实现。WT 的句柄由 winconpty 创建为异步模式；测试/defterm
+// 的普通管道仍走同步实现。
+[[nodiscard]] inline std::unique_ptr<vt_input_thread> make_vt_input_thread(win32::handle_view vt_in,
+                                                                           message_router &router)
+{
+    if (win32::handle_is_async(vt_in))
+        return std::make_unique<overlapped_vt_input_thread>(vt_in, router);
+    return std::make_unique<blocking_vt_input_thread>(vt_in, router);
+}
+
 // WT 信号管道线程。读取 id 与 payload 后交给 message_router 处理。
 class pty_signal_thread
 {
