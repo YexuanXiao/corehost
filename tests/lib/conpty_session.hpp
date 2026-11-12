@@ -40,6 +40,12 @@ class conpty_session
     // 创建伪控制台并启动客户端进程（不继承标准句柄，控制台句柄由 ConDrv 提供）。
     bool start(std::wstring_view command_line, COORD size = {80, 25}, DWORD flags = 0)
     {
+        return create(size, flags) && launch(command_line);
+    }
+
+    // 只创建伪控制台和 corehost，不启动客户端；用于测试 CONNECT 前的信号。
+    bool create(COORD size = {80, 25}, DWORD flags = 0)
+    {
         HANDLE input_read = nullptr;
         HANDLE input_write = nullptr;
         HANDLE output_read = nullptr;
@@ -59,20 +65,22 @@ class conpty_session
             return false;
         }
 
-        // 伪控制台已复制这两个句柄，父进程不再需要它们。
         ::CloseHandle(input_read);
         ::CloseHandle(output_write);
 
         _pty = pty;
         _input = win32::handle{input_write};
         _output = win32::handle{output_read};
+        return true;
+    }
 
-        if (!start_client(command_line))
-        {
-            close();
+    // 在已创建的伪控制台上启动客户端并开始抽干输出。
+    bool launch(std::wstring_view command_line)
+    {
+        if (_pty == nullptr || _process.valid())
             return false;
-        }
-
+        if (!start_client(command_line))
+            return false;
         _pump = win32::basic_thread{&conpty_session::pump_entry, this, {.name = L"conpty-test-output"}};
         return true;
     }

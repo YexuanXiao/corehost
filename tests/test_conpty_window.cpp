@@ -151,6 +151,41 @@ bool pseudo_window_contract()
     return true;
 }
 
+// 连接前的 show/hide 只暂存；启动客户端后会话仍存活。
+bool pseudo_window_preconnect_signals()
+{
+    conpty_session session;
+    ASSERT(session.create({80, 25}));
+    ASSERT(session.reparent(::GetDesktopWindow()));
+    ASSERT(session.show(true));
+
+    DWORD pid = 0;
+    for (int attempt = 0; attempt < 100 && pid == 0; ++attempt)
+    {
+        pid = find_corehost_child();
+        if (pid == 0)
+            sleep_ms(20);
+    }
+    ASSERT(pid != 0);
+
+    window_search search{pid, nullptr};
+    for (int attempt = 0; attempt < 100 && search.found == nullptr; ++attempt)
+    {
+        ::EnumWindows(&enum_window_proc, reinterpret_cast<LPARAM>(&search));
+        if (search.found == nullptr)
+            sleep_ms(20);
+    }
+    ASSERT(search.found != nullptr);
+    sleep_ms(100);
+    ASSERT(::IsWindowVisible(search.found) == FALSE);
+
+    ASSERT(session.launch(L"cmd.exe /c \"echo READY & timeout /t 10 /nobreak >nul\""));
+    ASSERT(session.wait_output("READY", 5000));
+    ASSERT(session.is_running());
+    session.close();
+    return true;
+}
+
 // 连接后的 show/hide 才应用到窗口；用独立客户端模拟宿主时机。
 bool pseudo_window_after_connect()
 {
@@ -205,6 +240,7 @@ int main()
 {
     std::wcout << L"=== ConPTY Pseudo Window ===" << std::endl;
     RUN_TEST(pseudo_window_contract, L"GetConsoleWindow pseudo window");
+    RUN_TEST(pseudo_window_preconnect_signals, L"Pseudo window pre-connect signals");
     RUN_TEST(pseudo_window_after_connect, L"Pseudo window signals after connect");
     std::wcout << L"  " << tests_passed << L" passed, " << tests_failed << L" failed, "
                << (tests_passed + tests_failed) << L" total." << std::endl;
