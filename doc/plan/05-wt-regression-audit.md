@@ -213,3 +213,13 @@
 结论：**客户端没有退出，WT 关闭了输入管道**。因此问题不是 PowerShell 主动退出，
 而是 WT 侧进入了 `Closed`，或 corehost 的 `vt_out` 被关闭/输出线程终止。下一步需要
 WT 的 connection/output 日志，或确认 corehost 是否提前关闭 `vt_out`。
+## 12. 二分构建
+
+已构建首个伪窗口提交 `ec45a87`：
+
+```text
+build-bisect-ec45a87\build-release\Release\corehost.exe
+```
+
+用于和 `5e9a3bf` 基线对比：若该版本复现闪退，问题在窗口创建本身；若正常，
+继续二分 `ec45a87` 之后的 ShowHide/owner 变更。
