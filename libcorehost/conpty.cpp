@@ -183,6 +183,16 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     router.run();
     LOG("corehost::conpty::run_conpty_session: loop returned");
 
+    // 诊断：退出时逐个记录 corehost 仍持有的输入/控制句柄，避免把所有情况
+    // 都归因于 vt_in/vt_out。GetHandleInformation 只查询，不做 I/O。
+    DWORD flags = 0;
+    LOG("corehost::conpty::run_conpty_session: handles server=%d event=%d vt_in=%d vt_out=%d signal=%d",
+        ::GetHandleInformation(server.get(), &flags) != FALSE,
+        ::GetHandleInformation(event.get(), &flags) != FALSE,
+        ::GetHandleInformation(vt_in.get(), &flags) != FALSE,
+        ::GetHandleInformation(vt_out.get(), &flags) != FALSE,
+        ::GetHandleInformation(signal_pipe.get(), &flags) != FALSE);
+
     // ── 退出：先停输入源，再释放会话状态 ──
     // 停止是无限等待：停止标志 + 取消阻塞读 + join，由线程自身保证退出。
     window.stop_and_join();
