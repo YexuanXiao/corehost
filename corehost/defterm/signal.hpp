@@ -23,7 +23,7 @@
 // （WT RemoteConsoleControl）每次 WriteFile 原子写入一条完整消息，因此
 // 管道里要么没有数据，要么至少有一条完整消息：每次 ReadFile 必然读满
 // 请求的字节数，读不满、未知 code 或畸形 dwSize 都是协议损坏，抛出
-// 异常由入口统一处理后退出程序（官方 系统控制台 抛 E_UNEXPECTED/
+// 异常由入口统一处理后退出程序（官方 conhost 抛 E_UNEXPECTED/
 // E_ILLEGAL_METHOD_CALL 后崩溃，行为一致）。
 
 #pragma once

@@ -116,7 +116,7 @@ Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额�
 
 ### 4.6 Ctrl+C / Ctrl+Break 的读语义（与 conhost 对齐）
 
-行为依据是系统控制台的 Ctrl+C / Ctrl+Break 观测语义：
+行为依据是conhost的 Ctrl+C / Ctrl+Break 观测语义：
 
 - **Ctrl+C**：仅 processed input、无 Alt、key down、`VK == 'C'`。投递
   `CTRL_C_EVENT`，并以 `STATUS_ALERTED`（0x101）结束等待中的
@@ -127,7 +127,7 @@ Ctrl+C 语义），不需要快照。这是方案 D 相对方案 A 的一个额�
   `GenerateConsoleCtrlEvent` 到不了客户端）。
 - `ConsoleControl(EndTask)` 不在会话锁内执行：处理 Ctrl+C/Break 时只把事件与目标
   pid 入队，输入线程/message_router 在释放会话锁后调用 `deliver_ctrl_event()` 投递；
-  与系统控制台宿主"先记录事件、解锁后逐进程投递"的模型一致，避免客户端处理器
+  与conhost宿主"先记录事件、解锁后逐进程投递"的模型一致，避免客户端处理器
   阻塞期间其它客户端被会话锁卡住。
 - 客户端观察到的结果由 Windows 控制台客户端库映射：0 字节读取 +
   `ERROR_OPERATION_ABORTED`。
@@ -305,7 +305,7 @@ ConDrv 客户端把 `CD_IO_COMPLETE.IoStatus.Information` 当作**数据区字�
 READ_INPUT 读入临时缓冲；实际长度由 ConDrv 的读取结果校验，不设任意上限。
 ## 4.18 WM_CLOSE 与 CTRL_CLOSE_EVENT：不实现（记录平台限制）
 
-伪窗口不处理 WM_CLOSE，关闭请求直接结束会话；ConPTY 下系统控制台宿主会在 pty
+伪窗口不处理 WM_CLOSE，关闭请求直接结束会话；ConPTY 下conhost宿主会在 pty
 管道关闭时向客户端投递 `CTRL_CLOSE_EVENT`，差分测试中系统宿主客户端确实收到
 `EVENT=2`。
 
@@ -318,7 +318,7 @@ nullptr 或伪窗口、flags 变体都试过），CSRSS 阻塞约 5 秒后返回
 依赖 close 处理器（该差异记录在 gaps G18）。
 ## 4.19 默认 out_mode 与 conhost 一致
 
-系统控制台宿主在 **ConPTY 模式**下强制
+conhost宿主在 **ConPTY 模式**下强制
 `SetDefaultVirtTermLevel(1)`，忽略用户注册表 `HKCU\Console\VirtualTerminalLevel`；
 只有普通控制台窗口才使用注册表值；普通窗口在创建屏幕缓冲区时把
 `ENABLE_VIRTUAL_TERMINAL_PROCESSING` 加入 `OutputMode`。

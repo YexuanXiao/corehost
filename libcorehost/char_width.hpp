@@ -2,7 +2,7 @@
 // 字符宽度计算。
 //
 // 功能分解：
-// 1. console 模式用固定 Unicode 范围模拟传统 系统控制台 宽度判断。
+// 1. console 模式用固定 Unicode 范围模拟传统 conhost 宽度判断。
 // 2. wcswidth 模式使用 ICU/libunicode，并按 ambiguous_is_wide 修正 EAW=A。
 // 3. graphemes 模式先分割 grapheme cluster，再把单个 cluster 钳制到 2 列。
 //

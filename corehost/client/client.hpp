@@ -4,7 +4,7 @@
 //   corehost <cmd>
 //     1. CreateProcess(cmd, CREATE_NEW_CONSOLE)
 //        └─ConDrv 为新进程创建控制台
-//          ConDrv 启动 系统控制台.exe 0x<HANDLE> (defterm 路径)
+//          ConDrv 启动 conhost.exe 0x<HANDLE> (defterm 路径)
 //          defterm 实例 → IO 循环 → COM 移交 → WT
 //
 //     3. corehost 退出

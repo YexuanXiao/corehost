@@ -1,5 +1,5 @@
 // ── comserver/com_server.cpp ──────────────────────────────
-// -Embedding COM 服务器实现: 接收 inbox 系统控制台 的控制台会话移交。
+// -Embedding COM 服务器实现: 接收 inbox conhost 的控制台会话移交。
 
 #include "com_server.hpp"
 #include <windows.h>
@@ -176,7 +176,7 @@ void accept_condrv_connection(win32::handle_view condrv_server, PCCONSOLE_PORTAB
 }
 
 // 执行默认终端链路的第二跳：
-//   inbox 系统控制台 -> corehost(IConsoleHandoff) -> Windows Terminal(ITerminalHandoff3)
+//   inbox conhost -> corehost(IConsoleHandoff) -> Windows Terminal(ITerminalHandoff3)
 //
 // 此函数仍运行在 COM RPC 调用线程中，只负责把所有长期需要的句柄移动进
 // handoff_result。com_server_entry 返回后，主线程才会启动 conpty_entry。
@@ -237,7 +237,7 @@ void complete_terminal_handoff(REFCLSID terminal_clsid, PCCONSOLE_PORTABLE_ATTAC
 // Console Handoff COM 实现
 // ============================================================================
 
-// IConsoleHandoff + IClassFactory: 接收 inbox 系统控制台 的会话移交。
+// IConsoleHandoff + IClassFactory: 接收 inbox conhost 的会话移交。
 // IUnknown 由 com::implements 自动生成。
 struct console_handoff : com::implements<console_handoff, IConsoleHandoff, IClassFactory>
 {
@@ -330,7 +330,7 @@ struct console_handoff : com::implements<console_handoff, IConsoleHandoff, IClas
 
         // --- 阶段 4: 查询终端 CLSID 并执行移交 ---
         // zero CLSID 表示没有可用的第二跳终端。此时仍返回 S_OK 和自身进程
-        // 句柄，让 inbox 系统控制台 的协议层有确定的等待对象；result 保持空。
+        // 句柄，让 inbox conhost 的协议层有确定的等待对象；result 保持空。
         auto terminal_clsid = clsid::default_clsid(clsid::delegation_step::terminal);
         LOG("terminal CLSID selected %08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X", terminal_clsid.Data1,
             terminal_clsid.Data2, terminal_clsid.Data3, terminal_clsid.Data4[0], terminal_clsid.Data4[1],
@@ -348,7 +348,7 @@ struct console_handoff : com::implements<console_handoff, IConsoleHandoff, IClas
             LOG("inbox handoff completed; conpty session should start after COM returns");
         }
 
-        // --- 阶段 5: 返回自身进程句柄供 inbox 系统控制台 等待 ---
+        // --- 阶段 5: 返回自身进程句柄供 inbox conhost 等待 ---
         // proc.release() 后句柄所有权转移给 COM 调用方；本进程不再关闭它。
         LOG("returning corehost process handle to inbox conhost");
         auto proc = win32::duplicate_self();

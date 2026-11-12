@@ -64,7 +64,7 @@ inline void set_sgr_background_default(WORD &attr) noexcept
 // 将 SGR 前景索引映射到 Win32 属性低 4 位；超出 16 色时忽略。
 // SGR 颜色索引是 RGB 顺序（1=红, 4=蓝），Win32 属性低 4 位是 BGRI 顺序
 // （bit0=BLUE, bit2=RED），必须交换红/蓝通道，否则与 GetConsoleScreenBufferInfo
-// 报告的活动属性不一致（真实 系统控制台 同样返回 BGRI 语义的属性）。
+// 报告的活动属性不一致（真实 conhost 同样返回 BGRI 语义的属性）。
 inline void set_sgr_foreground_index(WORD &attr, uint8_t index) noexcept
 {
     if (index <= 15)
@@ -385,7 +385,7 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
         break;
     }
     case vt_message_id::erase_in_display: {
-        // ED/EL 使用当前 default_attributes 清除，和 系统控制台 的属性继承行为一致。
+        // ED/EL 使用当前 default_attributes 清除，和 conhost 的属性继承行为一致。
         switch (msg.payload.erase_mode)
         {
         case 0: // ED0: 光标到屏幕尾

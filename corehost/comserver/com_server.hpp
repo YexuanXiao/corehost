@@ -1,5 +1,5 @@
 // ── comserver/com_server.hpp ──────────────────────────────
-// -Embedding COM 服务器: 接收 inbox 系统控制台 的控制台会话移交。
+// -Embedding COM 服务器: 接收 inbox conhost 的控制台会话移交。
 // 仅暴露 handoff_result 和 com_server_entry()。
 
 #pragma once
@@ -24,7 +24,7 @@ struct handoff_result
     win32::handle vt_in;
     win32::handle vt_out;
 
-    // ConDrv InputAvailableEvent。非空时已经由 inbox 系统控制台 创建并注册。
+    // ConDrv InputAvailableEvent。非空时已经由 inbox conhost 创建并注册。
     win32::handle event;
 
     // WT 信号管道读端；非空时 conpty signal 线程用它接收 resize/close 等信号。

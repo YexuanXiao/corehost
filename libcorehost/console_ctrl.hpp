@@ -24,7 +24,7 @@ inline constexpr LONG status_alerted = 0x00000101;
 // 控制事件投递函数签名：pid、事件码、控制台窗口（无则 nullptr）。
 using ctrl_event_sender = NTSTATUS (*)(DWORD pid, DWORD event, HWND console_window);
 
-// 事件码到 ConsoleFlags 的映射；系统控制台宿主使用同一套标志
+// 事件码到 ConsoleFlags 的映射；conhost宿主使用同一套标志
 // 判断 EndTask 的语义（Ctrl+C / Ctrl+Break / Close）。
 inline ULONG console_ctrl_flags(DWORD event) noexcept
 {

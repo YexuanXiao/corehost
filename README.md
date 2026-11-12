@@ -120,6 +120,7 @@ Refer to CI for cross compilation and building with Clang.
 | `COREHOST_RUN_AS_UTF8` | `ON` | Make UTF-8 as corehost's active code page. |
 | `COREHOST_USE_SYSTEM_ICU` | `ON` | Uses the Windows system ICU library for Unicode character width calculation, reducing the binary size. Disable it when targeting Windows versions earlier than 1903. |
 | `COREHOST_VERSION` | `0.0.0.0` | Sets the version baked into `corehost.exe` and `version.h`. Accepts dot-separated numbers such as `1.2.3.4`; missing segments default to `0` and extra segments are ignored. |
+| `COREHOST_ENABLE_ASAN` | `ON` | Enable AddressSanitizer in MSVC Debug builds. |
 | `USE_INBOX_CONHOST` | `OFF` | Make libconpty only use the system's conhost.exe. |
 
 ## Architecture and startup flow
@@ -170,8 +171,6 @@ The ConPTY runtime is the shared implementation used by all three startup modes.
 - The signal path handles terminal-side control notifications, such as close, resize, and control events, and maps them into the Windows console behavior expected by attached processes.
 
 ## Design
-
-The signal path is handled inside the same loop rather than by a dedicated thread. The terminal has a separate control channel that is not part of the normal VT input/output stream, so the session polls the signal pipe during the same idle and pending-wait phases that already service terminal input. In the direct default-terminal handoff path, the polling loop reads console-control notifications from the terminal signal pipe, forwards the relevant control events to the Windows console subsystem, and notices when the pipe closes. In ConPTY sessions, the same polling loop consumes terminal-side sideband messages such as show/hide, clear-buffer, parent-window, and resize notifications. Some messages are only consumed to keep the wire protocol aligned; others update the local screen buffer or console size. When the signal pipe closes, the session marks the input side as EOF so pending input waits can end cleanly. Signal arrivals are therefore delayed by at most one 16 ms polling slice, and all state updates stay serialized on the main thread.
 
 Data usually flows in two directions. Output from a console application arrives as ConDrv API messages, is applied to the local console and screen state, and is serialized as VT to the terminal. Input from the terminal arrives as VT bytes, is parsed into keyboard, text, control, or terminal-response messages, and is then exposed to the console application through the input APIs. This is the core bridge that lets Windows console programs run behind a modern terminal frontend while still observing Windows console semantics.
 

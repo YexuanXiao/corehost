@@ -9,7 +9,7 @@
 // 4. 把 connection 句柄写进 PEB 的 ConsoleHandle 槽位，之后本进程的 Console API
 //    调用就会走这条连接。
 //
-// 这样 defterm 测试完全不依赖注册表、默认终端、系统控制台或 GUI。
+// 这样 defterm 测试完全不依赖注册表、默认终端、conhost或 GUI。
 #pragma once
 #include <windows.h>
 #include <winternl.h>

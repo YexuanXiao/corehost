@@ -25,7 +25,7 @@ namespace corehost::defterm
 
 [[nodiscard]] inline bool should_skip_terminal(const CLSID &clsid) noexcept
 {
-    // zero 表示注册表没有配置；系统控制台 表示默认终端指回传统 系统控制台。
+    // zero 表示注册表没有配置；conhost 表示默认终端指回传统 conhost。
     // 两者都不是可 handoff 的终端实现。
     return clsid == clsid::zero || clsid == clsid::conhost;
 }

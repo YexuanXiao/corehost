@@ -337,7 +337,7 @@ struct api_router
         if (api != 4)
             LOG2("[dispatch] L1 api=%lu", api);
         // GetNumberOfConsoleInputEvents / GetConsoleInput / ReadConsole 需要输入
-        // 句柄；系统控制台 在屏幕缓冲区句柄上让它们失败。libuv 靠这个失败区分
+        // 句柄；conhost 在屏幕缓冲区句柄上让它们失败。libuv 靠这个失败区分
         // stdin/stdout，否则 node 把 stdout 当 stdin，输出全部 EPIPE（fork 42ef837）。
         if ((api == 3 || api == 4 || api == 5) && !input_handle)
         {
