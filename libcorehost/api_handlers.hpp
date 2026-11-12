@@ -1194,10 +1194,10 @@ inline bool api_set_mode(condrv_io::io_msg &msg, console_state &state, screen_bu
         else
             state.input_mode_private |= requested_mode & private_input_modes;
 
-        // 原版为了兼容会先保存模式，再返回 E_INVALIDARG。PSReadLine 依赖
-        // “ECHO 开启但 LINE 关闭”这种无效组合仍然影响后续 Ctrl+C 行为。
-        if ((requested_mode & ~(valid_input_modes | private_input_modes)) != 0 ||
-            ((requested_mode & ENABLE_ECHO_INPUT) != 0 && (requested_mode & ENABLE_LINE_INPUT) == 0))
+        // PowerShell 7.7 / PSReadLine 会先设置“ECHO 开启但 LINE 关闭”的
+        // 组合；这里必须接受并保存，否则 Console.ReadKey 会把输入误判为
+        // 已重定向并终止 PowerShell。未知位仍然拒绝。
+        if ((requested_mode & ~(valid_input_modes | private_input_modes)) != 0)
         {
             LOG2("[api_set_mode] input invalid req=0x%08X -> E_INVALIDARG", static_cast<unsigned>(requested_mode));
             condrv_io::prepare_completion(msg, status_invalid_parameter);

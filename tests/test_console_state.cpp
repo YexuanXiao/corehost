@@ -2646,7 +2646,9 @@ bool test_regression_set_console_mode_validation()
     auto *mode = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     mode->Mode = ENABLE_ECHO_INPUT;
     ASSERT(api_set_mode(msg, st, sb, inp, bridge, true));
-    ASSERT(msg.complete.IoStatus.Status == status_invalid_parameter);
+    // PSReadLine 会先设置 ECHO-only；corehost 需要接受它，否则 PowerShell 7.7
+    // 的 Console.ReadKey 会误判输入被重定向。
+    ASSERT(msg.complete.IoStatus.Status == 0);
     ASSERT(st.input_mode == ENABLE_ECHO_INPUT);
 
     std::memset(&msg, 0, sizeof(msg));
