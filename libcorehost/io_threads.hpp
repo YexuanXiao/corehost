@@ -28,7 +28,7 @@ class vt_input_thread
 {
   public:
     vt_input_thread(win32::handle_view vt_in, message_router &router)
-        : _reader{vt_in}, _router{router}
+        : _vt_in{vt_in}, _stop{win32::create_tag, /*manual_reset=*/true, /*initial=*/false}, _router{router}
     {
     }
 
@@ -40,12 +40,11 @@ class vt_input_thread
         _thread = win32::basic_thread{&vt_input_thread::thread_entry, this, {.name = L"corehost-input"}};
     }
 
-    // 停止并无限等待线程退出。只允许在没有持有会话锁时调用。
     void stop_and_join()
     {
-        assert(_thread.valid());
-        _reader.request_stop();
-        _reader.wait_for_exit(_thread);
+        if (!_thread.valid())
+            return;
+        _stop.set();
         _thread.join();
     }
 
@@ -63,31 +62,60 @@ class vt_input_thread
         std::array<std::byte, 64 * 1024> staging{};
         for (;;)
         {
-            DWORD read = 0;
-            const auto status = _reader.read(staging, read);
-            if (status == win32::cancellable_read::status::cancelled)
-            {
-                LOG("vt_input_thread: cancelled, exit");
+            if (::WaitForSingleObject(_stop.get(), 0) == WAIT_OBJECT_0)
                 return;
+
+            DWORD available = 0;
+            if (::PeekNamedPipe(_vt_in.get(), nullptr, 0, nullptr, &available, nullptr) == FALSE)
+            {
+                const auto err = win32::get_last_error();
+                if (err == win32::error::broken_pipe || err == win32::error::pipe_not_connected ||
+                    err == win32::error::no_data)
+                {
+                    LOG("vt_input_thread: vt_in closed, mark EOF");
+                    _router.on_input_eof();
+                    return;
+                }
+                win32::throw_last_error(err);
             }
-            if (status == win32::cancellable_read::status::closed)
+
+            if (available == 0)
+            {
+                (void)::WaitForSingleObject(_stop.get(), 16);
+                continue;
+            }
+
+            DWORD read = 0;
+            if (::ReadFile(_vt_in.get(), staging.data(),
+                           static_cast<DWORD>(std::min<size_t>(available, staging.size())), &read, nullptr) == FALSE)
+            {
+                const auto err = win32::get_last_error();
+                if (err == win32::error::broken_pipe || err == win32::error::pipe_not_connected ||
+                    err == win32::error::no_data)
+                {
+                    LOG("vt_input_thread: vt_in closed, mark EOF");
+                    _router.on_input_eof();
+                    return;
+                }
+                win32::throw_last_error(err);
+            }
+            if (read == 0)
             {
                 LOG("vt_input_thread: vt_in closed, mark EOF");
                 _router.on_input_eof();
                 return;
             }
-
-            if (read != 0)
-                _router.on_input_bytes(std::span<const std::byte>{staging.data(), read});
+            _router.on_input_bytes(std::span<const std::byte>{staging.data(), read});
         }
     }
 
-    win32::cancellable_read _reader;
+    win32::handle_view _vt_in;
+    win32::event _stop;
     message_router &_router;
     win32::basic_thread _thread;
 };
 
-// WT 信号管道线程。每次读一批原始字节，帧解析在 message_router 内完成。
+// WT 信号管道线程。读取 id 与 payload 后交给 message_router 处理。
 class pty_signal_thread
 {
   public:

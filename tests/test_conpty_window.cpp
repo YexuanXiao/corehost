@@ -219,6 +219,9 @@ bool interactive_pwsh_survives_signals()
     ASSERT(session.start(L"pwsh.exe -NoLogo -NoProfile", {120, 30}));
     ASSERT(session.write("Write-Output READY\r"));
     ASSERT(session.wait_output("READY", 10000));
+    ASSERT(session.write("e"));
+    sleep_ms(300);
+    ASSERT(session.is_running());
 
     ASSERT(session.reparent(::GetDesktopWindow()));
     ASSERT(session.show(true));

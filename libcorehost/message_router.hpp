@@ -62,16 +62,6 @@ class message_router
         io.handle_connect(msg);
         _console_connected = true;
         apply_early_pty_signals();
-        _client_process =
-            win32::handle{::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE,
-                                        static_cast<DWORD>(msg.descriptor.Process))};
-        if (_client_process.valid())
-        {
-            wchar_t image[512]{};
-            DWORD image_size = ARRAYSIZE(image);
-            if (::QueryFullProcessImageNameW(_client_process.get(), 0, image, &image_size) != FALSE)
-                LOG("message_router: client image=%ls", image);
-        }
         LOG2("CONNECT consumed after processCount=%zu bridgeProcessCount=%zu", io.process_list().count(),
              bridge.process_count());
         log_completion("CONNECT completion", msg);
@@ -116,7 +106,6 @@ class message_router
     pseudo_window *_window = nullptr;
     win32::handle_view _server;
     win32::handle_view _input_available;
-    win32::handle _client_process;
 
     // 连接前到达的 show/hide 与 resize 必须像系统宿主一样暂存，连接后再应用。
     bool _console_connected = false;
@@ -327,13 +316,9 @@ inline void message_router::run()
                             if (bridge.has_buffered_vt_output())
                                 bridge.vt_flush();
                         }
-                        else if (serving_pending)
-                        {
-                            // 同一时间只允许一个 pending；scratch 已在服务它，
-                            // 再出现一个说明状态机被破坏。
-                            LOG("message_router::run: unexpected second pending request");
-                            win32::throw_last_error(win32::error::invalid_state);
-                        }
+                        // 输入线程可能刚完成旧 pending，此时 handler 建立的是
+                        // 一个新的合法 pending；不能再按“第二个 pending”退出。
+                        // 真正的覆盖由 pipe_bridge 在 handler 入口避免。
                     }
                 }
 
@@ -403,13 +388,6 @@ inline void message_router::on_input_bytes(std::span<const std::byte> bytes)
 
 inline void message_router::on_input_eof()
 {
-    LOG("message_router::on_input_eof");
-    if (_client_process.valid())
-    {
-        DWORD exit_code = 0;
-        if (::GetExitCodeProcess(_client_process.get(), &exit_code) != FALSE)
-            LOG("message_router: client exit=0x%08lx", static_cast<unsigned long>(exit_code));
-    }
     std::vector<std::pair<DWORD, DWORD>> ctrl_events;
     {
         std::unique_lock guard{_mutex};

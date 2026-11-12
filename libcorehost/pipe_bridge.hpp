@@ -400,6 +400,8 @@ struct pipe_bridge
     terminal_cursor_state _terminal;
     // 当前被挂起的 ConDrv 读请求及 VT EOF 状态。
     pending_io_state _pending;
+    // 客户端可并发发出多个可等待 GetConsoleInput；pending_io_state 只持有当前一个。
+    bizwen::deque<condrv_io::io_msg> _queued_console_inputs;
     // 当前控制台会话的 DOSKEY 命令历史。
     command_history_state _history;
 
@@ -1241,6 +1243,14 @@ struct pipe_bridge
         const bool wait_allowed = (req->Flags & CONSOLE_READ_NOWAIT) == 0;
         const auto count = inp.available();
 
+        if (_pending.has_pending())
+        {
+            // 当前请求已经在等待输入。客户端（PSReadLine 等）可能同时发出多个
+            // GetConsoleInput；把它排队，待前一个完成后再作为新的 pending 服务。
+            _queued_console_inputs.push_back(msg);
+            return false;
+        }
+
         if (count == 0 && wait_allowed)
         {
             // 只有“可等待且当前无记录”的请求进入 pending；后续 emit_key 会
@@ -1257,7 +1267,11 @@ struct pipe_bridge
     bool pump_pending()
     {
         if (!_pending.has_pending())
-            return true;
+        {
+            if (_queued_console_inputs.empty())
+                return true;
+            _pending.begin_console_input(_queued_console_inputs.front());
+        }
 
         if (_pending.vt_eof())
         {
@@ -3095,6 +3109,9 @@ const auto cp = cstate.output_code_page;
         if (_pending.kind() != PendingKind::ConsoleInput || !_pending.console_input())
             return;
 
+        const bool from_queue = !_queued_console_inputs.empty() &&
+                                _pending.console_input() == &_queued_console_inputs.front();
+
         if (status != 0)
         {
             // Ctrl+C / Ctrl+Break：0 条记录 + STATUS_ALERTED。
@@ -3109,6 +3126,8 @@ const auto cp = cstate.output_code_page;
                                           sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
             auto comp = pending_msg.complete;
             _pending.clear();
+            if (from_queue)
+                _queued_console_inputs.pop_front();
             if (_io.can_complete())
                 _io.complete(comp);
             return;
@@ -3131,6 +3150,8 @@ const auto cp = cstate.output_code_page;
 
             auto comp = m.complete;
             _pending.clear();
+            if (from_queue)
+                _queued_console_inputs.pop_front();
 
             if (_io.can_complete())
                 _io.complete(comp);
@@ -3141,6 +3162,8 @@ const auto cp = cstate.output_code_page;
 
         auto comp = m.complete;
         _pending.clear();
+        if (from_queue)
+            _queued_console_inputs.pop_front();
 
         if (_io.can_complete())
             _io.complete(comp);
