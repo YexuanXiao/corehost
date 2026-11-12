@@ -369,6 +369,8 @@ struct pipe_bridge
     // completion 会在下一轮 READ_IO 提交，因此该缓冲必须作为 bridge 成员
     // 保持稳定，直到 ConDrv 消费 Write.Data。
     raw_byte_vector<BYTE> _console_input_output_buffer;
+    // 稳定保存当前 ConsoleInput 请求，避免 READ_IO 重新使用原缓冲后指针失效。
+    condrv_io::io_msg _console_input_pending_msg{};
 
 
     // 低级 Win32/ConDrv I/O 封装，bridge 只通过它访问 server/vt_in。
@@ -1254,8 +1256,10 @@ struct pipe_bridge
         if (count == 0 && wait_allowed)
         {
             // 只有“可等待且当前无记录”的请求进入 pending；后续 emit_key 会
-            // 调 complete_pending_console_input 唤醒它。
-            _pending.begin_console_input(msg);
+            // 调 complete_pending_console_input 唤醒它。message_router 的
+            // READ_IO 缓冲可能继续被复用，因此保存一份稳定的请求副本。
+            _console_input_pending_msg = msg;
+            _pending.begin_console_input(_console_input_pending_msg);
             return false;
         }
 
