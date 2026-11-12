@@ -99,3 +99,8 @@ ctest --test-dir build -C Debug --output-on-failure
 任务 1、2 的验收项都有自动化证据；任务 3 的确定性层（L0 直连）与任务 4 的
 主要矩阵已完成，真实 WT 层与 ssh 受环境限制。剩余项均登记在 gaps，且都有明确的
 解除条件。
+
+## 8. 回归审计（5e9a3bf..HEAD）
+
+- 发现连接前 ShowHide/Resize 被提前应用；系统宿主会暂存到首次 CONNECT。已修复并新增 ConPTY.PseudoWindow 的连接前/后用例。
+- 详细计划：doc/plan/05-wt-regression-audit.md；设计：doc/design/0007-preconnect-pty-signals.md。

@@ -108,3 +108,5 @@
 ## 提交记录
 
 提交历史见 `git log --oneline`；每个子任务的提交主题记录在上表的"提交"列。
+
+| B10 | 连接前 PTY 信号暂存 | DONE | 回归审计 | ShowHide/Resize 暂存到 CONNECT 后；ClearBuffer 丢弃；独立用例 ConPTY.PseudoWindow |
