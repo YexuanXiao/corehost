@@ -2744,9 +2744,11 @@ inline bool api_set_title(condrv_io::io_msg &msg, console_state &state, screen_b
     state.title.append(u32title.data(), u32title.size());
 
     // 同步到伪窗口：窗口线程处理 WM_SETTEXT，标题只由窗口线程保存。
-    std::wstring wide_title;
+    // 复用 bridge 的 UTF-16 转换缓冲；SetWindowTextW 要求 NUL 结尾。
+    auto &wide_title = bridge.conv_wstr();
     convert_u32_to_wstr(state.title, wide_title);
-    ::SetWindowTextW(state.window_handle, wide_title.c_str());
+    wide_title.push_back(L'\0');
+    ::SetWindowTextW(state.window_handle, wide_title.data());
     // 状态更新后立即用 OSC 0 同步宿主终端标题。
     vt_message m{};
     m.payload.title = state.title;
