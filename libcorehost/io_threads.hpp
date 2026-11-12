@@ -1,11 +1,11 @@
 // ── conpty/io_threads.hpp ─────────────────────────────────
 // 输入源线程：终端输入与 WT 信号管道。
 //
-// 每个线程阻塞在自己的管道上，读到数据后只调用一次 message_router 的入口；
+// 输入线程用 PeekNamedPipe 判断可读后 ReadFile；信号线程阻塞读取，只调用一次 message_router 入口；
 // 会话状态锁和批处理都在 message_router 内完成，线程本身不持有锁/状态。
 //
-// 退出：request_stop + 事件驱动的取消（cancellable_read::wait_for_exit），
-// join 为无限等待；终止性由构造保证，不使用任何超时。
+// 退出：信号线程 request_stop + wait_for_exit；输入线程 _stop + join。
+// 输入线程的 16ms 等待只用于 PeekNamedPipe 空闲节流；停止由 _stop 保证。
 #pragma once
 #include <windows.h>
 #include <array>

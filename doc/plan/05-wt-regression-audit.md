@@ -223,3 +223,9 @@ build-bisect-ec45a87\build-release\Release\corehost.exe
 
 用于和 `5e9a3bf` 基线对比：若该版本复现闪退，问题在窗口创建本身；若正常，
 继续二分 `ec45a87` 之后的 ShowHide/owner 变更。
+
+## 13. WT 输入修复
+
+- 根因：阻塞读取 WT 的 t_in 会让会话提前 EOF；改用 PeekNamedPipe 判断后读取。
+- 并发 GetConsoleInput 使用 FIFO，按顺序完成。
+- 详见 doc/design/0008-wt-input-pending.md。
