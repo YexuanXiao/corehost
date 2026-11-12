@@ -71,15 +71,14 @@ struct connect_handler
     win32::handle_view input_event;
 
     // 没有可用终端时不再向客户端注入 CTRL_BREAK：先完成 CONNECT，让客户端
-    // 拿到 \Input/\Output，然后立即关闭服务端句柄。客户端后续 I/O 自然得到
+    // 拿到 \Input/\Output；随后 defterm_entry 在 start_conpty=false 时返回，
+    // connect_handler 析构会关闭这两个服务端句柄，客户端后续 I/O 自然得到
     // ERROR_BROKEN_PIPE，初始 CONNECT 循环也无需继续等待。
     connect_action disconnect_client(condrv_io::io_msg &msg)
     {
         condrv_io::accept_connection(server, msg, condrv_input, condrv_output);
         condrv_io::complete_io(server, msg.complete);
-        condrv_input.clear();
-        condrv_output.clear();
-        LOG("defterm: accepted CONNECT and disconnected client handles");
+        LOG("defterm: accepted CONNECT; client handles close on handler destruction");
         return connect_action::exit_loop;
     }
 
