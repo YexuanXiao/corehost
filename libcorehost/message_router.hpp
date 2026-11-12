@@ -475,6 +475,9 @@ inline void message_router::on_signal_closed()
 
 inline void message_router::on_window_visibility(bool visible)
 {
+    // 连接前的窗口状态变化没有可上报的终端会话；CONNECT 后再回报。
+    if (!_console_connected)
+        return;
     std::unique_lock guard{_mutex};
     bridge.vt_append_str(visible ? "\x1b[1t"sv : "\x1b[2t"sv);
     bridge.vt_flush();
