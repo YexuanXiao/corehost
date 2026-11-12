@@ -1290,13 +1290,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
         if (!u32s.empty())
         {
             COORD start_pos = state.cursor.position;
-            auto preview_len = static_cast<int>(std::min<size_t>(60, u32s.size()));
-            std::wstring preview;
-            convert_u32_to_wstr(std::u32string_view{u32s.data(), u32s.size()}, preview);
-            LOG2("[api_write_console] start: u32s_len=%zu sbytes=%lu start=(%d,%d) first=%.*ls", u32s.size(),
-                 static_cast<unsigned long>(bytes), static_cast<int>(start_pos.X), static_cast<int>(start_pos.Y),
-                 preview_len, preview.c_str());
-            LOG("[api_write_console] text=[%ls]", preview.c_str());
 
             if (state.dec_line_drawing_mode)
             {
@@ -1309,9 +1302,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
 
             const bool replay_utf8_to_terminal =
                 !unicode && !emit_console_attributes && (output_code_page == CP_UTF8 || output_code_page == 65001);
-            LOG2("[api_write_console] unicode=%d emit_attrs=%d replay=%d codepage=%u default_attr=0x%04X", unicode,
-                 emit_console_attributes, replay_utf8_to_terminal, static_cast<unsigned>(output_code_page),
-                 static_cast<unsigned>(state.default_attributes));
 
             vt_message m{};
 
@@ -1319,8 +1309,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             {
                 COREHOST_PERF_SCOPE(write_console_position);
                 bool need_cup = bridge.consume_enter_newline();
-                LOG2("[api_write_console] need_cup=%d state_start=(%d,%d)", need_cup, state.cursor.position.X,
-                     state.cursor.position.Y);
                 if (need_cup)
                 {
                     // 输入桥接已经本地回显 Enter。这里把应用输出起点移动到当时锁定
@@ -1337,7 +1325,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                         // 这条 completion 仍由调用者报告原始字节数已写入；这里只是
                         // 抑制终端输出，避免 Enter 后多出空行。
                         bridge.sync_cursor_after_write(state.cursor.position);
-                        LOG2("[api_write_console] swallowed enter echo newline");
                         return;
                     }
                 }
@@ -1349,8 +1336,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                     if (sb.viewport.snap_to_cursor(state.cursor.position, state.screen_buffer_size))
                         render_visible_viewport(state, sb, bridge);
                     const bool tc_match = bridge.terminal_cursor_matches_buffer(start_pos);
-                    LOG2("[api_write_console] tc_match=%d tc=(%d,%d) start=(%d,%d)", tc_match,
-                         bridge.terminal_cursor().X, bridge.terminal_cursor().Y, start_pos.X, start_pos.Y);
                     if (!tc_match)
                         bridge.vt_write_cup_buffer(start_pos);
                 }
@@ -1371,7 +1356,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                     // WriteConsole 会误判光标匹配而跳过定位，输出接在行尾。
                     bridge.vt_write_cup_buffer(state.cursor.position);
                     bridge.sync_cursor_after_write(state.cursor.position);
-                    LOG2("[api_write_console] swallowed enter echo newline");
                     return;
                 }
             }
@@ -1455,9 +1439,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                 bridge.sync_cursor_after_write(state.cursor.position, !replay_utf8_to_terminal);
             }
 
-            LOG2("[api_write_console] done: u32s_len=%zu sbytes=%lu end_cursor=(%d,%d) synced", u32s.size(),
-                 static_cast<unsigned long>(bytes), static_cast<int>(state.cursor.position.X),
-                 static_cast<int>(state.cursor.position.Y));
         }
     }
 }
