@@ -203,3 +203,13 @@
 1. 客户端主动退出；
 2. WT 在输出/客户端条件不满足时关闭输入；
 3. corehost 提前关闭句柄。
+## 11. 最新 WT 日志（client exit=0x103）
+
+`corehost_1794455726_0000022152.log` 已包含诊断：
+
+- `client image=pwsh.exe`
+- `vt_in closed` 时 `client exit=0x00000103`（STILL_ACTIVE）
+
+结论：**客户端没有退出，WT 关闭了输入管道**。因此问题不是 PowerShell 主动退出，
+而是 WT 侧进入了 `Closed`，或 corehost 的 `vt_out` 被关闭/输出线程终止。下一步需要
+WT 的 connection/output 日志，或确认 corehost 是否提前关闭 `vt_out`。
