@@ -59,6 +59,21 @@ jobs:
 
           cmake --build build-${{ matrix.compiler.name }}-x64-${{ matrix.build_type }}
 
+      - name: Download and install Vim
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/vim/vim-win32-installer/releases/latest' -Headers @{ 'User-Agent' = 'gh-actions' }
+          $version   = $release.tag_name -replace '^v', ''
+          $assetName = "gvim_${version}_x64.zip"
+          $asset = $release.assets | Where-Object { $_.name -eq $assetName }
+          $zip  = Join-Path $env:RUNNER_TEMP $assetName
+          $dest = Join-Path $env:RUNNER_TEMP 'vim'
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          $majorMinor = ($version -split '\.')[0..1] -join ''
+          $vimDir = Join-Path $dest "vim\vim$majorMinor"
+          $vimDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: Test
         shell: pwsh
         run: |
