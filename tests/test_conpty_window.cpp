@@ -181,6 +181,13 @@ bool pseudo_window_preconnect_signals()
 
     ASSERT(session.launch(L"cmd.exe /c \"echo READY & timeout /t 10 /nobreak >nul\""));
     ASSERT(session.wait_output("READY", 5000));
+    for (int attempt = 0; attempt < 100; ++attempt)
+    {
+        if (::IsWindowVisible(search.found) != FALSE)
+            break;
+        sleep_ms(20);
+    }
+    ASSERT(::IsWindowVisible(search.found) != FALSE);
     ASSERT(session.is_running());
     session.close();
     return true;
