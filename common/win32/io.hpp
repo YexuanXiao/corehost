@@ -4,6 +4,7 @@
 #include "win32/handle.hpp"
 
 #include <Windows.h>
+#include <winternl.h>
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -12,6 +13,31 @@
 
 namespace win32
 {
+
+// 判断管道句柄是否以异步模式打开。WT 的 ConPTY 输入管道是异步 duplex，
+// 它的文件句柄可等待（数据到达时 signaled）；普通 CreatePipe 则是同步句柄，
+// 只能使用阻塞 ReadFile。不改变句柄模式，也不使用 overlapped I/O。
+[[nodiscard]] inline bool handle_is_async(handle_view handle) noexcept
+{
+    struct file_mode_information
+    {
+        ULONG Mode;
+    };
+
+    using nt_query_information_file_t = LONG(NTAPI *)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, int);
+    const auto module = ::GetModuleHandleW(L"ntdll.dll");
+    if (module == nullptr)
+        return false;
+    const auto query = reinterpret_cast<nt_query_information_file_t>(
+        ::GetProcAddress(module, "NtQueryInformationFile"));
+    if (query == nullptr)
+        return false;
+
+    IO_STATUS_BLOCK status_block{};
+    file_mode_information mode{};
+    const auto status = query(handle.get(), &status_block, &mode, sizeof(mode), 16 /* FileModeInformation */);
+    return status >= 0 && (mode.Mode & (0x10u | 0x20u)) == 0;
+}
 
 enum class io_status
 {

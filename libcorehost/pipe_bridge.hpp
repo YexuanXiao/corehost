@@ -60,8 +60,7 @@ struct pipe_bridge
 {
     // 有信号管道时等待 pending VT 输入的时间片。信号消息和 VT 输入是两个
     // 独立来源，任一方都不能用无限阻塞等待。
-    static constexpr DWORD pending_vt_input_wait_ms = 16;
-
+    
     // ── 子系统 ──
     // inp 是 Console API 事件队列；bridge 在终端输入到达时写入 KEY_EVENT，
     // GetConsoleInput 挂起请求也从这里完成。
