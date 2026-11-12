@@ -17,7 +17,6 @@
 #include <string>
 #include <string_view>
 #include <cstdlib>
-#include <atomic>
 #include <cassert>
 #include "char_convert.hpp"
 #include "utility/log.hpp"
@@ -98,9 +97,7 @@ class pseudo_window
     {
         if (_hwnd == nullptr || ::IsWindow(_hwnd) == FALSE)
             return;
-        _suppress_visibility.store(true, std::memory_order_relaxed);
-        ::ShowWindow(_hwnd, visible ? SW_SHOWNOACTIVATE : SW_MINIMIZE);
-        _suppress_visibility.store(false, std::memory_order_relaxed);
+        ::SendMessageW(_hwnd, wm_set_visibility, visible ? TRUE : FALSE, 0);
     }
 
     // GWLP_HWNDPARENT 是 owner 的唯一存储；不在这里缓存。
@@ -188,6 +185,11 @@ class pseudo_window
             if (lparam == 0)
                 self->post_visibility(wparam != 0);
             return 0;
+        case wm_set_visibility:
+            self->_suppress_visibility = true;
+            ::ShowWindow(hwnd, wparam != 0 ? SW_SHOWNOACTIVATE : SW_MINIMIZE);
+            self->_suppress_visibility = false;
+            return 0;
         case WM_CLOSE:
             LOG("pseudo_window: WM_CLOSE requested");
             self->_close_requested.set();
@@ -212,7 +214,7 @@ class pseudo_window
     // 窗口线程只置位事件；可见性由主线程消费并写 VT 输出。
     void post_visibility(bool visible) noexcept
     {
-        if (_suppress_visibility.load(std::memory_order_relaxed))
+        if (_suppress_visibility)
         {
             return;
         }
@@ -232,6 +234,7 @@ class pseudo_window
     }
 
     static constexpr UINT wm_stop_thread = WM_APP + 1;
+    static constexpr UINT wm_set_visibility = WM_APP + 2;
 
 
 
@@ -252,7 +255,7 @@ class pseudo_window
 
     win32::handle_view _server;
 
-    std::atomic<bool> _suppress_visibility{false}; // 原版同样用原子抑制跨线程可见性回调
+    bool _suppress_visibility = false; // 仅窗口线程访问
     win32::event _ready;
     win32::event _close_requested;
     win32::event _show_event;
