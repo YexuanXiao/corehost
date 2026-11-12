@@ -710,6 +710,15 @@ struct pipe_bridge
     // screen_buffer 的属性状态由调用方同步维护。
     void vt_write_attr(WORD attr) noexcept
     {
+        // 0x07 是 Console 的默认属性。终端配色（尤其是白底方案）由宿主决定，
+        // 不能展开成显式的 37;40，否则默认背景会被强制为黑色。SGR 0 让终端
+        // 使用自己的默认前景/背景。
+        if (attr == 0x0007)
+        {
+            vt_append_str("\x1b[0m"sv);
+            return;
+        }
+
         // Console 属性低 4 位是前景 BGRI，高 4 位是背景 BGRI；映射表把
         // Win32 颜色编号转换为 SGR 的 ANSI/bright ANSI 编号。
         vt_append_str("\x1b[0"sv);

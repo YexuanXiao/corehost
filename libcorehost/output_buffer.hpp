@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <algorithm>
 #include <cassert>
 #include <charconv>
 #include <span>
@@ -57,6 +58,7 @@ class vt_output_buffer
             _buffer.clear();
         if (_buffer.empty())
             return;
+        normalize_legacy_default_sgr();
         COREHOST_PERF_SCOPE_AMOUNT(vt_output_write_file, _buffer.size());
         const auto result = win32::write_all(_output, std::span<const char8_t>{_buffer.data(), _buffer.size()});
         // 对端关闭是预期失败（终端已退出），丢弃剩余输出即可；其它写失败属于
@@ -156,6 +158,28 @@ class vt_output_buffer
     }
 
   private:
+    // Win32 legacy 默认属性 0x07 被部分路径展开成显式 37;40。显式黑色
+    // 背景会覆盖白底终端配色；默认属性应交给终端自己的前景/背景方案。
+    void normalize_legacy_default_sgr() noexcept
+    {
+        constexpr std::u8string_view legacy = u8"\x1b[0;37;40m";
+        constexpr std::u8string_view canonical = u8"\x1b[0m";
+        for (size_t i = 0; i + legacy.size() <= _buffer.size();)
+        {
+            if (std::equal(legacy.begin(), legacy.end(), _buffer.begin() + static_cast<std::ptrdiff_t>(i)))
+            {
+                _buffer.erase(_buffer.begin() + static_cast<std::ptrdiff_t>(i),
+                              _buffer.begin() + static_cast<std::ptrdiff_t>(i + legacy.size()));
+                _buffer.insert(_buffer.begin() + static_cast<std::ptrdiff_t>(i), canonical.begin(), canonical.end());
+                i += canonical.size();
+            }
+            else
+            {
+                ++i;
+            }
+        }
+    }
+
     // 达到该字节数后 should_flush() 提示 I/O loop 主动刷新；小于该值时允许
     // 多个 Console API 输出合并到一次 WriteFile。
     static constexpr size_t flush_threshold = 64 * 1024;
