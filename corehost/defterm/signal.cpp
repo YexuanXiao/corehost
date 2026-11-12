@@ -40,11 +40,6 @@ size_t console_control_forwarder::min_payload_for(CONSOLECONTROL code) noexcept
     }
 }
 
-console_control_forwarder::console_control_forwarder()
-{
-    ConsoleControl = load_console_control();
-}
-
 // 阻塞读取一条完整消息并转发。返回 false 表示管道断开或读被取消。
 bool console_control_forwarder::read_and_forward(win32::cancellable_read &reader)
 {
@@ -122,7 +117,7 @@ void console_control_forwarder::forward_message(CONSOLECONTROL code, std::span<c
         std::memcpy(reinterpret_cast<std::byte *>(&d) + sizeof(DWORD), body.data(), body_len);
         CONSOLE_PROCESS_INFO cpi{d.dwProcessID, CPI_NEWPROCESSWINDOW};
         LOG("console_control_forwarder: NotifyConsoleApplication pid=%lu", d.dwProcessID);
-        ConsoleControl(ConsoleNotifyConsoleApplication, &cpi, sizeof(cpi));
+        console_control()(ConsoleNotifyConsoleApplication, &cpi, sizeof(cpi));
         break;
     }
     case ConsoleSetForeground: {
@@ -140,7 +135,7 @@ void console_control_forwarder::forward_message(CONSOLECONTROL code, std::span<c
                          d.ConsoleEventCode, d.ConsoleFlags};
         LOG("console_control_forwarder: ConsoleEndTask pid=%lu event=%lu flags=0x%08lx", d.ProcessId,
             d.ConsoleEventCode, d.ConsoleFlags);
-        ConsoleControl(ConsoleEndTask, &c, sizeof(c));
+        console_control()(ConsoleEndTask, &c, sizeof(c));
         break;
     }
     default:

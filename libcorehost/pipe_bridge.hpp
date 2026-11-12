@@ -257,14 +257,14 @@ struct pipe_bridge
     // 在解锁后逐项投递；sender 是 ConsoleControl(EndTask)。
     NTSTATUS deliver_ctrl_event(DWORD pid, DWORD event) noexcept
     {
-        return _ctrl_sender(pid, event, nullptr);
+        return console_end_task(pid, event, nullptr);
     }
 
     // 测试/单线程路径：取出并投递整个队列。
     void deliver_ctrl_events() noexcept
     {
         for (const auto &entry : _ctrl_events)
-            (void)_ctrl_sender(entry.second, entry.first, nullptr);
+            (void)console_end_task(entry.second, entry.first, nullptr);
         _ctrl_events.clear();
     }
 
@@ -391,7 +391,6 @@ struct pipe_bridge
     bool _window_size_event_valid = false;
     // 控制事件投递函数：默认走 CSRSS ConsoleControl(EndTask)；测试辅助类
     // 可注入 sender 以验证进程组过滤和延迟投递目标。
-    ctrl_event_sender _ctrl_sender = &console_end_task;
 
     // 待投递的控制事件队列；由 message_router 的会话锁保护。
     using ctrl_event = std::pair<DWORD, DWORD>; // {event, pid}

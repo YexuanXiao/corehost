@@ -45,8 +45,6 @@ namespace corehost::defterm
 class console_control_forwarder
 {
   public:
-    console_control_forwarder();
-
     // 绑定信号管道读端。句柄所有权仍归调用方，本对象只保存视图。
     void set_pipe(win32::handle_view pipe) noexcept
     {
@@ -65,7 +63,6 @@ class console_control_forwarder
     // 把一条已完整读出的消息转发给 CSRSS。
     void forward_message(CONSOLECONTROL code, std::span<const std::byte> body, size_t body_len);
 
-    PFN_ConsoleControl ConsoleControl;
     win32::handle_view _pipe;
 };
 

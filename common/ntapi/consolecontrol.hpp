@@ -6,13 +6,13 @@
 
 #include "ntapi/conwinuserrefs.h"
 
-// user32!ConsoleControl 的进程内解析。调用方只在初始化/创建会话时解析，
-// 后续直接使用函数指针；不做 LoadLibrary 回退，因为 user32 在控制台进程里
-// 必然已经加载。
+// user32!ConsoleControl 的进程内解析。调用方只在初始化时解析一次，
+// 后续直接使用缓存的函数指针；不做 LoadLibrary 回退，因为 user32 在
+// 控制台进程里必然已经加载。
 using PFN_ConsoleControl = NTSTATUS(WINAPI *)(CONSOLECONTROL Command, PVOID ConsoleInformation,
                                               DWORD ConsoleInformationLength);
 
-[[nodiscard]] inline PFN_ConsoleControl load_console_control() noexcept
+[[nodiscard]] inline PFN_ConsoleControl resolve_console_control() noexcept
 {
     HMODULE user32 = nullptr;
     const auto result =
@@ -23,5 +23,12 @@ using PFN_ConsoleControl = NTSTATUS(WINAPI *)(CONSOLECONTROL Command, PVOID Cons
 
     const auto function = reinterpret_cast<PFN_ConsoleControl>(::GetProcAddress(user32, "ConsoleControl"));
     assert(function != nullptr);
+    return function;
+}
+
+// 进程内只解析一次；之后所有模块共享同一个函数指针。
+[[nodiscard]] inline PFN_ConsoleControl console_control() noexcept
+{
+    static const PFN_ConsoleControl function = resolve_console_control();
     return function;
 }

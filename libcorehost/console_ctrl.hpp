@@ -21,9 +21,6 @@ inline constexpr ULONG console_ctrl_close_flag = 0x00000004;
 // STATUS_ALERTED; the client sees 0 chars and ERROR_OPERATION_ABORTED).
 inline constexpr LONG status_alerted = 0x00000101;
 
-// 控制事件投递函数签名：pid、事件码、控制台窗口（无则 nullptr）。
-using ctrl_event_sender = NTSTATUS (*)(DWORD pid, DWORD event, HWND console_window);
-
 // 事件码到 ConsoleFlags 的映射；conhost宿主使用同一套标志
 // 判断 EndTask 的语义（Ctrl+C / Ctrl+Break / Close）。
 inline ULONG console_ctrl_flags(DWORD event) noexcept
@@ -41,14 +38,12 @@ inline ULONG console_ctrl_flags(DWORD event) noexcept
 
 inline NTSTATUS console_end_task(DWORD pid, DWORD event, HWND console_window) noexcept
 {
-    const auto console_control = load_console_control();
-
     CONSOLEENDTASK task{};
     task.ProcessId = ULongToHandle(pid);
     task.hwnd = console_window;
     task.ConsoleEventCode = event;
     task.ConsoleFlags = console_ctrl_flags(event);
-    return console_control(ConsoleEndTask, &task, sizeof(task));
+    return console_control()(ConsoleEndTask, &task, sizeof(task));
 }
 
 } // namespace corehost::conpty
