@@ -198,8 +198,8 @@ corehost::test::result visibility_is_reported_to_terminal()
     REQUIRE(!cmd.empty());
 
     corehost::test::conpty_session session;
-    REQUIRE(session.start(quote(cmd) + L" /c \"for /l %i in (1,1,100000) do @rem\""));
-    REQUIRE(session.wait_output("", 1000) || true);
+    REQUIRE(session.start(quote(cmd) + L" /c \"echo READY & for /l %i in (1,1,100000) do @rem\""));
+    REQUIRE(session.wait_output("READY", 5000));
 
     DWORD host_pid = 0;
     for (int attempt = 0; attempt < 100 && host_pid == 0; ++attempt)
