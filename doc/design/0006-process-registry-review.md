@@ -160,7 +160,7 @@ corehost 当前把 0 归一化为 pid，效果上覆盖了"按普通子进程 pi
    legacy 不复刻，已在 `api_ctrl_event` 注释中说明。
 3. **控制事件延迟投递**：`send_ctrl_event` 在会话锁内只入队 `{event, targets}`
    （targets 在锁内从 registry 解析），输入线程处理完一批输入、message_router 完成一次
-   dispatch 后，在锁外调用 `deliver_ctrl_events()` 执行 `EndTask`。这消除了
+   dispatch 后，在锁外由 `message_router::deliver_ctrl_events` 执行 `EndTask`。这消除了
    持锁 `EndTask` 最长约 5s 阻塞其它客户端的问题；事件队列用独立 SRW 锁保护，
    输入线程与主循环都可以安全 drain。行为对齐 conhost 的
    "记录事件（置标志）+ 解锁后逐进程投递"模型。

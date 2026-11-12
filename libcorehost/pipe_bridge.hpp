@@ -236,7 +236,7 @@ struct pipe_bridge
     {
         // 只入队，不在这里 EndTask：EndTask 可能阻塞到客户端处理器返回或
         // CSRSS 超时（~5s），而本函数由持会话锁的输入线程/主循环调用。
-        // 真正的投递在 deliver_ctrl_events()（解锁后）执行。
+        // 真正的投递由 message_router 在解锁后执行。
         std::vector<DWORD> targets(_processes->count());
         const auto count = _processes->copy_for_group(group, std::span<DWORD>{targets.data(), targets.size()});
         targets.resize(count);
@@ -264,14 +264,6 @@ struct pipe_bridge
         task.ConsoleEventCode = event;
         task.ConsoleFlags = console_ctrl_flags(event);
         return _console_control(ConsoleEndTask, &task, sizeof(task));
-    }
-
-    // 测试/单线程路径：取出并投递整个队列。
-    void deliver_ctrl_events() noexcept
-    {
-        for (const auto &entry : _ctrl_events)
-            (void)deliver_ctrl_event(entry.second, entry.first);
-        _ctrl_events.clear();
     }
 
     // 绑定会话共享的进程注册表（message_router 构造时调用）。未绑定时 bridge
