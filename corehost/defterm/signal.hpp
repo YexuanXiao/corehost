@@ -39,35 +39,15 @@
 namespace corehost::defterm
 {
 
-// 非阻塞轮询信号管道并把 CONSOLECONTROL 消息转发到 CSRSS。消息格式为
-// 1 字节 code + 4 字节 dwSize + dwSize 字节 payload；读取按
-// "code → dwSize → payload"分阶段精确推进，无跨 poll 状态。
-class console_control_forwarder
-{
-  public:
-    console_control_forwarder() : _console_control{resolve_console_control()} {}
-
-    // 阻塞读取并转发一条完整消息（信号线程使用）。返回 false 表示管道
-    // 已断开或读被取消，调用方应结束循环。
-    [[nodiscard]] bool read_and_forward(win32::cancellable_read &reader);
-
-  private:
-    // 由 code 确定结构体最小长度；未知 code 返回 0（协议损坏）。
-    static size_t min_payload_for(CONSOLECONTROL code) noexcept;
-
-    // 把一条已完整读出的消息转发给 CSRSS。
-    void forward_message(CONSOLECONTROL code, std::span<const std::byte> body, size_t body_len);
-
-    PFN_ConsoleControl _console_control = nullptr;
-};
-
 // 手递手（defterm）阶段的信号转发线程：阻塞读取终端写入的
-// Ctrl+C/Break/Close 消息并转发到 CSRSS。管道断开时置位 closed_event。
+// Ctrl+C/Break/Close 消息并转发到 CSRSS。消息格式为 1 字节 code +
+// 4 字节 dwSize + dwSize 字节 payload；读取按 code → dwSize → payload
+// 分阶段精确推进。管道断开时置位 closed_event。
 class console_control_thread
 {
   public:
     console_control_thread(win32::handle_view pipe, win32::handle_view closed_event)
-        : _reader{pipe}, _closed_event{closed_event}
+        : _console_control{resolve_console_control()}, _reader{pipe}, _closed_event{closed_event}
     {
     }
 
@@ -81,6 +61,16 @@ class console_control_thread
     static DWORD WINAPI entry(LPVOID self);
     void run();
 
+    // 阻塞读取并转发一条完整消息；false 表示管道断开或读被取消。
+    [[nodiscard]] bool read_and_forward(win32::cancellable_read &reader);
+
+    // 由 code 确定结构体最小长度；未知 code 返回 0（协议损坏）。
+    static size_t min_payload_for(CONSOLECONTROL code) noexcept;
+
+    // 把一条已完整读出的消息转发给 CSRSS。
+    void forward_message(CONSOLECONTROL code, std::span<const std::byte> body, size_t body_len);
+
+    PFN_ConsoleControl _console_control = nullptr;
     win32::cancellable_read _reader;
     win32::handle_view _closed_event;
     win32::basic_thread _thread;

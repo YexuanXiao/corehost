@@ -25,7 +25,7 @@ static_assert(sizeof(CONSOLESETFOREGROUNDDATA) == 12);
 static_assert(sizeof(CONSOLEENDTASKDATA) == 16);
 
 // 由 code 确定结构体最小长度。未知 code 返回 0，调用方按协议损坏退出。
-size_t console_control_forwarder::min_payload_for(CONSOLECONTROL code) noexcept
+size_t console_control_thread::min_payload_for(CONSOLECONTROL code) noexcept
 {
     switch (code)
     {
@@ -41,7 +41,7 @@ size_t console_control_forwarder::min_payload_for(CONSOLECONTROL code) noexcept
 }
 
 // 阻塞读取一条完整消息并转发。返回 false 表示管道断开或读被取消。
-bool console_control_forwarder::read_and_forward(win32::cancellable_read &reader)
+bool console_control_thread::read_and_forward(win32::cancellable_read &reader)
 {
     // ── 阶段 1: 精确读 1 字节 code ──
     std::byte code_byte{};
@@ -54,7 +54,7 @@ bool console_control_forwarder::read_and_forward(win32::cancellable_read &reader
     const auto min_payload = min_payload_for(code);
     if (min_payload == 0)
     {
-        LOG("console_control_forwarder: unknown code=%u; protocol corrupted", static_cast<unsigned>(code));
+        LOG("console_control_thread: unknown code=%u; protocol corrupted", static_cast<unsigned>(code));
         win32::throw_last_error(win32::error::invalid_state);
     }
 
@@ -65,12 +65,12 @@ bool console_control_forwarder::read_and_forward(win32::cancellable_read &reader
         return false;
     if (status != win32::cancellable_read::status::data)
     {
-        LOG("console_control_forwarder: partial size header; protocol corrupted");
+        LOG("console_control_thread: partial size header; protocol corrupted");
         win32::throw_last_error(win32::error::invalid_state);
     }
     if (dw_size < min_payload)
     {
-        LOG("console_control_forwarder: malformed payload size=%lu; protocol corrupted", dw_size);
+        LOG("console_control_thread: malformed payload size=%lu; protocol corrupted", dw_size);
         win32::throw_last_error(win32::error::invalid_state);
     }
 
@@ -82,7 +82,7 @@ bool console_control_forwarder::read_and_forward(win32::cancellable_read &reader
         return false;
     if (status != win32::cancellable_read::status::data)
     {
-        LOG("console_control_forwarder: partial payload; protocol corrupted");
+        LOG("console_control_thread: partial payload; protocol corrupted");
         win32::throw_last_error(win32::error::invalid_state);
     }
 
@@ -97,7 +97,7 @@ bool console_control_forwarder::read_and_forward(win32::cancellable_read &reader
             return false;
         if (status != win32::cancellable_read::status::data)
         {
-            LOG("console_control_forwarder: partial payload tail; protocol corrupted");
+            LOG("console_control_thread: partial payload tail; protocol corrupted");
             win32::throw_last_error(win32::error::invalid_state);
         }
         extra -= want;
@@ -108,7 +108,7 @@ bool console_control_forwarder::read_and_forward(win32::cancellable_read &reader
 }
 
 // 把完整消息转发给 CSRSS。结构体 = [dwSize(4)][body]。
-void console_control_forwarder::forward_message(CONSOLECONTROL code, std::span<const std::byte> body, size_t body_len)
+void console_control_thread::forward_message(CONSOLECONTROL code, std::span<const std::byte> body, size_t body_len)
 {
     switch (code)
     {
@@ -116,7 +116,7 @@ void console_control_forwarder::forward_message(CONSOLECONTROL code, std::span<c
         CONSOLENOTIFYAPPDATA d{};
         std::memcpy(reinterpret_cast<std::byte *>(&d) + sizeof(DWORD), body.data(), body_len);
         CONSOLE_PROCESS_INFO cpi{d.dwProcessID, CPI_NEWPROCESSWINDOW};
-        LOG("console_control_forwarder: NotifyConsoleApplication pid=%lu", d.dwProcessID);
+        LOG("console_control_thread: NotifyConsoleApplication pid=%lu", d.dwProcessID);
         _console_control(ConsoleNotifyConsoleApplication, &cpi, sizeof(cpi));
         break;
     }
@@ -125,7 +125,7 @@ void console_control_forwarder::forward_message(CONSOLECONTROL code, std::span<c
         // 消费消息保持协议同步（老版本 WT 可能仍发送）。
         CONSOLESETFOREGROUNDDATA d{};
         std::memcpy(reinterpret_cast<std::byte *>(&d) + sizeof(DWORD), body.data(), body_len);
-        LOG("console_control_forwarder: ConsoleSetForeground pid=%lu foreground=%d", d.ProcessId, d.Foreground);
+        LOG("console_control_thread: ConsoleSetForeground pid=%lu foreground=%d", d.ProcessId, d.Foreground);
         break;
     }
     case ConsoleEndTask: {
@@ -133,7 +133,7 @@ void console_control_forwarder::forward_message(CONSOLECONTROL code, std::span<c
         std::memcpy(reinterpret_cast<std::byte *>(&d) + sizeof(DWORD), body.data(), body_len);
         CONSOLEENDTASK c{reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(d.ProcessId)), nullptr,
                          d.ConsoleEventCode, d.ConsoleFlags};
-        LOG("console_control_forwarder: ConsoleEndTask pid=%lu event=%lu flags=0x%08lx", d.ProcessId,
+        LOG("console_control_thread: ConsoleEndTask pid=%lu event=%lu flags=0x%08lx", d.ProcessId,
             d.ConsoleEventCode, d.ConsoleFlags);
         _console_control(ConsoleEndTask, &c, sizeof(c));
         break;
@@ -166,8 +166,7 @@ DWORD WINAPI console_control_thread::entry(LPVOID self)
 void console_control_thread::run()
 {
     LOG("console_control_thread: enter");
-    console_control_forwarder forwarder;
-    while (forwarder.read_and_forward(_reader))
+    while (read_and_forward(_reader))
     {
     }
 
