@@ -176,3 +176,16 @@
 | 独立复现测试 | DONE (lifecycle) | pre/post-CONNECT 窗口信号用例 |
 | 修复/提交 | TODO | 每项独立 |
 | 全量验证/文档 | TODO | ctest + board |
+## 9. 未决问题：READ_IO 前的关闭检查
+
+`message_router::run()` 在进入 `READ_IO` 前目前使用
+`WaitForSingleObject(close_requested, 0)`，用于避免关闭事件先于 `READ_IO`
+到达而丢失。这是探测式等待，严格来说不符合“不轮询/不探测”的约束。
+
+尝试过用 `InputAvailableEvent + close` 的无限等待替代，但单独验证时：
+
+- `ConPTY.Differential` 失败/超时；
+- `Defterm.Connect` 超时并留下 corehost 进程。
+
+因此暂不替换。需要决定：接受这一处生命周期检查，还是引入“read entered”
+事件/独立关闭监视线程来消除探测。未决期间保持当前已通过的实现。
