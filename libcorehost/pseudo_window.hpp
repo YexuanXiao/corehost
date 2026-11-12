@@ -55,17 +55,14 @@ class pseudo_window
     // 的契约无法满足。
     void start()
     {
-        LOG("pseudo_window::start: begin");
         assert(!_thread.valid());
         _thread = win32::basic_thread{&pseudo_window::thread_entry, this, {.name = L"corehost-window"}};
         _ready.wait();
-        LOG("pseudo_window::start: ready hwnd=%p", _hwnd);
     }
 
     // 通过窗口消息请求退出；窗口过程 PostQuitMessage 后 join 无限等待。
     void stop_and_join()
     {
-        LOG("pseudo_window::stop_and_join: hwnd=%p isWindow=%d", _hwnd, _hwnd != nullptr && ::IsWindow(_hwnd) != FALSE);
         assert(_thread.valid());
         if (_hwnd != nullptr && ::IsWindow(_hwnd) != FALSE)
         {
@@ -74,7 +71,6 @@ class pseudo_window
         }
 
         _thread.join();
-        LOG("pseudo_window::stop_and_join: joined");
     }
 
     [[nodiscard]] HWND hwnd() const noexcept
@@ -102,7 +98,6 @@ class pseudo_window
     {
         if (_hwnd == nullptr || ::IsWindow(_hwnd) == FALSE)
             return;
-        LOG("pseudo_window::set_visibility: show=%d hwnd=%p", visible ? 1 : 0, _hwnd);
         _suppress_visibility.store(true, std::memory_order_relaxed);
         ::ShowWindow(_hwnd, visible ? SW_SHOWNOACTIVATE : SW_MINIMIZE);
         _suppress_visibility.store(false, std::memory_order_relaxed);
@@ -113,10 +108,7 @@ class pseudo_window
     {
         if (_hwnd == nullptr || ::IsWindow(_hwnd) == FALSE)
             return;
-        const auto previous = reinterpret_cast<HWND>(::GetWindowLongPtrW(_hwnd, GWLP_HWNDPARENT));
-        ::SetLastError(0);
-        const LRESULT result = ::SetWindowLongPtrW(_hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(owner));
-        LOG("pseudo_window::set_owner: old=%p new=%p result=%lld err=%lu", previous, owner, static_cast<long long>(result), ::GetLastError());
+        ::SetWindowLongPtrW(_hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(owner));
     }
 
   private:
@@ -187,19 +179,16 @@ class pseudo_window
         switch (message)
         {
         case WM_SIZE:
-            LOG("pseudo_window::WM_SIZE: wparam=%llu suppress=%d iconic=%d", static_cast<unsigned long long>(wparam), self->_suppress_visibility.load(std::memory_order_relaxed) ? 1 : 0, ::IsIconic(hwnd) != FALSE);
             if (wparam == SIZE_MINIMIZED)
                 self->post_visibility(false);
             else if (wparam == SIZE_RESTORED)
                 self->post_visibility(true);
             return 0;
         case WM_SHOWWINDOW:
-            LOG("pseudo_window::WM_SHOWWINDOW: wparam=%llu lparam=%lld suppress=%d", static_cast<unsigned long long>(wparam), static_cast<long long>(lparam), self->_suppress_visibility.load(std::memory_order_relaxed) ? 1 : 0);
             if (lparam == 0)
                 self->post_visibility(wparam != 0);
             return 0;
         case WM_CLOSE:
-            LOG("pseudo_window::WM_CLOSE: hwnd=%p", hwnd);
             LOG("pseudo_window: WM_CLOSE requested");
             self->_close_requested.set();
             self->cancel_server_io();
@@ -208,14 +197,9 @@ class pseudo_window
             ::PostQuitMessage(0);
             return 0;
         case WM_ACTIVATE: {
-            LOG("pseudo_window::WM_ACTIVATE: wparam=%llu", static_cast<unsigned long long>(wparam));
             const auto owner = reinterpret_cast<HWND>(::GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT));
-            LOG("pseudo_window::WM_ACTIVATE: owner=%p isWindow=%d", owner, owner != nullptr && ::IsWindow(owner) != FALSE);
             if (owner != nullptr && ::IsWindow(owner) != FALSE)
-            {
-                const HWND focus = ::SetFocus(owner);
-                LOG("pseudo_window::WM_ACTIVATE: SetFocus owner result=%p err=%lu", focus, ::GetLastError());
-            }
+                ::SetFocus(owner);
             return 0;
         }
         case WM_GETOBJECT:
@@ -230,10 +214,8 @@ class pseudo_window
     {
         if (_suppress_visibility.load(std::memory_order_relaxed))
         {
-            LOG("pseudo_window::post_visibility: suppressed visible=%d", visible ? 1 : 0);
             return;
         }
-        LOG("pseudo_window::post_visibility: visible=%d", visible ? 1 : 0);
         if (visible)
         {
             _hide_event.reset();
@@ -257,7 +239,6 @@ class pseudo_window
     // 打断主线程阻塞中的 READ_IO，让主循环处理可见性/关闭事件。
     void cancel_server_io() const noexcept
     {
-        LOG("pseudo_window::cancel_server_io: server=%p", _server.get());
         if (!_server.valid())
             return;
         if (::CancelIoEx(_server.get(), nullptr) != FALSE)
@@ -265,8 +246,6 @@ class pseudo_window
         const auto err = win32::get_last_error();
         if (err == win32::error::not_found)
             return;
-        LOG("pseudo_window: CancelIoEx failed err=%u", static_cast<unsigned>(err));
-        LOG("pseudo_window::cancel_server_io: aborting err=%u", static_cast<unsigned>(err));
         std::abort();
     }
     static constexpr const wchar_t *class_name = L"PseudoConsoleWindow";

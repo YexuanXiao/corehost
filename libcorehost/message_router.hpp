@@ -62,21 +62,6 @@ class message_router
         io.handle_connect(msg);
         _console_connected = true;
         apply_early_pty_signals();
-        {
-            _client_process = win32::handle{::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, static_cast<DWORD>(msg.descriptor.Process))};
-            win32::handle &process = _client_process;
-            if (process.valid())
-            {
-                wchar_t path[512]{};
-                DWORD size = ARRAYSIZE(path);
-                if (::QueryFullProcessImageNameW(process.get(), 0, path, &size) != FALSE)
-                    LOG("message_router::on_connect: client image=%ls", path);
-            }
-            else
-            {
-                LOG("message_router::on_connect: OpenProcess client failed err=%lu", ::GetLastError());
-            }
-        }
         LOG2("CONNECT consumed after processCount=%zu bridgeProcessCount=%zu", io.process_list().count(),
              bridge.process_count());
         log_completion("CONNECT completion", msg);
@@ -113,7 +98,6 @@ class message_router
     // 输入线程改变状态后唤醒 wait_any 中的主循环。
     win32::event _state_changed{win32::create_tag, /*manual_reset=*/false, /*initial=*/false};
 
-    win32::handle _client_process;
 
     // 由构造函数注入，生命周期由 conpty 会话覆盖。
     io_state &io;
@@ -408,34 +392,6 @@ inline void message_router::on_input_bytes(std::span<const std::byte> bytes)
 
 inline void message_router::on_input_eof()
 {
-    LOG("message_router::on_input_eof");
-    if (_client_process.valid())
-    {
-        DWORD exit_code = 0;
-        if (::GetExitCodeProcess(_client_process.get(), &exit_code) != FALSE)
-            LOG("message_router::on_input_eof: client stillActive=%d exitCode=0x%08lx",
-                exit_code == STILL_ACTIVE ? 1 : 0, static_cast<unsigned long>(exit_code));
-    }
-    if (_window != nullptr)
-    {
-        const HWND owner = reinterpret_cast<HWND>(::GetWindowLongPtrW(_window->hwnd(), GWLP_HWNDPARENT));
-        DWORD owner_pid = 0;
-        if (owner != nullptr)
-            ::GetWindowThreadProcessId(owner, &owner_pid);
-        LOG("message_router::on_input_eof: owner=%p pid=%lu isWindow=%d", owner, owner_pid,
-            owner != nullptr && ::IsWindow(owner) != FALSE);
-        if (owner_pid != 0)
-        {
-            win32::handle owner_process{::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, owner_pid)};
-            if (owner_process.valid())
-            {
-                DWORD owner_exit = 0;
-                if (::GetExitCodeProcess(owner_process.get(), &owner_exit) != FALSE)
-                    LOG("message_router::on_input_eof: owner stillActive=%d exitCode=0x%08lx",
-                        owner_exit == STILL_ACTIVE ? 1 : 0, static_cast<unsigned long>(owner_exit));
-            }
-        }
-    }
     std::vector<std::pair<DWORD, DWORD>> ctrl_events;
     {
         std::unique_lock guard{_mutex};
@@ -449,7 +405,6 @@ inline void message_router::on_input_eof()
 
 inline void message_router::on_pty_signal(unsigned short id, std::span<const std::byte> payload)
 {
-    LOG("message_router::on_pty_signal: id=%u payload=%zu", id, payload.size());
     assert(_window != nullptr);
     std::vector<std::pair<DWORD, DWORD>> ctrl_events;
     {
@@ -507,7 +462,6 @@ inline void message_router::on_pty_signal(unsigned short id, std::span<const std
 
 inline void message_router::on_signal_closed()
 {
-    LOG("message_router::on_signal_closed");
     std::vector<std::pair<DWORD, DWORD>> ctrl_events;
     {
         std::unique_lock guard{_mutex};
@@ -521,7 +475,6 @@ inline void message_router::on_signal_closed()
 
 inline void message_router::on_window_visibility(bool visible)
 {
-    LOG("message_router::on_window_visibility: visible=%d", visible ? 1 : 0);
     std::unique_lock guard{_mutex};
     bridge.vt_append_str(visible ? "\x1b[1t"sv : "\x1b[2t"sv);
     bridge.vt_flush();
