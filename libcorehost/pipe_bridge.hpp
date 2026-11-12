@@ -3126,6 +3126,7 @@ const auto cp = cstate.output_code_page;
                                           sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
             auto comp = pending_msg.complete;
             _pending.clear();
+            _read_total = 0;
             if (from_queue)
                 _queued_console_inputs.pop_front();
             if (_io.can_complete())
@@ -3150,6 +3151,7 @@ const auto cp = cstate.output_code_page;
 
             auto comp = m.complete;
             _pending.clear();
+            _read_total = 0;
             if (from_queue)
                 _queued_console_inputs.pop_front();
 
@@ -3162,6 +3164,7 @@ const auto cp = cstate.output_code_page;
 
         auto comp = m.complete;
         _pending.clear();
+        _read_total = 0;
         if (from_queue)
             _queued_console_inputs.pop_front();
 

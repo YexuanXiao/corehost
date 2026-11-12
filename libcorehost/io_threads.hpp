@@ -76,6 +76,13 @@ class vt_input_thread
                     _router.on_input_eof();
                     return;
                 }
+                if (err == win32::error::invalid_state)
+                {
+                    // WT 的终端管道是异步 duplex；高频输入时 PeekNamedPipe/
+                    // ReadFile 偶尔会返回 ERROR_INVALID_STATE，不能当作致命错误。
+                    (void)::WaitForSingleObject(_stop.get(), 16);
+                    continue;
+                }
                 win32::throw_last_error(err);
             }
 
@@ -96,6 +103,13 @@ class vt_input_thread
                     LOG("vt_input_thread: vt_in closed, mark EOF");
                     _router.on_input_eof();
                     return;
+                }
+                if (err == win32::error::invalid_state)
+                {
+                    // WT 的终端管道是异步 duplex；高频输入时 PeekNamedPipe/
+                    // ReadFile 偶尔会返回 ERROR_INVALID_STATE，不能当作致命错误。
+                    (void)::WaitForSingleObject(_stop.get(), 16);
+                    continue;
                 }
                 win32::throw_last_error(err);
             }
