@@ -1243,7 +1243,7 @@ struct pipe_bridge
         const bool wait_allowed = (req->Flags & CONSOLE_READ_NOWAIT) == 0;
         const auto count = inp.available();
 
-        if (count == 0 && wait_allowed && _pending.has_pending())
+        if (_pending.has_pending())
         {
             // 当前请求已经在等待输入。客户端（PSReadLine 等）可能同时发出多个
             // GetConsoleInput；把它排队，待前一个完成后再作为新的 pending 服务。

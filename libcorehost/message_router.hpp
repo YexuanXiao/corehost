@@ -238,6 +238,15 @@ inline void message_router::run()
             break;
         }
 
+        // 输入线程可能已经完成当前 pending（显式 COMPLETE_IO）；主线程的
+        // pending 标志必须在此之前重读，否则会把刚完成的请求继续当 pending。
+        if (pending)
+        {
+            std::unique_lock guard{_mutex};
+            if (!bridge.has_pending())
+                pending = false;
+        }
+
         const bool serving_pending = pending;
         condrv_io::io_msg &target = serving_pending ? scratch : *cur;
         CD_IO_COMPLETE *prev_comp = prev_done ? &prev_done->complete : nullptr;
