@@ -142,5 +142,3 @@ corehost 需要的是同一套**对外契约**，不需要照搬它的渲染、U
 - 保留：`WM_CLOSE` 的 corehost 会话关闭语义、默认窗口文本标题、初始隐藏、同步消息不挂起。
 
 仍刻意不做：UIA provider、进程级 ImmDisableIME、`GWL_CONSOLE_WNDALLOC` 的 PID/TID/BKCOLOR 额外字节。原版 0×0 初始尺寸已恢复。
-
-连接前 show/hide/resize 的暂存语义见  007-preconnect-pty-signals.md。
