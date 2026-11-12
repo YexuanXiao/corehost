@@ -11,6 +11,7 @@
 #include <iterator>
 #include "pseudo_window.hpp"
 #include <numeric>
+#include <utility>
 #include <vector>
 #include "condrv_io.hpp"
 #include "os/Console/conmsgl1.h"
@@ -1103,7 +1104,7 @@ inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parse
         break;
     case vt_message_id::mouse_sgr:
         // SGR 鼠标只属于输入方向；输出 parser 不应产生该消息。
-        break;
+        std::unreachable();
     }
 }
 
