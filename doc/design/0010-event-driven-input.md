@@ -9,20 +9,21 @@ WT 通过 winconpty 传入的 `vt_in` 是异步 duplex pipe；conhost 的
 corehost 直接声明并调用 `NtQueryInformationFile(FileModeInformation)`，
 不使用 `GetProcAddress` 动态加载。
 
-## 两条完全分离的实现
+## 两套读路径
 
-- `overlapped_vt_input_thread`
-  - 仅用于异步句柄；
+`vt_input_thread` 在构造时设置 `_is_overlapped`，提供两套不共享状态的函数：
+
+- `run_overlapped()`
+  - 异步句柄专用；
   - `ReadFile` 带 `OVERLAPPED` 和 completion event；
   - 等待 completion event / 停止事件；
   - 停止时 `CancelIoEx` 打断挂起读。
-- `blocking_vt_input_thread`
-  - 仅用于同步 `CreatePipe` 句柄；
-  - 阻塞 `ReadFile` + `CancellableRead` 取消协议；
-  - 不与 overlapped 状态、事件或缓冲区混用。
+- `run_synchronous()`
+  - 同步 `CreatePipe` 专用；
+  - 阻塞 `ReadFile` + `CancellableRead` 取消协议。
 
-`make_vt_input_thread` 根据句柄模式选择实现，调用方只看到统一的
-`vt_input_thread` 接口。
+`start()` 只创建线程；线程入口根据 `_is_overlapped` 选择上述函数。
+`stop_and_join()` 同样根据 `_is_overlapped` 选择取消/停止协议。
 
 ## 验证
 

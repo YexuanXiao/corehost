@@ -134,7 +134,7 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
         bridge.set_signal_pipe(signal_pipe.view());
 
     // 输入线程/信号线程依赖 message_router，必须在 router 构造后创建。
-    auto input_thread = make_vt_input_thread(vt_in, router);
+    vt_input_thread input_thread{vt_in, router};
     pty_signal_thread signal_thread{signal_pipe.view(), router};
 
 
@@ -175,7 +175,7 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     window.start();
     state.window_handle = window.hwnd();
 
-    input_thread->start();
+    input_thread.start();
     if (signal_pipe.valid())
         signal_thread.start();
 
@@ -196,7 +196,7 @@ void run_conpty_session(win32::handle_view server, win32::handle_view event, win
     // ── 退出：先停输入源，再释放会话状态 ──
     // 停止是无限等待：停止标志 + 取消阻塞读 + join，由线程自身保证退出。
     window.stop_and_join();
-    input_thread->stop_and_join();
+    input_thread.stop_and_join();
     if (signal_pipe.valid())
         signal_thread.stop_and_join();
     LOG("corehost::conpty::run_conpty_session: io threads joined");
