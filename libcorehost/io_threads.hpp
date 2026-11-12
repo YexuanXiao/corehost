@@ -50,17 +50,27 @@ class vt_input_thread
         if (!_thread.valid())
             return;
         if (_is_overlapped)
-        {
-            _stop.set();
-            _thread.join();
-            return;
-        }
+            stop_and_join_overlapped();
+        else
+            stop_and_join_synchronous();
+    }
+
+  private:
+    // 只用于异步 WT 管道：唤醒 completion 等待并无限 join。
+    void stop_and_join_overlapped()
+    {
+        _stop.set();
+        _thread.join();
+    }
+
+    // 只用于同步管道：取消阻塞 ReadFile 后无限 join。
+    void stop_and_join_synchronous()
+    {
         _reader.request_stop();
         _reader.wait_for_exit(_thread);
         _thread.join();
     }
 
-  private:
     static DWORD WINAPI thread_entry(LPVOID self)
     {
         static_cast<vt_input_thread *>(self)->run();

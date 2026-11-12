@@ -23,7 +23,9 @@ corehost 直接声明并调用 `NtQueryInformationFile(FileModeInformation)`，
   - 阻塞 `ReadFile` + `CancellableRead` 取消协议。
 
 `start()` 只创建线程；线程入口根据 `_is_overlapped` 选择上述函数。
-`stop_and_join()` 同样根据 `_is_overlapped` 选择取消/停止协议。
+`stop_and_join()` 同样根据 `_is_overlapped` 选择
+`stop_and_join_overlapped()` 或 `stop_and_join_synchronous()`；
+两条停止协议也完全独立。
 
 ## 验证
 
