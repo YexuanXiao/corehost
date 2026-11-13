@@ -139,6 +139,8 @@ struct pipe_bridge
             const DWORD old_total = _read_total;
             consume_queued_vt_input(limit - _read_total);
             process_new_vt_input(old_total);
+            if (_pending.kind() == PendingKind::ConsoleRead)
+                _read_total = 0;
         }
 
         size_t offset = 0;
@@ -161,6 +163,8 @@ struct pipe_bridge
             offset += chunk;
 
             process_new_vt_input(old_total);
+            if (_pending.kind() == PendingKind::ConsoleRead)
+                _read_total = 0;
         }
 
         vt_flush();
@@ -1305,6 +1309,9 @@ struct pipe_bridge
         if (_pending.kind() == PendingKind::ConsoleRead && _read_total != 0)
         {
             process_new_vt_input(0);
+            // 这批字节已经解析进 cooked line/输入队列；下一次 pump 不能
+            // 再从 _readbuf[0] 重复解析，否则 cmd 会把同一字符回显多次。
+            _read_total = 0;
             if (!_pending.has_pending())
                 return true;
         }
