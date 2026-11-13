@@ -81,15 +81,19 @@ corehost::test::result vim_starts_and_quits()
         SKIP(L"vim.exe not on PATH");
 
     corehost::test::conpty_session session;
-    REQUIRE(session.start(quote(vim) + L" -u NONE -N -n"));
+    // -i NONE 禁用 viminfo；CI 用户目录不可写时 vim 会停在
+    // "E138: Can't write viminfo" 提示上，导致 :qa! 等待用户按 Enter。
+    REQUIRE(session.start(quote(vim) + L" -u NONE -N -n -i NONE"));
 
-    // 等 vim 完成初始化再发退出命令（没有可见的稳定标记，用输出非空判断）。
-    REQUIRE(session.wait_output("\x1b", 15000));
+    // 等 vim 完成初始化并切到备用屏幕，避免把命令送进启动阶段的输入解析。
+    REQUIRE(session.wait_output("\x1b[?1049h", 15000));
 
-    REQUIRE(session.write("\x1b:qa!\r"));
+    // 启动完成后 vim 已处于 normal mode；直接送 ex 命令。原始 ESC 在 VT
+    // 输入流里是序列前缀，单独写可能被 parser 挂起而无法成为 Vim 的 Esc。
+    REQUIRE(session.write(":qa!\r"));
 
     DWORD exit_code = static_cast<DWORD>(-1);
-    REQUIRE(session.wait_exit(15000, &exit_code));
+    REQUIRE(session.wait_exit(20000, &exit_code));
     REQUIRE(exit_code == 0);
     return corehost::test::result::pass;
 }
