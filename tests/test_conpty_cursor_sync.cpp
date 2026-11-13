@@ -2042,6 +2042,39 @@ bool test_ctrl_and_alt_escape_are_consumed()
     return true;
 }
 
+// 白底终端回归：PS7 的默认属性不能被展开成显式 37;40。
+bool test_default_attr_uses_terminal_default()
+{
+    pipe_bridge_test_context ctx;
+    ctx.bridge.vt_write_attr(0x0007);
+    ASSERT(ctx.bridge.test_vt_buf() == "\x1b[0m");
+    return true;
+}
+
+// 白底终端回归：PS5 的红色错误属性 background=0 必须映射到 SGR 49，
+// 不能生成显式黑色背景 SGR 40。
+bool test_default_sgr_message_uses_terminal_default()
+{
+    pipe_bridge_test_context ctx;
+    vt_message msg{};
+    set_sgr_from_win32_attr(msg, 0x0007);
+    ctx.bridge.vt_msg_send<vt_message_id::sgr>(msg);
+    ASSERT(ctx.bridge.test_vt_buf() == "\x1b[0m");
+    return true;
+}
+
+bool test_ps5_error_uses_terminal_background()
+{
+    pipe_bridge_test_context ctx;
+    vt_message msg{};
+    set_sgr_from_win32_attr(msg, 0x000C);
+    ctx.bridge.vt_msg_send<vt_message_id::sgr>(msg);
+    const auto out = ctx.bridge.test_vt_buf();
+    ASSERT(out.find(";40m") == std::string::npos);
+    ASSERT(out.find(";49m") != std::string::npos);
+    return true;
+}
+
 int main()
 {
     std::wcout.sync_with_stdio(false);
@@ -2173,6 +2206,11 @@ int main()
 
     std::wcout << L"\nWriteConsole CUP Regression :\n";
     RUN_TEST(test_write_console_does_not_emit_final_cup, L"WriteConsole no final CUP");
+
+    std::wcout << L"\nDefault Background Regression :\n";
+    RUN_TEST(test_default_attr_uses_terminal_default, L"Default attr uses SGR 0");
+    RUN_TEST(test_default_sgr_message_uses_terminal_default, L"Default SGR message uses SGR 0");
+    RUN_TEST(test_ps5_error_uses_terminal_background, L"PS5 error uses SGR 49");
 
     std::wcout << L"\nTotal: " << (tests_passed + tests_failed) << L" | Passed: " << tests_passed << L" | Failed: "
                << tests_failed << std::endl;

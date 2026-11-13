@@ -139,6 +139,8 @@ struct pipe_bridge
             const DWORD old_total = _read_total;
             consume_queued_vt_input(limit - _read_total);
             process_new_vt_input(old_total);
+            if (_pending.kind() == PendingKind::ConsoleRead)
+                _read_total = 0;
         }
 
         size_t offset = 0;
@@ -161,6 +163,8 @@ struct pipe_bridge
             offset += chunk;
 
             process_new_vt_input(old_total);
+            if (_pending.kind() == PendingKind::ConsoleRead)
+                _read_total = 0;
         }
 
         vt_flush();
@@ -369,6 +373,8 @@ struct pipe_bridge
     pipe_bridge_io _io;
     // 由信号线程阻塞读取 WT 信号管道；无信号管道时保持未绑定。
     pty_signal_reader _signal{cstate, sbuf};
+    // WT 是否处于 Win32Input 模式；启动时 conpty.cpp 已发送 ESC[?9001h。
+    bool _terminal_win32_input = true;
     // VT 输出批量缓冲，所有发送到宿主终端的字节最终从这里 flush 到 vt_out。
     vt_output_buffer _vt_output;
     // API handler 和输入/输出转换复用的临时缓冲集合。
@@ -589,6 +595,11 @@ struct pipe_bridge
     // 终端光标追踪，只更新行编辑边界。
     void sync_cursor_after_write(COORD pos, bool track_terminal_cursor = true) noexcept
     {
+        // alt buffer 内由应用控制终端光标；main buffer 的 cursor 与 term
+        // cursor 此时没有可比性。
+        if (cstate.vt_alt_buffer_active)
+            return;
+
         const auto terminal_pos = active_screen_buffer().viewport.relative_position(pos);
         if (track_terminal_cursor)
         {
@@ -610,6 +621,21 @@ struct pipe_bridge
     void vt_flush() noexcept
     {
         _vt_output.flush();
+    }
+
+    // 根据应用是否启用 ENABLE_VIRTUAL_TERMINAL_INPUT 切换 WT 的 Win32Input
+    // 模式。传统 VT 输入应用（例如 Microsoft Edit）只理解 ESC 序列，不能
+    // 让终端继续发送 Win32Input 的 CSI 序列。
+    void set_terminal_win32_input_mode(bool enabled) noexcept
+    {
+        if (_terminal_win32_input == enabled)
+            return;
+        _terminal_win32_input = enabled;
+        if (enabled)
+            vt_append_str("\x1b[?9001h"sv);
+        else
+            vt_append_str("\x1b[?9001l"sv);
+        vt_flush();
     }
 
     // true 表示 vt_out 缓冲中还有尚未写给宿主终端的数据。
@@ -1305,6 +1331,9 @@ struct pipe_bridge
         if (_pending.kind() == PendingKind::ConsoleRead && _read_total != 0)
         {
             process_new_vt_input(0);
+            // 这批字节已经解析进 cooked line/输入队列；下一次 pump 不能
+            // 再从 _readbuf[0] 重复解析，否则 cmd 会把同一字符回显多次。
+            _read_total = 0;
             if (!_pending.has_pending())
                 return true;
         }
@@ -2534,6 +2563,9 @@ struct pipe_bridge
         case vt_message_id::char_sub:
         case vt_message_id::char_esc:
         case vt_message_id::char_nul:
+        case vt_message_id::char_control:
+        case vt_message_id::carriage_return:
+        case vt_message_id::line_feed:
             return true;
         default:
             return false;
@@ -2859,6 +2891,11 @@ struct pipe_bridge
             }
             case vt_message_id::char_esc: {
                 process_input_key_event<vt_message_id::char_esc>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::char_control: {
+                process_input_key_event<vt_message_id::char_control>(msg);
                 _input_parser.reset();
                 break;
             }

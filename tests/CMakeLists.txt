@@ -137,6 +137,21 @@ add_custom_command(TARGET test_conpty_cursor_sync POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:test_conpty_cursor_sync>/logs"
 )
 
+# ── test_conpty_cmd_read ──────────────────────────
+# cmd 的 cooked ReadConsole 输入批次不能被 on_input_bytes/pump_pending 重放。
+add_executable(test_conpty_cmd_read
+    test_conpty_cmd_read.cpp
+)
+target_include_directories(test_conpty_cmd_read PRIVATE
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(test_conpty_cmd_read PRIVATE test_common unicode::unicode)
+add_test(NAME ConPTY.CmdRead COMMAND test_conpty_cmd_read)
+set_tests_properties(ConPTY.CmdRead PROPERTIES LABELS "conpty;input;cmd" TIMEOUT 30)
+add_custom_command(TARGET test_conpty_cmd_read POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:test_conpty_cmd_read>/logs"
+)
+
 # ── test_conpty_e2e ───────────────────────────────
 add_executable(test_conpty_e2e
     test_conpty_e2e.cpp

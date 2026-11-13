@@ -138,6 +138,12 @@ bool test_ground_controls()
 
     result = parse_one(parser, 0x00);
     ASSERT(result.id == vt_message_id::char_nul);
+    parser.reset();
+
+    // Ctrl+Q（0x11）必须保留原始控制字符，输入层才能还原成 Ctrl+Q。
+    result = parse_one(parser, 0x11);
+    ASSERT(result.id == vt_message_id::char_control);
+    ASSERT(result.message.payload.count.value == 0x11);
     return true;
 }
 

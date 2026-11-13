@@ -39,6 +39,12 @@ class vt_output_buffer
         return _buffer.size();
     }
 
+    // 测试用：查看尚未 flush 的 VT 字节，不改变缓冲。
+    [[nodiscard]] std::span<const char8_t> buffered_view() const noexcept
+    {
+        return std::span<const char8_t>{_buffer.data(), _buffer.size()};
+    }
+
     // 判断缓存是否达到主动刷新阈值。
     bool should_flush() const noexcept
     {

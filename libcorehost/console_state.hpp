@@ -195,6 +195,13 @@ struct console_state
 
     // ── 光标 ──
     cursor_state cursor;
+    // VT 1049 进入备用缓冲区前的 main cursor；退出时恢复，避免应用在 alt
+    // buffer 内的 CUP/CUP 写入污染 main buffer 的光标位置。
+    COORD alt_saved_cursor{0, 0};
+    bool alt_saved_cursor_valid = false;
+    // 应用通过 VT 1049 进入备用缓冲区期间，输出只透传给终端，不再更新
+    // main screen buffer/cursor。
+    bool vt_alt_buffer_active = false;
 
     // ── Screen Buffer 信息 ──
     COORD screen_buffer_size{default_console_size};
