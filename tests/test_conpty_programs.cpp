@@ -83,17 +83,33 @@ corehost::test::result vim_starts_and_quits()
     corehost::test::conpty_session session;
     // -i NONE 禁用 viminfo；CI 用户目录不可写时 vim 会停在
     // "E138: Can't write viminfo" 提示上，导致 :qa! 等待用户按 Enter。
-    REQUIRE(session.start(quote(vim) + L" -u NONE -N -n -i NONE"));
+    const std::wstring command = quote(vim) + L" -u NONE -N -n -i NONE";
+    if (!session.start(command))
+    {
+        std::fwprintf(stderr, L"[vim] session.start failed, command=%ls\n", command.c_str());
+        REQUIRE(false);
+    }
 
-    // 等 vim 完成初始化并切到备用屏幕，避免把命令送进启动阶段的输入解析。
-    REQUIRE(session.wait_output("\x1b[?1049h", 15000));
-
-    // 启动完成后 vim 已处于 normal mode；直接送 ex 命令。原始 ESC 在 VT
-    // 输入流里是序列前缀，单独写可能被 parser 挂起而无法成为 Vim 的 Esc。
-    REQUIRE(session.write(":qa!\r"));
+    // 不同构建/vim 版本的终端初始化序列不固定；启动后直接送 normal-mode
+    // 的 ex 命令，不依赖 1049 备用屏幕标记。原始 ESC 在 VT 输入流里是序列
+    // 前缀，单独写可能被 parser 挂起而无法成为 Vim 的 Esc。
+    ::Sleep(1000);
+    if (!session.write(":qa!\r"))
+    {
+        std::fwprintf(stderr, L"[vim] session.write failed, running=%d\n", session.is_running() ? 1 : 0);
+        REQUIRE(false);
+    }
 
     DWORD exit_code = static_cast<DWORD>(-1);
-    REQUIRE(session.wait_exit(20000, &exit_code));
+    const bool exited = session.wait_exit(20000, &exit_code);
+    if (!exited || exit_code != 0)
+    {
+        const auto output = session.take_output();
+        std::fwprintf(stderr, L"[vim] exited=%d code=%lu running=%d, output tail: %hs\n",
+                      exited ? 1 : 0, static_cast<unsigned long>(exit_code), session.is_running() ? 1 : 0,
+                      output.size() > 1200 ? output.c_str() + output.size() - 1200 : output.c_str());
+    }
+    REQUIRE(exited);
     REQUIRE(exit_code == 0);
     return corehost::test::result::pass;
 }

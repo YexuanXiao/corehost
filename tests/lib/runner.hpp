@@ -285,6 +285,10 @@ inline run_stats run_isolated(std::span<const test_case> cases, std::string_view
         }
         else
         {
+            // 子进程的 stdout 在 CI 里可能被吞掉；父进程必须显式报告失败用例名
+            // 和退出码，否则只剩一行总汇总无法定位。
+            std::fwprintf(stderr, L"  %hs ... FAIL (exit=%lu)\n", test.name,
+                          static_cast<unsigned long>(exit_code_value));
             ++stats.failed;
             case_failed = true;
         }
