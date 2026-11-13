@@ -216,6 +216,12 @@ class pipe_bridge_testable : private pipe_bridge_input_holder, public pipe_bridg
         return _vt_output.buffered_size();
     }
 
+    std::string test_vt_buf() const
+    {
+        const auto bytes = _vt_output.buffered_view();
+        return std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+    }
+
     bool test_get_enter_newline_flag() const noexcept
     {
         return _terminal.enter_newline_pending();
