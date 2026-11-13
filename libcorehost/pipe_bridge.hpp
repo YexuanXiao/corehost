@@ -595,6 +595,11 @@ struct pipe_bridge
     // 终端光标追踪，只更新行编辑边界。
     void sync_cursor_after_write(COORD pos, bool track_terminal_cursor = true) noexcept
     {
+        // alt buffer 内由应用控制终端光标；main buffer 的 cursor 与 term
+        // cursor 此时没有可比性。
+        if (cstate.vt_alt_buffer_active)
+            return;
+
         const auto terminal_pos = active_screen_buffer().viewport.relative_position(pos);
         if (track_terminal_cursor)
         {
@@ -2559,6 +2564,8 @@ struct pipe_bridge
         case vt_message_id::char_esc:
         case vt_message_id::char_nul:
         case vt_message_id::char_control:
+        case vt_message_id::carriage_return:
+        case vt_message_id::line_feed:
             return true;
         default:
             return false;

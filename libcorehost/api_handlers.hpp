@@ -804,6 +804,15 @@ inline void consume_write_console_vt_message(vt_parser &parser, const vt_parse_r
             bridge.vt_msg_send<id>(msg);
     }
 
+    // alt buffer 由应用独占；其中的 CUP/SGR/文本不能修改 main screen buffer
+    // 或 main cursor。只保留 1049 的进入/退出切换本身。
+    if (state.vt_alt_buffer_active && id != vt_message_id::use_main_buffer &&
+        id != vt_message_id::use_alternate_buffer)
+    {
+        parser.reset();
+        return;
+    }
+
     vt_msg_apply_terminal_state<id>(msg, state, sb, emit_vt);
     parser.reset();
 }

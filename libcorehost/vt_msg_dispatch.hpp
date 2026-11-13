@@ -440,6 +440,7 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
             state.alt_saved_cursor = state.cursor.position;
             state.alt_saved_cursor_valid = true;
         }
+        state.vt_alt_buffer_active = true;
         break;
     case vt_message_id::use_main_buffer:
         if (state.alt_saved_cursor_valid)
@@ -447,6 +448,7 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
             state.cursor.position = state.alt_saved_cursor;
             state.alt_saved_cursor_valid = false;
         }
+        state.vt_alt_buffer_active = false;
         break;
     case vt_message_id::resize_window: {
         SHORT rows = msg.payload.resize.rows;
