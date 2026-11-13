@@ -304,10 +304,11 @@ struct conpty_edit_session
         }
     }
 
-    void send_ctrl_q()
+    // Edit 在 ENABLE_VIRTUAL_TERMINAL_INPUT 下读取原始 VT 字节；Ctrl+Q
+    // 必须走 0x11 这条路径，不能再发 Win32Input 序列。
+    void send_ctrl_q_vt()
     {
-        send_key(0x51, 16, 0x11, true, LEFT_CTRL_PRESSED);
-        send_key(0x51, 16, 0, false);
+        write_all(input_write.get(), std::string_view{"\x11", 1});
     }
 
     void send_key(WORD vk, WORD scan, WCHAR ch, bool key_down, DWORD control_state = 0)
@@ -437,7 +438,7 @@ int main()
         return 1;
     }
 
-    session.send_ctrl_q();
+    session.send_ctrl_q_vt();
     constexpr std::string_view unsaved_markers[] = {
         "Unsaved Changes"sv,
         "Unsaved changes"sv,

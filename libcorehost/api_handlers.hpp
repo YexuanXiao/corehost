@@ -804,6 +804,14 @@ inline void consume_write_console_vt_message(vt_parser &parser, const vt_parse_r
             bridge.vt_msg_send<id>(msg);
     }
 
+    // alt buffer 由应用独占；其中的 CUP/SGR/文本不能修改 main screen buffer
+    // 或 main cursor。只保留 1049 的进入/退出切换本身。
+    if (state.vt_alt_buffer_active && id != vt_message_id::use_main_buffer && id != vt_message_id::use_alternate_buffer)
+    {
+        parser.reset();
+        return;
+    }
+
     vt_msg_apply_terminal_state<id>(msg, state, sb, emit_vt);
     parser.reset();
 }
@@ -1177,8 +1185,8 @@ inline bool api_get_mode(condrv_io::io_msg &msg, console_state &state, screen_bu
 
 // SetConsoleMode：更新 console_state 的输入/输出模式。输入模式先保存兼容位，
 // 再按原版行为对非法组合返回错误。
-inline bool api_set_mode(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &, pipe_bridge &,
-                         bool input_handle) noexcept
+inline bool api_set_mode(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
+                         pipe_bridge &bridge, bool input_handle) noexcept
 {
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     if (input_handle)
@@ -1203,6 +1211,10 @@ inline bool api_set_mode(condrv_io::io_msg &msg, console_state &state, screen_bu
         }
         LOG2("[api_set_mode] input req=0x%08X stored=0x%08X", static_cast<unsigned>(requested_mode),
              static_cast<unsigned>(state.input_mode));
+        // 传统 VT 输入应用要求 ESC 序列；Win32Input 模式只适用于需要
+        // KEY_EVENT 的应用。ENABLE_VIRTUAL_TERMINAL_INPUT 是应用明确选择
+        // 传统 VT 输入模式的标志。
+        bridge.set_terminal_win32_input_mode((state.input_mode & ENABLE_VIRTUAL_TERMINAL_INPUT) == 0);
     }
     else
     {

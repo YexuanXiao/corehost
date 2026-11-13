@@ -130,6 +130,19 @@ bool test_special_char_keys()
     return true;
 }
 
+bool test_ctrl_q_control_char()
+{
+    vt_input_engine engine;
+    vt_message msg{};
+    msg.payload.count.value = 0x11;
+    INPUT_RECORD rec{};
+    ASSERT(engine.convert(vt_message_id::char_control, msg, rec));
+    ASSERT(rec.Event.KeyEvent.wVirtualKeyCode == 'Q');
+    ASSERT(rec.Event.KeyEvent.uChar.UnicodeChar == 0x11);
+    ASSERT((rec.Event.KeyEvent.dwControlKeyState & LEFT_CTRL_PRESSED) != 0);
+    return true;
+}
+
 bool test_unknown_id_returns_false()
 {
     vt_input_engine engine;
@@ -435,6 +448,7 @@ int main()
     RUN_TEST(test_ctrl_arrow_keys, L"Ctrl+Arrows");
     RUN_TEST(test_navigation_keys, L"Navigation keys");
     RUN_TEST(test_special_char_keys, L"Special chars");
+    RUN_TEST(test_ctrl_q_control_char, L"Ctrl+Q control char");
     RUN_TEST(test_unknown_id_returns_false, L"Unknown->false");
     RUN_TEST(test_full_pipeline_arrow_up, L"Pipeline Arrow Up");
     RUN_TEST(test_full_pipeline_arrow_down, L"Pipeline Arrow Down");

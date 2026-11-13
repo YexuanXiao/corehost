@@ -175,6 +175,7 @@ enum class vt_message_id
     char_sub,
     char_esc,
     char_nul,
+    char_control, // 其他 C0 控制字符，payload.count 保存原始字符值
 };
 
 struct vt_count_payload
@@ -604,7 +605,7 @@ class vt_parser
         case ground_char_kind::line_feed:
             return vt_message_id::line_feed;
         default:
-            return vt_message_id::text;
+            return vt_message_id::char_control;
         }
     }
 
@@ -864,8 +865,9 @@ class vt_parser
             return control_id;
         }
 
-        // 其他 C0/DEL 控制字符。
-        _msg.payload.text = {};
+        // 其他 C0/DEL 控制字符：保存原始值，输入层需要把它还原成
+        // KEY_EVENT（例如 Ctrl+Q 的 0x11）或按 VT 原文透传。
+        _msg.payload.count.value = static_cast<short>(ch);
         return control_id;
     }
 

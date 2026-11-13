@@ -433,9 +433,22 @@ inline void vt_msg_apply_state(const vt_message &msg, console_state &state, scre
         // 处理，Console API 查询暂不暴露该状态。
         break;
     case vt_message_id::use_alternate_buffer:
+        // 应用自己通过 VT 输出切换备用缓冲区时，保存 main buffer 的光标；
+        // alt buffer 内的 CUP 不能改写主缓冲区退出后的提示符位置。
+        if (!state.alt_saved_cursor_valid)
+        {
+            state.alt_saved_cursor = state.cursor.position;
+            state.alt_saved_cursor_valid = true;
+        }
+        state.vt_alt_buffer_active = true;
+        break;
     case vt_message_id::use_main_buffer:
-        // active screen buffer 由 api_router::switch_active_screen_buffer 切换。
-        // 这里不修改 sb，避免一个消息在 router 和 state 层重复切换。
+        if (state.alt_saved_cursor_valid)
+        {
+            state.cursor.position = state.alt_saved_cursor;
+            state.alt_saved_cursor_valid = false;
+        }
+        state.vt_alt_buffer_active = false;
         break;
     case vt_message_id::resize_window: {
         SHORT rows = msg.payload.resize.rows;

@@ -138,6 +138,13 @@ struct vt_input_engine
             ke.wVirtualKeyCode = VK_ESCAPE;
             ke.uChar.UnicodeChar = 0x1B;
             return true;
+        case vt_message_id::char_control: {
+            const auto ch = static_cast<unsigned short>(msg.payload.count.value);
+            ke.wVirtualKeyCode = (ch >= 1 && ch <= 26) ? static_cast<WORD>(U'A' + ch - 1) : 0;
+            ke.uChar.UnicodeChar = static_cast<WCHAR>(ch);
+            ke.dwControlKeyState |= LEFT_CTRL_PRESSED;
+            return true;
+        }
 
         // ── 其他非输入消息 ──
         default:
