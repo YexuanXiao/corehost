@@ -2558,6 +2558,7 @@ struct pipe_bridge
         case vt_message_id::char_sub:
         case vt_message_id::char_esc:
         case vt_message_id::char_nul:
+        case vt_message_id::char_control:
             return true;
         default:
             return false;
@@ -2883,6 +2884,11 @@ struct pipe_bridge
             }
             case vt_message_id::char_esc: {
                 process_input_key_event<vt_message_id::char_esc>(msg);
+                _input_parser.reset();
+                break;
+            }
+            case vt_message_id::char_control: {
+                process_input_key_event<vt_message_id::char_control>(msg);
                 _input_parser.reset();
                 break;
             }
