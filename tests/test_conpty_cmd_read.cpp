@@ -30,11 +30,9 @@ struct test_context
 std::vector<char8_t> win32_input(char vk, char sc, wchar_t uc)
 {
     char buf[64];
-    const int n = std::snprintf(buf, sizeof(buf), "\x1b[%u;%u;%u;1;0;1_",
-                                static_cast<unsigned>(vk), static_cast<unsigned>(sc),
-                                static_cast<unsigned>(uc));
-    return std::vector<char8_t>{reinterpret_cast<const char8_t *>(buf),
-                                reinterpret_cast<const char8_t *>(buf) + n};
+    const int n = std::snprintf(buf, sizeof(buf), "\x1b[%u;%u;%u;1;0;1_", static_cast<unsigned>(vk),
+                                static_cast<unsigned>(sc), static_cast<unsigned>(uc));
+    return std::vector<char8_t>{reinterpret_cast<const char8_t *>(buf), reinterpret_cast<const char8_t *>(buf) + n};
 }
 
 } // namespace
@@ -50,7 +48,8 @@ int main()
 
     if (bridge.test_get_cooked_buf() != U"h")
     {
-        std::wcerr << L"after on_input_bytes: expected h, got length " << bridge.test_get_cooked_buf().size() << std::endl;
+        std::wcerr << L"after on_input_bytes: expected h, got length " << bridge.test_get_cooked_buf().size()
+                   << std::endl;
         return 1;
     }
     if (bridge.test_get_cooked_cursor() != 1)
@@ -65,7 +64,8 @@ int main()
 
     if (bridge.test_get_cooked_buf() != U"h")
     {
-        std::wcerr << L"after pump_pending: expected h, got length " << bridge.test_get_cooked_buf().size() << std::endl;
+        std::wcerr << L"after pump_pending: expected h, got length " << bridge.test_get_cooked_buf().size()
+                   << std::endl;
         return 1;
     }
     if (bridge.test_get_cooked_cursor() != 1)
