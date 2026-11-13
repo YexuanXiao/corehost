@@ -486,6 +486,30 @@ bool test_dispatch_hts()
     return true;
 }
 
+// VT 1049：进入 alt buffer 前保存 main cursor，退出时恢复。
+bool test_dispatch_alternate_buffer_restores_cursor()
+{
+    console_state st;
+    screen_buffer sb{{80, 25}};
+    st.screen_buffer_size = {80, 25};
+    st.cursor.position = {17, 4};
+
+    vt_message alt{};
+    vt_msg_apply_state<vt_message_id::use_alternate_buffer>(alt, st, sb);
+    ASSERT(st.alt_saved_cursor_valid);
+    ASSERT(st.alt_saved_cursor.X == 17);
+    ASSERT(st.alt_saved_cursor.Y == 4);
+
+    // alt buffer 内的 CUP 可以移动 cursor，但退出 main 时必须恢复。
+    st.cursor.position = {0, 2};
+    vt_message main{};
+    vt_msg_apply_state<vt_message_id::use_main_buffer>(main, st, sb);
+    ASSERT(!st.alt_saved_cursor_valid);
+    ASSERT(st.cursor.position.X == 17);
+    ASSERT(st.cursor.position.Y == 4);
+    return true;
+}
+
 // ==================================================================
 // Resize window regression tests (Bug: WT resize → crash)
 // ==================================================================
@@ -943,6 +967,7 @@ int main()
     RUN_TEST(test_dispatch_title, L"Title");
     RUN_TEST(test_dispatch_line_drawing, L"Line drawing");
     RUN_TEST(test_dispatch_hts, L"HTS");
+    RUN_TEST(test_dispatch_alternate_buffer_restores_cursor, L"1049 cursor restore");
 
     std::wcout << L"\nResize Window Regression Tests:\n";
     RUN_TEST(test_dispatch_resize_sets_dimensions, L"Resize sets sb dimensions");
