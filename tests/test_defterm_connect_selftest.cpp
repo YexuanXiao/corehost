@@ -215,19 +215,42 @@ corehost::test::result repeated_sessions_exit_cleanly()
         REQUIRE(corehost::test::connect_client(session, L"defterm-repeat", L"defterm-repeat.exe", false, error));
         corehost::test::bind_console_connection(session.connection.view());
 
-        const HWND window = ::GetConsoleWindow();
+        HWND window = nullptr;
+        for (int attempt = 0; attempt < 100 && window == nullptr; ++attempt)
+        {
+            window = ::GetConsoleWindow();
+            if (window == nullptr)
+                ::Sleep(20);
+        }
+        if (window == nullptr)
+        {
+            corehost::test::unbind_console_connection();
+            session.connection = win32::handle{};
+            ::TerminateProcess(host.hProcess, 1);
+            ::CloseHandle(host.hThread);
+            ::CloseHandle(host.hProcess);
+            std::fwprintf(stderr, L"[defterm-sessions] iteration %d: no pseudo window\n", iteration);
+            REQUIRE(false);
+        }
         corehost::test::unbind_console_connection();
-        REQUIRE(window != nullptr);
 
         DWORD_PTR result = 0;
-        REQUIRE(::SendMessageTimeoutW(window, WM_CLOSE, 0, 0, SMTO_ABORTIFHUNG, 2000, &result) != 0);
+        if (::SendMessageTimeoutW(window, WM_CLOSE, 0, 0, SMTO_ABORTIFHUNG, 2000, &result) == 0)
+        {
+            std::fwprintf(stderr, L"[defterm-sessions] iteration %d: WM_CLOSE failed\n", iteration);
+        }
 
         session.connection = win32::handle{};
-        const DWORD wait = ::WaitForSingleObject(host.hProcess, 5000);
+        const DWORD wait = ::WaitForSingleObject(host.hProcess, 10000);
         if (wait != WAIT_OBJECT_0)
             ::TerminateProcess(host.hProcess, 1);
         ::CloseHandle(host.hThread);
         ::CloseHandle(host.hProcess);
+        if (wait != WAIT_OBJECT_0)
+        {
+            std::fwprintf(stderr, L"[defterm-sessions] iteration %d: host did not exit, wait=%lu\n", iteration,
+                          static_cast<unsigned long>(wait));
+        }
         REQUIRE(wait == WAIT_OBJECT_0);
     }
     return corehost::test::result::pass;

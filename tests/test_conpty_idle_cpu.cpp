@@ -36,27 +36,28 @@ DWORD find_corehost_child()
     return found;
 }
 
-// 返回进程累计 CPU 时间（100ns 单位）。失败返回 0。
-ULONGLONG process_cpu_100ns(DWORD pid)
+// 读取进程累计 CPU 时间（100ns 单位）。CPU 时间在刚启动时可以为 0；
+// 返回 false 才表示进程不存在或查询失败。
+bool process_cpu_100ns(DWORD pid, ULONGLONG &value)
 {
     HANDLE process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
     if (process == nullptr)
-        return 0;
+        return false;
 
     FILETIME creation{}, exit_time{}, kernel{}, user{};
-    ULONGLONG result = 0;
-    if (::GetProcessTimes(process, &creation, &exit_time, &kernel, &user) != FALSE)
-    {
-        ULARGE_INTEGER k{};
-        ULARGE_INTEGER u{};
-        k.LowPart = kernel.dwLowDateTime;
-        k.HighPart = kernel.dwHighDateTime;
-        u.LowPart = user.dwLowDateTime;
-        u.HighPart = user.dwHighDateTime;
-        result = k.QuadPart + u.QuadPart;
-    }
+    ULARGE_INTEGER k{};
+    ULARGE_INTEGER u{};
+    const bool ok = ::GetProcessTimes(process, &creation, &exit_time, &kernel, &user) != FALSE;
     ::CloseHandle(process);
-    return result;
+    if (!ok)
+        return false;
+
+    k.LowPart = kernel.dwLowDateTime;
+    k.HighPart = kernel.dwHighDateTime;
+    u.LowPart = user.dwLowDateTime;
+    u.HighPart = user.dwHighDateTime;
+    value = k.QuadPart + u.QuadPart;
+    return true;
 }
 
 bool idle_does_not_burn_cpu()
@@ -77,12 +78,13 @@ bool idle_does_not_burn_cpu()
     // 让启动初始化（日志、初始 VT 序列）结束再开始采样。
     sleep_ms(300);
 
-    const auto before = process_cpu_100ns(pid);
-    ASSERT(before != 0);
+    ULONGLONG before = 0;
+    ASSERT(process_cpu_100ns(pid, before));
 
     sleep_ms(3000);
 
-    const auto after = process_cpu_100ns(pid);
+    ULONGLONG after = 0;
+    ASSERT(process_cpu_100ns(pid, after));
     ASSERT(after >= before);
 
     const auto delta_ms = (after - before) / 10000ULL;

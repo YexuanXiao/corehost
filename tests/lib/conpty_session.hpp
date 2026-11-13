@@ -170,6 +170,22 @@ class conpty_session
         return wait != WAIT_TIMEOUT;
     }
 
+    // 只轮询等待，不在超时时终止客户端。交互测试需要保留仍在运行的进程
+    // 以便继续发送输入；超时终止会让后续 write 失败并改变测试语义。
+    bool wait_exit_poll(DWORD timeout_ms, DWORD *exit_code = nullptr)
+    {
+        if (!_process.valid())
+            return true;
+
+        const DWORD wait = ::WaitForSingleObject(_process.get(), timeout_ms);
+        if (wait == WAIT_TIMEOUT)
+            return false;
+
+        if (exit_code != nullptr)
+            ::GetExitCodeProcess(_process.get(), exit_code);
+        return true;
+    }
+
     void close()
     {
         // 先结束客户端、关闭伪控制台：corehost 随之退出并关闭 vt_out，输出泵

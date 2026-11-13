@@ -4,12 +4,12 @@
 //
 // Provides standard-library-shaped wrappers around SRWLOCK and
 // CONDITION_VARIABLE. The project does not use CRITICAL_SECTION,
-// std::mutex or std::srwlock directly: SRWLock is smaller,
+// std::mutex or std::shared_mutex directly: SRWLock is smaller,
 // allocation-free and supports shared (reader) acquisition.
 //
 // Design:
 // - noexcept acquire/release: the SRWLock API cannot fail.
-// - Behaves like std::srwlock: lock/unlock for exclusive,
+// - Behaves like std::shared_mutex: lock/unlock for exclusive,
 //   lock_shared/unlock_shared for shared, so it can be used with
 //   std::unique_lock and std::shared_lock.
 // - NOT recursive. Acquiring the same lock twice on one thread
@@ -50,10 +50,9 @@ namespace win32
 class srwlock
 {
   public:
-    srwlock() noexcept
-    {
-        ::InitializeSRWLock(&_lock);
-    }
+    // SRWLock can be initialized as a null pointer, which is a
+    // compatibility guarantee at the ABI level.
+    constexpr srwlock() noexcept = default;
 
     ~srwlock() noexcept = default;
 
@@ -133,8 +132,7 @@ class condition_variable
     // Re-acquires the exclusive lock before returning.
     void wait(std::unique_lock<srwlock> &lock)
     {
-        if (!lock.owns_lock())
-            win32::throw_last_error(win32::error::invalid_state);
+        assert(lock.owns_lock());
         if (::SleepConditionVariableSRW(&_cv, lock.mutex()->native_handle(), INFINITE, 0) == FALSE)
             win32::throw_last_error();
     }
@@ -189,8 +187,7 @@ class condition_variable
 
     [[nodiscard]] std::cv_status wait_for_impl(std::unique_lock<srwlock> &lock, DWORD timeout_ms)
     {
-        if (!lock.owns_lock())
-            win32::throw_last_error(win32::error::invalid_state);
+        assert(lock.owns_lock());
         if (::SleepConditionVariableSRW(&_cv, lock.mutex()->native_handle(), timeout_ms, 0) != FALSE)
             return std::cv_status::no_timeout;
 

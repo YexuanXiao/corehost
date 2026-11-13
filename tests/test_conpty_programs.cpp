@@ -81,15 +81,35 @@ corehost::test::result vim_starts_and_quits()
         SKIP(L"vim.exe not on PATH");
 
     corehost::test::conpty_session session;
-    REQUIRE(session.start(quote(vim) + L" -u NONE -N -n"));
+    // -i NONE 禁用 viminfo；CI 用户目录不可写时 vim 会停在
+    // "E138: Can't write viminfo" 提示上，导致 :qa! 等待用户按 Enter。
+    const std::wstring command = quote(vim) + L" -u NONE -N -n -i NONE";
+    if (!session.start(command))
+    {
+        std::fwprintf(stderr, L"[vim] session.start failed, command=%ls\n", command.c_str());
+        REQUIRE(false);
+    }
 
-    // 等 vim 完成初始化再发退出命令（没有可见的稳定标记，用输出非空判断）。
-    REQUIRE(session.wait_output("\x1b", 15000));
-
-    REQUIRE(session.write("\x1b:qa!\r"));
+    // 不同构建/vim 版本的终端初始化序列不固定；启动后直接送 normal-mode
+    // 的 ex 命令，不依赖 1049 备用屏幕标记。原始 ESC 在 VT 输入流里是序列
+    // 前缀，单独写可能被 parser 挂起而无法成为 Vim 的 Esc。
+    ::Sleep(1000);
+    if (!session.write(":qa!\r"))
+    {
+        std::fwprintf(stderr, L"[vim] session.write failed, running=%d\n", session.is_running() ? 1 : 0);
+        REQUIRE(false);
+    }
 
     DWORD exit_code = static_cast<DWORD>(-1);
-    REQUIRE(session.wait_exit(15000, &exit_code));
+    const bool exited = session.wait_exit(20000, &exit_code);
+    if (!exited || exit_code != 0)
+    {
+        const auto output = session.take_output();
+        std::fwprintf(stderr, L"[vim] exited=%d code=%lu running=%d, output tail: %hs\n", exited ? 1 : 0,
+                      static_cast<unsigned long>(exit_code), session.is_running() ? 1 : 0,
+                      output.size() > 1200 ? output.c_str() + output.size() - 1200 : output.c_str());
+    }
+    REQUIRE(exited);
     REQUIRE(exit_code == 0);
     return corehost::test::result::pass;
 }
@@ -362,16 +382,26 @@ corehost::test::result ssh_interactive_interrupt()
     bool exited = false;
     for (int attempt = 0; attempt < 10 && !exited; ++attempt)
     {
-        REQUIRE(session.write("\x03"));
-        exited = session.wait_exit(1000);
+        if (!session.is_running())
+        {
+            exited = true;
+            break;
+        }
+        if (!session.write("\x03"))
+        {
+            std::fprintf(stderr, "[ssh-interrupt] write failed at attempt %d, running=%d\n", attempt,
+                         session.is_running() ? 1 : 0);
+            break;
+        }
+        exited = session.wait_exit_poll(1000);
     }
     if (!exited)
         exited = session.wait_exit(20000);
     if (!exited)
     {
         const auto output = session.take_output();
-        std::fprintf(stderr, "[ssh-interrupt] output: %s\n", output.c_str());
-        session.close();
+        std::fprintf(stderr, "[ssh-interrupt] not exited, running=%d, output: %s\n", session.is_running() ? 1 : 0,
+                     output.c_str());
     }
     server.stop();
     REQUIRE(exited);

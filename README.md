@@ -62,7 +62,7 @@ Actually, corehost is the ideal OpenConsole/conhost.
 
 corehost is based on in-depth research of microsoft/terminal, but its codebase is not derived from microsoft/terminal; it was written entirely from scratch.
 
-corehost **does not use any mutable global variables**, and **no singletons, including magic statics**, are used. All state is **passed through function parameters** and is modularized as much as possible. 
+corehost **does not use any mutable global variables**, and **no singletons, including magic statics**, are used. All state is **passed through function parameters** and is modularized as much as possible.
 
 ## corehost as conhost
 
@@ -103,7 +103,7 @@ Refer to CI for cross compilation and building with Clang.
 ### Build targets
 
 - `corehost`: the main executable. It provides the functionality of conhost/OpenConsole.
-- `libcorehost`: the core of corehost and implements full ConPTY functionality, currently has around 643KiB of code. Third-party terminals can directly link libcorehost into their programs without needing to use an external conhost program.
+- `libcorehost`: the core of corehost and implements full ConPTY functionality, currently has around 675KiB of code. Third-party terminals can directly link libcorehost into their programs without needing to use an external conhost program.
 - `conpty`: the shared library form of libconpty for third-party terminals that export the symbols declared by winconpty.h.
 - `conpty_static`: the static library form of libconpty.
 - `conhost_proxy`: the COM proxy/stub DLL used by default-terminal handoff and COM embedding.
