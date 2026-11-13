@@ -37,10 +37,12 @@
 #include "output_buffer.hpp"
 #include "pipe_bridge_io.hpp"
 #include "conversion_buffers.hpp"
-#include "process_list_snapshot.hpp"
+#include "process_registry.hpp"
 #include "terminal_cursor_state.hpp"
 #include "pending_io_state.hpp"
 #include "command_history_state.hpp"
+#include "console_ctrl.hpp"
+#include "vt_input_state.hpp"
 #include "signal.hpp"
 #include "perf_diag.hpp"
 #include "utility/log.hpp"
@@ -58,7 +60,6 @@ struct pipe_bridge
 {
     // 有信号管道时等待 pending VT 输入的时间片。信号消息和 VT 输入是两个
     // 独立来源，任一方都不能用无限阻塞等待。
-    static constexpr DWORD pending_vt_input_wait_ms = 16;
 
     // ── 子系统 ──
     // inp 是 Console API 事件队列；bridge 在终端输入到达时写入 KEY_EVENT，
@@ -73,8 +74,9 @@ struct pipe_bridge
     // api_router 切换 alternate buffer 时改指向。
     screen_buffer *_active_screen = nullptr;
 
-    pipe_bridge(input_buffer &input, console_state &state, screen_buffer &screen) noexcept
-        : inp(input), cstate(state), sbuf(screen)
+    pipe_bridge(input_buffer &input, console_state &state, screen_buffer &screen, vt_input_state &input_state) noexcept
+        : inp(input), cstate(state), sbuf(screen), _input_state(input_state),
+          _console_control{resolve_console_control()}
     {
         _active_screen = &screen;
         _history.set_capacity(state.history_buffer_size);
@@ -107,12 +109,6 @@ struct pipe_bridge
         _io.set_server(server);
     }
 
-    // 绑定终端输入管道。bridge 从这里读取 UTF-8/VT 字节并推进 pending 读取。
-    void set_vt_input(win32::handle_view input) noexcept
-    {
-        _io.set_vt_input(input);
-    }
-
     // 绑定 WT 信号管道。句柄所有权仍归 conpty 会话；bridge 只在主循环的
     // idle/pending 等待路径中非阻塞轮询它，处理 resize/clear 等 PtySignal。
     void set_signal_pipe(win32::handle_view pipe) noexcept
@@ -120,17 +116,169 @@ struct pipe_bridge
         _signal.set_pipe(pipe);
     }
 
-    // 更新 GetConsoleProcessList 可见的进程快照。message_router 在
-    // CONNECT/DISCONNECT 后把 io_state 的真实列表同步到这里。
-    void set_process_list(std::span<const DWORD> processes) noexcept
+    [[nodiscard]] pty_signal_reader &signal_reader() noexcept
     {
-        _processes.assign(processes);
+        return _signal;
     }
 
-    // 返回当前进程快照数量；仅用于日志和 L3 GetConsoleProcessList 响应。
+    // ── 输入线程入口（调用方必须持有会话锁） ──────────────
+    // 把线程读到的字节追加到读缓冲，按既有管线解析并完成 pending 请求。
+    void on_input_bytes(std::span<const std::byte> bytes)
+    {
+        // 上一批未消费的尾部必须先处理，否则新数据会插到旧字节前面。
+        while (!_queued_vt_input.empty())
+        {
+            const auto limit = static_cast<DWORD>(input_read_limit());
+            if (_read_total >= limit)
+            {
+                if (!_pending.has_pending())
+                    win32::throw_last_error(win32::error::invalid_state);
+                complete_pending();
+                continue;
+            }
+            const DWORD old_total = _read_total;
+            consume_queued_vt_input(limit - _read_total);
+            process_new_vt_input(old_total);
+        }
+
+        size_t offset = 0;
+        while (offset < bytes.size())
+        {
+            const auto limit = static_cast<DWORD>(input_read_limit());
+            if (_read_total >= limit)
+            {
+                // 缓冲已满：先完成当前请求。
+                if (!_pending.has_pending())
+                    win32::throw_last_error(win32::error::invalid_state);
+                complete_pending();
+                continue;
+            }
+
+            const auto chunk = std::min<size_t>(limit - _read_total, bytes.size() - offset);
+            std::memcpy(_readbuf.data() + _read_total, bytes.data() + offset, chunk);
+            const DWORD old_total = _read_total;
+            _read_total += static_cast<DWORD>(chunk);
+            offset += chunk;
+
+            process_new_vt_input(old_total);
+        }
+
+        vt_flush();
+    }
+
+    // vt_in 关闭：标记 EOF 并完成挂起读取，让主循环可以退出。
+    void on_input_eof()
+    {
+        if (!_pending.vt_eof())
+        {
+            _pending.set_vt_eof(true);
+            if (_pending.has_pending())
+                complete_pending();
+        }
+        vt_flush();
+    }
+
+    // 信号管道关闭：终端不再服务，等价于输入 EOF。
+    void on_signal_closed()
+    {
+        on_input_eof();
+    }
+
+    // WriteConsoleInput 写入了记录：唤醒等待中的 ReadConsoleInput，或让等待中的
+    // ReadConsole 用这些记录编辑当前行（conhost 行为）。libuv（node/bun 等）在
+    // 切换 raw 模式时就是写一个 Enter 键来结束挂起的行读，读不返回会让程序卡住。
+    void on_console_input_written()
+    {
+        if (_pending.kind() == PendingKind::ConsoleInput)
+            complete_pending_console_input();
+        else if (_pending.kind() == PendingKind::ConsoleRead)
+            (void)consume_input_buffer_for_console_read();
+    }
+
+    // 缓冲区尺寸变化时给 VT 输入模式的客户端补一条 WINDOW_BUFFER_SIZE_EVENT。
+    // conhost 在 viewport 变化且 IsInVirtualTerminalInputMode() 时这么做
+    // ；重复尺寸由本地状态去重。
+    // 调用方必须持有会话锁；没有尺寸变化/非 VT 输入模式时什么也不做。
+    void queue_window_buffer_size_event() noexcept
+    {
+        if ((cstate.input_mode & ENABLE_VIRTUAL_TERMINAL_INPUT) == 0)
+            return;
+
+        const COORD size = cstate.screen_buffer_size;
+        if (size.X <= 0 || size.Y <= 0)
+            return;
+        if (_window_size_event_valid && _last_window_size_event.X == size.X && _last_window_size_event.Y == size.Y)
+            return;
+
+        _last_window_size_event = size;
+        _window_size_event_valid = true;
+
+        INPUT_RECORD record{};
+        record.EventType = WINDOW_BUFFER_SIZE_EVENT;
+        record.Event.WindowBufferSizeEvent.dwSize = size;
+        const size_t written = inp.write(&record, 1);
+        if (written != 1)
+            LOG("bridge: WINDOW_BUFFER_SIZE_EVENT dropped (input buffer full)");
+
+        // 正在等待 GetConsoleInput 的客户端需要被唤醒才能看到这条记录。
+        if (_pending.kind() == PendingKind::ConsoleInput)
+            complete_pending_console_input();
+    }
+
+    // 把 CTRL_C_EVENT / CTRL_BREAK_EVENT 投递给控制台进程。
+    // group == 0 表示全部（group 0 表示全部），否则只投递给
+    // 该进程组的成员。corehost 不在该控制台上，GenerateConsoleCtrlEvent 到不了
+    // 客户端；必须走 CSRSS 的 ConsoleControl(ConsoleEndTask)
+    // 客户端只能经 CSRSS 转发控制事件）。
+    void send_ctrl_event(DWORD event, DWORD group) noexcept
+    {
+        // 只入队，不在这里 EndTask：EndTask 可能阻塞到客户端处理器返回或
+        // CSRSS 超时（~5s），而本函数由持会话锁的输入线程/主循环调用。
+        // 真正的投递由 message_router 在解锁后执行。
+        std::vector<DWORD> targets(_processes->count());
+        const auto count = _processes->copy_for_group(group, std::span<DWORD>{targets.data(), targets.size()});
+        targets.resize(count);
+        LOG2("ctrl event %lu group=%lu queued pids=%zu", event, group, count);
+        if (count == 0)
+            return;
+        for (const auto pid : targets)
+            _ctrl_events.push_back(ctrl_event{event, pid});
+    }
+
+    // 由 message_router 在持有会话锁时调用；不在这里加锁。
+    void take_ctrl_events(std::vector<std::pair<DWORD, DWORD>> &out) noexcept
+    {
+        out.swap(_ctrl_events);
+    }
+
+    // 在解锁后逐项投递；_console_control 在构造时解析一次。
+    NTSTATUS deliver_ctrl_event(DWORD pid, DWORD event) noexcept
+    {
+        CONSOLEENDTASK task{};
+        task.ProcessId = ULongToHandle(pid);
+        task.hwnd = nullptr;
+        task.ConsoleEventCode = event;
+        task.ConsoleFlags = console_ctrl_flags(event);
+        return _console_control(ConsoleEndTask, &task, sizeof(task));
+    }
+
+    // 绑定会话共享的进程注册表（message_router 构造时调用）。未绑定时 bridge
+    // 使用自己的本地实例，供独立单测使用。
+    void set_process_registry(process_registry &registry) noexcept
+    {
+        _processes = &registry;
+    }
+
+    // 当前连接进程数；用于日志和 L3 GetConsoleProcessList 响应。
     size_t process_count() const noexcept
     {
-        return _processes.count();
+        return _processes->count();
+    }
+
+    // 是否存在指定进程组；供 GenerateConsoleCtrlEvent 校验未知 group。
+    bool has_process_group(DWORD group) const noexcept
+    {
+        return _processes->contains_group(group);
     }
 
     [[nodiscard]] PendingKind pending_kind() const noexcept
@@ -167,32 +315,39 @@ struct pipe_bridge
     // 返回实际写入数量。
     size_t copy_process_list_newest_first(DWORD *output, size_t capacity) const noexcept
     {
-        return _processes.copy_newest_first(output, capacity);
+        return _processes->copy_newest_first(std::span<DWORD>{output, capacity});
     }
 
   private:
-    // ── Parser 外部缓冲 ──────────────────────────────
-    // _input_raw_buf 属于终端输入方向：vt_in 的 UTF-8 字节解码成 char32_t 后喂给
-    // _input_parser。vt_parser 会把当前消息的原文写到这里，并让 vt_message::text /
-    // title 指向其中的切片；调用方消费消息并 reset 后，该缓冲才能被清理或复用。
-    raw_u32_buffer _input_raw_buf;
+    // ── 输入侧状态（归属输入线程） ───────────────────
+    // A4 起，终端输入的读缓冲、解码器、解析器、键盘状态与 cooked 行编辑状态
+    // 由 vt_input_thread 持有的 vt_input_state 拥有；bridge 只通过下面的引用
+    // 别名访问，历史代码保留原名。输入线程是唯一写者，主线程只在会话锁内读取
+    // 已完成的结果（例如 pending 的返回字节）。
+    vt_input_state &_input_state;
+    // 每个 pipe_bridge 在构造时解析一次 ConsoleControl，不共享静态缓存。
+    PFN_ConsoleControl _console_control = nullptr;
+    std::array<char8_t, sizeof(condrv_io::io_msg::body)> &_readbuf = _input_state.readbuf;
+    DWORD &_read_total = _input_state.read_total;
+    bool &_line_found = _input_state.line_found;
+    // 上一批次以 CR 结束；下一批首个 LF 属于同一条 CRLF（批间状态，不在处理
+    // 函数里 Peek 管道：输入线程是唯一读者）。
+    bool &_swallow_lf_after_cr = _input_state.swallow_lf_after_cr;
+    bizwen::deque<char8_t> &_queued_vt_input = _input_state.queued_input;
+    raw_u32_buffer &_input_raw_buf = _input_state.input_raw_buf;
+    vt_parser &_input_parser = _input_state.input_parser;
+    vt_input_engine &_engine = _input_state.engine;
+    utf8_stream_decoder &_utf8_decoder = _input_state.utf8_decoder;
+    std::u32string &_cooked_buf = _input_state.cooked_buf;
+    size_t &_cooked_cursor = _input_state.cooked_cursor;
 
+    // true 表示输入/信号管道已由专用线程阻塞读取；主循环不再窥探它们。
+
+    // ── Parser 外部缓冲 ──────────────────────────────
     // _output_raw_buf 属于 Console API 输出方向：WriteConsole/RAW_WRITE 的文本
-    // 也可能包含 VT 序列。它和 _input_raw_buf 分离，避免应用输出中的半条 ESC/CSI/OSC
+    // 也可能包含 VT 序列。它和输入侧的原文缓冲分离，避免应用输出中的半条 ESC/CSI/OSC
     // 序列污染终端输入解析状态。
     raw_u32_buffer _output_raw_buf;
-
-    // _cooked_buf 保存当前 cooked ReadConsole 行编辑文本，只包含可以返回给
-    // 控制台程序的地面态输入字符，不包含 ESC/CSI/OSC 控制序列原文。
-    std::u32string _cooked_buf;
-    // 编辑光标在 _cooked_buf 中的位置，范围 0.._cooked_buf.size()。
-    size_t _cooked_cursor = 0;
-
-    // ── char32_t VT 解析器 ───────────────────────────
-    // _input_parser 只处理终端输入方向。它把键盘 VT 序列、Win32 Input Mode 事件、
-    // CPR/resize 等终端回应以及普通文本拆成 vt_message；状态必须跨 vt_in
-    // 读取块保留，因为 pipe 读取边界可能落在一条控制序列中间。
-    vt_parser _input_parser{_input_raw_buf};
 
     // _output_parser 只处理 Console API 输出方向。它用于在透传输出文本前识别
     // CUP/SGR/ED/OSC title 等序列并同步本地终端状态；状态必须跨
@@ -200,47 +355,43 @@ struct pipe_bridge
     // 拆成多个 API 消息。
     vt_parser _output_parser{_output_raw_buf};
 
-    // _engine 把 _input_parser 产出的输入方向 vt_message 转换为 INPUT_RECORD 或 cooked
-    // 行编辑动作；输出方向不经过它。
-    vt_input_engine _engine;
-
-    // ── 流式 UTF-8 解码器 ──
-    // vt_in 是 UTF-8 字节流。_utf8_decoder 保留跨 ReadFile 边界的半个多字节
-    // 序列；只有得到完整 codepoint 后才交给 _input_parser。
-    utf8_stream_decoder _utf8_decoder;
-
     // ── 原始字节缓冲 ──
-    // _readbuf 保存本轮 pending 读取已经从 vt_in 取得的原始字节；RawRead
-    // completion 直接从这里返回，ReadConsole 则同时把它解码进 _cooked_buf。
-    std::array<char8_t, sizeof(condrv_io::io_msg::body)> _readbuf{};
     // 保存 USER_DEFINED 消息中超过 condrv_io::io_msg::body 的输入尾部。
     raw_u8_buffer _input_payload_buffer;
     // GetConsoleInput 的输出可能远大于 condrv_io::io_msg::body。同步完成时
     // completion 会在下一轮 READ_IO 提交，因此该缓冲必须作为 bridge 成员
     // 保持稳定，直到 ConDrv 消费 Write.Data。
     raw_byte_vector<BYTE> _console_input_output_buffer;
-    // _readbuf 中有效字节数，范围 0.._readbuf.size()。
-    DWORD _read_total = 0;
-    // true 表示 process_input 已经遇到行终止符或 Ctrl+Z 并完成当前 pending 读。
-    bool _line_found = false;
-    // 没有 pending 时提前到达的 vt_in 字节，或当前批次完成一行后剩余的尾部。
-    bizwen::deque<char8_t> _queued_vt_input;
+    // 稳定保存当前 ConsoleInput 请求，避免 READ_IO 重新使用原缓冲后指针失效。
+    condrv_io::io_msg _console_input_pending_msg{};
 
     // 低级 Win32/ConDrv I/O 封装，bridge 只通过它访问 server/vt_in。
     pipe_bridge_io _io;
-    // 非阻塞轮询 WT 信号管道的 PtySignal 消息；会话主循环在 idle/pending
-    // 等待路径中推进它。无信号管道时 has_pipe() 为 false。
+    // 由信号线程阻塞读取 WT 信号管道；无信号管道时保持未绑定。
     pty_signal_reader _signal{cstate, sbuf};
     // VT 输出批量缓冲，所有发送到宿主终端的字节最终从这里 flush 到 vt_out。
     vt_output_buffer _vt_output;
     // API handler 和输入/输出转换复用的临时缓冲集合。
     conversion_buffers _conversion;
-    // GetConsoleProcessList 可见的连接进程快照。
-    process_list_snapshot _processes;
+    // GetConsoleProcessList 可见的连接进程快照（pid 与进程组同序）。
+    // 进程列表由 io_state 拥有（单一真相）；测试/独立使用时回退到本地实例。
+    process_registry _local_processes;
+    process_registry *_processes = &_local_processes;
+    // 最近一次 WINDOW_BUFFER_SIZE_EVENT 的尺寸。
+    COORD _last_window_size_event{};
+    // SGR 鼠标按下状态（移动/松开事件沿用）。
+    DWORD _mouse_button_state = 0;
+    bool _window_size_event_valid = false;
+    // 待投递的控制事件队列；由 message_router 的会话锁保护。
+    using ctrl_event = std::pair<DWORD, DWORD>; // {event, pid}
+    std::vector<ctrl_event> _ctrl_events;
+
     // bridge 对宿主终端当前光标和 cooked input 编辑边界的本地追踪。
     terminal_cursor_state _terminal;
     // 当前被挂起的 ConDrv 读请求及 VT EOF 状态。
     pending_io_state _pending;
+    // 客户端可并发发出多个可等待 GetConsoleInput；pending_io_state 只持有当前一个。
+    bizwen::deque<condrv_io::io_msg> _queued_console_inputs;
     // 当前控制台会话的 DOSKEY 命令历史。
     command_history_state _history;
 
@@ -259,6 +410,15 @@ struct pipe_bridge
     {
         // RAW_READ completion 只写客户端缓冲区字节，不附加 API 描述符。
         return std::min<size_t>(msg.descriptor.OutputSize, sizeof(msg.body));
+    }
+
+    // 输入线程可写入 _readbuf 的上限：默认整个读缓冲；RawRead 时受客户端
+    // 输出缓冲限制，达到上限必须先完成当前请求（原 vt_read_status::full）。
+    [[nodiscard]] size_t input_read_limit() const noexcept
+    {
+        if (_pending.kind() == PendingKind::RawRead && _pending.raw_read() != nullptr)
+            return raw_read_capacity(*_pending.raw_read());
+        return _readbuf.size();
     }
 
     void prepare_console_input_completion(condrv_io::io_msg &msg, CONSOLE_GETCONSOLEINPUT_MSG *req, bool peek,
@@ -282,7 +442,11 @@ struct pipe_bridge
                 inp.read(out_records, records_to_copy);
         }
 
-        condrv_io::prepare_completion(msg, 0, size, _console_input_output_buffer.data(), static_cast<ULONG>(size));
+        // Information 只报记录数据字节（GetConsoleInput 的
+        // SetReplyInformation(cbWritten)）；Write.Size 覆盖 struct+数据。
+        const auto data_bytes = static_cast<ULONG>(size - sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+        condrv_io::prepare_completion(msg, 0, data_bytes, _console_input_output_buffer.data(),
+                                      static_cast<ULONG>(size));
     }
 
     // 计算 ReadConsole 文本输出区容量。返回值只包含用户文本字节，不包含
@@ -312,75 +476,6 @@ struct pipe_bridge
         return _pending.vt_eof() && !_pending.has_pending();
     }
 
-    // 查询 vt_in 当前可读字节数。返回 false 表示管道关闭或不可读，调用方会
-    // 将 pending 状态推进到 EOF。
-    [[nodiscard]] bool peek_vt_input(DWORD &avail) noexcept
-    {
-        return _io.peek_available(avail);
-    }
-
-    enum class vt_read_status
-    {
-        // 至少有一个新字节进入 _readbuf。
-        bytes,
-        // vt_in 暂时没有可读字节，pending 状态未改变。
-        empty,
-        // vt_in 已关闭或读取失败，调用方应按 EOF 完成 pending。
-        eof,
-        // _readbuf 已达到当前请求容量，调用方应先完成 pending。
-        full,
-    };
-
-    // 非阻塞读取 vt_in。函数优先消费 _queued_vt_input，再从 pipe 读取当前
-    // 可见字节；不会等待新输入到达。
-    [[nodiscard]] vt_read_status read_available_vt_input()
-    {
-        // room==0 表示本次 pending 可返回的缓冲已满，调用方必须先完成它。
-        auto limit = _readbuf.size();
-        if (_pending.kind() == PendingKind::RawRead && _pending.raw_read())
-            limit = raw_read_capacity(*_pending.raw_read());
-        DWORD room = static_cast<DWORD>(limit) - _read_total;
-        if (room == 0)
-            return vt_read_status::full;
-
-        if (consume_queued_vt_input(room))
-            return vt_read_status::bytes;
-
-        DWORD read = 0;
-        auto result = _io.read_available(std::span{_readbuf}.subspan(_read_total, room), read);
-        if (result == vt_pipe_read_status::bytes)
-        {
-            _read_total += read;
-            return vt_read_status::bytes;
-        }
-
-        return result == vt_pipe_read_status::empty ? vt_read_status::empty : vt_read_status::eof;
-    }
-
-    // 阻塞读取 vt_in。只允许在没有 shutdown event 的路径调用，因为 ReadFile
-    // 阻塞后无法被 signal 线程唤醒。
-    [[nodiscard]] vt_read_status read_blocking_vt_input()
-    {
-        // 阻塞读取只在没有 shutdown event 时使用；有 shutdown event 的路径必须
-        // 按时间片等待，否则关闭通知不能打断 ReadFile。
-        DWORD room = static_cast<DWORD>(_readbuf.size()) - _read_total;
-        if (room == 0)
-            return vt_read_status::full;
-
-        if (consume_queued_vt_input(room))
-            return vt_read_status::bytes;
-
-        DWORD read = 0;
-        auto result = _io.read_blocking(std::span{_readbuf}.subspan(_read_total, room), read);
-        if (result == vt_pipe_read_status::bytes)
-        {
-            _read_total += read;
-            return vt_read_status::bytes;
-        }
-
-        return result == vt_pipe_read_status::empty ? vt_read_status::empty : vt_read_status::eof;
-    }
-
     // 解析刚刚追加到 _readbuf 的新字节，并把由输入产生的 VT echo 立即 flush。
     // old_total 是追加前 _readbuf 的有效长度。
     void process_new_vt_input(DWORD old_total)
@@ -400,13 +495,6 @@ struct pipe_bridge
         // ReadConsole 共享同一套“返回 0 字节/0 记录”的完成语义。
         _pending.set_vt_eof(true);
         complete_pending();
-    }
-
-    // 非阻塞推进信号管道。返回 true 表示管道已断开，pending 读不应继续
-    // 等待用户输入。
-    [[nodiscard]] bool poll_signal_closed()
-    {
-        return _signal.has_pipe() && _signal.poll();
     }
 
     // ── 持久转换缓冲区访问器 ──
@@ -622,6 +710,15 @@ struct pipe_bridge
     // screen_buffer 的属性状态由调用方同步维护。
     void vt_write_attr(WORD attr) noexcept
     {
+        // 0x07 是 Console 的默认属性。终端配色（尤其是白底方案）由宿主决定，
+        // 不能展开成显式的 37;40，否则默认背景会被强制为黑色。SGR 0 让终端
+        // 使用自己的默认前景/背景。
+        if (attr == 0x0007)
+        {
+            vt_append_str("\x1b[0m"sv);
+            return;
+        }
+
         // Console 属性低 4 位是前景 BGRI，高 4 位是背景 BGRI；映射表把
         // Win32 颜色编号转换为 SGR 的 ANSI/bright ANSI 编号。
         vt_append_str("\x1b[0"sv);
@@ -639,7 +736,11 @@ struct pipe_bridge
         vt_append_char(';');
         vt_append_int(fg_map[fg & 15]);
         vt_append_char(';');
-        vt_append_int(bg_map[bg & 15]);
+        if (bg == 0)
+            // 传统默认背景交给终端配色，避免白底方案被强制成黑色。
+            vt_append_str("49"sv);
+        else
+            vt_append_int(bg_map[bg & 15]);
         vt_append_char('m');
     }
 
@@ -945,6 +1046,16 @@ struct pipe_bridge
                 break;
             }
 
+            // Win32 的默认属性 0x07 会生成 fg=7/bg=0。显式 37;40 会把
+            // 白底宿主的背景强制成黑色；没有其它属性时直接恢复终端默认色。
+            if (msg.payload.sgr.set_flags == 0 && msg.payload.sgr.clear_flags == 0 && msg.payload.sgr.fg.is_indexed() &&
+                msg.payload.sgr.fg.value == 7 && msg.payload.sgr.bg.is_indexed() && msg.payload.sgr.bg.value == 0)
+            {
+                vt_append_char('0');
+                vt_append_char('m');
+                break;
+            }
+
             bool first = true;
 
             // 重置 → 先发 0
@@ -1013,6 +1124,9 @@ struct pipe_bridge
                 vt_append_sgr_param(first, msg.payload.sgr.bg.g);
                 vt_append_sgr_param(first, msg.payload.sgr.bg.b);
             }
+            else if (msg.payload.sgr.bg.is_indexed() && msg.payload.sgr.bg.value == 0)
+                // Win32 背景索引 0 是传统默认背景；白底配色应由终端决定。
+                vt_append_sgr_param(first, 49);
             else if (msg.payload.sgr.bg.is_indexed() && msg.payload.sgr.bg.value <= 7)
                 vt_append_sgr_param(first, 40 + msg.payload.sgr.bg.value);
             else if (msg.payload.sgr.bg.is_indexed() && msg.payload.sgr.bg.value <= 15)
@@ -1076,8 +1190,6 @@ struct pipe_bridge
         _read_total = 0;
         _line_found = false;
 
-        if (accumulate_from_pipe())
-            return true;
         return false;
     }
 
@@ -1093,7 +1205,7 @@ struct pipe_bridge
             req->NumBytes = 0;
             req->ControlKeyState = 0;
             auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
-            condrv_io::prepare_completion(msg, 0, sz, msg.body + sizeof(CONSOLE_MSG_HEADER), sz);
+            condrv_io::prepare_completion(msg, 0, 0, msg.body + sizeof(CONSOLE_MSG_HEADER), sz);
             return true;
         }
 
@@ -1103,32 +1215,16 @@ struct pipe_bridge
         _cooked_buf.clear();
         _cooked_cursor = 0;
         _history.reset_browse();
-        LOG3("[bridge] handle_console_read: pending ConsoleRead, unicode=%d", req->Unicode != 0);
-
         if (init_data && init_bytes > 0)
         {
-            // ReadConsole 支持调用方提供初始输入。它已经属于本次读取结果，
-            // 因此既放进 _readbuf，也提前进入 cooked line 缓冲。
             if (init_bytes > _readbuf.size())
                 init_bytes = static_cast<DWORD>(_readbuf.size());
             std::memcpy(_readbuf.data(), init_data, init_bytes);
             _read_total = init_bytes;
-            // ── 预填充 _cooked_buf：解码 init_data 并累积到行缓冲 ──
-            process_input(_readbuf.data(), init_bytes);
-            LOG3("[bridge] handle_console_read: seeded %lu init bytes, cooked=%zu", init_bytes, _cooked_buf.size());
         }
 
-        if (consume_input_buffer_for_console_read())
-        {
-            LOG3("[bridge] handle_console_read: completed from input_buffer");
-            return true;
-        }
+        LOG3("[bridge] handle_console_read: pending ConsoleRead, unicode=%d", req->Unicode != 0);
 
-        if (accumulate_from_pipe())
-        {
-            LOG3("[bridge] handle_console_read: sync complete");
-            return true;
-        }
         LOG3("[bridge] handle_console_read: pending, returning false");
         return false;
     }
@@ -1139,7 +1235,6 @@ struct pipe_bridge
     {
         // GetConsoleInput 直接服务于 input_buffer。PEEK 不消费记录；NOWAIT
         // 在没有记录时必须同步返回 0，而不是挂起。
-        prepare_console_input_events();
 
         auto *req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
         if ((req->Flags & ~CONSOLE_READ_VALID) != 0)
@@ -1152,8 +1247,8 @@ struct pipe_bridge
         if (max_count == 0)
         {
             req->NumRecords = 0;
-            condrv_io::prepare_completion(msg, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG),
-                                          msg.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+            condrv_io::prepare_completion(msg, 0, 0, msg.body + sizeof(CONSOLE_MSG_HEADER),
+                                          sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
             return true;
         }
 
@@ -1161,11 +1256,21 @@ struct pipe_bridge
         const bool wait_allowed = (req->Flags & CONSOLE_READ_NOWAIT) == 0;
         const auto count = inp.available();
 
+        if (_pending.has_pending())
+        {
+            // 当前请求已经在等待输入。客户端（PSReadLine 等）可能同时发出多个
+            // GetConsoleInput；把它排队，待前一个完成后再作为新的 pending 服务。
+            _queued_console_inputs.push_back(msg);
+            return false;
+        }
+
         if (count == 0 && wait_allowed)
         {
             // 只有“可等待且当前无记录”的请求进入 pending；后续 emit_key 会
-            // 调 complete_pending_console_input 唤醒它。
-            _pending.begin_console_input(msg);
+            // 调 complete_pending_console_input 唤醒它。message_router 的
+            // READ_IO 缓冲可能继续被复用，因此保存一份稳定的请求副本。
+            _console_input_pending_msg = msg;
+            _pending.begin_console_input(_console_input_pending_msg);
             return false;
         }
 
@@ -1173,171 +1278,55 @@ struct pipe_bridge
         return true;
     }
 
-    // 为 GetConsoleInput 主动准备 INPUT_RECORD。没有 pending 请求时，函数会
-    // 从 vt_in 非阻塞读取可用字节并转成 input_buffer 事件；有 pending 时由
-    // 对应 pending 路径独占消费输入。
-    void prepare_console_input_events()
+    // 在持锁状态下推进 pending 请求；完成时通过 _io 提交 completion。
+    bool pump_pending()
     {
-        if (_pending.has_pending())
-            return;
-
-        for (;;)
-        {
-            if (_pending.vt_eof())
-                return;
-
-            _read_total = 0;
-
-            if (!_queued_vt_input.empty())
-            {
-                drain_available_vt_input();
-                continue;
-            }
-
-            DWORD avail = 0;
-            if (!peek_vt_input(avail))
-            {
-                _pending.set_vt_eof(true);
-                return;
-            }
-            if (avail == 0)
-                return;
-
-            if (!queue_available_vt_input())
-                return;
-        }
-    }
-
-    // 非阻塞抽取当前可用 VT 输入并推进 pending 请求。返回 true 表示状态已
-    // 变化：读到字节、完成请求、缓冲满或 EOF；false 仅表示暂时无输入。
-    bool drain_available_vt_input()
-    {
-        // 先非阻塞读取，避免在已经有 VT 输入可用时浪费 16ms 时间片。
-        const auto old_total = _read_total;
-        switch (read_available_vt_input())
-        {
-        case vt_read_status::bytes:
-            process_new_vt_input(old_total);
-            return true;
-        case vt_read_status::empty:
-            return false;
-        case vt_read_status::eof:
-            complete_pending_with_eof();
-            return true;
-        case vt_read_status::full:
-            complete_pending();
-            return true;
-        default:
-            std::unreachable();
-        }
-    }
-
-    // 在存在 pending 读请求时等待 VT 输入或信号消息。有信号管道时按 16ms
-    // 时间片轮询，无信号管道时才允许阻塞读 vt_in。
-    void wait_for_pending_vt_input()
-    {
-        vt_flush();
-
-        if (_pending.vt_eof() || !_pending.has_pending())
-            return;
-
-        if (drain_available_vt_input())
-        {
-            return;
-        }
-
-        if (_signal.has_pipe())
-        {
-            // 有信号管道时不能进入阻塞 ReadFile：resize/clear/断管都依赖主
-            // 线程轮询。先处理已到达的信号，再等待 vt_in 短时间片；vt_in
-            // 有新数据或断管时都会触发唤醒，避免固定延时空转。
-            if (poll_signal_closed())
-            {
-                // 信号管道关闭表示终端不再服务。pending 读不能继续等待用户
-                // 输入，只能按 EOF 完成，让主循环有机会退出。
-                complete_pending_with_eof();
-                return;
-            }
-            if (const auto wait = win32::wait_one(_io.vt_input(), pending_vt_input_wait_ms); wait.abandoned())
-            {
-                LOG("[bridge] pending vt input wait abandoned");
-                complete_pending_with_eof();
-                return;
-            }
-            drain_available_vt_input();
-            return;
-        }
-
-        // 无信号管道：没有其他等待源需要服务，可以阻塞读 vt_in。
-        const auto old_total = _read_total;
-        switch (read_blocking_vt_input())
-        {
-        case vt_read_status::bytes:
-            process_new_vt_input(old_total);
-            return;
-        case vt_read_status::empty:
-            return;
-        case vt_read_status::eof:
-            complete_pending_with_eof();
-            return;
-        case vt_read_status::full:
-            complete_pending();
-            return;
-        default:
-            std::unreachable();
-        }
-    }
-
-    // ── on_idle ──
-    // 没有 ConDrv 消息时推进终端输入。它负责支持 GetConsoleInput(PEEK) 这种
-    // 不挂起 ReadConsole 的输入模型，同时检测终端关闭。
-    void on_idle()
-    {
-        if (_pending.vt_eof())
-            return;
-
-        // 信号管道可能承载 resize/clear 消息，也可能在断开时标记会话结束。
-        // 轮询先于 vt_in，让尺寸变化在同一轮 idle 内生效。
-        if (poll_signal_closed())
-        {
-            LOG3("[bridge] on_idle: signal pipe closed, marking EOF");
-            _pending.set_vt_eof(true);
-            if (_pending.has_pending())
-                complete_pending();
-            return;
-        }
-
-        // 即使没有 pending ReadConsole，也要轮询 vt_in。PowerShell/PSReadLine
-        // 常用 GetConsoleInput(PEEK) 驱动输入；如果只在 ReadConsole pending
-        // 时读 vt_in，键盘事件和终端断开都会被饿死。
-        DWORD avail = 0;
-        if (!peek_vt_input(avail))
-        {
-            _pending.set_vt_eof(true);
-            if (_pending.has_pending())
-                complete_pending();
-            return;
-        }
-
-        if (avail == 0)
-        {
-            // PeekNamedPipe 的 0 字节只是“暂时没输入”。信号管道关闭已由
-            // 上方的 poll 处理，这里不需要额外动作。
-            return;
-        }
-
-        LOG3("[bridge] on_idle: avail=%lu kind=%d total=%lu", avail, static_cast<int>(_pending.kind()), _read_total);
         if (!_pending.has_pending())
         {
-            // edit/PSReadLine 这类程序会先等待 InputAvailableEvent，再调用
-            // GetConsoleInput。idle 不能只保存 VT 字节；必须立即解析为
-            // INPUT_RECORD 并写入 input_buffer，才能唤醒等待 stdin 的客户端。
-            drain_available_vt_input();
-            return;
+            if (_queued_console_inputs.empty())
+                return true;
+            _pending.begin_console_input(_queued_console_inputs.front());
         }
 
-        if (accumulate_from_pipe())
-            return;
+        if (_pending.vt_eof())
+        {
+            complete_pending();
+            return !_pending.has_pending();
+        }
+
+        if (_pending.kind() == PendingKind::ConsoleInput)
+        {
+            if (inp.available() > 0)
+                complete_pending_console_input();
+            return !_pending.has_pending();
+        }
+
+        // ReadConsole 的 initial data 已在 handler 中复制到 _readbuf，但尚未解析。
+        if (_pending.kind() == PendingKind::ConsoleRead && _read_total != 0)
+        {
+            process_new_vt_input(0);
+            if (!_pending.has_pending())
+                return true;
+        }
+
+        // 上一批输入未消费的尾部。
+        while (_pending.has_pending() && !_queued_vt_input.empty())
+        {
+            const auto limit = static_cast<DWORD>(input_read_limit());
+            if (_read_total >= limit)
+            {
+                complete_pending();
+                break;
+            }
+            const DWORD old_total = _read_total;
+            consume_queued_vt_input(limit - _read_total);
+            process_new_vt_input(old_total);
+        }
+
+        if (_pending.kind() == PendingKind::ConsoleRead && _pending.has_pending())
+            (void)consume_input_buffer_for_console_read();
+
+        return !_pending.has_pending();
     }
 
     // 取消当前挂起读取并立即完成给 ConDrv。Flush/Disconnect 类路径用它把
@@ -1368,7 +1357,7 @@ struct pipe_bridge
         else
         {
             auto *s = reinterpret_cast<const char *>(data);
-            const auto cp = cstate.output_code_page ? cstate.output_code_page : CP_ACP;
+            const auto cp = cstate.output_code_page;
             if (cp == CP_UTF8)
             {
                 vt_append_str(std::string_view{s, bytes});
@@ -2030,24 +2019,6 @@ struct pipe_bridge
         return true;
     }
 
-    // 在没有 pending 请求时读取当前可用 vt_in 字节并追加到 _queued_vt_input。
-    // 后续 GetConsoleInput/ReadConsole 会从该队列先消费，避免丢失提前到达的输入。
-    bool queue_available_vt_input() noexcept
-    {
-        DWORD read = 0;
-        auto result = _io.read_available(std::span{_readbuf}, read);
-        if (result == vt_pipe_read_status::bytes)
-        {
-            _queued_vt_input.insert(_queued_vt_input.end(), _readbuf.data(), _readbuf.data() + read);
-            LOG3("[bridge] queue_available_vt_input: read=%lu total=%zu", read, _queued_vt_input.size());
-            return true;
-        }
-
-        if (result == vt_pipe_read_status::eof)
-            _pending.set_vt_eof(true);
-        return false;
-    }
-
     // 把当前输入批次中 consumed 之后的字节放回队首。行终止符完成 pending 后，
     // 同一 ReadFile 批次里的下一行输入必须留给下一次请求。
     void queue_unprocessed_vt_input(const char8_t *bytes, DWORD consumed, DWORD len) noexcept
@@ -2094,52 +2065,61 @@ struct pipe_bridge
             vt_append_char(static_cast<char>(b));
     }
 
-    // ── accumulate_from_pipe: 缓冲后统一走 process_input 解析 ──
-    // 返回 true 表示已发现行终止符并完成 pending（调用方应 return）
-    bool accumulate_from_pipe()
-    {
-        // 连续 drain 当前可用输入，直到无数据、完成 pending 或 EOF。这样一次
-        // ConDrv 请求可以同步消化已经在管道里的整行输入。
-        for (;;)
-        {
-            const auto old_total = _read_total;
-            switch (read_available_vt_input())
-            {
-            case vt_read_status::bytes:
-                break;
-            case vt_read_status::empty:
-                return false;
-            case vt_read_status::eof:
-                _pending.set_vt_eof(true);
-                complete_pending();
-                return true;
-            case vt_read_status::full:
-                LOG3("[bridge] accumulate: buffer full");
-                complete_pending();
-                return true;
-            default:
-                std::unreachable();
-            }
-
-            // process_input 在解码/解析同一遍里检测 \r/\n/Ctrl+Z，并直接完成
-            // 当前 pending 读取。
-            _line_found = false;
-            process_input(_readbuf.data() + old_total, _read_total - old_total);
-            // 批量 echo 后必须在本批输入结束时刷新，否则普通打字会滞留在 VT 输出缓冲，
-            // 直到后续控制序列/应用输出/缓冲满才显示，表现为终端输入卡顿。
-            vt_flush();
-
-            if (_line_found)
-                return true;
-        }
-    }
-
     // 处理终端 Win32 Input Mode 产生的键盘事件。ConsoleRead 使用事件驱动
     // cooked 行编辑；其他模式把事件写入 input_buffer。返回 true 表示事件
     // 已完成当前 pending，调用者应停止处理本批剩余字节。
     bool process_input_win32_key(PendingKind pending_kind, const vt_message &m, DWORD i, DWORD len,
                                  const char8_t *bytes)
     {
+        // 与系统宿主的已知差异（差分 G24，只记录不比较）：
+        // ConPTY 下，挂起中的 raw ReadFile / ReadConsoleInput 收到 Ctrl+C 时，
+        // 系统 conhost 不会让读返回——探针打印 READY 后 ReadFile 永不完成、
+        // 进程不退出；corehost 按 raw/record 读的实际行为实现，
+        // TerminateRead(CtrlC) 语义，以 STATUS_ALERTED 结束，客户端看到
+        // 0 字节 / 0 条记录。
+        // 复现：tests/test_conpty_differential.cpp 的 raw_ctrl / input_ctrl
+        // 场景（console_probe --raw-read-probe / --input-record-probe 挂起后
+        // 收到 Win32Input 的 Ctrl+C 序列）。挂起永不返回比返回 0 字节更差，
+        // 因此不把 conhost 的行为固化成 corehost 的测试期望。
+
+        // Ctrl+C / Ctrl+Break：与系统宿主的行为对齐——
+        //   Ctrl+C（processed input、无 Alt）：投递 CTRL_C_EVENT，并以
+        //     STATUS_ALERTED 结束等待中的读；不清空输入缓冲。
+        //   Ctrl+Break（不看 processed input）：先清空输入缓冲，再投递
+        //     CTRL_BREAK_EVENT，同样以 STATUS_ALERTED 结束读。
+        // 两者都不把按键写进 input_buffer。
+        if (m.payload.win32_key.key_down &&
+            (m.payload.win32_key.control_state & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0 &&
+            (m.payload.win32_key.control_state & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) == 0)
+        {
+            const bool processed = (cstate.input_mode & ENABLE_PROCESSED_INPUT) != 0;
+            if (m.payload.win32_key.vk == 'C' && processed)
+            {
+                send_ctrl_event(CTRL_C_EVENT, 0);
+                complete_pending(condrv_io::status_alerted);
+                return false;
+            }
+
+            if (m.payload.win32_key.vk == VK_CANCEL)
+            {
+                // conhost 只在 Break 时清空输入缓冲（Ctrl+C 不清）。
+                inp.flush();
+                send_ctrl_event(CTRL_BREAK_EVENT, 0);
+                complete_pending(condrv_io::status_alerted);
+                return false;
+            }
+        }
+
+        // 系统宿主不把 Ctrl+Esc / Alt+Esc 写进输入缓冲
+        // （它们属于系统快捷键）。这里同样吞掉，避免应用读到本不该出现的键。
+        if (m.payload.win32_key.key_down)
+        {
+            const bool ctrl = (m.payload.win32_key.control_state & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0;
+            const bool alt = (m.payload.win32_key.control_state & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) != 0;
+            if ((ctrl || alt) && m.payload.win32_key.vk == VK_ESCAPE)
+                return false;
+        }
+
         if (pending_kind == PendingKind::ConsoleRead)
         {
             // ConsoleRead 自己做本地行编辑，只处理 KEY_DOWN；KEY_UP 不应
@@ -2374,6 +2354,7 @@ struct pipe_bridge
         auto &active_screen = active_screen_buffer();
         active_screen.viewport.reset_to_buffer(cstate.screen_buffer_size);
         active_screen.resize(new_size);
+        queue_window_buffer_size_event();
 
         vt_flush();
         vt_append_str("\x1b[8;"sv);
@@ -2428,6 +2409,146 @@ struct pipe_bridge
             _write_char_key_event(ch, static_cast<BYTE>(ch & 0xFF));
     }
 
+    // SGR 1006 鼠标 → MOUSE_EVENT。非 VT 输入模式下按控制台鼠标记录合成；
+    // VT 输入模式或 RAW_READ 下应用要的是原始字节，直接透传/留给 completion。
+    void process_input_mouse(PendingKind pending_kind, const vt_message &m, std::u32string_view raw) noexcept
+    {
+        if (pending_kind == PendingKind::RawRead)
+            return;
+
+        if ((cstate.input_mode & ENABLE_VIRTUAL_TERMINAL_INPUT) != 0)
+        {
+            emit_raw_sequence_as_input(raw);
+            return;
+        }
+
+        const auto &mouse = m.payload.mouse;
+        const unsigned encoding = mouse.encoding;
+        const bool wheel = (encoding & 64) != 0;
+        const bool motion = (encoding & 32) != 0;
+        const unsigned base = encoding & 3;
+
+        DWORD button_state = 0;
+        DWORD event_flags = 0;
+        if (wheel)
+        {
+            // 滚轮：高字是带符号的 WHEEL_DELTA；横向滚轮单独一个 flag。
+            const bool horizontal = base >= 2;
+            event_flags = horizontal ? MOUSE_HWHEELED : MOUSE_WHEELED;
+            const short delta = (base == 0 || base == 2) ? WHEEL_DELTA : -WHEEL_DELTA;
+            button_state = _mouse_button_state | (static_cast<DWORD>(static_cast<unsigned short>(delta)) << 16);
+        }
+        else if (mouse.release || base == 3)
+        {
+            _mouse_button_state = 0;
+        }
+        else if (!motion)
+        {
+            switch (base)
+            {
+            case 0:
+                _mouse_button_state = FROM_LEFT_1ST_BUTTON_PRESSED;
+                break;
+            case 1:
+                _mouse_button_state = FROM_LEFT_2ND_BUTTON_PRESSED;
+                break;
+            case 2:
+                _mouse_button_state = RIGHTMOST_BUTTON_PRESSED;
+                break;
+            default:
+                break;
+            }
+            button_state = _mouse_button_state;
+        }
+        else
+        {
+            // 移动（hover/drag）：保留当前按下的键，只置 MOUSE_MOVED。
+            event_flags |= MOUSE_MOVED;
+            button_state = _mouse_button_state;
+        }
+
+        DWORD control_state = 0;
+        if ((encoding & 4) != 0)
+            control_state |= SHIFT_PRESSED;
+        if ((encoding & 8) != 0)
+            control_state |= LEFT_ALT_PRESSED;
+        if ((encoding & 16) != 0)
+            control_state |= LEFT_CTRL_PRESSED;
+
+        INPUT_RECORD record{};
+        record.EventType = MOUSE_EVENT;
+        record.Event.MouseEvent.dwMousePosition = COORD{mouse.x, mouse.y};
+        record.Event.MouseEvent.dwButtonState = button_state;
+        record.Event.MouseEvent.dwControlKeyState = control_state;
+        record.Event.MouseEvent.dwEventFlags = event_flags;
+        const size_t written = inp.write(&record, 1);
+        if (written != 1)
+            LOG("bridge: MOUSE_EVENT dropped (input buffer full)");
+
+        if (_pending.kind() == PendingKind::ConsoleInput)
+            complete_pending_console_input();
+    }
+
+    // 解析器会解码成虚拟键的那些按键：方向键、Home/End、编辑键、功能键、
+    // Backspace/Esc 等。它们的原文序列保存在 parsed.raw_sequence。
+    static constexpr bool is_decoded_key(vt_message_id id) noexcept
+    {
+        switch (id)
+        {
+        case vt_message_id::cursor_up:
+        case vt_message_id::cursor_down:
+        case vt_message_id::cursor_forward:
+        case vt_message_id::cursor_backward:
+        case vt_message_id::cursor_next_line:
+        case vt_message_id::cursor_prev_line:
+        case vt_message_id::cursor_position:
+        case vt_message_id::cursor_vert_absolute:
+        case vt_message_id::cursor_horiz_absolute:
+        case vt_message_id::key_up:
+        case vt_message_id::key_down:
+        case vt_message_id::key_right:
+        case vt_message_id::key_left:
+        case vt_message_id::key_home:
+        case vt_message_id::key_end:
+        case vt_message_id::key_insert:
+        case vt_message_id::key_delete:
+        case vt_message_id::key_page_up:
+        case vt_message_id::key_page_down:
+        case vt_message_id::key_f1:
+        case vt_message_id::key_f2:
+        case vt_message_id::key_f3:
+        case vt_message_id::key_f4:
+        case vt_message_id::key_f5:
+        case vt_message_id::key_f6:
+        case vt_message_id::key_f7:
+        case vt_message_id::key_f8:
+        case vt_message_id::key_f9:
+        case vt_message_id::key_f10:
+        case vt_message_id::key_f11:
+        case vt_message_id::key_f12:
+        case vt_message_id::key_ctrl_up:
+        case vt_message_id::key_ctrl_down:
+        case vt_message_id::key_ctrl_right:
+        case vt_message_id::key_ctrl_left:
+        case vt_message_id::char_del:
+        case vt_message_id::char_sub:
+        case vt_message_id::char_esc:
+        case vt_message_id::char_nul:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // 启用 ENABLE_VIRTUAL_TERMINAL_INPUT 的程序（如 Windows OpenSSH 的 ssh.exe）
+    // 期望拿到终端原始字符，而不是解码后的键：ssh.exe 只转发 uChar，解码后
+    // Backspace 会变成 ^H，方向键/功能键的 uChar 是 0，远端完全收不到。
+    [[nodiscard]] bool vt_input_passthrough(PendingKind pending_kind) const noexcept
+    {
+        return (cstate.input_mode & ENABLE_VIRTUAL_TERMINAL_INPUT) != 0 && pending_kind != PendingKind::ConsoleRead &&
+               pending_kind != PendingKind::RawRead;
+    }
+
     // ── process_input: 解码 → 解析 → echo → 分发 ──
     // 在同一遍输入处理中检测 \r/\n/Ctrl+Z 并设置 _line_found。
     void process_input(const char8_t *bytes, DWORD len)
@@ -2439,6 +2560,12 @@ struct pipe_bridge
         for (DWORD i = 0; i != len; ++i)
         {
             char8_t b = bytes[i];
+            if (_swallow_lf_after_cr)
+            {
+                _swallow_lf_after_cr = false;
+                if (b == static_cast<char8_t>('\n'))
+                    continue; // 属于上一条 CRLF，不再作为新的行终止
+            }
             echo_raw_read_text_byte(b);
 
             // ── Ctrl+Z 即时检测 ──
@@ -2493,6 +2620,15 @@ struct pipe_bridge
                  id == vt_message_id::cursor_forward_tab) &&
                 pending_kind == PendingKind::ConsoleRead)
                 _echo_byte(b);
+
+            if (is_decoded_key(id) && vt_input_passthrough(pending_kind))
+            {
+                // 单个控制字符（DEL/BS/SUB）没有 ESC 序列，按自身字节发送。
+                emit_raw_sequence_as_input(parsed.raw_sequence.empty() ? std::u32string_view{&ch, 1}
+                                                                       : parsed.raw_sequence);
+                _input_parser.reset();
+                continue;
+            }
 
             const auto &msg = parsed.message;
             switch (id)
@@ -2589,6 +2725,12 @@ struct pipe_bridge
             case vt_message_id::cpr_response: {
                 if (!process_input_cpr_response(msg))
                     emit_raw_sequence_as_input(parsed.raw_sequence);
+                _input_parser.reset();
+                break;
+            }
+            // SGR 1006 鼠标：非 VT 输入模式合成 MOUSE_EVENT，VT 模式透传原文。
+            case vt_message_id::mouse_sgr: {
+                process_input_mouse(pending_kind, msg, parsed.raw_sequence);
                 _input_parser.reset();
                 break;
             }
@@ -2780,15 +2922,10 @@ struct pipe_bridge
             }
             else if (i + 1 == len)
             {
-                // CR 位于本批次末尾时，LF 可能已经在管道中但尚未读入。只在
-                // 下一个字节确认为 LF 时消费它，避免吞掉下一行首字符。
-                char8_t nb = {};
-                if (_io.try_consume_byte(static_cast<char8_t>('\n'), nb))
-                {
-                    if (_read_total < _readbuf.size())
-                        _readbuf[_read_total++] = nb;
-                    has_lf = true;
-                }
+                // CR 位于本批次末尾时，LF 可能已经在管道中但尚未读入。这里只
+                // 记录"下一批次的首个 LF 属于同一条 CRLF"，不 Peek 管道：输入
+                // 线程是唯一读者，批间归属由状态决定。
+                _swallow_lf_after_cr = true;
             }
         }
 
@@ -2797,8 +2934,14 @@ struct pipe_bridge
 
     // 为 pending RAW_READ 构造 completion。它返回 _readbuf 中的原始字节，
     // 并在容量允许时把单独 CR/LF 规范化为 ConDrv 期望的 CRLF。
-    void prepare_raw_read_completion(condrv_io::io_msg &m) noexcept
+    void prepare_raw_read_completion(condrv_io::io_msg &m, LONG status = 0) noexcept
     {
+        if (status != 0)
+        {
+            // Ctrl+C / Ctrl+Break：以 STATUS_ALERTED 结束，不返回任何字节。
+            condrv_io::prepare_completion(m, status, 0, nullptr, 0);
+            return;
+        }
         // RawRead 返回 _readbuf 原始字节；它不使用 cooked line 编辑结果。
         auto capacity = static_cast<DWORD>(raw_read_capacity(m));
         DWORD data_bytes = std::min(_read_total, capacity);
@@ -2838,16 +2981,25 @@ struct pipe_bridge
 
     // 为 pending ReadConsole 构造 completion。函数把 _cooked_buf 转成调用者
     // 请求的 Unicode/ANSI 格式，并追加 CRLF；不会清理 pending 状态。
-    void prepare_console_read_completion(condrv_io::io_msg &m) noexcept
+    void prepare_console_read_completion(condrv_io::io_msg &m, LONG status = 0) noexcept
     {
         auto *req = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(m.body + sizeof(CONSOLE_MSG_HEADER));
         req->ControlKeyState = 0;
+
+        if (status != 0)
+        {
+            // Ctrl+C / Ctrl+Break：0 字节 + STATUS_ALERTED（conhost 同款语义）。
+            req->NumBytes = 0;
+            auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
+            condrv_io::prepare_completion(m, status, 0, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
+            return;
+        }
 
         if (_pending.vt_eof() && _cooked_buf.empty() && _read_total == 0)
         {
             req->NumBytes = 0;
             auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG));
-            condrv_io::prepare_completion(m, 0, sz, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
+            condrv_io::prepare_completion(m, 0, 0, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
             return;
         }
 
@@ -2886,24 +3038,26 @@ struct pipe_bridge
             cp = static_cast<DWORD>(written);
         }
         req->NumBytes = cp;
-        auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG) + cp);
-        condrv_io::prepare_completion(m, 0, sz, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
+        // ReadConsole 的 Information 是文本字节数
+        // SetReplyInformation(a->NumBytes)）；Write.Size 覆盖 struct+文本。
+        const auto sz = static_cast<ULONG>(sizeof(CONSOLE_READCONSOLE_MSG) + cp);
+        condrv_io::prepare_completion(m, 0, cp, m.body + sizeof(CONSOLE_MSG_HEADER), sz);
     }
 
     // ── complete_pending ──────────────────────────────
-    void complete_pending()
+    void complete_pending(LONG status = 0)
     {
         // complete_pending 是所有挂起读的唯一出口。它先构造 CD_IO_COMPLETE
         // 的副本，再清空 pending 状态，最后显式通知 ConDrv。
-        LOG3(L"[bridge] complete_pending: kind=%d total=%lu cooked_len=%zu vt_eof=%d cooked=[%.*ls]",
-             static_cast<int>(_pending.kind()), _read_total, _cooked_buf.size(), _pending.vt_eof(),
+        LOG3(L"[bridge] complete_pending: kind=%d total=%lu cooked_len=%zu vt_eof=%d status=0x%08lx cooked=[%.*ls]",
+             static_cast<int>(_pending.kind()), _read_total, _cooked_buf.size(), _pending.vt_eof(), status,
              static_cast<int>(_cooked_buf.size() < 200 ? _cooked_buf.size() : 200), _cooked_buf.data());
         if (!_pending.has_pending())
             return;
 
         if (_pending.kind() == PendingKind::ConsoleInput)
         {
-            complete_pending_console_input();
+            complete_pending_console_input(status);
             return;
         }
 
@@ -2912,7 +3066,7 @@ struct pipe_bridge
         if (_pending.kind() == PendingKind::RawRead && _pending.raw_read())
         {
             auto &m = *_pending.raw_read();
-            prepare_raw_read_completion(m);
+            prepare_raw_read_completion(m, status);
             comp_before = m.complete;
             comp_ptr = &comp_before;
         }
@@ -2921,7 +3075,7 @@ struct pipe_bridge
             auto &m = *_pending.console_read();
             // ConsoleRead 返回行编辑后的文本，而不是原始 VT 字节；退格、历史、
             // alias 等本地编辑结果都已经体现在 _cooked_buf 中。
-            prepare_console_read_completion(m);
+            prepare_console_read_completion(m, status);
             comp_before = m.complete;
             comp_ptr = &comp_before;
         }
@@ -2929,7 +3083,9 @@ struct pipe_bridge
         _pending.clear();
         _read_total = 0;
 
-        history_push();
+        // Ctrl+C / Ctrl+Break 结束的读不进入命令历史（conhost 只在正常提交时记录）。
+        if (status == 0)
+            history_push();
 
         // completion 后所有行编辑临时状态失效；下一次 ReadConsole 重新从当前
         // cursor 和 prompt 边界建立编辑上下文。
@@ -2953,7 +3109,7 @@ struct pipe_bridge
         if (comp_ptr && _io.can_complete())
         {
             // 挂起请求已经从原始 READ_IO 返回 false，必须额外发送
-            // CD_IO_COMPLETE；同步完成的请求则由 io_loop 直接带回。
+            // CD_IO_COMPLETE；同步完成的请求则由 message_router 直接带回。
             LOG3("[bridge] complete_pending: sending CD_IO_COMPLETE");
             _io.complete(*comp_ptr);
         }
@@ -2961,10 +3117,33 @@ struct pipe_bridge
 
     // 完成 pending GetConsoleInput。它按原请求的 PEEK/READ 标志重新从
     // input_buffer 取记录，构造 CD_IO_COMPLETE 后清除 pending。
-    void complete_pending_console_input()
+    void complete_pending_console_input(LONG status = 0)
     {
         if (_pending.kind() != PendingKind::ConsoleInput || !_pending.console_input())
             return;
+
+        const bool from_queue =
+            !_queued_console_inputs.empty() && _pending.console_input() == &_queued_console_inputs.front();
+
+        if (status != 0)
+        {
+            // Ctrl+C / Ctrl+Break：0 条记录 + STATUS_ALERTED。
+            auto &pending_msg = *_pending.console_input();
+            _console_input_output_buffer.resize(sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+            auto *out_req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(_console_input_output_buffer.data());
+            *out_req = *reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(pending_msg.body + sizeof(CONSOLE_MSG_HEADER));
+            out_req->NumRecords = 0;
+            condrv_io::prepare_completion(pending_msg, status, 0, _console_input_output_buffer.data(),
+                                          sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+            auto comp = pending_msg.complete;
+            _pending.clear();
+            _read_total = 0;
+            if (from_queue)
+                _queued_console_inputs.pop_front();
+            if (_io.can_complete())
+                _io.complete(comp);
+            return;
+        }
 
         // ConsoleInput pending 只等待 input_buffer 出现记录。completion 使用
         // 当前请求的 PEEK/READ 标志重新取数，避免 pending 期间写入多条记录时
@@ -2978,11 +3157,14 @@ struct pipe_bridge
             auto *out_req = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(_console_input_output_buffer.data());
             *out_req = *req;
             out_req->NumRecords = 0;
-            condrv_io::prepare_completion(m, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG),
-                                          _console_input_output_buffer.data(), sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+            condrv_io::prepare_completion(m, 0, 0, _console_input_output_buffer.data(),
+                                          sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
 
             auto comp = m.complete;
             _pending.clear();
+            _read_total = 0;
+            if (from_queue)
+                _queued_console_inputs.pop_front();
 
             if (_io.can_complete())
                 _io.complete(comp);
@@ -2993,6 +3175,9 @@ struct pipe_bridge
 
         auto comp = m.complete;
         _pending.clear();
+        _read_total = 0;
+        if (from_queue)
+            _queued_console_inputs.pop_front();
 
         if (_io.can_complete())
             _io.complete(comp);

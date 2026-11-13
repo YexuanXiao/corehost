@@ -624,12 +624,50 @@ bool test_all_supported_sequences_parse_from_one_byte_steps()
     return true;
 }
 
+// SGR 1006 鼠标：ESC [ < b ; x ; y M/m 应解析成 mouse_sgr，坐标转 0-based。
+bool test_sgr_mouse_sequence()
+{
+    raw_u32_buffer raw;
+    vt_parser parser{raw};
+    const std::u32string_view sequence = U"\x1b[<0;10;20M";
+    vt_parse_result last{};
+    for (const char32_t ch : sequence)
+    {
+        last = parser.parse({&ch, 1});
+        if (!corehost::conpty::test::is_parse_continue(last))
+            break;
+    }
+    ASSERT(last.id == vt_message_id::mouse_sgr);
+    ASSERT_EQ(last.message.payload.mouse.encoding, 0);
+    ASSERT_EQ(last.message.payload.mouse.x, 9);
+    ASSERT_EQ(last.message.payload.mouse.y, 19);
+    ASSERT(!last.message.payload.mouse.release);
+
+    // 松开（'m'）与滚轮编码。
+    raw_u32_buffer release_raw;
+    vt_parser release_parser{release_raw};
+    const std::u32string_view release = U"\x1b[<64;3;4m";
+    for (const char32_t ch : release)
+    {
+        last = release_parser.parse({&ch, 1});
+        if (!corehost::conpty::test::is_parse_continue(last))
+            break;
+    }
+    ASSERT(last.id == vt_message_id::mouse_sgr);
+    ASSERT_EQ(last.message.payload.mouse.encoding, 64);
+    ASSERT_EQ(last.message.payload.mouse.x, 2);
+    ASSERT_EQ(last.message.payload.mouse.y, 3);
+    ASSERT(last.message.payload.mouse.release);
+    return true;
+}
+
 int main()
 {
     utility::suppress_crt_error_dialogs();
     std::wcout << L"VT Parser Tests (vt_parse_result API)\n";
 
     RUN_TEST(test_ground_text_range, L"Ground text range");
+    RUN_TEST(test_sgr_mouse_sequence, L"SGR mouse sequence");
     RUN_TEST(test_ground_text_stops_before_control, L"Ground text stops before control");
     RUN_TEST(test_ground_controls, L"Ground controls");
     RUN_TEST(test_esc_sequences, L"ESC and charset sequences");

@@ -27,6 +27,34 @@ namespace corehost::conpty
 inline constexpr DWORD DEFAULT_INPUT_MODE =
     ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_MOUSE_INPUT;
 inline constexpr DWORD DEFAULT_OUTPUT_MODE = ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT;
+// 普通控制台窗口在创建屏幕缓冲区时读 HKCU\Console\VirtualTerminalLevel：
+// 非 0 时默认打开 ENABLE_VIRTUAL_TERMINAL_PROCESSING。这里拆成"纯映射"和
+// "注册表读取"两步：映射可单测，注册表只在会话初始化时读一次。
+inline DWORD output_mode_for_virtual_terminal_level(DWORD level) noexcept
+{
+    return level != 0 ? (DEFAULT_OUTPUT_MODE | ENABLE_VIRTUAL_TERMINAL_PROCESSING) : DEFAULT_OUTPUT_MODE;
+}
+
+// VirtualTerminalLevel 决策：普通控制台窗口读注册表；ConPTY 模式强制
+// level=1，忽略注册表。corehost 只服务 ConPTY，但保留 registry_level 参数
+// 是为了把决策写清楚，也便于处理非 ConPTY 入口与单测。
+inline DWORD effective_virtual_terminal_level(DWORD registry_level, bool conpty_mode) noexcept
+{
+    return conpty_mode ? 1u : registry_level;
+}
+
+// 读 HKCU\Console\VirtualTerminalLevel；缺失/类型不符/读取失败按 conhost 的默认
+// 值 0 处理（即不打开 VT processing）。
+inline DWORD read_virtual_terminal_level() noexcept
+{
+    DWORD value = 0;
+    DWORD size = sizeof(value);
+    DWORD type = 0;
+    if (::RegGetValueW(HKEY_CURRENT_USER, L"Console", L"VirtualTerminalLevel", RRF_RT_REG_DWORD, &type, &value,
+                       &size) != ERROR_SUCCESS)
+        return 0;
+    return value;
+}
 
 struct ascii_case_insensitive_less
 {
@@ -155,6 +183,9 @@ struct console_state
     // ── 模式 ──
     // 取值为 ENABLE_* 标志位组合；输入/输出的默认集合与原版不同对象一致。
     DWORD input_mode = DEFAULT_INPUT_MODE;
+    // GetConsoleMode 回读时补上的私有标志（默认与 conhost 一致：INSERT 开、
+    // QUICK_EDIT 开、AUTO_POSITION 关；EXTENDED_FLAGS 在回读时总是置位）。
+    DWORD input_mode_private = ENABLE_INSERT_MODE | ENABLE_QUICK_EDIT_MODE | ENABLE_AUTO_POSITION;
     DWORD output_mode = DEFAULT_OUTPUT_MODE;
 
     // ── 代码页 ──
@@ -176,6 +207,11 @@ struct console_state
     std::array<COLORREF, 16> color_table{};
 
     // ── 标题 (char32_t 内部存储) ──
+    // 伪窗口句柄（GetConsoleWindow 返回值）。由会话在窗口创建后写入，
+    // 之后只读。
+    HWND window_handle = nullptr;
+    // Ctrl+C / Ctrl+Break 的投递目标（CONNECT 的 ProcessGroupId）。
+
     std::u32string title;
     // original_title 为空表示尚未捕获初始标题。
     std::u32string original_title;

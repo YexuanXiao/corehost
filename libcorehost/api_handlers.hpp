@@ -6,8 +6,10 @@
 #include <algorithm>
 #include <cstring>
 #include <cwctype>
+#include <cwchar>
 #include <array>
 #include <iterator>
+#include "pseudo_window.hpp"
 #include <numeric>
 #include <vector>
 #include "condrv_io.hpp"
@@ -179,11 +181,6 @@ inline bool is_line_terminator_echo(std::u32string_view text) noexcept
 {
     // PowerShell 在 Enter 后可能补写纯换行 echo；这类文本不应再次显示。
     return text == U"\r"sv || text == U"\n"sv || text == U"\r\n"sv;
-}
-
-inline bool is_printable_ascii_text(std::u32string_view text) noexcept
-{
-    return std::ranges::all_of(text, [](char32_t ch) { return ch >= U' ' && ch < U'\x7f'; });
 }
 
 // 判断当前 viewport 是否覆盖整个 screen_buffer。覆盖时清屏/滚动可以用更
@@ -1104,6 +1101,10 @@ inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parse
     case vt_message_id::char_nul:
         consume_write_console_vt_message<vt_message_id::char_nul>(parser, parsed, state, sb, bridge, emit_vt);
         break;
+    case vt_message_id::mouse_sgr:
+        // SGR 鼠标只属于输入方向，输出parser不应产生该消息。
+        std::unreachable();
+        break;
     }
 }
 
@@ -1124,6 +1125,29 @@ inline void ucomplete_sz(condrv_io::io_msg &msg, ULONG sz) noexcept
 }
 
 // ════════════════════════════════════════════════════════
+// 完成一个返回 "API struct + 数据区" 的 USER_DEFINED API。
+//
+// ConDrv 客户端把 Information 当成**数据区字节数**（conhost 的
+// ServerReadConsoleOutputString / ServerReadConsoleOutput 用
+// SetReplyInformation(cbBuffer) 回报数据区容量，且 Complete.Write.Size 只含
+// API struct）。corehost 的完成是单 region（Write.Data 指向 body+header），
+// 因此：Write.Size = struct + 数据区，Information = 数据区。
+inline void ucomplete_data(condrv_io::io_msg &msg, size_t api_size, size_t data_bytes) noexcept
+{
+    condrv_io::prepare_completion(msg, 0, static_cast<ULONG_PTR>(data_bytes), msg.body + sizeof(CONSOLE_MSG_HEADER),
+                                  static_cast<ULONG>(api_size + data_bytes));
+}
+
+// 计算 completion 可直接使用的数据区容量（不含 API struct）：受客户端
+// OutputSize 和本地 body 余量双重约束。OutputSize 为 0 表示没有输出缓冲。
+inline size_t message_output_data_capacity(const condrv_io::io_msg &msg, size_t api_size) noexcept
+{
+    const auto local = sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - api_size;
+    if (msg.descriptor.OutputSize <= api_size)
+        return 0;
+    return std::min<size_t>(msg.descriptor.OutputSize - api_size, local);
+}
+
 // L1 API handlers
 // ════════════════════════════════════════════════════════
 
@@ -1142,7 +1166,11 @@ inline bool api_get_mode(condrv_io::io_msg &msg, console_state &state, screen_bu
                          bool input_handle) noexcept
 {
     auto *r = reinterpret_cast<CONSOLE_MODE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    r->Mode = input_handle ? state.input_mode : state.output_mode;
+    // GetConsoleMode 在输入句柄上补私有标志：EXTENDED_FLAGS 总是置位，
+    // INSERT/QUICK_EDIT/AUTO_POSITION 来自控制台内部状态。
+
+    r->Mode = input_handle ? (state.input_mode | ENABLE_EXTENDED_FLAGS | state.input_mode_private) : state.output_mode;
+    LOG("api_get_mode: input=%d mode=0x%08X", input_handle ? 1 : 0, static_cast<unsigned>(r->Mode));
     ucomplete_sz(msg, sizeof(CONSOLE_MODE_MSG));
     return true;
 }
@@ -1157,11 +1185,17 @@ inline bool api_set_mode(condrv_io::io_msg &msg, console_state &state, screen_bu
     {
         const auto requested_mode = r->Mode;
         state.input_mode = requested_mode & ~private_input_modes;
+        // 私有标志的更新规则：带
+        // ENABLE_EXTENDED_FLAGS 才允许整体替换，否则只能置位。
+        if ((requested_mode & ENABLE_EXTENDED_FLAGS) != 0)
+            state.input_mode_private = requested_mode & private_input_modes;
+        else
+            state.input_mode_private |= requested_mode & private_input_modes;
 
-        // 原版为了兼容会先保存模式，再返回 E_INVALIDARG。PSReadLine 依赖
-        // “ECHO 开启但 LINE 关闭”这种无效组合仍然影响后续 Ctrl+C 行为。
-        if ((requested_mode & ~(valid_input_modes | private_input_modes)) != 0 ||
-            ((requested_mode & ENABLE_ECHO_INPUT) != 0 && (requested_mode & ENABLE_LINE_INPUT) == 0))
+        // PowerShell 7.7 / PSReadLine 会先设置“ECHO 开启但 LINE 关闭”的
+        // 组合；这里必须接受并保存，否则 Console.ReadKey 会把输入误判为
+        // 已重定向并终止 PowerShell。未知位仍然拒绝。
+        if ((requested_mode & ~(valid_input_modes | private_input_modes)) != 0)
         {
             LOG2("[api_set_mode] input invalid req=0x%08X -> E_INVALIDARG", static_cast<unsigned>(requested_mode));
             condrv_io::prepare_completion(msg, status_invalid_parameter);
@@ -1191,7 +1225,6 @@ inline bool api_set_mode(condrv_io::io_msg &msg, console_state &state, screen_bu
 inline bool api_get_num_input(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &inp,
                               pipe_bridge &bridge)
 {
-    bridge.prepare_console_input_events();
     auto *r = reinterpret_cast<CONSOLE_GETNUMBEROFINPUTEVENTS_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->ReadyEvents = static_cast<DWORD>(inp.available());
     ucomplete_sz(msg, sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG));
@@ -1233,7 +1266,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
     if (bytes > 0)
     {
         auto &u32s = bridge.conv_u32();
-        const UINT output_code_page = state.output_code_page ? state.output_code_page : CP_ACP;
         {
             COREHOST_PERF_SCOPE_AMOUNT(write_console_convert, bytes);
             if (unicode)
@@ -1247,7 +1279,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             else
             {
                 // 非 Unicode 路径使用当前输出代码页；0 是未初始化兜底，退回系统 ACP。
-                convert_ansi_to_u32(reinterpret_cast<const char *>(data), bytes, output_code_page, u32s,
+                convert_ansi_to_u32(reinterpret_cast<const char *>(data), bytes, state.output_code_page, u32s,
                                     bridge.conv_wstr());
             }
         }
@@ -1255,10 +1287,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
         if (!u32s.empty())
         {
             COORD start_pos = state.cursor.position;
-            auto preview_len = static_cast<int>(std::min<size_t>(60, u32s.size()));
-            LOG2("[api_write_console] start: u32s_len=%zu sbytes=%lu start=(%d,%d) first=%.*ls", u32s.size(),
-                 static_cast<unsigned long>(bytes), static_cast<int>(start_pos.X), static_cast<int>(start_pos.Y),
-                 preview_len, reinterpret_cast<const wchar_t *>(u32s.data()));
 
             if (state.dec_line_drawing_mode)
             {
@@ -1270,10 +1298,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             }
 
             const bool replay_utf8_to_terminal =
-                !unicode && !emit_console_attributes && (output_code_page == CP_UTF8 || output_code_page == 65001);
-            LOG2("[api_write_console] unicode=%d emit_attrs=%d replay=%d codepage=%u default_attr=0x%04X", unicode,
-                 emit_console_attributes, replay_utf8_to_terminal, static_cast<unsigned>(output_code_page),
-                 static_cast<unsigned>(state.default_attributes));
+                !unicode && !emit_console_attributes && (state.output_code_page == CP_UTF8);
 
             vt_message m{};
 
@@ -1281,8 +1306,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             {
                 COREHOST_PERF_SCOPE(write_console_position);
                 bool need_cup = bridge.consume_enter_newline();
-                LOG2("[api_write_console] need_cup=%d state_start=(%d,%d)", need_cup, state.cursor.position.X,
-                     state.cursor.position.Y);
                 if (need_cup)
                 {
                     // 输入桥接已经本地回显 Enter。这里把应用输出起点移动到当时锁定
@@ -1299,7 +1322,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                         // 这条 completion 仍由调用者报告原始字节数已写入；这里只是
                         // 抑制终端输出，避免 Enter 后多出空行。
                         bridge.sync_cursor_after_write(state.cursor.position);
-                        LOG2("[api_write_console] swallowed enter echo newline");
                         return;
                     }
                 }
@@ -1311,8 +1333,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                     if (sb.viewport.snap_to_cursor(state.cursor.position, state.screen_buffer_size))
                         render_visible_viewport(state, sb, bridge);
                     const bool tc_match = bridge.terminal_cursor_matches_buffer(start_pos);
-                    LOG2("[api_write_console] tc_match=%d tc=(%d,%d) start=(%d,%d)", tc_match,
-                         bridge.terminal_cursor().X, bridge.terminal_cursor().Y, start_pos.X, start_pos.Y);
                     if (!tc_match)
                         bridge.vt_write_cup_buffer(start_pos);
                 }
@@ -1333,7 +1353,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                     // WriteConsole 会误判光标匹配而跳过定位，输出接在行尾。
                     bridge.vt_write_cup_buffer(state.cursor.position);
                     bridge.sync_cursor_after_write(state.cursor.position);
-                    LOG2("[api_write_console] swallowed enter echo newline");
                     return;
                 }
             }
@@ -1416,10 +1435,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
                 COREHOST_PERF_SCOPE(write_console_sync_cursor);
                 bridge.sync_cursor_after_write(state.cursor.position, !replay_utf8_to_terminal);
             }
-
-            LOG2("[api_write_console] done: u32s_len=%zu sbytes=%lu end_cursor=(%d,%d) synced", u32s.size(),
-                 static_cast<unsigned long>(bytes), static_cast<int>(state.cursor.position.X),
-                 static_cast<int>(state.cursor.position.Y));
         }
     }
 }
@@ -1455,7 +1470,7 @@ inline bool api_write_console(condrv_io::io_msg &msg, console_state &state, scre
 inline bool api_raw_write_console(condrv_io::io_msg &msg, console_state &state, screen_buffer &sb, input_buffer &,
                                   pipe_bridge &bridge)
 {
-    // 原版 IoSorter 把 CONSOLE_IO_RAW_WRITE 伪造成 WriteConsoleA，而不是把
+    // CONSOLE_IO_RAW_WRITE 按 WriteConsoleA 语义处理，而不是把
     // 客户端字节直接透传给终端。否则 WriteFile 写入的 OEM/ANSI 字节会被
     // 宿主终端当 UTF-8 显示，CJK live echo 会乱码。
     auto payload = bridge.read_input_payload(msg, 0);
@@ -1487,12 +1502,6 @@ inline bool api_read_console(condrv_io::io_msg &msg, console_state &state, scree
     const BYTE *init_data = nullptr;
     if (initial_bytes > 0)
     {
-        if (initial_bytes > message_output_tail_capacity(msg, sizeof(CONSOLE_READCONSOLE_MSG)))
-        {
-            condrv_io::prepare_completion(msg, status_invalid_parameter);
-            return true;
-        }
-
         // 原版只允许 ReadConsoleW 使用 InitialNumBytes。
         if (!req->Unicode)
         {
@@ -1500,19 +1509,23 @@ inline bool api_read_console(condrv_io::io_msg &msg, console_state &state, scree
             return true;
         }
 
-        // Initial data 位于 ExeName 后。ExeNameLength 是 wchar_t 字符数，不是字节数。
-        auto input_payload = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLE_MSG);
-        auto exe_bytes = static_cast<ULONG>(req->ExeNameLength) * static_cast<ULONG>(sizeof(wchar_t));
-        if (exe_bytes > input_payload)
+        // ExeName 和 InitialData 位于 API descriptor 之后；body 放不下的部分由
+        // read_input_payload 通过 READ_INPUT 读入临时缓冲。不能用 InputSize 直接
+        // 算 body 偏移：InputSize 是客户端声明的，可以大于本地 body。
+        const auto payload =
+            bridge.read_input_payload(msg, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+        // ExeNameLength 是 wchar_t 字符数，不是字节数。
+        const auto exe_bytes = static_cast<size_t>(req->ExeNameLength) * sizeof(wchar_t);
+        if (exe_bytes > payload.size())
         {
             condrv_io::prepare_completion(msg, status_invalid_parameter);
             return true;
         }
 
-        init_data = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + exe_bytes;
-        auto available_initial_bytes = input_payload - exe_bytes;
+        const auto available_initial_bytes = payload.size() - exe_bytes;
         if (initial_bytes > available_initial_bytes)
-            initial_bytes = available_initial_bytes;
+            initial_bytes = static_cast<ULONG>(available_initial_bytes);
+        init_data = payload.data() + exe_bytes;
     }
 
     return bridge.handle_console_read(msg, proc_z, init_data, initial_bytes);
@@ -1560,8 +1573,7 @@ inline bool api_fill_output(condrv_io::io_msg &msg, console_state &state, screen
     if (r->ElementType == CONSOLE_ASCII)
     {
         const char byte = static_cast<char>(r->Element & 0xFF);
-        convert_ansi_to_u32(&byte, 1, state.output_code_page ? state.output_code_page : CP_ACP, bridge.conv_u32(),
-                            bridge.conv_wstr());
+        convert_ansi_to_u32(&byte, 1, state.output_code_page, bridge.conv_u32(), bridge.conv_wstr());
         if (!bridge.conv_u32().empty())
             fill_char = bridge.conv_u32().front();
     }
@@ -1680,9 +1692,11 @@ inline bool api_fill_output(condrv_io::io_msg &msg, console_state &state, screen
     return true;
 }
 
-// GenerateConsoleCtrlEvent：透传 Ctrl 事件到 Windows，不改变 libcorehost 内部状态。
+// GenerateConsoleCtrlEvent：把事件投递给请求的进程组（0 = 全部）。
+// corehost 不在该控制台上，直接调用 Win32
+// GenerateConsoleCtrlEvent 到不了客户端；统一走 bridge::send_ctrl_event。
 inline bool api_ctrl_event(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
-                           pipe_bridge &) noexcept
+                           pipe_bridge &bridge) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CTRLEVENT_MSG))
     {
@@ -1691,7 +1705,22 @@ inline bool api_ctrl_event(condrv_io::io_msg &msg, console_state &, screen_buffe
     }
 
     auto *r = reinterpret_cast<CONSOLE_CTRLEVENT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    ::GenerateConsoleCtrlEvent(r->CtrlEvent, r->ProcessGroupId);
+    if (r->CtrlEvent != CTRL_C_EVENT && r->CtrlEvent != CTRL_BREAK_EVENT)
+    {
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
+    // group 非 0 时必须存在匹配的进程组；conhost 对未知 group 返回
+    // E_INVALIDARG（客户端 GenerateConsoleCtrlEvent 得到 FALSE）。conhost 还有
+    // "group 当 pid、父进程在控制台则合成 entry"的 legacy 兜底，这里不复刻。
+    if (r->ProcessGroupId != 0 && !bridge.has_process_group(r->ProcessGroupId))
+    {
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+
+    bridge.send_ctrl_event(r->CtrlEvent, r->ProcessGroupId);
     ucomplete(msg);
     return true;
 }
@@ -1848,6 +1877,7 @@ inline bool api_set_sb_info(condrv_io::io_msg &msg, console_state &state, screen
     std::memcpy(state.color_table.data(), r->ColorTable, state.color_table.size() * sizeof(state.color_table[0]));
     const auto old_viewport_size = sb.viewport.size();
     sb.resize(r->Size);
+    bridge.queue_window_buffer_size_event();
     bool viewport_changed = sb.viewport.set_size(r->CurrentWindowSize, sb.size);
     viewport_changed = sb.viewport.clamp_to_buffer(sb.size) || viewport_changed;
     state.clamp_cursor_to_buffer();
@@ -1887,6 +1917,8 @@ inline bool api_set_sb_size(condrv_io::io_msg &msg, console_state &state, screen
     }
     state.screen_buffer_size = new_size;
     sb.resize(new_size);
+    // VT 输入模式的客户端需要知道缓冲区尺寸变了。
+    bridge.queue_window_buffer_size_event();
     const bool viewport_changed = sb.viewport.clamp_to_buffer(sb.size);
     state.clamp_cursor_to_buffer();
     if (viewport_changed || !viewport_covers_screen_buffer(sb))
@@ -1978,8 +2010,7 @@ inline bool api_scroll_sb(condrv_io::io_msg &msg, console_state &state, screen_b
     if (!r->Unicode)
     {
         const char byte = r->Fill.Char.AsciiChar;
-        convert_ansi_to_u32(&byte, 1, state.output_code_page ? state.output_code_page : CP_ACP, bridge.conv_u32(),
-                            bridge.conv_wstr());
+        convert_ansi_to_u32(&byte, 1, state.output_code_page, bridge.conv_u32(), bridge.conv_wstr());
         if (!bridge.conv_u32().empty())
             fill_char = bridge.conv_u32().front();
     }
@@ -2132,6 +2163,7 @@ inline bool api_set_window_info(condrv_io::io_msg &msg, console_state &state, sc
         state.screen_buffer_size.X = std::max(state.screen_buffer_size.X, requested_size.X);
         state.screen_buffer_size.Y = std::max(state.screen_buffer_size.Y, requested_size.Y);
         sb.resize(state.screen_buffer_size);
+        bridge.queue_window_buffer_size_event();
     }
 
     const auto old_size = sb.viewport.size();
@@ -2170,38 +2202,40 @@ inline bool api_read_output_string(condrv_io::io_msg &msg, console_state &state,
         condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
-    auto data_capacity = msg.descriptor.OutputSize > sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)
-                             ? msg.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG)
-                             : 0;
+
+    // 数据区容量同时受客户端 OutputSize 与本地 body 余量约束。客户端可以把
+    // OutputSize 放大到超过 body，因此不能直接用 OutputSize 计算写入长度（G28）。
+    const auto capacity = message_output_data_capacity(msg, sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
+    auto *data = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
+    // 未写满的尾部不能把 body 里上一条消息的内容回传给客户端。
+    std::memset(data, 0, capacity);
+
     if (r->StringType == CONSOLE_ATTRIBUTE)
     {
         // ATTRIBUTE 读取 WORD 数组；其他字符类型都降级为 wchar_t 输出。
-        auto *out = reinterpret_cast<WORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                             sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
-        auto maxn = data_capacity / sizeof(WORD);
-        r->NumRecords = static_cast<ULONG>(sb.read_attrs_linear(r->ReadCoord, out, maxn));
+        auto maxn = capacity / sizeof(WORD);
+        r->NumRecords = static_cast<ULONG>(sb.read_attrs_linear(r->ReadCoord, reinterpret_cast<WORD *>(data), maxn));
     }
     else if (r->StringType == CONSOLE_ASCII)
     {
-        auto *out = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                             sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
-        auto maxb = data_capacity;
         auto &wbuf = bridge.conv_wstr();
-        wbuf.resize(maxb);
-        auto wchar_count = sb.read_wchars_linear(r->ReadCoord, wbuf.data(), wbuf.size());
-        auto cp = state.output_code_page ? state.output_code_page : CP_ACP;
-        int bytes = ::WideCharToMultiByte(cp, 0, wbuf.data(), static_cast<int>(wchar_count), out,
-                                          static_cast<int>(maxb), nullptr, nullptr);
-        r->NumRecords = bytes > 0 ? static_cast<ULONG>(bytes) : 0;
+        wbuf.resize(capacity);
+        const auto wchar_count = sb.read_wchars_linear(r->ReadCoord, wbuf.data(), wbuf.size());
+        auto &ansi = bridge.conv_u8();
+        convert_wstr_to_ansi(std::wstring_view{wbuf.data(), wchar_count}, state.output_code_page, ansi);
+        const auto bytes = std::min<size_t>(ansi.size(), capacity);
+        if (bytes != 0)
+            std::memcpy(data, ansi.data(), bytes);
+        r->NumRecords = static_cast<ULONG>(bytes);
     }
     else
     {
-        auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
-        auto maxn = data_capacity / sizeof(wchar_t);
-        r->NumRecords = static_cast<ULONG>(sb.read_wchars_linear(r->ReadCoord, out, maxn));
+        r->NumRecords = static_cast<ULONG>(
+            sb.read_wchars_linear(r->ReadCoord, reinterpret_cast<wchar_t *>(data), capacity / sizeof(wchar_t)));
     }
-    ucomplete_sz(msg, static_cast<ULONG>(sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + data_capacity));
+
+    // Information 只报数据区字节数；Write.Size 覆盖 struct+数据区（单 region 约定）。
+    ucomplete_data(msg, sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG), capacity);
     return true;
 }
 
@@ -2219,12 +2253,14 @@ inline bool api_write_console_input(condrv_io::io_msg &msg, console_state &state
     // W 事件原样入队；A 事件先按当前输入代码页转换 KEY_EVENT 字符。
     auto *r = reinterpret_cast<CONSOLE_WRITECONSOLEINPUT_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     r->NumRecords = 0;
-    auto *records =
-        reinterpret_cast<INPUT_RECORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
-    auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEINPUT_MSG);
+    // 输入 payload 可能超过本地 body（客户端可以用 READ_INPUT 发送大数组），
+    // 统一通过 read_input_payload 取完整数据，避免用 InputSize 直接越界读 body。
+    const auto payload =
+        bridge.read_input_payload(msg, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
+    auto *records = reinterpret_cast<const INPUT_RECORD *>(payload.data());
     // nrec 是输入 payload 中完整 INPUT_RECORD 数。尾部不足一个 record 的字节
     // 不进入 input_buffer，和 ConDrv 变长 payload 的截断语义一致。
-    auto nrec = static_cast<size_t>(ib / sizeof(INPUT_RECORD));
+    auto nrec = payload.size() / sizeof(INPUT_RECORD);
     size_t written = 0;
     if (nrec > 0 && r->Unicode)
     {
@@ -2235,7 +2271,7 @@ inline bool api_write_console_input(condrv_io::io_msg &msg, console_state &state
         auto &converted = bridge.conv_input_records();
         converted.clear();
         converted.reserve(nrec);
-        const auto cp = state.input_code_page ? state.input_code_page : CP_ACP;
+        const auto cp = state.input_code_page;
         for (size_t i = 0; i < nrec; ++i)
         {
             auto rec = records[i];
@@ -2258,7 +2294,7 @@ inline bool api_write_console_input(condrv_io::io_msg &msg, console_state &state
             }
 
             wchar_t wide[2]{};
-            const auto wide_count = ::MultiByteToWideChar(cp, 0, bytes, byte_count, wide, 2);
+            const auto wide_count = convert_ansi_to_wide_raw(bytes, byte_count, cp, wide, 2);
             for (int j = 0; j != wide_count; ++j)
             {
                 rec.Event.KeyEvent.uChar.UnicodeChar = wide[j];
@@ -2271,6 +2307,8 @@ inline bool api_write_console_input(condrv_io::io_msg &msg, console_state &state
     }
     r->NumRecords = static_cast<ULONG>(written);
     ucomplete_sz(msg, sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
+    if (written > 0)
+        bridge.on_console_input_written();
     return true;
 }
 
@@ -2298,13 +2336,23 @@ inline bool api_write_console_output(condrv_io::io_msg &msg, console_state &stat
     SMALL_RECT orig = cr;
     // CHAR_INFO 输入按请求矩形宽度连续排列；本地 screen_buffer 逐行导入，
     // 超出当前缓冲区高度的行静默忽略。
-    auto *data = reinterpret_cast<const CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                     sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG));
-    SHORT w = orig.Right - orig.Left + 1;
-    auto h = orig.Bottom - orig.Top + 1;
-    auto input_bytes = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG);
-    auto required = static_cast<size_t>(w) * static_cast<size_t>(h) * sizeof(CHAR_INFO);
-    if (input_bytes < required)
+    // 输入数组可能超过本地 body（READ_INPUT 大负载）；从 payload 取数据，
+    // 并用客户端矩形（int 计算，避免 SHORT 相减溢出）校验最小长度。
+    const auto payload =
+        bridge.read_input_payload(msg, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG));
+    auto *data = reinterpret_cast<const CHAR_INFO *>(payload.data());
+    const int width = static_cast<int>(orig.Right) - static_cast<int>(orig.Left) + 1;
+    const int height = static_cast<int>(orig.Bottom) - static_cast<int>(orig.Top) + 1;
+    if (width <= 0 || height <= 0)
+    {
+        cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
+        condrv_io::prepare_completion(msg, status_invalid_parameter);
+        return true;
+    }
+    const auto w = static_cast<SHORT>(width);
+    const auto h = static_cast<SHORT>(height);
+    const auto required = static_cast<size_t>(width) * static_cast<size_t>(height) * sizeof(CHAR_INFO);
+    if (payload.size() < required)
     {
         cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
         condrv_io::prepare_completion(msg, status_invalid_parameter);
@@ -2316,15 +2364,15 @@ inline bool api_write_console_output(condrv_io::io_msg &msg, console_state &stat
         const auto cell_count = static_cast<size_t>(w) * static_cast<size_t>(h);
         unicode_data.clear();
         unicode_data.reserve(cell_count);
-        const auto cp = state.output_code_page ? state.output_code_page : CP_ACP;
-        std::transform(data, data + cell_count, std::back_inserter(unicode_data), [cp](const CHAR_INFO &ci) {
-            auto converted = ci;
-            auto ch = static_cast<char>(ci.Char.AsciiChar);
-            wchar_t wc = L' ';
-            ::MultiByteToWideChar(cp, MB_USEGLYPHCHARS, &ch, 1, &wc, 1);
-            converted.Char.UnicodeChar = wc;
-            return converted;
-        });
+        std::transform(data, data + cell_count, std::back_inserter(unicode_data),
+                       [cp = state.output_code_page](const CHAR_INFO &ci) {
+                           auto converted = ci;
+                           auto ch = static_cast<char>(ci.Char.AsciiChar);
+                           wchar_t wc = L' ';
+                           convert_ansi_char_to_wide_raw(ch, cp, &wc, 1, MB_USEGLYPHCHARS);
+                           converted.Char.UnicodeChar = wc;
+                           return converted;
+                       });
         data = unicode_data.data();
     }
 
@@ -2418,12 +2466,15 @@ inline bool api_write_output_string(condrv_io::io_msg &msg, console_state &state
         return true;
     }
 
-    auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
+    // 字符/属性数组可能超过本地 body；read_input_payload 会按需走 READ_INPUT。
+    const auto payload =
+        bridge.read_input_payload(msg, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+    const auto ib = payload.size();
+    const auto *bytes = payload.data();
     if (r->StringType == CONSOLE_ATTRIBUTE)
     {
         // WriteConsoleOutputAttribute 只更新本地属性模型；没有字符输出可发给终端。
-        auto *attrs = reinterpret_cast<const WORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                     sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+        auto *attrs = reinterpret_cast<const WORD *>(bytes);
         r->NumRecords = static_cast<ULONG>(sb.write_attr_seq_linear(r->WriteCoord, attrs, ib / sizeof(WORD)));
         if (!viewport_covers_screen_buffer(sb))
         {
@@ -2437,15 +2488,12 @@ inline bool api_write_output_string(condrv_io::io_msg &msg, console_state &state
         auto &u32text = bridge.conv_u32();
         if (r->StringType == CONSOLE_ASCII)
         {
-            auto *in_a = reinterpret_cast<const char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                        sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
-            convert_ansi_to_u32(in_a, ib, state.output_code_page ? state.output_code_page : CP_ACP, u32text,
+            convert_ansi_to_u32(reinterpret_cast<const char *>(bytes), ib, state.output_code_page, u32text,
                                 bridge.conv_wstr());
         }
         else
         {
-            auto *in_w = reinterpret_cast<const wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                           sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+            auto *in_w = reinterpret_cast<const wchar_t *>(bytes);
             auto wlen = ib / sizeof(wchar_t);
             convert_utf16_to_u32(std::wstring_view{in_w, wlen}, u32text);
         }
@@ -2453,8 +2501,8 @@ inline bool api_write_output_string(condrv_io::io_msg &msg, console_state &state
         const auto written_text = std::u32string_view{u32text.data(), written_u32};
         if (r->StringType == CONSOLE_ASCII)
         {
-            r->NumRecords = static_cast<ULONG>(u32_to_ansi_exact_len(
-                written_text, state.output_code_page ? state.output_code_page : CP_ACP, bridge.conv_wstr()));
+            r->NumRecords =
+                static_cast<ULONG>(u32_to_ansi_exact_len(written_text, state.output_code_page, bridge.conv_wstr()));
         }
         else
         {
@@ -2513,27 +2561,35 @@ inline bool api_read_console_output(condrv_io::io_msg &msg, console_state &state
     if (cr.Left > cr.Right || cr.Top > cr.Bottom)
     {
         cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
-        ucomplete_sz(msg, sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
+        ucomplete_data(msg, sizeof(CONSOLE_READCONSOLEOUTPUT_MSG), 0);
         return true;
     }
-    // data_capacity 是 completion 中 CHAR_INFO 矩形的字节容量；该 API 要求
-    // 输出缓冲足够容纳原始请求矩形，而不是只容纳裁剪后的可见区域。
-    auto data_capacity = msg.descriptor.OutputSize > sizeof(CONSOLE_READCONSOLEOUTPUT_MSG)
-                             ? msg.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLEOUTPUT_MSG)
-                             : 0;
-    SMALL_RECT orig = cr;
-    SHORT w = cr.Right - cr.Left + 1;
-    auto h = cr.Bottom - cr.Top + 1;
-    auto required = static_cast<size_t>(w) * static_cast<size_t>(h) * sizeof(CHAR_INFO);
-    if (required > data_capacity)
+
+    // 数据区容量必须同时受客户端 OutputSize 与本地 body 余量约束：客户端
+    // 可以把 OutputSize 放大到超过 body，若直接用它算矩形容量会越界写 body
+    // （与 G28 同类的输入驱动越界）。
+    const auto capacity = message_output_data_capacity(msg, sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
+    auto *out =
+        reinterpret_cast<CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
+    // 未覆盖区域发送 0，而不是上一条消息的残留 body 内容。
+    std::memset(out, 0, capacity);
+
+    // 矩形宽高用 int 计算，避免 SHORT 相减溢出；required 至少要能被数据区
+    // 容纳，否则按原版语义返回 invalid parameter。
+    const int width = static_cast<int>(cr.Right) - static_cast<int>(cr.Left) + 1;
+    const int height = static_cast<int>(cr.Bottom) - static_cast<int>(cr.Top) + 1;
+    const auto required = static_cast<size_t>(width) * static_cast<size_t>(height) * sizeof(CHAR_INFO);
+    if (width <= 0 || height <= 0 || required > capacity)
     {
         cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
         condrv_io::prepare_completion(msg, status_invalid_parameter);
         return true;
     }
 
+    SMALL_RECT orig = cr;
+    const auto w = static_cast<SHORT>(width);
     // clipped 是实际从本地 screen_buffer 读取的矩形；completion 的布局仍按
-    // orig 计算，未覆盖的区域保持调用方输出缓冲原内容。
+    // orig 计算，未覆盖的区域保持 0。
     SMALL_RECT clipped = orig;
     if (clipped.Left < 0)
         clipped.Left = 0;
@@ -2546,7 +2602,7 @@ inline bool api_read_console_output(condrv_io::io_msg &msg, console_state &state
     if (clipped.Left > clipped.Right || clipped.Top > clipped.Bottom)
     {
         cr.Left = cr.Right = cr.Top = cr.Bottom = 0;
-        ucomplete_sz(msg, static_cast<ULONG>(sizeof(CONSOLE_READCONSOLEOUTPUT_MSG) + data_capacity));
+        ucomplete_data(msg, sizeof(CONSOLE_READCONSOLEOUTPUT_MSG), capacity);
         return true;
     }
 
@@ -2557,9 +2613,8 @@ inline bool api_read_console_output(condrv_io::io_msg &msg, console_state &state
         auto &tmp = bridge.conv_char_info();
         tmp.resize(static_cast<size_t>(sb.size.X));
         sb.row_to_ci(y, tmp.data());
-        auto *dst = reinterpret_cast<CHAR_INFO *>(msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                  sizeof(CONSOLE_READCONSOLEOUTPUT_MSG)) +
-                    (y - orig.Top) * w + (clipped.Left - orig.Left);
+        auto *dst = out + static_cast<size_t>(y - orig.Top) * static_cast<size_t>(w) +
+                    static_cast<size_t>(clipped.Left - orig.Left);
         if (r->Unicode)
         {
             std::memcpy(dst, tmp.data() + clipped.Left,
@@ -2567,20 +2622,19 @@ inline bool api_read_console_output(condrv_io::io_msg &msg, console_state &state
         }
         else
         {
-            const auto cp = state.output_code_page ? state.output_code_page : CP_ACP;
             for (SHORT x = clipped.Left; x <= clipped.Right; ++x)
             {
                 auto &src = tmp[static_cast<size_t>(x)];
                 char mb = ' ';
-                ::WideCharToMultiByte(cp, 0, &src.Char.UnicodeChar, 1, &mb, 1, nullptr, nullptr);
-                auto &out = dst[x - clipped.Left];
-                out.Char.AsciiChar = mb;
-                out.Attributes = src.Attributes;
+                convert_wide_char_to_ansi_raw(src.Char.UnicodeChar, state.output_code_page, &mb, 1);
+                auto &target = dst[x - clipped.Left];
+                target.Char.AsciiChar = mb;
+                target.Attributes = src.Attributes;
             }
         }
     }
     cr = clipped;
-    ucomplete_sz(msg, static_cast<ULONG>(sizeof(CONSOLE_READCONSOLEOUTPUT_MSG) + data_capacity));
+    ucomplete_data(msg, sizeof(CONSOLE_READCONSOLEOUTPUT_MSG), capacity);
     return true;
 }
 
@@ -2604,7 +2658,8 @@ inline bool api_get_title(condrv_io::io_msg &msg, console_state &state, screen_b
 
     if (r->Unicode)
     {
-        // TitleLength 返回不含结尾 NUL 的字节数；completion size 包含写入的 NUL。
+        // TitleLength 是
+        // **字符数**（不含 NUL），reply information 是实际写入的字节数（不含 NUL）。
         auto *out = reinterpret_cast<wchar_t *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
         auto maxc = std::min<size_t>(data_capacity,
                                      sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG)) /
@@ -2613,9 +2668,9 @@ inline bool api_get_title(condrv_io::io_msg &msg, console_state &state, screen_b
         auto cp = convert_u32_to_wide_raw(copied_text, out, maxc);
         if (cp < maxc)
             out[cp] = L'\0';
-        r->TitleLength = static_cast<ULONG>(u32_to_wide_exact_len(src) * sizeof(wchar_t));
-        const auto written = cp * sizeof(wchar_t) + (cp < maxc ? sizeof(wchar_t) : 0);
-        ucomplete_sz(msg, static_cast<ULONG>(sizeof(CONSOLE_GETTITLE_MSG) + written));
+        r->TitleLength = static_cast<ULONG>(u32_to_wide_exact_len(src));
+        const auto written = cp * sizeof(wchar_t);
+        ucomplete_data(msg, sizeof(CONSOLE_GETTITLE_MSG), written);
     }
     else
     {
@@ -2623,7 +2678,7 @@ inline bool api_get_title(condrv_io::io_msg &msg, console_state &state, screen_b
         auto *out = reinterpret_cast<char *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
         auto maxb = std::min<size_t>(data_capacity,
                                      sizeof(msg.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG));
-        const auto cp = state.input_code_page ? state.input_code_page : CP_ACP;
+        const auto cp = state.input_code_page;
         const auto encoded_size = u32_to_ansi_exact_len(src, cp, bridge.conv_wstr());
         size_t written = 0;
         if (maxb >= encoded_size)
@@ -2642,7 +2697,7 @@ inline bool api_get_title(condrv_io::io_msg &msg, console_state &state, screen_b
             }
             r->TitleLength = 0;
         }
-        ucomplete_sz(msg, static_cast<ULONG>(sizeof(CONSOLE_GETTITLE_MSG) + written));
+        ucomplete_data(msg, sizeof(CONSOLE_GETTITLE_MSG), written);
     }
     return true;
 }
@@ -2658,19 +2713,19 @@ inline bool api_set_title(condrv_io::io_msg &msg, console_state &state, screen_b
     }
 
     auto *req = reinterpret_cast<CONSOLE_SETTITLE_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    auto *input = msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG);
-    auto ib = msg.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_SETTITLE_MSG);
+    // 标题可能超过本地 body；read_input_payload 处理大负载并避免用 InputSize 越界。
+    const auto payload = bridge.read_input_payload(msg, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG));
     auto &u32title = bridge.conv_u32();
     if (req->Unicode)
     {
-        auto *in = reinterpret_cast<const wchar_t *>(input);
-        auto ic = ib / sizeof(wchar_t);
+        auto *in = reinterpret_cast<const wchar_t *>(payload.data());
+        auto ic = payload.size() / sizeof(wchar_t);
         convert_utf16_to_u32(std::wstring_view{in, ic}, u32title);
     }
     else
     {
-        convert_ansi_to_u32(reinterpret_cast<const char *>(input), ib,
-                            state.input_code_page ? state.input_code_page : CP_ACP, u32title, bridge.conv_wstr());
+        convert_ansi_to_u32(reinterpret_cast<const char *>(payload.data()), payload.size(), state.input_code_page,
+                            u32title, bridge.conv_wstr());
     }
     if (state.title.empty())
     {
@@ -2680,6 +2735,12 @@ inline bool api_set_title(condrv_io::io_msg &msg, console_state &state, screen_b
     state.title.clear();
     state.title.append(u32title.data(), u32title.size());
 
+    // 同步到伪窗口：窗口线程处理 WM_SETTEXT，标题只由窗口线程保存。
+    // 复用 bridge 的 UTF-16 转换缓冲；SetWindowTextW 要求 NUL 结尾。
+    auto &wide_title = bridge.conv_wstr();
+    convert_u32_to_wstr(state.title, wide_title);
+    wide_title.push_back(L'\0');
+    ::SetWindowTextW(state.window_handle, wide_title.data());
     // 状态更新后立即用 OSC 0 同步宿主终端标题。
     vt_message m{};
     m.payload.title = state.title;
@@ -2894,8 +2955,7 @@ inline bool api_l3_add_alias(condrv_io::io_msg &msg, console_state &state, scree
     return true;
 }
 
-// 将 ANSI alias 字段转换成 console_state 使用的 UTF-16 key/value。code_page
-// 来自当前输入代码页；out 是调用方复用缓冲。
+// 将 ANSI alias 字段转换成 console_state 使用的 UTF-16 key/value。
 inline void alias_ansi_to_wstring(const char *text, size_t bytes, UINT code_page, std::wstring &out) noexcept
 {
     out.clear();
@@ -2903,28 +2963,22 @@ inline void alias_ansi_to_wstring(const char *text, size_t bytes, UINT code_page
         return;
 
     const UINT cp = code_page ? code_page : CP_ACP;
-    const int chars = ::MultiByteToWideChar(cp, 0, text, static_cast<int>(bytes), nullptr, 0);
-    assert(chars >= 0);
-    if (chars == 0)
-        return;
-
-    out.resize(static_cast<size_t>(chars));
-    const int written = ::MultiByteToWideChar(cp, 0, text, static_cast<int>(bytes), out.data(), chars);
-    assert(written == chars);
+    out.resize(ansi_to_wide_max_units(bytes));
+    const auto written = convert_ansi_to_wide_raw(text, bytes, cp, out.data(), out.size());
+    out.resize(written);
 }
 
-// 计算 UTF-16 alias 字段导出为 ANSI 时需要的字节数，不包含结尾 NUL。
-[[nodiscard]] inline size_t alias_wstring_to_ansi_length(std::wstring_view text, UINT code_page) noexcept
+// 计算 UTF-16 alias 字段导出为 ANSI 时需要的字节数（不含结尾 NUL）。
+inline size_t alias_wstring_to_ansi_length(std::wstring_view text, UINT code_page) noexcept
 {
     if (text.empty())
         return 0;
 
     const UINT cp = code_page ? code_page : CP_ACP;
-    const int bytes =
-        ::WideCharToMultiByte(cp, 0, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
-    assert(bytes >= 0);
-    return static_cast<size_t>(bytes);
+    return wstr_to_ansi_len(text, cp);
 }
+
+// 计算 UTF-16 alias 字段导出为 ANSI 时需要的字节数，不包含结尾 NUL。
 
 // 将 UTF-16 alias 字段写回 ANSI API 输出缓冲。调用方已按
 // alias_wstring_to_ansi_length 校验容量，因此这里用断言表达容量不变量。
@@ -2939,10 +2993,7 @@ inline size_t alias_wstring_to_ansi(std::wstring_view text, UINT code_page, char
         return 0;
 
     const UINT cp = code_page ? code_page : CP_ACP;
-    const int written = ::WideCharToMultiByte(cp, 0, text.data(), static_cast<int>(text.size()), out,
-                                              static_cast<int>(out_cap), nullptr, nullptr);
-    assert(written == static_cast<int>(needed));
-    return needed;
+    return convert_wide_to_ansi_raw(text.data(), text.size(), cp, out, out_cap, false);
 }
 
 // ── 0x13 GetAlias ──
@@ -2996,7 +3047,7 @@ inline bool api_l3_get_alias(condrv_io::io_msg &msg, console_state &state, scree
                     std::memcpy(tgt_out, wval->data(), wval->size() * sizeof(wchar_t));
                     tgt_out[wval->size()] = L'\0';
                     r->TargetLength = static_cast<USHORT>((wval->size() + 1) * sizeof(wchar_t));
-                    ucomplete_sz(msg, sizeof(CONSOLE_GETALIAS_MSG) + r->TargetLength);
+                    ucomplete_data(msg, sizeof(CONSOLE_GETALIAS_MSG), r->TargetLength);
                 }
                 else
                 {
@@ -3033,7 +3084,7 @@ inline bool api_l3_get_alias(condrv_io::io_msg &msg, console_state &state, scree
                                                        state.input_code_page, tgt_out, available_bytes);
                         tgt_out[n] = '\0';
                         r->TargetLength = static_cast<USHORT>(n + 1);
-                        ucomplete_sz(msg, sizeof(CONSOLE_GETALIAS_MSG) + r->TargetLength);
+                        ucomplete_data(msg, sizeof(CONSOLE_GETALIAS_MSG), r->TargetLength);
                     }
                     else
                     {
@@ -3182,7 +3233,7 @@ inline bool api_l3_get_aliases(condrv_io::io_msg &msg, console_state &state, scr
             out[written++] = L'\0';
         }
         r->AliasesBufferLength = written * sizeof(wchar_t);
-        ucomplete_sz(msg, sizeof(CONSOLE_GETALIASES_MSG) + written * sizeof(wchar_t));
+        ucomplete_data(msg, sizeof(CONSOLE_GETALIASES_MSG), written * sizeof(wchar_t));
     }
     else
     {
@@ -3205,7 +3256,7 @@ inline bool api_l3_get_aliases(condrv_io::io_msg &msg, console_state &state, scr
             out[written++] = '\0';
         }
         r->AliasesBufferLength = written;
-        ucomplete_sz(msg, sizeof(CONSOLE_GETALIASES_MSG) + written);
+        ucomplete_data(msg, sizeof(CONSOLE_GETALIASES_MSG), written);
     }
     return true;
 }
@@ -3238,7 +3289,7 @@ inline bool api_l3_get_alias_exes(condrv_io::io_msg &msg, console_state &state, 
             out[written++] = L'\0';
         }
         r->AliasExesBufferLength = written * sizeof(wchar_t);
-        ucomplete_sz(msg, sizeof(CONSOLE_GETALIASEXES_MSG) + r->AliasExesBufferLength);
+        ucomplete_data(msg, sizeof(CONSOLE_GETALIASEXES_MSG), r->AliasExesBufferLength);
     }
     else
     {
@@ -3256,7 +3307,7 @@ inline bool api_l3_get_alias_exes(condrv_io::io_msg &msg, console_state &state, 
             out[written++] = '\0';
         }
         r->AliasExesBufferLength = written;
-        ucomplete_sz(msg, sizeof(CONSOLE_GETALIASEXES_MSG) + written);
+        ucomplete_data(msg, sizeof(CONSOLE_GETALIASEXES_MSG), written);
     }
     return true;
 }
@@ -3382,13 +3433,13 @@ inline bool api_l3_get_history(condrv_io::io_msg &msg, console_state &state, scr
     if (written < needed)
         ucomplete_status_sz(msg, status_buffer_too_small, sizeof(CONSOLE_GETCOMMANDHISTORY_MSG));
     else
-        ucomplete_sz(msg, sizeof(CONSOLE_GETCOMMANDHISTORY_MSG) + static_cast<ULONG>(written));
+        ucomplete_data(msg, sizeof(CONSOLE_GETCOMMANDHISTORY_MSG), written);
     return true;
 }
 
 // ── 0x1F GetConsoleWindow ──
 // GetConsoleWindow：返回当前宿主窗口句柄。corehost 不保存单独窗口状态。
-inline bool api_l3_get_console_window(condrv_io::io_msg &msg, console_state &, screen_buffer &, input_buffer &,
+inline bool api_l3_get_console_window(condrv_io::io_msg &msg, console_state &state, screen_buffer &, input_buffer &,
                                       pipe_bridge &) noexcept
 {
     if (msg.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEWINDOW_MSG))
@@ -3398,7 +3449,7 @@ inline bool api_l3_get_console_window(condrv_io::io_msg &msg, console_state &, s
     }
 
     auto *r = reinterpret_cast<CONSOLE_GETCONSOLEWINDOW_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
-    r->hwnd = ::GetConsoleWindow(); // 返回实际 HWND (可能 NULL)
+    r->hwnd = state.window_handle; // 伪窗口句柄；尚未创建时为 NULL
     ucomplete_sz(msg, sizeof(CONSOLE_GETCONSOLEWINDOW_MSG));
     return true;
 }
@@ -3434,10 +3485,22 @@ inline bool api_l3_get_process_list(condrv_io::io_msg &msg, console_state &, scr
     auto *r = reinterpret_cast<CONSOLE_GETCONSOLEPROCESSLIST_MSG *>(msg.body + sizeof(CONSOLE_MSG_HEADER));
     auto *out =
         reinterpret_cast<DWORD *>(msg.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
-    auto maxc = message_output_tail_capacity(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG)) / sizeof(DWORD);
-    size_t count = bridge.copy_process_list_newest_first(out, maxc);
-    r->dwProcessCount = static_cast<ULONG>(bridge.process_count());
-    ucomplete_sz(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG) + static_cast<ULONG>(count * sizeof(DWORD)));
+    const auto capacity = message_output_tail_capacity(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG)) / sizeof(DWORD);
+    const auto total = bridge.process_count();
+
+    // conhost 语义：缓冲不足时 GetProcessList 返回 E_NOT_SUFFICIENT_BUFFER，
+    // dispatcher 不写任何 pid、Information=0，但 dwProcessCount 仍是所需数量
+    // （客户端据此扩容后重试）。只有容量足够时才返回数据。
+    if (capacity < total)
+    {
+        r->dwProcessCount = static_cast<ULONG>(total);
+        ucomplete_data(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG), 0);
+        return true;
+    }
+
+    const auto count = bridge.copy_process_list_newest_first(out, capacity);
+    r->dwProcessCount = static_cast<ULONG>(count);
+    ucomplete_data(msg, sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG), count * sizeof(DWORD));
     return true;
 }
 

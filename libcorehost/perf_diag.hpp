@@ -151,7 +151,9 @@ inline void write_summary() noexcept
     char line[384]{};
     DWORD written = 0;
     auto emit = [&](const char *text) noexcept {
-        ::WriteFile(file, text, static_cast<DWORD>(std::strlen(text)), &written, nullptr);
+        // 诊断失败不影响主流程，但写入结果必须显式消费，避免忽略返回值。
+        if (::WriteFile(file, text, static_cast<DWORD>(std::strlen(text)), &written, nullptr) == FALSE)
+            LOG("perf_diag: WriteFile failed err=%lu", ::GetLastError());
     };
 
     std::snprintf(line, sizeof(line), "freq=%lld ticks/sec\nname,calls,total_ms,avg_us,amount\n", freq);

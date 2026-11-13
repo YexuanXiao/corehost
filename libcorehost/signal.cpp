@@ -2,7 +2,7 @@
 // WT 信号管道轮询器实现（替代原 PtySignal 信号线程）。
 //
 // 读取策略：写端一次 WriteFile 一条完整消息（≤ 10 字节，原子写入），
-// poll() 一次读走全部可见字节后在局部缓冲内顺序解析，无跨 poll 状态。
+// 信号线程按 id + 定长 payload 精确读取后调用 apply()。
 // 缓冲内数据不足或未知 id 都是协议损坏，抛出异常由会话入口统一处理后
 // 退出程序。
 #include "signal.hpp"
@@ -25,7 +25,7 @@ size_t pty_signal_reader::payload_size_for(unsigned short id) noexcept
     case PtySignal::ClearBuffer:
         return sizeof(unsigned short);
     case PtySignal::SetParent:
-        return sizeof(ULONG_PTR);
+        return sizeof(std::uint64_t);
     case PtySignal::ResizeWindow:
         return sizeof(COORD);
     default:
@@ -33,76 +33,17 @@ size_t pty_signal_reader::payload_size_for(unsigned short id) noexcept
     }
 }
 
-bool pty_signal_reader::poll()
-{
-    if (!_pipe.valid())
-        return false;
-
-    for (;;)
-    {
-        DWORD avail = 0;
-        const auto peek = win32::peek_named_pipe(_pipe, avail);
-        if (peek.closed() || peek.failed())
-        {
-            LOG("pty_signal_reader: pipe peek failed status=%u err=%u", static_cast<unsigned>(peek.status),
-                static_cast<unsigned>(peek.error));
-            return true;
-        }
-        if (avail == 0)
-            return false;
-
-        // ── 阶段 1: 精确读 2 字节 id ──
-        // 写端一次 WriteFile 一条完整消息（原子），管道里只要有数据就至少
-        // 是一条完整消息，因此 ReadFile(2) 必然读满；读不满 = 协议损坏。
-        unsigned short id = 0;
-        const auto id_read = win32::read_some(_pipe, std::span{reinterpret_cast<std::byte *>(&id), size_t{2}});
-        if (id_read.closed() || id_read.failed())
-        {
-            LOG("pty_signal_reader: id read failed status=%u err=%u", static_cast<unsigned>(id_read.status),
-                static_cast<unsigned>(id_read.error));
-            return true;
-        }
-        if (id_read.bytes != 2)
-        {
-            LOG("pty_signal_reader: partial signal id; protocol corrupted");
-            throw win32::error::invalid_state;
-        }
-
-        const auto payload_size = payload_size_for(id);
-        if (payload_size == 0)
-        {
-            LOG("pty_signal_reader: unknown signal id=%u; protocol corrupted", static_cast<unsigned>(id));
-            throw win32::error::invalid_state;
-        }
-
-        // ── 阶段 2: 按 id 精确读 payload ──
-        // 请求长度恰好等于本条消息的 payload，不多读；读不满 = 协议损坏。
-        std::array<std::byte, sizeof(ULONG_PTR)> payload{};
-        const auto payload_read = win32::read_some(_pipe, std::span{payload}.first(payload_size));
-        if (payload_read.closed() || payload_read.failed())
-        {
-            LOG("pty_signal_reader: payload read failed status=%u err=%u", static_cast<unsigned>(payload_read.status),
-                static_cast<unsigned>(payload_read.error));
-            return true;
-        }
-        if (payload_read.bytes != payload_size)
-        {
-            LOG("pty_signal_reader: partial payload id=%u; protocol corrupted", static_cast<unsigned>(id));
-            throw win32::error::invalid_state;
-        }
-
-        handle_message(id, std::span{payload}.first(payload_size));
-    }
-}
+// 应用一条完整 PtySignal。会话锁由调用方持有（信号线程），因此这里只做状态
+// 更新，不再处理管道读取或同步。
 
 // 执行一条完整 PtySignal。所有状态更新都在会话主线程进行，与 I/O 循环
 // 的其他状态推进天然互斥，无需额外同步。
-void pty_signal_reader::handle_message(unsigned short id, std::span<const std::byte> payload)
+void pty_signal_reader::apply(unsigned short id, std::span<const std::byte> payload)
 {
     switch (static_cast<PtySignal>(id))
     {
     case PtySignal::ShowHideWindow: {
-        // 当前不管理真实窗口，但必须消费 show payload；否则下一次读到的
+        // 记录 show payload；窗口动作由 message_router 在此之后触发。
         // payload 会被误当作信号 id，破坏协议同步。
         unsigned short show = 0;
         std::memcpy(&show, payload.data(), sizeof(show));
@@ -120,9 +61,9 @@ void pty_signal_reader::handle_message(unsigned short id, std::span<const std::b
         break;
     }
     case PtySignal::SetParent: {
-        // WT 按 ULONG_PTR 发送 HWND；corehost 不重新设置父窗口，只消费字段
+        // WT 按 uint64 发送 HWND；窗口 owner 由 message_router 更新。
         // 保持后续信号边界正确。
-        ULONG_PTR hwnd = 0;
+        std::uint64_t hwnd = 0;
         std::memcpy(&hwnd, payload.data(), sizeof(hwnd));
         LOG2("PtySignal SetParent hwnd=%p", reinterpret_cast<void *>(hwnd));
         break;

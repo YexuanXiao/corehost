@@ -1,5 +1,7 @@
 include_guard(GLOBAL)
 
+option(COREHOST_ENABLE_ASAN "Enable AddressSanitizer in MSVC Debug builds" ON)
+
 set(COREHOST_COMPILER_MSVC OFF)
 set(COREHOST_COMPILER_CLANG_CL OFF)
 set(COREHOST_COMPILER_CLANG OFF)
@@ -34,7 +36,9 @@ function(corehost_configure_global_compiler)
         add_compile_options(/Zc:__cplusplus /utf-8 /permissive-)
         if(COREHOST_COMPILER_MSVC)
             add_compile_options(/Zc:preprocessor)
-            add_compile_options("$<$<CONFIG:Debug>:/fsanitize=address>")
+            if(COREHOST_ENABLE_ASAN)
+                add_compile_options("$<$<CONFIG:Debug>:/fsanitize=address>")
+            endif()
         endif()
         set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:DebugDLL>" PARENT_SCOPE)
     else()

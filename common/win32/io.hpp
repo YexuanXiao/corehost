@@ -4,14 +4,33 @@
 #include "win32/handle.hpp"
 
 #include <Windows.h>
+#include <winternl.h>
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <span>
 #include <type_traits>
 
+extern "C" LONG NTAPI NtQueryInformationFile(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, int);
+
 namespace win32
 {
+
+// 判断管道句柄是否以异步模式打开。WT 的 ConPTY 输入管道是异步 duplex；
+// 普通 CreatePipe 则是同步句柄。直接调用 ntdll 导出的查询函数。
+[[nodiscard]] inline bool handle_is_async(handle_view handle) noexcept
+{
+    struct file_mode_information
+    {
+        ULONG Mode;
+    };
+
+    IO_STATUS_BLOCK status_block{};
+    file_mode_information mode{};
+    const auto status =
+        ::NtQueryInformationFile(handle.get(), &status_block, &mode, sizeof(mode), 16 /* FileModeInformation */);
+    return status >= 0 && (mode.Mode & (0x10u | 0x20u)) == 0;
+}
 
 enum class io_status
 {
