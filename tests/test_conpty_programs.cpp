@@ -382,16 +382,26 @@ corehost::test::result ssh_interactive_interrupt()
     bool exited = false;
     for (int attempt = 0; attempt < 10 && !exited; ++attempt)
     {
-        REQUIRE(session.write("\x03"));
-        exited = session.wait_exit(1000);
+        if (!session.is_running())
+        {
+            exited = true;
+            break;
+        }
+        if (!session.write("\x03"))
+        {
+            std::fprintf(stderr, "[ssh-interrupt] write failed at attempt %d, running=%d\n", attempt,
+                         session.is_running() ? 1 : 0);
+            break;
+        }
+        exited = session.wait_exit_poll(1000);
     }
     if (!exited)
         exited = session.wait_exit(20000);
     if (!exited)
     {
         const auto output = session.take_output();
-        std::fprintf(stderr, "[ssh-interrupt] output: %s\n", output.c_str());
-        session.close();
+        std::fprintf(stderr, "[ssh-interrupt] not exited, running=%d, output: %s\n",
+                     session.is_running() ? 1 : 0, output.c_str());
     }
     server.stop();
     REQUIRE(exited);
