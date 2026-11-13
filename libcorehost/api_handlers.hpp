@@ -11,7 +11,6 @@
 #include <iterator>
 #include "pseudo_window.hpp"
 #include <numeric>
-#include <utility>
 #include <vector>
 #include "condrv_io.hpp"
 #include "os/Console/conmsgl1.h"
@@ -1103,8 +1102,9 @@ inline void dispatch_write_console_vt_message(vt_message_id id, vt_parser &parse
         consume_write_console_vt_message<vt_message_id::char_nul>(parser, parsed, state, sb, bridge, emit_vt);
         break;
     case vt_message_id::mouse_sgr:
-        // SGR 鼠标只属于输入方向；输出 parser 不应产生该消息。
+        // SGR 鼠标只属于输入方向，输出parser不应产生该消息。
         std::unreachable();
+        break;
     }
 }
 
@@ -1132,10 +1132,6 @@ inline void ucomplete_sz(condrv_io::io_msg &msg, ULONG sz) noexcept
 // SetReplyInformation(cbBuffer) 回报数据区容量，且 Complete.Write.Size 只含
 // API struct）。corehost 的完成是单 region（Write.Data 指向 body+header），
 // 因此：Write.Size = struct + 数据区，Information = 数据区。
-//
-// 早期实现（G28）把 sizeof(API struct) 也算进 Information，客户端按该长度
-// 把数据拷进自己申请的缓冲时会多写 sizeof(struct) 字节，造成堆越界；
-// ReadConsoleOutputCharacter 在 80 字符精确缓冲下触发了 ASAN abort。
 inline void ucomplete_data(condrv_io::io_msg &msg, size_t api_size, size_t data_bytes) noexcept
 {
     condrv_io::prepare_completion(msg, 0, static_cast<ULONG_PTR>(data_bytes), msg.body + sizeof(CONSOLE_MSG_HEADER),
@@ -1270,7 +1266,6 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
     if (bytes > 0)
     {
         auto &u32s = bridge.conv_u32();
-        const UINT output_code_page = state.output_code_page;
         {
             COREHOST_PERF_SCOPE_AMOUNT(write_console_convert, bytes);
             if (unicode)
@@ -1284,7 +1279,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             else
             {
                 // 非 Unicode 路径使用当前输出代码页；0 是未初始化兜底，退回系统 ACP。
-                convert_ansi_to_u32(reinterpret_cast<const char *>(data), bytes, output_code_page, u32s,
+                convert_ansi_to_u32(reinterpret_cast<const char *>(data), bytes, state.output_code_page, u32s,
                                     bridge.conv_wstr());
             }
         }
@@ -1303,7 +1298,7 @@ inline void write_console_payload(bool unicode, const BYTE *data, ULONG bytes, c
             }
 
             const bool replay_utf8_to_terminal =
-                !unicode && !emit_console_attributes && (output_code_page == CP_UTF8 || output_code_page == 65001);
+                !unicode && !emit_console_attributes && (state.output_code_page == CP_UTF8);
 
             vt_message m{};
 
@@ -2223,12 +2218,11 @@ inline bool api_read_output_string(condrv_io::io_msg &msg, console_state &state,
     }
     else if (r->StringType == CONSOLE_ASCII)
     {
-        const auto cp = state.output_code_page;
         auto &wbuf = bridge.conv_wstr();
         wbuf.resize(capacity);
         const auto wchar_count = sb.read_wchars_linear(r->ReadCoord, wbuf.data(), wbuf.size());
         auto &ansi = bridge.conv_u8();
-        convert_wstr_to_ansi(std::wstring_view{wbuf.data(), wchar_count}, cp, ansi);
+        convert_wstr_to_ansi(std::wstring_view{wbuf.data(), wchar_count}, state.output_code_page, ansi);
         const auto bytes = std::min<size_t>(ansi.size(), capacity);
         if (bytes != 0)
             std::memcpy(data, ansi.data(), bytes);
@@ -2370,15 +2364,15 @@ inline bool api_write_console_output(condrv_io::io_msg &msg, console_state &stat
         const auto cell_count = static_cast<size_t>(w) * static_cast<size_t>(h);
         unicode_data.clear();
         unicode_data.reserve(cell_count);
-        const auto cp = state.output_code_page;
-        std::transform(data, data + cell_count, std::back_inserter(unicode_data), [cp](const CHAR_INFO &ci) {
-            auto converted = ci;
-            auto ch = static_cast<char>(ci.Char.AsciiChar);
-            wchar_t wc = L' ';
-            convert_ansi_char_to_wide_raw(ch, cp, &wc, 1, MB_USEGLYPHCHARS);
-            converted.Char.UnicodeChar = wc;
-            return converted;
-        });
+        std::transform(data, data + cell_count, std::back_inserter(unicode_data),
+                       [cp = state.output_code_page](const CHAR_INFO &ci) {
+                           auto converted = ci;
+                           auto ch = static_cast<char>(ci.Char.AsciiChar);
+                           wchar_t wc = L' ';
+                           convert_ansi_char_to_wide_raw(ch, cp, &wc, 1, MB_USEGLYPHCHARS);
+                           converted.Char.UnicodeChar = wc;
+                           return converted;
+                       });
         data = unicode_data.data();
     }
 
@@ -2628,12 +2622,11 @@ inline bool api_read_console_output(condrv_io::io_msg &msg, console_state &state
         }
         else
         {
-            const auto cp = state.output_code_page;
             for (SHORT x = clipped.Left; x <= clipped.Right; ++x)
             {
                 auto &src = tmp[static_cast<size_t>(x)];
                 char mb = ' ';
-                convert_wide_char_to_ansi_raw(src.Char.UnicodeChar, cp, &mb, 1);
+                convert_wide_char_to_ansi_raw(src.Char.UnicodeChar, state.output_code_page, &mb, 1);
                 auto &target = dst[x - clipped.Left];
                 target.Char.AsciiChar = mb;
                 target.Attributes = src.Attributes;

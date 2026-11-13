@@ -24,8 +24,6 @@
 namespace corehost::conpty
 {
 
-// 伪窗口前瞻声明：console_state 只保存指针，窗口对象由会话持有。
-
 inline constexpr DWORD DEFAULT_INPUT_MODE =
     ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_MOUSE_INPUT;
 inline constexpr DWORD DEFAULT_OUTPUT_MODE = ENABLE_PROCESSED_OUTPUT | ENABLE_WRAP_AT_EOL_OUTPUT;

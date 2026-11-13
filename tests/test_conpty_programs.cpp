@@ -105,8 +105,8 @@ corehost::test::result vim_starts_and_quits()
     if (!exited || exit_code != 0)
     {
         const auto output = session.take_output();
-        std::fwprintf(stderr, L"[vim] exited=%d code=%lu running=%d, output tail: %hs\n",
-                      exited ? 1 : 0, static_cast<unsigned long>(exit_code), session.is_running() ? 1 : 0,
+        std::fwprintf(stderr, L"[vim] exited=%d code=%lu running=%d, output tail: %hs\n", exited ? 1 : 0,
+                      static_cast<unsigned long>(exit_code), session.is_running() ? 1 : 0,
                       output.size() > 1200 ? output.c_str() + output.size() - 1200 : output.c_str());
     }
     REQUIRE(exited);
@@ -400,8 +400,8 @@ corehost::test::result ssh_interactive_interrupt()
     if (!exited)
     {
         const auto output = session.take_output();
-        std::fprintf(stderr, "[ssh-interrupt] not exited, running=%d, output: %s\n",
-                     session.is_running() ? 1 : 0, output.c_str());
+        std::fprintf(stderr, "[ssh-interrupt] not exited, running=%d, output: %s\n", session.is_running() ? 1 : 0,
+                     output.c_str());
     }
     server.stop();
     REQUIRE(exited);
