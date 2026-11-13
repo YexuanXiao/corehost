@@ -373,6 +373,8 @@ struct pipe_bridge
     pipe_bridge_io _io;
     // 由信号线程阻塞读取 WT 信号管道；无信号管道时保持未绑定。
     pty_signal_reader _signal{cstate, sbuf};
+    // WT 是否处于 Win32Input 模式；启动时 conpty.cpp 已发送 ESC[?9001h。
+    bool _terminal_win32_input = true;
     // VT 输出批量缓冲，所有发送到宿主终端的字节最终从这里 flush 到 vt_out。
     vt_output_buffer _vt_output;
     // API handler 和输入/输出转换复用的临时缓冲集合。
@@ -614,6 +616,21 @@ struct pipe_bridge
     void vt_flush() noexcept
     {
         _vt_output.flush();
+    }
+
+    // 根据应用是否启用 ENABLE_VIRTUAL_TERMINAL_INPUT 切换 WT 的 Win32Input
+    // 模式。传统 VT 输入应用（例如 Microsoft Edit）只理解 ESC 序列，不能
+    // 让终端继续发送 Win32Input 的 CSI 序列。
+    void set_terminal_win32_input_mode(bool enabled) noexcept
+    {
+        if (_terminal_win32_input == enabled)
+            return;
+        _terminal_win32_input = enabled;
+        if (enabled)
+            vt_append_str("\x1b[?9001h"sv);
+        else
+            vt_append_str("\x1b[?9001l"sv);
+        vt_flush();
     }
 
     // true 表示 vt_out 缓冲中还有尚未写给宿主终端的数据。
