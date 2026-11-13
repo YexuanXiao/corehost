@@ -108,6 +108,8 @@ Refer to CI for cross compilation and building with Clang.
 - `conpty_static`: the static library form of libconpty.
 - `conhost_proxy`: the COM proxy/stub DLL used by default-terminal handoff and COM embedding.
 
+Running the tests requires ssh, sshd, edit and vim.
+
 ### CMake options
 
 | Option | Default | Description |
