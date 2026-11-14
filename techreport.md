@@ -964,47 +964,70 @@ UTF-16 屏幕缓冲区”并不是高质量终端的必要选择。
 namespace corehost::screen
 {
 
+// Page-local style ID。0 保留给默认样式，避免普通 cell 查表。
 using style_id = std::uint16_t;
+
+// Row-local grapheme side-store ID。0 表示该 cell 没有额外 codepoint。
 using cluster_id = std::uint16_t;
 
+// Cell 的语义类别。它决定 codepoint/cluster 字段如何解释。
 enum class cell_content : std::uint8_t
 {
-    blank = 0,
-    scalar = 1,
-    grapheme = 2,
-    background = 3,
+    blank = 0,      // 空白 cell，codepoint 无意义，按空格渲染
+    scalar = 1,     // 单个 Unicode 标量，没有额外 cluster codepoint
+    grapheme = 2,   // primary codepoint + row grapheme_store 中的额外 codepoint
+    background = 3, // 没有文字，仅背景/样式；用于背景色块和空白区域
 };
 
+// Cell 在终端网格中的列语义。宽字符 head 占两列，tail 是第二列。
 enum class cell_width : std::uint8_t
 {
-    narrow = 0,
-    wide = 1,
-    tail = 2,
-    spacer_head = 3,
+    narrow = 0,       // 普通单列 cell
+    wide = 1,         // 宽字符 head，占两列
+    tail = 2,         // 宽字符的第二列，不携带独立文本
+    spacer_head = 3,  // 行尾宽字符延续标记，不携带独立文本
 };
 
+// 每个 bit 表示一个独立的 cell 属性，避免额外的 bool 字段。
 enum class cell_flag : std::uint8_t
 {
     none = 0,
-    protected_cell = 1u << 0,
-    hyperlink = 1u << 1,
-    semantic_input = 1u << 2,
-    semantic_prompt = 1u << 3,
+    protected_cell = 1u << 0, // 受保护 cell，选择/覆盖策略可参考
+    hyperlink = 1u << 1,      // hyperlink 数据在 page 的 side table
+    semantic_input = 1u << 2,  // 属于用户输入区域
+    semantic_prompt = 1u << 3, // 属于 prompt/命令边界
 };
 
+// 终端网格的最小存储单元。
+//
+// cell 是 8 字节、trivially copyable、standard-layout 的值类型。它只保存
+// “这一列显示什么”的紧凑描述，不拥有文本、颜色表或 cluster 数据：
+//   - primary codepoint 直接内联；
+//   - 多码点 grapheme 的额外 codepoint 在 row 的 grapheme_store；
+//   - 颜色/下划线/legacy 属性在 page 的 style_table；
+//   - cluster_id/style_id 都是局部索引，不是 pointer。
+//
+// 这样可以按 page 批量 memset/memcpy，也不会因为每 cell 一个 string 产生
+// 分配和缓存不友好的间接访问。
 class cell final
 {
 public:
     using flag = cell_flag;
+
+    // cluster_id 0 是保留值，表示“没有额外 codepoint”。
     static constexpr cluster_id no_cluster = 0;
 
+    // 默认构造为零值：blank、默认样式、无 cluster。page 可以安全地批量清零。
     constexpr cell() noexcept = default;
 
+    // 构造一个空白 cell：没有文字，只有 style。
     [[nodiscard]] static constexpr cell blank(style_id style = 0) noexcept
     {
         return make(U' ', style, cell_content::blank, cell_width::narrow, no_cluster, 0);
     }
 
+    // 构造一个单标量 cell。width 由调用方根据 Unicode 宽度策略提前解析；
+    // 非 BMP 标量也仍然是一个 codepoint，不在这里拆成 surrogate。
     [[nodiscard]] static constexpr cell scalar(char32_t codepoint,
                                               style_id style = 0,
                                               cell_width width = cell_width::narrow) noexcept
@@ -1012,6 +1035,8 @@ public:
         return make(codepoint, style, cell_content::scalar, width, no_cluster, 0);
     }
 
+    // 构造一个 grapheme cell。primary 是 cluster 的首个 codepoint；
+    // cluster 必须由同一 row 的 grapheme_store 分配，0 表示没有额外 codepoint。
     [[nodiscard]] static constexpr cell grapheme(char32_t primary,
                                                  cluster_id cluster,
                                                  style_id style = 0,
@@ -1020,86 +1045,108 @@ public:
         return make(primary, style, cell_content::grapheme, width, cluster, 0);
     }
 
+    // 构造一个“只有背景色、没有文字”的 cell。背景色由 style_id 提供，
+    // 不把颜色塞进 codepoint，也不创建 grapheme。
     [[nodiscard]] static constexpr cell background(style_id style = 0) noexcept
     {
         return make(U' ', style, cell_content::background, cell_width::narrow, no_cluster, 0);
     }
 
+    // 构造宽字符的第二列。它不包含独立文本，渲染时跳过。
     [[nodiscard]] static constexpr cell tail(style_id style = 0) noexcept
     {
         return make(U' ', style, cell_content::blank, cell_width::tail, no_cluster, 0);
     }
 
+    // 构造行尾宽字符延续标记。它用于 soft-wrap 时说明下一行继续当前宽字符。
     [[nodiscard]] static constexpr cell spacer_head(style_id style = 0) noexcept
     {
         return make(U' ', style, cell_content::blank, cell_width::spacer_head, no_cluster, 0);
     }
 
+    // 返回内联的 primary codepoint。blank/background cell 的原始值没有语义，
+    // 读取显示文本请优先用 text_codepoint()。
     [[nodiscard]] constexpr char32_t codepoint() const noexcept
     {
         return static_cast<char32_t>(_bits & codepoint_mask);
     }
 
+    // 返回适合渲染/投影的文本 codepoint：空白 cell 统一返回空格，
+    // 避免把内部占位值泄漏给 Console API 或 DWrite。
     [[nodiscard]] constexpr char32_t text_codepoint() const noexcept
     {
         return is_blank() ? U' ' : codepoint();
     }
 
+    // 返回 page-local 样式 ID。0 表示默认样式，不需要查 style_table。
     [[nodiscard]] constexpr style_id style() const noexcept
     {
         return static_cast<style_id>((_bits >> style_shift) & style_mask);
     }
 
+    // 返回 row-local grapheme side-store ID。0 表示没有额外 codepoint；
+    // 非 0 时由所属 row 的 grapheme_store 解析。
     [[nodiscard]] constexpr cluster_id cluster() const noexcept
     {
         return static_cast<cluster_id>((_bits >> cluster_shift) & cluster_mask);
     }
 
+    // 返回 cell 的语义类别，决定上面 codepoint/cluster 字段是否有效。
     [[nodiscard]] constexpr cell_content content() const noexcept
     {
         return static_cast<cell_content>((_bits >> content_shift) & content_mask);
     }
 
+    // 返回列语义：普通、宽字符 head、宽字符 tail 或行尾 spacer head。
     [[nodiscard]] constexpr cell_width width() const noexcept
     {
         return static_cast<cell_width>((_bits >> width_shift) & width_mask);
     }
 
+    // 返回 flags 的原始位集合；通常通过 has() 查询单个 flag。
     [[nodiscard]] constexpr std::uint8_t flags() const noexcept
     {
         return static_cast<std::uint8_t>((_bits >> flags_shift) & flags_mask);
     }
 
+    // 查询一个 flag 是否置位。
     [[nodiscard]] constexpr bool has(flag value) const noexcept
     {
         return (flags() & static_cast<std::uint8_t>(value)) != 0;
     }
 
+    // blank 和 background 都没有文字内容，但 background 仍可携带背景样式。
     [[nodiscard]] constexpr bool is_blank() const noexcept
     {
         return content() == cell_content::blank || content() == cell_content::background;
     }
 
+    // 是否为多码点 grapheme（额外内容在 row grapheme_store）。
     [[nodiscard]] constexpr bool is_grapheme() const noexcept
     {
         return content() == cell_content::grapheme;
     }
 
+    // 是否为宽字符 head（head 占两列，下一列通常是 tail）。
     [[nodiscard]] constexpr bool is_wide() const noexcept
     {
         return width() == cell_width::wide;
     }
 
+    // 是否为宽字符的第二列；该列不拥有独立文本。
     [[nodiscard]] constexpr bool is_continuation() const noexcept
     {
         return width() == cell_width::tail;
     }
 
+    // 是否为行尾 soft-wrap 的宽字符延续标记。
     [[nodiscard]] constexpr bool is_spacer_head() const noexcept
     {
         return width() == cell_width::spacer_head;
     }
 
+    // 返回替换了 style_id 的副本。cell 是值类型，不修改原对象；
+    // 这样 row 可以在批量写入时复用同一个 cell 模板。
     [[nodiscard]] constexpr cell with_style(style_id value) const noexcept
     {
         auto result = *this;
@@ -1108,6 +1155,8 @@ public:
         return result;
     }
 
+    // 返回设置/清除一个 flag 的副本。flags 只占 7 bit，操作不会影响
+    // codepoint/style/cluster/width 字段。
     [[nodiscard]] constexpr cell with_flag(flag value, bool enabled = true) const noexcept
     {
         auto result = *this;
@@ -1121,16 +1170,20 @@ public:
         return result;
     }
 
+    // 按位比较：内容、样式、cluster、宽度和 flags 都相同才相等。
     friend constexpr bool operator==(const cell &, const cell &) noexcept = default;
 
 private:
-    // 64-bit layout:
+    // 64-bit layout（低位到高位）：
     //   [0, 21)   codepoint
     //   [21, 37)  style_id
     //   [37, 53)  cluster_id
     //   [53, 55)  content
     //   [55, 57)  width
     //   [57, 64)  flags
+    //
+    // 选择这个顺序是为了让 codepoint/style 位于低位，常见读取只需要一次
+    // mask；cluster/content/width/flags 也都能用常数掩码无分支取出。
     static constexpr unsigned codepoint_shift = 0;
     static constexpr unsigned style_shift = 21;
     static constexpr unsigned cluster_shift = 37;
@@ -1138,6 +1191,8 @@ private:
     static constexpr unsigned width_shift = 55;
     static constexpr unsigned flags_shift = 57;
 
+    // 各字段的宽度掩码；字段值在 make() 中先 mask 再移位，防止
+    // 调用方传入超范围值污染相邻字段。
     static constexpr std::uint64_t codepoint_mask = 0x1FFFFF;
     static constexpr std::uint64_t style_mask = 0xFFFF;
     static constexpr std::uint64_t cluster_mask = 0xFFFF;
@@ -1145,9 +1200,12 @@ private:
     static constexpr std::uint64_t width_mask = 0x3;
     static constexpr std::uint64_t flags_mask = 0x7F;
 
+    // 已移位到目标位置的掩码，供 with_style()/with_flag() 做无分支替换。
     static constexpr std::uint64_t style_bits = style_mask << style_shift;
     static constexpr std::uint64_t flags_bits = flags_mask << flags_shift;
 
+    // 统一装配入口：所有构造函数都走这里，保证字段顺序、mask 和
+    // content/width 的编码只在一个地方维护。
     [[nodiscard]] static constexpr cell make(char32_t codepoint,
                                              style_id style,
                                              cell_content content,
@@ -1165,21 +1223,34 @@ private:
         return result;
     }
 
+    // 唯一数据成员：8 字节位域。没有指针、没有堆分配，因此 cell 可以
+    // 按 page 连续存放并直接 memcpy/memset。
     std::uint64_t _bits{};
 };
 
+// 编译期保证 cell 的 ABI/布局假设成立；如果平台 uint64_t 不是 8 字节，
+// 或编译器插入额外 padding，构建应立即失败，而不是静默增加内存。
 static_assert(sizeof(cell) == sizeof(std::uint64_t));
 static_assert(alignof(cell) == alignof(std::uint64_t));
 static_assert(std::is_trivially_copyable_v<cell>);
 static_assert(std::is_standard_layout_v<cell>);
 
-// A row-local side store for the extra codepoints of grapheme clusters.
-// cluster_id == 0 means "no cluster"; IDs are never reused within a row.
+// Row-local side store：保存 grapheme cluster 中除 primary codepoint 之外的
+// 额外 codepoint。cell 只保存 cluster_id，真正的文本放在这里，避免 cell
+// 因 emoji/组合序列而膨胀。
+//
+// cluster_id == 0 表示“没有额外 codepoint”；一个 row 内的 ID 不复用，
+// 这样 cell 的 cluster_id 在 row 生命周期内稳定。
 class grapheme_store final
 {
 public:
+    // 包含 primary 在内的 cluster 最大 codepoint 数。RGI emoji 目前最多约
+    // 10 个，64 留出足够余量；超出时由调用方决定拒绝/替换策略。
     static constexpr std::size_t max_cluster_codepoints = 64;
 
+    // 追加一个 cluster 的额外 codepoint（不含 primary），返回新的 cluster_id。
+    // - extra 为空：返回 0（没有 cluster）；
+    // - 超过长度/ID 上限：返回 nullopt，调用方不能静默截断。
     [[nodiscard]] std::optional<cluster_id> append(std::span<const char32_t> extra)
     {
         if (extra.empty())
@@ -1201,6 +1272,8 @@ public:
         return id;
     }
 
+    // 返回某个 cluster 的额外 codepoint 视图。id 为 0 或越界时返回空 span；
+    // 返回的是只读视图，调用方不能借此修改 store。
     [[nodiscard]] std::span<const char32_t> extras(cluster_id id) const noexcept
     {
         if (id == 0 || static_cast<std::size_t>(id) >= entries_.size())
@@ -1212,6 +1285,7 @@ public:
         return std::span<const char32_t>{codepoints_}.subspan(entry.offset, entry.length);
     }
 
+    // 清空所有 cluster，只保留保留项 0。用于 row 重置或复用。
     void clear() noexcept
     {
         codepoints_.clear();
@@ -1219,13 +1293,18 @@ public:
     }
 
 private:
+    // 一个 cluster 在 codepoints_ 中的切片；offset 是起点，length 是额外
+    // codepoint 数（不包含 cell 内的 primary）。
     struct entry final
     {
         std::uint32_t offset{};
         std::uint16_t length{};
     };
 
+    // 所有 cluster 的额外 codepoint 连续存放；entry.offset 指向这里。
     std::vector<char32_t> codepoints_;
+
+    // entry[0] 是保留的空 cluster；其余 entry 与 cluster_id 一一对应。
     std::vector<entry> entries_{entry{}};
 };
 
