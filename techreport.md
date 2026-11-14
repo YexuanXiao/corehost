@@ -31,6 +31,13 @@ primary content**，再为多码点 cluster 建立 side pool；没有把 UTF-16 
 存储。Contour 的 DirectWrite shaper 在真正调用 DWrite 前把 `char32_t` 文本转成 UTF-16，
 并把 UTF-16 的 surrogate/cluster 偏移映射回 cell cluster。
 
+原版 conhost 和 Windows Terminal 也验证了另一个关键点：conhost 内部 `OutputCell` 保存
+完整的 UTF-16 文本，但 `ReadConsoleOutput`/`ReadConsoleOutputCharacter` 会把多 unit cell
+主动投影为 `U+FFFD`，`WriteConsoleOutput` 则把每个 `CHAR_INFO` 当作一个 `WCHAR` cell；
+Windows Terminal/DWrite 使用的是内部丰富文本，而不是 `CHAR_INFO`。因此，**Console API
+有损并不要求屏幕缓冲区也有损；相反，内部模型应保留完整文本，并在 API 边界集中处理投影。**
+这也是本报告对 corehost 的核心建议。
+
 ## 1. 分析范围与证据
 
 本报告基于以下代码和文档进行功能与结构分析：
@@ -90,9 +97,28 @@ primary content**，再为多码点 cluster 建立 side pool；没有把 UTF-16 
 - `ghostty/src/unicode/grapheme.zig`
   - grapheme 分割是输入模型的一部分，而不是按 UTF-16 code unit 处理。
 
-这些实现的共同点是：**Unicode 标量/codepoint 是稳定的语义单位，UTF-16 是平台 API
-的编码格式**。它们的性能并非来自把 codepoint 换成 UTF-16，而是来自固定大小 cell、side
-pool、style interning、行级 fast path 和 page 管理。
+### terminal / conhost
+
+- `terminal/src/buffer/out/OutputCell.hpp`
+  - 内部 cell 使用 `std::wstring _text`，可以保存多个 UTF-16 code unit。
+- `terminal/src/host/consoleInformation.cpp`
+  - `CONSOLE_INFORMATION::AsCharInfo` 用 `Utf16ToUcs2` 生成 `CHAR_INFO`。
+- `terminal/src/host/directio.cpp`
+  - `ReadConsoleOutput`/`WriteConsoleOutput` 矩形路径。
+- `terminal/src/host/output.cpp`
+  - `ReadConsoleOutputCharacter` 的 `ReadOutputStringW` 路径。
+- `terminal/src/types/convert.cpp`
+  - `Utf16ToUcs2` 对多 unit cell 返回 `U+FFFD`。
+- `terminal/src/host/VtIo.cpp`
+  - 旧 `CHAR_INFO` 路径的 VT writer 与 surrogate 清理。
+- `terminal/src/renderer/atlas/AtlasEngine.api.cpp`
+  - Windows Terminal 通过 TextBuffer/DWrite 渲染文本。
+
+Contour 和 Ghostty 的共同点是：**Unicode 标量/codepoint 是稳定的语义单位，UTF-16 是
+平台 API 的编码格式**。它们的性能并非来自把 codepoint 换成 UTF-16，而是来自固定大小
+cell、side pool、style interning、行级 fast path 和 page 管理。conhost 的内部
+`OutputCell` 虽然保存 UTF-16 文本，但同样把内部丰富文本与有损的 `CHAR_INFO` 投影分开；
+它证明的是**分层原则**，而不是必须把 cell 存成 UTF-16。
 
 ## 2. Windows 约束
 
@@ -459,33 +485,58 @@ Cell/Page
 
 - BMP 标量：写入对应 `WCHAR`；
 - 非 BMP：写 `U+FFFD`（或按项目定义的兼容替代），不能写入半个代理对；
-- 多码点 cluster：只投影首个可见标量，不能让 cluster 污染相邻列；
+- 多码点 cluster 或多 UTF-16 unit：整个 cell 投影为 `U+FFFD`，与 conhost 的
+  `Utf16ToUcs2` 规则一致；不能用首个标量污染相邻列；
 - trailing/spacer：写空字符并保留属性；
 - style：投影为 legacy `WORD`；
 - 读取矩形时按 cell 直接扫描，不重新做 Unicode 宽度计算。
 
-**写入路径：**
+**写入路径 A：`WriteConsoleOutput` / `CHAR_INFO`**
 
 ```text
 application
-  → CHAR_INFO / UTF-16
-  → code-unit decoder (pair surrogate)
+  → CHAR_INFO rectangle
+  → one CHAR_INFO = one WCHAR = one cell
+  → width flags (LEADING/TRAILING)
+  → cell/page write
+```
+
+规则：
+
+- 不跨 `CHAR_INFO` 边界自动合并 high/low surrogate；conhost 的 `CHAR_INFO` 构造路径就是
+  一个 `CHAR_INFO` 对应一个 `wchar_t` cell；
+- `COMMON_LVB_LEADING_BYTE`/`TRAILING_BYTE` 决定宽字符列跨度，而不是 Unicode 宽度；
+- 0 字符、trailing 标记和 NUL 的语义按 conhost 兼容规则处理；
+- 写入孤立 surrogate 时必须在内部规范为 `U+FFFD` 或保留为明确的“不可渲染内容”，不能
+  让非标量进入通用 codepoint/cluster 路径；
+- 这是一条**兼容优先、明确有损**的路径。
+
+**写入路径 B：`WriteConsoleW` / `WriteConsoleOutputCharacterW`**
+
+```text
+application
+  → UTF-16 string
+  → code-unit decoder (combine surrogate pair)
   → codepoint + grapheme segmentation
   → width policy
   → cell/page write
 ```
 
-必须明确处理：
+规则：
 
-- 合法 high surrogate + low surrogate 合并为一个标量；
+- 合法 high surrogate + low surrogate 合并为一个 Unicode 标量；
 - 孤立 surrogate → `U+FFFD`；
-- `CHAR_INFO` 的 0 字符是 trailing 标记还是真正的 NUL，需要和 conhost 行为一致；
-- `WriteConsoleW` 的字符串不是 `CHAR_INFO` 矩形，应该先转换成 codepoint 流，再按完整
-  grapheme 写入，而不是每个 code unit 独立写 cell。
+- 按完整 grapheme 写入，而不是每个 UTF-16 code unit 独立写 cell；
+- 读取时仍按 6.1 的读取投影规则返回 `CHAR_INFO`，因此写入更丰富不代表读取无损。
 
-当前 `from_char_info` 只规范化 high surrogate，没有完整合并 surrogate pair，也没有对
-low surrogate 做同样处理；新模型应把这段逻辑集中到统一的 UTF-16 解码器，避免两条 API
-路径行为不一致。
+conhost 的 `WriteConsoleW` legacy 路径按 grapheme 写入，`WriteConsoleOutputCharacterW`
+的 `OutputCellIterator` 默认按 codepoint 写入。corehost 可以把两者统一为 grapheme 粒度，
+但这是相对 conhost 的行为差异；严格兼容模式应保留 `WriteConsoleOutputCharacterW` 的
+逐 codepoint 语义，并记录该路径无法在 API 往返中保持完整 cluster。
+
+当前 `from_char_info` 把每个 `CHAR_INFO` 当成一个 wchar 写入，且只规范化 high
+surrogate；这符合 `CHAR_INFO` 路径“不跨 cell 合并”的方向，但需要补齐孤立
+low surrogate 的规范化，并和 `WriteConsoleW` 的 UTF-16 字符串路径明确分开。
 
 ### 6.2 DirectWrite：UTF-16 run + cluster map
 
@@ -541,9 +592,149 @@ Cell row
 模式把规范存储改成 UTF-16，无头模式反而要为每一次 VT 输出做 UTF-16→UTF-8 转换，增加了
 当前主路径的成本。
 
-## 7. 性能分析
+## 7. conhost 与 Windows Terminal 的 Console API 往返策略
 
-### 7.1 当前结构的成本
+这一节回答一个关键问题：原版 conhost 明知 `CHAR_INFO`/Console API 有损，为什么仍能
+高质量显示 Unicode？corehost 应该模仿它的哪一层，而不是模仿它的哪一层。
+
+### 7.1 conhost 的内部表示不是 CHAR_INFO
+
+conhost 的 `OutputCell` 持有 `std::wstring _text`，一个 cell 的文本可以是多个 UTF-16
+code unit；`TextBuffer` 和 `OutputCellView` 也是围绕这个可变长度 cell 文本工作的。
+这说明：
+
+- conhost 内部**不是**把 `CHAR_INFO` 当作唯一真相；
+- 内部 cell 可以保存 surrogate pair、组合序列或多码点文本；
+- Windows Terminal 的 `TextBuffer`/renderer 读取的是这套丰富的 cell 文本，而不是
+  `CHAR_INFO` 矩形；
+- `CHAR_INFO` 是**Console API 的兼容投影**，不是内部渲染模型。
+
+### 7.2 读取路径：主动替换为 U+FFFD
+
+`CONSOLE_INFORMATION::AsCharInfo` 生成 `CHAR_INFO` 时调用 `Utf16ToUcs2(cell.Chars())`。
+`Utf16ToUcs2` 的规则非常明确：
+
+- cell 文本为空：失败；
+- cell 文本长度等于 1 个 UTF-16 code unit：返回该 unit；
+- cell 文本长度大于 1：返回 `U+FFFD`（`UNICODE_REPLACEMENT`）。
+
+因此 `ReadConsoleOutput` 对以下情况返回替换字符，而不是把完整文本拆成多个 cell：
+
+- 非 BMP 标量（内部是两个 UTF-16 code unit）；
+- 组合字符序列；
+- emoji ZWJ 序列；
+- 其他多码点 grapheme cluster；
+- 任何内部 cell 文本长度超过一个 code unit 的内容。
+
+`ReadOutputStringW`（`ReadConsoleOutputCharacter` 的底层）也做同样的处理：遇到
+`chars.size() > 1` 时把整个 cell 的文本替换为 `U+FFFD`，并且跳过 trailing cell。
+它不是“把代理对拆成两格”，而是**承认无法表达，显式降级**。
+
+这提供了一个重要结论：conhost 的 API 往返不是“尽量保留非 BMP”，而是**在 API 边界
+明确采用替换语义**。内部显示质量与 API 投影被刻意分开。
+
+### 7.3 写入路径：CHAR_INFO、codepoint 与 grapheme 三种粒度
+
+`WriteConsoleOutputWImplHelper` 把每个 `CHAR_INFO` 包装成
+`OutputCellIterator(CHAR_INFO)`，而 `OutputCellIterator` 的 `CHAR_INFO` 构造路径使用
+单个 `wchar_t` 的 `wstring_view`：
+
+- 一个 `CHAR_INFO` 对应一个 cell；
+- 相邻的 high/low surrogate 不会被自动合并；
+- 宽字符由 `COMMON_LVB_LEADING_BYTE`/`COMMON_LVB_TRAILING_BYTE` 表达列跨度；
+- `WriteConsoleOutput` 不承诺把两个相邻 `CHAR_INFO` 还原成一个非 BMP 标量。
+
+`WriteConsoleW` 走 `DoWriteConsole` → `WriteCharsLegacy` → `TextBuffer::Replace` 路径；
+底层 `ROW::WriteHelper` 使用 `GraphemeNext` 推进，因此可以把一个完整 grapheme cluster
+（包括代理对、组合标记和 ZWJ 序列）存入一个内部 cell。读取时仍会碰到 7.2 的替换规则。
+
+`WriteConsoleOutputCharacterW` 走 `FillConsoleImpl` → `OutputCellIterator` 的宽字符串
+路径；该路径使用 `til::utf16_next` **按 codepoint** 推进，因此能正确保留一个代理对
+（两个 code unit 在同一个 cell），但不保证把多码点 grapheme cluster 整体放入一个 cell。
+`OutputCell` 本身可以持有更长的 `std::wstring`，但这条 API 路径的默认迭代粒度是
+codepoint。
+
+因此，conhost 的三条写入路径粒度不同：
+
+- `WriteConsoleW`：legacy 路径按 grapheme 写入；
+- `WriteConsoleOutputCharacterW`：按 codepoint 写入；
+- `WriteConsoleOutput`：按一个 `CHAR_INFO` = 一个 `WCHAR` = 一个 cell 写入。
+
+### 7.4 旧 Console API 的 VT 输出也会降级
+
+conhost 的 `VtIo::Writer::WriteInfos` 接受 `CHAR_INFO` 范围并写入 VT 输出；它的宽字符
+处理会：
+
+- 丢弃 trailing 半列；
+- 在边界不完整时补空格；
+- 对 surrogate 调用 `SanitizeUCS2`，结果是 `U+FFFD`。
+
+因此，通过旧 `WriteConsoleOutput` 路径输出到终端时，非 BMP 也可能降级。这个降级发生在
+**CHAR_INFO/VT writer 边界**，而不是 DWrite renderer 内部。对于现代应用直接写 VT 的路径，
+文字可以以 UTF-8/VT 保留，不需要经过 `CHAR_INFO`。
+
+### 7.5 Windows Terminal 的位置
+
+Windows Terminal 不是 Console API 的实现者。它消费 VT/UTF-8 文本，或用 conhost 共享的
+`TextBuffer`/`OutputCell` 作为显示数据；`AtlasEngine` 再把这些文本交给 DirectWrite
+（DWrite 的 text format/layout 路径）渲染。Windows Terminal 不需要把 cell 投影成
+`CHAR_INFO`，所以它可以显示 conhost 的 Console API 无法读回的多码点文本。
+
+这说明原版体系的分层是：
+
+```text
+内部 TextBuffer/OutputCell（丰富 UTF-16 文本）
+        ├── Console API CHAR_INFO 投影（有损，明确替换）
+        └── VT/DWrite 渲染路径（尽可能保留完整文本）
+```
+
+### 7.6 往返行为矩阵
+
+| 操作路径 | conhost 的内部结果 | 再读回的结果 | 结论 |
+| --- | --- | --- | --- |
+| `WriteConsoleW` 写入 BMP 单码点 | 一个 UTF-16 unit 的 cell | `ReadConsoleOutput`/`ReadConsoleOutputCharacter` 返回同一 unit | 可往返（属性仍按 legacy 映射） |
+| `WriteConsoleW` 写入合法 surrogate pair 或 grapheme cluster | legacy `TextBuffer` 路径按 grapheme 写入，cell 可保存完整 cluster | 读取返回 `U+FFFD` | 内部保留完整 cluster，读取有损 |
+| `WriteConsoleOutputCharacterW` 写入合法 surrogate pair | `OutputCellIterator` 按 codepoint 推进，一个 cell 保存两个 UTF-16 unit | 读取返回 `U+FFFD` | 保留一个 codepoint，读取有损 |
+| `WriteConsoleOutputCharacterW` 写入组合序列/emoji cluster | 按 codepoint 拆成多个 cell（通常不是完整 grapheme） | 读回按 cell/投影处理，不能还原完整 cluster | 写入端不做完整 grapheme 合并 |
+| `WriteConsoleOutput` 的 `CHAR_INFO` 含 high/low surrogate 两格 | 每格按一个 `WCHAR` 存储，不自动合并 | 读回两个独立 UTF-16 unit，不能还原原标量 | 不做代理对重组 |
+| `WriteConsoleOutput` 写入宽字符 | 由 `COMMON_LVB_LEADING_BYTE`/`TRAILING_BYTE` 表达列跨度 | trailing 按 cell 规则处理 | 宽字符宽度语义保留，文本内容受 `CHAR_INFO` 限制 |
+| 直接 VT/UTF-8 路径（Windows Terminal 接收） | VT 文本不经过 `CHAR_INFO` | 终端按 Unicode 文本渲染 | 不受 Console API 投影限制 |
+| Windows Terminal/DWrite 渲染共享 `TextBuffer` | 读取完整 `OutputCell` 文本 | 渲染显示完整 cluster | 不经过 Console API |
+
+这张矩阵说明：**“内部能否表示”与“Console API 能否往返”是两个独立问题**。conhost 选择
+让内部表示更丰富，让 Console API 明确有损；没有为了 `CHAR_INFO` 而放弃内部 Unicode。
+
+### 7.7 对 corehost 的直接结论
+
+corehost 应该模仿 conhost 的分层，而不是把内部 cell 改成 `CHAR_INFO` 形状：
+
+1. **内部 cell 保留完整 primary codepoint + grapheme side pool**，不因为 Console API
+   有损而丢弃 emoji/组合字符。
+2. **`ReadConsoleOutput`/`ReadConsoleOutputCharacter` 的投影规则应与 conhost 对齐**：
+   - 一个 cell 的完整文本正好是一个 UTF-16 code unit 时返回该 unit；
+   - cell 是多码点/多 UTF-16 unit 时返回 `U+FFFD`，而不是首个 codepoint；
+   - trailing/leading、属性和宽字符 flags 按 conhost 规则保留。
+3. **`WriteConsoleOutput` 的每个 `CHAR_INFO` 继续被解释为一个 cell 一个 `WCHAR`**，
+   不自动合并相邻 surrogate pair；这是兼容性行为，不应在底层偷偷改变。
+4. **宽字符串写入路径**的目标模型应统一为：先合并合法 surrogate pair，再做完整
+   grapheme 分割，然后写入丰富内部 cell。conhost 的 `WriteConsoleW` legacy 路径已经按
+   grapheme 写入，而 `WriteConsoleOutputCharacterW` 的 `OutputCellIterator` 默认按
+   codepoint 写入；corehost 可以选择统一提升到 grapheme 粒度，但必须记录这是相对
+   conhost 的行为差异。严格兼容实现则保留 `WriteConsoleOutputCharacterW` 的逐 codepoint
+   语义。无论选哪种，读回仍按 2 的规则有损。
+5. **窗口模式**直接从内部 cell 生成 DWrite UTF-16 run，不经过 `CHAR_INFO`；因此窗口可以
+   显示 `ReadConsoleOutput` 读不出的 emoji/cluster。
+6. **无头模式**直接从内部 cell 生成 UTF-8/VT；不需要为了 Console API 投影把内部文本
+   先降级。
+7. **旧 Console API 的 VT writer** 对 non-BMP 若必须走 `CHAR_INFO`，应明确按 conhost
+   的替换规则输出；现代 VT/raw 路径保留完整 UTF-8。
+
+这条策略的关键是：**有损只发生在 Console API 投影和旧 CHAR_INFO writer，不发生在
+屏幕缓冲区、窗口渲染或无头 VT 输出。**
+
+## 8. 性能分析
+
+### 8.1 当前结构的成本
 
 当前每次复杂 glyph 写入：
 
@@ -557,7 +748,7 @@ Cell row
 不会触发；但一旦窗口程序输出 emoji/组合字符，复杂行会退化。Scroll/resize 还会复制多个
 变长容器。
 
-### 7.2 新结构的成本
+### 8.2 新结构的成本
 
 新结构：
 
@@ -569,7 +760,7 @@ Cell row
 - page 滚动是 row/page 索引操作，不复制整行字符串；
 - 只有多码点 cluster 才访问 side table，慢路径局限在真正复杂的 cell。
 
-### 7.3 内存估算
+### 8.3 内存估算
 
 8 字节 cell 的粗略估算：
 
@@ -592,7 +783,7 @@ side table 和 selection/copy/search 的额外复杂度，并且与 Ghostty 的 
 如果未来证明 ASCII 内存是瓶颈，可以增加 row-level ASCII compression，而不是把整个模型
 改成 UTF-16。
 
-### 7.4 转换成本
+### 8.4 转换成本
 
 UTF-32 codepoint → UTF-16 的转换：
 
@@ -607,17 +798,18 @@ UTF-32 codepoint → UTF-16 的转换：
 因此，**UTF-16 canonical 的收益主要是减少一次编码循环，而不是减少整个渲染/API 路径的
 主要工作量**。这个收益不足以抵消 Unicode 语义复杂度和无头路径的额外转换。
 
-## 8. 正确性和边界条件
+## 9. 正确性和边界条件
 
-### 8.1 非 BMP
+### 9.1 非 BMP
 
 - 内部 cell 存 21 位标量，保留完整码点；
 - UTF-16 边界输出一对 surrogate；
 - `CHAR_INFO` 读取只能写替代字符，这是 API 限制，必须在文档/测试中固定；
-- `CHAR_INFO` 写入合并合法 surrogate pair；
-- 孤立 surrogate 统一替换为 `U+FFFD`。
+- `WriteConsoleW`/宽字符串路径合并合法 surrogate pair；`WriteConsoleOutput` 的
+  `CHAR_INFO` 路径按 conhost 保持每格一个 `WCHAR`，不跨格合并；
+- 孤立 surrogate 在进入内部标量模型前统一替换为 `U+FFFD`。
 
-### 8.2 组合字符和 emoji
+### 9.2 组合字符和 emoji
 
 必须测试：
 
@@ -631,15 +823,17 @@ UTF-32 codepoint → UTF-16 的转换：
 - 宽字符落在最后一列、跨行、spacer head/tail；
 - ambiguous width 在 console/wcswidth/graphemes 三种策略下的差异。
 
-### 8.3 Console API 往返
+### 9.3 Console API 往返
 
 - `ReadConsoleOutput` 后 `WriteConsoleOutput` 的 BMP 文本/属性应保持一致；
-- 非 BMP/多码点 cluster 往返是有损的，需定义预期；
-- `WriteConsoleW` 的 surrogate pair 应尽量合并，而不是写两个 replacement；
+- 非 BMP/多码点 cluster 的读取投影应返回 `U+FFFD`，而不是首个 codepoint 或半个代理对；
+- `WriteConsoleW`/宽字符串路径的合法 surrogate pair 合并，而不是写两个 replacement；
+- `WriteConsoleOutput` 的相邻 `CHAR_INFO` 不自动合并代理对，保持 conhost 的单 `WCHAR`
+  cell 语义；
 - `CHAR_INFO` 的 0 字符/trailing 语义必须与 conhost 一致；
 - `GetConsoleScreenBufferInfo`/属性查询使用 legacy 投影，不应改变内部 style。
 
-### 8.4 窗口和无头共享
+### 9.4 窗口和无头共享
 
 - VT 输出和 DWrite 渲染必须读取同一 cell/page，不允许两套文本存储；
 - 无头输出 UTF-8 不能经过 UTF-16 中间层；
@@ -647,7 +841,7 @@ UTF-32 codepoint → UTF-16 的转换：
 - 两边都只读取/清理 dirty 范围；
 - style table 更新要同时使 VT SGR 缓存和 DWrite shaping cache 失效。
 
-## 9. 迁移方案
+## 10. 迁移方案
 
 ### 阶段 0：基线与测试
 
@@ -695,7 +889,7 @@ UTF-32 codepoint → UTF-16 的转换：
 - 回归：resize、scroll、alt buffer、selection/copy/search、并发/脏行；
 - 性能：ASCII 批量、CJK、emoji、scrollback、VT 输出、DWrite shaping cache。
 
-## 10. 风险与取舍
+## 11. 风险与取舍
 
 1. **内存**：8 字节 cell 比 UTF-16 code unit 更占内存。需要 page/blank 压缩和
    scrollback 容量控制；如果 ASCII 内存成为瓶颈，增加 row-level ASCII fast path，
@@ -713,7 +907,7 @@ UTF-32 codepoint → UTF-16 的转换：
 7. **输入边界**：UTF-16 输入中的 surrogate pair、孤立 surrogate、NUL 和 trailing cell
    语义需要统一处理，避免不同 API 路径产生不同结果。
 
-## 11. 结论
+## 12. 结论
 
 corehost 当前的问题可以概括为：
 
@@ -729,6 +923,17 @@ corehost 当前的问题可以概括为：
 - **style table**：内部保存完整的颜色/属性/超链接，legacy `WORD` 只在 Console API 投影；
 - **UTF-16 只做边界编码**：`CHAR_INFO` 和 DWrite 各自使用明确的转换/映射层；
 - **无头 UTF-8/VT 与窗口 DWrite 共享 cell/row/style**，只在最终编码器分叉。
+
+conhost 的做法进一步支持这个结论：内部 `OutputCell` 保存完整文本，但
+`ReadConsoleOutput`/`ReadConsoleOutputCharacter` 对多 unit cell 返回 `U+FFFD`，
+`WriteConsoleOutput` 把每个 `CHAR_INFO` 当作一个 `WCHAR`；Windows Terminal 则用
+`TextBuffer`/`OutputCell` 和 DWrite 渲染完整文本。corehost 应该采用同样的分层：**内部保留
+完整 cluster，Console API 边界集中做有损投影，窗口和无头路径绕过该投影。**
+
+当前 corehost 的 `to_char_info` 对多码点 cluster 取首个 codepoint，这和 conhost 的
+`Utf16ToUcs2` 行为不一致。迁移时应改为：**多 unit cell 整体返回 `U+FFFD`**；BMP 单
+unit cell 保持原字符。这样既保持内部窗口/VT 的 Unicode 质量，也让 Console API 行为与
+conhost 一致。
 
 Contour 使用 `char32_t` primary + cluster pool + `LineShape`，Ghostty 使用 8 字节 packed
 cell + style ID + grapheme map；两者都把 UTF-16 留给平台 shaper，而不是作为终端网格的
@@ -760,3 +965,28 @@ UTF-16 屏幕缓冲区”并不是高质量终端的必要选择。
 - `ghostty/src/terminal/size.zig`
 - `ghostty/src/terminal/Parser.zig`
 - `ghostty/src/unicode/grapheme.zig`
+
+### terminal / conhost
+
+- `terminal/src/host/consoleInformation.cpp`
+  - `CONSOLE_INFORMATION::AsCharInfo` 与 `ReadConsoleOutput` 的 `CHAR_INFO` 投影。
+- `terminal/src/host/directio.cpp`
+  - `ReadConsoleOutputWImplHelper`、`WriteConsoleOutputWImplHelper` 的矩形读写。
+- `terminal/src/host/output.cpp`
+  - `ReadOutputStringW` 对多 unit cell 的 `U+FFFD` 替换。
+- `terminal/src/host/_stream.cpp`
+  - `DoWriteConsole`/`WriteCharsLegacy` 的 `WriteConsoleW` legacy 写入路径。
+- `terminal/src/buffer/out/Row.cpp`
+  - `ROW::WriteHelper` 使用 `GraphemeNext` 写入完整 grapheme。
+- `terminal/src/host/_output.cpp`
+  - `FillConsoleImpl` 与 `WriteConsoleOutputCharacterW` 的 `OutputCellIterator` 路径。
+- `terminal/src/types/convert.cpp`
+  - `Utf16ToUcs2` 的“长度大于 1 即替换”规则。
+- `terminal/src/buffer/out/OutputCell.hpp`
+  - 内部 cell 的 `std::wstring _text`。
+- `terminal/src/buffer/out/OutputCellIterator.cpp`
+  - `CHAR_INFO` 单 `wchar_t` view 与宽字符串 `utf16_next` 路径。
+- `terminal/src/host/VtIo.cpp`
+  - `WriteInfos`/`SanitizeUCS2` 的旧 API VT 输出与 surrogate 替换。
+- `terminal/src/renderer/atlas/AtlasEngine.api.cpp`
+  - Windows Terminal 使用 TextBuffer/DWrite 的渲染路径。
