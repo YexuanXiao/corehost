@@ -1,10 +1,8 @@
-重新审查从5e9a3bf到现在所有代码（你需要生成diff文件，然后过滤掉所有测试文件夹和文档文件夹中的修改），以及分析terminal文件夹下的原版conhost代码，分析为什么你写的这些垃圾破坏了wt运行导致当corehost作为openconsole时，wt窗口一闪而过就退出了（和ACP无关，5e9a3bf不会导致wt窗口一闪而过），日志是corehost_1794449426_0000012856.log。你不应该关心中间的提交，只应该关心5e9a3bf和最后一个提交的差异，因为中间提交是垃圾。你需要审查差异的每一行，从需求出发重新在5e9a3bf实现。corehost的行为应该保持和conhost一致，只要conhost的行为是合理的（conhost本身也有BUG），就必须一致（corehost需要自己实现和conhost一致的行为，而不能抄代码）。corehost的代码应该完全和原版conhost无关，不能提到原版conhost的代码。分析所有代码，修复BUG，删除所有错误的垃圾，分析各个函数的关系。如果一个功能或者逻辑在原版conhost中不存在，就不实现，这是铁律（除了由Cmake选项控制的）。你不能用wt.exe+corehost作为openconsole做测试，必须自己独立发现错误编写测试。所有修复必须有实证，不能臆测，每完成一个修复并提交后，根据diff自我review。如果实在找不到BUG或者有疑问，必须停下来找我决断，不能自己决断。你需要区分哪些功能是corehost必须实现的，哪些是不实现的，没用的功能就不实现。你需要记录所有和conhost的行为的差异（不要提到任何conhost的代码），所有差异在源码中记录。差异必须是可外部观测的，不是源码级别的。
+corehost的行为应该保持和conhost一致，只要conhost的行为是合理的（conhost本身也有BUG），就必须一致（corehost需要自己实现和conhost一致的行为，而不能抄代码）。corehost的代码应该完全和原版conhost无关，不能提到原版conhost的代码。分析所有代码，修复BUG，删除所有错误的垃圾，分析各个函数的关系。如果一个功能或者逻辑在原版conhost中不存在，就不实现，这是铁律（除了由Cmake选项控制的）。你不能用wt.exe+corehost作为openconsole做测试，必须自己独立发现错误编写测试。所有修复必须有实证，不能臆测，每完成一个修复并提交后，根据diff自我review。如果实在找不到BUG或者有疑问，必须停下来找我决断，不能自己决断。你需要区分哪些功能是corehost必须实现的，哪些是不实现的，没用的功能就不实现。你需要记录所有和conhost的行为的差异（不要提到任何conhost的代码），所有差异在源码中记录。差异必须是可外部观测的，不是源码级别的。
 
 你需要像设计和实现C++标准库一样实现corehost的函数和类。
 
 禁止添加可变全局变量，禁止添加新的lambda，禁止使用std::mutex（用win32文件夹下的替代品）。
-
-
 
 所有代码要符合现有风格，解决问题应该从真正原因解决，修复BUG不打补丁做特例，代码应该清晰，单一职责。使用现代C++。所有测试必须能够自动化执行。
 
@@ -20,7 +18,6 @@
 
 common文件夹的内容不需要测试。
 
-
 我的所有要求必须都得到实施，不能自己忽略。有问题停下来问，我也会出错，如果我说的不对会导致代码错误，如果我说了哪些不合理的要求，必须纠正我。
 
 每修改了相关代码，就应该执行测试，测试通过再进行下一步。
@@ -31,46 +28,8 @@ corehost的核心目标是提供一个conhost的替代品（除了corehost目前
 
 
 
-cmake configure: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCOREHOST_DISABLE_LOG=OFF -DCOREHOST_LOG_LEVEL=2
-COREHOST_LOG_LEVEL根据需求使用1或者2或者3
+cmake configure: cmake -B build -G Ninja -DCMAKE\_BUILD\_TYPE=Debug -DCOREHOST\_DISABLE\_LOG=OFF -DCOREHOST\_LOG\_LEVEL=2
+COREHOST\_LOG\_LEVEL根据需求使用1或者2或者3
 cmake build: cmake --build build
 
 编译器使用MSVC，cmake configure的时候会自动选择。
-
-任务：
-
-1. 修改corehost的io模型。
-背景：当前corehost使用轮询来从几个输入来源（同步句柄）获得输入，你需要改为不轮询的，做到如果不存在输入，线程就不会唤醒。
-实现方式：
-使用common/win32/thread.hpp创建线程，每个输入来源使用一个线程，每个线程拥有自己的输入缓冲区和状态（需要从现有控制台状态对象移动到线程自己的对象）。
-要求：
-需要正确处理线程等待和线程退出，主线程必须等待所有输入线程结束。区分可恢复的错误和致命错误，致命错误包括本不应该失败的系统函数调用失败了，以及OOM。任何可能返回错误的函数都必须错误检查，而不能忽略结果。非致命错误使用返回值，致命错误抛出异常或者std::abort()。不要捕获异常。
-如果需要使用锁和条件变量，使用SRWLock，并且包装为C++放到common/win32。
-代码应该尽量清晰可靠，使用高质量流行库的风格和习惯，同时匹配现有代码风格。
-不同工作线程需要被不同命名。
-禁止设置任何等待上限（超时兜底）：线程退出必须由停止协议保证，不许用超时放弃等待。
-禁止使用单例（`instance()`）与全局可变状态；依赖必须通过参数传递。
-应该避免对每个输入使用自己的队列导致队列累计，因为控制台本身只需要同步处理，本身不需要是异步的，使用多线程只是为了避免轮询。
-pty_signal_pipe的读取必须先读id再根据id读内容，而不能读一大堆垃圾自己拼接。
-
-2. 实现GetConsolewindow功能
-背景：corehost需要实现getconsolewindow，因为有些控制台软件使用它。
-实现方式：
-学习原版conhost（在terminal文件夹）的伪窗口实现。窗口应该在独立线程运行，并且融入到io模型中。该窗口是不可见的伪窗口，不需要显示内容，只需要处理向窗口发送的消息。
-不要照抄原版conhost的实现方式，因为它有很多BUG，你需要从原版的代码分析出真正需求，然后以corehost的方式和风格实现它。
-
-3. 添加defterm测试
-背景：corehost的测试范围不够，需要针对defterm模式添加测试
-实现方式：
-编写测试控制台程序，编写测试程序（参考libconpty模拟condrv的行为），唤起WindowsTerminal，并且通过编写的控制台程序进行测试和验证，以及和WindowsTerminal进行交互，例如使用控制台API/虚拟终端序列进行交互，使用GetConsoleWindow向控制台窗口发消息或者使用UI自动化或者其他手段。
-测试应该另起一组新文件。测试应该设计为一个conhost测试库，学习流行的测试框架。
-测试应该测试控制台的各项功能，例如控制台功能，窗口功能和子进程/继承控制台等。
-
-4. 添加conpty测试
-背景：conpty的测试范围不够，需要对conpty模式添加测试
-实现方式：
-编写测试控制台程序和测试程序，以及利用ssh，vim，edit，powershell，cmd等程序（已经提供了）（不使用bash，因为是在Windows上进行测试）进行测试，测试组合远程链接（使用ssh-server创建，并且使用ssh连接），控制台功能，窗口功能，子进程继承控制台等。
-测试应该另起一组新文件。测试应该设计为一个conhost测试库，学习流行的测试框架。
-
-
-
