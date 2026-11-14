@@ -10,20 +10,21 @@ side store** 的混合模型。这个混合模型直接对齐 Windows API/DWrite
 推荐的目标模型是：
 
 1. 每个终端列使用一个紧凑的 **8 字节 bitfield cell**：
-   - 16 位 UTF-16 primary（BMP code unit；非 BMP 时为 high surrogate）；
+   - 16 位 UTF-16 primary（BMP 文本的实际 code unit；多 unit 时为 `U+FFFD`）；
    - 16 位 row-local cluster store offset；
-   - 6 位 cluster length（保存 length-1，覆盖 1..64 个 UTF-16 unit）；
-   - 16 位 page-local style ID；
-   - 3 位 content 类型；
+   - 16 位 page-local style ID（在 16 位边界对齐）；
+   - 7 位 cluster length（实际 1..64 个 UTF-16 unit）；
+   - 2 位 content 类型；
    - 2 位列宽/continuation；
    - 5 位 flags。
-2. 非 BMP、多码点 grapheme 或其他复杂 cluster 的**完整文本（含 primary）**放入 row-local
-   的 `std::vector<char16_t>`；cell 保存 offset/length，不保存 pointer。
+2. 非 BMP、多码点 grapheme 或其他复杂 cluster 的**完整文本（含真实 primary）**放入
+   row-local 的 `std::vector<char16_t>`；cell 的 `primary` 为 `U+FFFD`，并保存
+   offset/length；cell 不保存 pointer。
 3. 颜色、下划线、超链接等样式放入 page-local 的 style table，cell 保存 style ID。
 4. 屏幕由 page/row 组成，主缓冲区、备用缓冲区和未来的 scrollback 共享同一套 cell/page
    结构；行移动是 page/row 操作，不需要搬移整行字符串。
 5. UTF-16 primary 直接用于 Windows Console API 和 DirectWrite 的 BMP 路径；复杂 cluster
-   从 side store 读取完整 UTF-16 文本，不经过 surrogate-split cell：
+   的 primary 固定为 `U+FFFD`，完整文本从 side store 读取，不经过 surrogate-split cell：
    - Console API 使用 `CHAR_INFO` 时做一次有明确规则的投影；
    - DWrite 使用完整 cluster 生成 UTF-16 run 和 cluster map；
    - 这两层都可以缓存，且不改变屏幕缓冲区的规范表示。
@@ -333,19 +334,22 @@ cell 模型里。对一个需要支持 Console API、VT、窗口模式和未来 
 这是推荐的 Windows 专用混合方案。核心思想：
 
 - cell 固定 8 字节，primary 是 16 位 UTF-16 code unit；
-- 非 BMP、多码点 grapheme、其他复杂 cluster 的**完整文本（含 primary）**放 row-local
-  `std::vector<char16_t>`；
-- cell 保存 16 位 offset、6 位 length（length-1，1..64 unit）和 16 位 style ID；
-- content 用 3 位区分 scalar/surrogate/grapheme/complex，避免重复 enum 值；
+- 非 BMP、多码点 grapheme、其他复杂 cluster 的**完整文本（含真实 primary）**放 row-local
+  `std::vector<char16_t>`；这些 cell 的 primary 固定为 `U+FFFD`；
+- cell 保存 16 位 offset、7 位 length（实际 1..64 unit）、16 位 style ID；
+- content 使用 2 位；`complex`/`surrogate`/`grapheme` 都是值 2 的别名，统一表示
+  “需要 side store、primary 为 U+FFFD”；
 - 所有平台编码转换延后到边界；
 - 行/page 级 fast path 处理 blank、ASCII、uniform、spanning。
 
 对 BMP 文本，primary 与 Console API/DWrite 的 UTF-16 unit 同构；对非 BMP 或复杂 cluster，
-cell 指向完整 side store，DWrite 和窗口渲染不会拆散 surrogate/ZWJ。它比 4.1 的
-UTF-16 canonical 更安全，也避免当前 `u32string + offset` 的逐列偏移维护。
+cell 的 primary 是 replacement，完整文本在 side store，DWrite 和窗口渲染不会拆散
+surrogate/ZWJ。它比 4.1 的 UTF-16 canonical 更安全，也避免当前 `u32string + offset` 的
+逐列偏移维护。
 
-这个方案的内存/8 字节约束在 13.1 中详细计算：以 16 位 style 和 16 位 offset 为前提时，
-length 只能取 6 位（1..64 UTF-16 unit）；16 位 length 与 style/flags 不能同时塞进 8 字节。
+这个方案的内存/8 字节约束在 13.1 中详细计算：以 16 位 style、16 位 offset、16 位
+primary 和 2 位 content/width 为前提时，length 只能取 7 位（1..64 UTF-16 unit）；16 位
+length 与 style/flags 不能同时塞进 8 字节。
 
 ## 5. 推荐结构
 
@@ -355,29 +359,27 @@ length 只能取 6 位（1..64 UTF-16 unit）；16 位 length 与 style/flags �
 
 ```text
 Cell (8 bytes, bitfields):
-  primary            : 16 bits  // UTF-16 code unit; non-BMP = high surrogate
-  offset             : 16 bits  // row-local grapheme store offset
-  length_minus_one   : 6 bits   // 1..64 UTF-16 units (length-1)
-  style_id           : 16 bits  // page-local style table index, 0 = default
-  content            : 3 bits   // blank/scalar/complex/surrogate/grapheme/background
-  width              : 2 bits   // narrow / wide / tail / spacer head
-  flags              : 5 bits   // protected/hyperlink/semantic/reserved
+  primary     : 16 bits  // BMP code unit, or U+FFFD for multi-unit content
+  offset      : 16 bits  // row-local grapheme store offset
+  style_id    : 16 bits  // page-local style table index, 0 = default, 16-bit aligned
+  length      : 7 bits   // actual length 1..64 UTF-16 units
+  content     : 2 bits   // blank/scalar/complex(alias surrogate/grapheme)/background
+  width       : 2 bits   // narrow / wide / tail / spacer head
+  flags       : 5 bits   // protected/hyperlink/semantic/reserved
 ```
 
 设计要求：
 
 - 零值必须表示一个合法的空白 cell，便于 page 初始化和 `memset`；
-- `primary` 是 **UTF-16 code unit**，不是 Unicode scalar；BMP 直接存 code unit，
-  非 BMP 存 high surrogate，完整 pair 在 side store；
-- 非 BMP 的完整代理对不能被拆成两个独立 cell；`surrogate` 的 offset/length 指向
-  包含 high+low 的 row-local store；
-- 多码点 grapheme 的完整 cluster（包括 primary）放在 row-local `std::vector<char16_t>`；
-  cell 只保存 offset/length，不携带 pointer；
-- `length` 使用 6 位保存 length-1，覆盖 1..64 个 UTF-16 unit；超过 64 unit 的 cluster
-  必须拒绝或替换；
-- `content` 使用 3 位互不重复的值；不能用 `complex=2/surrogate=2/grapheme=2` 这种
-  alias，否则无法区分类型；
-- style ID 是 page-local 的，默认 0 不查表；
+- `primary` 在 `content=scalar` 时是实际 BMP code unit；在 `content` 为 2 时固定为
+  `U+FFFD`，真实 primary 和完整 cluster 都在 side store；
+- `complex`、`surrogate`、`grapheme` 都是值 2 的别名，统一表示“需要多个 UTF-16
+  code unit”；它们不再区分类型；
+- 非 BMP 的完整代理对不能被拆成两个独立 cell；content=2 的 offset/length 指向
+  row-local store 中的完整 pair/cluster；
+- `length` 是实际长度 1..64 个 UTF-16 unit，不再保存 `length - 1`；6 个 bit 不够
+  表示 64，所以使用 7 位；
+- style ID 是 page-local 的，默认 0 不查表；它排在 offset 后，保证 16 位对齐；
 - `content=background` 允许“只有背景色、没有文字”的 cell；背景色仍由 style ID 提供；
 - 8 字节对齐使 page 的 cell 数组可以直接按 `uint64` 清零/复制；bitfield 布局必须用
   `static_assert(sizeof(cell) == 8)` 锁住。
@@ -438,8 +440,9 @@ Row:
   cell 数组仍可统一清零；
 - `Uniform` 行允许整行相同 style 的批量渲染/批量 ASCII 写入；
 - `Spanning` 行表示存在 wide continuation、多 cell glyph、图片等跨越 cell 的情况；
-- `GraphemeStore` 是 row-local `std::vector<char16_t>`，保存完整 cluster（含 primary）；
-  cell 使用 16 位 offset + 6 位 length（1..64 unit），不把 pointer 放进每个 cell；
+- `GraphemeStore` 是 row-local `std::vector<char16_t>`，保存完整 cluster（含真实 primary）；
+  cell 的 primary 固定为 `U+FFFD`，并使用 16 位 offset + 7 位 length（1..64 unit），
+  不把 pointer 放进每个 cell；
 - `surrogate/grapheme/complex` 的完整文本都在 row store；`scalar/blank/background` 不访问
   store；
 - store 只增长；超过 `UINT16_MAX` 时扫描该 row 的 cell，重建 vector 并更新 offset/length；
@@ -461,9 +464,9 @@ Row:
 推荐规则：
 
 - 每个 cell 最多表示一个 grapheme cluster；
-- cell 的 `primary` 是 UTF-16 code unit；非 BMP 时是 high surrogate，完整 pair 在 row store；
-- 完整 cluster（含 primary）在 row 的 `std::vector<char16_t>`；cell 存 offset/length；
-- cluster 长度上限按 **UTF-16 unit** 计算，硬上限 64；6 位 length-1 正好覆盖 1..64；
+- cell 的 `primary` 在 `scalar` 时是 BMP code unit；content=2 时固定为 `U+FFFD`；
+- 完整 cluster（含真实 primary）在 row 的 `std::vector<char16_t>`；cell 存 offset/length；
+- cluster 长度上限按 **UTF-16 unit** 计算，硬上限 64；7 位 length 直接保存 1..64；
 - 超过上限的输入要明确策略：
   - 拒绝并返回错误；
   - 或替换为单个 `U+FFFD` cell；
@@ -506,9 +509,9 @@ Cell/Page
 规则建议：
 
 - `scalar`（单个 BMP code unit）：写入对应 `WCHAR`；
-- `surrogate`（非 BMP high surrogate）：写 `U+FFFD`，不能只返回 high surrogate；
-- `complex`/`grapheme`（完整 cluster 在 side store）：整个 cell 投影为 `U+FFFD`，与
-  conhost 的 `Utf16ToUcs2` 规则一致；不能取 primary 或半个 pair 污染相邻列；
+- `content=2`（`complex`/`surrogate`/`grapheme` 任一别名）：整个 cell 投影为 `U+FFFD`，
+  与 conhost 的 `Utf16ToUcs2` 规则一致；cell 的 primary 本身也已经是 `U+FFFD`，不能
+  取 side store 的首个 unit 或半个 pair 污染相邻列；
 - trailing/spacer：写空字符并保留属性；
 - style：投影为 legacy `WORD`；
 - 读取矩形时按 cell 直接扫描，不重新做 Unicode 宽度计算。
@@ -832,10 +835,11 @@ cluster side store 的 Unicode 质量；它不试图把 non-BMP 拆成独立 cel
 
 ### 9.1 非 BMP
 
-- 内部 cell 的 primary 是 16 位 UTF-16 code unit；非 BMP 时 primary 是 high surrogate；
+- 内部 cell 的 primary 是 16 位 UTF-16 code unit；content=2 时固定为 `U+FFFD`；
 - 完整代理对（含 high+low）保存在 row-local `std::vector<char16_t>`，由 cell 的
   offset/length 指向；
-- 非 BMP 不能被拆成两个独立 surrogate cell；`surrogate` 只能指向完整 pair；
+- 非 BMP 不能被拆成两个独立 surrogate cell；`complex/surrogate/grapheme` 都指向完整
+  store；
 - `CHAR_INFO` 读取只能写替代字符，这是 API 限制，必须在文档/测试中固定；
 - `WriteConsoleW`/宽字符串路径合并合法 surrogate pair；`WriteConsoleOutput` 的
   `CHAR_INFO` 路径按 conhost 保持每格一个 `WCHAR`，不跨格合并；
@@ -950,9 +954,9 @@ corehost 当前的问题可以概括为：
 
 推荐的设计是：
 
-- **Cell 固定 8 字节**：16 位 UTF-16 primary、16 位 row-local cluster offset、6 位
-  length（1..64 UTF-16 unit）、16 位 page-local style ID、3 位 content、2 位 width、
-  5 位 flags；
+- **Cell 固定 8 字节**：16 位 UTF-16 primary、16 位 row-local cluster offset、16 位
+  page-local style ID、7 位 length（实际 1..64 UTF-16 unit）、2 位 content、2 位 width、
+  5 位 flags；content=2 的 primary 为 `U+FFFD`；
 - **行级完整 cluster store**：`std::vector<char16_t>` 保存包括 primary 在内的完整
   surrogate pair/grapheme，超出 16 位 offset 时扫描 row 重建；
 - **page + row + dense cell**：支持主/备用缓冲区和未来 scrollback；
@@ -980,16 +984,90 @@ side store 表示，没有采用会拆散 surrogate 的 UTF-16 canonical。
 
 ## 13. UTF-16 primary cell 的评估与 C++ 定义
 
-### 13.1 原提案的可行性判断
+### 13.1 修正后的设计判断
 
-“cell 使用 16 位 UTF-16 primary + 完整 cluster side store”这个方向是合理的，但提案中的
-精确形式有几个必须修正的问题。
+“cell 使用 16 位 UTF-16 primary + 完整 cluster side store”这个方向是合理的。经过这轮
+约束修正后，规则是：
 
-#### 问题 1：enum 的重复值不能表达不同类型
+1. `content` 只有 2 位，值 2 表示“需要多个 UTF-16 code unit”；
+   `complex`/`surrogate`/`grapheme` 是同一个值 2 的别名，不再区分类型。
+2. 当 `content == 2` 时，cell 的 `primary` 固定为 `U+FFFD`；真实 primary 和完整
+   surrogate pair/grapheme 都在 row-local side store。
+3. cell 保存 16 位 offset 和**实际** length；length 不再保存 `length - 1`。
+4. `length` 使用 7 位：因为 6 位最大只能表示 63，而实际长度上限是 64。
+5. `style` 排在 `offset` 之后、`length` 之前，使 style 位于 16 位边界。
+6. `grapheme_store::append()` 不负责检查容量；调用者必须先调用 `can_append()`，再
+   append；容量不足时由 row 执行重建。
 
-以下写法在 C++ 中合法，但 `complex`、`surrogate`、`grapheme` 是同一个值：
+#### 8 字节预算
+
+| 字段 | 位数 | 含义 |
+| --- | ---: | --- |
+| `primary` | 16 | BMP code unit；content=2 时为 `U+FFFD` |
+| `offset` | 16 | row-local cluster store offset |
+| `style_id` | 16 | page-local style table 索引，16 位对齐 |
+| `length` | 7 | 实际长度 1..64 个 UTF-16 unit |
+| `content` | 2 | blank/scalar/complex(alias surrogate/grapheme)/background |
+| `width` | 2 | narrow/wide/tail/spacer head |
+| `flags` | 5 | protected/hyperlink/semantic/reserved |
+| **总计** | **64** | **8 字节** |
+
+仍然不能把 length 扩到 16 位：`primary 16 + offset 16 + style 16 + length 16 = 64`，
+已经没有 content/width/flags 的空间。要保留 16 位 length，只能把 style 移到 cell 外的
+并行数组，或放弃部分 flags；本报告不推荐这样做。
+
+#### 为什么 length 用 7 位而不是 6 位
+
+6 位无符号字段的范围是 0..63，不能直接表示 64。可以保存 `length - 1` 来压缩到 6 位，
+但本设计明确不使用“minus one”这种隐式编码；因此使用 7 位保存实际 1..64。7 位还允许
+未来把限制提高到 127，但 `cell::max_cluster_units` 仍保持 64。
+
+#### 为什么 style 放在 offset 后面
+
+字段顺序为：
+
+```text
+primary 16 | offset 16 | style 16 | length 7 | content 2 | width 2 | flags 5
+```
+
+`style` 从 bit 32 开始，正好落在 16 位边界；`length` 从 bit 48 开始。这样 style 是
+自然的 `std::uint16_t` 对齐值，不需要跨 16 位字读取。
+
+#### 关于 content 的重复值
 
 ```cpp
+complex = 2,
+surrogate = 2,
+grapheme = 2,
+```
+
+在 C++ 中这是合法的别名定义。它们都表示“这个 cell 需要多个 UTF-16 code unit，primary
+是 `U+FFFD`，完整文本在 side store”。因此不应再用 `content()` 去区分 surrogate 和
+grapheme；如果未来确实需要区分，应使用额外的 flags 或 side metadata，而不是增加 content
+位宽。
+
+### 13.2 C++ 定义
+
+以下代码以 **C++23** 为基线，因为使用 `std::to_underlying`。代码是接口/布局设计，不是
+完整实现。
+
+```cpp
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <span>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+namespace corehost::screen
+{
+
+using style_id = std::uint16_t;
+
+// 2 bit content。complex/surrogate/grapheme 是同一个值 2 的别名：
+// 都表示“需要多个 UTF-16 code unit，primary 为 U+FFFD，完整文本在 side store”。
 enum class cell_content : std::uint8_t
 {
     blank = 0,
@@ -999,168 +1077,8 @@ enum class cell_content : std::uint8_t
     grapheme = 2,
     background = 3,
 };
-```
 
-因此 `content() == cell_content::surrogate` 对 `grapheme` 也成立，`switch` 也无法区分
-三者。若确实需要区分“非 BMP 代理对”“BMP 多码点 grapheme”“其他复杂内容”，必须给
-content 3 位，例如：
-
-```cpp
-blank = 0,
-scalar = 1,
-complex = 2,
-surrogate = 3,
-grapheme = 4,
-background = 5,
-```
-
-如果只关心“是否需要去 side store”，也可以只保留 `blank/scalar/complex/background` 四个
-值，把 surrogate/grapheme 都归到 `complex`；但这与提案中“content 类型为 surrogate”的
-要求不一致。下面的实现采用 3 位、互不重复的值。
-
-#### 问题 2：8 字节预算不允许 primary/offset/length/style 全部 16 位
-
-仅四个 16 位字段就已经是 64 位：
-
-```text
-primary 16 + offset 16 + length 16 + style 16 = 64
-```
-
-这还没有计算 content、width、flags，也没有任何 padding 余量。因此以下要求不能同时成立：
-
-- primary 16；
-- offset 16；
-- length 16；
-- style 16；
-- content/width/flags；
-- `sizeof(cell) == 8`。
-
-要满足 8 字节，必须放弃至少一个 16 位字段，或把 style 移到 cell 外的并行数组。把 style
-移出 cell 会增加一次额外访问，并且破坏“cell 自描述样式”的简单性，因此不推荐。
-
-#### 问题 3：length 16 是过度设计
-
-一个 cell 最多对应一个 grapheme cluster，实际 RGI emoji 的 UTF-16 长度通常不超过二十个
-code unit。用 6 位保存 `length - 1` 已经可以覆盖 1..64 个 UTF-16 unit，足以覆盖真实
-Unicode 文本；把 length 扩到 16 位只会挤掉 style/flags。下面的实现使用：
-
-```text
-length_minus_one : 6 bits，表示 1..64 个 UTF-16 code unit
-```
-
-如果未来真的需要超过 64 个 UTF-16 unit 的 cluster，应把该 cluster 判定为恶意/超限输入并
-拒绝或替换，而不是扩大 cell。
-
-#### 问题 4：全局 append-only pool 的 16 位偏移太小
-
-`std::vector<char16_t>` 的 65,535 个 code unit 对一个全局 scrollback 池并不算大：
-
-- 200 列 × 200 行 = 40,000 个 cell；
-- 10% 的 cell 带 4 个 UTF-16 unit，就已经超过 16,000 个 unit；
-- 大量 emoji/组合字符或更大 scrollback 可以接近上限。
-
-更合理的做法是把 cluster store 放到 **row-local**：
-
-- 每个 row 的 cell 数量有限；
-- 65,535 个 unit per row 几乎不可能达到；
-- 重建/压缩只需要扫描一个 row，而不是整个屏幕；
-- cell 的 offset/length 只在所属 row 内有意义，row 移动时随 row 一起移动。
-
-这比“全局 vector + 全屏重扫描”更容易保证正确性。
-
-#### 问题 5：`char16_t` 不是 Unicode scalar
-
-非 BMP 字符在 UTF-16 中是 surrogate pair。cell 的 16 位 primary 只能保存：
-
-- 一个 BMP code unit；或
-- 非 BMP 的高代理项（high surrogate）。
-
-它不是完整的 Unicode scalar。因此：
-
-- content 必须能标记 `surrogate`；
-- 完整 pair/cluster 必须放在 side store；
-- 不能把 high surrogate 当成独立字符渲染；
-- `WriteConsoleOutput` 的单个 `CHAR_INFO` 也不能被当成完整 surrogate pair。
-
-#### 问题 6：bitfield 的布局不是标准 ABI
-
-C++ 标准不保证 bitfield 的顺序、跨字节布局和 allocation unit。使用 bitfield 时必须：
-
-- 所有 bitfield 使用同一种无符号底层类型（例如 `std::uint64_t`）；
-- 用 `static_assert(sizeof(cell) == 8)` 锁住本平台布局；
-- 不用 memcpy/序列化把 cell 当成稳定二进制格式；
-- 在 MSVC/GCC/Clang 目标上分别编译检查。
-
-这些约束可以接受，但必须明确写进设计。
-
-### 13.2 修正后的字段预算
-
-推荐的实际布局：
-
-| 字段 | 位数 | 含义 |
-| --- | ---: | --- |
-| `primary` | 16 | BMP UTF-16 code unit，或非 BMP 的 high surrogate |
-| `offset` | 16 | row-local `std::vector<char16_t>` 的起始偏移 |
-| `length_minus_one` | 6 | 完整 cluster 的 UTF-16 unit 数减 1（1..64） |
-| `style_id` | 16 | page-local style table 索引 |
-| `content` | 3 | blank/scalar/complex/surrogate/grapheme/background |
-| `width` | 2 | narrow/wide/tail/spacer head |
-| `flags` | 5 | protected/hyperlink/semantic/reserved |
-| **总计** | **64** | **8 字节** |
-
-与原始提案的差异：
-
-- `content` 使用 3 位且值互不重复；
-- `length` 使用 6 位（1..64 UTF-16 unit），不是 16 位；
-- `style_id` 保留 16 位；
-- cluster store 是 **row-local**，不是全局 vector；
-- 仍保留 16 位 primary、16 位 offset 和每 cell 8 字节；
-- complex/surrogate/grapheme cell 的完整文本（含 primary）放在 side store。
-
-如果必须严格保留 length 16，则只能采用下列取舍之一：
-
-1. 把 style 移到 cell 外的并行 `std::vector<style_id>`，cell 只存 primary/offset/length/
-   content/width/flags；
-2. 放弃部分 flags 并把 `style_id` 缩到 11 位左右；
-3. 放弃 16 位 length，使用本节的 6 位 length。
-
-本报告推荐第 3 种；它保留了 style 的直接访问和 8 字节 cell，并且 64 个 UTF-16 unit 已经
-超过真实终端文本的需求。
-
-### 13.3 C++ 定义
-
-以下代码以 **C++23** 为基线，因为使用 `std::to_underlying`；如果项目仍在 C++20，可用
-`static_cast<std::underlying_type_t<T>>` 替代。代码是接口/布局设计，不是完整实现。
-
-```cpp
-#include <cstddef>
-#include <cstdint>
-#include <limits>
-#include <optional>
-#include <span>
-#include <type_traits>
-#include <utility>
-#include <vector>
-
-namespace corehost::screen
-{
-
-// Page-local style ID。0 保留给默认样式，避免普通 cell 查表。
-using style_id = std::uint16_t;
-
-// Cell 的语义类别。3 bit，必须使用互不重复的值，否则无法区分
-// surrogate/grapheme/complex。
-enum class cell_content : std::uint8_t
-{
-    blank = 0,      // 空白 cell，没有文字
-    scalar = 1,     // 单个 BMP UTF-16 code unit
-    complex = 2,    // 其他需要 side store 的复杂 cluster
-    surrogate = 3,  // primary 是 high surrogate，完整 pair 在 side store
-    grapheme = 4,   // BMP base + 组合标记/ZWJ 等，完整 cluster 在 side store
-    background = 5, // 无文字，仅背景/样式
-};
-
-// 2 bit 列语义。wide head 占两列，tail 是第二列。
+// 2 bit 列语义。
 enum class cell_width : std::uint8_t
 {
     narrow = 0,
@@ -1169,7 +1087,7 @@ enum class cell_width : std::uint8_t
     spacer_head = 3,
 };
 
-// 5 bit flags。只使用低 4 位，最高位保留。
+// 5 bit flags，当前使用低 4 位。
 enum class cell_flag : std::uint8_t
 {
     none = 0,
@@ -1181,21 +1099,20 @@ enum class cell_flag : std::uint8_t
 
 // 终端网格的最小存储单元。
 //
-// 设计要点：
-//   - primary 是 UTF-16 code unit，不是 Unicode scalar；非 BMP 时只放 high
-//     surrogate，完整 pair 在 row 的 grapheme_store；
-//   - 只有 complex/surrogate/grapheme 使用 offset/length；
-//   - style_id 是 page-local 索引；
-//   - cell 固定 8 字节，没有指针、没有每 cell 分配。
+// - content=scalar 时 primary 是实际 BMP code unit；
+// - content=2 时 primary 固定为 U+FFFD，完整 cluster 在 row-local grapheme_store；
+// - offset/length 只在 content=2 时有效；
+// - style_id 是 page-local 索引；
+// - cell 固定 8 字节，全部字段是 std::uint64_t bitfield。
 class cell final
 {
 public:
     using flag = cell_flag;
 
-    // 一个 cluster 最多包含 64 个 UTF-16 code unit；与 6 位 length 对齐。
+    // 一个 cluster 最多 64 个 UTF-16 code unit。
     static constexpr std::uint8_t max_cluster_units = 64;
 
-    // 默认零值：blank、默认样式、无 cluster。
+    // 零值：blank、默认样式、无 cluster。
     constexpr cell() noexcept = default;
 
     // 空白 cell：没有文字，只有样式。
@@ -1204,53 +1121,54 @@ public:
         return make(u' ', style, cell_content::blank, cell_width::narrow, 0, 0, 0);
     }
 
-    // 单个 BMP code unit。调用方保证 primary 不是 surrogate；非 BMP 请使用
-    // surrogate()/grapheme()/complex() 并提供完整 side store。
+    // 单个 BMP code unit。孤立 surrogate 会被规范为 U+FFFD；非 BMP 请使用
+    // complex()/surrogate()/grapheme() 并提供 side store。
     [[nodiscard]] static constexpr cell scalar(char16_t primary,
                                                style_id style = 0,
                                                cell_width width = cell_width::narrow) noexcept
     {
-        return make(primary, style, cell_content::scalar, width, 0, 0, 0);
+        return make(is_surrogate_unit(primary) ? u'\uFFFD' : primary,
+                    style,
+                    cell_content::scalar,
+                    width,
+                    0,
+                    0,
+                    0);
     }
 
-    // 非 BMP：primary 是 high surrogate；offset/length 指向包含完整 surrogate
-    // pair 的 row grapheme_store。
-    [[nodiscard]] static constexpr cell surrogate(char16_t primary,
-                                                  std::uint16_t offset,
-                                                  std::uint8_t length,
-                                                  style_id style = 0,
-                                                  cell_width width = cell_width::narrow) noexcept
-    {
-        return make(primary, style, cell_content::surrogate, width, offset, length, 0);
-    }
-
-    // BMP base + 组合标记/ZWJ 等：完整 cluster（含 primary）在 side store。
-    [[nodiscard]] static constexpr cell grapheme(char16_t primary,
-                                                 std::uint16_t offset,
-                                                 std::uint8_t length,
-                                                 style_id style = 0,
-                                                 cell_width width = cell_width::narrow) noexcept
-    {
-        return make(primary, style, cell_content::grapheme, width, offset, length, 0);
-    }
-
-    // 其他需要 side store 的复杂内容；完整 cluster 同样在 side store。
-    [[nodiscard]] static constexpr cell complex(char16_t primary,
-                                                std::uint16_t offset,
+    // 多 UTF-16 code unit cell。primary 固定为 U+FFFD；真实文本在 side store。
+    [[nodiscard]] static constexpr cell complex(std::uint16_t offset,
                                                 std::uint8_t length,
                                                 style_id style = 0,
                                                 cell_width width = cell_width::narrow) noexcept
     {
-        return make(primary, style, cell_content::complex, width, offset, length, 0);
+        return make(u'\uFFFD', style, cell_content::complex, width, offset, length, 0);
     }
 
-    // 只有背景色、没有文字；背景色由 style_id 提供。
+    // complex 的语义别名；它们不增加新的 content 值。
+    [[nodiscard]] static constexpr cell surrogate(std::uint16_t offset,
+                                                  std::uint8_t length,
+                                                  style_id style = 0,
+                                                  cell_width width = cell_width::narrow) noexcept
+    {
+        return complex(offset, length, style, width);
+    }
+
+    [[nodiscard]] static constexpr cell grapheme(std::uint16_t offset,
+                                                 std::uint8_t length,
+                                                 style_id style = 0,
+                                                 cell_width width = cell_width::narrow) noexcept
+    {
+        return complex(offset, length, style, width);
+    }
+
+    // 只有背景色、没有文字。
     [[nodiscard]] static constexpr cell background(style_id style = 0) noexcept
     {
         return make(u' ', style, cell_content::background, cell_width::narrow, 0, 0, 0);
     }
 
-    // 宽字符的第二列，不包含独立文本。
+    // 宽字符的第二列。
     [[nodiscard]] static constexpr cell tail(style_id style = 0) noexcept
     {
         return make(u' ', style, cell_content::blank, cell_width::tail, 0, 0, 0);
@@ -1262,77 +1180,59 @@ public:
         return make(u' ', style, cell_content::blank, cell_width::spacer_head, 0, 0, 0);
     }
 
-    // 返回 primary UTF-16 code unit；blank 的原始值无意义，请用 text_unit()。
+    // primary code unit；content=2 时固定为 U+FFFD。
     [[nodiscard]] constexpr char16_t primary() const noexcept
     {
         return static_cast<char16_t>(primary_);
     }
 
-    // 返回适合简单投影的单个 code unit：blank 返回空格；cluster cell 返回
-    // primary（非 BMP 时是 high surrogate），完整文本必须通过 row store 读取。
+    // 单 code unit 视图：blank 返回空格；复杂 cell 返回 U+FFFD。
     [[nodiscard]] constexpr char16_t text_unit() const noexcept
     {
         return is_blank() ? u' ' : primary();
     }
 
-    // page-local 样式 ID。
+    // page-local style ID。
     [[nodiscard]] constexpr style_id style() const noexcept
     {
         return style_;
     }
 
-    // 返回 cell 语义类别。
     [[nodiscard]] constexpr cell_content content() const noexcept
     {
         return static_cast<cell_content>(content_);
     }
 
-    // 返回列语义。
     [[nodiscard]] constexpr cell_width width() const noexcept
     {
         return static_cast<cell_width>(width_);
     }
 
-    // 返回 flags 原始值。
     [[nodiscard]] constexpr std::uint8_t flags() const noexcept
     {
         return static_cast<std::uint8_t>(flags_);
     }
 
-    // 查询单个 flag。
     [[nodiscard]] constexpr bool has(flag value) const noexcept
     {
         return (flags_ & std::to_underlying(value)) != 0;
     }
 
-    // blank/background 都没有文字。
     [[nodiscard]] constexpr bool is_blank() const noexcept
     {
         return content_ == std::to_underlying(cell_content::blank) ||
                content_ == std::to_underlying(cell_content::background);
     }
 
-    // 是否需要从 row grapheme_store 读取完整 cluster。
+    // content=2 即需要 side store；complex/surrogate/grapheme 在这里不可区分。
     [[nodiscard]] constexpr bool has_cluster() const noexcept
-    {
-        return content_ == std::to_underlying(cell_content::complex) ||
-               content_ == std::to_underlying(cell_content::surrogate) ||
-               content_ == std::to_underlying(cell_content::grapheme);
-    }
-
-    [[nodiscard]] constexpr bool is_complex() const noexcept
     {
         return content_ == std::to_underlying(cell_content::complex);
     }
 
-    [[nodiscard]] constexpr bool is_surrogate() const noexcept
+    [[nodiscard]] constexpr bool is_complex() const noexcept
     {
-        return content_ == std::to_underlying(cell_content::surrogate);
-    }
-
-    [[nodiscard]] constexpr bool is_grapheme() const noexcept
-    {
-        return content_ == std::to_underlying(cell_content::grapheme);
+        return has_cluster();
     }
 
     [[nodiscard]] constexpr bool is_wide() const noexcept
@@ -1350,19 +1250,19 @@ public:
         return width_ == std::to_underlying(cell_width::spacer_head);
     }
 
-    // row-local grapheme_store 的起始偏移；仅 has_cluster() 时有效。
+    // 仅 has_cluster() 时有效。
     [[nodiscard]] constexpr std::uint16_t cluster_offset() const noexcept
     {
         return offset_;
     }
 
-    // 完整 cluster 的 UTF-16 unit 数（1..64）；标量/空白返回 0。
+    // 实际长度（1..64）；非 cluster 返回 0。没有 minus-one 编码。
     [[nodiscard]] constexpr std::uint8_t cluster_length() const noexcept
     {
-        return has_cluster() ? static_cast<std::uint8_t>(length_minus_one_ + 1) : 0;
+        return has_cluster() ? static_cast<std::uint8_t>(length_) : 0;
     }
 
-    // 返回替换 style 的副本；cell 是值类型，不修改原对象。
+    // 返回替换 style 的副本。
     [[nodiscard]] constexpr cell with_style(style_id value) const noexcept
     {
         auto result = *this;
@@ -1386,14 +1286,14 @@ public:
     {
         auto result = *this;
         result.offset_ = offset;
-        result.length_minus_one_ = length == 0 ? 0 : static_cast<std::uint64_t>(length - 1);
+        result.length_ = length;
         return result;
     }
 
     friend constexpr bool operator==(const cell &, const cell &) noexcept = default;
 
 private:
-    // 所有构造都经 make()，集中维护字段顺序、mask 和 enum 编码。
+    // 所有构造经 make()，集中维护字段顺序和 enum 编码。
     [[nodiscard]] static constexpr cell make(char16_t primary,
                                              style_id style,
                                              cell_content content,
@@ -1405,20 +1305,26 @@ private:
         cell result;
         result.primary_ = static_cast<std::uint64_t>(static_cast<std::uint16_t>(primary));
         result.offset_ = offset;
-        result.length_minus_one_ = length == 0 ? 0 : static_cast<std::uint64_t>(length - 1);
         result.style_ = style;
+        result.length_ = length;
         result.content_ = std::to_underlying(content);
         result.width_ = std::to_underlying(width);
         result.flags_ = static_cast<std::uint64_t>(flags) & 0x1F;
         return result;
     }
 
-    // 64-bit bitfield 布局；静态断言检查总大小和预期 ABI。
+    [[nodiscard]] static constexpr bool is_surrogate_unit(char16_t value) noexcept
+    {
+        return (value & 0xF800u) == 0xD800u;
+    }
+
+    // 字段顺序：primary | offset | style | length | content | width | flags。
+    // style 从 bit 32 开始，保证 16 位对齐。
     std::uint64_t primary_ : 16;
     std::uint64_t offset_ : 16;
-    std::uint64_t length_minus_one_ : 6;
     std::uint64_t style_ : 16;
-    std::uint64_t content_ : 3;
+    std::uint64_t length_ : 7;
+    std::uint64_t content_ : 2;
     std::uint64_t width_ : 2;
     std::uint64_t flags_ : 5;
 };
@@ -1428,9 +1334,9 @@ static_assert(alignof(cell) == alignof(std::uint64_t));
 static_assert(std::is_trivially_copyable_v<cell>);
 static_assert(std::is_standard_layout_v<cell>);
 
-// Row-local side store：保存完整 cluster（包括 primary）的 UTF-16 units。
-// 它只增长；当 units_ 将超过 UINT16_MAX 时，row 扫描自己的 cell，重建 vector
-// 并用 cell::with_cluster_ref() 更新所有 offset/length。
+// Row-local 完整 cluster store。调用者负责容量检查：
+//   if (!store.can_append(cluster.size())) row.rebuild();
+//   auto ref = store.append(cluster);
 class grapheme_store final
 {
 public:
@@ -1443,20 +1349,17 @@ public:
         std::uint8_t length{};
     };
 
-    // 追加完整 cluster（含 primary），返回 offset/length。
-    // - cluster 为空、超过 64 unit、或会越过 16 位偏移空间时返回 nullopt；
-    // - 返回 nullopt 时调用方必须执行 row 级 rebuild，而不是截断 cluster。
-    [[nodiscard]] std::optional<ref> append(std::span<const char16_t> cluster)
+    // 调用者必须保证 units>0、units<=64，且 units_ + units <= UINT16_MAX。
+    [[nodiscard]] bool can_append(std::size_t units) const noexcept
     {
-        if (cluster.empty() || cluster.size() > max_cluster_units)
-        {
-            return std::nullopt;
-        }
+        return units > 0 && units <= max_cluster_units &&
+               units <= max_units - units_.size();
+    }
 
-        if (units_.size() + cluster.size() > max_units)
-        {
-            return std::nullopt;
-        }
+    // 只负责写入；容量检查由调用者完成。caller 未检查时 assert 失败（debug）。
+    [[nodiscard]] ref append(std::span<const char16_t> cluster)
+    {
+        assert(can_append(cluster.size()));
 
         const auto offset = static_cast<std::uint16_t>(units_.size());
         units_.insert(units_.end(), cluster.begin(), cluster.end());
@@ -1473,24 +1376,23 @@ public:
         return std::span<const char16_t>{units_}.subspan(value.offset, value.length);
     }
 
-    // 调用方在 append 返回 nullopt 后执行 row 级重建。
     [[nodiscard]] bool needs_compaction() const noexcept
     {
-        return units_.size() > max_units - max_cluster_units;
+        return !can_append(max_cluster_units);
     }
 
 private:
-    // 所有 cluster 的完整 UTF-16 文本连续存放；只增长，直到 row 重建。
+    // 所有 cluster 的完整 UTF-16 文本连续存放，只增长；row 在必要时重建。
     std::vector<char16_t> units_;
 };
 
 } // namespace corehost::screen
 ```
 
-### 13.4 配套的 style、row 和 page
+### 13.3 配套的 style、row 和 page
 
-`offset/length` 是 row-local 的，因此 row 必须拥有 `grapheme_store`；`style_id` 是
-page-local 的，因此 page 必须拥有 `style_table`。
+`offset/length` 是 row-local 的，因此 row 拥有 `grapheme_store`；`style_id` 是 page-local
+的，因此 page 拥有 `style_table`。
 
 ```cpp
 #include <compare>
@@ -1627,51 +1529,45 @@ private:
 } // namespace corehost::screen
 ```
 
-### 13.5 关键约束
+### 13.4 关键约束
 
-1. **primary 不是 scalar**
-   - BMP：`cell_content::scalar`，`primary()` 就是 code unit；
-   - 非 BMP：`cell_content::surrogate`，`primary()` 是 high surrogate，完整 pair 在
-     `grapheme_store`；
-   - 不能把 high surrogate 单独渲染，也不能让 `text_unit()` 代表完整非 BMP 字符。
+1. **content=2 的统一语义**
+   - `complex`/`surrogate`/`grapheme` 都是 2，不能通过 content 区分；
+   - content=2 时 `primary()` 固定为 `U+FFFD`；
+   - 真实 primary/cluster 在 side store；
+   - 如果未来需要区分“非 BMP / 组合 grapheme / 其他”，用 flags 或 side metadata，
+     不要扩大 content 字段。
 
-2. **full cluster 包含 primary**
-   - `grapheme_store::append()` 接收完整 cluster，包括 primary；
-   - cell 的 primary 与 store 的第一个 unit 必须一致；
-   - `surrogate/grapheme/complex` 的 offset/length 指向 store；
-   - scalar/blank/background 不读取 store；
-   - primary 在 cell 与 store 中各出现一次，这是有意的重复：cell 保持单 code unit
-     的快速读取，store 提供完整 cluster 给 DWrite/Console API/无头输出。若未来内存成为
-     瓶颈，可以改为只存 extras，但那时要重新引入“主 code unit + extras”的重建逻辑。
+2. **length 是实际长度**
+   - 字段保存 1..64，不做 `length - 1`；
+   - 7 位是必要的，因为 6 位最大只能表示 63；
+   - 非 cluster 的 length 为 0，读取时通过 `has_cluster()` 判断。
 
-3. **length 6 的限制**
-   - 最大 64 个 UTF-16 unit，而不是 64 个 Unicode codepoint；
-   - RGI emoji 通常远小于 64 unit；超限输入必须拒绝/替换；
-   - 如果项目坚持 16 位 length，必须按 13.2 的取舍把 style/flags 移出 cell。
+3. **style 对齐**
+   - 字段顺序为 primary/offset/style/length/content/width/flags；
+   - style 从 bit 32 开始，是 16 位对齐；
+   - length 从 bit 48 开始，不跨 style 的 16 位边界。
 
-4. **row-local 和重建**
-   - store 属于 row；cell offset/length 只在所属 row 内有效；
-   - row 移动时 store 一起移动；跨 row 复制必须重新 append 并更新 cell；
-   - append-only 导致覆盖后留下不可回收的旧条目；超过 `UINT16_MAX` 时扫描该 row 的 cell，
-     按 cell 顺序重建 vector，并用 `with_cluster_ref()` 更新 offset/length；
-   - 重建必须在会话锁内完成，旧 `std::span` 在重建后失效。
+4. **append 容量由调用者检查**
+   - `grapheme_store::append()` 不返回 optional，也不在内部重建；
+   - 调用者先 `can_append(cluster.size())`，不足时执行 row 重建；
+   - append 只用 debug assert 防御调用者遗漏；
+   - 重建时扫描 row 的 cell，按顺序重新 append 完整 cluster，并用 `with_cluster_ref()`
+     更新 offset/length；重建必须在会话锁内完成，旧 span 失效。
 
 5. **bitfield 和 ABI**
    - 所有字段使用 `std::uint64_t` bitfield；
-   - `std::is_standard_layout`、`std::is_trivially_copyable` 和 `sizeof == 8` 用静态断言
-     锁住；
-   - bitfield 顺序不是跨编译器 ABI，不能把 cell 直接写入磁盘/协议；
+   - `sizeof == 8`、alignment、trivially copyable、standard-layout 都用静态断言锁住；
+   - bitfield 顺序不是跨编译器 ABI，不能把 cell 直接序列化到磁盘/协议；
    - `std::to_underlying` 需要 C++23；C++20 项目用
      `static_cast<std::underlying_type_t<T>>`。
 
 6. **Console API 和 DWrite**
-   - `ReadConsoleOutput` 对 scalar 返回单个 `WCHAR`；对 surrogate/grapheme/complex 返回
-     `U+FFFD`，与 conhost 一致；
+   - `ReadConsoleOutput` 对 scalar 返回单个 `WCHAR`；content=2 返回 `U+FFFD`；
    - `WriteConsoleOutput` 的 `CHAR_INFO` 仍然是一格一个 `WCHAR`，不跨格合并代理对；
    - `WriteConsoleW` 先把 UTF-16 序列解码成完整 cluster，再分配 store 和 cell；
-   - DWrite 对 scalar 直接使用 primary；对 cluster 使用 store 的完整 UTF-16 units，仍按
-     cell cluster map 映射 glyph；
-   - 无头 UTF-8 输出从完整 UTF-16 cluster 编码，不经过 `CHAR_INFO`。
+   - DWrite 对 scalar 直接使用 primary；对 complex 使用 store 的完整 UTF-16 units；
+   - 无头 UTF-8 输出从 scalar primary 或完整 cluster 编码，不经过 `CHAR_INFO`。
 
 ## 参考代码位置
 
