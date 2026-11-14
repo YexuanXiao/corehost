@@ -16,7 +16,7 @@ side store** 的混合模型。这个混合模型直接对齐 Windows API/DWrite
    - 6 位 `offset2`（实际保存 cluster length - 1，覆盖 1..64 个 UTF-16 unit）；
    - 2 位 content 类型；
    - 2 位列宽/continuation；
-   - 5 位 flags；
+   - 6 位 flags；
    - 1 位保留位。
 2. 非 BMP、多码点 grapheme 或其他复杂 cluster 的**完整文本（含真实 primary）**放入
    row-local 的 `std::vector<char16_t>`；cell 的 `primary` 为 `U+FFFD`，并保存
@@ -350,7 +350,7 @@ surrogate/ZWJ。它比 4.1 的 UTF-16 canonical 更安全，也避免当前 `u32
 逐列偏移维护。
 
 这个方案的内存/8 字节约束在 13.1 中详细计算：以 16 位 style、16 位 offset、16 位
-primary、2 位 content/width 和 5 位 flags 为前提时，cluster length 只能使用 6 位
+primary、2 位 content/width 和 6 位 flags 为前提时，cluster length 只能使用 6 位
 `offset2` 保存 length-1；16 位 length 与 style/flags 不能同时塞进 8 字节。
 
 ## 5. 推荐结构
@@ -367,8 +367,7 @@ Cell (8 bytes, bitfields):
   offset2     : 6 bits   // actually length-1 (1..64 UTF-16 units); historical name
   content     : 2 bits   // blank/scalar/complex(alias surrogate/grapheme)/background
   width       : 2 bits   // narrow / wide / tail / spacer head
-  flags       : 5 bits   // protected/hyperlink/semantic/reserved
-  reserved    : 1 bit    // keeps cell at 8 bytes
+  flags       : 6 bits   // protected/hyperlink/semantic/reserved
 ```
 
 设计要求：
@@ -960,7 +959,7 @@ corehost 当前的问题可以概括为：
 
 - **Cell 固定 8 字节**：16 位 UTF-16 primary、16 位 row-local cluster offset、16 位
   page-local style ID、6 位 offset2（实际存 length-1，覆盖 1..64 UTF-16 unit）、2 位
-  content、2 位 width、5 位 flags、1 位 reserved；content=2 的 primary 为 `U+FFFD`；
+  content、2 位 width、6 位 flags；content=2 的 primary 为 `U+FFFD`；
 - **行级完整 cluster store**：`std::vector<char16_t>` 保存包括 primary 在内的完整
   surrogate pair/grapheme，超出 16 位 offset 时扫描 row 重建；
 - **page + row + dense cell**：支持主/备用缓冲区和未来 scrollback；
@@ -1018,8 +1017,7 @@ side store 表示，没有采用会拆散 surrogate 的 UTF-16 canonical。
 | `offset2` | 6 | 实际保存 cluster length-1（1..64 个 UTF-16 unit） |
 | `content` | 2 | blank/scalar/complex(alias surrogate/grapheme)/background |
 | `width` | 2 | narrow/wide/tail/spacer head |
-| `flags` | 5 | protected/hyperlink/semantic/reserved |
-| `reserved` | 1 | 补齐到 8 字节 |
+| `flags` | 6 | protected/hyperlink/semantic/reserved |
 | **总计** | **64** | **8 字节** |
 
 不能把 `offset2` 扩到 16 位：`primary 16 + offset 16 + style 16 + offset2 16 = 64`，
@@ -1037,7 +1035,7 @@ side store 表示，没有采用会拆散 surrogate 的 UTF-16 canonical。
 字段顺序为：
 
 ```text
-primary 16 | offset 16 | style 16 | offset2 6 | content 2 | width 2 | flags 5 | reserved 1
+primary 16 | offset 16 | style 16 | offset2 6 | content 2 | width 2 | flags 6
 ```
 
 `style` 从 bit 32 开始，正好落在 16 位边界；`offset2` 从 bit 48 开始。这样 style 是
@@ -1097,7 +1095,7 @@ enum class cell_width : std::uint8_t
     spacer_head = 3,
 };
 
-// 5 bit flags，当前使用低 4 位。
+// 6 bit flags，当前使用低 4 位，剩余位保留。
 enum class cell_flag : std::uint8_t
 {
     none = 0,
@@ -1321,7 +1319,7 @@ private:
         result.offset2_ = length == 0 ? 0 : static_cast<std::uint64_t>(length - 1);
         result.content_ = std::to_underlying(content);
         result.width_ = std::to_underlying(width);
-        result.flags_ = static_cast<std::uint64_t>(flags) & 0x1F;
+        result.flags_ = static_cast<std::uint64_t>(flags) & 0x3F;
         return result;
     }
 
@@ -1330,7 +1328,7 @@ private:
         return (value & 0xF800u) == 0xD800u;
     }
 
-    // 字段顺序：primary | offset | style | offset2 | content | width | flags | reserved。
+    // 字段顺序：primary | offset | style | offset2 | content | width | flags。
     // style 从 bit 32 开始，保证 16 位对齐。
     // offset2 虽然名为 offset2，实际保存 length-1；保留该历史名称是刻意约定。
     std::uint64_t primary_ : 16;
@@ -1339,8 +1337,7 @@ private:
     std::uint64_t offset2_ : 6;
     std::uint64_t content_ : 2;
     std::uint64_t width_ : 2;
-    std::uint64_t flags_ : 5;
-    std::uint64_t reserved_ : 1;
+    std::uint64_t flags_ : 6;
 };
 
 static_assert(sizeof(cell) == sizeof(std::uint64_t));
@@ -1559,7 +1556,7 @@ private:
    - 这个名字具有误导性；如果未来允许重命名，建议改成 `length_minus_one_`。
 
 3. **style 对齐**
-   - 字段顺序为 primary/offset/style/offset2/content/width/flags/reserved；
+   - 字段顺序为 primary/offset/style/offset2/content/width/flags；
    - style 从 bit 32 开始，是 16 位对齐；
    - offset2 从 bit 48 开始，不跨 style 的 16 位边界。
 
