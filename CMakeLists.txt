@@ -65,6 +65,9 @@ add_subdirectory(proxy)
 # ── common (核心基础设施: os/ntapi/win32/com/utility) ──
 add_subdirectory(common)
 
+# ── libscreen (16-byte cell 屏幕缓冲区参考实现) ────────
+add_subdirectory(libscreen)
+
 # ── libcorehost (ConPTY 核心静态库) ──────────────────
 add_subdirectory(libcorehost)
 

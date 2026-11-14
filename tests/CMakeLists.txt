@@ -438,6 +438,9 @@ set_tests_properties(CLI.CommandLine PROPERTIES
     TIMEOUT 60
 )
 
+# ── libscreen 参考实现测试 ───────────────────────────
+add_subdirectory(${CMAKE_SOURCE_DIR}/libscreen/tests ${CMAKE_CURRENT_BINARY_DIR}/libscreen-tests)
+
 # ══════════════════════════════════════════════════════
 # 手动验证程序 (manual) — 独立 CMakeLists.txt
 # ══════════════════════════════════════════════════════
