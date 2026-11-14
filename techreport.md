@@ -13,13 +13,14 @@ side store** 的混合模型。这个混合模型直接对齐 Windows API/DWrite
    - 16 位 UTF-16 primary（BMP 文本的实际 code unit；多 unit 时为 `U+FFFD`）；
    - 16 位 row-local cluster store offset；
    - 16 位 page-local style ID（在 16 位边界对齐）；
-   - 7 位 cluster length（实际 1..64 个 UTF-16 unit）；
+   - 6 位 `offset2`（实际保存 cluster length - 1，覆盖 1..64 个 UTF-16 unit）；
    - 2 位 content 类型；
    - 2 位列宽/continuation；
-   - 5 位 flags。
+   - 5 位 flags；
+   - 1 位保留位。
 2. 非 BMP、多码点 grapheme 或其他复杂 cluster 的**完整文本（含真实 primary）**放入
    row-local 的 `std::vector<char16_t>`；cell 的 `primary` 为 `U+FFFD`，并保存
-   offset/length；cell 不保存 pointer。
+   offset/offset2；cell 不保存 pointer。
 3. 颜色、下划线、超链接等样式放入 page-local 的 style table，cell 保存 style ID。
 4. 屏幕由 page/row 组成，主缓冲区、备用缓冲区和未来的 scrollback 共享同一套 cell/page
    结构；行移动是 page/row 操作，不需要搬移整行字符串。
@@ -336,7 +337,8 @@ cell 模型里。对一个需要支持 Console API、VT、窗口模式和未来 
 - cell 固定 8 字节，primary 是 16 位 UTF-16 code unit；
 - 非 BMP、多码点 grapheme、其他复杂 cluster 的**完整文本（含真实 primary）**放 row-local
   `std::vector<char16_t>`；这些 cell 的 primary 固定为 `U+FFFD`；
-- cell 保存 16 位 offset、7 位 length（实际 1..64 unit）、16 位 style ID；
+- cell 保存 16 位 offset、6 位 `offset2`（实际存 length-1，覆盖 1..64 unit）、16 位
+  style ID；
 - content 使用 2 位；`complex`/`surrogate`/`grapheme` 都是值 2 的别名，统一表示
   “需要 side store、primary 为 U+FFFD”；
 - 所有平台编码转换延后到边界；
@@ -348,8 +350,8 @@ surrogate/ZWJ。它比 4.1 的 UTF-16 canonical 更安全，也避免当前 `u32
 逐列偏移维护。
 
 这个方案的内存/8 字节约束在 13.1 中详细计算：以 16 位 style、16 位 offset、16 位
-primary 和 2 位 content/width 为前提时，length 只能取 7 位（1..64 UTF-16 unit）；16 位
-length 与 style/flags 不能同时塞进 8 字节。
+primary、2 位 content/width 和 5 位 flags 为前提时，cluster length 只能使用 6 位
+`offset2` 保存 length-1；16 位 length 与 style/flags 不能同时塞进 8 字节。
 
 ## 5. 推荐结构
 
@@ -362,10 +364,11 @@ Cell (8 bytes, bitfields):
   primary     : 16 bits  // BMP code unit, or U+FFFD for multi-unit content
   offset      : 16 bits  // row-local grapheme store offset
   style_id    : 16 bits  // page-local style table index, 0 = default, 16-bit aligned
-  length      : 7 bits   // actual length 1..64 UTF-16 units
+  offset2     : 6 bits   // actually length-1 (1..64 UTF-16 units); historical name
   content     : 2 bits   // blank/scalar/complex(alias surrogate/grapheme)/background
   width       : 2 bits   // narrow / wide / tail / spacer head
   flags       : 5 bits   // protected/hyperlink/semantic/reserved
+  reserved    : 1 bit    // keeps cell at 8 bytes
 ```
 
 设计要求：
@@ -375,10 +378,10 @@ Cell (8 bytes, bitfields):
   `U+FFFD`，真实 primary 和完整 cluster 都在 side store；
 - `complex`、`surrogate`、`grapheme` 都是值 2 的别名，统一表示“需要多个 UTF-16
   code unit”；它们不再区分类型；
-- 非 BMP 的完整代理对不能被拆成两个独立 cell；content=2 的 offset/length 指向
+- 非 BMP 的完整代理对不能被拆成两个独立 cell；content=2 的 offset/offset2 指向
   row-local store 中的完整 pair/cluster；
-- `length` 是实际长度 1..64 个 UTF-16 unit，不再保存 `length - 1`；6 个 bit 不够
-  表示 64，所以使用 7 位；
+- `offset2` 的**实际语义是 `length - 1`**，不是第二个存储偏移；它保存 1..64 个
+  UTF-16 unit 的 length-1，因此名字具有历史误导性，读取时必须通过 `cluster_length()`；
 - style ID 是 page-local 的，默认 0 不查表；它排在 offset 后，保证 16 位对齐；
 - `content=background` 允许“只有背景色、没有文字”的 cell；背景色仍由 style ID 提供；
 - 8 字节对齐使 page 的 cell 数组可以直接按 `uint64` 清零/复制；bitfield 布局必须用
@@ -441,11 +444,12 @@ Row:
 - `Uniform` 行允许整行相同 style 的批量渲染/批量 ASCII 写入；
 - `Spanning` 行表示存在 wide continuation、多 cell glyph、图片等跨越 cell 的情况；
 - `GraphemeStore` 是 row-local `std::vector<char16_t>`，保存完整 cluster（含真实 primary）；
-  cell 的 primary 固定为 `U+FFFD`，并使用 16 位 offset + 7 位 length（1..64 unit），
-  不把 pointer 放进每个 cell；
+  cell 的 primary 固定为 `U+FFFD`，并使用 16 位 offset + 6 位 offset2（实际存
+  length-1，覆盖 1..64 unit），不把 pointer 放进每个 cell；
 - `surrogate/grapheme/complex` 的完整文本都在 row store；`scalar/blank/background` 不访问
   store；
-- store 只增长；超过 `UINT16_MAX` 时扫描该 row 的 cell，重建 vector 并更新 offset/length；
+- store 只增长；超过 `UINT16_MAX` 时扫描该 row 的 cell，重建 vector 并更新
+  offset/offset2；
 - row 移动时连同 optional `GraphemeStore` 一起移动；page 滚动移动 page，不搬移 cluster 文本；
 - page 可以固定大小，main/alt/scrollback 使用 page list 或 ring；
 - 当前 `screen_buffer` 的 `_row_origin` 环可以保留为 page/row 层优化，但不再是唯一滚动机制。
@@ -465,8 +469,8 @@ Row:
 
 - 每个 cell 最多表示一个 grapheme cluster；
 - cell 的 `primary` 在 `scalar` 时是 BMP code unit；content=2 时固定为 `U+FFFD`；
-- 完整 cluster（含真实 primary）在 row 的 `std::vector<char16_t>`；cell 存 offset/length；
-- cluster 长度上限按 **UTF-16 unit** 计算，硬上限 64；7 位 length 直接保存 1..64；
+- 完整 cluster（含真实 primary）在 row 的 `std::vector<char16_t>`；cell 存 offset/offset2；
+- cluster 长度上限按 **UTF-16 unit** 计算，硬上限 64；offset2 保存 length-1；
 - 超过上限的输入要明确策略：
   - 拒绝并返回错误；
   - 或替换为单个 `U+FFFD` cell；
@@ -544,7 +548,7 @@ application
   → code-unit decoder (combine surrogate pair)
   → grapheme segmentation
   → full cluster in char16_t side store
-  → cell with offset/length
+  → cell with offset/offset2
 ```
 
 规则：
@@ -837,7 +841,7 @@ cluster side store 的 Unicode 质量；它不试图把 non-BMP 拆成独立 cel
 
 - 内部 cell 的 primary 是 16 位 UTF-16 code unit；content=2 时固定为 `U+FFFD`；
 - 完整代理对（含 high+low）保存在 row-local `std::vector<char16_t>`，由 cell 的
-  offset/length 指向；
+  offset/offset2 指向；
 - 非 BMP 不能被拆成两个独立 surrogate cell；`complex/surrogate/grapheme` 都指向完整
   store；
 - `CHAR_INFO` 读取只能写替代字符，这是 API 限制，必须在文档/测试中固定；
@@ -933,7 +937,7 @@ cluster side store 的 Unicode 质量；它不试图把 non-BMP 拆成独立 cel
 2. **Style ID 生命周期**：page-local style ID 在跨 page 复制/滚动时要重新映射；16 位
    ID 溢出要可检测。
 3. **Cluster 池所有权**：cluster 数据跟随 row 的 `GraphemeStore`；移动 cell/row 时必须
-   移动/复制完整 cluster，并更新 cell 的 offset/length；超过 16 位 offset 时要重建；
+   移动/复制完整 cluster，并更新 cell 的 offset/offset2；超过 16 位 offset 时要重建；
    需要严格的完整性检查。
 4. **DWrite cluster map**：UTF-16 offset、surrogate pair、ligature、fallback 都不能拆
    cluster；这是实现复杂度的主要来源，但任何 canonical 表示都无法完全避免。
@@ -955,8 +959,8 @@ corehost 当前的问题可以概括为：
 推荐的设计是：
 
 - **Cell 固定 8 字节**：16 位 UTF-16 primary、16 位 row-local cluster offset、16 位
-  page-local style ID、7 位 length（实际 1..64 UTF-16 unit）、2 位 content、2 位 width、
-  5 位 flags；content=2 的 primary 为 `U+FFFD`；
+  page-local style ID、6 位 offset2（实际存 length-1，覆盖 1..64 UTF-16 unit）、2 位
+  content、2 位 width、5 位 flags、1 位 reserved；content=2 的 primary 为 `U+FFFD`；
 - **行级完整 cluster store**：`std::vector<char16_t>` 保存包括 primary 在内的完整
   surrogate pair/grapheme，超出 16 位 offset 时扫描 row 重建；
 - **page + row + dense cell**：支持主/备用缓冲区和未来 scrollback；
@@ -993,11 +997,16 @@ side store 表示，没有采用会拆散 surrogate 的 UTF-16 canonical。
    `complex`/`surrogate`/`grapheme` 是同一个值 2 的别名，不再区分类型。
 2. 当 `content == 2` 时，cell 的 `primary` 固定为 `U+FFFD`；真实 primary 和完整
    surrogate pair/grapheme 都在 row-local side store。
-3. cell 保存 16 位 offset 和**实际** length；length 不再保存 `length - 1`。
-4. `length` 使用 7 位：因为 6 位最大只能表示 63，而实际长度上限是 64。
-5. `style` 排在 `offset` 之后、`length` 之前，使 style 位于 16 位边界。
+3. cell 保存 16 位 offset 和 6 位 `offset2`；`offset2` 的实际语义是
+   `length - 1`（1..64 个 UTF-16 unit），不是第二个存储地址。
+4. `offset2` 使用 6 位：0..63 加上 1 正好覆盖 1..64；`cluster_length()` 负责加一。
+5. `style` 排在 `offset` 之后、`offset2` 之前，使 style 位于 16 位边界。
 6. `grapheme_store::append()` 不负责检查容量；调用者必须先调用 `can_append()`，再
    append；容量不足时由 row 执行重建。
+
+> 命名说明：`offset2` 是按用户指定的历史名称，但它不表示 offset。它实际保存
+> cluster length-1；代码注释和访问器必须明确这一点，避免把 `offset2` 误用为第二个
+> 存储地址。
 
 #### 8 字节预算
 
@@ -1006,31 +1015,32 @@ side store 表示，没有采用会拆散 surrogate 的 UTF-16 canonical。
 | `primary` | 16 | BMP code unit；content=2 时为 `U+FFFD` |
 | `offset` | 16 | row-local cluster store offset |
 | `style_id` | 16 | page-local style table 索引，16 位对齐 |
-| `length` | 7 | 实际长度 1..64 个 UTF-16 unit |
+| `offset2` | 6 | 实际保存 cluster length-1（1..64 个 UTF-16 unit） |
 | `content` | 2 | blank/scalar/complex(alias surrogate/grapheme)/background |
 | `width` | 2 | narrow/wide/tail/spacer head |
 | `flags` | 5 | protected/hyperlink/semantic/reserved |
+| `reserved` | 1 | 补齐到 8 字节 |
 | **总计** | **64** | **8 字节** |
 
-仍然不能把 length 扩到 16 位：`primary 16 + offset 16 + style 16 + length 16 = 64`，
-已经没有 content/width/flags 的空间。要保留 16 位 length，只能把 style 移到 cell 外的
-并行数组，或放弃部分 flags；本报告不推荐这样做。
+不能把 `offset2` 扩到 16 位：`primary 16 + offset 16 + style 16 + offset2 16 = 64`，
+已经没有 content/width/flags 的空间。当前 6 位长度覆盖 1..64 个 UTF-16 unit，足以覆盖
+真实 RGI emoji；如果未来要扩大长度上限，需要重新分配 cell 字段，而不是简单加宽。
 
-#### 为什么 length 用 7 位而不是 6 位
+#### 为什么 offset2 是 6 位
 
-6 位无符号字段的范围是 0..63，不能直接表示 64。可以保存 `length - 1` 来压缩到 6 位，
-但本设计明确不使用“minus one”这种隐式编码；因此使用 7 位保存实际 1..64。7 位还允许
-未来把限制提高到 127，但 `cell::max_cluster_units` 仍保持 64。
+6 位无符号字段的范围是 0..63。保存 `length - 1` 后，可以表示 1..64 个 UTF-16 unit；
+这正好覆盖 `cell::max_cluster_units = 64`。读取时使用 `cluster_length()` 返回
+`offset2 + 1`，外部代码不应直接使用原始 `offset2` 值作为长度。
 
 #### 为什么 style 放在 offset 后面
 
 字段顺序为：
 
 ```text
-primary 16 | offset 16 | style 16 | length 7 | content 2 | width 2 | flags 5
+primary 16 | offset 16 | style 16 | offset2 6 | content 2 | width 2 | flags 5 | reserved 1
 ```
 
-`style` 从 bit 32 开始，正好落在 16 位边界；`length` 从 bit 48 开始。这样 style 是
+`style` 从 bit 32 开始，正好落在 16 位边界；`offset2` 从 bit 48 开始。这样 style 是
 自然的 `std::uint16_t` 对齐值，不需要跨 16 位字读取。
 
 #### 关于 content 的重复值
@@ -1101,7 +1111,7 @@ enum class cell_flag : std::uint8_t
 //
 // - content=scalar 时 primary 是实际 BMP code unit；
 // - content=2 时 primary 固定为 U+FFFD，完整 cluster 在 row-local grapheme_store；
-// - offset/length 只在 content=2 时有效；
+// - offset/offset2 只在 content=2 时有效；offset2 实际是 length-1；
 // - style_id 是 page-local 索引；
 // - cell 固定 8 字节，全部字段是 std::uint64_t bitfield。
 class cell final
@@ -1256,10 +1266,11 @@ public:
         return offset_;
     }
 
-    // 实际长度（1..64）；非 cluster 返回 0。没有 minus-one 编码。
+    // 实际长度（1..64）；非 cluster 返回 0。offset2_ 保存 length-1，
+    // 这里负责加一，调用方不要直接使用 offset2 原始值。
     [[nodiscard]] constexpr std::uint8_t cluster_length() const noexcept
     {
-        return has_cluster() ? static_cast<std::uint8_t>(length_) : 0;
+        return has_cluster() ? static_cast<std::uint8_t>(offset2_ + 1) : 0;
     }
 
     // 返回替换 style 的副本。
@@ -1280,13 +1291,14 @@ public:
         return result;
     }
 
-    // 重建 side store 后，用新的 offset/length 更新 cell。
+    // 重建 side store 后，用新的 offset 和实际 length 更新 cell。
+    // offset2_ 保存 length-1，所以这里做一次减一。
     [[nodiscard]] constexpr cell with_cluster_ref(std::uint16_t offset,
                                                   std::uint8_t length) const noexcept
     {
         auto result = *this;
         result.offset_ = offset;
-        result.length_ = length;
+        result.offset2_ = length == 0 ? 0 : static_cast<std::uint64_t>(length - 1);
         return result;
     }
 
@@ -1306,7 +1318,7 @@ private:
         result.primary_ = static_cast<std::uint64_t>(static_cast<std::uint16_t>(primary));
         result.offset_ = offset;
         result.style_ = style;
-        result.length_ = length;
+        result.offset2_ = length == 0 ? 0 : static_cast<std::uint64_t>(length - 1);
         result.content_ = std::to_underlying(content);
         result.width_ = std::to_underlying(width);
         result.flags_ = static_cast<std::uint64_t>(flags) & 0x1F;
@@ -1318,15 +1330,17 @@ private:
         return (value & 0xF800u) == 0xD800u;
     }
 
-    // 字段顺序：primary | offset | style | length | content | width | flags。
+    // 字段顺序：primary | offset | style | offset2 | content | width | flags | reserved。
     // style 从 bit 32 开始，保证 16 位对齐。
+    // offset2 虽然名为 offset2，实际保存 length-1；保留该历史名称是刻意约定。
     std::uint64_t primary_ : 16;
     std::uint64_t offset_ : 16;
     std::uint64_t style_ : 16;
-    std::uint64_t length_ : 7;
+    std::uint64_t offset2_ : 6;
     std::uint64_t content_ : 2;
     std::uint64_t width_ : 2;
     std::uint64_t flags_ : 5;
+    std::uint64_t reserved_ : 1;
 };
 
 static_assert(sizeof(cell) == sizeof(std::uint64_t));
@@ -1391,7 +1405,7 @@ private:
 
 ### 13.3 配套的 style、row 和 page
 
-`offset/length` 是 row-local 的，因此 row 拥有 `grapheme_store`；`style_id` 是 page-local
+`offset/offset2` 是 row-local 的，因此 row 拥有 `grapheme_store`；`style_id` 是 page-local
 的，因此 page 拥有 `style_table`。
 
 ```cpp
@@ -1538,22 +1552,23 @@ private:
    - 如果未来需要区分“非 BMP / 组合 grapheme / 其他”，用 flags 或 side metadata，
      不要扩大 content 字段。
 
-2. **length 是实际长度**
-   - 字段保存 1..64，不做 `length - 1`；
-   - 7 位是必要的，因为 6 位最大只能表示 63；
-   - 非 cluster 的 length 为 0，读取时通过 `has_cluster()` 判断。
+2. **offset2 实际是 length-1**
+   - `offset2` 字段保存 1..64 的 length-1（0..63），不是第二个 offset；
+   - 6 位刚好覆盖 1..64；读取时用 `cluster_length()` 加一；
+   - 非 cluster 的 offset2 为 0，读取时通过 `has_cluster()` 判断；
+   - 这个名字具有误导性；如果未来允许重命名，建议改成 `length_minus_one_`。
 
 3. **style 对齐**
-   - 字段顺序为 primary/offset/style/length/content/width/flags；
+   - 字段顺序为 primary/offset/style/offset2/content/width/flags/reserved；
    - style 从 bit 32 开始，是 16 位对齐；
-   - length 从 bit 48 开始，不跨 style 的 16 位边界。
+   - offset2 从 bit 48 开始，不跨 style 的 16 位边界。
 
 4. **append 容量由调用者检查**
    - `grapheme_store::append()` 不返回 optional，也不在内部重建；
    - 调用者先 `can_append(cluster.size())`，不足时执行 row 重建；
    - append 只用 debug assert 防御调用者遗漏；
    - 重建时扫描 row 的 cell，按顺序重新 append 完整 cluster，并用 `with_cluster_ref()`
-     更新 offset/length；重建必须在会话锁内完成，旧 span 失效。
+     更新 offset/offset2；重建必须在会话锁内完成，旧 span 失效。
 
 5. **bitfield 和 ABI**
    - 所有字段使用 `std::uint64_t` bitfield；
