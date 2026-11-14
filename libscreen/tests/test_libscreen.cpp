@@ -1,3 +1,4 @@
+#include "console_state.hpp"
 #include "screen_buffer.hpp"
 
 #include <algorithm>
@@ -74,6 +75,13 @@ void test_cell()
     check(surrogate.type() == cell_type::complex, "surrogate alias");
     check(grapheme.type() == cell_type::complex, "grapheme alias");
     check(surrogate.type() == grapheme.type(), "type aliases equal");
+
+    const cell image = cell::image(17, style4, cell_width::wide, link12, flag1);
+    check(image.has_image(), "image cell");
+    check(image.image_fragment_id() == 17, "image fragment id");
+    check(image.type() == cell_type::image, "image type");
+    check(image.width() == cell_width::wide, "image width");
+    check(image.has_image(), "image predicate");
 }
 
 void test_grapheme_store()
@@ -126,6 +134,81 @@ void test_styles_and_hyperlinks()
     check(links.size() == 2, "hyperlink table size");
 }
 
+void test_line_flags_and_images()
+{
+    screen_buffer screen(4, 3, 4);
+    screen.add_flags(0, line_flag::wrapped);
+    screen.add_flags(0, line_flag::marked);
+    check(screen.has_flag(0, line_flag::wrapped), "wrapped flag");
+    check(screen.has_flag(0, line_flag::marked), "marked flag");
+    check(screen.has_flag(0, line_flag::user_mark) == false, "unset flag");
+
+    screen.remove_flags(0, line_flag::marked);
+    check(!screen.has_flag(0, line_flag::marked), "remove flag");
+    screen.set_flags(0, line_flag_ops::raw(line_flag::double_width));
+    check(screen.is_double_width(0), "line rendition flag");
+    screen.set_flags(
+        0, line_flag_ops::combine(line_flag_ops::raw(line_flag::marked), line_flag_ops::raw(line_flag::output_start)));
+    check(screen.has_flag(0, line_flag::output_start), "output start flag");
+    screen.set_command_exit_code(0, 7);
+    check(screen.command_exit_code(0).value_or(-1) == 7, "command exit code");
+
+    screen.scroll_up(1);
+    check(screen.history_flags(0) == line_flag_ops::combine(line_flag_ops::raw(line_flag::marked),
+                                                            line_flag_ops::raw(line_flag::output_start)),
+          "history keeps line flags");
+    check(screen.history_command_exit_code(0).value_or(-1) == 7, "history keeps command exit code");
+
+    const image_fragment fragment{42, 7, 0, 0, 16, 16, image_layer::replace};
+    const auto fragment_id = screen.images().intern(fragment);
+    check(fragment_id != 0, "image fragment interned");
+    check(screen.images().intern(fragment) == fragment_id, "image fragment dedup");
+    check(!screen.write_image(0, 1, 0), "invalid image id");
+    check(screen.write_image(0, 1, fragment_id), "image write");
+    const auto image_cell = screen.at(0, 1);
+    check(image_cell.has_image(), "image cell type");
+    const auto *stored_image = screen.image_of(image_cell);
+    check(stored_image != nullptr, "image lookup");
+    check(stored_image->image_id == 42, "image id");
+    check(stored_image->layer == image_layer::replace, "image layer");
+}
+
+void test_console_state()
+{
+    console_state state(20, 5);
+    state.set_cursor(3, 2);
+    check(state.cursor().x == 3 && state.cursor().y == 2, "console cursor");
+    state.move_cursor(100, -100);
+    check(state.cursor().x == 19 && state.cursor().y == 0, "console cursor clamp");
+
+    check(state.tabs()[0], "tab 0");
+    check(state.tabs()[8], "tab 8");
+    check(state.next_tab_stop(0) == 8, "next tab");
+    check(state.previous_tab_stop(8) == 0, "previous tab");
+    state.tabs().set(4, true);
+    check(state.previous_tab_stop(8) == 4, "custom tab");
+
+    state.set_scroll_region(1, 3);
+    check(state.in_scroll_region(1) && state.in_scroll_region(3), "scroll region");
+    check(!state.in_scroll_region(0), "outside scroll region");
+    state.reset_scroll_region();
+    check(state.scroll_top() == 0 && state.scroll_bottom() == 4, "reset scroll region");
+
+    state.set_selection(2, 1, 5, 3);
+    check(state.has_selection(), "selection active");
+    check(state.is_selected(4, 2), "selection contains");
+    check(!state.is_selected(1, 2), "selection excludes");
+    state.clear_selection();
+    check(!state.has_selection(), "selection cleared");
+
+    state.set_search_matches({rectangle{1, 1, 3, 1}, rectangle{8, 2, 2, 2}});
+    check(state.is_search_match(2, 1), "search match");
+    check(!state.is_search_match(4, 1), "search miss");
+    state.resize(10, 4);
+    check(state.width() == 10 && state.height() == 4, "console resize");
+    check(state.search_matches().empty(), "resize clears search");
+    check(!state.has_selection(), "resize clears selection");
+}
 void test_screen_buffer()
 {
     screen_buffer screen(4, 3, 2);
@@ -207,6 +290,8 @@ int main()
     test_cell();
     test_grapheme_store();
     test_styles_and_hyperlinks();
+    test_line_flags_and_images();
+    test_console_state();
     test_screen_buffer();
     std::cout << "libscreen tests passed\n";
     return 0;

@@ -256,6 +256,7 @@ enum class cell_type : std::uint8_t
     surrogate = 2,
     grapheme = 2,
     background = 3,
+    image = 4,
 };
 ```
 
@@ -372,17 +373,21 @@ bits 24..31 : actual cluster length (1..255)
 ```text
 page:
   Cell[width * height]      // dense, no per-cell allocation
-  row_state[height]         // used_columns, flags, dirty range
+  row_state[height]         // used_columns, line flags, exit code, dirty range
 
 row_state:
   used_columns
-  flags
+  line_flags flags
+  optional<int32_t> command_exit_code
   dirty_begin / dirty_end
 ```
 
 - page 是 dense 的 16B cell 数组；
 - row 不拥有 cluster 文本或 style；
 - `used_columns` 记录实际使用列；
+- `line_flags` 记录 wrappable/wrapped/marked/output-start/command-end/prompt-end/
+  user-mark 和 line rendition；
+- `command_exit_code` 保存 shell integration 的退出状态；
 - damage 是每行的半开区间 `[dirty_begin, dirty_end)`；
 - 初始 page 全部行标记为 dirty，保证首次渲染完整。
 
@@ -391,19 +396,23 @@ row_state:
 - `screen_buffer` 拥有 main page；
 - `set_alternate(true)` 创建/切换到 alternate page；
 - alternate page 不记录 scrollback；
-- main page 满屏 `scroll_up` 时，把顶部行复制到 `std::deque<line>` history；
+- main page 满屏 `scroll_up` 时，把顶部行的 cell + line flags + command exit code
+  复制到 `std::deque<history_entry>`；
 - history 上限由构造函数 `history_limit` 控制；
-- history line 只保存 cell，不保存 row metadata；
+- history line 保存 cell 和 row metadata，保证 wrapped/marked/command 边界在 scrollback
+  中仍可查询；
 - resize 清空 history，避免宽高变化后旧行宽度不一致；
-- style/hyperlink/grapheme store 是 screen-wide 的，main/alternate/history 共享。
+- style/hyperlink/grapheme/image store 是 screen-wide 的，main/alternate/history 共享。
 
 ### 5.3 写入、宽字符和 cluster
 
 - `write_scalar`：写一个 BMP code unit；wide 时把 x+1 标记为 tail；
 - `write_cluster`：检查 store 容量、append 完整 cluster、写 type=2 cell；
+- `write_image`：写 image 类型 cell，fragment metadata 在 screen-wide image table；
 - `write_cell`：低层写，负责清理旧的 wide head/tail 邻域；
 - `fill_rect`、`clear`：直接填 cell；
-- `scroll_up`、`scroll_region_up`：移动行/cell，更新 damage 和 used_columns；
+- `scroll_up`、`scroll_region_up`：移动行/cell，更新 damage、used_columns、line flags 和
+  command exit code；
 - 宽字符/继续列由 `width` 表达，渲染器跳过 tail；
 - 覆盖 wide head 会清理 tail；覆盖 tail 会清理 head。
 
@@ -429,6 +438,54 @@ row_state:
 - resize 的新 page 全部行标脏；
 - `clear_damage` 只清当前 active page；
 - 未来无头 VT 渲染器可按行输出脏区间，DWrite 可只重绘脏行。
+
+### 5.6 Line flags 与 line rendition
+
+`line_flag` 是 row 级 16 位 flags：
+
+- `wrappable` / `wrapped`：reflow 和跨行复制/选择；
+- `marked` / `output_start` / `command_end` / `prompt_end` / `user_mark`：OSC 133 /
+  shell marks / 用户书签；
+- `double_width` / `double_height_top` / `double_height_bottom`：DECDWL/DECDHL。
+
+API：
+
+- `flags(y)` / `set_flags(y)`；
+- `add_flags` / `remove_flags` / `has_flag`；
+- `is_double_width` / `is_double_height_top` / `is_double_height_bottom`；
+- `set_command_exit_code` / `command_exit_code`；
+- history 的 `history_flags` / `history_command_exit_code`。
+
+这些状态都放在 row，不重复到每个 cell。
+
+### 5.7 Image fragments
+
+`cell_type::image` 的 cell 只保存 `image_fragment_id`；`screen_buffer::images()` 是
+screen-wide `image_table`。
+
+- `image_fragment` 包含 `image_id`、`placement_id`、source rect、layer；
+- `write_image(x, y, fragment_id, ...)` 写入 image cell；
+- `image_of(cell)` 返回 fragment metadata；
+- 实际像素解码/合成是 renderer 责任；libscreen 只保存 placement/引用；
+- image cell 仍受 wide/tail/damage 机制管理。
+
+### 5.8 console_state
+
+实现：[libscreen/console_state.hpp](libscreen/console_state.hpp)。
+
+`console_state` 保存不属于 cell 的 console 级状态：
+
+- cursor position/visible/style；
+- `wrap_at_eol`、`insert_mode`、`origin_mode`；
+- default style/hyperlink；
+- scroll top/bottom region；
+- tab stops；
+- selection range（block normalized）；
+- search matches；
+- resize 后 clamp cursor、重置 scroll region、清 selection/search。
+
+它与 screen_buffer 分离：cell/page 只保存内容，cursor/tab/margin/selection/search 属于
+console 状态。
 
 ## 6. Windows API 与 DWrite 边界
 
@@ -533,6 +590,9 @@ row_state:
 - hyperlink interning、默认空链接；
 - 屏幕写入、cluster view、rebuild_graphemes；
 - wide head/tail、覆盖清理；
+- line flags、line rendition、command exit code/history；
+- image fragment intern/write/lookup；
+- console_state cursor/tabs/scroll region/selection/search；
 - fill/clear、damage；
 - scroll 进入 history、history 内容；
 - alternate 主屏保留；
@@ -654,256 +714,184 @@ semantic_prompt
 | hyperlink | 是，32 位 ID | 是 | 是 | 是 |
 | protected | 是 | 是 | 是 | 是 |
 | basic semantic input/prompt | 是（2 flags） | 是 | 部分 | 是（semantic content） |
-| line wrapped/marked flags | row_state 预留，当前未实现 | 是 | 是 | 是 |
-| line rendition（double width/height/top/bottom） | 未实现；应放 row | 是 | 部分/扩展 | 部分 |
-| text scaling（OSC 66 等） | 未实现 | 否/有限 | 是 | 部分/扩展 |
-| inline images（kitty/sixel 等） | 未实现 | 图像路径独立于 cell | 是（image fragments） | 是（graphics 路径） |
-| soft font / DECDLD | 未实现 | 有/有限 | 是 | 有限/扩展 |
-| selection/search | 应由 screen overlay 实现 | 是 | 是 | 是 |
-| cursor/tabs/margins | screen 级，不属于 cell | 是 | 是 | 是 |
+| command exit status | 是（row metadata） | 是 | 是（line marks） | 是（semantic） |
+| line wrapped/marked flags | 是（row_state flags） | 是 | 是 | 是 |
+| line rendition（double width/height/top/bottom） | 是（row flags） | 是 | 是（LineFlags） | 部分/扩展 |
+| text scaling（OSC 66 等） | 未实现（仅 Contour 支持） | 否/有限 | 是 | 否/有限 |
+| inline images（kitty/sixel 等） | 是（cell ref + image table，renderer 未实现） | 图像路径独立于 cell | 是（image fragments） | 是（graphics 路径） |
+| soft font / DECDLD | 未实现（仅 Contour 明确支持） | 有/有限 | 是 | 否/有限 |
+| selection/search | 是（console_state overlay） | 是 | 是 | 是 |
+| cursor/tabs/margins | 是（console_state） | 是 | 是 | 是 |
 | scrollback | 是（history） | 是 | 是 | 是 |
 
-### 9.6 缺失功能的逐项说明
+### 9.6 按“至少两个实现支持”筛选的功能
 
-下面的“缺失”分为两类：
+判定规则：功能必须有终端实际用途，并且至少被 conhost/WT、Contour、Ghostty 中的两个
+实现；满足则 libscreen 需要提供对应的数据模型/API。
 
-- **确实属于 cell 的功能**：cell 必须携带一个引用/标志，否则渲染或编辑无法正确完成；
-- **不属于 cell、但当前 screen buffer 也缺的功能**：应放 row/screen/overlay，不能靠扩大
-  cell 解决。
+#### 已实现
 
-#### 9.6.1 line wrapped / marked / shell marks
+##### 1. line flags / line rendition
 
-**是什么**
+**支持者：** WT + Contour。
 
-- `Wrapped`：当前物理行是否由上一行 soft-wrap 而来；
-- `Wrappable`：当前行是否允许在 resize 时 reflow；
-- `Marked`：shell prompt 起点（OSC 133;A）；
-- `OutputStart`：命令输出起点（OSC 133;C）；
-- `CommandEnd`：命令结束及退出状态（OSC 133;D）；
-- `PromptEnd`：prompt 结束、用户输入开始（OSC 133;B）；
-- `UserMark`：用户书签（vi `mm`）。
+**用途：**
 
-Contour 的 `LineFlags.hpp` 把这组状态定义为 row 级 flags；Windows Terminal 的
-`Row.hpp` 有 `_wrapForced`、`_lineRendition`，`Marks.hpp` 有 scroll mark/command 区块
-数据。
+- `Wrapped`/`Wrappable` 决定 resize 时是否 reflow、复制/选择是否把两行视为同一逻辑行；
+- `Marked`/`OutputStart`/`CommandEnd`/`PromptEnd`/`UserMark` 支持 shell integration、
+  命令块导航、折叠、scrollbar 标记、用户书签；
+- `DoubleWidth`/`DoubleHeightTop`/`DoubleHeightBottom` 支持 DECDWL/DECDHL 老式大字号
+  行；它影响 screen→buffer 坐标、渲染和复制范围；
+- `command_exit_code` 保存命令结束状态，供失败命令标记/导航。
 
-**有什么用**
+**libscreen 实现：**
 
-- 复制/选择跨 soft-wrap 行时必须知道“这是同一逻辑行”，否则会多插换行；
-- resize/reflow 需要 `Wrappable`/`Wrapped` 判断如何重排；
-- shell integration 需要 prompt/command/output 边界来导航、折叠、复制命令块、显示
-  scrollbar mark；
-- 搜索/书签/命令状态需要 stable marks。
+- `line_flag` 16 位枚举；
+- `row_state.flags` + `optional<int32_t> command_exit_code`；
+- `screen_buffer` 的 `flags/set_flags/add_flags/remove_flags/has_flag`、
+  `is_double_width`/`is_double_height_*`、`set_command_exit_code`；
+- `scroll_up` 把 flags/exit code 带进 history，`history_flags`/
+  `history_command_exit_code` 可查询；
+- 这些是 row 状态，不放进 cell。
 
-**当前缺什么**
+##### 2. semantic prompt / command status
 
-- `row_state.flags` 只是一个未定义的 `uint16_t`，没有枚举、没有 API、没有维护逻辑；
-- 当前 cell 的 `semantic_input`/`semantic_prompt` 只覆盖很粗的 cell 级语义，无法表达
-  output start/command end/exit status/row-level mark；
-- 这些不应该塞进 `cell_flags`：一行只有一份，重复到每个 cell 既浪费又不一致。
+**支持者：** WT + Contour + Ghostty。
 
-**建议表示**
+**用途：**
 
-- 在 `row_state` 增加 `line_flags` 16 位枚举（wrappable/wrapped/marked/output_start/
-  command_end/prompt_end/user_mark）；
-- 命令退出状态/颜色等低频数据放 row 的 side record；
-- selection/reflow 读取 row flags，不读取每个 cell。
+- OSC 133 A/B/C/D 标记 prompt、用户输入、命令输出、命令结束；
+- shell 可以导航/折叠/复制命令块；
+- scrollbar/命令状态/辅助功能知道命令边界和退出状态；
+- cell 级 `semantic_input`/`semantic_prompt` 只能表达局部字符语义，跨行结构需要 row
+  marks。
 
-#### 9.6.2 line rendition（DECDWL / DECDHL）
+**libscreen 实现：**
 
-**是什么**
+- cell flags 保留 `semantic_input`/`semantic_prompt`；
+- row `line_flag` 提供 `marked`/`output_start`/`command_end`/`prompt_end`/`user_mark`；
+- row `command_exit_code` 保存退出状态；
+- history 保留这些 marks，scrollback 中仍可查询。
 
-- `SingleWidth`：普通行；
-- `DoubleWidth`：整行横向双宽（DECDWL）；
-- `DoubleHeightTop` / `DoubleHeightBottom`：整行双高上半/下半（DECDHL）。
+##### 3. inline image fragments
 
-Windows Terminal 用 `LineRendition.hpp` 表示，并把它存在 `ROW` 上；它不是某个 cell 的
-属性。
+**支持者：** Contour + Ghostty（WT 的图像也在文本 cell 之外处理）。
 
-**有什么用**
+**用途：**
 
-- 老式全屏程序/艺术字用 DECDWL/DECDHL 绘制大标题；
-- 它改变 screen 坐标到 buffer 坐标的映射、渲染尺寸和复制/选择范围；
-- 如果丢失，双宽/双高行会按普通行显示，字符位置和列数都会错。
+- kitty graphics / sixel 图片显示；
+- `ls` 图片、neofetch、图片查看器；
+- Replace/Below/Above 图层决定文字覆盖图像时是否保留；
+- 图像必须跟随滚动/清除，并且复制/选择要知道它占据的 cell。
 
-**当前缺什么**
+**libscreen 实现：**
 
-- 没有 row rendition 字段；
-- `cell_width` 不能替代：`wide` 是单个字符两列，`DoubleWidth` 是整行所有字符横向放大；
-  `DoubleHeightTop/Bottom` 更是两行共同组成一个 glyph。
+- `cell_type::image`，cell 只保存 `image_fragment_id`；
+- `image_table` 保存 `image_fragment`：image/placement ID、source rect、layer；
+- `screen_buffer::write_image()` / `image_of()` / `images()`；
+- 实际像素解码和 GPU 合成不在 libscreen；renderer 读取 fragment metadata；
+- 这样 cell 仍然 16B，不把图片数据塞进每个 cell。
 
-**建议表示**
+##### 4. selection / search / highlight
 
-- `row_state` 增加 2 位 `line_rendition` 枚举；
-- 行列坐标换算/复制/render 读取 row 级属性；
-- 不需要改 cell。
+**支持者：** WT + Contour + Ghostty。
 
-#### 9.6.3 text sizing / cell scale（kitty OSC 66）
+**用途：**
 
-**是什么**
+- 鼠标选择、复制范围、搜索匹配高亮、可访问性；
+- 跨 wrapped 行选择需要 line flags 配合；
+- 这些是视图状态，不是持久 cell 内容。
 
-Contour 的 `CellScale`/`LineSoA::scales`/`textScaleExtras` 支持：
+**libscreen 实现：**
 
-- 一个 cell 的 glyph 占 `scale` 行高（1..7）；
-- 分数缩放 `n/d`；
-- 在 block 内的垂直/水平对齐；
-- 一个 glyph block 跨多个 row，`band` 表示当前 row 是 block 的第几行。
+- `console_state::selection_range`：anchor/caret、block 规范化、`is_selected`；
+- `console_state::search_matches`：`std::vector<rectangle>`、`is_search_match`；
+- resize 清空 selection/search，避免引用越界；
+- 不修改 cell，renderer 在绘制时叠加 selection/search。
 
-**有什么用**
+##### 5. cursor / tab stops / scroll margins
 
-- 应用可以只放大某个字符/图标，而不改终端字体；
-- 大字号 UI、状态图标、Powerline/Nerd Font 组合、kitty 的 text sizing 协议需要它；
-- renderer 必须按 block 裁剪/定位，否则 glyph 会溢出、错位或挡住相邻行。
+**支持者：** WT + Contour + Ghostty。
 
-**当前缺什么**
+**用途：**
 
-- cell 没有 `scale`/`band`/fraction/alignment；
-- `cell_width` 只表示横向列数，不能表示“占几行高”、分数缩放或 block 内 band；
-- 单纯加一个 `is_scaled` flag 不够，渲染需要完整 scale metadata。
+- 光标位置/可见性/形状；
+- tab 导航；
+- scroll region 决定局部滚动；
+- 这些是 console 级状态，不属于 cell。
 
-**建议表示**
+**libscreen 实现：**
 
-- 增加 `cell_type::scaled`（或 `sized`）；
-- `cell_extent` 在 scaled 类型下存 auxiliary table ID；
-- aux entry 保存 block 原点和 band、scale、fraction、alignment；
-- 不需要把 scale 放进每个 cell 的 flags。
+- `console_state` 保存 cursor、wrap/insert/origin mode、default style/hyperlink；
+- `scroll_top/scroll_bottom` + `set_scroll_region`/`reset_scroll_region`/
+  `in_scroll_region`；
+- `tab_stop_table` + `reset_tab_stops`/`next_tab_stop`/`previous_tab_stop`；
+- resize 时 clamp cursor、重置 scroll region、清 selection/search。
 
-#### 9.6.4 inline images / image fragments
+#### 仍需未来实现
 
-**是什么**
+##### 6. text scaling（kitty OSC 66）
 
-- kitty graphics / sixel 等协议把图像放到终端 grid；
-- Contour 用 per-cell `ImageFragment`：引用 rasterized image + 像素 offset；
-- Ghostty 有 kitty graphics 的 image placement 存储；
-- Windows Terminal 的图像路径也不通过 `CHAR_INFO` 的文本 cell 表达。
+**支持者：** 目前只有 Contour 明确实现（`CellScale`、`LineSoA::scales`、
+`textScaleExtras`）；Ghostty 没有找到 OSC 66 text sizing 实现，WT 也没有。
 
-**有什么用**
+**用途：**
 
-- `ls` 图像、neofetch、终端图片查看器、TUI 图像预览；
-- 图像必须跟随 cell 的滚动/清除/覆盖：写入文本时 Replace 层图像应被清除，Below/Above
-  层可能保留；
-- 复制/选择需要知道图像占了哪些 cell。
+- 一个 glyph 占多行高；
+- 分数缩放和 block 内对齐；
+- 大字号状态图/UI，而不改全局字体。
 
-**当前缺什么**
+**为什么不实现：**
 
-- cell 只支持文本 type，没有 image 引用、layer、placement ID、source rect；
-- 只在 screen 里另存图像无法正确处理“图像占哪些 cell、什么时候被文本覆盖、滚动时怎么移动”；
-- 不能用 `cell_flags` 的 1 bit 表达。
+- 只有 Contour 一个明确实现，不满足“至少两个”；
+- 它需要 block 跨行、band、fraction、alignment、renderer 裁剪；不能只加一个 cell bit。
 
-**建议表示**
+**未来表示：**
 
-- 增加 `cell_type::image`；
-- `cell_extent` 在 image 类型下存 `image_fragment_id`；
-- side table 保存 image ID、fragment offset、layer（below/replace/above）、resize/placement；
-- 写入文本/滚动/清除时按 layer 规则维护 side table；
-- 这与 Contour 的 `imageFragments` 和 `ImageFragment` 结构对应。
+- `cell_type::scaled`；
+- `cell_extent` 存 auxiliary table ID；
+- aux 保存 block 原点/band/scale/fraction/alignment。
 
-#### 9.6.5 soft fonts / DECDLD
+##### 7. soft font / DECDLD
 
-**是什么**
+**支持者：** 只有 Contour 明确有 `softGlyphs`/DECDLD 路径；未能从 WT 源码确认完整
+软字体实现，Ghostty 也不是核心 cell 功能。
 
-- VT 的 DECDLD 允许下载自定义软字体 glyph；
-- Contour 的 `LineSoA::softGlyphs` 是 column → `SoftGlyphRef` 的 side map；
-- 显示时 cell 的字符码点被软字体 glyph 替换。
+**用途：**
 
-**有什么用**
+- 下载自定义 glyph/字符集；
+- 老式 VT 应用/专用字符。
 
-- 老式 VT 应用、DEC 图形字符、专用字符集需要自定义 glyph；
-- 如果不记录，文本会显示成错误字符或默认字体 glyph。
+**为什么不实现：**
 
-**当前缺什么**
+- 不满足“至少两个”的明确证据；
+- 如果未来确认第二个实现支持，再用 `cell_type::soft_font` + extent 的 glyph ID +
+  screen-wide soft glyph table 实现。
 
-- 没有 soft glyph 引用；
-- 字体数据不能塞进 cell；cell 只需要一个引用/ID。
+#### 仍然不属于 cell 的功能
 
-**建议表示**
-
-- 增加 `cell_type::soft_font`；
-- `cell_extent` 在 soft_font 类型下存 soft glyph ID；
-- screen 的 side table 管理软字体字形/生命周期；
-- 不需要 cell flags。
-
-#### 9.6.6 semantic prompt 的完整状态
-
-**是什么**
-
-- ghostty 的 `SemanticContent` 有 output/input/prompt；
-- Contour 的 line flags 有 marked/output_start/command_end/prompt_end；
-- WT 的 `Marks` 有 prompt/command/output 区域和 exit status。
-
-**有什么用**
-
-- shell integration 命令导航、命令块折叠、复制、
-- scrollbar mark、失败命令标记、辅助功能；
-- 当前 `semantic_input`/`semantic_prompt` 只有两个 bool，无法表达 output start、
-  command end、exit status、prompt end。
-
-**当前缺什么**
-
-- 没有 command-end/exit-status/prompt-end；
-- 没有 row-level mark；cell 级 flag 无法表达跨多行的命令块。
-
-**建议表示**
-
-- 基础 input/prompt 可以保留在 cell flags；
-- 完整语义放 row-level flags + command side record；
-- 不要在 cell 中重复每个字符的 command block 信息。
-
-#### 9.6.7 selection / search / highlight
-
-**是什么**
-
-- 选择范围、搜索匹配、visual bell、hover 等临时高亮。
-
-**有什么用**
-
-- 复制、查找、鼠标选择、可访问性。
-
-**当前缺什么**
-
-- screen buffer 没有 selection/search overlay；
-- 但这不是 cell 的职责：cell 的字符/宽度/style 才是持久内容，selection 是视图状态；
-- 如果塞进 cell 会污染内容、破坏复制/渲染的稳定性。
-
-**建议表示**
-
-- screen 级 `selection_mask`/range + search match ranges；
-- renderer 在绘制时叠加；
-- 不增加 cell 字段。
-
-#### 9.6.8 cursor / tab stops / margins
-
-**是什么**
-
-- cursor shape/position、tab stops、scroll margins。
-
-**有什么用**
-
-- 控制台 API、VT 光标、tab、区域滚动。
-
-**当前缺什么**
-
-- 当前 `libscreen` 是 cell/page 参考库，不含这些 screen 状态；但这些本来就不属于 cell；
-- 不应为了它们扩大 cell。
-
-**建议表示**
-
-- screen/console state 单独保存；
-- screen buffer 只提供 cell 网格和 row metadata。
+- cursor/tab/margin/selection/search 已由 `console_state` 实现，不应放 cell；
+- 颜色、下划线、hyperlink、wide、protected、grapheme 已在 cell/style/cluster store 中；
+- 图像像素数据、字体 atlas、DWrite shaping 属于 renderer/shaper，不属于 cell。
 
 ### 9.7 覆盖结论
 
 结论：
 
-- **当前 cell 覆盖了终端文本网格的核心**：UTF-16/BMP、非 BMP cluster、wide/tail、style、
+- **cell 覆盖了终端文本网格的核心**：UTF-16/BMP、非 BMP cluster、wide/tail、style、
   hyperlink、protected、basic semantic、scrollback；
-- **没有覆盖 Contour/Ghostty/WT 的全部功能**，尤其缺少：
-  - line wrapped/marked/line rendition 的完整 row 状态；
-  - Contour 的 text scaling、image fragments、soft glyph；
-  - Ghostty 的 graphics/image 存储；
-  - selection/search/cursor/tab 等 screen-level 状态。
-- 这些缺失不一定要扩大 cell：大部分应放到 row_state、screen overlay 或 auxiliary table。
-  当前 16B cell 的 `extent` + `cell_type` 已提供了挂接这些扩展的入口。
+- **按“至少两个实现支持”已经补上**：
+  - line wrapped/marked/rendition：row_state line flags；
+  - command exit status：row_state + history；
+  - image fragment：cell_type::image + image table；
+  - selection/search：console_state；
+  - cursor/tabs/scroll margins：console_state；
+- **仍不实现**：
+  - text scaling/OSC 66：目前只有 Contour 明确实现；
+  - soft font/DECDLD：目前只有 Contour 明确实现；
+- 图像只实现 cell 引用和 placement metadata；像素解码/GPU 合成属于 renderer；
+- 上述扩展大多不扩大 cell：line/selection/cursor 在 row/screen，唯一需要新 cell 类型的是
+  image（以及未来的 scaled/soft-font），它们复用 `cell_type` + `cell_extent` 的 aux ID。
 
 ## 10. 结论
 

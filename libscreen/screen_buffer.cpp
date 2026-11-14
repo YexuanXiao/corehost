@@ -158,6 +158,63 @@ const row_state &screen_buffer::row(std::size_t y) const noexcept
     return active_page().row(y);
 }
 
+line_flags screen_buffer::flags(std::size_t y) const noexcept
+{
+    return active_page().row(y).flags;
+}
+
+void screen_buffer::set_flags(std::size_t y, line_flags value) noexcept
+{
+    active_page().row(y).flags = value;
+}
+
+void screen_buffer::add_flags(std::size_t y, line_flag value) noexcept
+{
+    auto &target = active_page().row(y);
+    target.flags = line_flag_ops::combine(target.flags, line_flag_ops::raw(value));
+}
+
+void screen_buffer::remove_flags(std::size_t y, line_flag value) noexcept
+{
+    auto &target = active_page().row(y);
+    target.flags = line_flag_ops::without(target.flags, value);
+}
+
+bool screen_buffer::has_flag(std::size_t y, line_flag value) const noexcept
+{
+    return line_flag_ops::has(active_page().row(y).flags, value);
+}
+
+bool screen_buffer::is_double_width(std::size_t y) const noexcept
+{
+    return has_flag(y, line_flag::double_width);
+}
+
+bool screen_buffer::is_double_height_top(std::size_t y) const noexcept
+{
+    return has_flag(y, line_flag::double_height_top);
+}
+
+bool screen_buffer::is_double_height_bottom(std::size_t y) const noexcept
+{
+    return has_flag(y, line_flag::double_height_bottom);
+}
+
+void screen_buffer::set_command_exit_code(std::size_t y, std::int32_t code) noexcept
+{
+    active_page().row(y).command_exit_code = code;
+}
+
+void screen_buffer::clear_command_exit_code(std::size_t y) noexcept
+{
+    active_page().row(y).command_exit_code.reset();
+}
+
+std::optional<std::int32_t> screen_buffer::command_exit_code(std::size_t y) const noexcept
+{
+    return active_page().row(y).command_exit_code;
+}
+
 void screen_buffer::clear_wide_neighborhood(page &target, std::size_t x, std::size_t y)
 {
     const auto old = target.at(x, y);
@@ -235,6 +292,32 @@ bool screen_buffer::write_cluster(std::size_t x, std::size_t y, std::span<const 
     return write_cell(x, y, cell::complex(ref.offset, ref.length, style, width, hyperlink, flags));
 }
 
+bool screen_buffer::write_image(std::size_t x, std::size_t y, std::uint32_t fragment, cell_style style,
+                                cell_width width, cell_hyperlink hyperlink, cell_flags flags)
+{
+    if (fragment == 0 || fragment >= images_.size())
+    {
+        return false;
+    }
+
+    return write_cell(x, y, cell::image(fragment, style, width, hyperlink, flags));
+}
+
+const image_fragment *screen_buffer::image_of(const cell &value) const noexcept
+{
+    if (!value.has_image())
+    {
+        return nullptr;
+    }
+
+    const auto id = value.image_fragment_id();
+    if (id == 0 || id >= images_.size())
+    {
+        return nullptr;
+    }
+    return &images_.at(id);
+}
+
 void screen_buffer::fill_rect(rectangle area, cell value)
 {
     const auto x_end = std::min(width_, area.x + area.width);
@@ -275,7 +358,11 @@ void screen_buffer::scroll_up(std::size_t lines, cell_style fill_style)
     {
         for (std::size_t y = 0; y < lines; ++y)
         {
-            history_.emplace_back(target.row_cells(y).begin(), target.row_cells(y).end());
+            history_.push_back(history_entry{
+                line{target.row_cells(y).begin(), target.row_cells(y).end()},
+                target.row(y).flags,
+                target.row(y).command_exit_code,
+            });
         }
         trim_history();
     }
@@ -284,6 +371,8 @@ void screen_buffer::scroll_up(std::size_t lines, cell_style fill_style)
     {
         std::copy(target.row_cells(y + lines).begin(), target.row_cells(y + lines).end(), target.row_cells(y).begin());
         target.row(y).used_columns = target.row(y + lines).used_columns;
+        target.row(y).flags = target.row(y + lines).flags;
+        target.row(y).command_exit_code = target.row(y + lines).command_exit_code;
     }
 
     for (std::size_t y = height_ - lines; y < height_; ++y)
@@ -293,6 +382,8 @@ void screen_buffer::scroll_up(std::size_t lines, cell_style fill_style)
             value = cell::blank(fill_style);
         }
         target.row(y).used_columns = 0;
+        target.row(y).flags = 0;
+        target.row(y).command_exit_code.reset();
     }
 
     target.mark_all_dirty();
@@ -347,6 +438,8 @@ void screen_buffer::resize(std::size_t width, std::size_t height, cell_style fil
     {
         std::copy_n(main_.row_cells(y).begin(), copy_width, resized_main.row_cells(y).begin());
         resized_main.row(y).used_columns = std::min(main_.row(y).used_columns, width);
+        resized_main.row(y).flags = main_.row(y).flags;
+        resized_main.row(y).command_exit_code = main_.row(y).command_exit_code;
     }
 
     if (alternate_)
@@ -356,6 +449,8 @@ void screen_buffer::resize(std::size_t width, std::size_t height, cell_style fil
         {
             std::copy_n(alternate_->row_cells(y).begin(), copy_width, resized_alt.row_cells(y).begin());
             resized_alt.row(y).used_columns = std::min(alternate_->row(y).used_columns, width);
+            resized_alt.row(y).flags = alternate_->row(y).flags;
+            resized_alt.row(y).command_exit_code = alternate_->row(y).command_exit_code;
         }
         *alternate_ = std::move(resized_alt);
     }
@@ -386,7 +481,25 @@ std::span<const cell> screen_buffer::history_line(std::size_t index) const
     {
         return {};
     }
-    return std::span<const cell>{history_[index]};
+    return std::span<const cell>{history_[index].cells};
+}
+
+line_flags screen_buffer::history_flags(std::size_t index) const noexcept
+{
+    if (index >= history_.size())
+    {
+        return 0;
+    }
+    return history_[index].flags;
+}
+
+std::optional<std::int32_t> screen_buffer::history_command_exit_code(std::size_t index) const noexcept
+{
+    if (index >= history_.size())
+    {
+        return std::nullopt;
+    }
+    return history_[index].command_exit_code;
 }
 
 void screen_buffer::trim_history()
@@ -422,9 +535,9 @@ bool screen_buffer::rebuild_graphemes()
         return false;
     }
 
-    for (auto &line : history_)
+    for (auto &entry : history_)
     {
-        if (!remap_line(line, graphemes_, rebuilt, map))
+        if (!remap_line(entry.cells, graphemes_, rebuilt, map))
         {
             return false;
         }

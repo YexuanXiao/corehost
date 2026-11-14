@@ -17,6 +17,7 @@ enum class cell_type : std::uint8_t
     surrogate = 2,
     grapheme = 2,
     background = 3,
+    image = 4,
 };
 
 // 4-bit column semantics.
@@ -80,6 +81,11 @@ constexpr bool is_grapheme(cell_type value) noexcept
 constexpr bool is_background(cell_type value) noexcept
 {
     return type_of(value) == raw(cell_type::background);
+}
+
+constexpr bool is_image(cell_type value) noexcept
+{
+    return type_of(value) == raw(cell_type::image);
 }
 } // namespace cell_type_ops
 
@@ -309,6 +315,23 @@ struct cell
         return complex(offset, length, style, width, hyperlink, flags);
     }
 
+    [[nodiscard]] static constexpr cell image(std::uint32_t fragment,
+                                              cell_style style = default_cell_style,
+                                              cell_width width = cell_width::narrow,
+                                              cell_hyperlink hyperlink = no_cell_hyperlink,
+                                              cell_flags flags = cell_flags::none) noexcept
+    {
+        cell result;
+        result.primary_ = u'\uFFFD';
+        result.type_ = cell_type::image;
+        result.width_ = width;
+        result.flags_ = flags;
+        result.extent_ = make_cell_extent(fragment, 0);
+        result.style_ = style;
+        result.hyperlink_ = hyperlink;
+        return result;
+    }
+
     [[nodiscard]] constexpr char16_t primary() const noexcept
     {
         return primary_;
@@ -367,6 +390,16 @@ struct cell
     [[nodiscard]] constexpr bool has_cluster() const noexcept
     {
         return cell_type_ops::is_complex(type_);
+    }
+
+    [[nodiscard]] constexpr bool has_image() const noexcept
+    {
+        return cell_type_ops::is_image(type_);
+    }
+
+    [[nodiscard]] constexpr std::uint32_t image_fragment_id() const noexcept
+    {
+        return offset();
     }
 
     [[nodiscard]] constexpr bool is_complex() const noexcept
