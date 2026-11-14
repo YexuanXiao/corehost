@@ -576,6 +576,105 @@ ctest --test-dir build -C Debug -R LibScreen --output-on-failure
 5. 接入 DWrite renderer；
 6. 最后删除旧的 `u32string + offset` 行存储。
 
+### 9.4 cell_width / cell_flags 的扩展性
+
+#### cell_width
+
+当前 4 位 width 只使用 4 个值：
+
+```text
+narrow / wide / tail / spacer head
+```
+
+还剩 12 个值。终端 cell 的**列语义**通常只有：
+
+- 单列；
+- 两列宽字符 head；
+- 两列宽字符的 tail；
+- 行尾 soft-wrap 的 spacer head。
+
+因此：
+
+- 继续增加 `cell_width` 枚举值的概率不高；
+- 即使要增加“3 列宽”“特殊 image cell”等值，4 位也还有足够空间；
+- **不建议把 text scale、line rendition、image 类型塞进 width**：
+  - text scale 是渲染属性，应放 style/aux；
+  - line rendition 是 row 级属性；
+  - image 是 content type + side table。
+
+结论：`cell_width` 的 4 位在未来相当长时间内够用，扩展风险低。
+
+#### cell_flags
+
+当前 8 位 flags 使用 4 位：
+
+```text
+protected_cell
+hyperlink
+semantic_input
+semantic_prompt
+```
+
+还剩 4 位。可能的新 per-cell 布尔状态包括：
+
+- image cell；
+- text-scale cell；
+- soft-font cell；
+- 更细的 semantic/prompt 子类型；
+- 某种“marked”状态。
+
+这些功能不一定都该放进 flags：
+
+- line wrap / line rendition / marks 是 **row** 状态；
+- selection/search 是 **overlay**，不是持久 cell 状态；
+- cursor/tab/margin 是 **screen** 状态；
+- image/text-scale/soft-font 需要 payload，不应只靠一个 bit 表达。
+
+因此：
+
+- 当前 8 位 flags 可以再加入最多 4 个纯布尔标志；
+- 如果要覆盖 Contour/Ghostty 的图像、text sizing、soft font，仅靠 flags 不够；
+- 更合理的扩展是：
+  1. 增加 `cell_type` 值（image/scale/soft-font）；
+  2. 让 `cell_extent` 在这些类型下解释为 side-table ID，而不是 cluster offset/length；
+  3. 用 row_state flags 保存 wrapped/rendition/marks；
+  4. selection/search 使用独立 mask。
+
+结论：`cell_flags` 可能会增加少量值，但 8 位不是完整功能覆盖的主要瓶颈；真正的扩展点是
+**row flags + cell_type + auxiliary side table**。
+
+### 9.5 当前设计对 conhost/Contour/Ghostty 的功能覆盖
+
+| 功能 | corehost 16B | conhost/WT | Contour | Ghostty |
+| --- | --- | --- | --- | --- |
+| UTF-16 primary / BMP | 是 | 是 | 是（codepoint） | 是（21-bit codepoint） |
+| 非 BMP / 完整 cluster | 是，side store | 是，cell text | 是，cluster pool | 是，grapheme map |
+| wide/tail/spacer | 是 | 是 | 是 | 是 |
+| truecolor / underline / attribute | 是，style table | 是 | 是 | 是 |
+| hyperlink | 是，32 位 ID | 是 | 是 | 是 |
+| protected | 是 | 是 | 是 | 是 |
+| basic semantic input/prompt | 是（2 flags） | 是 | 部分 | 是（semantic content） |
+| line wrapped/marked flags | row_state 预留，当前未实现 | 是 | 是 | 是 |
+| line rendition（double width/height/top/bottom） | 未实现；应放 row | 是 | 部分/扩展 | 部分 |
+| text scaling（OSC 66 等） | 未实现 | 否/有限 | 是 | 部分/扩展 |
+| inline images（kitty/sixel 等） | 未实现 | 图像路径独立于 cell | 是（image fragments） | 是（graphics 路径） |
+| soft font / DECDLD | 未实现 | 有/有限 | 是 | 有限/扩展 |
+| selection/search | 应由 screen overlay 实现 | 是 | 是 | 是 |
+| cursor/tabs/margins | screen 级，不属于 cell | 是 | 是 | 是 |
+| scrollback | 是（history） | 是 | 是 | 是 |
+
+结论：
+
+- **当前 cell 覆盖了终端文本网格的核心**：UTF-16/BMP、非 BMP cluster、wide/tail、style、
+  hyperlink、protected、basic semantic、scrollback；
+- **没有覆盖 Contour/Ghostty/WT 的全部功能**，尤其缺少：
+  - line wrapped/marked/line rendition 的完整 row 状态；
+  - Contour 的 text scaling、image fragments、soft glyph；
+  - Ghostty 的 graphics/image 存储；
+  - selection/search/cursor/tab 等 screen-level 状态。
+- 这些缺失不一定要扩大 cell：大部分应放到 row_state、screen overlay 或 auxiliary table。
+  当前 16B cell 的 `extent` + `cell_type` 已提供了挂接这些扩展的入口。
+
 ## 10. 结论
 
 16 字节 cell 是 corehost 面向 Windows 的一个明确取舍：
