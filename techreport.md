@@ -9,12 +9,13 @@
 
 1. 每个终端列使用一个紧凑的 **8 字节 packed cell**：
    - 21 位 Unicode 标量值（primary codepoint）；
-   - 2 位列宽/扩展标志；
-   - 1 位 cluster 标志；
    - 16 位 page-local style ID；
-   - 其余位用于 wide/spacer、protected、semantic 等标志。
+   - 16 位 row-local cluster ID（0 表示没有额外 codepoint）；
+   - 2 位 content 类型；
+   - 2 位列宽/continuation；
+   - 其余 7 位用于 protected、hyperlink、semantic 等标志。
 2. 多码点 grapheme cluster 只把 primary codepoint 放在 cell 内，额外码点放入行级
-   cluster side pool；cell 只保存 cluster 标志。
+   cluster side pool；cell 保存 16 位 `cluster_id` 索引，不保存 pointer。
 3. 颜色、下划线、超链接等样式放入 page-local 的 style table，cell 保存 style ID。
 4. 屏幕由 page/row 组成，主缓冲区、备用缓冲区和未来的 scrollback 共享同一套 cell/page
    结构；行移动是 page/row 操作，不需要搬移整行字符串。
@@ -343,13 +344,10 @@ Ghostty/Contour 已被验证的结构。
 Cell (8 bytes, packed):
   codepoint     : 21 bits   // Unicode scalar, 0 = blank
   style_id      : 16 bits   // page-local style table index, 0 = default
-  wide          : 2 bits    // narrow / wide / spacer tail / spacer head
-  cluster       : 1 bit     // extra codepoints exist in row cluster pool
-  content_tag   : 2 bits    // codepoint / grapheme / background-only
-  protected     : 1 bit
-  hyperlink     : 1 bit
-  semantic      : 2 bits    // output/input/prompt, optional
-  reserved      : remaining
+  cluster_id    : 16 bits   // row-local grapheme side-store index, 0 = none
+  content       : 2 bits    // blank / scalar / grapheme / background-only
+  width         : 2 bits    // narrow / wide / spacer tail / spacer head
+  flags         : 7 bits    // protected / hyperlink / semantic, reserved
 ```
 
 设计要求：
@@ -358,9 +356,11 @@ Cell (8 bytes, packed):
 - `codepoint` 是 21 位 Unicode scalar，不存 UTF-16 code unit；
 - 非 BMP 字符仍然只占一个 primary codepoint；其显示宽度由 `wide` 和宽度策略决定；
 - 多码点 cluster 的额外 codepoint 不放 cell 内，避免 cell 膨胀；
+- `cluster_id` 是 row-local 的 side-store 索引，0 表示没有额外 codepoint；cell 不携带
+  pointer，row 移动时不会产生悬空引用；
 - style ID 是 page-local 的，默认 0 不查表；
-- `content_tag` 允许“只有背景色、没有文字”的 cell 不占 style table，类似 Ghostty 的
-  background-only 优化；
+- `content` 允许“只有背景色、没有文字”的 cell 不构造 grapheme；背景色仍由 style ID
+  提供，不能把 RGB 直接塞进 codepoint；
 - 8 字节对齐使 page 的 cell 数组可以直接按 `uint64` 清零/复制。
 
 ### 5.2 Style table
@@ -402,27 +402,26 @@ Contour 使用每 cell 的 `GraphicsAttributes`，Ghostty 使用 page-local `sty
 ```text
 Page:
   Cell[rows * cols]     // dense, page-aligned
-  Row[rows]             // cell_start, used_cols, flags, dirty range
+  Row[rows]             // first_cell, used_cols, flags, side store
   StyleSet              // page-local
-  GraphemePool          // 仅多码点 cluster 使用
-  GraphemeMap           // cell offset → pool slice
 
 Row:
-  cell_start
+  first_cell
   used_columns
   flags                 // wrapped, dirty, grapheme, uniform...
   dirty_begin/dirty_end
-  shape                 // blank / uniform / mixed / spanning
+  optional<GraphemeStore>  // only complex rows own extras
 ```
 
 关键点：
 
-- blank row 不分配 cell，只记录 fill style/char；
+- blank row 不分配独立的 cell 数组或 side store，只设置 row flags/fill style；page 的 dense
+  cell 数组仍可统一清零；
 - `Uniform` 行允许整行相同 style 的批量渲染/批量 ASCII 写入；
 - `Spanning` 行表示存在 wide continuation、多 cell glyph、图片等跨越 cell 的情况；
-- `GraphemePool` 是 page 级 arena，多码点 cluster 使用 offset+length；
-- cell 的 cluster 标志只表示“去 map 查询”，不把 pointer 放进每个 cell；
-- row 移动/page 滚动不搬移 cluster 文本；cluster 数据跟随 page 生命周期；
+- `GraphemeStore` 是 row-local side store，多码点 cluster 使用 `cluster_id` + offset/length；
+- cell 的 `cluster_id` 只是 row-local 索引，不把 pointer 放进每个 cell；
+- row 移动时连同 optional `GraphemeStore` 一起移动；page 滚动移动 page，不搬移 cluster 文本；
 - page 可以固定大小，main/alt/scrollback 使用 page list 或 ring；
 - 当前 `screen_buffer` 的 `_row_origin` 环可以保留为 page/row 层优化，但不再是唯一滚动机制。
 
@@ -441,7 +440,7 @@ Row:
 
 - 每个 cell 最多表示一个 grapheme cluster；
 - primary codepoint 在 cell 内；
-- 额外 codepoint 在 page/row 的 `GraphemePool`；
+- 额外 codepoint 在 row 的 `GraphemeStore`；
 - cluster 长度上限使用经 RGI 测试的值，建议至少 16，硬上限 64；
 - 超过上限的输入要明确策略：
   - 截断并保留首个合法显示单元；
@@ -896,8 +895,8 @@ UTF-32 codepoint → UTF-16 的转换：
    而不是改成 UTF-16 canonical。
 2. **Style ID 生命周期**：page-local style ID 在跨 page 复制/滚动时要重新映射；16 位
    ID 溢出要可检测。
-3. **Cluster 池所有权**：cluster 数据跟随 page/row；移动 cell 时必须移动/复制 cluster
-   entry，并更新 map；需要严格的完整性检查。
+3. **Cluster 池所有权**：cluster 数据跟随 row 的 `GraphemeStore`；移动 cell/row 时必须
+   移动/复制 cluster entry，并更新 `cluster_id`；需要严格的完整性检查。
 4. **DWrite cluster map**：UTF-16 offset、surrogate pair、ligature、fallback 都不能拆
    cluster；这是实现复杂度的主要来源，但任何 canonical 表示都无法完全避免。
 5. **Console API 有损性**：`CHAR_INFO` 的非 BMP/cluster 投影无法无损；必须明确规则并
@@ -916,9 +915,9 @@ corehost 当前的问题可以概括为：
 
 推荐的设计是：
 
-- **Cell 固定 8 字节**：21 位 primary codepoint、16 位 page-local style ID、wide/spacer
-  和 cluster 标志；
-- **行级/page 级 grapheme side pool**：只保存多码点 cluster 的额外内容；
+- **Cell 固定 8 字节**：21 位 primary codepoint、16 位 page-local style ID、16 位
+  row-local cluster ID、content/width/flags 位；
+- **行级 grapheme side store**：只保存多码点 cluster 的额外内容；
 - **page + row + dense cell**：支持主/备用缓冲区和未来 scrollback；
 - **style table**：内部保存完整的颜色/属性/超链接，legacy `WORD` 只在 Console API 投影；
 - **UTF-16 只做边界编码**：`CHAR_INFO` 和 DWrite 各自使用明确的转换/映射层；
@@ -939,6 +938,490 @@ Contour 使用 `char32_t` primary + cluster pool + `LineShape`，Ghostty 使用 
 cell + style ID + grapheme map；两者都把 UTF-16 留给平台 shaper，而不是作为终端网格的
 规范存储。这与本报告的推荐一致，也说明“为了 Console API/DWrite 的 UTF-16 而改成
 UTF-16 屏幕缓冲区”并不是高质量终端的必要选择。
+
+## 13. 建议的 C++ cell 类型定义
+
+以下代码以 **C++20** 为基线，使用 `std::span`/`std::optional`/`std::vector` 等标准库类型；
+如果项目已经使用 C++23，可以把相应的 enum cast 替换为 `std::to_underlying`。这是**接口/布局
+设计**，不是完整实现。目标是给出可以直接落地的现代 C++ 形状：
+
+- `cell` 固定 8 字节、trivially copyable、standard-layout；
+- 不包含 `std::string`、`std::variant` 或任何每 cell 分配；
+- cluster 只保存 16 位 `cluster_id`，完整额外 codepoint 放在 row 的 side store；
+- style 只保存 16 位 page-local `style_id`；
+- 默认构造的零值就是合法空白 cell；
+- `std::span`/`std::optional`/`std::vector` 作为边界和容器类型。
+
+```cpp
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <optional>
+#include <span>
+#include <type_traits>
+#include <vector>
+
+namespace corehost::screen
+{
+
+using style_id = std::uint16_t;
+using cluster_id = std::uint16_t;
+
+enum class cell_content : std::uint8_t
+{
+    blank = 0,
+    scalar = 1,
+    grapheme = 2,
+    background = 3,
+};
+
+enum class cell_width : std::uint8_t
+{
+    narrow = 0,
+    wide = 1,
+    tail = 2,
+    spacer_head = 3,
+};
+
+enum class cell_flag : std::uint8_t
+{
+    none = 0,
+    protected_cell = 1u << 0,
+    hyperlink = 1u << 1,
+    semantic_input = 1u << 2,
+    semantic_prompt = 1u << 3,
+};
+
+class cell final
+{
+public:
+    using flag = cell_flag;
+    static constexpr cluster_id no_cluster = 0;
+
+    constexpr cell() noexcept = default;
+
+    [[nodiscard]] static constexpr cell blank(style_id style = 0) noexcept
+    {
+        return make(U' ', style, cell_content::blank, cell_width::narrow, no_cluster, 0);
+    }
+
+    [[nodiscard]] static constexpr cell scalar(char32_t codepoint,
+                                              style_id style = 0,
+                                              cell_width width = cell_width::narrow) noexcept
+    {
+        return make(codepoint, style, cell_content::scalar, width, no_cluster, 0);
+    }
+
+    [[nodiscard]] static constexpr cell grapheme(char32_t primary,
+                                                 cluster_id cluster,
+                                                 style_id style = 0,
+                                                 cell_width width = cell_width::narrow) noexcept
+    {
+        return make(primary, style, cell_content::grapheme, width, cluster, 0);
+    }
+
+    [[nodiscard]] static constexpr cell background(style_id style = 0) noexcept
+    {
+        return make(U' ', style, cell_content::background, cell_width::narrow, no_cluster, 0);
+    }
+
+    [[nodiscard]] static constexpr cell tail(style_id style = 0) noexcept
+    {
+        return make(U' ', style, cell_content::blank, cell_width::tail, no_cluster, 0);
+    }
+
+    [[nodiscard]] static constexpr cell spacer_head(style_id style = 0) noexcept
+    {
+        return make(U' ', style, cell_content::blank, cell_width::spacer_head, no_cluster, 0);
+    }
+
+    [[nodiscard]] constexpr char32_t codepoint() const noexcept
+    {
+        return static_cast<char32_t>(_bits & codepoint_mask);
+    }
+
+    [[nodiscard]] constexpr char32_t text_codepoint() const noexcept
+    {
+        return is_blank() ? U' ' : codepoint();
+    }
+
+    [[nodiscard]] constexpr style_id style() const noexcept
+    {
+        return static_cast<style_id>((_bits >> style_shift) & style_mask);
+    }
+
+    [[nodiscard]] constexpr cluster_id cluster() const noexcept
+    {
+        return static_cast<cluster_id>((_bits >> cluster_shift) & cluster_mask);
+    }
+
+    [[nodiscard]] constexpr cell_content content() const noexcept
+    {
+        return static_cast<cell_content>((_bits >> content_shift) & content_mask);
+    }
+
+    [[nodiscard]] constexpr cell_width width() const noexcept
+    {
+        return static_cast<cell_width>((_bits >> width_shift) & width_mask);
+    }
+
+    [[nodiscard]] constexpr std::uint8_t flags() const noexcept
+    {
+        return static_cast<std::uint8_t>((_bits >> flags_shift) & flags_mask);
+    }
+
+    [[nodiscard]] constexpr bool has(flag value) const noexcept
+    {
+        return (flags() & static_cast<std::uint8_t>(value)) != 0;
+    }
+
+    [[nodiscard]] constexpr bool is_blank() const noexcept
+    {
+        return content() == cell_content::blank || content() == cell_content::background;
+    }
+
+    [[nodiscard]] constexpr bool is_grapheme() const noexcept
+    {
+        return content() == cell_content::grapheme;
+    }
+
+    [[nodiscard]] constexpr bool is_wide() const noexcept
+    {
+        return width() == cell_width::wide;
+    }
+
+    [[nodiscard]] constexpr bool is_continuation() const noexcept
+    {
+        return width() == cell_width::tail;
+    }
+
+    [[nodiscard]] constexpr bool is_spacer_head() const noexcept
+    {
+        return width() == cell_width::spacer_head;
+    }
+
+    [[nodiscard]] constexpr cell with_style(style_id value) const noexcept
+    {
+        auto result = *this;
+        result._bits = (result._bits & ~style_bits) |
+                       (static_cast<std::uint64_t>(value) << style_shift);
+        return result;
+    }
+
+    [[nodiscard]] constexpr cell with_flag(flag value, bool enabled = true) const noexcept
+    {
+        auto result = *this;
+        const auto bit = static_cast<std::uint8_t>(value);
+        const auto old = result.flags();
+        const auto next = enabled
+                              ? static_cast<std::uint8_t>(old | bit)
+                              : static_cast<std::uint8_t>(old & static_cast<std::uint8_t>(~bit));
+        result._bits = (result._bits & ~flags_bits) |
+                       (static_cast<std::uint64_t>(next) << flags_shift);
+        return result;
+    }
+
+    friend constexpr bool operator==(const cell &, const cell &) noexcept = default;
+
+private:
+    // 64-bit layout:
+    //   [0, 21)   codepoint
+    //   [21, 37)  style_id
+    //   [37, 53)  cluster_id
+    //   [53, 55)  content
+    //   [55, 57)  width
+    //   [57, 64)  flags
+    static constexpr unsigned codepoint_shift = 0;
+    static constexpr unsigned style_shift = 21;
+    static constexpr unsigned cluster_shift = 37;
+    static constexpr unsigned content_shift = 53;
+    static constexpr unsigned width_shift = 55;
+    static constexpr unsigned flags_shift = 57;
+
+    static constexpr std::uint64_t codepoint_mask = 0x1FFFFF;
+    static constexpr std::uint64_t style_mask = 0xFFFF;
+    static constexpr std::uint64_t cluster_mask = 0xFFFF;
+    static constexpr std::uint64_t content_mask = 0x3;
+    static constexpr std::uint64_t width_mask = 0x3;
+    static constexpr std::uint64_t flags_mask = 0x7F;
+
+    static constexpr std::uint64_t style_bits = style_mask << style_shift;
+    static constexpr std::uint64_t flags_bits = flags_mask << flags_shift;
+
+    [[nodiscard]] static constexpr cell make(char32_t codepoint,
+                                             style_id style,
+                                             cell_content content,
+                                             cell_width width,
+                                             cluster_id cluster,
+                                             std::uint8_t flags) noexcept
+    {
+        cell result;
+        result._bits = (static_cast<std::uint64_t>(codepoint) & codepoint_mask) |
+                       (static_cast<std::uint64_t>(style) << style_shift) |
+                       (static_cast<std::uint64_t>(cluster) << cluster_shift) |
+                       ((static_cast<std::uint64_t>(content) & content_mask) << content_shift) |
+                       ((static_cast<std::uint64_t>(width) & width_mask) << width_shift) |
+                       ((static_cast<std::uint64_t>(flags) & flags_mask) << flags_shift);
+        return result;
+    }
+
+    std::uint64_t _bits{};
+};
+
+static_assert(sizeof(cell) == sizeof(std::uint64_t));
+static_assert(alignof(cell) == alignof(std::uint64_t));
+static_assert(std::is_trivially_copyable_v<cell>);
+static_assert(std::is_standard_layout_v<cell>);
+
+// A row-local side store for the extra codepoints of grapheme clusters.
+// cluster_id == 0 means "no cluster"; IDs are never reused within a row.
+class grapheme_store final
+{
+public:
+    static constexpr std::size_t max_cluster_codepoints = 64;
+
+    [[nodiscard]] std::optional<cluster_id> append(std::span<const char32_t> extra)
+    {
+        if (extra.empty())
+        {
+            return cluster_id{0};
+        }
+
+        if (extra.size() + 1 > max_cluster_codepoints ||
+            entries_.size() >= static_cast<std::size_t>(std::numeric_limits<cluster_id>::max()))
+        {
+            return std::nullopt;
+        }
+
+        const auto offset = static_cast<std::uint32_t>(codepoints_.size());
+        codepoints_.insert(codepoints_.end(), extra.begin(), extra.end());
+
+        const auto id = static_cast<cluster_id>(entries_.size());
+        entries_.push_back({offset, static_cast<std::uint16_t>(extra.size())});
+        return id;
+    }
+
+    [[nodiscard]] std::span<const char32_t> extras(cluster_id id) const noexcept
+    {
+        if (id == 0 || static_cast<std::size_t>(id) >= entries_.size())
+        {
+            return {};
+        }
+
+        const auto &entry = entries_[id];
+        return std::span<const char32_t>{codepoints_}.subspan(entry.offset, entry.length);
+    }
+
+    void clear() noexcept
+    {
+        codepoints_.clear();
+        entries_.resize(1);
+    }
+
+private:
+    struct entry final
+    {
+        std::uint32_t offset{};
+        std::uint16_t length{};
+    };
+
+    std::vector<char32_t> codepoints_;
+    std::vector<entry> entries_{entry{}};
+};
+
+} // namespace corehost::screen
+```
+
+### 13.1 与 cell 配套的 style 和 page
+
+cell 不能孤立存在：`style_id` 需要 page-local style table，`cluster_id` 需要 row-local
+`grapheme_store`。推荐的配套类型如下。
+
+```cpp
+#include <compare>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <unordered_map>
+#include <vector>
+
+namespace corehost::screen
+{
+
+struct rgb final
+{
+    std::uint8_t r{};
+    std::uint8_t g{};
+    std::uint8_t b{};
+
+    friend constexpr auto operator<=>(const rgb &, const rgb &) noexcept = default;
+};
+
+enum class color_kind : std::uint8_t
+{
+    default_color = 0,
+    indexed = 1,
+    rgb = 2,
+};
+
+struct color final
+{
+    color_kind kind{color_kind::default_color};
+    std::uint32_t value{};
+
+    friend constexpr auto operator<=>(const color &, const color &) noexcept = default;
+};
+
+struct text_style final
+{
+    color foreground{};
+    color background{};
+    color underline{};
+    std::uint16_t attributes{};
+    std::uint16_t legacy_attributes{};
+
+    friend constexpr auto operator<=>(const text_style &, const text_style &) noexcept = default;
+};
+
+struct text_style_hash final
+{
+    [[nodiscard]] std::size_t operator()(const text_style &style) const noexcept;
+};
+
+class style_table final
+{
+public:
+    [[nodiscard]] style_id intern(const text_style &style);
+    [[nodiscard]] const text_style &at(style_id id) const noexcept
+    {
+        return styles_[id];
+    }
+
+private:
+    std::vector<text_style> styles_{text_style{}};
+    std::unordered_map<text_style, style_id, text_style_hash> ids_;
+};
+
+enum class row_flag : std::uint16_t
+{
+    none = 0,
+    blank = 1u << 0,
+    wrapped = 1u << 1,
+    dirty = 1u << 2,
+    style_uniform = 1u << 3,
+};
+
+struct row final
+{
+    std::size_t first_cell{};
+    std::size_t used_columns{};
+    std::uint16_t flags{};
+    std::optional<grapheme_store> graphemes{};
+};
+
+class page final
+{
+public:
+    page(std::size_t rows, std::size_t columns)
+        : cells_(rows * columns, cell::blank()), rows_(rows), columns_(columns)
+    {
+        for (std::size_t y = 0; y != rows; ++y)
+        {
+            rows_[y].first_cell = y * columns;
+        }
+    }
+
+    [[nodiscard]] std::span<cell> cells(std::size_t y) noexcept
+    {
+        return std::span<cell>{cells_}.subspan(y * columns_, columns_);
+    }
+
+    [[nodiscard]] std::span<const cell> cells(std::size_t y) const noexcept
+    {
+        return std::span<const cell>{cells_}.subspan(y * columns_, columns_);
+    }
+
+    [[nodiscard]] row &row_at(std::size_t y) noexcept
+    {
+        return rows_[y];
+    }
+
+    [[nodiscard]] const row &row_at(std::size_t y) const noexcept
+    {
+        return rows_[y];
+    }
+
+    [[nodiscard]] style_table &styles() noexcept
+    {
+        return styles_;
+    }
+
+    [[nodiscard]] const style_table &styles() const noexcept
+    {
+        return styles_;
+    }
+
+private:
+    std::vector<cell> cells_;
+    std::vector<row> rows_;
+    style_table styles_;
+    std::size_t columns_{};
+};
+
+} // namespace corehost::screen
+```
+
+### 13.2 设计说明
+
+1. **cell 是值类型，不是文本对象**
+   - `cell` 只保存 primary codepoint、样式 ID、cluster ID 和列语义；
+   - 不保存 `std::wstring`/`std::u32string`，没有每 cell 堆分配；
+   - `sizeof(cell) == 8`，可直接 `memset`、`memcpy`、按 page 批量清零。
+
+2. **cluster_id 是 row-local 索引**
+   - `cell::cluster()` 返回 `cluster_id`，0 表示没有额外 codepoint；
+   - `grapheme_store::extras()` 返回额外 codepoint 的 `std::span`；
+   - 这样 cell 不携带 pointer，row 移动时可以连同 `grapheme_store` 一起移动；
+   - 跨 row 复制时重新 append cluster，不能直接复制 cluster ID。
+
+3. **style_id 是 page-local 索引**
+   - 默认样式 ID 0 不查表；
+   - style table 保存完整颜色、下划线、超链接标志和 legacy 投影；
+   - 跨 page 复制 cell 时重新映射 style ID。
+
+4. **宽字符和 continuation**
+   - head cell 使用 `cell_width::wide`；
+   - 第二列使用 `cell::tail()`，内容为空，不保存独立文本；
+   - 行尾放不下时使用 `cell_width::tail` 或按终端规则换行；
+   - DWrite 的 glyph advance 不参与列宽计算。
+
+5. **空白 cell**
+   - 默认构造的 `cell{}` 是 blank，所有位为 0；
+   - `cell::blank(style)` 显式保存空白字符和样式；
+   - `cell::background(style)` 表示无文字、仅背景；
+   - page 初始化可以直接用 `std::vector<cell>(n)` 或 `memset`。
+
+6. **非法输入**
+   - `cell` 假定 `codepoint <= 0x10FFFF` 且不是 surrogate；
+   - UTF-16、UTF-8 输入在构造 cell 之前完成解码、代理对合并、U+FFFD 替换和 grapheme
+     分割；
+   - `grapheme_store::append` 只接收合法的额外 codepoint；超过 64 个 codepoint 的 cluster
+     必须按项目策略拒绝、截断或替换，不能拆成多个宽 cell 破坏列对齐。
+
+7. **Console API 边界**
+   - `cell` 不直接暴露 `CHAR_INFO`；
+   - 读取投影按 conhost 规则：cell 的完整文本只有一个 UTF-16 unit 时返回该 unit，否则
+     返回 `U+FFFD`；
+   - `WriteConsoleW` 可以构造完整 grapheme cell；`WriteConsoleOutput` 的 `CHAR_INFO`
+     路径仍是一格一个 `WCHAR`；
+   - 窗口 DWrite 和无头 UTF-8 直接读取 cell/row，不经过 `CHAR_INFO`。
+
+8. **性能边界**
+   - 热路径只访问 `std::span<cell>`；
+   - 复杂 row 才需要 `std::optional<grapheme_store>`；
+   - style table 和 cluster store 都是 page/row 生命周期，不进入 cell 热数据；
+   - page 的 dense cell 数组可以连续遍历，适合 Console API 矩形和 DWrite run 构建。
 
 ## 参考代码位置
 
