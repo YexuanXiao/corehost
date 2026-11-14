@@ -207,32 +207,32 @@ bool screen_buffer::write_cell(std::size_t x, std::size_t y, cell value)
     return true;
 }
 
-bool screen_buffer::write_scalar(std::size_t x, std::size_t y, char16_t primary, cell_style style, cell_width width,
-                                 cell_hyperlink hyperlink, cell_flags flags)
+bool screen_buffer::write_scalar(std::size_t x, std::size_t y, char16_t primary, cell_style style, cell_info info,
+                                 cell_hyperlink hyperlink)
 {
-    if (width == cell_width::tail)
+    if (cell_info_ops::is_width_tail(info))
     {
         return write_cell(x, y, cell::tail(style, hyperlink));
     }
 
-    return write_cell(x, y, cell::scalar(primary, style, width, hyperlink, flags));
+    return write_cell(x, y, cell::scalar(primary, style, info, hyperlink));
 }
 
 bool screen_buffer::write_cluster(std::size_t x, std::size_t y, std::span<const char16_t> cluster, cell_style style,
-                                  cell_width width, cell_hyperlink hyperlink, cell_flags flags)
+                                  cell_info info, cell_hyperlink hyperlink)
 {
     if (x >= width_ || y >= height_ || cluster.empty() || !graphemes_.can_append(cluster.size()))
     {
         return false;
     }
 
-    if (width == cell_width::wide && x + 1 >= width_)
+    if (cell_info_ops::is_width_wide(info) && x + 1 >= width_)
     {
         return false;
     }
 
     const auto ref = graphemes_.append(cluster);
-    return write_cell(x, y, cell::complex(ref.offset, ref.length, style, width, hyperlink, flags));
+    return write_cell(x, y, cell::complex(ref.offset, ref.length, style, info, hyperlink));
 }
 
 void screen_buffer::fill_rect(rectangle area, cell value)

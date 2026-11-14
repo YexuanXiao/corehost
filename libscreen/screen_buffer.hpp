@@ -121,14 +121,14 @@ class screen_buffer final
     // Returns false when the write would escape the page or the grapheme store
     // cannot accept the cluster.
     [[nodiscard]] bool write_scalar(std::size_t x, std::size_t y, char16_t primary,
-                                    cell_style style = default_cell_style, cell_width width = cell_width::narrow,
-                                    cell_hyperlink hyperlink = no_cell_hyperlink, cell_flags flags = cell_flags::none);
+                                    cell_style style = default_cell_style, cell_info info = cell_info{},
+                                    cell_hyperlink hyperlink = no_cell_hyperlink);
 
     // Writes a complete UTF-16 cluster, including its primary. The stored cell
     // primary is U+FFFD and offset/length point into graphemes().
     [[nodiscard]] bool write_cluster(std::size_t x, std::size_t y, std::span<const char16_t> cluster,
-                                     cell_style style = default_cell_style, cell_width width = cell_width::narrow,
-                                     cell_hyperlink hyperlink = no_cell_hyperlink, cell_flags flags = cell_flags::none);
+                                     cell_style style = default_cell_style, cell_info info = cell_info{},
+                                     cell_hyperlink hyperlink = no_cell_hyperlink);
 
     // Low-level write with wide-cell cleanup. The caller owns cluster allocation
     // for complex cells.

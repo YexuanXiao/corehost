@@ -12,25 +12,30 @@ enum class cell_hyperlink : std::int32_t {};
 struct cell
 {
     char16_t primary_;
-    cell_type type_ : 4;
-    cell_width width_ : 4;
-    cell_flags flags_ : 8;
+    cell_info info_;
     cell_extent extent_;       // bits 0..23 offset, bits 24..31 length
     cell_style style_;
     cell_hyperlink hyperlink_;
 };
 ```
 
-- `primary_`: BMP UTF-16 code unit; `U+FFFD` when `type_=2`.
-- `type_`: blank=0, scalar=1, complex/surrogate/grapheme=2, background=3.
-- `width_`: narrow, wide, tail, spacer head.
-- `flags_`: protected/hyperlink/semantic/reserved.
+`cell_info` is a 16-bit packed enum:
+
+- bits 0-2: type (`scalar`, `complex`/`surrogate`/`grapheme`, `background`; zero blank);
+- bits 3-5: width (`wide`, `tail`, `spacer_head`; zero narrow);
+- bits 6-15: flags (`protected_cell`, `hyperlink`, `semantic_input`, `semantic_prompt`).
+
+`cell_info_ops` owns the masks and `is_type_*`/`is_width_*`/`is_flags_*` predicates.
+The struct is exactly 16 bytes:
+
+- `primary_`: BMP UTF-16 code unit; `U+FFFD` for complex type.
+- `info_`: type/width/flags.
 - `extent_`: 24-bit screen-wide grapheme store offset and actual 1..255 length.
 - `style_`: 32-bit screen-wide style ID.
 - `hyperlink_`: 32-bit screen-wide hyperlink ID.
 
 The complete cluster (including its real primary) lives in the screen-wide
-`std::vector<char16_t>`. `cell` is trivially copyable and exactly 16 bytes.
+`std::vector<char16_t>`.
 
 ## Ownership
 
@@ -52,8 +57,8 @@ The complete cluster (including its real primary) lives in the screen-wide
 
 ## Invariants
 
-- `type_=2` implies `primary_==U+FFFD`.
-- `type_=2` implies a valid `[offset, offset+length)` in the store.
+- cell_info type=complex implies `primary_ == U+FFFD`.
+- complex type implies a valid `[offset, offset+length)` in the store.
 - cluster length is 1..255 and includes the real primary.
 - wide heads are followed by a tail in the same row.
 - styles/hyperlinks are screen-wide IDs; 0 means default/none.

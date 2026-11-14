@@ -22,8 +22,9 @@ constexpr cell_style style7{7};
 constexpr cell_hyperlink link9{9};
 constexpr cell_hyperlink link11{11};
 constexpr cell_hyperlink link12{12};
-constexpr cell_flags flags12{0x12};
-constexpr cell_flags flag1{1};
+constexpr cell_info info_protected = cell_info::protected_cell;
+constexpr cell_info info_wide = cell_info::wide;
+constexpr cell_info info_wide_protected = cell_info_ops::combine(cell_info::wide, cell_info::protected_cell);
 
 void check(bool condition, const char *message)
 {
@@ -46,34 +47,34 @@ void test_cell()
     check(blank.primary() == u' ', "blank primary");
     check(blank.style() == style7, "blank style");
     check(blank.hyperlink() == link9, "blank hyperlink");
-    check(blank.type() == cell_type::blank, "blank type");
+    check(cell_info_ops::is_type_blank(blank.info()), "blank type");
 
-    const cell scalar = cell::scalar(u'A', style3, cell_width::narrow, link11, flags12);
+    const cell scalar = cell::scalar(u'A', style3, info_protected, link11);
     check(!scalar.is_blank(), "scalar not blank");
     check(scalar.primary() == u'A', "scalar primary");
-    check(scalar.type() == cell_type::scalar, "scalar type");
+    check(cell_info_ops::is_type_scalar(scalar.info()), "scalar type");
     check(scalar.style() == style3, "scalar style");
     check(scalar.hyperlink() == link11, "scalar hyperlink");
-    check(!scalar.has(cell_flags::protected_cell), "scalar flags");
+    check(scalar.has(cell_info::protected_cell), "scalar flags");
 
     const cell replacement = cell::scalar(0xD83D, style0);
     check(replacement.primary() == u'\uFFFD', "isolated surrogate becomes replacement");
 
     constexpr std::uint32_t offset = 0x123456;
-    const cell complex = cell::complex(offset, 2, style4, cell_width::wide, link12, flag1);
+    const cell complex = cell::complex(offset, 2, style4, info_wide_protected, link12);
     check(complex.has_cluster(), "complex has cluster");
     check(complex.primary() == u'\uFFFD', "complex primary is replacement");
     check(complex.offset() == offset, "complex offset");
     check(complex.length() == 2, "complex length");
-    check(complex.width() == cell_width::wide, "complex width");
+    check(cell_info_ops::is_width_wide(complex.info()), "complex width");
     check(complex.hyperlink() == link12, "complex hyperlink");
-    check(complex.has(cell_flags::protected_cell), "complex flag");
+    check(complex.has(cell_info::protected_cell), "complex flag");
 
     const cell surrogate = cell::surrogate(1, 2);
     const cell grapheme = cell::grapheme(1, 2);
-    check(surrogate.type() == cell_type::complex, "surrogate alias");
-    check(grapheme.type() == cell_type::complex, "grapheme alias");
-    check(surrogate.type() == grapheme.type(), "type aliases equal");
+    check(cell_info_ops::is_type_complex(surrogate.info()), "surrogate alias");
+    check(cell_info_ops::is_type_grapheme(grapheme.info()), "grapheme alias");
+    check(surrogate.info() == grapheme.info(), "type aliases equal");
 }
 
 void test_grapheme_store()
@@ -153,13 +154,13 @@ void test_screen_buffer()
     const auto rebuilt_cluster = screen.cluster_of(screen.at(1, 0));
     check(rebuilt_cluster.size() == 2 && rebuilt_cluster[0] == 0xD83D, "cluster survives rebuild");
 
-    check(screen.write_scalar(2, 1, u'\u4E2D', style0, cell_width::wide), "wide write");
+    check(screen.write_scalar(2, 1, u'\u4E2D', style0, info_wide), "wide write");
     check(screen.at(2, 1).is_wide(), "wide head");
     check(screen.at(3, 1).is_continuation(), "wide tail");
-    check(!screen.write_scalar(3, 1, u'X', style0, cell_width::wide), "wide write without room");
+    check(!screen.write_scalar(3, 1, u'X', style0, info_wide), "wide write without room");
     check(screen.row(1).used_columns == 4, "wide write marks used columns");
 
-    const cell wide = cell::scalar(u'Y', style0, cell_width::wide);
+    const cell wide = cell::scalar(u'Y', style0, info_wide);
     check(screen.write_cell(0, 1, wide), "direct wide write");
     check(screen.at(1, 1).is_continuation(), "direct wide tail");
     (void)screen.write_scalar(0, 1, u'Z', style0);
