@@ -66,7 +66,7 @@ bool remap_line(std::vector<cell> &line, const grapheme_store &source, grapheme_
 }
 } // namespace
 
-page::page(std::size_t width, std::size_t height, style_id fill_style)
+page::page(std::size_t width, std::size_t height, cell_style fill_style)
     : width_{width}, height_{height}, cells_(width * height, cell::blank(fill_style)), rows_(height)
 {
     mark_all_dirty();
@@ -207,8 +207,8 @@ bool screen_buffer::write_cell(std::size_t x, std::size_t y, cell value)
     return true;
 }
 
-bool screen_buffer::write_scalar(std::size_t x, std::size_t y, char16_t primary, style_id style, cell_width width,
-                                 hyperlink_id hyperlink, std::uint16_t flags)
+bool screen_buffer::write_scalar(std::size_t x, std::size_t y, char16_t primary, cell_style style, cell_width width,
+                                 cell_hyperlink hyperlink, cell_flags flags)
 {
     if (width == cell_width::tail)
     {
@@ -218,8 +218,8 @@ bool screen_buffer::write_scalar(std::size_t x, std::size_t y, char16_t primary,
     return write_cell(x, y, cell::scalar(primary, style, width, hyperlink, flags));
 }
 
-bool screen_buffer::write_cluster(std::size_t x, std::size_t y, std::span<const char16_t> cluster, style_id style,
-                                  cell_width width, hyperlink_id hyperlink, std::uint16_t flags)
+bool screen_buffer::write_cluster(std::size_t x, std::size_t y, std::span<const char16_t> cluster, cell_style style,
+                                  cell_width width, cell_hyperlink hyperlink, cell_flags flags)
 {
     if (x >= width_ || y >= height_ || cluster.empty() || !graphemes_.can_append(cluster.size()))
     {
@@ -256,12 +256,12 @@ void screen_buffer::fill_rect(rectangle area, cell value)
     }
 }
 
-void screen_buffer::clear(style_id style)
+void screen_buffer::clear(cell_style style)
 {
     fill_rect(rectangle{0, 0, width_, height_}, cell::blank(style));
 }
 
-void screen_buffer::scroll_up(std::size_t lines, style_id fill_style)
+void screen_buffer::scroll_up(std::size_t lines, cell_style fill_style)
 {
     if (lines == 0 || height_ == 0)
     {
@@ -298,7 +298,7 @@ void screen_buffer::scroll_up(std::size_t lines, style_id fill_style)
     target.mark_all_dirty();
 }
 
-void screen_buffer::scroll_region_up(rectangle area, std::size_t lines, style_id fill_style)
+void screen_buffer::scroll_region_up(rectangle area, std::size_t lines, cell_style fill_style)
 {
     const auto x_end = std::min(width_, area.x + area.width);
     const auto y_end = std::min(height_, area.y + area.height);
@@ -333,7 +333,7 @@ void screen_buffer::scroll_region_up(rectangle area, std::size_t lines, style_id
     }
 }
 
-void screen_buffer::resize(std::size_t width, std::size_t height, style_id fill_style)
+void screen_buffer::resize(std::size_t width, std::size_t height, cell_style fill_style)
 {
     if (width == 0 || height == 0)
     {
@@ -370,7 +370,7 @@ void screen_buffer::set_alternate(bool enabled)
 {
     if (enabled && !alternate_)
     {
-        alternate_.emplace(width_, height_, 0);
+        alternate_.emplace(width_, height_, default_cell_style);
     }
     alternate_active_ = enabled;
 }

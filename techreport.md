@@ -5,18 +5,17 @@
 本报告重新设计 corehost 的屏幕缓冲区，采用 **16 字节 cell**：
 
 - 16 位 UTF-16 primary；
-- 2 位 content 类型；
-- 2 位列宽/continuation；
-- 24 位 grapheme cluster offset；
-- 8 位 cluster length；
-- 12 位 flags；
-- 32 位 style ID；
-- 32 位 hyperlink ID。
+- 4 位 `cell_type`；
+- 4 位 `cell_width`；
+- 8 位 `cell_flags`；
+- 32 位 `cell_extent`（实际打包 24 位 offset + 8 位 length）；
+- 32 位 `cell_style`；
+- 32 位 `cell_hyperlink`。
 
-`complex`/`surrogate`/`grapheme` 都是 content=2 的别名，统一表示“这个 cell 需要多个
-UTF-16 code unit”。当 content=2 时，cell 的 primary 固定为 `U+FFFD`；真实 primary 和完整
-cluster 保存在 screen-wide 的 `std::vector<char16_t>` 中，由 24 位 offset 和 8 位 length
-定位。
+`complex`/`surrogate`/`grapheme` 都是 `cell_type=2` 的别名，统一表示“这个 cell 需要多个
+UTF-16 code unit”。当 `cell_type=2` 时，cell 的 primary 固定为 `U+FFFD`；真实 primary 和
+完整 cluster 保存在 screen-wide 的 `std::vector<char16_t>` 中，由 `cell_extent` 内部的
+24 位 offset 和 8 位 length 定位。
 
 实现位于 [libscreen](libscreen)，包括：
 
@@ -52,7 +51,7 @@ cluster 保存在 screen-wide 的 `std::vector<char16_t>` 中，由 24 位 offse
 - 16 位 offset；
 - 6 位 length；
 - 16 位 style；
-- 2 位 content + 2 位 width + 5 位 flags。
+- 2 位 type + 2 位 width + 5 位 flags。
 
 它的问题：
 
@@ -63,7 +62,7 @@ cluster 保存在 screen-wide 的 `std::vector<char16_t>` 中，由 24 位 offse
 - 依赖 `length - 1` 与保留位等隐式编码。
 
 16 字节 cell 的目标不是追求最小内存，而是让 **24 位 offset、8 位 length、32 位 style、
-32 位 hyperlink、12 位 flags** 同时成立，并把隐式编码全部去掉。
+32 位 hyperlink、8 位 flags** 同时成立，并把隐式编码全部去掉。
 
 ## 2. 参考实现
 
@@ -147,7 +146,7 @@ Ghostty 证明了 8 字节 packed cell + page-local side table 的高性能路�
 - 8 位 cluster length；
 - 32 位 screen-wide style ID；
 - 32 位 screen-wide hyperlink ID；
-- 12 位 flags；
+- 8 位 flags；
 - screen-wide `std::vector<char16_t>` cluster store；
 - dense page + row metadata + main/alternate + scrollback history；
 - Console API 与 DWrite 只在边界投影/映射。
@@ -179,8 +178,8 @@ Ghostty 证明了 8 字节 packed cell + page-local side table 的高性能路�
 corehost 的 16B 不是“最大的 cell”，而是**在 Windows 语义下把关键字段一次放够**：
 
 ```text
-word 0: primary 16 | content 2 | width 2 | offset 24 | length 8 | flags 12
-word 1: style 32 | hyperlink 32
+primary 16 | cell_type 4 | cell_width 4 | cell_flags 8
+cell_extent 32 (24-bit offset + 8-bit length) | cell_style 32 | cell_hyperlink 32
 ```
 
 ### 3.3 Cluster 存放
@@ -214,20 +213,42 @@ API 保留一个假的 high surrogate；DWrite/无头路径直接读取 store �
 
 | 字段 | 位数 | 含义 |
 | --- | ---: | --- |
-| `primary` | 16 | UTF-16 code unit；content=2 时为 `U+FFFD` |
-| `content` | 2 | blank / scalar / complex(alias surrogate/grapheme) / background |
-| `width` | 2 | narrow / wide / tail / spacer head |
-| `offset` | 24 | screen-wide char16 cluster store offset |
-| `length` | 8 | 实际 cluster 长度 1..255 |
-| `flags` | 12 | protected / hyperlink / semantic / reserved |
-| `style_id` | 32 | screen-wide style table ID |
-| `hyperlink_id` | 32 | screen-wide hyperlink table ID |
+| `primary_` | 16 | UTF-16 code unit；`cell_type=2` 时为 `U+FFFD` |
+| `type_` | 4 | blank / scalar / complex(alias surrogate/grapheme) / background |
+| `width_` | 4 | narrow / wide / tail / spacer head |
+| `flags_` | 8 | protected / hyperlink / semantic / reserved |
+| `extent_` | 32 | 24 位 offset + 8 位 length |
+| `style_` | 32 | screen-wide style table ID |
+| `hyperlink_` | 32 | screen-wide hyperlink table ID |
 | **总计** | **128** | **16 字节** |
 
-### 4.2 content 的统一语义
+实际结构：
 
 ```cpp
-enum class cell_content : std::uint8_t
+enum class cell_extent : std::int32_t {};
+enum class cell_style : std::int32_t {};
+enum class cell_hyperlink : std::int32_t {};
+
+struct cell
+{
+    char16_t primary_;
+    cell_type type_ : 4;
+    cell_width width_ : 4;
+    cell_flags flags_ : 8;
+    cell_extent extent_;
+    cell_style style_;
+    cell_hyperlink hyperlink_;
+};
+```
+
+`type_`/`width_`/`flags_` 使用位域，使 16 位 primary 后的 32 位头空间刚好容纳
+4+4+8 位；`extent`/`style`/`hyperlink` 是 32 位 enum，合计 12 字节，因此 cell 为
+16 字节。`static_assert` 锁定大小、对齐、trivially copyable 和 standard-layout。
+
+### 4.2 cell_type 的统一语义
+
+```cpp
+enum class cell_type : std::uint8_t
 {
     blank = 0,
     scalar = 1,
@@ -239,14 +260,22 @@ enum class cell_content : std::uint8_t
 ```
 
 - `complex`/`surrogate`/`grapheme` 是同一个值 2；
-- content=2 时 primary 固定为 `U+FFFD`；
+- type=2 时 primary 固定为 `U+FFFD`；
 - 真实 primary/cluster 在 store；
-- content 不负责区分 surrogate 和 grapheme；如果未来需要区分，使用 flags 或 side
-  metadata，而不是增加 content 位宽。
+- type 不负责区分 surrogate 和 grapheme；如果未来需要区分，使用 flags 或 side
+  metadata，而不是增加 type 位宽；
+- 4 位 type 字段保留后续扩展空间，但值 0..3 已覆盖当前语义。
 
-### 4.3 offset 和 length
+### 4.3 cell_extent：24 位 offset + 8 位 length
 
-- offset 是 24 位，最大 `0xFFFFFF`，store 总容量 `0x1000000` 个 UTF-16 unit；
+`cell_extent` 是 `std::int32_t` enum，内部打包：
+
+```text
+bits 0..23  : cluster offset
+bits 24..31 : actual cluster length (1..255)
+```
+
+- offset 最大 `0xFFFFFF`，store 总容量 `0x1000000` 个 UTF-16 unit；
 - length 是实际 1..255，不是 length-1；
 - 一个 cell 最多一个 cluster，cluster 包含真实 primary；
 - 标量/空白/背景不访问 store；
@@ -254,12 +283,15 @@ enum class cell_content : std::uint8_t
 - store 是 screen-wide 的，main/alternate/history 的 cell 共享同一 offset 空间；
 - `can_append()` 由调用者先检查；append 不负责重建/截断；
 - 超过 24 位容量时 `rebuild_graphemes()` 扫描 screen 的 cell/history，按 live cluster
-  重建 store 并更新 offset/length。
+  重建 store 并更新 extent。
+
+`cell::offset()`/`cell::length()` 通过 `extent_offset()`/`extent_length()` 解码，不直接暴露
+打包位。
 
 ### 4.4 style 与 hyperlink
 
-- `style_id=0` 是默认样式；
-- `hyperlink_id=0` 表示无链接；
+- `style=0` 是默认样式；
+- `hyperlink=0` 表示无链接；
 - style table 是 screen-wide 的，保存 foreground/background/underline/attributes/legacy；
 - hyperlink table 保存 URI 和 id；
 - cell 只保存 32 位 ID；
@@ -273,8 +305,9 @@ enum class cell_content : std::uint8_t
 - `blank`、`background`、`tail`、`spacer_head`；
 - `scalar`（BMP code unit，孤立 surrogate 规范为 `U+FFFD`）；
 - `complex`/`surrogate`/`grapheme`（offset/length）；
-- `primary()`、`text_unit()`、`style()`、`hyperlink()`、`content()`、`width()`、
-  `offset()`、`length()`、`flags()`；
+- `primary()`、`text_unit()`、`style()`、`hyperlink()`、`type()`、`width()`、
+  `offset()`、`length()`、`flags()`；`cell_extent` 通过 `make_cell_extent()`/
+  `extent_offset()`/`extent_length()` 编码；
 - `has_cluster()`、`is_blank()`、`is_wide()`、`is_continuation()`、`is_spacer_head()`；
 - `with_style()`、`with_hyperlink()`、`with_flag()`、`with_cluster_ref()`；
 - `static_assert(sizeof(cell) == 16)`、trivially copyable、standard-layout。
@@ -317,7 +350,7 @@ row_state:
 ### 5.3 写入、宽字符和 cluster
 
 - `write_scalar`：写一个 BMP code unit；wide 时把 x+1 标记为 tail；
-- `write_cluster`：检查 store 容量、append 完整 cluster、写 content=2 cell；
+- `write_cluster`：检查 store 容量、append 完整 cluster、写 type=2 cell；
 - `write_cell`：低层写，负责清理旧的 wide head/tail 邻域；
 - `fill_rect`、`clear`：直接填 cell；
 - `scroll_up`、`scroll_region_up`：移动行/cell，更新 damage 和 used_columns；
@@ -352,7 +385,7 @@ row_state:
 ### 6.1 `CHAR_INFO`
 
 - scalar cell：primary 就是一个 `WCHAR`；
-- content=2（complex/surrogate/grapheme）：整个 cell 投影为 `U+FFFD`；
+- type=2（complex/surrogate/grapheme）：整个 cell 投影为 `U+FFFD`；
 - trailing/leading：保留宽字符列属性；
 - style：投影为 legacy `WORD`；
 - `ReadConsoleOutput`/`ReadConsoleOutputCharacter` 不读取 store，也不尝试恢复完整
@@ -396,7 +429,7 @@ row_state:
 
 - Ghostty 8B cell 在同样网格是 28.8 KB / 240 KB / 1.6 MB；
 - corehost 16B 用 2 倍 cell 内存换取 24 位 offset、8 位 length、32 位 style/hyperlink
-  和 12 位 flags；
+  和 8 位 flags；
 - conhost 的 per-cell `wstring`/属性通常超过 16B；
 - Contour 的 SoA 多数组在小网格上可能低于 16B/cell，但字段分散，Windows API 投影需要
   额外整理。
@@ -421,7 +454,7 @@ row_state:
 - 8 位 length；
 - 32 位 style；
 - 32 位 hyperlink；
-- 12 位 flags。
+- 8 位 flags。
 
 如果继续压到 8B，必须：
 
@@ -441,10 +474,10 @@ row_state:
 覆盖：
 
 - `sizeof(cell)==16`、对齐、trivially copyable；
-- primary/content/width/offset/length/style/hyperlink/flags；
+- primary/type/width/extent/style/hyperlink/flags；
 - 孤立 surrogate 规范为 `U+FFFD`；
-- content=2 的 primary 为 `U+FFFD`；
-- content alias 相等；
+- type=2 的 primary 为 `U+FFFD`；
+- type alias 相等；
 - grapheme store can_append/append/view/长度上限；
 - style interning、默认样式；
 - hyperlink interning、默认空链接；
@@ -498,7 +531,7 @@ ctest --test-dir build -C Debug -R LibScreen --output-on-failure
 16 字节 cell 是 corehost 面向 Windows 的一个明确取舍：
 
 - 16 位 UTF-16 primary 让 BMP 路径直接对齐 Console API/DWrite；
-- content=2 统一表示多 unit 内容，primary 为 `U+FFFD`，不伪造 surrogate cell；
+- type=2 统一表示多 unit 内容，primary 为 `U+FFFD`，不伪造 surrogate cell；
 - 24 位 offset + 8 位 length 让完整 cluster 的 side store 足够大且没有 minus-one 编码；
 - 32 位 style/hyperlink 让 page/scrollback 复制不需要重映射；
 - dense page + row damage + history 让屏幕缓冲区可以在无头 VT 和未来 DWrite 之间共享；

@@ -4,19 +4,30 @@ Status: reference implementation in `/libscreen`; not yet wired into `libcorehos
 
 ## Cell layout
 
-```
-word 0: primary 16 | content 2 | width 2 | offset 24 | length 8 | flags 12
-word 1: style 32 | hyperlink 32
+```cpp
+enum class cell_extent : std::int32_t {};
+enum class cell_style : std::int32_t {};
+enum class cell_hyperlink : std::int32_t {};
+
+struct cell
+{
+    char16_t primary_;
+    cell_type type_ : 4;
+    cell_width width_ : 4;
+    cell_flags flags_ : 8;
+    cell_extent extent_;       // bits 0..23 offset, bits 24..31 length
+    cell_style style_;
+    cell_hyperlink hyperlink_;
+};
 ```
 
-- `primary`: BMP UTF-16 code unit; `U+FFFD` when `content=2`.
-- `content`: blank=0, scalar=1, complex/surrogate/grapheme=2, background=3.
-- `width`: narrow, wide, tail, spacer head.
-- `offset`: 24-bit screen-wide grapheme store offset.
-- `length`: actual 1..255 UTF-16 units, no minus-one encoding.
-- `style`: 32-bit screen-wide style ID.
-- `hyperlink`: 32-bit screen-wide hyperlink ID.
-- `flags`: 12 bits; low four are protected/hyperlink/semantic input/semantic prompt.
+- `primary_`: BMP UTF-16 code unit; `U+FFFD` when `type_=2`.
+- `type_`: blank=0, scalar=1, complex/surrogate/grapheme=2, background=3.
+- `width_`: narrow, wide, tail, spacer head.
+- `flags_`: protected/hyperlink/semantic/reserved.
+- `extent_`: 24-bit screen-wide grapheme store offset and actual 1..255 length.
+- `style_`: 32-bit screen-wide style ID.
+- `hyperlink_`: 32-bit screen-wide hyperlink ID.
 
 The complete cluster (including its real primary) lives in the screen-wide
 `std::vector<char16_t>`. `cell` is trivially copyable and exactly 16 bytes.
@@ -28,7 +39,7 @@ The complete cluster (including its real primary) lives in the screen-wide
 - `page` owns dense cells and row metadata.
 - `row_state` owns used-column count and damage range.
 - `grapheme_store` is append-only between rebuilds; callers check `can_append()`.
-- `rebuild_graphemes()` rewrites live clusters and updates every cell offset/length.
+- `rebuild_graphemes()` rewrites live clusters and updates every cell extent.
 
 ## Operations
 
@@ -41,8 +52,8 @@ The complete cluster (including its real primary) lives in the screen-wide
 
 ## Invariants
 
-- `content=2` implies `primary == U+FFFD`.
-- `content=2` implies a valid `[offset, offset+length)` in the store.
+- `type_=2` implies `primary_==U+FFFD`.
+- `type_=2` implies a valid `[offset, offset+length)` in the store.
 - cluster length is 1..255 and includes the real primary.
 - wide heads are followed by a tail in the same row.
 - styles/hyperlinks are screen-wide IDs; 0 means default/none.

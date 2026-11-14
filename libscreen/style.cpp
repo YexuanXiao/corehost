@@ -32,7 +32,7 @@ std::size_t text_style_hash::operator()(const text_style &style) const noexcept
     return static_cast<std::size_t>(hash);
 }
 
-style_id style_table::intern(const text_style &style)
+cell_style style_table::intern(const text_style &style)
 {
     const auto found = ids_.find(style);
     if (found != ids_.end())
@@ -40,20 +40,20 @@ style_id style_table::intern(const text_style &style)
         return found->second;
     }
 
-    if (styles_.size() > std::numeric_limits<style_id>::max())
+    if (styles_.size() > static_cast<std::size_t>(std::numeric_limits<std::underlying_type_t<cell_style>>::max()))
     {
         throw std::length_error("style table exhausted its 32-bit ID space");
     }
 
-    const auto id = static_cast<style_id>(styles_.size());
+    const auto id = static_cast<cell_style>(styles_.size());
     styles_.push_back(style);
     ids_.emplace(style, id);
     return id;
 }
 
-const text_style &style_table::at(style_id id) const noexcept
+const text_style &style_table::at(cell_style id) const noexcept
 {
-    return styles_[id];
+    return styles_[static_cast<std::size_t>(std::to_underlying(id))];
 }
 
 std::size_t style_table::size() const noexcept

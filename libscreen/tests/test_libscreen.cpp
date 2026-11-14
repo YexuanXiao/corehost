@@ -14,6 +14,17 @@ namespace
 
 using namespace corehost::screen;
 
+constexpr cell_style style0{0};
+constexpr cell_style style1{1};
+constexpr cell_style style3{3};
+constexpr cell_style style4{4};
+constexpr cell_style style7{7};
+constexpr cell_hyperlink link9{9};
+constexpr cell_hyperlink link11{11};
+constexpr cell_hyperlink link12{12};
+constexpr cell_flags flags12{0x12};
+constexpr cell_flags flag1{1};
+
 void check(bool condition, const char *message)
 {
     if (!condition)
@@ -27,41 +38,42 @@ void check(bool condition, const char *message)
 void test_cell()
 {
     static_assert(sizeof(cell) == 16);
-    static_assert(alignof(cell) == alignof(std::uint64_t));
+    static_assert(alignof(cell) == alignof(std::int32_t));
     static_assert(std::is_trivially_copyable_v<cell>);
 
-    const cell blank = cell::blank(7, 9);
+    const cell blank = cell::blank(style7, link9);
     check(blank.is_blank(), "blank cell");
     check(blank.primary() == u' ', "blank primary");
-    check(blank.style() == 7, "blank style");
-    check(blank.hyperlink() == 9, "blank hyperlink");
+    check(blank.style() == style7, "blank style");
+    check(blank.hyperlink() == link9, "blank hyperlink");
+    check(blank.type() == cell_type::blank, "blank type");
 
-    const cell scalar = cell::scalar(u'A', 3, cell_width::narrow, 11, 0x0012);
+    const cell scalar = cell::scalar(u'A', style3, cell_width::narrow, link11, flags12);
     check(!scalar.is_blank(), "scalar not blank");
     check(scalar.primary() == u'A', "scalar primary");
-    check(scalar.content() == cell_content::scalar, "scalar content");
-    check(scalar.style() == 3, "scalar style");
-    check(scalar.hyperlink() == 11, "scalar hyperlink");
-    check(scalar.has(cell_flag::protected_cell) == false, "scalar flags");
+    check(scalar.type() == cell_type::scalar, "scalar type");
+    check(scalar.style() == style3, "scalar style");
+    check(scalar.hyperlink() == link11, "scalar hyperlink");
+    check(!scalar.has(cell_flags::protected_cell), "scalar flags");
 
-    const cell replacement = cell::scalar(0xD83D, 0);
+    const cell replacement = cell::scalar(0xD83D, style0);
     check(replacement.primary() == u'\uFFFD', "isolated surrogate becomes replacement");
 
-    constexpr cluster_offset offset = 0x123456;
-    const cell complex = cell::complex(offset, 2, 4, cell_width::wide, 12, 0x0001);
+    constexpr std::uint32_t offset = 0x123456;
+    const cell complex = cell::complex(offset, 2, style4, cell_width::wide, link12, flag1);
     check(complex.has_cluster(), "complex has cluster");
     check(complex.primary() == u'\uFFFD', "complex primary is replacement");
     check(complex.offset() == offset, "complex offset");
     check(complex.length() == 2, "complex length");
     check(complex.width() == cell_width::wide, "complex width");
-    check(complex.hyperlink() == 12, "complex hyperlink");
-    check(complex.has(cell_flag::protected_cell), "complex flag");
+    check(complex.hyperlink() == link12, "complex hyperlink");
+    check(complex.has(cell_flags::protected_cell), "complex flag");
 
     const cell surrogate = cell::surrogate(1, 2);
     const cell grapheme = cell::grapheme(1, 2);
-    check(surrogate.content() == cell_content::complex, "surrogate alias");
-    check(grapheme.content() == cell_content::complex, "grapheme alias");
-    check(surrogate.content() == grapheme.content(), "content aliases equal");
+    check(surrogate.type() == cell_type::complex, "surrogate alias");
+    check(grapheme.type() == cell_type::complex, "grapheme alias");
+    check(surrogate.type() == grapheme.type(), "type aliases equal");
 }
 
 void test_grapheme_store()
@@ -93,7 +105,7 @@ void test_styles_and_hyperlinks()
 {
     style_table styles;
     check(styles.size() == 1, "default style exists");
-    check(styles.at(0) == text_style{}, "default style is zero");
+    check(styles.at(style0) == text_style{}, "default style is zero");
 
     text_style style;
     style.foreground = color{color_kind::rgb, 0x112233};
@@ -102,7 +114,7 @@ void test_styles_and_hyperlinks()
     const auto first = styles.intern(style);
     const auto second = styles.intern(style);
     check(first == second, "style interning");
-    check(first != 0, "interned style is not default");
+    check(first != style0, "interned style is not default");
     check(styles.at(first) == style, "stored style");
     check(styles.size() == 2, "style table size");
 
@@ -119,21 +131,21 @@ void test_screen_buffer()
     screen_buffer screen(4, 3, 2);
     check(screen.width() == 4, "screen width");
     check(screen.height() == 3, "screen height");
-    check(screen.alternate_active() == false, "main active");
+    check(!screen.alternate_active(), "main active");
 
-    (void)screen.write_scalar(0, 0, u'A', 0);
+    (void)screen.write_scalar(0, 0, u'A', style0);
     check(screen.at(0, 0).primary() == u'A', "scalar write");
-    check(screen.at(0, 0).style() == 0, "scalar style");
+    check(screen.at(0, 0).style() == style0, "scalar style");
     check(screen.damage_begin(0) <= 0 && screen.damage_end(0) >= 1, "scalar damage");
     screen.clear_damage();
     check(screen.damage_begin(0) == screen.damage_end(0), "damage cleared");
 
     const std::vector<char16_t> cluster{0xD83D, 0xDE00};
-    check(screen.write_cluster(1, 0, cluster, 1), "cluster write");
+    check(screen.write_cluster(1, 0, cluster, style1), "cluster write");
     const auto cluster_cell = screen.at(1, 0);
-    check(cluster_cell.has_cluster(), "cluster cell content");
+    check(cluster_cell.has_cluster(), "cluster cell type");
     check(cluster_cell.primary() == u'\uFFFD', "cluster primary");
-    check(cluster_cell.style() == 1, "cluster style");
+    check(cluster_cell.style() == style1, "cluster style");
     const auto cluster_view = screen.cluster_of(cluster_cell);
     check(cluster_view.size() == 2, "cluster view size");
     check(cluster_view[0] == 0xD83D && cluster_view[1] == 0xDE00, "cluster data");
@@ -141,21 +153,21 @@ void test_screen_buffer()
     const auto rebuilt_cluster = screen.cluster_of(screen.at(1, 0));
     check(rebuilt_cluster.size() == 2 && rebuilt_cluster[0] == 0xD83D, "cluster survives rebuild");
 
-    check(screen.write_scalar(2, 1, u'\u4E2D', 0, cell_width::wide), "wide write");
+    check(screen.write_scalar(2, 1, u'\u4E2D', style0, cell_width::wide), "wide write");
     check(screen.at(2, 1).is_wide(), "wide head");
     check(screen.at(3, 1).is_continuation(), "wide tail");
-    check(!screen.write_scalar(3, 1, u'X', 0, cell_width::wide), "wide write without room");
+    check(!screen.write_scalar(3, 1, u'X', style0, cell_width::wide), "wide write without room");
     check(screen.row(1).used_columns == 4, "wide write marks used columns");
 
-    const cell wide = cell::scalar(u'Y', 0, cell_width::wide);
+    const cell wide = cell::scalar(u'Y', style0, cell_width::wide);
     check(screen.write_cell(0, 1, wide), "direct wide write");
     check(screen.at(1, 1).is_continuation(), "direct wide tail");
-    (void)screen.write_scalar(0, 1, u'Z');
+    (void)screen.write_scalar(0, 1, u'Z', style0);
     check(screen.at(0, 1).primary() == u'Z', "overwrite wide head");
     check(screen.at(1, 1).is_blank(), "overwrite wide clears tail");
 
-    screen.fill_rect(rectangle{0, 2, 4, 1}, cell::blank(3));
-    check(screen.at(0, 2).style() == 3, "fill rectangle");
+    screen.fill_rect(rectangle{0, 2, 4, 1}, cell::blank(style3));
+    check(screen.at(0, 2).style() == style3, "fill rectangle");
 
     screen.clear_damage();
     screen.scroll_up(1);
@@ -167,11 +179,11 @@ void test_screen_buffer()
     check(screen.damage_begin(0) <= 0 && screen.damage_end(0) >= 4, "scroll damage");
 
     screen.clear_damage();
-    (void)screen.write_scalar(0, 0, u'M');
+    (void)screen.write_scalar(0, 0, u'M', style0);
     screen.set_alternate(true);
     check(screen.alternate_active(), "alternate active");
     check(screen.at(0, 0).is_blank(), "alternate starts blank");
-    (void)screen.write_scalar(0, 0, u'Z');
+    (void)screen.write_scalar(0, 0, u'Z', style0);
     check(screen.at(0, 0).primary() == u'Z', "alternate write");
     screen.set_alternate(false);
     check(screen.at(0, 0).primary() == u'M', "main preserved after alt");
@@ -183,9 +195,9 @@ void test_screen_buffer()
     check(screen.history_size() == 0, "resize clears history");
     check(screen.damage_begin(0) == 0 && screen.damage_end(0) == 6, "resize marks damage");
 
-    screen.clear(4);
-    check(screen.at(0, 0).style() == 4, "clear style");
-    check(screen.at(5, 1).style() == 4, "clear all cells");
+    screen.clear(style4);
+    check(screen.at(0, 0).style() == style4, "clear style");
+    check(screen.at(5, 1).style() == style4, "clear all cells");
 }
 
 } // namespace

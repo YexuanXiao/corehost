@@ -20,13 +20,13 @@ struct hyperlink final
 class hyperlink_table final
 {
   public:
-    [[nodiscard]] hyperlink_id intern(std::wstring_view uri, std::wstring_view id = {});
-    [[nodiscard]] const hyperlink &at(hyperlink_id value) const noexcept;
+    [[nodiscard]] cell_hyperlink intern(std::wstring_view uri, std::wstring_view id = {});
+    [[nodiscard]] const hyperlink &at(cell_hyperlink value) const noexcept;
     [[nodiscard]] std::size_t size() const noexcept;
 
   private:
     std::vector<hyperlink> links_{{}};
-    std::unordered_map<std::wstring, hyperlink_id> ids_;
+    std::unordered_map<std::wstring, cell_hyperlink> ids_;
 };
 
 } // namespace corehost::screen

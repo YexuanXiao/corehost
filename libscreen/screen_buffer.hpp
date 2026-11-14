@@ -40,7 +40,7 @@ struct rectangle final
 class page final
 {
   public:
-    page(std::size_t width, std::size_t height, style_id fill_style = 0);
+    page(std::size_t width, std::size_t height, cell_style fill_style = default_cell_style);
 
     [[nodiscard]] std::size_t width() const noexcept
     {
@@ -120,29 +120,29 @@ class screen_buffer final
     // Writes a single UTF-16 code unit. width=wide reserves x+1 as a tail.
     // Returns false when the write would escape the page or the grapheme store
     // cannot accept the cluster.
-    [[nodiscard]] bool write_scalar(std::size_t x, std::size_t y, char16_t primary, style_id style = 0,
-                                    cell_width width = cell_width::narrow, hyperlink_id hyperlink = 0,
-                                    std::uint16_t flags = 0);
+    [[nodiscard]] bool write_scalar(std::size_t x, std::size_t y, char16_t primary,
+                                    cell_style style = default_cell_style, cell_width width = cell_width::narrow,
+                                    cell_hyperlink hyperlink = no_cell_hyperlink, cell_flags flags = cell_flags::none);
 
     // Writes a complete UTF-16 cluster, including its primary. The stored cell
     // primary is U+FFFD and offset/length point into graphemes().
     [[nodiscard]] bool write_cluster(std::size_t x, std::size_t y, std::span<const char16_t> cluster,
-                                     style_id style = 0, cell_width width = cell_width::narrow,
-                                     hyperlink_id hyperlink = 0, std::uint16_t flags = 0);
+                                     cell_style style = default_cell_style, cell_width width = cell_width::narrow,
+                                     cell_hyperlink hyperlink = no_cell_hyperlink, cell_flags flags = cell_flags::none);
 
     // Low-level write with wide-cell cleanup. The caller owns cluster allocation
     // for complex cells.
     [[nodiscard]] bool write_cell(std::size_t x, std::size_t y, cell value);
 
     void fill_rect(rectangle area, cell value);
-    void clear(style_id style = 0);
+    void clear(cell_style style = default_cell_style);
 
     // Full-page vertical scroll. On the main page, the top lines are moved to
     // scrollback; the alternate page never records history.
-    void scroll_up(std::size_t lines, style_id fill_style = 0);
-    void scroll_region_up(rectangle area, std::size_t lines, style_id fill_style = 0);
+    void scroll_up(std::size_t lines, cell_style fill_style = default_cell_style);
+    void scroll_region_up(rectangle area, std::size_t lines, cell_style fill_style = default_cell_style);
 
-    void resize(std::size_t width, std::size_t height, style_id fill_style = 0);
+    void resize(std::size_t width, std::size_t height, cell_style fill_style = default_cell_style);
     void set_alternate(bool enabled);
     [[nodiscard]] bool alternate_active() const noexcept
     {

@@ -47,13 +47,13 @@ struct text_style_hash final
 class style_table final
 {
   public:
-    [[nodiscard]] style_id intern(const text_style &style);
-    [[nodiscard]] const text_style &at(style_id id) const noexcept;
+    [[nodiscard]] cell_style intern(const text_style &style);
+    [[nodiscard]] const text_style &at(cell_style id) const noexcept;
     [[nodiscard]] std::size_t size() const noexcept;
 
   private:
     std::vector<text_style> styles_{text_style{}};
-    std::unordered_map<text_style, style_id, text_style_hash> ids_;
+    std::unordered_map<text_style, cell_style, text_style_hash> ids_;
 };
 
 } // namespace corehost::screen
