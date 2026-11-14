@@ -205,6 +205,7 @@ inline constexpr cell_hyperlink no_cell_hyperlink{0};
 // 16-byte cell. The two 32-bit IDs and the packed extent make the struct
 // exactly 16 bytes; type/width/flags are bitfields to keep the hot header
 // compact and to make tests of individual flags cheap.
+// clang-format off
 struct cell
 {
     static constexpr std::uint8_t max_cluster_length = 255;
@@ -431,5 +432,6 @@ static_assert(sizeof(cell) == 16);
 static_assert(alignof(cell) == alignof(std::int32_t));
 static_assert(std::is_trivially_copyable_v<cell>);
 static_assert(std::is_standard_layout_v<cell>);
+// clang-format on
 
 } // namespace corehost::screen

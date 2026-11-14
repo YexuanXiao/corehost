@@ -663,6 +663,236 @@ semantic_prompt
 | cursor/tabs/margins | screen 级，不属于 cell | 是 | 是 | 是 |
 | scrollback | 是（history） | 是 | 是 | 是 |
 
+### 9.6 缺失功能的逐项说明
+
+下面的“缺失”分为两类：
+
+- **确实属于 cell 的功能**：cell 必须携带一个引用/标志，否则渲染或编辑无法正确完成；
+- **不属于 cell、但当前 screen buffer 也缺的功能**：应放 row/screen/overlay，不能靠扩大
+  cell 解决。
+
+#### 9.6.1 line wrapped / marked / shell marks
+
+**是什么**
+
+- `Wrapped`：当前物理行是否由上一行 soft-wrap 而来；
+- `Wrappable`：当前行是否允许在 resize 时 reflow；
+- `Marked`：shell prompt 起点（OSC 133;A）；
+- `OutputStart`：命令输出起点（OSC 133;C）；
+- `CommandEnd`：命令结束及退出状态（OSC 133;D）；
+- `PromptEnd`：prompt 结束、用户输入开始（OSC 133;B）；
+- `UserMark`：用户书签（vi `mm`）。
+
+Contour 的 `LineFlags.hpp` 把这组状态定义为 row 级 flags；Windows Terminal 的
+`Row.hpp` 有 `_wrapForced`、`_lineRendition`，`Marks.hpp` 有 scroll mark/command 区块
+数据。
+
+**有什么用**
+
+- 复制/选择跨 soft-wrap 行时必须知道“这是同一逻辑行”，否则会多插换行；
+- resize/reflow 需要 `Wrappable`/`Wrapped` 判断如何重排；
+- shell integration 需要 prompt/command/output 边界来导航、折叠、复制命令块、显示
+  scrollbar mark；
+- 搜索/书签/命令状态需要 stable marks。
+
+**当前缺什么**
+
+- `row_state.flags` 只是一个未定义的 `uint16_t`，没有枚举、没有 API、没有维护逻辑；
+- 当前 cell 的 `semantic_input`/`semantic_prompt` 只覆盖很粗的 cell 级语义，无法表达
+  output start/command end/exit status/row-level mark；
+- 这些不应该塞进 `cell_flags`：一行只有一份，重复到每个 cell 既浪费又不一致。
+
+**建议表示**
+
+- 在 `row_state` 增加 `line_flags` 16 位枚举（wrappable/wrapped/marked/output_start/
+  command_end/prompt_end/user_mark）；
+- 命令退出状态/颜色等低频数据放 row 的 side record；
+- selection/reflow 读取 row flags，不读取每个 cell。
+
+#### 9.6.2 line rendition（DECDWL / DECDHL）
+
+**是什么**
+
+- `SingleWidth`：普通行；
+- `DoubleWidth`：整行横向双宽（DECDWL）；
+- `DoubleHeightTop` / `DoubleHeightBottom`：整行双高上半/下半（DECDHL）。
+
+Windows Terminal 用 `LineRendition.hpp` 表示，并把它存在 `ROW` 上；它不是某个 cell 的
+属性。
+
+**有什么用**
+
+- 老式全屏程序/艺术字用 DECDWL/DECDHL 绘制大标题；
+- 它改变 screen 坐标到 buffer 坐标的映射、渲染尺寸和复制/选择范围；
+- 如果丢失，双宽/双高行会按普通行显示，字符位置和列数都会错。
+
+**当前缺什么**
+
+- 没有 row rendition 字段；
+- `cell_width` 不能替代：`wide` 是单个字符两列，`DoubleWidth` 是整行所有字符横向放大；
+  `DoubleHeightTop/Bottom` 更是两行共同组成一个 glyph。
+
+**建议表示**
+
+- `row_state` 增加 2 位 `line_rendition` 枚举；
+- 行列坐标换算/复制/render 读取 row 级属性；
+- 不需要改 cell。
+
+#### 9.6.3 text sizing / cell scale（kitty OSC 66）
+
+**是什么**
+
+Contour 的 `CellScale`/`LineSoA::scales`/`textScaleExtras` 支持：
+
+- 一个 cell 的 glyph 占 `scale` 行高（1..7）；
+- 分数缩放 `n/d`；
+- 在 block 内的垂直/水平对齐；
+- 一个 glyph block 跨多个 row，`band` 表示当前 row 是 block 的第几行。
+
+**有什么用**
+
+- 应用可以只放大某个字符/图标，而不改终端字体；
+- 大字号 UI、状态图标、Powerline/Nerd Font 组合、kitty 的 text sizing 协议需要它；
+- renderer 必须按 block 裁剪/定位，否则 glyph 会溢出、错位或挡住相邻行。
+
+**当前缺什么**
+
+- cell 没有 `scale`/`band`/fraction/alignment；
+- `cell_width` 只表示横向列数，不能表示“占几行高”、分数缩放或 block 内 band；
+- 单纯加一个 `is_scaled` flag 不够，渲染需要完整 scale metadata。
+
+**建议表示**
+
+- 增加 `cell_type::scaled`（或 `sized`）；
+- `cell_extent` 在 scaled 类型下存 auxiliary table ID；
+- aux entry 保存 block 原点和 band、scale、fraction、alignment；
+- 不需要把 scale 放进每个 cell 的 flags。
+
+#### 9.6.4 inline images / image fragments
+
+**是什么**
+
+- kitty graphics / sixel 等协议把图像放到终端 grid；
+- Contour 用 per-cell `ImageFragment`：引用 rasterized image + 像素 offset；
+- Ghostty 有 kitty graphics 的 image placement 存储；
+- Windows Terminal 的图像路径也不通过 `CHAR_INFO` 的文本 cell 表达。
+
+**有什么用**
+
+- `ls` 图像、neofetch、终端图片查看器、TUI 图像预览；
+- 图像必须跟随 cell 的滚动/清除/覆盖：写入文本时 Replace 层图像应被清除，Below/Above
+  层可能保留；
+- 复制/选择需要知道图像占了哪些 cell。
+
+**当前缺什么**
+
+- cell 只支持文本 type，没有 image 引用、layer、placement ID、source rect；
+- 只在 screen 里另存图像无法正确处理“图像占哪些 cell、什么时候被文本覆盖、滚动时怎么移动”；
+- 不能用 `cell_flags` 的 1 bit 表达。
+
+**建议表示**
+
+- 增加 `cell_type::image`；
+- `cell_extent` 在 image 类型下存 `image_fragment_id`；
+- side table 保存 image ID、fragment offset、layer（below/replace/above）、resize/placement；
+- 写入文本/滚动/清除时按 layer 规则维护 side table；
+- 这与 Contour 的 `imageFragments` 和 `ImageFragment` 结构对应。
+
+#### 9.6.5 soft fonts / DECDLD
+
+**是什么**
+
+- VT 的 DECDLD 允许下载自定义软字体 glyph；
+- Contour 的 `LineSoA::softGlyphs` 是 column → `SoftGlyphRef` 的 side map；
+- 显示时 cell 的字符码点被软字体 glyph 替换。
+
+**有什么用**
+
+- 老式 VT 应用、DEC 图形字符、专用字符集需要自定义 glyph；
+- 如果不记录，文本会显示成错误字符或默认字体 glyph。
+
+**当前缺什么**
+
+- 没有 soft glyph 引用；
+- 字体数据不能塞进 cell；cell 只需要一个引用/ID。
+
+**建议表示**
+
+- 增加 `cell_type::soft_font`；
+- `cell_extent` 在 soft_font 类型下存 soft glyph ID；
+- screen 的 side table 管理软字体字形/生命周期；
+- 不需要 cell flags。
+
+#### 9.6.6 semantic prompt 的完整状态
+
+**是什么**
+
+- ghostty 的 `SemanticContent` 有 output/input/prompt；
+- Contour 的 line flags 有 marked/output_start/command_end/prompt_end；
+- WT 的 `Marks` 有 prompt/command/output 区域和 exit status。
+
+**有什么用**
+
+- shell integration 命令导航、命令块折叠、复制、
+- scrollbar mark、失败命令标记、辅助功能；
+- 当前 `semantic_input`/`semantic_prompt` 只有两个 bool，无法表达 output start、
+  command end、exit status、prompt end。
+
+**当前缺什么**
+
+- 没有 command-end/exit-status/prompt-end；
+- 没有 row-level mark；cell 级 flag 无法表达跨多行的命令块。
+
+**建议表示**
+
+- 基础 input/prompt 可以保留在 cell flags；
+- 完整语义放 row-level flags + command side record；
+- 不要在 cell 中重复每个字符的 command block 信息。
+
+#### 9.6.7 selection / search / highlight
+
+**是什么**
+
+- 选择范围、搜索匹配、visual bell、hover 等临时高亮。
+
+**有什么用**
+
+- 复制、查找、鼠标选择、可访问性。
+
+**当前缺什么**
+
+- screen buffer 没有 selection/search overlay；
+- 但这不是 cell 的职责：cell 的字符/宽度/style 才是持久内容，selection 是视图状态；
+- 如果塞进 cell 会污染内容、破坏复制/渲染的稳定性。
+
+**建议表示**
+
+- screen 级 `selection_mask`/range + search match ranges；
+- renderer 在绘制时叠加；
+- 不增加 cell 字段。
+
+#### 9.6.8 cursor / tab stops / margins
+
+**是什么**
+
+- cursor shape/position、tab stops、scroll margins。
+
+**有什么用**
+
+- 控制台 API、VT 光标、tab、区域滚动。
+
+**当前缺什么**
+
+- 当前 `libscreen` 是 cell/page 参考库，不含这些 screen 状态；但这些本来就不属于 cell；
+- 不应为了它们扩大 cell。
+
+**建议表示**
+
+- screen/console state 单独保存；
+- screen buffer 只提供 cell 网格和 row metadata。
+
+### 9.7 覆盖结论
+
 结论：
 
 - **当前 cell 覆盖了终端文本网格的核心**：UTF-16/BMP、非 BMP cluster、wide/tail、style、
