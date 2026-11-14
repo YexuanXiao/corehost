@@ -5,18 +5,17 @@
 本报告重新设计 corehost 的屏幕缓冲区，采用 **16 字节 cell**：
 
 - 16 位 UTF-16 primary；
-- 16 位 `cell_info`：
-  - bits 0-2 type；
-  - bits 3-5 width；
-  - bits 6-15 flags；
+- 4 位 `cell_type`；
+- 4 位 `cell_width`；
+- 8 位 `cell_flags`；
 - 32 位 `cell_extent`（实际打包 24 位 offset + 8 位 length）；
 - 32 位 `cell_style`；
 - 32 位 `cell_hyperlink`。
 
-`complex`/`surrogate`/`grapheme` 都是 `cell_info` 中 type 位 `1u << 1` 的别名，统一表示
-“这个 cell 需要多个 UTF-16 code unit”。当 type 为 complex 时，cell 的 primary 固定为
-`U+FFFD`；真实 primary 和完整 cluster 保存在 screen-wide 的 `std::vector<char16_t>` 中，
-由 `cell_extent` 内部的 24 位 offset 和 8 位 length 定位。
+`complex`/`surrogate`/`grapheme` 都是 `cell_type=2` 的别名，统一表示“这个 cell 需要多个
+UTF-16 code unit”。当 `cell_type=2` 时，cell 的 primary 固定为 `U+FFFD`；真实 primary 和
+完整 cluster 保存在 screen-wide 的 `std::vector<char16_t>` 中，由 `cell_extent` 内部的
+24 位 offset 和 8 位 length 定位。
 
 实现位于 [libscreen](libscreen)，包括：
 
@@ -63,7 +62,7 @@
 - 依赖 `length - 1` 与保留位等隐式编码。
 
 16 字节 cell 的目标不是追求最小内存，而是让 **24 位 offset、8 位 length、32 位 style、
-32 位 hyperlink、cell_info 中 10 位 flags** 同时成立，并把隐式编码全部去掉。
+32 位 hyperlink、8 位 flags** 同时成立，并把隐式编码全部去掉。
 
 ## 2. 参考实现
 
@@ -141,13 +140,13 @@ Ghostty 证明了 8 字节 packed cell + page-local side table 的高性能路�
 
 本报告的设计：
 
-- 16 字节 cell；primary + cell_info + 三个 32 位字段；
+- 16 字节 cell；两个 64 位 word；
 - UTF-16 primary，BMP 直接保存，complex 时为 `U+FFFD`；
 - 24 位 cluster offset；
 - 8 位 cluster length；
 - 32 位 screen-wide style ID；
 - 32 位 screen-wide hyperlink ID；
-- `cell_info` 中 10 位 flags；
+- 8 位 flags；
 - screen-wide `std::vector<char16_t>` cluster store；
 - dense page + row metadata + main/alternate + scrollback history；
 - Console API 与 DWrite 只在边界投影/映射。
@@ -179,7 +178,7 @@ Ghostty 证明了 8 字节 packed cell + page-local side table 的高性能路�
 corehost 的 16B 不是“最大的 cell”，而是**在 Windows 语义下把关键字段一次放够**：
 
 ```text
-primary 16 | cell_info 16 (type 3 | width 3 | flags 10)
+primary 16 | cell_type 4 | cell_width 4 | cell_flags 8
 cell_extent 32 (24-bit offset + 8-bit length) | cell_style 32 | cell_hyperlink 32
 ```
 
@@ -214,8 +213,10 @@ API 保留一个假的 high surrogate；DWrite/无头路径直接读取 store �
 
 | 字段 | 位数 | 含义 |
 | --- | ---: | --- |
-| `primary_` | 16 | UTF-16 code unit；type=complex 时为 `U+FFFD` |
-| `info_` | 16 | type 3 位 + width 3 位 + flags 10 位 |
+| `primary_` | 16 | UTF-16 code unit；`cell_type=2` 时为 `U+FFFD` |
+| `type_` | 4 | blank / scalar / complex(alias surrogate/grapheme) / background |
+| `width_` | 4 | narrow / wide / tail / spacer head |
+| `flags_` | 8 | protected / hyperlink / semantic / reserved |
 | `extent_` | 32 | 24 位 offset + 8 位 length |
 | `style_` | 32 | screen-wide style table ID |
 | `hyperlink_` | 32 | screen-wide hyperlink table ID |
@@ -231,56 +232,89 @@ enum class cell_hyperlink : std::int32_t {};
 struct cell
 {
     char16_t primary_;
-    cell_info info_;
+    cell_type type_ : 4;
+    cell_width width_ : 4;
+    cell_flags flags_ : 8;
     cell_extent extent_;
     cell_style style_;
     cell_hyperlink hyperlink_;
 };
 ```
 
-`cell_info` 把原 `type_`/`width_`/`flags_` 三个字段合并成一个 16 位值；type/width/flags
-的位段由 `cell_info_ops` 的 mask 和查询函数维护。`static_assert` 锁定
-`sizeof(cell)==16`、对齐、trivially copyable 和 standard-layout。
+`type_`/`width_`/`flags_` 使用位域，使 16 位 primary 后的 32 位头空间刚好容纳
+4+4+8 位；`extent`/`style`/`hyperlink` 是 32 位 enum，合计 12 字节，因此 cell 为
+16 字节。`static_assert` 锁定大小、对齐、trivially copyable 和 standard-layout。
 
-### 4.2 cell_info 的统一语义
+### 4.2 cell_type 的统一语义
 
 ```cpp
-enum class cell_info : std::uint16_t
+enum class cell_type : std::uint8_t
 {
-    scalar = 1u << 0,
-    complex = 1u << 1,
-    surrogate = 1u << 1,
-    grapheme = 1u << 1,
-    background = 1u << 2,
-
-    wide = 1u << 3,
-    tail = 1u << 4,
-    spacer_head = 1u << 5,
-
-    protected_cell = 1u << 6,
-    hyperlink = 1u << 7,
-    semantic_input = 1u << 8,
-    semantic_prompt = 1u << 9,
+    blank = 0,
+    scalar = 1,
+    complex = 2,
+    surrogate = 2,
+    grapheme = 2,
+    background = 3,
 };
 ```
 
-`cell_info_ops` 提供：
+- `complex`/`surrogate`/`grapheme` 是同一个值 2；
+- type=2 时 primary 固定为 `U+FFFD`；
+- 真实 primary/cluster 在 store；
+- type 不负责区分 surrogate 和 grapheme；如果未来需要区分，使用 flags 或 side
+  metadata，而不是增加 type 位宽；
+- 4 位 type 字段保留后续扩展空间，但值 0..3 已覆盖当前语义。
 
-- `cell_type_mask = 0x07`；
-- `cell_width_mask = 0x38`；
-- `cell_flags_mask = 0xFFC0`；
-- `type_of`/`width_of`/`flags_of`；
-- `is_type_*`、`is_width_*`、`is_flags_*`；
-- `combine`/`with_type`/`with_width` 辅助组合。
+#### 掩码查询
 
-规则：
+三个字段仍通过 mask 查询，而不是直接把位域当成无类型整数：
 
-- `complex`/`surrogate`/`grapheme` 是同一个 type 位 `1u << 1`；
-- complex 类型时 primary 固定为 `U+FFFD`；
-- type 位不负责区分 surrogate 和 grapheme；如果未来需要区分，使用 flags 或 side
-  metadata；
-- width 是离散字段而不是组合位，因此 `is_width_*` 使用掩码后比较；
-- flags 可组合，`is_flags_*` 使用位测试。
+```cpp
+namespace cell_type_ops
+{
+constexpr std::uint8_t mask = 0x0Fu;
+constexpr std::uint8_t type_of(cell_type value) noexcept
+{
+    return static_cast<std::uint8_t>(value) & mask;
+}
+constexpr bool is_blank(cell_type value) noexcept
+{
+    return type_of(value) == static_cast<std::uint8_t>(cell_type::blank);
+}
+// scalar/complex/surrogate/grapheme/background 同理
+}
+
+namespace cell_width_ops
+{
+constexpr std::uint8_t mask = 0x0Fu;
+constexpr std::uint8_t width_of(cell_width value) noexcept
+{
+    return static_cast<std::uint8_t>(value) & mask;
+}
+// narrow/wide/tail/spacer head 同理
+}
+
+namespace cell_flags_ops
+{
+constexpr std::uint8_t mask = 0xFFu;
+constexpr std::uint8_t flags_of(cell_flags value) noexcept
+{
+    return static_cast<std::uint8_t>(value) & mask;
+}
+constexpr bool has(cell_flags value, cell_flags flag) noexcept
+{
+    return (flags_of(value) & static_cast<std::uint8_t>(flag)) != 0;
+}
+// protected/hyperlink/semantic input/prompt 同理
+}
+```
+
+- type/width 是离散字段，查询时先 mask 再比较；
+- flags 是可组合位，查询时先 mask 再按位测试；
+- cell accessor（`is_blank()`/`is_wide()`/`has()` 等）复用这些 ops，
+  不直接依赖 bitfield 的编译器布局；
+- 位域只负责存储，查询语义由 ops 统一。
 
 ### 4.3 cell_extent：24 位 offset + 8 位 length
 
@@ -321,12 +355,11 @@ bits 24..31 : actual cluster length (1..255)
 - `blank`、`background`、`tail`、`spacer_head`；
 - `scalar`（BMP code unit，孤立 surrogate 规范为 `U+FFFD`）；
 - `complex`/`surrogate`/`grapheme`（offset/length）；
-- `primary()`、`text_unit()`、`style()`、`hyperlink()`、`info()`；
-- `offset()`、`length()`；`cell_extent` 通过 `make_cell_extent()`/
+- `primary()`、`text_unit()`、`style()`、`hyperlink()`、`type()`、`width()`、
+  `offset()`、`length()`、`flags()`；`cell_extent` 通过 `make_cell_extent()`/
   `extent_offset()`/`extent_length()` 编码；
 - `has_cluster()`、`is_blank()`、`is_wide()`、`is_continuation()`、`is_spacer_head()`；
-- `has(cell_info)` 查询 flags；
-- `with_info()`、`with_style()`、`with_hyperlink()`、`with_flag()`、`with_cluster_ref()`；
+- `with_style()`、`with_hyperlink()`、`with_flag()`、`with_cluster_ref()`；
 - `static_assert(sizeof(cell) == 16)`、trivially copyable、standard-layout。
 
 ## 5. 屏幕缓冲区结构
@@ -446,7 +479,7 @@ row_state:
 
 - Ghostty 8B cell 在同样网格是 28.8 KB / 240 KB / 1.6 MB；
 - corehost 16B 用 2 倍 cell 内存换取 24 位 offset、8 位 length、32 位 style/hyperlink
-  和 `cell_info` 中 10 位 flags；
+  和 8 位 flags；
 - conhost 的 per-cell `wstring`/属性通常超过 16B；
 - Contour 的 SoA 多数组在小网格上可能低于 16B/cell，但字段分散，Windows API 投影需要
   额外整理。
@@ -471,7 +504,7 @@ row_state:
 - 8 位 length；
 - 32 位 style；
 - 32 位 hyperlink；
-- 10 位 flags。
+- 8 位 flags。
 
 如果继续压到 8B，必须：
 
@@ -491,7 +524,7 @@ row_state:
 覆盖：
 
 - `sizeof(cell)==16`、对齐、trivially copyable；
-- primary/info/extent/style/hyperlink；cell_info mask/ops；
+- primary/type/width/extent/style/hyperlink/flags；
 - 孤立 surrogate 规范为 `U+FFFD`；
 - type=2 的 primary 为 `U+FFFD`；
 - type alias 相等；

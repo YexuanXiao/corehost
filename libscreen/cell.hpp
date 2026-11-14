@@ -7,165 +7,162 @@
 namespace corehost::screen
 {
 
-// cell_info packs type, width and flags into one 16-bit value:
-//   bits 0..2   type
-//   bits 3..5   width
-//   bits 6..15  flags
-enum class cell_info : std::uint16_t
+// 4-bit cell type. complex/surrogate/grapheme are aliases: all mean
+// "primary is U+FFFD and the complete UTF-16 cluster is in the store".
+enum class cell_type : std::uint8_t
 {
-    // ---- cell_type: bits 0-2 ----
-    // complex/surrogate/grapheme are aliases: primary is U+FFFD and the full
-    // UTF-16 cluster lives in the store.
-    /* skip blank slot
-    blank      = 0u,
-    */
-    scalar = 1u << 0,
-    complex = 1u << 1, // three synonyms
-    surrogate = 1u << 1,
-    grapheme = 1u << 1,
-    background = 1u << 2,
-
-    // ---- cell_width: bits 3-5 ----
-    /* skip narrow slot
-    narrow      = 0u,
-    */
-    wide = 1u << 3,
-    tail = 1u << 4,
-    spacer_head = 1u << 5,
-
-    // ---- cell_flags: bits 6-15 ----
-    /* skip none slot
-    none            = 0u,
-    */
-    protected_cell = 1u << 6,
-    hyperlink = 1u << 7,
-    semantic_input = 1u << 8,
-    semantic_prompt = 1u << 9,
+    blank = 0,
+    scalar = 1,
+    complex = 2,
+    surrogate = 2,
+    grapheme = 2,
+    background = 3,
 };
 
-namespace cell_info_ops
+// 4-bit column semantics.
+enum class cell_width : std::uint8_t
 {
-// ---- field masks ----
-constexpr std::uint16_t cell_type_mask = 0x07u;    // bits 0-2
-constexpr std::uint16_t cell_width_mask = 0x38u;   // bits 3-5
-constexpr std::uint16_t cell_flags_mask = 0xFFC0u; // bits 6-15
+    narrow = 0,
+    wide = 1,
+    tail = 2,
+    spacer_head = 3,
+};
 
-constexpr std::uint16_t raw(cell_info c) noexcept
+// 8-bit flags. The upper four bits are reserved.
+enum class cell_flags : std::uint8_t
 {
-    return static_cast<std::uint16_t>(c);
+    none = 0,
+    protected_cell = 1u << 0,
+    hyperlink = 1u << 1,
+    semantic_input = 1u << 2,
+    semantic_prompt = 1u << 3,
+};
+
+namespace cell_type_ops
+{
+constexpr std::uint8_t mask = 0x0Fu; // 4-bit field
+
+constexpr std::uint8_t raw(cell_type value) noexcept
+{
+    return static_cast<std::uint8_t>(value);
 }
 
-constexpr std::uint16_t type_of(cell_info c) noexcept
+constexpr std::uint8_t type_of(cell_type value) noexcept
 {
-    return raw(c) & cell_type_mask;
+    return raw(value) & mask;
 }
 
-constexpr std::uint16_t width_of(cell_info c) noexcept
+constexpr bool is_blank(cell_type value) noexcept
 {
-    return raw(c) & cell_width_mask;
+    return type_of(value) == raw(cell_type::blank);
 }
 
-constexpr std::uint16_t flags_of(cell_info c) noexcept
+constexpr bool is_scalar(cell_type value) noexcept
 {
-    return raw(c) & cell_flags_mask;
+    return type_of(value) == raw(cell_type::scalar);
 }
 
-// ---- cell_type: bits 0-2 ----
-constexpr bool is_type_blank(cell_info c) noexcept
+constexpr bool is_complex(cell_type value) noexcept
 {
-    return type_of(c) == 0;
+    return type_of(value) == raw(cell_type::complex);
 }
 
-constexpr bool is_type_scalar(cell_info c) noexcept
+constexpr bool is_surrogate(cell_type value) noexcept
 {
-    return type_of(c) == raw(cell_info::scalar);
+    return is_complex(value);
 }
 
-constexpr bool is_type_complex(cell_info c) noexcept
+constexpr bool is_grapheme(cell_type value) noexcept
 {
-    return type_of(c) == raw(cell_info::complex);
+    return is_complex(value);
 }
 
-constexpr bool is_type_surrogate(cell_info c) noexcept
+constexpr bool is_background(cell_type value) noexcept
 {
-    return is_type_complex(c);
+    return type_of(value) == raw(cell_type::background);
+}
+} // namespace cell_type_ops
+
+namespace cell_width_ops
+{
+constexpr std::uint8_t mask = 0x0Fu; // 4-bit field
+
+constexpr std::uint8_t raw(cell_width value) noexcept
+{
+    return static_cast<std::uint8_t>(value);
 }
 
-constexpr bool is_type_grapheme(cell_info c) noexcept
+constexpr std::uint8_t width_of(cell_width value) noexcept
 {
-    return is_type_complex(c);
+    return raw(value) & mask;
 }
 
-constexpr bool is_type_background(cell_info c) noexcept
+constexpr bool is_narrow(cell_width value) noexcept
 {
-    return type_of(c) == raw(cell_info::background);
+    return width_of(value) == raw(cell_width::narrow);
 }
 
-// ---- cell_width: bits 3-5 ----
-constexpr bool is_width_narrow(cell_info c) noexcept
+constexpr bool is_wide(cell_width value) noexcept
 {
-    return width_of(c) == 0;
+    return width_of(value) == raw(cell_width::wide);
 }
 
-constexpr bool is_width_wide(cell_info c) noexcept
+constexpr bool is_tail(cell_width value) noexcept
 {
-    return width_of(c) == raw(cell_info::wide);
+    return width_of(value) == raw(cell_width::tail);
 }
 
-constexpr bool is_width_tail(cell_info c) noexcept
+constexpr bool is_spacer_head(cell_width value) noexcept
 {
-    return width_of(c) == raw(cell_info::tail);
+    return width_of(value) == raw(cell_width::spacer_head);
+}
+} // namespace cell_width_ops
+
+namespace cell_flags_ops
+{
+constexpr std::uint8_t mask = 0xFFu; // 8-bit field
+
+constexpr std::uint8_t raw(cell_flags value) noexcept
+{
+    return static_cast<std::uint8_t>(value);
 }
 
-constexpr bool is_width_spacer_head(cell_info c) noexcept
+constexpr std::uint8_t flags_of(cell_flags value) noexcept
 {
-    return width_of(c) == raw(cell_info::spacer_head);
+    return raw(value) & mask;
 }
 
-// ---- cell_flags: bits 6-15 ----
-constexpr bool is_flags_none(cell_info c) noexcept
+constexpr bool is_none(cell_flags value) noexcept
 {
-    return flags_of(c) == 0;
+    return flags_of(value) == 0;
 }
 
-// flags are combinable; test bits rather than equality.
-constexpr bool is_flags_protected(cell_info c) noexcept
+// Flags are combinable; test bits instead of comparing equality.
+constexpr bool has(cell_flags value, cell_flags flag) noexcept
 {
-    return (raw(c) & raw(cell_info::protected_cell)) != 0;
+    return (flags_of(value) & raw(flag)) != 0;
 }
 
-constexpr bool is_flags_hyperlink(cell_info c) noexcept
+constexpr bool is_protected(cell_flags value) noexcept
 {
-    return (raw(c) & raw(cell_info::hyperlink)) != 0;
+    return has(value, cell_flags::protected_cell);
 }
 
-constexpr bool is_flags_semantic_input(cell_info c) noexcept
+constexpr bool is_hyperlink(cell_flags value) noexcept
 {
-    return (raw(c) & raw(cell_info::semantic_input)) != 0;
+    return has(value, cell_flags::hyperlink);
 }
 
-constexpr bool is_flags_semantic_prompt(cell_info c) noexcept
+constexpr bool is_semantic_input(cell_flags value) noexcept
 {
-    return (raw(c) & raw(cell_info::semantic_prompt)) != 0;
+    return has(value, cell_flags::semantic_input);
 }
 
-// Small composition helpers used by cell factories and callers. They do not
-// add enum values; they only manipulate the packed bit ranges above.
-constexpr cell_info combine(cell_info left, cell_info right) noexcept
+constexpr bool is_semantic_prompt(cell_flags value) noexcept
 {
-    return static_cast<cell_info>(raw(left) | raw(right));
+    return has(value, cell_flags::semantic_prompt);
 }
-
-constexpr cell_info with_type(cell_info value, cell_info type) noexcept
-{
-    return static_cast<cell_info>((raw(value) & ~cell_type_mask) | (raw(type) & cell_type_mask));
-}
-
-constexpr cell_info with_width(cell_info value, cell_info width) noexcept
-{
-    return static_cast<cell_info>((raw(value) & ~cell_width_mask) | (raw(width) & cell_width_mask));
-}
-} // namespace cell_info_ops
+} // namespace cell_flags_ops
 
 // Raw 24-bit cluster offset used by the grapheme store and cell extent.
 using cluster_offset = std::uint32_t;
@@ -205,18 +202,17 @@ enum class cell_hyperlink : std::int32_t
 inline constexpr cell_style default_cell_style{0};
 inline constexpr cell_hyperlink no_cell_hyperlink{0};
 
-// 16-byte cell:
-//   char16_t primary   2
-//   cell_info info     2
-//   cell_extent extent 4
-//   cell_style style   4
-//   cell_hyperlink     4
+// 16-byte cell. The two 32-bit IDs and the packed extent make the struct
+// exactly 16 bytes; type/width/flags are bitfields to keep the hot header
+// compact and to make tests of individual flags cheap.
 struct cell
 {
     static constexpr std::uint8_t max_cluster_length = 255;
 
     char16_t primary_{};
-    cell_info info_{};
+    cell_type type_ : 4;
+    cell_width width_ : 4;
+    cell_flags flags_ : 8;
     cell_extent extent_{};
     cell_style style_{};
     cell_hyperlink hyperlink_{};
@@ -224,12 +220,13 @@ struct cell
     constexpr cell() noexcept = default;
 
     [[nodiscard]] static constexpr cell blank(cell_style style = default_cell_style,
-                                              cell_hyperlink hyperlink = no_cell_hyperlink,
-                                              cell_info flags = cell_info{}) noexcept
+                                              cell_hyperlink hyperlink = no_cell_hyperlink) noexcept
     {
         cell result;
         result.primary_ = u' ';
-        result.info_ = cell_info_ops::with_type(flags, cell_info{});
+        result.type_ = cell_type::blank;
+        result.width_ = cell_width::narrow;
+        result.flags_ = cell_flags::none;
         result.extent_ = make_cell_extent(0, 0);
         result.style_ = style;
         result.hyperlink_ = hyperlink;
@@ -237,39 +234,39 @@ struct cell
     }
 
     [[nodiscard]] static constexpr cell background(cell_style style = default_cell_style,
-                                                   cell_hyperlink hyperlink = no_cell_hyperlink,
-                                                   cell_info flags = cell_info{}) noexcept
+                                                   cell_hyperlink hyperlink = no_cell_hyperlink) noexcept
     {
-        auto result = blank(style, hyperlink, flags);
-        result.info_ = cell_info_ops::with_type(result.info_, cell_info::background);
+        auto result = blank(style, hyperlink);
+        result.type_ = cell_type::background;
         return result;
     }
 
     [[nodiscard]] static constexpr cell tail(cell_style style = default_cell_style,
-                                             cell_hyperlink hyperlink = no_cell_hyperlink,
-                                             cell_info flags = cell_info{}) noexcept
+                                             cell_hyperlink hyperlink = no_cell_hyperlink) noexcept
     {
-        auto result = blank(style, hyperlink, flags);
-        result.info_ = cell_info_ops::with_width(result.info_, cell_info::tail);
+        auto result = blank(style, hyperlink);
+        result.width_ = cell_width::tail;
         return result;
     }
 
     [[nodiscard]] static constexpr cell spacer_head(cell_style style = default_cell_style,
-                                                    cell_hyperlink hyperlink = no_cell_hyperlink,
-                                                    cell_info flags = cell_info{}) noexcept
+                                                    cell_hyperlink hyperlink = no_cell_hyperlink) noexcept
     {
-        auto result = blank(style, hyperlink, flags);
-        result.info_ = cell_info_ops::with_width(result.info_, cell_info::spacer_head);
+        auto result = blank(style, hyperlink);
+        result.width_ = cell_width::spacer_head;
         return result;
     }
 
     [[nodiscard]] static constexpr cell scalar(char16_t primary, cell_style style = default_cell_style,
-                                               cell_info info = cell_info{},
-                                               cell_hyperlink hyperlink = no_cell_hyperlink) noexcept
+                                               cell_width width = cell_width::narrow,
+                                               cell_hyperlink hyperlink = no_cell_hyperlink,
+                                               cell_flags flags = cell_flags::none) noexcept
     {
         cell result;
         result.primary_ = is_surrogate(primary) ? u'\uFFFD' : primary;
-        result.info_ = cell_info_ops::with_type(info, cell_info::scalar);
+        result.type_ = cell_type::scalar;
+        result.width_ = width;
+        result.flags_ = flags;
         result.extent_ = make_cell_extent(0, 0);
         result.style_ = style;
         result.hyperlink_ = hyperlink;
@@ -277,12 +274,16 @@ struct cell
     }
 
     [[nodiscard]] static constexpr cell complex(std::uint32_t offset, std::uint8_t length,
-                                                cell_style style = default_cell_style, cell_info info = cell_info{},
-                                                cell_hyperlink hyperlink = no_cell_hyperlink) noexcept
+                                                cell_style style = default_cell_style,
+                                                cell_width width = cell_width::narrow,
+                                                cell_hyperlink hyperlink = no_cell_hyperlink,
+                                                cell_flags flags = cell_flags::none) noexcept
     {
         cell result;
         result.primary_ = u'\uFFFD';
-        result.info_ = cell_info_ops::with_type(info, cell_info::complex);
+        result.type_ = cell_type::complex;
+        result.width_ = width;
+        result.flags_ = flags;
         result.extent_ = make_cell_extent(offset, length);
         result.style_ = style;
         result.hyperlink_ = hyperlink;
@@ -290,17 +291,21 @@ struct cell
     }
 
     [[nodiscard]] static constexpr cell surrogate(std::uint32_t offset, std::uint8_t length,
-                                                  cell_style style = default_cell_style, cell_info info = cell_info{},
-                                                  cell_hyperlink hyperlink = no_cell_hyperlink) noexcept
+                                                  cell_style style = default_cell_style,
+                                                  cell_width width = cell_width::narrow,
+                                                  cell_hyperlink hyperlink = no_cell_hyperlink,
+                                                  cell_flags flags = cell_flags::none) noexcept
     {
-        return complex(offset, length, style, info, hyperlink);
+        return complex(offset, length, style, width, hyperlink, flags);
     }
 
     [[nodiscard]] static constexpr cell grapheme(std::uint32_t offset, std::uint8_t length,
-                                                 cell_style style = default_cell_style, cell_info info = cell_info{},
-                                                 cell_hyperlink hyperlink = no_cell_hyperlink) noexcept
+                                                 cell_style style = default_cell_style,
+                                                 cell_width width = cell_width::narrow,
+                                                 cell_hyperlink hyperlink = no_cell_hyperlink,
+                                                 cell_flags flags = cell_flags::none) noexcept
     {
-        return complex(offset, length, style, info, hyperlink);
+        return complex(offset, length, style, width, hyperlink, flags);
     }
 
     [[nodiscard]] constexpr char16_t primary() const noexcept
@@ -323,9 +328,14 @@ struct cell
         return hyperlink_;
     }
 
-    [[nodiscard]] constexpr cell_info info() const noexcept
+    [[nodiscard]] constexpr cell_type type() const noexcept
     {
-        return info_;
+        return type_;
+    }
+
+    [[nodiscard]] constexpr cell_width width() const noexcept
+    {
+        return width_;
     }
 
     [[nodiscard]] constexpr std::uint32_t offset() const noexcept
@@ -338,20 +348,24 @@ struct cell
         return extent_length(extent_);
     }
 
-    [[nodiscard]] constexpr bool has(cell_info flag) const noexcept
+    [[nodiscard]] constexpr cell_flags flags() const noexcept
     {
-        const auto bits = cell_info_ops::raw(flag) & cell_info_ops::cell_flags_mask;
-        return (cell_info_ops::raw(info_) & bits) != 0;
+        return flags_;
+    }
+
+    [[nodiscard]] constexpr bool has(cell_flags value) const noexcept
+    {
+        return cell_flags_ops::has(flags_, value);
     }
 
     [[nodiscard]] constexpr bool is_blank() const noexcept
     {
-        return cell_info_ops::is_type_blank(info_) || cell_info_ops::is_type_background(info_);
+        return cell_type_ops::is_blank(type_) || cell_type_ops::is_background(type_);
     }
 
     [[nodiscard]] constexpr bool has_cluster() const noexcept
     {
-        return cell_info_ops::is_type_complex(info_);
+        return cell_type_ops::is_complex(type_);
     }
 
     [[nodiscard]] constexpr bool is_complex() const noexcept
@@ -361,24 +375,17 @@ struct cell
 
     [[nodiscard]] constexpr bool is_wide() const noexcept
     {
-        return cell_info_ops::is_width_wide(info_);
+        return cell_width_ops::is_wide(width_);
     }
 
     [[nodiscard]] constexpr bool is_continuation() const noexcept
     {
-        return cell_info_ops::is_width_tail(info_);
+        return cell_width_ops::is_tail(width_);
     }
 
     [[nodiscard]] constexpr bool is_spacer_head() const noexcept
     {
-        return cell_info_ops::is_width_spacer_head(info_);
-    }
-
-    [[nodiscard]] constexpr cell with_info(cell_info value) const noexcept
-    {
-        auto result = *this;
-        result.info_ = value;
-        return result;
+        return cell_width_ops::is_spacer_head(width_);
     }
 
     [[nodiscard]] constexpr cell with_style(cell_style value) const noexcept
@@ -395,12 +402,12 @@ struct cell
         return result;
     }
 
-    [[nodiscard]] constexpr cell with_flag(cell_info value, bool enabled = true) const noexcept
+    [[nodiscard]] constexpr cell with_flag(cell_flags value, bool enabled = true) const noexcept
     {
         auto result = *this;
-        const auto bit = cell_info_ops::raw(value) & cell_info_ops::cell_flags_mask;
-        const auto old = cell_info_ops::raw(info_);
-        result.info_ = static_cast<cell_info>(enabled ? (old | bit) : (old & ~bit));
+        const auto bit = cell_flags_ops::raw(value);
+        const auto old = cell_flags_ops::flags_of(flags_);
+        result.flags_ = static_cast<cell_flags>(enabled ? (old | bit) : (old & ~bit));
         return result;
     }
 
