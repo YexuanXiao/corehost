@@ -974,7 +974,7 @@ f7a29de perf(consoleapi): reuse ReadConsole event scratch buffer
 
 ### VT ground 文本扫描
 
-`vt_parser::_direct_ground_text_run_length` 原来对每个字符判断 `ch < 0x80`，再查 128 项表。改为 65536 项控制字符查表，直接按 `char16_t` 索引，不再有逐字符 `0x80` 分支：
+`vt_parser::_direct_ground_text_run_length` 原来对每个字符判断 `ch < 0x80`，再查 128 项表。改为 `std::bitset<0x10000>` 控制字符查表，直接按 `char16_t` 索引，不再有逐字符 `0x80` 分支：
 
 ```cpp
 for (const char16_t ch : text)
@@ -989,6 +989,7 @@ for (const char16_t ch : text)
 
 ```text
 6ae820a perf(vtparser): remove ascii branch from ground text scanning
+ace2785 perf(vtparser): use compact bitset for control lookup
 ```
 
 `vtserializer::append_utf16` 改为每次文本 run 只构造一次 `unicode::decoder<char16_t>`/`encoder<char>`，而不是每码点构造：
