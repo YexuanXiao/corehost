@@ -2505,7 +2505,7 @@ class console_api final
         return payload_->read(message, header_size);
     }
 
-    void expand_console_alias(std::u16string &line) const
+    void expand_console_alias(std::u16string &line)
     {
         if (line.empty())
         {
@@ -2520,7 +2520,8 @@ class console_api final
             {
                 continue;
             }
-            std::u16string expanded = alias.target;
+            auto &expanded = alias_expanded_;
+            expanded.assign(alias.target);
             if (word_end != std::u16string::npos)
             {
                 expanded.append(line, word_end, std::u16string::npos);
@@ -2697,6 +2698,7 @@ class console_api final
     std::vector<consoleinput::input_event> prepend_buffer_;
     std::u16string cooked_line_;
     std::u16string expanded_line_;
+    std::u16string alias_expanded_;
     std::size_t cooked_cursor_{};
     screen::coord cooked_origin_{};
     std::size_t cooked_echo_length_{};
