@@ -1001,6 +1001,14 @@ fb4d3ef perf(libscreen): remove per-cell bounds checks in ascii run
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### Alias EXE 长度查询去掉临时字符串
+
+`get_alias_exes_length` 的非 Unicode 分支直接调用 `WideCharToMultiByte(..., nullptr, 0)` 取长度，不再构造 `std::string` 再取 `.size()`：
+
+```text
+f4d1de1 perf(consoleapi): size alias exes without temp string
+```
+
 ### Ctrl 事件目标缓冲复用
 
 `generate_ctrl_event` 不再每次构造 `std::vector<std::uintptr_t> targets`，复用成员 `ctrl_targets_`：
