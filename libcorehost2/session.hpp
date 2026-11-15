@@ -78,7 +78,7 @@ class session final
         feed_input(std::u16string_view{input, N});
     }
 
-    void feed_input(std::u16string_view input)
+    void feed_input(std::u16string_view input, bool raw_passthrough = false)
     {
         while (!input.empty())
         {
@@ -88,7 +88,7 @@ class session final
             {
                 break;
             }
-            consume(result, true);
+            consume(result, true, raw_passthrough);
             parser_.reset();
         }
     }
@@ -103,10 +103,25 @@ class session final
     }
 
   private:
-    void consume(const vtparser::vt_parse_result &result, bool input_direction)
+    void consume(const vtparser::vt_parse_result &result, bool input_direction,
+                 bool raw_passthrough = false)
     {
         if (result.id == vtparser::vt_message_id::continue_)
         {
+            return;
+        }
+
+        if (input_direction && raw_passthrough && !result.raw_sequence.empty())
+        {
+            for (const auto ch : result.raw_sequence)
+            {
+                input_.push(consoleinput::input_event{
+                    consoleinput::input_event_type::key,
+                    consoleinput::key_from_character(ch, true)});
+                input_.push(consoleinput::input_event{
+                    consoleinput::input_event_type::key,
+                    consoleinput::key_from_character(ch, false)});
+            }
             return;
         }
 

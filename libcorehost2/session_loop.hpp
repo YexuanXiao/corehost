@@ -133,7 +133,8 @@ class session_input_sink final : public conptyio::vt_input_sink
             console_.push_raw(std::span<const char>{reinterpret_cast<const char *>(bytes.data()),
                                                    bytes.size()});
         }
-        state_.feed_input(text_);
+        state_.feed_input(text_, (state_.state().input_mode & 0x0200) != 0 &&
+                                  !console_.raw_pending() && !console_.console_read_pending());
         (void)console_.complete_pending();
         for (const auto [mode, enabled] : state_.state().take_private_modes())
         {

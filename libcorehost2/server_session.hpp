@@ -70,6 +70,11 @@ class server_session final
         return pending_active_ && pending_kind_ == pending_kind::raw_read;
     }
 
+    [[nodiscard]] bool console_read_pending() const noexcept
+    {
+        return pending_active_ && pending_kind_ == pending_kind::console_read;
+    }
+
     void on_input_eof()
     {
         raw_eof_ = true;
