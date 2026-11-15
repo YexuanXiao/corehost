@@ -2,8 +2,7 @@
 #include "control.hpp"
 #include "attributes.hpp"
 #include "text.hpp"
-#include "attributes.hpp"
-#include "text.hpp"
+#include "viewport.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -93,6 +92,30 @@ int main()
         !std::equal(buffer.bytes().begin(), buffer.bytes().end(), sgr.begin()))
     {
         std::fprintf(stderr, "sgr serialization failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::screen::screen_buffer screen{10, 2};
+    corehost::screen::coord cursor{0, 0};
+    (void)screen.write_text_row(cursor, u"AB", {}, corehost::screen::cell_style{}, true);
+    std::fprintf(stderr, "before render\n");
+    std::fflush(stderr);
+    buffer.clear();
+    render_damage(buffer, screen, corehost::screen::coord{2, 0});
+    std::fprintf(stderr, "after render\n");
+    std::fflush(stderr);
+    bool found_ab = false;
+    for (std::size_t i = 0; i + 1 < buffer.bytes().size(); ++i)
+    {
+        if (buffer.bytes()[i] == u8'A' && buffer.bytes()[i + 1] == u8'B')
+        {
+            found_ab = true;
+            break;
+        }
+    }
+    if (!found_ab)
+    {
+        std::fprintf(stderr, "viewport text missing\n");
         return EXIT_FAILURE;
     }
 
