@@ -40,34 +40,28 @@ struct server_worker_context final
 inline DWORD WINAPI server_worker_entry(LPVOID raw)
 {
     auto &context = *static_cast<server_worker_context *>(raw);
-    try
-    {
-        coreio::win32_transport transport{context.server, context.event};
-        auto handler = [&](coreio::io_msg &message) -> bool {
-            std::unique_lock guard{*context.mutex};
-            if (!context.dispatcher->handle(message))
-            {
-                return false;
-            }
-            if (!context.state->screen().has_damage())
-            {
-                return true;
-            }
-            const auto cursor = screen::coord{
-                static_cast<std::int32_t>(context.state->state().cursor().x),
-                static_cast<std::int32_t>(context.state->state().cursor().y),
-            };
-            vtserializer::render_damage(context.writer->buffer(), context.state->screen(), cursor,
-                                        &context.state->state());
-            context.state->screen().clear_damage();
-            (void)context.writer->flush();
+    coreio::win32_transport transport{context.server, context.event};
+    auto handler = [&](coreio::io_msg &message) -> bool {
+        std::unique_lock guard{*context.mutex};
+        if (!context.dispatcher->handle(message))
+        {
+            return false;
+        }
+        if (!context.state->screen().has_damage())
+        {
             return true;
+        }
+        const auto cursor = screen::coord{
+            static_cast<std::int32_t>(context.state->state().cursor().x),
+            static_cast<std::int32_t>(context.state->state().cursor().y),
         };
-        coreio::run_server(transport, handler, *context.stop);
-    }
-    catch (...)
-    {
-    }
+        vtserializer::render_damage(context.writer->buffer(), context.state->screen(), cursor,
+                                    &context.state->state());
+        context.state->screen().clear_damage();
+        (void)context.writer->flush();
+        return true;
+    };
+    coreio::run_server(transport, handler, *context.stop);
     return 0;
 }
 
