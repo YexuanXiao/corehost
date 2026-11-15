@@ -133,14 +133,15 @@ class state_applier final
     void apply_text_impl(const vtparser::vt_message &message, screen::screen_buffer &buffer,
                          screen::console_state &state)
     {
-        text_.clear();
-        text_.assign(message.payload.text);
+        auto text = message.payload.text;
         if (state.line_drawing_charset)
         {
+            text_.assign(text);
             for (auto &ch : text_)
             {
                 ch = line_drawing(ch);
             }
+            text = text_;
         }
 
         auto cursor = screen::coord{
@@ -149,7 +150,7 @@ class state_applier final
         };
 
         std::size_t consumed = 0;
-        for (const auto cluster : screen::grapheme_range<Mode, Ambiguous>{text_})
+        for (const auto cluster : screen::grapheme_range<Mode, Ambiguous>{text})
         {
             auto columns = cluster.width;
             if (columns <= 0)
