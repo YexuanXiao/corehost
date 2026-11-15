@@ -78,6 +78,9 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::carriage_return:
         state.set_cursor(0, state.cursor().y);
         return true;
+    case vtparser::vt_message_id::cursor_backward_tab:
+        state.set_cursor(state.previous_tab_stop(state.cursor().x), state.cursor().y);
+        return true;
     case vtparser::vt_message_id::cursor_forward_tab:
         state.set_cursor(state.next_tab_stop(state.cursor().x), state.cursor().y);
         return true;
