@@ -1001,10 +1001,6 @@ inline std::size_t screen_buffer::read_char_info(rect area, std::span<char_info>
 inline std::size_t screen_buffer::write_char_info(rect area, std::span<const char_info> values) noexcept
 {
     std::size_t index = 0;
-    std::uint16_t last_attributes = 0;
-    cell_style last_style{};
-    bool has_last_style = false;
-
     for (auto y = area.top; y <= area.bottom && index < values.size(); ++y)
     {
         for (auto x = area.left; x <= area.right && index < values.size(); ++x)
@@ -1020,13 +1016,7 @@ inline std::size_t screen_buffer::write_char_info(rect area, std::span<const cha
             const auto is_head = (value.attributes & interop::win32::lvb_leading_byte) != 0;
             value.attributes = static_cast<std::uint16_t>(
                 value.attributes & ~(interop::win32::lvb_leading_byte | interop::win32::lvb_trailing_byte));
-            if (!has_last_style || value.attributes != last_attributes)
-            {
-                last_style = style_for_legacy(value.attributes);
-                last_attributes = value.attributes;
-                has_last_style = true;
-            }
-            const auto style = last_style;
+            const auto style = style_for_legacy(value.attributes);
 
             if (is_tail)
             {
