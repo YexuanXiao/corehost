@@ -1086,8 +1086,9 @@ inline std::size_t screen_buffer::write_char_info_abi(rect area,
                 continue;
             }
 
-            const auto next_is_tail = index < values.size() &&
-                                      (from_win32(values[index]).attributes & interop::win32::lvb_trailing_byte) != 0;
+            const auto next_is_tail =
+                index < values.size() &&
+                (values[index].attributes & interop::win32::lvb_trailing_byte) != 0;
             const auto wide = is_head || next_is_tail;
             (void)write_cell(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
                              cell::scalar(value.character, style, wide ? cell_width::wide : cell_width::narrow));
