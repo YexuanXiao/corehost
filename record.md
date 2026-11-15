@@ -961,7 +961,10 @@ ConsoleAPI.Reference Passed
 ```text
 35e8c09 perf(vtserializer): avoid zeroing number scratch buffer
 1eb81a9 perf(vtserializer): remove optional branch for text codepoints
+b0939ea perf(consoleapi): reuse GetConsoleInput event scratch buffer
 ```
+
+`GetConsoleInput` 的 64 项 `input_event` scratch array 从每次调用构造的局部数组改为 `console_api` 成员 `read_events_`，避免每次 API 调用重新构造/清零 64 项事件。
 
 `vtserializer::append_utf16` 改为每次文本 run 只构造一次 `unicode::decoder<char16_t>`/`encoder<char>`，而不是每码点构造：
 
