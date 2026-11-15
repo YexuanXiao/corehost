@@ -588,7 +588,8 @@ class console_api final
                     ++echo_cursor.y;
                     state_.echo_line_feed = true;
                 }
-                std::u16string expanded{output, units};
+                auto &expanded = expanded_line_;
+                expanded.assign(output, units);
                 expand_console_alias(expanded);
                 units = std::min<std::size_t>(expanded.size(), max_units);
                 std::copy_n(expanded.data(), units, output);
@@ -2695,6 +2696,7 @@ class console_api final
     std::vector<char16_t> char_buffer_;
     std::vector<consoleinput::input_event> prepend_buffer_;
     std::u16string cooked_line_;
+    std::u16string expanded_line_;
     std::size_t cooked_cursor_{};
     screen::coord cooked_origin_{};
     std::size_t cooked_echo_length_{};
