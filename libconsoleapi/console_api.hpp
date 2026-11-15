@@ -386,6 +386,11 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
+        if (!input_handle_matches(message))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_handle);
+            return true;
+        }
         auto *request = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
         if ((request->Flags & ~CONSOLE_READ_VALID) != 0)
@@ -480,6 +485,15 @@ class console_api final
         return read_console(message, false);
     }
 
+    [[nodiscard]] bool input_handle_matches(const coreio::io_msg &message) const noexcept
+    {
+        if (input_object_ == 0 || message.descriptor.Object == 0)
+        {
+            return true;
+        }
+        return message.descriptor.Object == input_object_ ||
+               (input_handle_ != 0 && message.descriptor.Object == input_handle_);
+    }
     [[nodiscard]] bool read_console(coreio::io_msg &message, bool pending_allowed = true) noexcept
     {
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG))
@@ -2105,6 +2119,11 @@ class console_api final
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG))
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        if (!input_handle_matches(message))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_handle);
             return true;
         }
         auto *info = reinterpret_cast<CONSOLE_GETNUMBEROFINPUTEVENTS_MSG *>(
