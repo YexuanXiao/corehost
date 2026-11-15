@@ -162,6 +162,15 @@ class state_applier final
                          static_cast<std::size_t>(std::max<std::ptrdiff_t>(y, 0)));
     }
 
+    void apply_columns(const vtparser::vt_message &message,
+                       screen::screen_buffer &buffer,
+                       screen::console_state &state)
+    {
+        const auto width = static_cast<std::size_t>(std::max<int>(message.payload.window_width, 1));
+        state.resize(width, state.height());
+        buffer.resize(width, state.height(), state.default_style);
+    }
+
     void apply_window_title(const vtparser::vt_message &message,
                             screen::console_state &state)
     {

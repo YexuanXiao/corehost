@@ -407,6 +407,23 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b[?3h");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.width() != 132)
+    {
+        std::fprintf(stderr, "set columns 132 failed\n");
+        return EXIT_FAILURE;
+    }
+    parser.reset();
+    result = parser.parse(U"\x1b[?3l");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.width() != 80)
+    {
+        std::fprintf(stderr, "set columns 80 failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }

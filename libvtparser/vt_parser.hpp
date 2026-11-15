@@ -1481,6 +1481,7 @@ class vt_parser
             case 1:
                 return vt_message_id::cursor_keys_app_mode;
             case 3:
+                m.payload.window_width = 132;
                 return vt_message_id::set_columns_132;
             case 1049:
                 return vt_message_id::use_alternate_buffer;
@@ -1499,6 +1500,7 @@ class vt_parser
             case 1:
                 return vt_message_id::cursor_keys_normal_mode;
             case 3:
+                m.payload.window_width = 80;
                 return vt_message_id::set_columns_80;
             case 1049:
                 return vt_message_id::use_main_buffer;
