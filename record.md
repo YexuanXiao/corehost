@@ -726,3 +726,48 @@ PageUp
 ```
 
 提示符不再出现 `5~`，行为与原始 OpenConsole 一致；edit F10 菜单仍正常。
+
+## 2026-11-16 legacy 前景色不应带黑底
+
+复现：
+
+```powershell
+$e=[char]27
+[Console]::Write("$e[38;2;255;0;0mRGB-RED$e[0m`n")
+[Console]::Write("$e[38;5;196mIDX-RED$e[0m`n")
+Write-Host "HOST-RED" -ForegroundColor Red
+```
+
+原始 OpenConsole：三行均为红字、默认浅色背景。
+
+corehost2：`HOST-RED` 红字黑底。
+
+日志：
+
+```text
+set_text_attribute attr=0x000C
+```
+
+`attr=0x000C` 表示红色前景 + 背景索引 0。`style_for_legacy` 把背景 0 映射为 indexed black，而 conhost 的 VT 投影把背景 0 视为默认背景。
+
+修复：
+
+```cpp
+value.background = ((attributes >> 4) & 0x0F) == 0
+                       ? color{}
+                       : color{color_kind::indexed, to_indexed((attributes >> 4) & 0x0F)};
+```
+
+提交：
+
+```text
+65a41a2 fix(libscreen): keep default background for legacy foreground attributes
+```
+
+新增测试：
+
+```text
+0x0C -> fg 9, bg default
+```
+
+真实 WT 验证：RGB-RED / IDX-RED / HOST-RED 均为红字、默认背景，与原始 OpenConsole 一致。
