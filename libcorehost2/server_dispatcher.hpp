@@ -53,7 +53,7 @@ class server_dispatcher final
         case CONSOLE_IO_RAW_WRITE:
             session_.write_raw(std::span<const char>{reinterpret_cast<const char *>(message.body),
                                                      static_cast<std::size_t>(message.descriptor.InputSize)});
-            coreio::prepare_completion(message);
+            coreio::prepare_completion(message, 0, message.descriptor.InputSize);
             return true;
         case CONSOLE_IO_RAW_READ:
         {
