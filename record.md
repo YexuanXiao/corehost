@@ -1006,6 +1006,14 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### ReadConsole 虚拟键 switch
+
+`read_console` 的方向/编辑键由 `if/else if` 链改为 `switch`，箭头上/下不再走完整比较链：
+
+```text
+eebdc63 perf(consoleapi): dispatch virtual keys with switch
+```
+
 ### VT 序列化先判断 cluster 标志
 
 `render_damage` / `render_viewport` 先检查 `value.has_cluster()`，普通 scalar cell 不再调用 `cluster_of` 和访问 grapheme store：
