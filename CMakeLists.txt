@@ -68,6 +68,9 @@ add_subdirectory(common)
 # ── libinterop (ABI-compatible Win32 console types) ───
 add_subdirectory(libinterop)
 
+# ── libvtparser (platform-neutral VT parser) ─────────
+add_subdirectory(libvtparser)
+
 # ── libscreen (16-byte cell 屏幕缓冲区参考实现) ────────
 add_subdirectory(libscreen)
 add_subdirectory(libscreen/bench)

@@ -438,6 +438,9 @@ set_tests_properties(CLI.CommandLine PROPERTIES
     TIMEOUT 60
 )
 
+# ── libvtparser 测试 ────────────────────────────────
+add_subdirectory(${CMAKE_SOURCE_DIR}/libvtparser/tests ${CMAKE_CURRENT_BINARY_DIR}/libvtparser-tests)
+
 # ── libscreen 参考实现测试 ───────────────────────────
 add_subdirectory(${CMAKE_SOURCE_DIR}/libscreen/tests ${CMAKE_CURRENT_BINARY_DIR}/libscreen-tests)
 
