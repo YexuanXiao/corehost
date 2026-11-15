@@ -67,7 +67,7 @@ class byte_buffer final
 
     void append_number(int value)
     {
-        char buffer[16]{};
+        char buffer[16];
         const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
         append_text(std::u8string_view{reinterpret_cast<const char8_t *>(buffer),
                                        static_cast<std::size_t>(result.ptr - buffer)});
