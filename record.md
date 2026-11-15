@@ -1409,6 +1409,27 @@ control old=0.0839-0.0892 ns/unit new=0.0815-0.0859 ns/unit ratio=1.02-1.09x
 
 收益不稳定，部分场景变慢，代码量翻倍，因此保留 4 字符版本。
 
+### VT 文本直接使用 parser view
+
+`apply_text_impl` 原来每条文本消息：
+
+```cpp
+text_.clear();
+text_.assign(message.payload.text);
+```
+
+现在默认直接使用 `message.payload.text`：
+
+```cpp
+auto text = message.payload.text;
+```
+
+只有启用 line-drawing charset 时才复制到 `text_` 并转换字符。普通文本不再每条消息复制一次。
+
+```text
+53dd5f9 perf(vtstate): render text view without copy
+```
+
 ### ESC D 作为 IND 保留列
 
 `ESC D` 原来映射到 `line_feed`，会把光标列清零。按 VT 语义改为独立的 `vt_message_id::index`，新增 `apply_index`：下移保留列，在滚动区域底部滚动后仍保留列。`VtState.Reference` 的 index 测试由此恢复通过。
