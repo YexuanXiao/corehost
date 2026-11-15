@@ -52,6 +52,8 @@ class console_api final
         : buffer_{buffer}, state_{state}, input_{input}, input_object_{input_object}, processes_{processes},
           payload_{payload}, writer_{writer}
     {
+        last_window_width_ = buffer_.width();
+        last_window_height_ = buffer_.height();
     }
 
     [[nodiscard]] bool write_text(std::u16string_view text)
@@ -328,6 +330,26 @@ class console_api final
 
         coreio::prepare_completion(message, coreio::error::status_not_implemented);
         return true;
+    }
+
+    void queue_window_buffer_size_event()
+    {
+        if (input_ == nullptr || (state_.input_mode & 0x0008) == 0)
+        {
+            return;
+        }
+        const auto width = buffer_.width();
+        const auto height = buffer_.height();
+        if (width == last_window_width_ && height == last_window_height_)
+        {
+            return;
+        }
+        last_window_width_ = width;
+        last_window_height_ = height;
+        consoleinput::input_event event{consoleinput::input_event_type::window};
+        event.window.width = static_cast<std::int16_t>(width);
+        event.window.height = static_cast<std::int16_t>(height);
+        input_->push(event);
     }
 
     [[nodiscard]] bool get_cursor_info(coreio::io_msg &message) noexcept
@@ -874,6 +896,7 @@ class console_api final
             const auto height = std::max<std::size_t>(buffer_.height(), window_height);
             state_.resize(width, height);
             buffer_.resize(width, height, state_.default_style);
+            queue_window_buffer_size_event();
         }
         buffer_.set_viewport(area);
         state_.viewport_changed = true;
@@ -1063,6 +1086,7 @@ class console_api final
                       static_cast<std::size_t>(request->Size.Y));
         buffer_.resize(static_cast<std::size_t>(request->Size.X),
                        static_cast<std::size_t>(request->Size.Y), state_.default_style);
+        queue_window_buffer_size_event();
         state_.clamp_cursor();
         state_.default_attributes = request->Attributes;
         state_.default_style = buffer_.style_for_attributes(request->Attributes);
@@ -2082,6 +2106,7 @@ class console_api final
                       static_cast<std::size_t>(request->Size.Y));
         buffer_.resize(static_cast<std::size_t>(request->Size.X),
                        static_cast<std::size_t>(request->Size.Y), state_.default_style);
+        queue_window_buffer_size_event();
         state_.clamp_cursor();
         state_.viewport_changed = true;
         coreio::prepare_completion(message);
@@ -2747,6 +2772,8 @@ class console_api final
     screen::console_state &state_;
     consoleinput::input_queue *input_{};
     std::uintptr_t input_object_{};
+    std::size_t last_window_width_{};
+    std::size_t last_window_height_{};
     std::uintptr_t input_handle_{};
     std::uintptr_t alternate_object_{};
     std::uintptr_t window_handle_{};
