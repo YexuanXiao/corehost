@@ -6,7 +6,6 @@
 #include "signal.hpp"
 #include "signal_thread.hpp"
 #include "vt_input_thread.hpp"
-#include "signal_reader.hpp"
 
 #include "console_ctrl.hpp"
 #include "server_loop.hpp"
@@ -121,11 +120,12 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
             return true;
         }
     };
-    message_handler handler{context};    coreio::run_server(transport, handler, *context.stop);
+    message_handler handler{context};
+    coreio::run_server(transport, handler, *context.stop);
     return 0;
 }
 
-class session_input_sink final : public conptyio::vt_input_sink
+class session_input_sink final
 {
   public:
     session_input_sink(session &state, conptyio::terminal_writer &writer,
@@ -134,7 +134,12 @@ class session_input_sink final : public conptyio::vt_input_sink
     {
     }
 
-    void on_input_bytes(std::span<const std::byte> bytes) override
+    static void on_bytes(void *context, std::span<const std::byte> bytes)
+    {
+        static_cast<session_input_sink *>(context)->handle_bytes(bytes);
+    }
+
+    void handle_bytes(std::span<const std::byte> bytes)
     {
         std::unique_lock guard{mutex_};
         vtparser::decode_utf8(
@@ -190,10 +195,11 @@ class session_input_sink final : public conptyio::vt_input_sink
         writer_.flush();
     }
 
-    void on_input_eof() override
+    static void on_eof(void *context)
     {
-        std::unique_lock guard{mutex_};
-        console_.on_input_eof();
+        auto &self = *static_cast<session_input_sink *>(context);
+        std::unique_lock guard{self.mutex_};
+        self.console_.on_input_eof();
     }
 
   private:
@@ -205,7 +211,7 @@ class session_input_sink final : public conptyio::vt_input_sink
     std::u16string text_;
 };
 
-class session_signal_sink final : public conptyio::signal_sink
+class session_signal_sink final
 {
   public:
     session_signal_sink(session &state, conptyio::terminal_writer &writer,
@@ -215,7 +221,12 @@ class session_signal_sink final : public conptyio::signal_sink
     {
     }
 
-    void on_signal(std::uint16_t id, std::span<const std::byte> payload) override
+    static void on_signal(void *context, std::uint16_t id, std::span<const std::byte> payload)
+    {
+        static_cast<session_signal_sink *>(context)->handle_signal(id, payload);
+    }
+
+    void handle_signal(std::uint16_t id, std::span<const std::byte> payload)
     {
         std::unique_lock guard{mutex_};
         conptyio::apply_signal(id, payload, state_.screen(), state_.state(), &window_);
@@ -260,10 +271,11 @@ class session_signal_sink final : public conptyio::signal_sink
         writer_.flush();
     }
 
-    void on_signal_eof() override
+    static void on_eof(void *context)
     {
-        std::unique_lock guard{mutex_};
-        console_.on_input_eof();
+        auto &self = *static_cast<session_signal_sink *>(context);
+        std::unique_lock guard{self.mutex_};
+        self.console_.on_input_eof();
     }
 
   private:
@@ -333,14 +345,17 @@ inline void run_conpty_session(win32::handle_view server,
     }
 
     session_input_sink input_sink{state, writer, session_mutex, console_session};
-    conptyio::vt_input_thread input_thread{vt_in, input_sink};
+    conptyio::vt_input_thread input_thread{vt_in, &input_sink, &session_input_sink::on_bytes,
+                                          &session_input_sink::on_eof};
     if (vt_in.valid())
     {
         input_thread.start();
     }
 
     session_signal_sink signal_sink{state, writer, window, session_mutex, console_session};
-    conptyio::pty_signal_thread pty_signal_thread{signal_pipe, signal_sink};
+    conptyio::pty_signal_thread pty_signal_thread{signal_pipe, &signal_sink,
+                                                    &session_signal_sink::on_signal,
+                                                    &session_signal_sink::on_eof};
     if (signal_pipe.valid())
     {
         pty_signal_thread.start();

@@ -18,7 +18,7 @@ namespace corehost::corehost2
 
 // Assembly object for the ConDrv server side. It owns only the console-facing
 // handler; reading/completion batching stays in libcoreio.
-class server_session final : public consoleapi::console_text_writer
+class server_session final
 {
   public:
     server_session(screen::screen_buffer &buffer, screen::console_state &state,
@@ -26,7 +26,7 @@ class server_session final : public consoleapi::console_text_writer
                    std::uintptr_t input_object = 0,
                    win32::handle_view server = {}) noexcept
         : server_{server}, screen_{buffer}, state_{state}, input_{input}, parser_{raw_}, applier_{},
-          payload_{server}, api_{buffer, state, &input, input_object, &processes_, &payload_, this}
+          payload_{server}, api_{buffer, state, &input, input_object, &processes_, &payload_, this, &server_session::write_text_callback}
     {
     }
 
@@ -60,7 +60,12 @@ class server_session final : public consoleapi::console_text_writer
             }
         }
     }
-    std::size_t write(std::u16string_view input) override
+    static std::size_t write_text_callback(void *context, std::u16string_view text)
+    {
+        return static_cast<server_session *>(context)->write_text(text);
+    }
+
+    std::size_t write_text(std::u16string_view input)
     {
         std::size_t consumed = 0;
         while (!input.empty())

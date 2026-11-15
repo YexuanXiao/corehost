@@ -15,22 +15,16 @@
 namespace corehost::conptyio
 {
 
-class signal_sink
-{
-  public:
-    virtual ~signal_sink() = default;
-
-    virtual void on_signal(std::uint16_t id, std::span<const std::byte> payload) = 0;
-    virtual void on_signal_eof() = 0;
-};
-
+using signal_callback = void (*)(void *context, std::uint16_t id, std::span<const std::byte> payload);
+using signal_eof_callback = void (*)(void *context);
 // Blocking PtySignal reader thread. Mirrors libcorehost's pty_signal_thread:
 // a cancellable blocking read, an explicit stop request, and an infinite join.
 class pty_signal_thread final
 {
   public:
-    pty_signal_thread(win32::handle_view pipe, signal_sink &sink)
-        : sink_{sink}, reader_{pipe}
+    pty_signal_thread(win32::handle_view pipe, void *context, signal_callback on_signal,
+                      signal_eof_callback on_eof)
+        : context_{context}, on_signal_{on_signal}, on_eof_{on_eof}, reader_{pipe}
     {
     }
 
@@ -87,7 +81,7 @@ class pty_signal_thread final
             }
             if (id_status == win32::cancellable_read::status::closed)
             {
-                sink_.on_signal_eof();
+                on_eof_(context_);
                 return;
             }
 
@@ -108,7 +102,7 @@ class pty_signal_thread final
                 throw std::runtime_error{"truncated PtySignal payload"};
             }
 
-            sink_.on_signal(id, std::span<const std::byte>{payload_.data(), size});
+            on_signal_(context_, id, std::span<const std::byte>{payload_.data(), size});
         }
     }
 
@@ -123,7 +117,9 @@ class pty_signal_thread final
         return status;
     }
 
-    signal_sink &sink_;
+    void *context_{};
+    signal_callback on_signal_{};
+    signal_eof_callback on_eof_{};
     win32::cancellable_read reader_;
     win32::basic_thread thread_;
     std::array<std::byte, sizeof(std::uint64_t)> payload_{};
