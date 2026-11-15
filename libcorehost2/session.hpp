@@ -171,6 +171,40 @@ class session final
 
         if (input_direction)
         {
+            consoleinput::virtual_key arrow_key{};
+            bool has_arrow = false;
+            switch (result.id)
+            {
+            case vtparser::vt_message_id::cursor_up:
+                arrow_key = consoleinput::virtual_key::up;
+                has_arrow = true;
+                break;
+            case vtparser::vt_message_id::cursor_down:
+                arrow_key = consoleinput::virtual_key::down;
+                has_arrow = true;
+                break;
+            case vtparser::vt_message_id::cursor_backward:
+                arrow_key = consoleinput::virtual_key::left;
+                has_arrow = true;
+                break;
+            case vtparser::vt_message_id::cursor_forward:
+                arrow_key = consoleinput::virtual_key::right;
+                has_arrow = true;
+                break;
+            default:
+                break;
+            }
+            if (has_arrow)
+            {
+                consoleinput::key_event key;
+                key.key = arrow_key;
+                input_.push(consoleinput::input_event{consoleinput::input_event_type::key, key});
+                return;
+            }
+        }
+
+        if (input_direction)
+        {
             char16_t control = 0;
             bool has_control = false;
             switch (result.id)

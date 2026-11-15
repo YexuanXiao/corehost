@@ -236,6 +236,40 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer arrow_buffer{8, 2};
+    corehost::screen::console_state arrow_state{8, 2};
+    corehost::consoleinput::input_queue arrow_input;
+    corehost::corehost2::session arrow_session{8, 2};
+    constexpr char16_t arrow_text[]{u'A', u'B', u'\x1b', u'[', u'D', u'X', u'\r'};
+    arrow_session.feed_input(arrow_text);
+    arrow_input = std::move(arrow_session.input());
+    corehost::consoleapi::console_api arrow_api{arrow_buffer, arrow_state, &arrow_input};
+    corehost::coreio::io_msg arrow_message{};
+    arrow_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    arrow_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    auto *arrow_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(arrow_message.body);
+    arrow_header->ApiNumber = ConsolepReadConsole;
+    auto *arrow_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        arrow_message.body + sizeof(CONSOLE_MSG_HEADER));
+    arrow_request->Unicode = TRUE;
+    if (!arrow_api.handle(arrow_message) || arrow_request->NumBytes != 5 * sizeof(char16_t))
+    {
+        std::fprintf(stderr, "real ReadConsole arrow failed bytes=%lu\\n", arrow_request->NumBytes);
+        return EXIT_FAILURE;
+    }
+    const auto *arrow_output = reinterpret_cast<const char16_t *>(
+        arrow_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+    if (arrow_output[0] != u'A' || arrow_output[1] != u'X' || arrow_output[2] != u'B' ||
+        arrow_output[3] != u'\r')
+    {
+        std::fprintf(stderr, "real ReadConsole arrow data failed %04x %04x %04x %04x %04x\\n",
+                     arrow_output[0], arrow_output[1], arrow_output[2], arrow_output[3],
+                     arrow_output[4]);
+        return EXIT_FAILURE;
+    }
+
     corehost::screen::screen_buffer input_buffer{8, 2};
     corehost::screen::console_state input_state{8, 2};
     corehost::consoleinput::input_queue input_queue;
