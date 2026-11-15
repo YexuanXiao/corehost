@@ -15,7 +15,7 @@ inline void append_utf16(byte_buffer &output, std::u16string_view text)
 {
     if (text.size() == 1)
     {
-        std::array<char, 4> encoded{};
+        std::array<char, 4> encoded;
         unicode::decoder<char16_t> decoder;
         unicode::encoder<char> encoder;
         auto iterator = text.begin();
