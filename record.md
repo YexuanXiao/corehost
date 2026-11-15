@@ -1093,6 +1093,14 @@ if (character < u' ')
 eebdc63 perf(consoleapi): dispatch virtual keys with switch
 ```
 
+### VT 序列化按行取 cell span
+
+`render_damage` / `render_viewport` 原来每个单元格调用 `buffer.at(x, y)`，会重新选择 active page。现在每行只调用一次 `row_cells(y)`，循环内直接索引 span：
+
+```text
+887d806 perf(vtserializer): index row cells span per line
+```
+
 ### VT 序列化先判断 cluster 标志
 
 `render_damage` / `render_viewport` 先检查 `value.has_cluster()`，普通 scalar cell 不再调用 `cluster_of` 和访问 grapheme store：
