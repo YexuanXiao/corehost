@@ -103,6 +103,17 @@ inline void run_conpty_session(win32::handle_view server,
             {
                 const std::scoped_lock lock{session_mutex};
                 conptyio::apply_signal(signals.id(), signals.payload(), state.screen(), state.state());
+                if (!state.screen().has_damage())
+                {
+                    continue;
+                }
+                const auto cursor = screen::coord{
+                    static_cast<std::int32_t>(state.state().cursor().x),
+                    static_cast<std::int32_t>(state.state().cursor().y),
+                };
+                vtserializer::render_damage(writer.buffer(), state.screen(), cursor, &state.state());
+                state.screen().clear_damage();
+                (void)writer.flush();
             }
         }};
     }
