@@ -10,7 +10,7 @@
 int main()
 {
     corehost::corehost2::session session{8, 2};
-    constexpr char32_t input[]{U'A', U'B'};
+    constexpr char16_t input[]{u'A', u'B'};
     session.feed(input);
 
     if (session.screen().at(0, 0).primary() != u'A' ||
@@ -48,7 +48,7 @@ int main()
     ::CloseHandle(output);
     ::CloseHandle(input_read);
 
-    constexpr char32_t key_input[]{U'\x1b', U'O', U'A'};
+    constexpr char16_t key_input[]{u'\x1b', u'O', u'A'};
     session.feed(key_input);
     if (session.input().size() != 1)
     {
@@ -95,7 +95,7 @@ int main()
     corehost::coreio::run_server(transport, server);
 
     corehost::corehost2::session input_session{4, 2};
-    constexpr char32_t text_input[]{U'A'};
+    constexpr char16_t text_input[]{u'A'};
     input_session.feed_input(text_input);
     if (input_session.input().size() != 1 ||
         input_session.screen().at(0, 0).primary() != u' ')
@@ -143,7 +143,7 @@ int main()
         return EXIT_FAILURE;
     }
 
-    constexpr char32_t mouse_mode[]{U'\x1b', U'[', U'?', U'1', U'0', U'0', U'0', U'h'};
+    constexpr char16_t mouse_mode[]{u'\x1b', u'[', u'?', u'1', u'0', u'0', u'0', u'h'};
     session.feed_input(mouse_mode);
     const auto mode_changes = session.state().take_private_modes();
     if (mode_changes.size() != 1 || mode_changes[0].first != 1000 || !mode_changes[0].second)
@@ -153,7 +153,7 @@ int main()
     }
 
     corehost::corehost2::session mouse_session{8, 2};
-    constexpr char32_t mouse_sequence[]{U'\x1b', U'[', U'<', U'0', U';', U'2', U';', U'2', U'M'};
+    constexpr char16_t mouse_sequence[]{u'\x1b', u'[', u'<', u'0', u';', u'2', u';', u'2', u'M'};
     mouse_session.feed_input(mouse_sequence);
     if (!mouse_session.input().empty())
     {
@@ -170,7 +170,7 @@ int main()
 
     corehost::corehost2::session ambiguous_session{4, 2,
                                                    corehost::screen::text_measurement::graphemes, true};
-    constexpr char32_t ambiguous_text[]{U'\u00A1'};
+    constexpr char16_t ambiguous_text[]{u'\u00A1'};
     ambiguous_session.feed(ambiguous_text);
     if (ambiguous_session.state().cursor().x != 2)
     {

@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <optional>
 #include <span>
+#include <string_view>
 
 namespace corehost::corehost2
 {
@@ -28,25 +29,17 @@ class session final
     {
     }
 
-    void feed(std::span<const char32_t> input)
+    template <std::size_t N>
+    void feed(const char16_t (&input)[N])
     {
-        while (!input.empty())
-        {
-            const auto result = parser_.parse(std::u32string_view{input.data(), input.size()});
-            input = input.subspan(result.consumed);
-            if (result.id == vtparser::vt_message_id::continue_)
-            {
-                continue;
-            }
+        feed(std::u16string_view{input, N});
+    }
 
-            if (const auto key = consoleinput::key_from_message(result.id, result.message);
-                key.has_value())
-            {
-                input_.push(consoleinput::input_event{consoleinput::input_event_type::key, *key});
-            }
-            (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
-            parser_.reset();
-        }
+    void feed(std::u16string_view input)
+    {
+        vtparser::parse_utf16(parser_, input, [&](const vtparser::vt_parse_result &result) {
+            consume(result, false);
+        });
     }
 
     [[nodiscard]] screen::screen_buffer &screen() noexcept
@@ -54,53 +47,18 @@ class session final
         return screen_;
     }
 
-    void feed_input(std::span<const char32_t> input)
+    template <std::size_t N>
+    void feed_input(const char16_t (&input)[N])
     {
-        while (!input.empty())
-        {
-            const auto result = parser_.parse(std::u32string_view{input.data(), input.size()});
-            input = input.subspan(result.consumed);
-            if (result.id == vtparser::vt_message_id::continue_)
-            {
-                continue;
-            }
-
-            if (const auto key = consoleinput::key_from_message(result.id, result.message);
-                key.has_value())
-            {
-                input_.push(consoleinput::input_event{consoleinput::input_event_type::key, *key});
-                parser_.reset();
-                continue;
-            }
-
-            if (const auto mouse = consoleinput::mouse_from_message(result.id, result.message);
-                mouse.has_value() && state_.mouse_tracking())
-            {
-                consoleinput::input_event event{consoleinput::input_event_type::mouse};
-                event.mouse = *mouse;
-                input_.push(event);
-                parser_.reset();
-                continue;
-            }
-
-            if (result.id == vtparser::vt_message_id::continue_text ||
-                result.id == vtparser::vt_message_id::text)
-            {
-                for (const char32_t ch : result.message.payload.text)
-                {
-                    consoleinput::key_event key;
-                    key.character = ch <= 0xFFFF ? static_cast<char16_t>(ch) : u'\uFFFD';
-                    input_.push(consoleinput::input_event{consoleinput::input_event_type::key, key});
-                }
-                parser_.reset();
-                continue;
-            }
-
-            (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
-            parser_.reset();
-        }
+        feed_input(std::u16string_view{input, N});
     }
 
+    void feed_input(std::u16string_view input)
+    {
+        vtparser::parse_utf16(parser_, input, [&](const vtparser::vt_parse_result &result) {
+            consume(result, true);
+        });
+    }
     [[nodiscard]] consoleinput::input_queue &input() noexcept
     {
         return input_;
@@ -112,6 +70,47 @@ class session final
     }
 
   private:
+    void consume(const vtparser::vt_parse_result &result, bool input_direction)
+    {
+        if (result.id == vtparser::vt_message_id::continue_)
+        {
+            return;
+        }
+
+        if (const auto key = consoleinput::key_from_message(result.id, result.message);
+            key.has_value())
+        {
+            input_.push(consoleinput::input_event{consoleinput::input_event_type::key, *key});
+        }
+
+        if (input_direction)
+        {
+            if (const auto mouse = consoleinput::mouse_from_message(result.id, result.message);
+                mouse.has_value() && state_.mouse_tracking())
+            {
+                consoleinput::input_event event{consoleinput::input_event_type::mouse};
+                event.mouse = *mouse;
+                input_.push(event);
+                return;
+            }
+        }
+
+        if (input_direction &&
+            (result.id == vtparser::vt_message_id::continue_text ||
+             result.id == vtparser::vt_message_id::text))
+        {
+            for (const auto ch : result.message.payload.text)
+            {
+                consoleinput::key_event key;
+                key.character = ch <= 0xFFFF ? static_cast<char16_t>(ch) : u'\uFFFD';
+                input_.push(consoleinput::input_event{consoleinput::input_event_type::key, key});
+            }
+            return;
+        }
+
+        (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
+    }
+
     screen::screen_buffer screen_;
     screen::console_state state_;
     vtparser::raw_u32_buffer raw_;

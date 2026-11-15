@@ -20,6 +20,9 @@
 #include <cstddef>
 #include <mutex>
 #include <atomic>
+#include <string>
+#include <iterator>
+#include <libunicode/convert.h>
 #include <thread>
 #include <span>
 
@@ -148,6 +151,7 @@ inline void run_conpty_session(win32::handle_view server,
         console_session.processes().add(config.attached_process_id);
     }
     server_dispatcher dispatcher{server, condrv_input, condrv_output, console_session};
+    std::u16string input_text_;
 
     server_worker_context server_context{server, event, &dispatcher, &state, &writer,
                                          &session_mutex, &server_stop};
@@ -168,7 +172,8 @@ inline void run_conpty_session(win32::handle_view server,
     while (reader.read_batch())
     {
         std::unique_lock guard{session_mutex};
-        state.feed_input(reader.codepoints());
+        vtparser::convert_to_utf16(reader.codepoints(), input_text_);
+        state.feed_input(input_text_);
         (void)console_session.complete_pending();
         for (const auto [mode, enabled] : state.state().take_private_modes())
         {

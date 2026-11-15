@@ -48,4 +48,11 @@ inline void decode_utf8(std::span<const char8_t> bytes,
     pending.erase(0, offset);
 }
 
+inline void convert_to_utf16(std::span<const char32_t> input, std::u16string &output)
+{
+    output.clear();
+    unicode::convert_to<char16_t>(std::u32string_view{input.data(), input.size()},
+                                  std::back_inserter(output));
+}
+
 } // namespace corehost::vtparser
