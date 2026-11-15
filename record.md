@@ -1093,6 +1093,14 @@ if (character < u' ')
 eebdc63 perf(consoleapi): dispatch virtual keys with switch
 ```
 
+### Escape/CUP/光标形状 scratch 去零初始化
+
+`append_sgr_legacy` 的 32 字节、`append_cup` 的 32 字节、`append_cursor_shape` 的 8 字节栈缓冲不再整体清零；`to_chars` 和后续写入只覆盖实际使用范围：
+
+```text
+29c14fe perf(vtserializer): avoid zeroing escape scratch
+```
+
 ### SGR scratch 去零初始化
 
 `append_sgr_style` 的 96 字节栈缓冲不再整体零初始化；所有写入都按 `first` 顺序覆盖实际使用范围：
