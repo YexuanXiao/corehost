@@ -1245,7 +1245,10 @@ class console_api final
             else
             {
                 const auto code_page = state_.input_code_page;
-                length += encode_console_text(alias.executable, code_page).size() + 1;
+                const auto units =
+                    ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(alias.executable.data()),
+                                          static_cast<int>(alias.executable.size()), nullptr, 0, nullptr, nullptr);
+                length += static_cast<std::size_t>(std::max(units, 0)) + 1;
             }
         }
         info->AliasExesLength = static_cast<ULONG>(length);
