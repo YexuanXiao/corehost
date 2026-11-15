@@ -202,6 +202,40 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer edit_buffer{8, 2};
+    corehost::screen::console_state edit_state{8, 2};
+    corehost::consoleinput::input_queue edit_input;
+    corehost::corehost2::session edit_session{8, 2};
+    constexpr char16_t edit_text[]{u'A', u'B', u'\x08', u'C', u'\r'};
+    edit_session.feed_input(edit_text);
+    edit_input = std::move(edit_session.input());
+    corehost::consoleapi::console_api edit_api{edit_buffer, edit_state, &edit_input};
+    corehost::coreio::io_msg edit_message{};
+    edit_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    edit_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    auto *edit_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(edit_message.body);
+    edit_header->ApiNumber = ConsolepReadConsole;
+    auto *edit_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        edit_message.body + sizeof(CONSOLE_MSG_HEADER));
+    edit_request->Unicode = TRUE;
+    if (!edit_api.handle(edit_message) || edit_request->NumBytes != 4 * sizeof(char16_t))
+    {
+        std::fprintf(stderr, "real ReadConsole edit failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *edit_output = reinterpret_cast<const char16_t *>(
+        edit_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+    if (edit_output[0] != u'A' || edit_output[1] != u'C' || edit_output[2] != u'\r' ||
+        edit_output[3] != u'\n')
+    {
+        std::fprintf(stderr, "real ReadConsole edit data failed bytes=%lu: %04x %04x %04x %04x\\n",
+                     edit_request->NumBytes, edit_output[0], edit_output[1], edit_output[2],
+                     edit_output[3]);
+        return EXIT_FAILURE;
+    }
+
     corehost::screen::screen_buffer input_buffer{8, 2};
     corehost::screen::console_state input_state{8, 2};
     corehost::consoleinput::input_queue input_queue;

@@ -701,7 +701,6 @@ class console_api final
                 if (cursor != 0)
                 {
                     erase_character(output, units, cursor, cursor - 1);
-                    --cursor;
                     state_.break_history_browse();
                 }
                 redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
