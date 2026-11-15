@@ -1475,8 +1475,8 @@ class console_api final
                 else
                 {
                     const auto code_page = state_.input_code_page;
-                    const auto encoded = encode_console_text(alias.target, code_page);
-                    if (encoded.size() + 1 > available)
+                    const auto units = console_text_length(alias.target, code_page);
+                    if (units + 1 > available)
                     {
                         request->TargetLength = static_cast<USHORT>(available);
                         coreio::prepare_completion(
@@ -1484,9 +1484,14 @@ class console_api final
                             message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETALIAS_MSG));
                         return true;
                     }
-                    std::memcpy(output, encoded.data(), encoded.size());
-                    output[encoded.size()] = 0;
-                    bytes = encoded.size() + 1;
+                    if (units != 0)
+                    {
+                        (void)::WideCharToMultiByte(
+                            code_page, 0, reinterpret_cast<const wchar_t *>(alias.target.data()),
+                            static_cast<int>(alias.target.size()), output, static_cast<int>(units), nullptr, nullptr);
+                    }
+                    output[units] = 0;
+                    bytes = units + 1;
                 }
                 request->TargetLength = static_cast<USHORT>(bytes);
                 coreio::prepare_completion(message, 0, bytes, message.body + sizeof(CONSOLE_MSG_HEADER), bytes);
