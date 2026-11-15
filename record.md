@@ -989,6 +989,24 @@ mixed  old=26.4318 ns/unit new=26.0547 ns/unit ratio≈1.01x
 b33bbde perf(libscreen): skip grapheme segmentation for printable ascii
 ```
 
+### 未保留：resize_and_overwrite 转换
+
+尝试将 `write_raw` 的：
+
+```cpp
+text_.resize(units);
+MultiByteToWideChar(... text_.data() ...);
+```
+
+改为 `resize_and_overwrite`，避免 resize 零初始化。独立微基准（4096 字节，2 万次，Release `/O2`）：
+
+```text
+ascii old=0.2336-0.2544 ns/byte new=0.2349-0.2458 ns/byte ratio=0.95-1.07x
+cjk   old=0.9885-1.3247 ns/byte new=0.9811-1.0390 ns/byte ratio=1.00-1.28x
+```
+
+收益不稳定，部分场景反而变慢，代码复杂度增加，因此不保留，恢复原实现。
+
 ### 单码点文本序列化
 
 `append_utf16` 对 `text.size() == 1` 使用 4 字节栈缓冲，编码后 `append`，避免为一个码点 resize 3 倍再缩小：
