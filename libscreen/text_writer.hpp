@@ -255,7 +255,7 @@ class grapheme_iterator final
 
         unicode::grapheme_segmenter_state state{};
         unicode::grapheme_process_init(first.value, state);
-        auto width = first.value == 0xFE0F ? 2 : unicode_width(first.value, AmbiguousIsWide);
+        auto width = first.value == 0xFE0F ? 2 : codepoint_width<Mode, AmbiguousIsWide>(first.value);
 
         while (cursor < text_.size())
         {
@@ -264,7 +264,7 @@ class grapheme_iterator final
             {
                 break;
             }
-            width += next.value == 0xFE0F ? 2 : unicode_width(next.value, AmbiguousIsWide);
+            width += next.value == 0xFE0F ? 2 : codepoint_width<Mode, AmbiguousIsWide>(next.value);
             cursor += next.units;
         }
 

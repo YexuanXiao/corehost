@@ -208,6 +208,13 @@ void test_text_writer()
     }
     check(clusters == 2 && cluster_widths == 2, "grapheme iterator output");
 
+    int console_cluster_width = 0;
+    for (const auto cluster : grapheme_range<text_measurement::console>{u"A\u4E2D"})
+    {
+        console_cluster_width += cluster.width;
+    }
+    check(console_cluster_width == 3, "console grapheme width mode");
+
     check(text_width<text_measurement::graphemes>(u"A\u0301") == 1, "grapheme combining width");
     check(text_width<text_measurement::graphemes>(u"\u2764\uFE0F") == 2, "grapheme emoji width");
 }
