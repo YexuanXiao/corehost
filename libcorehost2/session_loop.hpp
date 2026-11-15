@@ -18,7 +18,7 @@
 
 #include <cstddef>
 #include <mutex>
-#include <stop_token>
+#include <atomic>
 #include <thread>
 #include <span>
 
@@ -33,7 +33,7 @@ struct server_worker_context final
     session *state{};
     conptyio::terminal_writer *writer{};
     std::mutex *mutex{};
-    std::stop_token stop;
+    const std::atomic_bool *stop{};
 };
 
 inline DWORD WINAPI server_worker_entry(LPVOID raw)
@@ -62,7 +62,7 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
             (void)context.writer->flush();
             return true;
         };
-        coreio::run_server(transport, handler, context.stop);
+        coreio::run_server(transport, handler, *context.stop);
     }
     catch (...)
     {
@@ -77,14 +77,14 @@ struct signal_worker_context final
     conptyio::terminal_writer *writer{};
     conptyio::pseudo_window *window{};
     std::mutex *mutex{};
-    std::stop_token stop;
+    const std::atomic_bool *stop{};
 };
 
 inline DWORD WINAPI signal_worker_entry(LPVOID raw)
 {
     auto &context = *static_cast<signal_worker_context *>(raw);
     conptyio::signal_reader signals{context.signal_pipe};
-    while (!context.stop.stop_requested() && signals.read_one())
+    while (!context.stop->load(std::memory_order_relaxed) && signals.read_one())
     {
         const std::scoped_lock lock{*context.mutex};
         conptyio::apply_signal(signals.id(), signals.payload(), context.state->screen(),
@@ -143,8 +143,8 @@ inline void run_conpty_session(win32::handle_view server,
     std::mutex session_mutex;
     win32::basic_thread server_thread;
     win32::basic_thread signal_thread;
-    std::stop_source server_stop;
-    std::stop_source signal_stop;
+    std::atomic_bool server_stop{};
+    std::atomic_bool signal_stop{};
 
     server_session console_session{state.screen(), state.state(), state.input(), 0, server};
     console_session.set_window_handle(reinterpret_cast<std::uintptr_t>(window.handle()));
@@ -155,7 +155,7 @@ inline void run_conpty_session(win32::handle_view server,
     server_dispatcher dispatcher{server, condrv_input, condrv_output, console_session};
 
     server_worker_context server_context{server, event, &dispatcher, &state, &writer,
-                                         &session_mutex, server_stop.get_token()};
+                                         &session_mutex, &server_stop};
     if (server.valid())
     {
         server_thread = win32::basic_thread{&server_worker_entry, &server_context,
@@ -163,7 +163,7 @@ inline void run_conpty_session(win32::handle_view server,
     }
 
     signal_worker_context signal_context{signal_pipe, &state, &writer, &window, &session_mutex,
-                                         signal_stop.get_token()};
+                                         &signal_stop};
     if (signal_pipe.valid())
     {
         signal_thread = win32::basic_thread{&signal_worker_entry, &signal_context,
@@ -199,14 +199,14 @@ inline void run_conpty_session(win32::handle_view server,
 
     if (server_thread.valid())
     {
-        server_stop.request_stop();
+        server_stop.store(true, std::memory_order_relaxed);
         ::CancelSynchronousIo(server_thread.get());
         server_thread.join();
     }
 
     if (signal_thread.valid())
     {
-        signal_stop.request_stop();
+        signal_stop.store(true, std::memory_order_relaxed);
         ::CancelSynchronousIo(signal_thread.get());
         signal_thread.join();
     }
