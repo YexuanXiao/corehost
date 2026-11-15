@@ -110,6 +110,18 @@ class console_api final
         {
             return get_mouse_info(message);
         }
+        if (header->ApiNumber == ConsolepSetCurrentFont)
+        {
+            return set_current_font(message);
+        }
+        if (header->ApiNumber == ConsolepGetFontInfo)
+        {
+            return get_font_info(message);
+        }
+        if (header->ApiNumber == ConsolepSetFont)
+        {
+            return set_font(message);
+        }
         if (header->ApiNumber == ConsolepGetNumberOfFonts)
         {
             return get_number_of_fonts(message);
@@ -556,6 +568,66 @@ class console_api final
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETMOUSEINFO_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETMOUSEINFO_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool set_current_font(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *request = reinterpret_cast<const CONSOLE_CURRENTFONT_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        state_.font_index = request->FontIndex;
+        state_.font_size = screen::coord{request->FontSize.X, request->FontSize.Y};
+        state_.font_family = request->FontFamily;
+        state_.font_weight = request->FontWeight;
+        state_.face_name.clear();
+        for (const wchar_t ch : request->FaceName)
+        {
+            if (ch == 0)
+            {
+                break;
+            }
+            state_.face_name.push_back(static_cast<char16_t>(ch));
+        }
+        coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool get_font_info(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETFONTINFO_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETFONTINFO_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->NumFonts = 1;
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETFONTINFO_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETFONTINFO_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool set_font(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETFONT_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *request = reinterpret_cast<const CONSOLE_SETFONT_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        if (request->FontIndex != 0)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        state_.font_index = request->FontIndex;
+        coreio::prepare_completion(message);
         return true;
     }
 

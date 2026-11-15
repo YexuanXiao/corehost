@@ -633,6 +633,57 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg font_info_message{};
+    font_info_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETFONTINFO_MSG);
+    font_info_message.descriptor.OutputSize = sizeof(font_info_message.body);
+    auto *font_info_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(font_info_message.body);
+    font_info_header->ApiNumber = ConsolepGetFontInfo;
+    if (!api.handle(font_info_message) ||
+        reinterpret_cast<const CONSOLE_GETFONTINFO_MSG *>(
+            font_info_message.body + sizeof(CONSOLE_MSG_HEADER))->NumFonts != 1)
+    {
+        std::fprintf(stderr, "get font info failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::io_msg set_font_message{};
+    set_font_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETFONT_MSG);
+    set_font_message.descriptor.OutputSize = sizeof(set_font_message.body);
+    auto *set_font_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(set_font_message.body);
+    set_font_header->ApiNumber = ConsolepSetFont;
+    auto *set_font_request = reinterpret_cast<CONSOLE_SETFONT_MSG *>(
+        set_font_message.body + sizeof(CONSOLE_MSG_HEADER));
+    set_font_request->FontIndex = 0;
+    if (!api.handle(set_font_message))
+    {
+        std::fprintf(stderr, "set font failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::io_msg set_current_font_message{};
+    set_current_font_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG);
+    set_current_font_message.descriptor.OutputSize = sizeof(set_current_font_message.body);
+    auto *set_current_font_header =
+        reinterpret_cast<CONSOLE_MSG_HEADER *>(set_current_font_message.body);
+    set_current_font_header->ApiNumber = ConsolepSetCurrentFont;
+    auto *set_current_font_request = reinterpret_cast<CONSOLE_CURRENTFONT_MSG *>(
+        set_current_font_message.body + sizeof(CONSOLE_MSG_HEADER));
+    set_current_font_request->FontIndex = 0;
+    set_current_font_request->FontSize = COORD{10, 20};
+    set_current_font_request->FontFamily = 54;
+    set_current_font_request->FontWeight = 700;
+    set_current_font_request->FaceName[0] = u'X';
+    set_current_font_request->FaceName[1] = 0;
+    if (!api.handle(set_current_font_message) || state.font_size.x != 10 ||
+        state.font_size.y != 20 || state.face_name != u"X")
+    {
+        std::fprintf(stderr, "set current font failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
