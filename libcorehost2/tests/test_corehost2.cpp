@@ -580,6 +580,25 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::corehost2::session f10_session{8, 2};
+    f10_session.feed_input(std::u16string_view{u"\x1b[121;68;0;1;0;1_"}, false);
+    constexpr char16_t f10_sequence[]{u'\x1b', u'[', u'2', u'1', u'~'};
+    std::array<corehost::consoleinput::input_event, 8> f10_events{};
+    const auto f10_count = f10_session.input().peek(f10_events);
+    if (f10_count != std::size(f10_sequence))
+    {
+        std::fprintf(stderr, "F10 did not produce a VT sequence\n");
+        return EXIT_FAILURE;
+    }
+    for (std::size_t i = 0; i < std::size(f10_sequence); ++i)
+    {
+        if (f10_events[i].key.character != f10_sequence[i])
+        {
+            std::fprintf(stderr, "F10 VT sequence mismatch at %zu\n", i);
+            return EXIT_FAILURE;
+        }
+    }
+
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
 }

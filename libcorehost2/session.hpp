@@ -150,6 +150,36 @@ class session final
         }
     }
 
+    [[nodiscard]] static std::u16string_view vt_input_sequence(consoleinput::virtual_key key) noexcept
+    {
+        switch (key)
+        {
+        case consoleinput::virtual_key::f1: return u"\x1bOP";
+        case consoleinput::virtual_key::f2: return u"\x1bOQ";
+        case consoleinput::virtual_key::f3: return u"\x1bOR";
+        case consoleinput::virtual_key::f4: return u"\x1bOS";
+        case consoleinput::virtual_key::f5: return u"\x1b[15~";
+        case consoleinput::virtual_key::f6: return u"\x1b[17~";
+        case consoleinput::virtual_key::f7: return u"\x1b[18~";
+        case consoleinput::virtual_key::f8: return u"\x1b[19~";
+        case consoleinput::virtual_key::f9: return u"\x1b[20~";
+        case consoleinput::virtual_key::f10: return u"\x1b[21~";
+        case consoleinput::virtual_key::f11: return u"\x1b[23~";
+        case consoleinput::virtual_key::f12: return u"\x1b[24~";
+        case consoleinput::virtual_key::up: return u"\x1b[A";
+        case consoleinput::virtual_key::down: return u"\x1b[B";
+        case consoleinput::virtual_key::right: return u"\x1b[C";
+        case consoleinput::virtual_key::left: return u"\x1b[D";
+        case consoleinput::virtual_key::home: return u"\x1b[H";
+        case consoleinput::virtual_key::end: return u"\x1b[F";
+        case consoleinput::virtual_key::insert: return u"\x1b[2~";
+        case consoleinput::virtual_key::del: return u"\x1b[3~";
+        case consoleinput::virtual_key::page_up: return u"\x1b[5~";
+        case consoleinput::virtual_key::page_down: return u"\x1b[6~";
+        default: return {};
+        }
+    }
+
     void consume(const vtparser::vt_parse_result &result, bool input_direction,
                  bool raw_passthrough = false)
     {
@@ -167,6 +197,19 @@ class session final
         {
             if (const auto key = consoleinput::key_from_message(result.id, result.message); key.has_value())
             {
+                if (key->character == 0)
+                {
+                    if (key->key_down)
+                    {
+                        for (const auto ch : vt_input_sequence(key->key))
+                        {
+                            input_.push(consoleinput::input_event{
+                                consoleinput::input_event_type::key,
+                                consoleinput::key_from_character(ch, true)});
+                        }
+                    }
+                    return;
+                }
                 input_.push(consoleinput::input_event{consoleinput::input_event_type::key, *key});
             }
             return;
