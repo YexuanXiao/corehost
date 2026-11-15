@@ -1080,9 +1080,9 @@ class console_api final
         auto *request = reinterpret_cast<CONSOLE_ADDALIAS_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto *data = reinterpret_cast<const char *>(request + 1);
         const auto unit = request->Unicode ? sizeof(char16_t) : sizeof(char);
-        const auto source_end = static_cast<std::size_t>(request->SourceLength) * unit;
+        const auto exe_end = static_cast<std::size_t>(request->ExeLength) * unit;
+        const auto source_end = exe_end + static_cast<std::size_t>(request->SourceLength) * unit;
         const auto target_end = source_end + static_cast<std::size_t>(request->TargetLength) * unit;
-        const auto exe_end = target_end + static_cast<std::size_t>(request->ExeLength) * unit;
         if (exe_end > message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_ADDALIAS_MSG))
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
@@ -1105,8 +1105,8 @@ class console_api final
             return value;
         };
         auto entry = screen::console_state::alias_entry{
-            read(0, source_end), read(source_end, target_end - source_end),
-            read(target_end, exe_end - target_end)};
+            read(exe_end, source_end - exe_end), read(source_end, target_end - source_end),
+            read(0, exe_end)};
         const auto existing = std::ranges::find_if(
             state_.aliases, [&](const auto &alias) {
                 return alias.source == entry.source && alias.executable == entry.executable;

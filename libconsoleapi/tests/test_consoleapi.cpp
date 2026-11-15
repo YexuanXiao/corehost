@@ -962,9 +962,9 @@ int main()
     add_alias_request->ExeLength = 3;
     add_alias_request->Unicode = TRUE;
     auto *alias_data = reinterpret_cast<char16_t *>(add_alias_request + 1);
-    std::memcpy(alias_data, alias_source, sizeof(alias_source));
-    std::memcpy(alias_data + 1, alias_target, sizeof(alias_target));
-    std::memcpy(alias_data + 2, alias_exe, sizeof(alias_exe));
+    std::memcpy(alias_data, alias_exe, sizeof(alias_exe));
+    std::memcpy(alias_data + 3, alias_source, sizeof(alias_source));
+    std::memcpy(alias_data + 4, alias_target, sizeof(alias_target));
     if (!api.handle(add_alias_message) || state.aliases.size() != 1)
     {
         std::fprintf(stderr, "add alias failed\n");
