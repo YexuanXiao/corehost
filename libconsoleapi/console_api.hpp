@@ -495,36 +495,33 @@ class console_api final
             }
             if (character == 0)
             {
-                if (event.key.key == consoleinput::virtual_key::left)
+                switch (event.key.key)
                 {
+                case consoleinput::virtual_key::left:
                     if (cursor != 0)
                     {
                         --cursor;
                     }
-                }
-                else if (event.key.key == consoleinput::virtual_key::right)
-                {
+                    break;
+                case consoleinput::virtual_key::right:
                     if (cursor < units)
                     {
                         ++cursor;
                     }
-                }
-                else if (event.key.key == consoleinput::virtual_key::home)
-                {
+                    break;
+                case consoleinput::virtual_key::home:
                     cursor = 0;
-                }
-                else if (event.key.key == consoleinput::virtual_key::end)
-                {
+                    break;
+                case consoleinput::virtual_key::end:
                     cursor = units;
-                }
-                else if (event.key.key == consoleinput::virtual_key::del)
-                {
+                    break;
+                case consoleinput::virtual_key::del:
                     if (cursor < units)
                     {
                         erase_character(output, units, cursor, cursor);
                     }
-                }
-                else if (event.key.key == consoleinput::virtual_key::up)
+                    break;
+                case consoleinput::virtual_key::up:
                 {
                     auto &selected = history_selection_;
                     if (state_.browse_history_up(std::u16string_view{output, units}, selected))
@@ -533,8 +530,9 @@ class console_api final
                         std::copy_n(selected.data(), units, output);
                         cursor = units;
                     }
+                    break;
                 }
-                else if (event.key.key == consoleinput::virtual_key::down)
+                case consoleinput::virtual_key::down:
                 {
                     auto &selected = history_selection_;
                     if (state_.browse_history_down(selected))
@@ -543,6 +541,10 @@ class console_api final
                         std::copy_n(selected.data(), units, output);
                         cursor = units;
                     }
+                    break;
+                }
+                default:
+                    break;
                 }
                 redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
                 continue;
