@@ -74,6 +74,16 @@ class input_queue final
         events_.push_back(event);
     }
 
+    void push_front(const input_event &event)
+    {
+        if (head_ != 0)
+        {
+            events_[--head_] = event;
+            return;
+        }
+        events_.insert(events_.begin(), event);
+    }
+
     [[nodiscard]] std::size_t size() const noexcept
     {
         return events_.size() - head_;

@@ -483,7 +483,15 @@ class console_api final
                 key.control_state = input[i].Event.KeyEvent.dwControlKeyState;
                 key.repeat_count = input[i].Event.KeyEvent.wRepeatCount;
                 key.key_down = input[i].Event.KeyEvent.bKeyDown != FALSE;
-                input_->push(consoleinput::input_event{consoleinput::input_event_type::key, key});
+                const auto converted = consoleinput::input_event{consoleinput::input_event_type::key, key};
+                if (request->Append)
+                {
+                    input_->push(converted);
+                }
+                else
+                {
+                    input_->push_front(converted);
+                }
                 ++written;
             }
         }
