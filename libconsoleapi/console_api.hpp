@@ -1209,8 +1209,8 @@ class console_api final
             else
             {
                 const auto code_page = state_.input_code_page;
-                length += encode_console_text(alias.source, code_page).size() +
-                          encode_console_text(alias.target, code_page).size() + 2;
+                length += console_text_length(alias.source, code_page) +
+                          console_text_length(alias.target, code_page) + 2;
             }
         }
         info->AliasesLength = static_cast<ULONG>(length);
@@ -1244,11 +1244,7 @@ class console_api final
             }
             else
             {
-                const auto code_page = state_.input_code_page;
-                const auto units =
-                    ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(alias.executable.data()),
-                                          static_cast<int>(alias.executable.size()), nullptr, 0, nullptr, nullptr);
-                length += static_cast<std::size_t>(std::max(units, 0)) + 1;
+                length += console_text_length(alias.executable, state_.input_code_page) + 1;
             }
         }
         info->AliasExesLength = static_cast<ULONG>(length);
@@ -2605,6 +2601,13 @@ class console_api final
                                    static_cast<std::int32_t>(x + width - 1), static_cast<std::int32_t>(y)};
         buffer_.fill_chars(segment, fill_char);
         buffer_.fill_attrs(segment, attributes);
+    }
+
+    static std::size_t console_text_length(std::u16string_view value, UINT code_page) noexcept
+    {
+        const auto units = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(value.data()),
+                                                 static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+        return static_cast<std::size_t>(std::max(units, 0));
     }
 
     static std::string encode_console_text(std::u16string_view value, UINT code_page)
