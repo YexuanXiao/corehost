@@ -683,10 +683,33 @@ class console_api final
             state_.set_cursor(static_cast<std::size_t>(echo_cursor.x),
                               static_cast<std::size_t>(echo_cursor.y));
         }
-        request->NumBytes = static_cast<ULONG>(units * sizeof(char16_t));
-        coreio::prepare_completion(message, 0, units * sizeof(char16_t),
+        request->ControlKeyState = 0;
+        std::size_t bytes = 0;
+        if (request->Unicode)
+        {
+            bytes = units * sizeof(char16_t);
+            request->NumBytes = static_cast<ULONG>(bytes);
+        }
+        else
+        {
+            const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+            const auto capacity = max_units * sizeof(char16_t);
+            std::vector<char> ansi(capacity);
+            const auto converted = ::WideCharToMultiByte(
+                code_page, 0, reinterpret_cast<const wchar_t *>(output), static_cast<int>(units),
+                ansi.data(), static_cast<int>(ansi.size()), nullptr, nullptr);
+            if (converted == 0 && units != 0)
+            {
+                coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+                return true;
+            }
+            bytes = static_cast<std::size_t>(converted);
+            std::memcpy(output, ansi.data(), bytes);
+            request->NumBytes = static_cast<ULONG>(bytes);
+        }
+        coreio::prepare_completion(message, 0, bytes,
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   units * sizeof(char16_t));
+                                   sizeof(CONSOLE_READCONSOLE_MSG) + bytes);
         return true;
     }
 

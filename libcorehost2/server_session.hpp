@@ -186,6 +186,9 @@ class server_session final
         }
         if (pending_kind_ == pending_kind::raw_read)
         {
+            raw_line_.clear();
+            raw_line_active_ = false;
+            raw_eof_ = false;
             coreio::prepare_completion(pending_message_, 0, 0, pending_message_.body, 0);
         }
         else if (pending_kind_ == pending_kind::console_input)
@@ -237,7 +240,11 @@ class server_session final
                 reinterpret_cast<char *>(pending_message_.body), capacity});
             if (written == 0)
             {
-                return false;
+                if (!raw_eof_)
+                {
+                    return false;
+                }
+                clear_raw_eof();
             }
             coreio::prepare_completion(pending_message_, 0, written, pending_message_.body, written);
         }

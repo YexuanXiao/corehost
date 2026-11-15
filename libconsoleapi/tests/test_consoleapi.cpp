@@ -1598,6 +1598,37 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::input_queue ansi_queue;
+    ansi_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'A'}});
+    ansi_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\r'}});
+    corehost::screen::screen_buffer ansi_buffer{8, 2};
+    corehost::screen::console_state ansi_state{8, 2};
+    corehost::consoleapi::console_api ansi_api{ansi_buffer, ansi_state, &ansi_queue};
+    corehost::coreio::io_msg ansi_message{};
+    ansi_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    ansi_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    auto *ansi_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(ansi_message.body);
+    ansi_header->ApiNumber = ConsolepReadConsole;
+    auto *ansi_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        ansi_message.body + sizeof(CONSOLE_MSG_HEADER));
+    ansi_request->Unicode = FALSE;
+    if (!ansi_api.handle(ansi_message) || ansi_request->NumBytes != 3)
+    {
+        std::fprintf(stderr, "ansi read console failed bytes=%lu unicode=%d\\n", ansi_request->NumBytes, ansi_request->Unicode);
+        return EXIT_FAILURE;
+    }
+    const auto *ansi_data = reinterpret_cast<const char *>(
+        ansi_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+    if (ansi_data[0] != 'A' || ansi_data[1] != '\r' || ansi_data[2] != '\n')
+    {
+        std::fprintf(stderr, "ansi read console data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
