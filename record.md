@@ -1409,6 +1409,14 @@ control old=0.0839-0.0892 ns/unit new=0.0815-0.0859 ns/unit ratio=1.02-1.09x
 
 收益不稳定，部分场景变慢，代码量翻倍，因此保留 4 字符版本。
 
+### VT cell 写入只计算一次 wide
+
+`write_cell` 原来多次调用 `value.is_wide()`；现在只计算一次 `const bool wide = value.is_wide();`，边界检查和两处 tail 处理复用该值：
+
+```text
+a7f356b perf(libscreen): compute cell wide flag once
+```
+
 ### VT ASCII cell 直接写 scalar
 
 ASCII 快速路径不再构造 `u16string_view` 调用 `write_glyph`，而是直接调用 `write_scalar`，跳过 glyph 空串和边界检查：
