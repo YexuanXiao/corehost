@@ -601,18 +601,18 @@ int main()
         return EXIT_FAILURE;
     }
 
-    corehost::coreio::io_msg mouse_message{};
-    mouse_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETMOUSEINFO_MSG);
-    mouse_message.descriptor.OutputSize = sizeof(mouse_message.body);
-    auto *mouse_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(mouse_message.body);
+    corehost::coreio::io_msg mouse_input_message{};
+    mouse_input_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETMOUSEINFO_MSG);
+    mouse_input_message.descriptor.OutputSize = sizeof(mouse_input_message.body);
+    auto *mouse_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(mouse_input_message.body);
     mouse_header->ApiNumber = ConsolepGetMouseInfo;
-    if (!api.handle(mouse_message))
+    if (!api.handle(mouse_input_message))
     {
         std::fprintf(stderr, "get mouse info failed\n");
         return EXIT_FAILURE;
     }
     const auto *mouse_info = reinterpret_cast<const CONSOLE_GETMOUSEINFO_MSG *>(
-        mouse_message.body + sizeof(CONSOLE_MSG_HEADER));
+        mouse_input_message.body + sizeof(CONSOLE_MSG_HEADER));
     if (mouse_info->NumButtons != 5)
     {
         std::fprintf(stderr, "get mouse info data failed\n");
@@ -1072,6 +1072,33 @@ int main()
             reinterpret_cast<HWND>(0x55))
     {
         std::fprintf(stderr, "get console window handle failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::consoleinput::input_queue mouse_queue;
+    corehost::consoleinput::input_event mouse_event{corehost::consoleinput::input_event_type::mouse};
+    mouse_event.mouse = corehost::consoleinput::mouse_event{4, 2, 1, 0, 0};
+    mouse_queue.push(mouse_event);
+    corehost::consoleapi::console_api mouse_api{buffer, state, &mouse_queue};
+    corehost::coreio::io_msg mouse_record_message{};
+    mouse_record_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+    mouse_record_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                         sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + sizeof(INPUT_RECORD);
+    auto *mouse_record_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(mouse_record_message.body);
+    mouse_record_header->ApiNumber = ConsolepGetConsoleInput;
+    if (!mouse_api.handle(mouse_record_message))
+    {
+        std::fprintf(stderr, "read mouse input failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *mouse_record = reinterpret_cast<const INPUT_RECORD *>(
+        mouse_record_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+    if (mouse_record->EventType != MOUSE_EVENT ||
+        mouse_record->Event.MouseEvent.dwMousePosition.X != 4 ||
+        mouse_record->Event.MouseEvent.dwButtonState != 1)
+    {
+        std::fprintf(stderr, "read mouse input data failed\n");
         return EXIT_FAILURE;
     }
 

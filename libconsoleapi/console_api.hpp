@@ -338,13 +338,26 @@ class console_api final
             {
                 auto &record = output[i];
                 record = INPUT_RECORD{};
-                record.EventType = KEY_EVENT;
-                record.Event.KeyEvent.bKeyDown = events[i].key.key_down ? TRUE : FALSE;
-                record.Event.KeyEvent.wRepeatCount = events[i].key.repeat_count;
-                record.Event.KeyEvent.wVirtualKeyCode = static_cast<WORD>(std::to_underlying(events[i].key.key));
-                record.Event.KeyEvent.wVirtualScanCode = events[i].key.scan_code;
-                record.Event.KeyEvent.uChar.UnicodeChar = events[i].key.character;
-                record.Event.KeyEvent.dwControlKeyState = events[i].key.control_state;
+                if (events[i].type == consoleinput::input_event_type::mouse)
+                {
+                    record.EventType = MOUSE_EVENT;
+                    record.Event.MouseEvent.dwMousePosition = COORD{
+                        static_cast<SHORT>(events[i].mouse.x), static_cast<SHORT>(events[i].mouse.y)};
+                    record.Event.MouseEvent.dwButtonState = events[i].mouse.button_state;
+                    record.Event.MouseEvent.dwControlKeyState = events[i].mouse.control_state;
+                    record.Event.MouseEvent.dwEventFlags = events[i].mouse.event_flags;
+                }
+                else
+                {
+                    record.EventType = KEY_EVENT;
+                    record.Event.KeyEvent.bKeyDown = events[i].key.key_down ? TRUE : FALSE;
+                    record.Event.KeyEvent.wRepeatCount = events[i].key.repeat_count;
+                    record.Event.KeyEvent.wVirtualKeyCode =
+                        static_cast<WORD>(std::to_underlying(events[i].key.key));
+                    record.Event.KeyEvent.wVirtualScanCode = events[i].key.scan_code;
+                    record.Event.KeyEvent.uChar.UnicodeChar = events[i].key.character;
+                    record.Event.KeyEvent.dwControlKeyState = events[i].key.control_state;
+                }
             }
         }
         request->NumRecords = static_cast<ULONG>(count);

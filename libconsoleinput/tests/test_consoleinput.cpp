@@ -55,6 +55,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b[<0;5;3M");
+    const auto mouse = mouse_from_message(result.id, result.message);
+    if (!mouse.has_value() || mouse->x != 4 || mouse->y != 2 || mouse->button_state != 1)
+    {
+        std::fprintf(stderr, "mouse mapping failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleinput tests passed\n");
     return EXIT_SUCCESS;
 }

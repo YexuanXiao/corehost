@@ -38,6 +38,15 @@ enum class virtual_key : std::uint16_t
     f12 = 0x7B,
 };
 
+struct mouse_event final
+{
+    std::int32_t x{};
+    std::int32_t y{};
+    std::uint32_t button_state{};
+    std::uint32_t control_state{};
+    std::uint32_t event_flags{};
+};
+
 struct key_event final
 {
     char16_t character{};
@@ -51,18 +60,23 @@ struct key_event final
 enum class input_event_type : std::uint8_t
 {
     key,
+    mouse,
 };
 
 struct input_event final
 {
     input_event_type type{input_event_type::key};
     key_event key;
+    mouse_event mouse;
 };
 
 // Converts parser keyboard messages to a portable key event. Non-keyboard
 // messages return std::nullopt.
 [[nodiscard]] std::optional<key_event>
 key_from_message(vtparser::vt_message_id id, const vtparser::vt_message &message) noexcept;
+
+[[nodiscard]] std::optional<mouse_event>
+mouse_from_message(vtparser::vt_message_id id, const vtparser::vt_message &message) noexcept;
 
 // Batch-oriented input queue. read() copies a whole span and never pops one
 // element at a time; consumed storage is compacted only when it dominates.

@@ -71,6 +71,16 @@ class session final
                 continue;
             }
 
+            if (const auto mouse = consoleinput::mouse_from_message(result.id, result.message);
+                mouse.has_value())
+            {
+                consoleinput::input_event event{consoleinput::input_event_type::mouse};
+                event.mouse = *mouse;
+                input_.push(event);
+                parser_.reset();
+                continue;
+            }
+
             if (result.id == vtparser::vt_message_id::continue_text ||
                 result.id == vtparser::vt_message_id::text)
             {

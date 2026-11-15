@@ -111,4 +111,55 @@ key_from_message(vtparser::vt_message_id id, const vtparser::vt_message &message
     return event;
 }
 
+[[nodiscard]] inline std::optional<mouse_event>
+mouse_from_message(vtparser::vt_message_id id, const vtparser::vt_message &message) noexcept
+{
+    if (id != vtparser::vt_message_id::mouse_sgr)
+    {
+        return std::nullopt;
+    }
+    mouse_event event;
+    event.x = message.payload.mouse.x;
+    event.y = message.payload.mouse.y;
+    const auto encoding = message.payload.mouse.encoding;
+    if (!message.payload.mouse.release && (encoding & 0x40) == 0)
+    {
+        switch (encoding & 0x03)
+        {
+        case 0:
+            event.button_state = 0x0001;
+            break;
+        case 1:
+            event.button_state = 0x0004;
+            break;
+        case 2:
+            event.button_state = 0x0002;
+            break;
+        default:
+            break;
+        }
+    }
+    if ((encoding & 0x04) != 0)
+    {
+        event.control_state |= 0x0010;
+    }
+    if ((encoding & 0x08) != 0)
+    {
+        event.control_state |= 0x0002;
+    }
+    if ((encoding & 0x10) != 0)
+    {
+        event.control_state |= 0x0008;
+    }
+    if ((encoding & 0x20) != 0)
+    {
+        event.event_flags |= 0x0001;
+    }
+    if ((encoding & 0x40) != 0)
+    {
+        event.event_flags |= 0x0004;
+    }
+    return event;
+}
+
 } // namespace corehost::consoleinput
