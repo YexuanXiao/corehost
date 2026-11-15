@@ -255,6 +255,16 @@ class session final
             if (const auto mouse = consoleinput::mouse_from_message(result.id, result.message, &mouse_button_state_);
                 mouse.has_value() && state_.mouse_tracking())
             {
+                if (screen_.alternate_active())
+                {
+                    for (const auto ch : result.raw_sequence)
+                    {
+                        input_.push(consoleinput::input_event{
+                            consoleinput::input_event_type::key,
+                            consoleinput::key_from_character(ch, true)});
+                    }
+                    return;
+                }
                 consoleinput::input_event event{consoleinput::input_event_type::mouse};
                 event.mouse = *mouse;
                 input_.push(event);
