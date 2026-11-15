@@ -423,7 +423,7 @@ class console_api final
                     else
                     {
                         const auto code_page =
-                            state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+                            state_.output_code_page != 0 ? state_.output_code_page : CP_OEMCP;
                         char narrow = 0;
                         (void)::WideCharToMultiByte(
                             code_page, 0, reinterpret_cast<const wchar_t *>(&events[i].key.character),
@@ -721,7 +721,7 @@ class console_api final
         }
         else
         {
-            const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+            const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_OEMCP;
             const auto capacity = max_units * sizeof(char16_t);
             std::vector<char> ansi(capacity);
             const auto converted = ::WideCharToMultiByte(
@@ -787,7 +787,7 @@ class console_api final
         char16_t fill_char = request->Fill.Char.UnicodeChar;
         if (!request->Unicode)
         {
-            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_OEMCP;
             const char byte = request->Fill.Char.AsciiChar;
             wchar_t wide[4]{};
             const auto units = ::MultiByteToWideChar(code_page, 0, &byte, 1, wide, 4);
@@ -909,7 +909,7 @@ class console_api final
         }
         else
         {
-            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_OEMCP;
             const auto *bytes_data = reinterpret_cast<const char *>(payload.data());
             const auto units = ::MultiByteToWideChar(code_page, 0, bytes_data,
                                                      static_cast<int>(payload.size()), nullptr, 0);
@@ -981,7 +981,7 @@ class console_api final
                     else
                     {
                         const auto code_page =
-                            state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+                            state_.input_code_page != 0 ? state_.input_code_page : CP_OEMCP;
                         char bytes[2]{input[i].Event.KeyEvent.uChar.AsciiChar, 0};
                         int byte_count = 1;
                         if (::IsDBCSLeadByteEx(code_page, static_cast<BYTE>(bytes[0])) &&
@@ -1277,7 +1277,7 @@ class console_api final
             }
             else
             {
-                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_OEMCP;
                 length += encode_console_text(alias.source, code_page).size() +
                           encode_console_text(alias.target, code_page).size() + 2;
             }
@@ -1314,7 +1314,7 @@ class console_api final
             }
             else
             {
-                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_OEMCP;
                 length += encode_console_text(alias.executable, code_page).size() + 1;
             }
         }
@@ -1407,7 +1407,7 @@ class console_api final
             }
             else
             {
-                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_OEMCP;
                 const auto encoded = encode_console_text(alias.executable, code_page);
                 if (written + encoded.size() + 1 > capacity)
                 {
@@ -1531,7 +1531,7 @@ class console_api final
                 }
                 else
                 {
-                    const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+                    const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_OEMCP;
                     const auto encoded = encode_console_text(alias.target, code_page);
                     if (encoded.size() + 1 > available)
                     {
@@ -1599,7 +1599,7 @@ class console_api final
             }
             else
             {
-                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_OEMCP;
                 length += encode_console_text(command, code_page).size() + 1;
             }
         }
@@ -1639,7 +1639,7 @@ class console_api final
             }
             else
             {
-                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_OEMCP;
                 const auto encoded = encode_console_text(command, code_page);
                 if (written + encoded.size() + 1 > capacity)
                 {
@@ -1848,7 +1848,7 @@ class console_api final
         }
         else
         {
-            const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+            const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_OEMCP;
             std::vector<char> ansi(title.size() * 2 + 2);
             const auto converted = ::WideCharToMultiByte(
                 code_page, 0, reinterpret_cast<const wchar_t *>(title.data()),
@@ -1900,7 +1900,7 @@ class console_api final
         }
         else
         {
-            const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+            const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_OEMCP;
             const auto units = ::MultiByteToWideChar(
                 code_page, 0, reinterpret_cast<const char *>(payload.data()),
                 static_cast<int>(payload.size()), nullptr, 0);
@@ -2125,7 +2125,7 @@ class console_api final
             const auto count = std::min<std::size_t>(requested, capacity);
             std::vector<char16_t> chars(count);
             const auto read = buffer_.read_chars(coordinate, std::span<char16_t>{chars});
-            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_OEMCP;
             const auto converted = ::WideCharToMultiByte(
                 code_page, 0, reinterpret_cast<const wchar_t *>(chars.data()),
                 static_cast<int>(read), reinterpret_cast<char *>(data),
@@ -2179,7 +2179,7 @@ class console_api final
         {
             const auto count = std::min<std::size_t>(request->NumRecords, data_size);
             const auto *chars = reinterpret_cast<const char *>(data);
-            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_OEMCP;
             const auto units = ::MultiByteToWideChar(code_page, 0, chars, static_cast<int>(count),
                                                      nullptr, 0);
             std::u16string text(static_cast<std::size_t>(std::max(units, 0)), u'\0');
@@ -2222,7 +2222,7 @@ class console_api final
         char16_t fill = static_cast<char16_t>(request->Element);
         if (request->ElementType == CONSOLE_ASCII)
         {
-            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_OEMCP;
             const char byte = static_cast<char>(request->Element & 0xFF);
             wchar_t wide[4]{};
             const auto units = ::MultiByteToWideChar(code_page, 0, &byte, 1, wide, 4);
@@ -2332,7 +2332,7 @@ class console_api final
             return true;
         }
 
-        const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+        const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_OEMCP;
         for (auto y = clipped.Top; y <= clipped.Bottom; ++y)
         {
             auto *row = out + static_cast<std::size_t>(y - region.Top) * static_cast<std::size_t>(width) +
@@ -2724,7 +2724,7 @@ class console_api final
             return;
         }
 
-        const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+        const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_OEMCP;
         const auto encoded = encode_console_text(value, code_page);
         const auto bytes = std::min(encoded.size(), capacity - written - 1);
         std::memcpy(output + written, encoded.data(), bytes);
