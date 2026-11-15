@@ -114,6 +114,36 @@ class state_applier final
             message.payload.palette.b;
     }
 
+    void apply_insert_lines(const vtparser::vt_message &message,
+                            screen::screen_buffer &buffer,
+                            screen::console_state &state)
+    {
+        const auto count = static_cast<std::size_t>(std::max<int>(message.payload.count.value, 0));
+        const auto y = state.cursor().y;
+        const auto bottom = state.scroll_bottom();
+        if (count == 0 || y >= bottom)
+        {
+            return;
+        }
+        buffer.scroll_region_down(screen::rectangle{0, y, state.width(), bottom - y + 1}, count,
+                                 state.default_style);
+    }
+
+    void apply_delete_lines(const vtparser::vt_message &message,
+                            screen::screen_buffer &buffer,
+                            screen::console_state &state)
+    {
+        const auto count = static_cast<std::size_t>(std::max<int>(message.payload.count.value, 0));
+        const auto y = state.cursor().y;
+        const auto bottom = state.scroll_bottom();
+        if (count == 0 || y >= bottom)
+        {
+            return;
+        }
+        buffer.scroll_region_up(screen::rectangle{0, y, state.width(), bottom - y + 1}, count,
+                               state.default_style);
+    }
+
     void apply_insert_characters(const vtparser::vt_message &message,
                                   screen::screen_buffer &buffer,
                                   screen::console_state &state)

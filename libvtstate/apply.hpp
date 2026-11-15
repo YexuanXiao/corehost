@@ -54,6 +54,12 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::set_palette_color:
         applier.apply_palette_color(message, state);
         return true;
+    case vtparser::vt_message_id::insert_lines:
+        applier.apply_insert_lines(message, buffer, state);
+        return true;
+    case vtparser::vt_message_id::delete_lines:
+        applier.apply_delete_lines(message, buffer, state);
+        return true;
     case vtparser::vt_message_id::insert_characters:
         applier.apply_insert_characters(message, buffer, state);
         return true;

@@ -287,6 +287,27 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer line_buffer{4, 3};
+    corehost::screen::console_state line_state{4, 3};
+    (void)line_buffer.write_scalar(0, 0, u'A', corehost::screen::cell_style{});
+    parser.reset();
+    result = parser.parse(U"\x1b[L");
+    (void)corehost::vtstate::apply(result.id, result.message, line_buffer, line_state, applier);
+    if (line_buffer.at(0, 0).primary() != u' ' || line_buffer.at(0, 1).primary() != u'A')
+    {
+        std::fprintf(stderr, "insert line failed\n");
+        return EXIT_FAILURE;
+    }
+
+    parser.reset();
+    result = parser.parse(U"\x1b[M");
+    (void)corehost::vtstate::apply(result.id, result.message, line_buffer, line_state, applier);
+    if (line_buffer.at(0, 0).primary() != u'A')
+    {
+        std::fprintf(stderr, "delete line failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }
