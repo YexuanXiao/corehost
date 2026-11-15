@@ -39,6 +39,34 @@ class state_applier final
         last_consumed_ = result.consumed;
     }
 
+    void apply_semantic_prompt(const vtparser::vt_message &message,
+                              screen::screen_buffer &buffer,
+                              const screen::console_state &state)
+    {
+        const auto y = static_cast<std::size_t>(state.cursor().y);
+        if (message.payload.semantic.kind == u'A')
+        {
+            buffer.add_flags(y, screen::line_flag::prompt_end);
+            return;
+        }
+        if (message.payload.semantic.kind != u'D')
+        {
+            return;
+        }
+
+        buffer.add_flags(y, screen::line_flag::command_end);
+        std::int32_t exit_code = 0;
+        for (const char32_t ch : message.payload.semantic.argument)
+        {
+            if (ch < U'0' || ch > U'9')
+            {
+                break;
+            }
+            exit_code = exit_code * 10 + static_cast<std::int32_t>(ch - U'0');
+        }
+        buffer.set_command_exit_code(y, exit_code);
+    }
+
     void apply_erase_in_display(const vtparser::vt_message &message,
                                 screen::screen_buffer &buffer,
                                 const screen::console_state &state)

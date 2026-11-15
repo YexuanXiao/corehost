@@ -120,6 +120,25 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b]133;A\x07");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (!buffer.has_flag(state.cursor().y, screen::line_flag::prompt_end))
+    {
+        std::fprintf(stderr, "prompt mark failed\n");
+        return EXIT_FAILURE;
+    }
+
+    parser.reset();
+    result = parser.parse(U"\x1b]133;D;7\x07");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (!buffer.has_flag(state.cursor().y, screen::line_flag::command_end) ||
+        buffer.command_exit_code(state.cursor().y) != 7)
+    {
+        std::fprintf(stderr, "command mark failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::vtstate::state_applier line_applier;
     parser.reset();
     result = parser.parse(U"\n");

@@ -31,6 +31,9 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::osc8_hyperlink:
         applier.apply_hyperlink(message, buffer, state);
         return true;
+    case vtparser::vt_message_id::semantic_prompt_mark:
+        applier.apply_semantic_prompt(message, buffer, state);
+        return true;
     case vtparser::vt_message_id::erase_in_line:
         applier.apply_erase_in_line(message, buffer, state);
         return true;
