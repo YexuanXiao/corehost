@@ -284,3 +284,13 @@ a3fa08d fix(libscreen): project legacy attributes to terminal colors
 
 - `COLOR-WHITE` 显示红色前景；
 - `COLOR-DEFAULT` 和 prompt 恢复 WT 默认浅色背景。
+
+### cmd color 对比
+
+执行：
+
+```cmd
+cmd /c "color 4F & echo CMD-COLOR-4F"
+```
+
+corehost2 与原始 OpenConsole 都显示红底，文字与背景关系一致；legacy `color` 命令的屏幕属性切换通过。
