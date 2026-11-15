@@ -1006,6 +1006,14 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### FillConsoleOutput 区域预裁剪
+
+`fill_chars` / `fill_attrs` 先把 `area` 裁剪到页面范围，再遍历有效矩形，删除每单元格四次 bounds 检查：
+
+```text
+5981bcb perf(libscreen): clip fill area once
+```
+
 ### WriteConsole 边界外提
 
 `write_chars` 入口检查起始坐标一次；循环内只检查 `y < height_`。`x` 到达行尾后回绕，宽度检查由 `x + columns > width_` 保证：
