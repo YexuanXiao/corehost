@@ -62,6 +62,17 @@ inline void run_conpty_session(win32::handle_view server,
                 auto handler = [&](coreio::io_msg &message) {
                     const std::scoped_lock lock{session_mutex};
                     console_session.handle(message);
+                    if (!state.screen().has_damage())
+                    {
+                        return;
+                    }
+                    const auto cursor = screen::coord{
+                        static_cast<std::int32_t>(state.state().cursor().x),
+                        static_cast<std::int32_t>(state.state().cursor().y),
+                    };
+                    vtserializer::render_damage(writer.buffer(), state.screen(), cursor, &state.state());
+                    state.screen().clear_damage();
+                    (void)writer.flush();
                 };
                 coreio::run_server(transport, handler, stop);
             }
