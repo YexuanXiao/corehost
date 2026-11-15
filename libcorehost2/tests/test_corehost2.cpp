@@ -524,6 +524,27 @@ int main()
         return EXIT_FAILURE;
     }
 
+    // Win32Input must stay structured even when the application selected
+    // ENABLE_VIRTUAL_TERMINAL_INPUT. The raw CSI must not be re-decoded into
+    // individual 'E', '[', '6', ... key events.
+    corehost::corehost2::session win32_input_session{8, 2};
+    win32_input_session.feed_input(
+        std::u16string_view{u"\x1b[65;30;65;1;16;1_\x1b[65;30;65;0;16;1_"}, true);
+    if (win32_input_session.input().size() != 2)
+    {
+        std::fprintf(stderr, "Win32Input raw_passthrough produced wrong event count\n");
+        return EXIT_FAILURE;
+    }
+    std::array<corehost::consoleinput::input_event, 2> win32_input_events{};
+    const auto win32_count = win32_input_session.input().peek(win32_input_events);
+    if (win32_count != 2 || win32_input_events[0].key.character != u'A' ||
+        win32_input_events[0].key.control_state != 0x10 || !win32_input_events[0].key.key_down ||
+        win32_input_events[1].key.key_down)
+    {
+        std::fprintf(stderr, "Win32Input raw_passthrough lost VK/Uc/ControlKeyState\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
 }

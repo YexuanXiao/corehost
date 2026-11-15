@@ -158,6 +158,20 @@ class session final
             return;
         }
 
+        // Win32Input is a host-terminal protocol, not application VT input.
+        // Even when the application enabled ENABLE_VIRTUAL_TERMINAL_INPUT,
+        // the structured VK/Uc/ControlKeyState must become a KEY_EVENT;
+        // otherwise characters are re-derived from the raw CSI text and
+        // capitalization / modifiers are lost.
+        if (input_direction && result.id == vtparser::vt_message_id::win32_input_key)
+        {
+            if (const auto key = consoleinput::key_from_message(result.id, result.message); key.has_value())
+            {
+                input_.push(consoleinput::input_event{consoleinput::input_event_type::key, *key});
+            }
+            return;
+        }
+
         if (input_direction && raw_passthrough && !result.raw_sequence.empty())
         {
             for (const auto ch : result.raw_sequence)
