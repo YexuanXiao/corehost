@@ -450,3 +450,32 @@ corehost2 的 parser 只识别 SGR 1006（`ESC[<b;x;yM`），X10 序列被当成
 - 点击编辑区不再插入 `@.#`；
 - 点击菜单栏不再出现重复状态栏；
 - File 菜单仍然没有通过鼠标打开，需继续定位。
+
+## 2026-11-16 F10 / 快捷键修复
+
+WT 发送的 F10 Win32Input：
+
+```text
+ESC[121;68;0;1;0;1_
+```
+
+`Uc=0`，corehost2 之前只生成 `KEY_EVENT(character=0)`，edit 的 `read_stdin` 只收集字符，因此 F10 丢失。
+
+修复：
+
+```text
+f25c1d5 fix(corehost2): translate Win32Input function keys to VT sequences
+```
+
+- F1-F12、方向键、Home/End/Insert/Delete/PageUp/PageDown 转为 VT 序列字符；
+- 新增单元测试：F10 -> `ESC[21~`。
+
+真实 WT 验证：
+
+- 先点击终端获得焦点；
+- F10 打开 File 下拉菜单；
+- `New File / Open File / Save / Save As / Close File / Exit` 显示正常；
+- `Ctrl+Q` 打开 `Unsaved Changes` 对话框；
+- 选择 `Don't Save` 后 edit 退出并回到 PowerShell prompt。
+
+edit 快捷退出流程通过。
