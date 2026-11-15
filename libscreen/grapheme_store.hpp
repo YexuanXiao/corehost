@@ -37,20 +37,18 @@ class grapheme_store final
     // rebuild or truncate; it only writes and returns the ref.
     [[nodiscard]] ref append(std::span<const char16_t> cluster)
     {
+        assert(!cluster.empty());
         assert(can_append(cluster.size()));
 
         const auto offset = static_cast<cluster_offset>(units_.size());
-        units_.insert(units_.end(), cluster.begin(), cluster.end());
+        units_.append_range(cluster);
         return ref{offset, static_cast<std::uint8_t>(cluster.size())};
     }
 
     [[nodiscard]] std::span<const char16_t> view(ref value) const noexcept
     {
-        if (value.length == 0 || static_cast<std::size_t>(value.offset) + value.length > units_.size())
-        {
-            return {};
-        }
-
+        assert(value.length != 0);
+        assert(static_cast<std::size_t>(value.offset) + value.length <= units_.size());
         return std::span<const char16_t>{units_}.subspan(value.offset, value.length);
     }
 

@@ -105,7 +105,6 @@ void test_grapheme_store()
     check(ref2.length == 1, "second store length");
     check(store.size() == 6, "store total size");
     check(store.view(ref2)[0] == u'A', "second store data");
-    check(store.view(grapheme_store::ref{2, 100}).empty(), "invalid view is empty");
     check(!store.can_append(256), "store respects 8-bit cluster max");
 }
 

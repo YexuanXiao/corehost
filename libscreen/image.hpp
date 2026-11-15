@@ -1,7 +1,11 @@
 #pragma once
 
-#include <cstdint>
+#include <algorithm>
+#include <cassert>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <stdexcept>
 #include <vector>
 
 namespace corehost::screen
@@ -32,9 +36,34 @@ struct image_fragment final
 class image_table final
 {
   public:
-    [[nodiscard]] std::uint32_t intern(const image_fragment &fragment);
-    [[nodiscard]] const image_fragment &at(std::uint32_t id) const noexcept;
-    [[nodiscard]] std::size_t size() const noexcept;
+    [[nodiscard]] std::uint32_t intern(const image_fragment &fragment)
+    {
+        const auto found = std::find(fragments_.begin(), fragments_.end(), fragment);
+        if (found != fragments_.end())
+        {
+            return static_cast<std::uint32_t>(std::distance(fragments_.begin(), found));
+        }
+
+        if (fragments_.size() > std::numeric_limits<std::uint32_t>::max())
+        {
+            throw std::length_error("image table exhausted its 32-bit ID space");
+        }
+
+        const auto id = static_cast<std::uint32_t>(fragments_.size());
+        fragments_.push_back(fragment);
+        return id;
+    }
+
+    [[nodiscard]] const image_fragment &at(std::uint32_t id) const noexcept
+    {
+        assert(id < fragments_.size());
+        return fragments_[id];
+    }
+
+    [[nodiscard]] std::size_t size() const noexcept
+    {
+        return fragments_.size();
+    }
 
   private:
     std::vector<image_fragment> fragments_{{}};

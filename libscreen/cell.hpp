@@ -219,7 +219,7 @@ struct cell
     char16_t primary_{};
     cell_type type_ : 4;
     cell_width width_ : 4;
-    cell_flags flags_ : 8;
+    cell_flags flags_{};
     cell_extent extent_{};
     cell_style style_{};
     cell_hyperlink hyperlink_{};

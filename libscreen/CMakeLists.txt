@@ -1,27 +1,8 @@
-# libscreen — 16-byte cell screen buffer reference library.
-add_library(libscreen STATIC
-    console_state.cpp
-    hyperlink.cpp
-    image.cpp
-    screen_buffer.cpp
-    style.cpp
-)
+# libscreen — 16-byte cell screen buffer reference library (header-only).
+add_library(libscreen INTERFACE)
 
-target_sources(libscreen
-    PUBLIC
-        FILE_SET HEADERS
-            FILES
-                cell.hpp
-                console_state.hpp
-                grapheme_store.hpp
-                hyperlink.hpp
-                image.hpp
-                screen_buffer.hpp
-                style.hpp
-)
-
-target_include_directories(libscreen PUBLIC
+target_include_directories(libscreen INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_compile_features(libscreen PUBLIC cxx_std_23)
+target_compile_features(libscreen INTERFACE cxx_std_23)

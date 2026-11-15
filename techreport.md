@@ -365,8 +365,7 @@ bits 24..31 : actual cluster length (1..255)
 
 ## 5. 屏幕缓冲区结构
 
-实现：[libscreen/screen_buffer.hpp](libscreen/screen_buffer.hpp)、
-[libscreen/screen_buffer.cpp](libscreen/screen_buffer.cpp)。
+实现：[libscreen/screen_buffer.hpp](libscreen/screen_buffer.hpp)（header-only）。
 
 ### 5.1 Page 与 Row
 
@@ -914,11 +913,15 @@ UTF-16/24 位 cluster 地址/32 位共享 ID 的组合。16B cell 的代价是�
 ### libscreen
 
 - `libscreen/cell.hpp`
+- `libscreen/console_state.hpp`
 - `libscreen/grapheme_store.hpp`
-- `libscreen/style.hpp`, `style.cpp`
-- `libscreen/hyperlink.hpp`, `hyperlink.cpp`
-- `libscreen/screen_buffer.hpp`, `screen_buffer.cpp`
+- `libscreen/hyperlink.hpp`
+- `libscreen/image.hpp`
+- `libscreen/screen_buffer.hpp`
+- `libscreen/style.hpp`
 - `libscreen/tests/test_libscreen.cpp`
+
+libscreen 是 header-only INTERFACE target；实现全部在 `.hpp`。
 
 ### 参考实现
 

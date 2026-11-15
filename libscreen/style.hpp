@@ -2,10 +2,13 @@
 
 #include "cell.hpp"
 
+#include <cassert>
 #include <compare>
 #include <cstddef>
 #include <cstdint>
-#include <unordered_map>
+#include <flat_map>
+#include <limits>
+#include <stdexcept>
 #include <vector>
 
 namespace corehost::screen
@@ -39,21 +42,44 @@ struct text_style final
     friend constexpr auto operator<=>(const text_style &, const text_style &) noexcept = default;
 };
 
-struct text_style_hash final
-{
-    [[nodiscard]] std::size_t operator()(const text_style &style) const noexcept;
-};
-
 class style_table final
 {
   public:
-    [[nodiscard]] cell_style intern(const text_style &style);
-    [[nodiscard]] const text_style &at(cell_style id) const noexcept;
-    [[nodiscard]] std::size_t size() const noexcept;
+    [[nodiscard]] cell_style intern(const text_style &style)
+    {
+        const auto found = ids_.find(style);
+        if (found != ids_.end())
+        {
+            return found->second;
+        }
+
+        const auto max_id = static_cast<std::size_t>(std::numeric_limits<std::underlying_type_t<cell_style>>::max());
+        if (styles_.size() > max_id)
+        {
+            throw std::length_error("style table exhausted its 32-bit ID space");
+        }
+
+        const auto id = static_cast<cell_style>(styles_.size());
+        styles_.push_back(style);
+        ids_.emplace(style, id);
+        return id;
+    }
+
+    [[nodiscard]] const text_style &at(cell_style id) const noexcept
+    {
+        const auto index = static_cast<std::size_t>(std::to_underlying(id));
+        assert(index < styles_.size());
+        return styles_[index];
+    }
+
+    [[nodiscard]] std::size_t size() const noexcept
+    {
+        return styles_.size();
+    }
 
   private:
     std::vector<text_style> styles_{text_style{}};
-    std::unordered_map<text_style, cell_style, text_style_hash> ids_;
+    std::flat_map<text_style, cell_style> ids_;
 };
 
 } // namespace corehost::screen

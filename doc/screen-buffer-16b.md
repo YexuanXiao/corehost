@@ -1,6 +1,8 @@
 # 16-byte screen cell design
 
-Status: reference implementation in `/libscreen`; not yet wired into `libcorehost`.
+Status: header-only reference implementation in `/libscreen`; not yet wired into
+`libcorehost`. All declarations and definitions live in `.hpp`; `libscreen` is a CMake
+INTERFACE target.
 
 ## Cell layout
 
