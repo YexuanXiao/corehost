@@ -93,6 +93,11 @@ class console_api final
         alternate_object_ = object;
     }
 
+    void set_output_object(std::uintptr_t object) noexcept
+    {
+        output_object_ = object;
+    }
+
     [[nodiscard]] bool handle(coreio::io_msg &message) noexcept
     {
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER))
@@ -159,8 +164,7 @@ class console_api final
         }
         if (header->ApiNumber == ConsolepGetMode || header->ApiNumber == ConsolepSetMode)
         {
-            const bool input = (input_object_ != 0 && message.descriptor.Object == input_object_) ||
-                               (input_handle_ != 0 && message.descriptor.Object == input_handle_);
+            const bool input = !is_output_object(message.descriptor.Object);
             return header->ApiNumber == ConsolepGetMode ? get_mode(message, input) : set_mode(message, input);
         }
         if (header->ApiNumber == ConsolepSetActiveScreenBuffer)
@@ -479,12 +483,23 @@ class console_api final
 
     [[nodiscard]] bool input_handle_matches(const coreio::io_msg &message) const noexcept
     {
-        if (input_object_ == 0 || message.descriptor.Object == 0)
+        if (message.descriptor.Object == 0)
         {
             return true;
         }
-        return message.descriptor.Object == input_object_ ||
-               (input_handle_ != 0 && message.descriptor.Object == input_handle_);
+        if (message.descriptor.Object == input_object_ ||
+            (input_handle_ != 0 && message.descriptor.Object == input_handle_))
+        {
+            return true;
+        }
+        // Unknown objects are treated as input handles, matching corehost.
+        return !is_output_object(message.descriptor.Object);
+    }
+
+    [[nodiscard]] bool is_output_object(std::uintptr_t object) const noexcept
+    {
+        return (output_object_ != 0 && object == output_object_) ||
+               (alternate_object_ != 0 && object == alternate_object_);
     }
     [[nodiscard]] bool read_console(coreio::io_msg &message, bool pending_allowed = true) noexcept
     {
@@ -2816,6 +2831,7 @@ class console_api final
     std::size_t last_window_height_{};
     std::uintptr_t input_handle_{};
     std::uintptr_t alternate_object_{};
+    std::uintptr_t output_object_{};
     std::uintptr_t window_handle_{};
     coreio::process_registry *processes_{};
     coreio::input_payload_reader *payload_{};

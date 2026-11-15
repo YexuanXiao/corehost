@@ -654,11 +654,13 @@ int main()
         return EXIT_FAILURE;
     }
 
+    api.set_output_object(1);
     corehost::coreio::io_msg set_mode_message{};
     set_mode_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_MODE_MSG);
     set_mode_message.descriptor.OutputSize = sizeof(set_mode_message.body);
     auto *set_mode_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(set_mode_message.body);
     set_mode_header->ApiNumber = ConsolepSetMode;
+    set_mode_message.descriptor.Object = 1;
     auto *set_mode_request = reinterpret_cast<CONSOLE_MODE_MSG *>(
         set_mode_message.body + sizeof(CONSOLE_MSG_HEADER));
     set_mode_request->Mode = 0x7;
@@ -673,6 +675,7 @@ int main()
     get_mode_message.descriptor.OutputSize = sizeof(get_mode_message.body);
     auto *get_mode_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(get_mode_message.body);
     get_mode_header->ApiNumber = ConsolepGetMode;
+    get_mode_message.descriptor.Object = 1;
     if (!api.handle(get_mode_message) ||
         reinterpret_cast<const CONSOLE_MODE_MSG *>(
             get_mode_message.body + sizeof(CONSOLE_MSG_HEADER))->Mode != 0x7)
@@ -1148,7 +1151,7 @@ int main()
         std::fprintf(stderr, "get input mode extended failed\n");
         return EXIT_FAILURE;
     }
-    set_mode_message.descriptor.Object = 0;
+    set_mode_message.descriptor.Object = 1;
     set_mode_request->Mode = 0x100;
     if (!api.handle(set_mode_message) || set_mode_message.complete.IoStatus.Status == 0)
     {
