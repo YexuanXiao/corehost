@@ -1513,6 +1513,46 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::input_queue prepend_queue;
+    prepend_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'C'}});
+    corehost::screen::screen_buffer prepend_buffer{4, 2};
+    corehost::screen::console_state prepend_state{4, 2};
+    corehost::consoleapi::console_api prepend_api{prepend_buffer, prepend_state, &prepend_queue};
+    corehost::coreio::io_msg prepend_message{};
+    prepend_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                           sizeof(CONSOLE_WRITECONSOLEINPUT_MSG) +
+                                           2 * sizeof(INPUT_RECORD);
+    prepend_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG);
+    auto *prepend_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(prepend_message.body);
+    prepend_header->ApiNumber = ConsolepWriteConsoleInput;
+    auto *prepend_request = reinterpret_cast<CONSOLE_WRITECONSOLEINPUT_MSG *>(
+        prepend_message.body + sizeof(CONSOLE_MSG_HEADER));
+    prepend_request->NumRecords = 2;
+    auto *prepend_records = reinterpret_cast<INPUT_RECORD *>(
+        prepend_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
+    prepend_records[0].EventType = KEY_EVENT;
+    prepend_records[0].Event.KeyEvent.bKeyDown = TRUE;
+    prepend_records[0].Event.KeyEvent.uChar.UnicodeChar = u'A';
+    prepend_records[1].EventType = KEY_EVENT;
+    prepend_records[1].Event.KeyEvent.bKeyDown = TRUE;
+    prepend_records[1].Event.KeyEvent.uChar.UnicodeChar = u'B';
+    if (!prepend_api.handle(prepend_message))
+    {
+        std::fprintf(stderr, "WriteConsoleInput prepend failed\n");
+        return EXIT_FAILURE;
+    }
+    std::array<corehost::consoleinput::input_event, 3> prepend_events{};
+    const auto prepend_count = prepend_queue.read(
+        std::span<corehost::consoleinput::input_event>{prepend_events});
+    if (prepend_count != 3 || prepend_events[0].key.character != u'A' ||
+        prepend_events[1].key.character != u'B' || prepend_events[2].key.character != u'C')
+    {
+        std::fprintf(stderr, "WriteConsoleInput prepend order failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

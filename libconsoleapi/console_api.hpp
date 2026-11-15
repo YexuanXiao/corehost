@@ -18,6 +18,7 @@
 #include <cstring>
 #include <span>
 #include <utility>
+#include <vector>
 #include <string_view>
 
 namespace corehost::consoleapi
@@ -850,6 +851,7 @@ class console_api final
         const auto *input = reinterpret_cast<const INPUT_RECORD *>(
             message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
         std::size_t written = 0;
+        std::vector<consoleinput::input_event> prepend;
         if (input_ != nullptr)
         {
             for (std::size_t i = 0; i < records; ++i)
@@ -887,9 +889,13 @@ class console_api final
                 }
                 else
                 {
-                    input_->push_front(converted);
+                    prepend.push_back(converted);
                 }
                 ++written;
+            }
+            for (auto iterator = prepend.rbegin(); iterator != prepend.rend(); ++iterator)
+            {
+                input_->push_front(*iterator);
             }
         }
         request->NumRecords = static_cast<ULONG>(written);
