@@ -1006,6 +1006,14 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### ReadConsole 所有控制字符进入范围块
+
+回车、换行、退格和可忽略控制字符也移入 `character < u' '` 块；普通可打印字符直接跳到插入逻辑，不再检查 CR、LF、退格和不可打印字符：
+
+```text
+2896760 perf(consoleapi): handle all control characters in range block
+```
+
 ### ReadConsole 控制键范围前置
 
 普通可打印字符不再依次检查 Ctrl-C、Ctrl-Z、CtrlWakeupMask；三项控制键处理统一放进：
