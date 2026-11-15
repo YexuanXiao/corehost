@@ -156,6 +156,16 @@ int main()
         return EXIT_FAILURE;
     }
 
+    buffer.clear();
+    append_cursor_visibility(buffer, false);
+    append_cursor_shape(buffer, 2, true);
+    const std::u8string cursor_output{buffer.bytes().begin(), buffer.bytes().end()};
+    if (cursor_output != u8"\x1b[?25l\x1b[5 q")
+    {
+        std::fprintf(stderr, "cursor serialization failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtserializer tests passed\n");
     return EXIT_SUCCESS;
 }

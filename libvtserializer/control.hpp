@@ -64,4 +64,24 @@ inline void append_hyperlink_open_id(byte_buffer &output,
     output.push_back(static_cast<char8_t>(0x07));
 }
 
+inline void append_cursor_visibility(byte_buffer &output, bool visible)
+{
+    output.append_text(visible ? u8"\x1b[?25h" : u8"\x1b[?25l");
+}
+
+inline void append_cursor_shape(byte_buffer &output, unsigned style, bool blinking)
+{
+    const unsigned code = style * 2 + (blinking ? 1u : 2u);
+    char sequence[8]{};
+    auto *first = sequence;
+    *first++ = static_cast<char>(0x1B);
+    *first++ = '[';
+    auto result = std::to_chars(first, sequence + sizeof(sequence), code);
+    first = result.ptr;
+    *first++ = ' ';
+    *first++ = 'q';
+    output.append(std::span<const char8_t>{reinterpret_cast<const char8_t *>(sequence),
+                                           static_cast<std::size_t>(first - sequence)});
+}
+
 } // namespace corehost::vtserializer
