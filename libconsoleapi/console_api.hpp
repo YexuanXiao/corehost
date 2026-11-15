@@ -5,6 +5,11 @@
 
 #include "win32_types.hpp"
 
+#include "condrv_io.hpp"
+#include "os/Console/conmsgl1.h"
+#include "os/Console/conmsgl2.h"
+
+#include <cstring>
 #include <span>
 #include <string_view>
 
@@ -44,6 +49,41 @@ class console_api final
                       screen::coord destination) noexcept
     {
         buffer_.copy_rect(source, clip, use_clip, destination);
+    }
+
+    [[nodiscard]] bool get_screen_buffer_info(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+
+        auto *info = reinterpret_cast<CONSOLE_SCREENBUFFERINFO_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        std::memset(info, 0, sizeof(*info));
+        const auto size = buffer_.buffer_size();
+        const auto cursor = state_.cursor();
+        const auto origin = buffer_.viewport_origin();
+        const auto window = buffer_.viewport_size();
+        info->Size = COORD{static_cast<SHORT>(size.x), static_cast<SHORT>(size.y)};
+        info->CursorPosition = COORD{static_cast<SHORT>(cursor.x), static_cast<SHORT>(cursor.y)};
+        info->ScrollPosition = COORD{static_cast<SHORT>(origin.x), static_cast<SHORT>(origin.y)};
+        info->Attributes = state_.default_attributes;
+        info->CurrentWindowSize = COORD{static_cast<SHORT>(window.x), static_cast<SHORT>(window.y)};
+        info->MaximumWindowSize = COORD{static_cast<SHORT>(state_.max_window_size.x),
+                                        static_cast<SHORT>(state_.max_window_size.y)};
+        info->PopupAttributes = state_.popup_attributes;
+        info->FullscreenSupported = FALSE;
+        for (std::size_t i = 0; i < state_.color_table.size(); ++i)
+        {
+            info->ColorTable[i] = state_.color_table[i];
+        }
+
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_SCREENBUFFERINFO_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_SCREENBUFFERINFO_MSG));
+        return true;
     }
 
     [[nodiscard]] std::size_t read_cells(screen::rect area,

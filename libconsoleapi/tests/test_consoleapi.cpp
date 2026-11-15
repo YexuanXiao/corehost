@@ -49,6 +49,23 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg message{};
+    message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG);
+    message.descriptor.OutputSize = sizeof(message.body);
+    if (!api.get_screen_buffer_info(message) || message.complete.IoStatus.Status != 0 ||
+        message.complete.IoStatus.Information != sizeof(CONSOLE_SCREENBUFFERINFO_MSG))
+    {
+        std::fprintf(stderr, "screen buffer info failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *info = reinterpret_cast<const CONSOLE_SCREENBUFFERINFO_MSG *>(
+        message.body + sizeof(CONSOLE_MSG_HEADER));
+    if (info->Size.X != 8 || info->Size.Y != 2)
+    {
+        std::fprintf(stderr, "screen buffer info size failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
