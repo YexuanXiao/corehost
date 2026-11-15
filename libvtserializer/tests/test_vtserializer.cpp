@@ -1,5 +1,7 @@
 #include "buffer.hpp"
 #include "control.hpp"
+#include "text.hpp"
+#include "text.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -50,6 +52,16 @@ int main()
         !std::equal(buffer.bytes().begin(), buffer.bytes().end(), rendition.begin()))
     {
         std::fprintf(stderr, "line rendition serialization failed\n");
+        return EXIT_FAILURE;
+    }
+
+    buffer.clear();
+    append_utf32(buffer, U"A\u4E2D\U0001F600");
+    constexpr std::u8string_view utf8 = u8"A\u4E2D\U0001F600";
+    if (buffer.bytes().size() != utf8.size() ||
+        !std::equal(buffer.bytes().begin(), buffer.bytes().end(), utf8.begin()))
+    {
+        std::fprintf(stderr, "utf32 serialization failed\n");
         return EXIT_FAILURE;
     }
 

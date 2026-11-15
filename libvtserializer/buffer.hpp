@@ -44,6 +44,16 @@ class byte_buffer final
         return std::span<const char8_t>{bytes_};
     }
 
+    [[nodiscard]] char8_t *mutable_data() noexcept
+    {
+        return bytes_.data();
+    }
+
+    void resize(std::size_t size)
+    {
+        bytes_.resize(size);
+    }
+
     void append(std::span<const char8_t> value)
     {
         bytes_.insert(bytes_.end(), value.begin(), value.end());
