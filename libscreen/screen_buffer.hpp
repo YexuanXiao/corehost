@@ -1231,14 +1231,15 @@ inline std::size_t screen_buffer::write_attrs(coord start, std::span<const std::
 
 inline void screen_buffer::fill_chars(rect area, char16_t character) noexcept
 {
-    for (auto y = area.top; y <= area.bottom; ++y)
+    const auto left = std::max(area.left, 0);
+    const auto top = std::max(area.top, 0);
+    const auto right = std::min(area.right, static_cast<std::int32_t>(width_) - 1);
+    const auto bottom = std::min(area.bottom, static_cast<std::int32_t>(height_) - 1);
+
+    for (auto y = top; y <= bottom; ++y)
     {
-        for (auto x = area.left; x <= area.right; ++x)
+        for (auto x = left; x <= right; ++x)
         {
-            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
-            {
-                continue;
-            }
             const auto &old = at(static_cast<std::size_t>(x), static_cast<std::size_t>(y));
             (void)write_cell(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
                              cell::scalar(character, old.style(), cell_width::narrow, old.hyperlink(), old.flags()));
@@ -1248,16 +1249,16 @@ inline void screen_buffer::fill_chars(rect area, char16_t character) noexcept
 
 inline void screen_buffer::fill_attrs(rect area, std::uint16_t attributes) noexcept
 {
+    const auto left = std::max(area.left, 0);
+    const auto top = std::max(area.top, 0);
+    const auto right = std::min(area.right, static_cast<std::int32_t>(width_) - 1);
+    const auto bottom = std::min(area.bottom, static_cast<std::int32_t>(height_) - 1);
     const auto style = style_for_legacy(attributes);
     auto &target = active_page();
-    for (auto y = area.top; y <= area.bottom; ++y)
+    for (auto y = top; y <= bottom; ++y)
     {
-        for (auto x = area.left; x <= area.right; ++x)
+        for (auto x = left; x <= right; ++x)
         {
-            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
-            {
-                continue;
-            }
             target.at(static_cast<std::size_t>(x), static_cast<std::size_t>(y)) =
                 target.at(static_cast<std::size_t>(x), static_cast<std::size_t>(y)).with_style(style);
             target.mark_dirty(static_cast<std::size_t>(y), static_cast<std::size_t>(x),
