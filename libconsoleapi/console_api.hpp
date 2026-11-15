@@ -588,7 +588,7 @@ class console_api final
                     ++echo_cursor.y;
                     state_.echo_line_feed = true;
                 }
-                auto &expanded = expanded_line_;
+                auto &expanded = history_selection_;
                 expanded.assign(output, units);
                 expand_console_alias(expanded);
                 units = std::min<std::size_t>(expanded.size(), max_units);
@@ -2704,7 +2704,6 @@ class console_api final
     std::vector<char> ansi_buffer_;
     std::vector<consoleinput::input_event> prepend_buffer_;
     std::u16string cooked_line_;
-    std::u16string expanded_line_;
     std::u16string alias_expanded_;
     std::u16string decoded_executable_;
     std::u16string decoded_source_;
