@@ -2,6 +2,8 @@
 
 #include "session.hpp"
 #include "server_session.hpp"
+#include "signal.hpp"
+#include "signal_reader.hpp"
 
 #include "server_loop.hpp"
 #include "win32_transport.hpp"
@@ -37,6 +39,7 @@ inline void run_conpty_session(win32::handle_view server,
                                win32::handle_view event,
                                win32::handle_view vt_in,
                                win32::handle_view vt_out,
+                               win32::handle_view signal_pipe,
                                const conpty_session_config &config)
 {
     const auto width = config.width > 0 ? static_cast<std::size_t>(config.width) : std::size_t{120};
@@ -47,6 +50,7 @@ inline void run_conpty_session(win32::handle_view server,
     conptyio::terminal_writer writer{vt_out};
     std::mutex session_mutex;
     std::jthread server_thread;
+    std::jthread signal_thread;
 
     if (server.valid())
     {
@@ -63,6 +67,18 @@ inline void run_conpty_session(win32::handle_view server,
             }
             catch (...)
             {
+            }
+        }};
+    }
+
+    if (signal_pipe.valid())
+    {
+        signal_thread = std::jthread{[&](std::stop_token stop) {
+            conptyio::signal_reader signals{signal_pipe};
+            while (!stop.stop_requested() && signals.read_one())
+            {
+                const std::scoped_lock lock{session_mutex};
+                conptyio::apply_signal(signals.id(), signals.payload(), state.screen(), state.state());
             }
         }};
     }
@@ -90,6 +106,13 @@ inline void run_conpty_session(win32::handle_view server,
         server_thread.request_stop();
         ::CancelSynchronousIo(server_thread.native_handle());
         server_thread.join();
+    }
+
+    if (signal_thread.joinable())
+    {
+        signal_thread.request_stop();
+        ::CancelSynchronousIo(signal_thread.native_handle());
+        signal_thread.join();
     }
 }
 
