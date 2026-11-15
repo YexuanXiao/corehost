@@ -522,7 +522,7 @@ class console_api final
                 }
                 else if (events[i].key.key == consoleinput::virtual_key::up)
                 {
-                    std::u16string selected;
+                    auto &selected = history_selection_;
                     if (state_.browse_history_up(std::u16string_view{output, units}, selected))
                     {
                         units = std::min<std::size_t>(selected.size(), max_units);
@@ -532,7 +532,7 @@ class console_api final
                 }
                 else if (events[i].key.key == consoleinput::virtual_key::down)
                 {
-                    std::u16string selected;
+                    auto &selected = history_selection_;
                     if (state_.browse_history_down(selected))
                     {
                         units = std::min<std::size_t>(selected.size(), max_units);
@@ -2663,6 +2663,7 @@ class console_api final
     coreio::process_registry *processes_{};
     coreio::input_payload_reader *payload_{};
     std::u16string text_buffer_;
+    std::u16string history_selection_;
     std::array<consoleinput::input_event, 64> read_events_;
     std::vector<char> ansi_buffer_;
     std::vector<char16_t> char_buffer_;
