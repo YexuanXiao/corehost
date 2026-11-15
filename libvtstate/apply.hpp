@@ -43,6 +43,9 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::cursor_vert_absolute:
         applier.apply_cursor_vertical_absolute(message, state);
         return true;
+    case vtparser::vt_message_id::cpr_response:
+        applier.apply_cpr(message, state);
+        return true;
     case vtparser::vt_message_id::cursor_up:
         applier.apply_cursor_relative(message, state, 0, -1);
         return true;

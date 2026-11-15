@@ -89,4 +89,9 @@ inline void append_clear_screen(byte_buffer &output)
     output.append_text(u8"\x1b[2J");
 }
 
+inline void append_request_cursor_position(byte_buffer &output)
+{
+    output.append_text(u8"\x1b[6n");
+}
+
 } // namespace corehost::vtserializer

@@ -369,6 +369,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b[5;3R");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.cursor().x != 2 || state.cursor().y != 4)
+    {
+        std::fprintf(stderr, "cpr response failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }

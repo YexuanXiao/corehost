@@ -84,6 +84,14 @@ class state_applier final
         }
     }
 
+    void apply_cpr(const vtparser::vt_message &message,
+                    screen::console_state &state) noexcept
+    {
+        state.set_cursor(
+            static_cast<std::size_t>(std::max<int>(message.payload.cpr.col - 1, 0)),
+            static_cast<std::size_t>(std::max<int>(message.payload.cpr.row - 1, 0)));
+    }
+
     void apply_cursor_horizontal_absolute(const vtparser::vt_message &message,
                                          screen::console_state &state) noexcept
     {
