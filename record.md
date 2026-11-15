@@ -1102,6 +1102,12 @@ CRLF/无归一化行增加直接 `memcpy` 快速路径，避免逐字节复制�
 68da681 perf(corehost2): memcpy normalized raw lines when possible
 ```
 
+需要补 CR/LF 的行也不再逐字节循环，改为 `memcpy` 主体后补终止符：
+
+```text
+57c2b50 perf(corehost2): memcpy normalized raw line bodies
+```
+
 `C:\1\bench_copy.cpp`，64 KiB，20 万次，Release `/O2`：
 
 ```text
