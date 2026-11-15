@@ -379,7 +379,20 @@ class console_api final
                     record.Event.KeyEvent.wVirtualKeyCode =
                         static_cast<WORD>(std::to_underlying(events[i].key.key));
                     record.Event.KeyEvent.wVirtualScanCode = events[i].key.scan_code;
-                    record.Event.KeyEvent.uChar.UnicodeChar = events[i].key.character;
+                    if (request->Unicode)
+                    {
+                        record.Event.KeyEvent.uChar.UnicodeChar = events[i].key.character;
+                    }
+                    else
+                    {
+                        const auto code_page =
+                            state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+                        char narrow = 0;
+                        (void)::WideCharToMultiByte(
+                            code_page, 0, reinterpret_cast<const wchar_t *>(&events[i].key.character),
+                            1, &narrow, 1, nullptr, nullptr);
+                        record.Event.KeyEvent.uChar.AsciiChar = narrow;
+                    }
                     record.Event.KeyEvent.dwControlKeyState = events[i].key.control_state;
                 }
             }
@@ -461,54 +474,6 @@ class console_api final
             cooked_active_ ? cooked_history_position_ : state_.command_history.size();
         bool line_complete = false;
 
-        const auto redraw_echo = [&] {
-            if (!echo)
-            {
-                return;
-            }
-            const auto width = static_cast<std::int32_t>(state_.width());
-            const auto limit = std::max(width - echo_origin.x, 0);
-            const auto visible = std::min<std::size_t>(units, static_cast<std::size_t>(limit));
-            for (std::size_t i = 0; i < visible; ++i)
-            {
-                (void)buffer_.write_scalar(static_cast<std::size_t>(echo_origin.x + i),
-                                           static_cast<std::size_t>(echo_origin.y), output[i],
-                                           state_.default_style, screen::cell_width::narrow,
-                                           state_.default_hyperlink);
-            }
-            for (std::size_t i = visible; i < echo_length; ++i)
-            {
-                (void)buffer_.write_scalar(static_cast<std::size_t>(echo_origin.x + i),
-                                           static_cast<std::size_t>(echo_origin.y), u' ',
-                                           state_.default_style, screen::cell_width::narrow,
-                                           state_.default_hyperlink);
-            }
-            echo_length = visible;
-            echo_cursor = screen::coord{
-                echo_origin.x + static_cast<std::int32_t>(std::min(cursor, static_cast<std::size_t>(limit))),
-                echo_origin.y};
-        };
-
-        const auto erase_at = [&](std::size_t position) {
-            for (std::size_t i = position; i + 1 < units; ++i)
-            {
-                output[i] = output[i + 1];
-            }
-            if (units != 0)
-            {
-                --units;
-            }
-            if (cursor > units)
-            {
-                cursor = units;
-            }
-        };
-
-        if (echo)
-        {
-            redraw_echo();
-        }
-
         std::array<consoleinput::input_event, 64> events{};
         const auto parsed = input_->read(std::span<consoleinput::input_event>{events.data(), events.size()});
         if (parsed == 0 && pending_allowed)
@@ -554,7 +519,7 @@ class console_api final
                 {
                     if (cursor < units)
                     {
-                        erase_at(cursor);
+                        erase_character(output, units, cursor, cursor);
                     }
                 }
                 else if (events[i].key.key == consoleinput::virtual_key::up)
@@ -585,7 +550,7 @@ class console_api final
                         cursor = 0;
                     }
                 }
-                redraw_echo();
+                redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
                 continue;
             }
 
@@ -610,13 +575,13 @@ class console_api final
                     output[cursor++] = character;
                     ++units;
                 }
-                redraw_echo();
+                redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
                 line_complete = true;
                 break;
             }
             if (character == u'\u000D' || character == u'\u000A')
             {
-                redraw_echo();
+                redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
                 if (echo)
                 {
                     echo_cursor.x = 0;
@@ -630,10 +595,10 @@ class console_api final
             {
                 if (cursor != 0)
                 {
-                    erase_at(cursor - 1);
+                    erase_character(output, units, cursor, cursor - 1);
                     --cursor;
                 }
-                redraw_echo();
+                redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
                 continue;
             }
             if (units < max_units)
@@ -648,7 +613,7 @@ class console_api final
                 output[cursor++] = character;
                 ++units;
             }
-            redraw_echo();
+            redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
         }
         for (std::size_t i = parsed; i > consumed_events; --i)
         {
@@ -757,18 +722,6 @@ class console_api final
         const auto fill_char = request->Unicode ? request->Fill.Char.UnicodeChar
                                                : static_cast<char16_t>(request->Fill.Char.AsciiChar);
         const auto fill_attributes = request->Fill.Attributes;
-        const auto fill_segment = [&](std::size_t x, std::size_t y, std::size_t width)
-        {
-            if (width == 0)
-            {
-                return;
-            }
-            const screen::rect segment{static_cast<std::int32_t>(x), static_cast<std::int32_t>(y),
-                                       static_cast<std::int32_t>(x + width - 1), static_cast<std::int32_t>(y)};
-            buffer_.fill_chars(segment, fill_char);
-            buffer_.fill_attrs(segment, fill_attributes);
-        };
-
         const auto dest_left = static_cast<std::size_t>(std::max<std::int32_t>(destination.x, 0));
         const auto dest_top = static_cast<std::size_t>(std::max<std::int32_t>(destination.y, 0));
         const auto dest_right = dest_left + source_rect.width;
@@ -777,17 +730,17 @@ class console_api final
         {
             if (y < dest_top || y >= dest_bottom)
             {
-                fill_segment(source_rect.x, y, source_rect.width);
+                fill_rect_segment(source_rect.x, y, source_rect.width, fill_char, fill_attributes);
                 continue;
             }
             if (source_rect.x < dest_left)
             {
-                fill_segment(source_rect.x, y, std::min(dest_left, source_rect.x + source_rect.width) - source_rect.x);
+                fill_rect_segment(source_rect.x, y, std::min(dest_left, source_rect.x + source_rect.width) - source_rect.x, fill_char, fill_attributes);
             }
             const auto right_start = std::max(dest_right, source_rect.x);
             if (right_start < source_rect.x + source_rect.width)
             {
-                fill_segment(right_start, y, source_rect.x + source_rect.width - right_start);
+                fill_rect_segment(right_start, y, source_rect.x + source_rect.width - right_start, fill_char, fill_attributes);
             }
         }
         coreio::prepare_completion(message);
@@ -837,58 +790,22 @@ class console_api final
         std::size_t written = 0;
         if (request->Unicode)
         {
-            screen::coord cursor{static_cast<std::int32_t>(state_.cursor().x),
-                                 static_cast<std::int32_t>(state_.cursor().y)};
-            std::size_t offset = 0;
-            while (offset < count)
-            {
-                auto segment_end = offset;
-                while (segment_end < count && data[segment_end] != u'\r' &&
-                       data[segment_end] != u'\n')
-                {
-                    ++segment_end;
-                }
-
-                if (segment_end > offset)
-                {
-                    const auto result = buffer_.write_text_row<screen::text_measurement::console>(
-                        cursor, std::u16string_view{data + offset, segment_end - offset}, {},
-                        state_.default_style, true, state_.default_hyperlink);
-                    written += result.consumed;
-                    if (cursor.x >= static_cast<std::int32_t>(state_.width()))
-                    {
-                        cursor.x = 0;
-                        ++cursor.y;
-                    }
-                }
-
-                if (segment_end >= count)
-                {
-                    break;
-                }
-
-                cursor.x = 0;
-                if (data[segment_end] == u'\n')
-                {
-                    ++cursor.y;
-                }
-                ++segment_end;
-                ++written;
-
-                if (cursor.y >= static_cast<std::int32_t>(state_.height()))
-                {
-                    const auto top = state_.scroll_top();
-                    const auto bottom = state_.scroll_bottom();
-                    buffer_.scroll_region_up(screen::rectangle{0, top, state_.width(), bottom - top + 1},
-                                            1, state_.default_style);
-                    cursor.y = static_cast<std::int32_t>(bottom);
-                }
-                offset = segment_end;
-            }
-            state_.set_cursor(static_cast<std::size_t>(cursor.x),
-                              static_cast<std::size_t>(cursor.y));
+            written = write_console_text(std::u16string_view{data, count});
         }
-        request->NumBytes = static_cast<ULONG>(written * (request->Unicode ? sizeof(char16_t) : 1));
+        else
+        {
+            const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+            const auto *bytes_data = reinterpret_cast<const char *>(data);
+            const auto units = ::MultiByteToWideChar(code_page, 0, bytes_data, static_cast<int>(bytes),
+                                                     nullptr, 0);
+            std::u16string text(static_cast<std::size_t>(std::max(units, 0)), u'\0');
+            if (units > 0)
+            {
+                (void)::MultiByteToWideChar(code_page, 0, bytes_data, static_cast<int>(bytes),
+                                            reinterpret_cast<LPWSTR>(text.data()), units);
+            }
+            written = write_console_text(text);
+        }        request->NumBytes = static_cast<ULONG>(written * (request->Unicode ? sizeof(char16_t) : 1));
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLE_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_WRITECONSOLE_MSG));
@@ -928,7 +845,19 @@ class console_api final
                 else if (input[i].EventType == KEY_EVENT)
                 {
                     consoleinput::key_event key;
-                    key.character = input[i].Event.KeyEvent.uChar.UnicodeChar;
+                    if (request->Unicode)
+                    {
+                        key.character = input[i].Event.KeyEvent.uChar.UnicodeChar;
+                    }
+                    else
+                    {
+                        const auto code_page =
+                            state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+                        const auto ascii = input[i].Event.KeyEvent.uChar.AsciiChar;
+                        wchar_t wide = 0;
+                        (void)::MultiByteToWideChar(code_page, 0, &ascii, 1, &wide, 1);
+                        key.character = static_cast<char16_t>(wide);
+                    }
                     key.key = static_cast<consoleinput::virtual_key>(
                         input[i].Event.KeyEvent.wVirtualKeyCode);
                     key.scan_code = input[i].Event.KeyEvent.wVirtualScanCode;
@@ -1255,24 +1184,7 @@ class console_api final
             {
                 break;
             }
-            const auto write = [&](std::u16string_view value) {
-                if (info->Unicode)
-                {
-                    std::memcpy(output + written, value.data(), value.size() * sizeof(char16_t));
-                    written += value.size() * sizeof(char16_t);
-                    output[written] = 0;
-                    written += sizeof(char16_t);
-                }
-                else
-                {
-                    for (const char16_t ch : value)
-                    {
-                        output[written++] = static_cast<char>(ch < 0x80 ? ch : '?');
-                    }
-                    output[written++] = 0;
-                }
-            };
-            write(alias.source);
+            append_alias_value(reinterpret_cast<char *>(output), written, alias.source, info->Unicode != FALSE);
             if (info->Unicode)
             {
                 *reinterpret_cast<char16_t *>(output + written - sizeof(char16_t)) = u'=';
@@ -1281,7 +1193,7 @@ class console_api final
             {
                 output[written - 1] = '=';
             }
-            write(alias.target);
+            append_alias_value(reinterpret_cast<char *>(output), written, alias.target, info->Unicode != FALSE);
         }
         info->AliasesBufferLength = static_cast<ULONG>(written);
         coreio::prepare_completion(message, 0, written, message.body + sizeof(CONSOLE_MSG_HEADER), written);
@@ -1355,25 +1267,10 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto read = [&](std::size_t offset, std::size_t bytes) {
-            std::u16string value;
-            if (request->Unicode)
-            {
-                const auto *chars = reinterpret_cast<const char16_t *>(data + offset);
-                value.assign(chars, chars + bytes / sizeof(char16_t));
-            }
-            else
-            {
-                for (std::size_t i = 0; i < bytes; ++i)
-                {
-                    value.push_back(static_cast<unsigned char>(data[offset + i]));
-                }
-            }
-            return value;
-        };
+
         auto entry = screen::console_state::alias_entry{
-            read(exe_end, source_end - exe_end), read(source_end, target_end - source_end),
-            read(0, exe_end)};
+            decode_console_text(reinterpret_cast<const char *>(data), exe_end, source_end - exe_end, request->Unicode != FALSE), decode_console_text(reinterpret_cast<const char *>(data), source_end, target_end - source_end, request->Unicode != FALSE),
+            decode_console_text(reinterpret_cast<const char *>(data), 0, exe_end, request->Unicode != FALSE)};
         if (entry.source.empty())
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
@@ -1381,16 +1278,26 @@ class console_api final
         }
         if (entry.target.empty())
         {
-            std::erase_if(state_.aliases, [&](const auto &alias) {
-                return alias.source == entry.source && alias.executable == entry.executable;
-            });
+            for (auto iterator = state_.aliases.begin(); iterator != state_.aliases.end();)
+            {
+                if (iterator->source == entry.source && iterator->executable == entry.executable)
+                {
+                    iterator = state_.aliases.erase(iterator);
+                }
+                else
+                {
+                    ++iterator;
+                }
+            }
             coreio::prepare_completion(message);
             return true;
         }
-        const auto existing = std::ranges::find_if(
-            state_.aliases, [&](const auto &alias) {
-                return alias.source == entry.source && alias.executable == entry.executable;
-            });
+        auto existing = state_.aliases.begin();
+        while (existing != state_.aliases.end() &&
+               !(existing->source == entry.source && existing->executable == entry.executable))
+        {
+            ++existing;
+        }
         if (existing != state_.aliases.end())
         {
             existing->target = std::move(entry.target);
@@ -1421,24 +1328,9 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto read = [&](std::size_t offset, std::size_t bytes) {
-            std::u16string value;
-            if (request->Unicode)
-            {
-                const auto *chars = reinterpret_cast<const char16_t *>(data + offset);
-                value.assign(chars, chars + bytes / sizeof(char16_t));
-            }
-            else
-            {
-                for (std::size_t i = 0; i < bytes; ++i)
-                {
-                    value.push_back(static_cast<unsigned char>(data[offset + i]));
-                }
-            }
-            return value;
-        };
-        const auto executable = read(0, exe_bytes);
-        const auto source = read(exe_bytes, source_bytes);
+
+        const auto executable = decode_console_text(reinterpret_cast<const char *>(data), 0, exe_bytes, request->Unicode != FALSE);
+        const auto source = decode_console_text(reinterpret_cast<const char *>(data), exe_bytes, source_bytes, request->Unicode != FALSE);
         for (const auto &alias : state_.aliases)
         {
             if (alias.source == source && alias.executable == executable)
@@ -1925,9 +1817,22 @@ class console_api final
             written = buffer_.read_chars(coordinate,
                 std::span<char16_t>{reinterpret_cast<char16_t *>(data), count});
         }
+        else if (request->StringType == CONSOLE_ASCII)
+        {
+            const auto count = std::min<std::size_t>(request->NumRecords, capacity);
+            std::vector<char16_t> chars(count);
+            const auto read = buffer_.read_chars(coordinate, std::span<char16_t>{chars});
+            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+            const auto converted = ::WideCharToMultiByte(
+                code_page, 0, reinterpret_cast<const wchar_t *>(chars.data()),
+                static_cast<int>(read), reinterpret_cast<char *>(data),
+                static_cast<int>(capacity), nullptr, nullptr);
+            written = static_cast<std::size_t>(std::max(converted, 0));
+        }
         request->NumRecords = static_cast<ULONG>(written);
         const auto unit = request->StringType == CONSOLE_ATTRIBUTE ? sizeof(std::uint16_t)
-                                                                   : sizeof(char16_t);
+                          : request->StringType == CONSOLE_ASCII ? sizeof(char)
+                                                                 : sizeof(char16_t);
         coreio::prepare_completion(message, 0, written * unit,
                                    message.body + sizeof(CONSOLE_MSG_HEADER), written * unit);
         return true;
@@ -2219,7 +2124,156 @@ class console_api final
         return buffer_.read_char_info_abi(area, output);
     }
 
+    std::size_t write_console_text(std::u16string_view text) noexcept
+    {
+        screen::coord cursor{static_cast<std::int32_t>(state_.cursor().x),
+                             static_cast<std::int32_t>(state_.cursor().y)};
+        std::size_t written = 0;
+        std::size_t offset = 0;
+        while (offset < text.size())
+        {
+            auto segment_end = offset;
+            while (segment_end < text.size() && text[segment_end] != u'\r' &&
+                   text[segment_end] != u'\n')
+            {
+                ++segment_end;
+            }
+            if (segment_end > offset)
+            {
+                const auto result = buffer_.write_text_row<screen::text_measurement::console>(
+                    cursor, text.substr(offset, segment_end - offset), {}, state_.default_style,
+                    true, state_.default_hyperlink);
+                written += result.consumed;
+                if (cursor.x >= static_cast<std::int32_t>(state_.width()))
+                {
+                    cursor.x = 0;
+                    ++cursor.y;
+                }
+            }
+            if (segment_end >= text.size())
+            {
+                break;
+            }
+            cursor.x = 0;
+            if (text[segment_end] == u'\n')
+            {
+                ++cursor.y;
+            }
+            ++segment_end;
+            ++written;
+            if (cursor.y >= static_cast<std::int32_t>(state_.height()))
+            {
+                const auto top = state_.scroll_top();
+                const auto bottom = state_.scroll_bottom();
+                buffer_.scroll_region_up(screen::rectangle{0, top, state_.width(), bottom - top + 1},
+                                         1, state_.default_style);
+                cursor.y = static_cast<std::int32_t>(bottom);
+            }
+            offset = segment_end;
+        }
+        state_.set_cursor(static_cast<std::size_t>(cursor.x),
+                          static_cast<std::size_t>(cursor.y));
+        return written;
+    }
   private:
+    static void erase_character(char16_t *output, std::size_t &units, std::size_t &cursor,
+                                std::size_t position) noexcept
+    {
+        for (std::size_t i = position; i + 1 < units; ++i)
+        {
+            output[i] = output[i + 1];
+        }
+        if (units != 0)
+        {
+            --units;
+        }
+        if (cursor > units)
+        {
+            cursor = units;
+        }
+    }
+
+    void redraw_echo_line(const char16_t *output, std::size_t units, std::size_t cursor, bool echo,
+                          screen::coord origin, std::size_t &echo_length,
+                          screen::coord &echo_cursor) const noexcept
+    {
+        if (!echo)
+        {
+            return;
+        }
+        const auto width = static_cast<std::int32_t>(state_.width());
+        const auto limit = std::max(width - origin.x, 0);
+        const auto visible = std::min<std::size_t>(units, static_cast<std::size_t>(limit));
+        for (std::size_t i = 0; i < visible; ++i)
+        {
+            (void)buffer_.write_scalar(static_cast<std::size_t>(origin.x + i),
+                                       static_cast<std::size_t>(origin.y), output[i],
+                                       state_.default_style, screen::cell_width::narrow,
+                                       state_.default_hyperlink);
+        }
+        for (std::size_t i = visible; i < echo_length; ++i)
+        {
+            (void)buffer_.write_scalar(static_cast<std::size_t>(origin.x + i),
+                                       static_cast<std::size_t>(origin.y), u' ',
+                                       state_.default_style, screen::cell_width::narrow,
+                                       state_.default_hyperlink);
+        }
+        echo_length = visible;
+        echo_cursor = screen::coord{
+            origin.x + static_cast<std::int32_t>(std::min(cursor, static_cast<std::size_t>(limit))),
+            origin.y};
+    }
+
+    void fill_rect_segment(std::size_t x, std::size_t y, std::size_t width, char16_t fill_char,
+                           std::uint16_t attributes) noexcept
+    {
+        if (width == 0)
+        {
+            return;
+        }
+        const screen::rect segment{static_cast<std::int32_t>(x), static_cast<std::int32_t>(y),
+                                   static_cast<std::int32_t>(x + width - 1),
+                                   static_cast<std::int32_t>(y)};
+        buffer_.fill_chars(segment, fill_char);
+        buffer_.fill_attrs(segment, attributes);
+    }
+
+    static std::u16string decode_console_text(const char *data, std::size_t offset,
+                                              std::size_t bytes, bool unicode)
+    {
+        std::u16string value;
+        if (unicode)
+        {
+            const auto *chars = reinterpret_cast<const char16_t *>(data + offset);
+            value.assign(chars, chars + bytes / sizeof(char16_t));
+        }
+        else
+        {
+            for (std::size_t i = 0; i < bytes; ++i)
+            {
+                value.push_back(static_cast<unsigned char>(data[offset + i]));
+            }
+        }
+        return value;
+    }
+
+    static void append_alias_value(char *output, std::size_t &written, std::u16string_view value,
+                                   bool unicode)
+    {
+        if (unicode)
+        {
+            std::memcpy(output + written, value.data(), value.size() * sizeof(char16_t));
+            written += value.size() * sizeof(char16_t);
+            *reinterpret_cast<char16_t *>(output + written) = 0;
+            written += sizeof(char16_t);
+            return;
+        }
+        for (const char16_t ch : value)
+        {
+            output[written++] = static_cast<char>(ch < 0x80 ? ch : '?');
+        }
+        output[written++] = 0;
+    }
     screen::screen_buffer &buffer_;
     screen::console_state &state_;
     consoleinput::input_queue *input_{};

@@ -1629,6 +1629,93 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer ansi_write_buffer{8, 2};
+    corehost::screen::console_state ansi_write_state{8, 2};
+    ansi_write_state.input_code_page = 65001;
+    corehost::consoleapi::console_api ansi_write_api{ansi_write_buffer, ansi_write_state};
+    corehost::coreio::io_msg ansi_write_message{};
+    ansi_write_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                              sizeof(CONSOLE_WRITECONSOLE_MSG) + 2;
+    ansi_write_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                               sizeof(CONSOLE_WRITECONSOLE_MSG);
+    auto *ansi_write_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(ansi_write_message.body);
+    ansi_write_header->ApiNumber = ConsolepWriteConsole;
+    auto *ansi_write_request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(
+        ansi_write_message.body + sizeof(CONSOLE_MSG_HEADER));
+    ansi_write_request->Unicode = FALSE;
+    auto *ansi_write_data = reinterpret_cast<char *>(
+        ansi_write_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG));
+    ansi_write_data[0] = 'O';
+    ansi_write_data[1] = 'K';
+    if (!ansi_write_api.handle(ansi_write_message) ||
+        ansi_write_buffer.at(0, 0).primary() != u'O' ||
+        ansi_write_buffer.at(1, 0).primary() != u'K')
+    {
+        std::fprintf(stderr, "ansi write console failed\n");
+        return EXIT_FAILURE;
+    }
+
+    (void)ansi_write_buffer.write_scalar(0, 1, u'A', corehost::screen::cell_style{});
+    (void)ansi_write_buffer.write_scalar(1, 1, u'B', corehost::screen::cell_style{});
+    corehost::coreio::io_msg ansi_read_message{};
+    ansi_read_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
+    ansi_read_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + 4;
+    auto *ansi_read_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(ansi_read_message.body);
+    ansi_read_header->ApiNumber = ConsolepReadConsoleOutputString;
+    auto *ansi_read_request = reinterpret_cast<CONSOLE_READCONSOLEOUTPUTSTRING_MSG *>(
+        ansi_read_message.body + sizeof(CONSOLE_MSG_HEADER));
+    ansi_read_request->ReadCoord = COORD{0, 1};
+    ansi_read_request->NumRecords = 2;
+    ansi_read_request->StringType = CONSOLE_ASCII;
+    if (!ansi_write_api.handle(ansi_read_message) || ansi_read_request->NumRecords != 2)
+    {
+        std::fprintf(stderr, "ansi read output string failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *ansi_read_data = reinterpret_cast<const char *>(
+        ansi_read_message.body + sizeof(CONSOLE_MSG_HEADER) +
+        sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
+    if (ansi_read_data[0] != 'A' || ansi_read_data[1] != 'B')
+    {
+        std::fprintf(stderr, "ansi read output data failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::consoleinput::input_queue ansi_input_queue;
+    corehost::consoleapi::console_api ansi_input_api{ansi_write_buffer, ansi_write_state,
+                                                     &ansi_input_queue};
+    corehost::coreio::io_msg ansi_input_message{};
+    ansi_input_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                              sizeof(CONSOLE_WRITECONSOLEINPUT_MSG) +
+                                              sizeof(INPUT_RECORD);
+    ansi_input_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                               sizeof(CONSOLE_WRITECONSOLEINPUT_MSG);
+    auto *ansi_input_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(ansi_input_message.body);
+    ansi_input_header->ApiNumber = ConsolepWriteConsoleInput;
+    auto *ansi_input_request = reinterpret_cast<CONSOLE_WRITECONSOLEINPUT_MSG *>(
+        ansi_input_message.body + sizeof(CONSOLE_MSG_HEADER));
+    ansi_input_request->NumRecords = 1;
+    ansi_input_request->Unicode = FALSE;
+    auto *ansi_input_record = reinterpret_cast<INPUT_RECORD *>(
+        ansi_input_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
+    ansi_input_record->EventType = KEY_EVENT;
+    ansi_input_record->Event.KeyEvent.bKeyDown = TRUE;
+    ansi_input_record->Event.KeyEvent.uChar.AsciiChar = 'Z';
+    if (!ansi_input_api.handle(ansi_input_message))
+    {
+        std::fprintf(stderr, "ansi write input failed\n");
+        return EXIT_FAILURE;
+    }
+    corehost::consoleinput::input_event ansi_event{};
+    if (ansi_input_queue.read(std::span<corehost::consoleinput::input_event>{&ansi_event, 1}) != 1 ||
+        ansi_event.key.character != u'Z')
+    {
+        std::fprintf(stderr, "ansi write input data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
