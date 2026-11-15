@@ -904,6 +904,29 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer echo_buffer{4, 2};
+    corehost::screen::console_state echo_state{4, 2};
+    corehost::consoleinput::input_queue echo_queue;
+    corehost::consoleinput::key_event echo_key;
+    echo_key.character = u'E';
+    echo_queue.push(corehost::consoleinput::input_event{corehost::consoleinput::input_event_type::key, echo_key});
+    corehost::consoleapi::console_api echo_api{echo_buffer, echo_state, &echo_queue};
+    corehost::coreio::io_msg echo_message{};
+    echo_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    echo_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) +
+                                         sizeof(char16_t);
+    auto *echo_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(echo_message.body);
+    echo_header->ApiNumber = ConsolepReadConsole;
+    auto *echo_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        echo_message.body + sizeof(CONSOLE_MSG_HEADER));
+    echo_request->Unicode = TRUE;
+    if (!echo_api.handle(echo_message) || echo_buffer.at(0, 0).primary() != u'E' ||
+        echo_state.cursor().x != 1)
+    {
+        std::fprintf(stderr, "read console echo failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

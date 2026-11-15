@@ -340,6 +340,9 @@ class console_api final
             message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
         const auto max_units = capacity / sizeof(char16_t);
         std::size_t units = 0;
+        const bool echo = (state_.input_mode & 0x0004) != 0;
+        screen::coord echo_cursor{static_cast<std::int32_t>(state_.cursor().x),
+                                  static_cast<std::int32_t>(state_.cursor().y)};
 
         std::array<consoleinput::input_event, 64> events{};
         const auto parsed = input_->read(std::span<consoleinput::input_event>{events.data(), events.size()});
@@ -352,6 +355,48 @@ class console_api final
                 continue;
             }
             const auto character = events[i].key.character;
+            if (echo)
+            {
+                if (character == u'\u000D' || character == u'\u000A')
+                {
+                    echo_cursor.x = 0;
+                    ++echo_cursor.y;
+                }
+                else if (character == u'\u0008')
+                {
+                    if (echo_cursor.x > 0)
+                    {
+                        --echo_cursor.x;
+                        (void)buffer_.write_scalar(static_cast<std::size_t>(echo_cursor.x),
+                                                   static_cast<std::size_t>(echo_cursor.y), u' ',
+                                                   state_.default_style, screen::cell_width::narrow,
+                                                   state_.default_hyperlink);
+                    }
+                }
+                else if (character != 0)
+                {
+                    (void)buffer_.write_scalar(static_cast<std::size_t>(echo_cursor.x),
+                                               static_cast<std::size_t>(echo_cursor.y), character,
+                                               state_.default_style, screen::cell_width::narrow,
+                                               state_.default_hyperlink);
+                    ++echo_cursor.x;
+                }
+
+                if (echo_cursor.y >= static_cast<std::int32_t>(state_.height()))
+                {
+                    const auto top = state_.scroll_top();
+                    const auto bottom = state_.scroll_bottom();
+                    buffer_.scroll_region_up(screen::rectangle{0, top, state_.width(), bottom - top + 1},
+                                            1, state_.default_style);
+                    echo_cursor.y = static_cast<std::int32_t>(bottom);
+                }
+                if (echo_cursor.x >= static_cast<std::int32_t>(state_.width()))
+                {
+                    echo_cursor.x = 0;
+                    ++echo_cursor.y;
+                }
+            }
+
             if (character == u'\u000D' || character == u'\u000A')
             {
                 break;
@@ -373,6 +418,11 @@ class console_api final
         for (std::size_t i = parsed; i > consumed_events; --i)
         {
             input_->push_front(events[i - 1]);
+        }
+        if (echo)
+        {
+            state_.set_cursor(static_cast<std::size_t>(echo_cursor.x),
+                              static_cast<std::size_t>(echo_cursor.y));
         }
         request->NumBytes = static_cast<ULONG>(units * sizeof(char16_t));
         coreio::prepare_completion(message, 0, units * sizeof(char16_t),
