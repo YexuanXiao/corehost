@@ -1061,6 +1061,43 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg aliases_length_message{};
+    aliases_length_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASESLENGTH_MSG);
+    aliases_length_message.descriptor.OutputSize = sizeof(aliases_length_message.body);
+    auto *aliases_length_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(aliases_length_message.body);
+    aliases_length_header->ApiNumber = ConsolepGetAliasesLength;
+    auto *aliases_length_request = reinterpret_cast<CONSOLE_GETALIASESLENGTH_MSG *>(
+        aliases_length_message.body + sizeof(CONSOLE_MSG_HEADER));
+    aliases_length_request->Unicode = TRUE;
+    if (!api.handle(aliases_length_message) || aliases_length_request->AliasesLength != 8)
+    {
+        std::fprintf(stderr, "aliases length failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::io_msg aliases_message{};
+    aliases_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG);
+    aliases_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG) + 8;
+    auto *aliases_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(aliases_message.body);
+    aliases_header->ApiNumber = ConsolepGetAliases;
+    auto *aliases_request = reinterpret_cast<CONSOLE_GETALIASES_MSG *>(
+        aliases_message.body + sizeof(CONSOLE_MSG_HEADER));
+    aliases_request->Unicode = TRUE;
+    if (!api.handle(aliases_message) || aliases_request->AliasesBufferLength != 8)
+    {
+        std::fprintf(stderr, "get aliases failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *aliases_text = reinterpret_cast<const char16_t *>(
+        aliases_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG));
+    if (aliases_text[0] != u'x' || aliases_text[1] != 0 || aliases_text[2] != u'y' ||
+        aliases_text[3] != 0)
+    {
+        std::fprintf(stderr, "get aliases data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

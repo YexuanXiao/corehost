@@ -144,6 +144,18 @@ class console_api final
         {
             return set_current_font(message);
         }
+        if (header->ApiNumber == ConsolepGetAliasesLength)
+        {
+            return get_aliases_length(message);
+        }
+        if (header->ApiNumber == ConsolepGetAliasExesLength)
+        {
+            return get_alias_exes_length(message);
+        }
+        if (header->ApiNumber == ConsolepGetAliases)
+        {
+            return get_aliases(message);
+        }
         if (header->ApiNumber == ConsolepAddAlias)
         {
             return add_alias(message);
@@ -844,6 +856,95 @@ class console_api final
             state_.face_name.push_back(static_cast<char16_t>(ch));
         }
         coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool get_aliases_length(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASESLENGTH_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETALIASESLENGTH_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
+        std::size_t length = 0;
+        for (const auto &alias : state_.aliases)
+        {
+            length += (alias.source.size() + alias.target.size() + 2) * unit;
+        }
+        info->AliasesLength = static_cast<ULONG>(length);
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETALIASESLENGTH_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETALIASESLENGTH_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool get_alias_exes_length(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXESLENGTH_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETALIASEXESLENGTH_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
+        std::size_t length = 0;
+        for (const auto &alias : state_.aliases)
+        {
+            length += (alias.executable.size() + 1) * unit;
+        }
+        info->AliasExesLength = static_cast<ULONG>(length);
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETALIASEXESLENGTH_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETALIASEXESLENGTH_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool get_aliases(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETALIASES_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *output = message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG);
+        const auto capacity = message.descriptor.OutputSize > sizeof(CONSOLE_GETALIASES_MSG)
+                                  ? message.descriptor.OutputSize - sizeof(CONSOLE_GETALIASES_MSG)
+                                  : 0;
+        const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
+        std::size_t written = 0;
+        for (const auto &alias : state_.aliases)
+        {
+            const auto bytes = (alias.source.size() + alias.target.size() + 2) * unit;
+            if (written + bytes > capacity)
+            {
+                break;
+            }
+            const auto write = [&](std::u16string_view value) {
+                if (info->Unicode)
+                {
+                    std::memcpy(output + written, value.data(), value.size() * sizeof(char16_t));
+                    written += value.size() * sizeof(char16_t);
+                    output[written] = 0;
+                    written += sizeof(char16_t);
+                }
+                else
+                {
+                    for (const char16_t ch : value)
+                    {
+                        output[written++] = static_cast<char>(ch < 0x80 ? ch : '?');
+                    }
+                    output[written++] = 0;
+                }
+            };
+            write(alias.source);
+            write(alias.target);
+        }
+        info->AliasesBufferLength = static_cast<ULONG>(written);
+        coreio::prepare_completion(message, 0, written, message.body + sizeof(CONSOLE_MSG_HEADER), written);
         return true;
     }
 
