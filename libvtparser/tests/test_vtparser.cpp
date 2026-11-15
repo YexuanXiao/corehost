@@ -1,3 +1,5 @@
+#include "kitty.hpp"
+#include "kitty.hpp"
 #include "vt_parser.hpp"
 
 #include <cstdio>
@@ -75,6 +77,16 @@ int main()
     result = parser.parse(U"\x1bPqabc\x1b\\");
     check(result.id == vt_message_id::dcs_sequence, "dcs id");
     check(result.message.payload.text.starts_with(U"\x1bP"), "dcs payload");
+
+    const auto image = parse_kitty_graphics(U"\x1b_Ga=T,f=100,s=2,v=3,i=7;AAAA\x1b\\");
+    check(image.has_value(), "kitty image parsed");
+    if (image.has_value())
+    {
+        check(image->action == u'T', "kitty action");
+        check(image->image_id == 7, "kitty id");
+        check(image->width == 2 && image->height == 3, "kitty dimensions");
+        check(image->payload == U"AAAA", "kitty payload");
+    }
 
     if (failures != 0)
     {
