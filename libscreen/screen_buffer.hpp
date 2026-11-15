@@ -1282,14 +1282,15 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                                                                       cell_hyperlink hyperlink) noexcept
 {
     text_write_result result;
+    if (text.empty())
+    {
+        return result;
+    }
+
     if constexpr (Mode == text_measurement::graphemes)
     {
         if (widths.empty() && all_printable_ascii(text))
         {
-            if (text.empty())
-            {
-                return result;
-            }
             if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.x) >= width_ ||
                 static_cast<std::size_t>(cursor.y) >= height_)
             {
