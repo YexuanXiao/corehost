@@ -52,7 +52,9 @@ int main()
     corehost::coreio::io_msg message{};
     message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG);
     message.descriptor.OutputSize = sizeof(message.body);
-    if (!api.get_screen_buffer_info(message) || message.complete.IoStatus.Status != 0 ||
+    auto *header = reinterpret_cast<CONSOLE_MSG_HEADER *>(message.body);
+    header->ApiNumber = ConsolepGetScreenBufferInfo;
+    if (!api.handle(message) || message.complete.IoStatus.Status != 0 ||
         message.complete.IoStatus.Information != sizeof(CONSOLE_SCREENBUFFERINFO_MSG))
     {
         std::fprintf(stderr, "screen buffer info failed\n");

@@ -51,6 +51,24 @@ class console_api final
         buffer_.copy_rect(source, clip, use_clip, destination);
     }
 
+    [[nodiscard]] bool handle(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+
+        const auto *header = reinterpret_cast<const CONSOLE_MSG_HEADER *>(message.body);
+        if (header->ApiNumber == ConsolepGetScreenBufferInfo)
+        {
+            return get_screen_buffer_info(message);
+        }
+
+        coreio::prepare_completion(message, coreio::error::status_not_implemented);
+        return true;
+    }
+
     [[nodiscard]] bool get_screen_buffer_info(coreio::io_msg &message) noexcept
     {
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG))
