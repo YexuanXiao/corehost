@@ -980,25 +980,36 @@ f7a29de perf(consoleapi): reuse ReadConsole event scratch buffer
 e24eed5 Revert "perf(vtparser): use compact bitset for control lookup"
 ```
 
-最终 `vt_parser::_direct_ground_text_run_length` 不使用查找表，直接做无分支条件组合：
+最终 `vt_parser::_direct_ground_text_run_length` 不使用查找表，改为 4 个 `char16_t` 一个 64 位字的 SWAR 扫描：
 
 ```cpp
-for (const char16_t ch : text)
-{
-    if ((ch < 0x20) | (ch == 0x7F))
-    {
-        break;
-    }
-    ++count;
-}
+const auto below_low = ~(((word | high) - low)) & high;
+const auto is_del = word ^ del;
+const auto at_del = ~((is_del | high) - one) & ~is_del & high;
+const auto control = below_low | at_del;
 ```
 
+- 每 4 个 `char16_t` 才产生一次控制字符判断；
 - 无逐字符 `0x80` 判断；
 - 无查找表；
-- 只保留循环退出分支。
+- 尾部不足 4 个码点时保留标量循环。
+
+新增测试覆盖 C0、DEL、lane 边界和非 ASCII 文本。
+
+性能测试：`C:\1\bench_ground.cpp`，Release `/O2`，QPC 计时，每项重复 3 次；数值为 ns/char16：
 
 ```text
-2620154 perf(vtparser): test control chars without lookup table
+ascii-long           scalar=0.480-0.594  swar=0.161-0.222  ratio=2.9-3.7x
+ascii-control-end    scalar=0.500-0.531  swar=0.150-0.223  ratio=2.2-3.3x
+ascii-control-mid    scalar=0.126-0.132  swar=0.039-0.041  ratio=3.2-3.3x
+non-ascii-long       scalar=0.483-0.565  swar=0.156-0.161  ratio=3.0-3.5x
+short-8              scalar=0.592-0.663  swar=0.328-0.393  ratio=1.5-2.0x
+```
+
+结论：SWAR 在所有测试场景均快于标量扫描，保留该实现。
+
+```text
+db52434 perf(vtparser): scan four ground chars per branchless word
 ```
 
 ### 默认 legacy 样式缓存
@@ -1051,26 +1062,16 @@ feb6ca0 perf(libscreen): replace bgri ternaries with compact table
 915c54b perf(consoleapi): avoid zeroing each INPUT_RECORD
 ```
 
-### 相邻单元格样式缓存
+### 未保留的微优化
 
-`screen_buffer::write_char_info` 缓存上一个单元格的 legacy 属性与样式 ID；连续同属性单元格不再重复 `style_for_legacy`/`styles_.intern`：
-
-```text
-0178ec2 perf(libscreen): reuse style lookup across adjacent cells
-```
-
-### 输入队列 key 计数
-
-`input_queue::has_key` 原来每次从 `head_` 扫描到队尾。现在维护 `key_count_`：
-
-- `push` / `push_front` 遇到 key-down 事件递增；
-- `read` 消费 key-down 事件时递减；
-- `clear` 归零；
-- `has_key()` 直接返回 `key_count_ != 0`。
+以下两个改动没有性能测试数据，按“代码量增加必须测试”的原则撤销：
 
 ```text
-b10ba83 perf(consoleinput): track key events instead of scanning queue
+dbc2722 Revert "perf(libscreen): reuse style lookup across adjacent cells"
+ff1199a Revert "perf(consoleinput): track key events instead of scanning queue"
 ```
+
+`write_char_info` 的相邻样式缓存和 `input_queue` 的 `key_count_` 都会给热路径增加分支，未证明优于原实现，因此不保留。
 
 ### Console API 分派
 
