@@ -1042,13 +1042,50 @@ inline std::size_t screen_buffer::read_char_info_abi(rect area,
 inline std::size_t screen_buffer::write_char_info_abi(
     rect area, std::span<const interop::win32::char_info> values) noexcept
 {
-    std::vector<char_info> converted;
-    converted.reserve(values.size());
-    for (const auto &value : values)
+    std::size_t index = 0;
+    for (auto y = area.top; y <= area.bottom && index < values.size(); ++y)
     {
-        converted.push_back(from_win32(value));
+        for (auto x = area.left; x <= area.right && index < values.size(); ++x)
+        {
+            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ ||
+                static_cast<std::size_t>(y) >= height_)
+            {
+                ++index;
+                continue;
+            }
+
+            auto value = from_win32(values[index++]);
+            const auto is_tail = (value.attributes & interop::win32::lvb_trailing_byte) != 0;
+            const auto is_head = (value.attributes & interop::win32::lvb_leading_byte) != 0;
+            value.attributes = static_cast<std::uint16_t>(
+                value.attributes & ~(interop::win32::lvb_leading_byte | interop::win32::lvb_trailing_byte));
+            const auto style = style_for_legacy(value.attributes);
+
+            if (is_tail)
+            {
+                (void)write_cell(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
+                                 cell::tail(style));
+                continue;
+            }
+
+            const auto next_is_tail =
+                index < values.size() &&
+                (from_win32(values[index]).attributes & interop::win32::lvb_trailing_byte) != 0;
+            const auto wide = is_head || next_is_tail;
+            (void)write_cell(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
+                             cell::scalar(value.character, style,
+                                          wide ? cell_width::wide : cell_width::narrow));
+            if (wide)
+            {
+                if (index < values.size())
+                {
+                    ++index;
+                }
+                ++x;
+            }
+        }
     }
-    return write_char_info(area, converted);
+    return index;
 }
 
 inline std::size_t screen_buffer::read_chars(coord start, std::span<char16_t> out) const noexcept
