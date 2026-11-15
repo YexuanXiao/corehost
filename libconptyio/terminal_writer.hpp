@@ -5,6 +5,7 @@
 #include "win32/handle.hpp"
 #include "win32/io.hpp"
 
+#include <cstdlib>
 #include <cstddef>
 #include <span>
 
@@ -38,20 +39,22 @@ class terminal_writer final
         return buffer_.empty();
     }
 
-    [[nodiscard]] bool flush() noexcept
+    void flush() noexcept
     {
+        if (!output_.valid())
+        {
+            buffer_.clear();
+        }
         if (buffer_.empty())
         {
-            return true;
+            return;
         }
-
         const auto result = win32::write_all(output_, buffer_.bytes());
-        if (!result.success() && !result.empty())
+        if (result.failed())
         {
-            return false;
+            std::abort();
         }
         buffer_.clear();
-        return true;
     }
 
   private:

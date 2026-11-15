@@ -24,7 +24,6 @@
 #include <cstddef>
 #include <mutex>
 #include <atomic>
-#include <stdexcept>
 #include <cstdlib>
 #include <string>
 #include <iterator>
@@ -68,10 +67,7 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
         vtserializer::render_damage(context.writer->buffer(), context.state->screen(), cursor,
                                     &context.state->state());
         context.state->screen().clear_damage();
-        if (!context.writer->flush())
-        {
-            return true;
-        }
+        context.writer->flush();
         return true;
     };
     coreio::run_server(transport, handler, *context.stop);
@@ -109,10 +105,7 @@ class session_input_sink final : public conptyio::vt_input_sink
         };
         vtserializer::render_damage(writer_.buffer(), state_.screen(), cursor, &state_.state());
         state_.screen().clear_damage();
-        if (!writer_.flush())
-        {
-            throw std::runtime_error{"terminal input flush failed"};
-        }
+        writer_.flush();
     }
 
     void on_input_eof() override
@@ -151,10 +144,7 @@ class session_signal_sink final : public conptyio::signal_sink
         };
         vtserializer::render_damage(writer_.buffer(), state_.screen(), cursor, &state_.state());
         state_.screen().clear_damage();
-        if (!writer_.flush())
-        {
-            throw std::runtime_error{"terminal signal flush failed"};
-        }
+        writer_.flush();
     }
 
     void on_signal_eof() override
@@ -201,10 +191,7 @@ inline void run_conpty_session(win32::handle_view server,
     {
         vtserializer::append_request_cursor_position(writer.buffer());
     }
-    if (!writer.flush())
-    {
-        return;
-    }
+    writer.flush();
     win32::srwlock session_mutex;
     win32::basic_thread server_thread;
     std::atomic_bool server_stop{};
@@ -217,24 +204,6 @@ inline void run_conpty_session(win32::handle_view server,
     }
     server_dispatcher dispatcher{server, condrv_input, condrv_output, console_session};
 
-    struct worker_join_guard final
-    {
-        win32::basic_thread &thread;
-        std::atomic_bool &stop;
-        win32::handle_view stop_event;
-
-        ~worker_join_guard()
-        {
-            if (!thread.valid())
-            {
-                return;
-            }
-            stop.store(true, std::memory_order_relaxed);
-            (void)::SetEvent(stop_event.get());
-            (void)::CancelSynchronousIo(thread.get());
-            thread.join();
-        }
-    };
     win32::event server_stop_event{win32::create_tag, true, false};
     server_worker_context server_context{server, event, server_stop_event.view(), &dispatcher, &state, &writer,
                                          &session_mutex, &server_stop};
@@ -243,7 +212,6 @@ inline void run_conpty_session(win32::handle_view server,
         server_thread = win32::basic_thread{&server_worker_entry, &server_context,
                                             {.name = L"corehost2-server"}};
     }
-    worker_join_guard server_join{server_thread, server_stop, server_stop_event.view()};
 
     session_input_sink input_sink{state, writer, session_mutex, console_session};
     conptyio::vt_input_thread input_thread{vt_in, input_sink};
@@ -289,6 +257,13 @@ inline void run_conpty_session(win32::handle_view server,
 
     input_thread.stop_and_join();
     pty_signal_thread.stop_and_join();
+    if (server_thread.valid())
+    {
+        server_stop.store(true, std::memory_order_relaxed);
+        (void)::SetEvent(server_stop_event.get());
+        (void)::CancelSynchronousIo(server_thread.get());
+        server_thread.join();
+    }
 }
 
 } // namespace corehost::corehost2

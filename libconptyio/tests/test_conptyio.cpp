@@ -25,7 +25,8 @@ int main()
 
     corehost::conptyio::terminal_writer writer{win32::handle_view{raw}};
     writer.buffer().append_text(u8"hello");
-    if (!writer.flush() || !writer.empty())
+    writer.flush();
+    if (!writer.empty())
     {
         std::fprintf(stderr, "flush failed\n");
         ::CloseHandle(raw);
