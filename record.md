@@ -224,3 +224,25 @@ edit 原始 OpenConsole 截图：
 corehost2 仍只有 alternate screen 光标，菜单和编辑区为空。
 
 截图基线：`C:\1\orig_matrix.png`、`C:\1\orig_edit.png`（测试后清理）。
+
+## 2026-11-15 libcorehost / corehost2 edit 直接对比
+
+libcorehost 日志：
+
+```text
+RAW_WRITE 137 (api_raw_write_console)
+...
+RAW_WRITE 5105
+```
+
+随后 edit 菜单和编辑区正常绘制。
+
+corehost2 日志：
+
+```text
+RAW_WRITE 137 -> completed inline
+WT 517/1034 bytes terminal response
+无后续 RAW_WRITE 5105
+```
+
+因此 edit 在 corehost2 中卡在 137 字节查询写之后的完成/读取握手，尚未进入绘制阶段。下一步应继续对比 RAW_WRITE completion 的提交时机和 NtWriteFile/NtReadFile 的 pending 状态。
