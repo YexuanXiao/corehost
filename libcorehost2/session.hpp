@@ -41,6 +41,10 @@ class session final
         {
             const auto result = parser_.parse(input);
             input.remove_prefix(result.consumed);
+            if (result.id == vtparser::vt_message_id::continue_)
+            {
+                break;
+            }
             consume(result, false);
             parser_.reset();
         }
@@ -63,6 +67,10 @@ class session final
         {
             const auto result = parser_.parse(input);
             input.remove_prefix(result.consumed);
+            if (result.id == vtparser::vt_message_id::continue_)
+            {
+                break;
+            }
             consume(result, true);
             parser_.reset();
         }

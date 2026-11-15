@@ -186,6 +186,16 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::corehost2::session split_session{8, 2};
+    split_session.feed(std::u16string_view{u"\x1b[", 2});
+    split_session.feed(std::u16string_view{u"2J", 2});
+    split_session.feed(std::u16string_view{u"A", 1});
+    if (split_session.screen().at(0, 0).primary() != u'A')
+    {
+        std::fprintf(stderr, "split escape sequence failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
 }
