@@ -335,41 +335,42 @@ class console_api final
             for (std::size_t i = 0; i < count; ++i)
             {
                 auto &record = output[i];
-                if (events[i].type == consoleinput::input_event_type::mouse)
+                const auto &event = events[i];
+                if (event.type == consoleinput::input_event_type::mouse)
                 {
                     record.EventType = MOUSE_EVENT;
                     record.Event.MouseEvent.dwMousePosition =
-                        COORD{static_cast<SHORT>(events[i].mouse.x), static_cast<SHORT>(events[i].mouse.y)};
-                    record.Event.MouseEvent.dwButtonState = events[i].mouse.button_state;
-                    record.Event.MouseEvent.dwControlKeyState = events[i].mouse.control_state;
-                    record.Event.MouseEvent.dwEventFlags = events[i].mouse.event_flags;
+                        COORD{static_cast<SHORT>(event.mouse.x), static_cast<SHORT>(event.mouse.y)};
+                    record.Event.MouseEvent.dwButtonState = event.mouse.button_state;
+                    record.Event.MouseEvent.dwControlKeyState = event.mouse.control_state;
+                    record.Event.MouseEvent.dwEventFlags = event.mouse.event_flags;
                 }
-                else if (events[i].type == consoleinput::input_event_type::window)
+                else if (event.type == consoleinput::input_event_type::window)
                 {
                     record.EventType = WINDOW_BUFFER_SIZE_EVENT;
-                    record.Event.WindowBufferSizeEvent.dwSize = COORD{events[i].window.width, events[i].window.height};
+                    record.Event.WindowBufferSizeEvent.dwSize = COORD{event.window.width, event.window.height};
                 }
                 else
                 {
                     record.EventType = KEY_EVENT;
-                    record.Event.KeyEvent.bKeyDown = events[i].key.key_down ? TRUE : FALSE;
-                    record.Event.KeyEvent.wRepeatCount = events[i].key.repeat_count;
-                    record.Event.KeyEvent.wVirtualKeyCode = static_cast<WORD>(std::to_underlying(events[i].key.key));
-                    record.Event.KeyEvent.wVirtualScanCode = events[i].key.scan_code;
+                    record.Event.KeyEvent.bKeyDown = event.key.key_down ? TRUE : FALSE;
+                    record.Event.KeyEvent.wRepeatCount = event.key.repeat_count;
+                    record.Event.KeyEvent.wVirtualKeyCode = static_cast<WORD>(std::to_underlying(event.key.key));
+                    record.Event.KeyEvent.wVirtualScanCode = event.key.scan_code;
                     if (request->Unicode)
                     {
-                        record.Event.KeyEvent.uChar.UnicodeChar = events[i].key.character;
+                        record.Event.KeyEvent.uChar.UnicodeChar = event.key.character;
                     }
                     else
                     {
                         const auto code_page = state_.output_code_page;
                         char narrow = 0;
                         (void)::WideCharToMultiByte(code_page, 0,
-                                                    reinterpret_cast<const wchar_t *>(&events[i].key.character), 1,
-                                                    &narrow, 1, nullptr, nullptr);
+                                                    reinterpret_cast<const wchar_t *>(&event.key.character), 1, &narrow,
+                                                    1, nullptr, nullptr);
                         record.Event.KeyEvent.uChar.AsciiChar = narrow;
                     }
-                    record.Event.KeyEvent.dwControlKeyState = events[i].key.control_state;
+                    record.Event.KeyEvent.dwControlKeyState = event.key.control_state;
                 }
             }
         }
