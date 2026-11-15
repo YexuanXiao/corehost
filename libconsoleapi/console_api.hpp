@@ -716,18 +716,33 @@ class console_api final
         {
             for (std::size_t i = 0; i < records; ++i)
             {
-                if (input[i].EventType != KEY_EVENT)
+                consoleinput::input_event converted{};
+                if (input[i].EventType == MOUSE_EVENT)
+                {
+                    converted.type = consoleinput::input_event_type::mouse;
+                    converted.mouse.x = input[i].Event.MouseEvent.dwMousePosition.X;
+                    converted.mouse.y = input[i].Event.MouseEvent.dwMousePosition.Y;
+                    converted.mouse.button_state = input[i].Event.MouseEvent.dwButtonState;
+                    converted.mouse.control_state = input[i].Event.MouseEvent.dwControlKeyState;
+                    converted.mouse.event_flags = input[i].Event.MouseEvent.dwEventFlags;
+                }
+                else if (input[i].EventType == KEY_EVENT)
+                {
+                    consoleinput::key_event key;
+                    key.character = input[i].Event.KeyEvent.uChar.UnicodeChar;
+                    key.key = static_cast<consoleinput::virtual_key>(
+                        input[i].Event.KeyEvent.wVirtualKeyCode);
+                    key.scan_code = input[i].Event.KeyEvent.wVirtualScanCode;
+                    key.control_state = input[i].Event.KeyEvent.dwControlKeyState;
+                    key.repeat_count = input[i].Event.KeyEvent.wRepeatCount;
+                    key.key_down = input[i].Event.KeyEvent.bKeyDown != FALSE;
+                    converted.type = consoleinput::input_event_type::key;
+                    converted.key = key;
+                }
+                else
                 {
                     continue;
                 }
-                consoleinput::key_event key;
-                key.character = input[i].Event.KeyEvent.uChar.UnicodeChar;
-                key.key = static_cast<consoleinput::virtual_key>(input[i].Event.KeyEvent.wVirtualKeyCode);
-                key.scan_code = input[i].Event.KeyEvent.wVirtualScanCode;
-                key.control_state = input[i].Event.KeyEvent.dwControlKeyState;
-                key.repeat_count = input[i].Event.KeyEvent.wRepeatCount;
-                key.key_down = input[i].Event.KeyEvent.bKeyDown != FALSE;
-                const auto converted = consoleinput::input_event{consoleinput::input_event_type::key, key};
                 if (request->Append)
                 {
                     input_->push(converted);

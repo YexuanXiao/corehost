@@ -1257,6 +1257,37 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::input_queue write_mouse_queue;
+    corehost::consoleapi::console_api write_mouse_api{buffer, state, &write_mouse_queue};
+    corehost::coreio::io_msg write_mouse_message{};
+    write_mouse_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                                sizeof(CONSOLE_WRITECONSOLEINPUT_MSG) +
+                                                sizeof(INPUT_RECORD);
+    write_mouse_message.descriptor.OutputSize = sizeof(write_mouse_message.body);
+    auto *write_mouse_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(write_mouse_message.body);
+    write_mouse_header->ApiNumber = ConsolepWriteConsoleInput;
+    auto *write_mouse_request = reinterpret_cast<CONSOLE_WRITECONSOLEINPUT_MSG *>(
+        write_mouse_message.body + sizeof(CONSOLE_MSG_HEADER));
+    write_mouse_request->Append = TRUE;
+    write_mouse_request->NumRecords = 1;
+    auto *write_mouse_record = reinterpret_cast<INPUT_RECORD *>(write_mouse_request + 1);
+    write_mouse_record->EventType = MOUSE_EVENT;
+    write_mouse_record->Event.MouseEvent.dwMousePosition = COORD{4, 2};
+    write_mouse_record->Event.MouseEvent.dwButtonState = 1;
+    if (!write_mouse_api.handle(write_mouse_message) || write_mouse_queue.size() != 1)
+    {
+        std::fprintf(stderr, "write mouse input failed\n");
+        return EXIT_FAILURE;
+    }
+    corehost::consoleinput::input_event written_mouse{};
+    (void)write_mouse_queue.read(std::span<corehost::consoleinput::input_event>{&written_mouse, 1});
+    if (written_mouse.type != corehost::consoleinput::input_event_type::mouse ||
+        written_mouse.mouse.x != 4)
+    {
+        std::fprintf(stderr, "write mouse input data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
