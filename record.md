@@ -941,6 +941,10 @@ ConsoleAPI.Reference Passed
 
 真实 WT：edit 初始 UI、鼠标菜单正常；PowerShell/cmd/pwsh 无回归。
 
+### Console API 分派
+
+`console_api::handle` 不再使用长串 `if (header->ApiNumber == ...)`。先取 `layer = ApiNumber >> 24`，再按 L1/L2/L3 分别 switch，和 libcorehost 的分派结构一致。未知 layer/API 仍返回 `status_not_implemented`。
+
 ### 测试稳定性
 
 `cancellable_read` 的“in read”事件改为 manual-reset，避免 waiter 先消费 auto-reset 通知、`CancelSynchronousIo` 尚未执行时阻塞读线程造成偶发 join 超时。ConptyIO 连续 20 次运行通过。

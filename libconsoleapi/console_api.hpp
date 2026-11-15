@@ -112,211 +112,133 @@ class console_api final
             return true;
         }
         const auto layer = header->ApiNumber >> 24;
-        if (layer < 1 || layer > 3)
+        switch (layer)
         {
-            coreio::prepare_completion(message, coreio::error::status_illegal_function);
-            return true;
-        }
-        if (header->ApiNumber == ConsolepGetScreenBufferInfo)
-        {
-            return get_screen_buffer_info(message);
-        }
-        if (header->ApiNumber == ConsolepGetCursorInfo)
-        {
-            return get_cursor_info(message);
-        }
-        if (header->ApiNumber == ConsolepGetLargestWindowSize)
-        {
-            return get_largest_window_size(message);
-        }
-        if (header->ApiNumber == ConsolepReadConsole)
-        {
-            return read_console(message);
-        }
-        if (header->ApiNumber == ConsolepSetTextAttribute)
-        {
-            return set_text_attribute(message);
-        }
-        if (header->ApiNumber == ConsolepScrollScreenBuffer)
-        {
-            return scroll_console_buffer(message);
-        }
-        if (header->ApiNumber == ConsolepSetWindowInfo)
-        {
-            return set_window_info(message);
-        }
-        if (header->ApiNumber == ConsolepWriteConsole)
-        {
-            return write_console(message);
-        }
-        if (header->ApiNumber == ConsolepWriteConsoleInput)
-        {
-            return write_console_input(message);
-        }
-        if (header->ApiNumber == ConsolepSetScreenBufferInfo)
-        {
-            return set_screen_buffer_info(message);
-        }
-        if (header->ApiNumber == ConsolepGetMode || header->ApiNumber == ConsolepSetMode)
-        {
-            const bool input = !is_output_object(message.descriptor.Object);
-            return header->ApiNumber == ConsolepGetMode ? get_mode(message, input) : set_mode(message, input);
-        }
-        if (header->ApiNumber == ConsolepSetActiveScreenBuffer)
-        {
-            return set_active_screen_buffer(message);
-        }
-        if (header->ApiNumber == ConsolepFlushInputBuffer)
-        {
-            return flush_input_buffer(message);
-        }
-        if (header->ApiNumber == ConsolepGetConsoleProcessList)
-        {
-            return get_process_list(message);
-        }
-        if (header->ApiNumber == ConsolepGetMouseInfo)
-        {
-            return get_mouse_info(message);
-        }
-        if (header->ApiNumber == ConsolepSetCurrentFont)
-        {
-            return set_current_font(message);
-        }
-        if (header->ApiNumber == ConsolepGetAliasesLength)
-        {
-            return get_aliases_length(message);
-        }
-        if (header->ApiNumber == ConsolepGetAliasExesLength)
-        {
-            return get_alias_exes_length(message);
-        }
-        if (header->ApiNumber == ConsolepGetAliasExes)
-        {
-            return get_alias_exes(message);
-        }
-        if (header->ApiNumber == ConsolepGetAliases)
-        {
-            return get_aliases(message);
-        }
-        if (header->ApiNumber == ConsolepAddAlias)
-        {
-            return add_alias(message);
-        }
-        if (header->ApiNumber == ConsolepGetAlias)
-        {
-            return get_alias(message);
-        }
-        if (header->ApiNumber == ConsolepExpungeCommandHistory)
-        {
-            return expunge_command_history(message);
-        }
-        if (header->ApiNumber == ConsolepSetNumberOfCommands)
-        {
-            return set_number_of_commands(message);
-        }
-        if (header->ApiNumber == ConsolepGetCommandHistoryLength)
-        {
-            return get_command_history_length(message);
-        }
-        if (header->ApiNumber == ConsolepGetCommandHistory)
-        {
-            return get_command_history(message);
-        }
-        if (header->ApiNumber == ConsolepGetHistory)
-        {
-            return get_history_info(message);
-        }
-        if (header->ApiNumber == ConsolepSetHistory)
-        {
-            return set_history_info(message);
-        }
-        if (header->ApiNumber == ConsolepGetConsoleWindow)
-        {
-            return get_console_window(message);
-        }
-        if (header->ApiNumber == ConsolepGetDisplayMode)
-        {
-            return get_display_mode(message);
-        }
-        if (header->ApiNumber == ConsolepSetDisplayMode)
-        {
-            return set_display_mode(message);
-        }
-        if (header->ApiNumber == ConsolepGetFontSize)
-        {
-            return get_font_size(message);
-        }
-        if (header->ApiNumber == ConsolepGetCurrentFont)
-        {
-            return get_current_font(message);
-        }
-        if (header->ApiNumber == ConsolepGetSelectionInfo)
-        {
-            return get_selection_info(message);
-        }
-        if (header->ApiNumber == ConsolepGetLangId)
-        {
-            return get_language_id(message);
-        }
-        if (header->ApiNumber == ConsolepGetTitle)
-        {
-            return get_title(message);
-        }
-        if (header->ApiNumber == ConsolepSetTitle)
-        {
-            return set_title(message);
-        }
-        if (header->ApiNumber == ConsolepGenerateCtrlEvent)
-        {
-            return generate_ctrl_event(message);
-        }
-        if (header->ApiNumber == ConsolepGetCP)
-        {
-            return get_code_page(message);
-        }
-        if (header->ApiNumber == ConsolepSetCP)
-        {
-            return set_code_page(message);
-        }
-        if (header->ApiNumber == ConsolepGetConsoleInput)
-        {
-            return read_console_input(message);
-        }
-        if (header->ApiNumber == ConsolepGetNumberOfInputEvents)
-        {
-            return get_number_of_input_events(message);
-        }
-        if (header->ApiNumber == ConsolepSetScreenBufferSize)
-        {
-            return set_screen_buffer_size(message);
-        }
-        if (header->ApiNumber == ConsolepReadConsoleOutputString)
-        {
-            return read_console_output_string(message);
-        }
-        if (header->ApiNumber == ConsolepWriteConsoleOutputString)
-        {
-            return write_console_output_string(message);
-        }
-        if (header->ApiNumber == ConsolepFillConsoleOutput)
-        {
-            return fill_console_output(message);
-        }
-        if (header->ApiNumber == ConsolepReadConsoleOutput)
-        {
-            return read_console_output(message);
-        }
-        if (header->ApiNumber == ConsolepWriteConsoleOutput)
-        {
-            return write_console_output(message);
-        }
-        if (header->ApiNumber == ConsolepSetCursorInfo)
-        {
-            return set_cursor_info(message);
-        }
-        if (header->ApiNumber == ConsolepSetCursorPosition)
-        {
-            return set_cursor_position(message);
+        case 1:
+            switch (header->ApiNumber)
+            {
+            case ConsolepGetCP:
+                return get_code_page(message);
+            case ConsolepGetMode:
+                return get_mode(message, !is_output_object(message.descriptor.Object));
+            case ConsolepSetMode:
+                return set_mode(message, !is_output_object(message.descriptor.Object));
+            case ConsolepGetNumberOfInputEvents:
+                return get_number_of_input_events(message);
+            case ConsolepGetConsoleInput:
+                return read_console_input(message);
+            case ConsolepReadConsole:
+                return read_console(message);
+            case ConsolepWriteConsole:
+                return write_console(message);
+            case ConsolepGetLangId:
+                return get_language_id(message);
+            default:
+                break;
+            }
+            break;
+        case 2:
+            switch (header->ApiNumber)
+            {
+            case ConsolepFillConsoleOutput:
+                return fill_console_output(message);
+            case ConsolepGenerateCtrlEvent:
+                return generate_ctrl_event(message);
+            case ConsolepSetActiveScreenBuffer:
+                return set_active_screen_buffer(message);
+            case ConsolepFlushInputBuffer:
+                return flush_input_buffer(message);
+            case ConsolepSetCP:
+                return set_code_page(message);
+            case ConsolepGetCursorInfo:
+                return get_cursor_info(message);
+            case ConsolepSetCursorInfo:
+                return set_cursor_info(message);
+            case ConsolepGetScreenBufferInfo:
+                return get_screen_buffer_info(message);
+            case ConsolepSetScreenBufferInfo:
+                return set_screen_buffer_info(message);
+            case ConsolepSetScreenBufferSize:
+                return set_screen_buffer_size(message);
+            case ConsolepSetCursorPosition:
+                return set_cursor_position(message);
+            case ConsolepGetLargestWindowSize:
+                return get_largest_window_size(message);
+            case ConsolepScrollScreenBuffer:
+                return scroll_console_buffer(message);
+            case ConsolepSetTextAttribute:
+                return set_text_attribute(message);
+            case ConsolepSetWindowInfo:
+                return set_window_info(message);
+            case ConsolepReadConsoleOutputString:
+                return read_console_output_string(message);
+            case ConsolepWriteConsoleInput:
+                return write_console_input(message);
+            case ConsolepWriteConsoleOutput:
+                return write_console_output(message);
+            case ConsolepWriteConsoleOutputString:
+                return write_console_output_string(message);
+            case ConsolepReadConsoleOutput:
+                return read_console_output(message);
+            case ConsolepGetTitle:
+                return get_title(message);
+            case ConsolepSetTitle:
+                return set_title(message);
+            default:
+                break;
+            }
+            break;
+        case 3:
+            switch (header->ApiNumber)
+            {
+            case ConsolepGetConsoleProcessList:
+                return get_process_list(message);
+            case ConsolepGetMouseInfo:
+                return get_mouse_info(message);
+            case ConsolepGetFontSize:
+                return get_font_size(message);
+            case ConsolepGetCurrentFont:
+                return get_current_font(message);
+            case ConsolepSetCurrentFont:
+                return set_current_font(message);
+            case ConsolepGetDisplayMode:
+                return get_display_mode(message);
+            case ConsolepSetDisplayMode:
+                return set_display_mode(message);
+            case ConsolepGetAliasesLength:
+                return get_aliases_length(message);
+            case ConsolepGetAliasExesLength:
+                return get_alias_exes_length(message);
+            case ConsolepGetAliases:
+                return get_aliases(message);
+            case ConsolepGetAliasExes:
+                return get_alias_exes(message);
+            case ConsolepAddAlias:
+                return add_alias(message);
+            case ConsolepGetAlias:
+                return get_alias(message);
+            case ConsolepExpungeCommandHistory:
+                return expunge_command_history(message);
+            case ConsolepSetNumberOfCommands:
+                return set_number_of_commands(message);
+            case ConsolepGetCommandHistoryLength:
+                return get_command_history_length(message);
+            case ConsolepGetCommandHistory:
+                return get_command_history(message);
+            case ConsolepGetHistory:
+                return get_history_info(message);
+            case ConsolepSetHistory:
+                return set_history_info(message);
+            case ConsolepGetConsoleWindow:
+                return get_console_window(message);
+            case ConsolepGetSelectionInfo:
+                return get_selection_info(message);
+            default:
+                break;
+            }
+            break;
+        default:
+            break;
         }
 
         coreio::prepare_completion(message, coreio::error::status_not_implemented);
