@@ -1409,6 +1409,25 @@ control old=0.0839-0.0892 ns/unit new=0.0815-0.0859 ns/unit ratio=1.02-1.09x
 
 收益不稳定，部分场景变慢，代码量翻倍，因此保留 4 字符版本。
 
+### 未保留：UTF-8 单码点指针编码
+
+尝试把 `utf8_decoder::append` 的 `std::back_inserter` 改成：
+
+```cpp
+output.resize(offset + 2);
+auto *last = encoder(codepoint, output.data() + offset);
+output.resize(offset + (last - first));
+```
+
+基准反而明显变慢：
+
+```text
+cjk   old=2.0821-2.1387 ns/byte new=3.2441-3.2745 ns/byte ratio=0.64-0.66x
+emoji old=2.5276-2.6370 ns/byte new=2.9940-3.0539 ns/byte ratio=0.83-0.88x
+```
+
+因此保留原 `back_inserter` 写法。
+
 ### UTF-8 ASCII 块 64 位写回
 
 ASCII 块不再逐字符写 `u16string`，而是一次读取 4 字节， widen 成 4 个 `char16_t`，再用 64 位 `memcpy` 写回；每个 8 字节块执行两次。
