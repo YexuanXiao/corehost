@@ -6,8 +6,10 @@
 #include <libunicode/width.h>
 
 #include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iterator>
 #include <ranges>
 #include <span>
@@ -17,6 +19,45 @@
 
 namespace corehost::screen
 {
+
+// True when every UTF-16 unit is printable ASCII. One word covers four units;
+// the caller can skip grapheme segmentation for ordinary text.
+[[nodiscard]] inline bool all_printable_ascii(std::u16string_view text) noexcept
+{
+    constexpr std::uint64_t high = 0x8000800080008000ull;
+    constexpr std::uint64_t low = 0x0020002000200020ull;
+    constexpr std::uint64_t del = 0x007F007F007F007Full;
+    constexpr std::uint64_t one = 0x0001000100010001ull;
+    constexpr std::uint64_t non_ascii = 0xFF80FF80FF80FF80ull;
+
+    std::size_t offset = 0;
+    while (offset + 4 <= text.size())
+    {
+        std::uint64_t word = 0;
+        std::memcpy(&word, text.data() + offset, sizeof(word));
+
+        const auto below_low = ~(((word | high) - low)) & high;
+        const auto is_del = word ^ del;
+        const auto at_del = ~((is_del | high) - one) & ~is_del & high;
+        const auto invalid = below_low | at_del | (word & non_ascii);
+        if (invalid != 0)
+        {
+            return false;
+        }
+        offset += 4;
+    }
+
+    while (offset < text.size())
+    {
+        const auto ch = text[offset];
+        if (ch < 0x20 || ch >= 0x7F)
+        {
+            return false;
+        }
+        ++offset;
+    }
+    return true;
+}
 
 // Matches corehost::conpty::text_measurement_mode.
 enum class text_measurement

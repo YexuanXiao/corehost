@@ -1284,6 +1284,34 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
     text_write_result result;
     if constexpr (Mode == text_measurement::graphemes)
     {
+        if (widths.empty() && all_printable_ascii(text))
+        {
+            for (std::size_t index = 0; index < text.size(); ++index)
+            {
+                if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.x) >= width_ ||
+                    static_cast<std::size_t>(cursor.y) >= height_ ||
+                    cursor.x + 1 > static_cast<std::int32_t>(width_))
+                {
+                    result.row_end = true;
+                    break;
+                }
+                if (!write_scalar(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y),
+                                  text[index], style, cell_width::narrow, hyperlink))
+                {
+                    result.row_end = true;
+                    break;
+                }
+                ++cursor.x;
+                ++result.consumed;
+                if (cursor.x >= static_cast<std::int32_t>(width_))
+                {
+                    result.row_end = true;
+                    break;
+                }
+            }
+            return result;
+        }
+
         for (const auto cluster : grapheme_range<Mode, AmbiguousIsWide>{text})
         {
             if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.x) >= width_ ||
