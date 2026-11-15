@@ -550,38 +550,43 @@ class console_api final
                 continue;
             }
 
-            if (character == 3 && (state_.input_mode & 0x0001) != 0)
+            if (character < u' ')
             {
-                cooked_active_ = false;
-                cooked_line_.clear();
-                request->NumBytes = 0;
-                request->ControlKeyState = 0;
-                coreio::prepare_completion(message, coreio::error::status_alerted, 0,
-                                           message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_READCONSOLE_MSG));
-                return true;
-            }
-            if (request->ProcessControlZ != FALSE && character == 26 && (state_.input_mode & 0x0001) != 0)
-            {
-                line_complete = true;
-                break;
-            }
-            if (character >= 1 && character <= 26 && (request->CtrlWakeupMask & (1u << (character - 1))) != 0)
-            {
-                if (units < max_units)
+                if (character == 3 && (state_.input_mode & 0x0001) != 0)
                 {
-                    if (cursor < units)
-                    {
-                        for (std::size_t j = units; j > cursor; --j)
-                        {
-                            output[j] = output[j - 1];
-                        }
-                    }
-                    output[cursor++] = character;
-                    ++units;
+                    cooked_active_ = false;
+                    cooked_line_.clear();
+                    request->NumBytes = 0;
+                    request->ControlKeyState = 0;
+                    coreio::prepare_completion(message, coreio::error::status_alerted, 0,
+                                               message.body + sizeof(CONSOLE_MSG_HEADER),
+                                               sizeof(CONSOLE_READCONSOLE_MSG));
+                    return true;
                 }
-                redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
-                line_complete = true;
-                break;
+                if (request->ProcessControlZ != FALSE && character == 26 && (state_.input_mode & 0x0001) != 0)
+                {
+                    line_complete = true;
+                    break;
+                }
+                if (character >= 1 && character <= 26 &&
+                    (request->CtrlWakeupMask & (1u << (character - 1))) != 0)
+                {
+                    if (units < max_units)
+                    {
+                        if (cursor < units)
+                        {
+                            for (std::size_t j = units; j > cursor; --j)
+                            {
+                                output[j] = output[j - 1];
+                            }
+                        }
+                        output[cursor++] = character;
+                        ++units;
+                    }
+                    redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
+                    line_complete = true;
+                    break;
+                }
             }
             if (character == u'\u000D' || character == u'\u000A')
             {
