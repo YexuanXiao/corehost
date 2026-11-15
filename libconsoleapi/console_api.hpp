@@ -827,25 +827,45 @@ class console_api final
             fill_char = u' ';
             fill_attributes = state_.default_attributes;
         }
-        const auto dest_left = static_cast<std::size_t>(std::max<std::int32_t>(destination.x, 0));
-        const auto dest_top = static_cast<std::size_t>(std::max<std::int32_t>(destination.y, 0));
-        const auto dest_right = dest_left + source_rect.width;
-        const auto dest_bottom = dest_top + source_rect.height;
-        for (std::size_t y = source_rect.y; y < source_rect.y + source_rect.height; ++y)
+        auto copy_left = source_rect.x;
+        auto copy_top = source_rect.y;
+        auto copy_right = source_rect.x + source_rect.width;
+        auto copy_bottom = source_rect.y + source_rect.height;
+        if (request->Clip != FALSE)
         {
-            if (y < dest_top || y >= dest_bottom)
+            copy_left = std::max(copy_left, clip_rect.x);
+            copy_top = std::max(copy_top, clip_rect.y);
+            copy_right = std::min(copy_right, clip_rect.x + clip_rect.width);
+            copy_bottom = std::min(copy_bottom, clip_rect.y + clip_rect.height);
+        }
+        if (copy_left < copy_right && copy_top < copy_bottom)
+        {
+            const auto dest_left = destination.x + static_cast<std::int32_t>(copy_left - source_rect.x);
+            const auto dest_top = destination.y + static_cast<std::int32_t>(copy_top - source_rect.y);
+            const auto dest_right = dest_left + static_cast<std::int32_t>(copy_right - copy_left);
+            const auto copy_width = static_cast<std::int32_t>(copy_right - copy_left);
+            for (auto y = copy_top; y < copy_bottom; ++y)
             {
-                fill_rect_segment(source_rect.x, y, source_rect.width, fill_char, fill_attributes);
-                continue;
-            }
-            if (source_rect.x < dest_left)
-            {
-                fill_rect_segment(source_rect.x, y, std::min(dest_left, source_rect.x + source_rect.width) - source_rect.x, fill_char, fill_attributes);
-            }
-            const auto right_start = std::max(dest_right, source_rect.x);
-            if (right_start < source_rect.x + source_rect.width)
-            {
-                fill_rect_segment(right_start, y, source_rect.x + source_rect.width - right_start, fill_char, fill_attributes);
+                const auto dest_y = dest_top + static_cast<std::int32_t>(y - copy_top);
+                if (dest_y < 0 || dest_y >= static_cast<std::int32_t>(buffer_.height()))
+                {
+                    fill_rect_segment(copy_left, y, copy_width, fill_char, fill_attributes);
+                    continue;
+                }
+                if (copy_left < dest_left)
+                {
+                    fill_rect_segment(copy_left, y,
+                                      std::min(dest_left, static_cast<std::int32_t>(copy_right)) -
+                                          static_cast<std::int32_t>(copy_left),
+                                      fill_char, fill_attributes);
+                }
+                const auto right_start = std::max(dest_right, static_cast<std::int32_t>(copy_left));
+                if (right_start < static_cast<std::int32_t>(copy_right))
+                {
+                    fill_rect_segment(right_start, y,
+                                      static_cast<std::int32_t>(copy_right) - right_start,
+                                      fill_char, fill_attributes);
+                }
             }
         }
         const auto full_screen_scroll =
