@@ -1162,16 +1162,17 @@ inline std::size_t screen_buffer::read_attrs(coord start, std::span<std::uint16_
 
 inline std::size_t screen_buffer::write_chars(coord start, std::u16string_view text) noexcept
 {
-    std::size_t count = 0;
     auto x = start.x;
     auto y = start.y;
-    while (count < text.size())
+    if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ ||
+        static_cast<std::size_t>(y) >= height_)
     {
-        if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
-        {
-            break;
-        }
+        return 0;
+    }
 
+    std::size_t count = 0;
+    while (count < text.size() && static_cast<std::size_t>(y) < height_)
+    {
         const auto decoded = next_codepoint(text, count);
         auto columns = console_width(decoded.value);
         if (columns <= 0)
