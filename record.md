@@ -1409,6 +1409,14 @@ control old=0.0839-0.0892 ns/unit new=0.0815-0.0859 ns/unit ratio=1.02-1.09x
 
 收益不稳定，部分场景变慢，代码量翻倍，因此保留 4 字符版本。
 
+### VT 文本循环外提尺寸
+
+`apply_text_impl` 在进入 grapheme/cluster 循环前缓存 `state.width()` / `state.height()`，循环内不再每 cluster 调用：
+
+```text
+3a3e803 perf(vtstate): hoist dimensions out of text loop
+```
+
 ### VT 文本直接使用 parser view
 
 `apply_text_impl` 原来每条文本消息：
