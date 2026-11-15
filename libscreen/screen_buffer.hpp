@@ -1298,23 +1298,16 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                 return result;
             }
 
-            for (std::size_t index = 0; index < text.size(); ++index)
+            const auto available = width_ - static_cast<std::size_t>(cursor.x);
+            const auto count = std::min(text.size(), available);
+            for (std::size_t index = 0; index < count; ++index)
             {
-                if (cursor.x >= static_cast<std::int32_t>(width_))
-                {
-                    result.row_end = true;
-                    break;
-                }
-                if (!write_scalar(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y),
-                                  text[index], style, cell_width::narrow, hyperlink))
-                {
-                    result.row_end = true;
-                    break;
-                }
+                (void)write_scalar(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y),
+                                   text[index], style, cell_width::narrow, hyperlink);
                 ++cursor.x;
                 ++result.consumed;
             }
-            if (cursor.x >= static_cast<std::int32_t>(width_))
+            if (count < text.size() || cursor.x >= static_cast<std::int32_t>(width_))
             {
                 result.row_end = true;
             }
