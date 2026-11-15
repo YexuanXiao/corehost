@@ -1031,6 +1031,18 @@ short-16         scalar=0.492-0.734 ns/byte  swar=0.162-0.272 ns/byte  ratio=2.5
 1fed644 test(corehost2): cover raw word scan boundaries
 ```
 
+CRLF/无归一化行增加直接 `memcpy` 快速路径，避免逐字节复制循环：
+
+```text
+68da681 perf(corehost2): memcpy normalized raw lines when possible
+```
+
+`C:\1\bench_copy.cpp`，64 KiB，20 万次，Release `/O2`：
+
+```text
+loop=0.2476-0.2540 ns/byte  memcpy=0.0170-0.0176 ns/byte  ratio≈14.3-14.6x
+```
+
 ### 默认 legacy 样式缓存
 
 `screen_buffer` 首次调用 `styles_.intern(text_style{})` 后缓存默认样式 ID，`style_for_legacy(0x0007)` 直接返回，不再对每个默认属性单元格做一次 `flat_map` 查找。
