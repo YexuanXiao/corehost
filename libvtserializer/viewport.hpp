@@ -62,8 +62,7 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
         append_cup(output, static_cast<unsigned>(row),
                    static_cast<unsigned>(begin - static_cast<std::size_t>(origin.x)));
 
-        screen::cell_style current_style{};
-        bool has_style = false;
+        screen::cell_style current_style = static_cast<screen::cell_style>(-1);
         for (auto x = begin; x < end; ++x)
         {
             const auto &value = buffer.at(x, y);
@@ -88,11 +87,10 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
             }
 
             const auto style = value.style();
-            if (!has_style || style != current_style)
+            if (style != current_style)
             {
                 append_sgr_style(output, buffer.styles().at(style));
                 current_style = style;
-                has_style = true;
             }
 
             if (const auto cluster = buffer.cluster_of(value); !cluster.empty())
@@ -130,8 +128,7 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
     append_clear_screen(output);
 
     auto current_hyperlink = screen::no_cell_hyperlink;
-    screen::cell_style current_style{};
-    bool has_style = false;
+    screen::cell_style current_style = static_cast<screen::cell_style>(-1);
 
     for (std::int32_t row = 0; row < size.y; ++row)
     {
@@ -186,11 +183,10 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
             }
 
             const auto style = value.style();
-            if (!has_style || style != current_style)
+            if (style != current_style)
             {
                 append_sgr_style(output, buffer.styles().at(style));
                 current_style = style;
-                has_style = true;
             }
 
             if (const auto cluster = buffer.cluster_of(value); !cluster.empty())
