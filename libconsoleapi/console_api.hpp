@@ -1041,8 +1041,14 @@ class console_api final
                                   : 0;
         const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
         std::size_t written = 0;
+        std::vector<std::u16string_view> seen;
         for (const auto &alias : state_.aliases)
         {
+            if (std::ranges::find(seen, alias.executable) != seen.end())
+            {
+                continue;
+            }
+            seen.push_back(alias.executable);
             const auto bytes = (alias.executable.size() + 1) * unit;
             if (written + bytes > capacity)
             {

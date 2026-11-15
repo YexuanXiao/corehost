@@ -1029,6 +1029,21 @@ int main()
         return EXIT_FAILURE;
     }
 
+    add_alias_request->SourceLength = 1;
+    add_alias_request->TargetLength = 1;
+    add_alias_request->ExeLength = 3;
+    add_alias_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG) +
+                                              sizeof(alias_exe) + sizeof(alias_source) +
+                                              sizeof(alias_target);
+    std::memcpy(alias_data, alias_exe, sizeof(alias_exe));
+    std::memcpy(alias_data + 3, u"z", sizeof(char16_t));
+    std::memcpy(alias_data + 4, u"w", sizeof(char16_t));
+    if (!api.handle(add_alias_message) || state.aliases.size() != 2)
+    {
+        std::fprintf(stderr, "add second alias failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::coreio::io_msg exes_message{};
     exes_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG);
     exes_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG) + 8;
@@ -1229,9 +1244,16 @@ int main()
                                               sizeof(alias_exe) + sizeof(alias_source);
     std::memcpy(alias_data, alias_exe, sizeof(alias_exe));
     std::memcpy(alias_data + 3, alias_source, sizeof(alias_source));
-    if (!api.handle(add_alias_message) || !state.aliases.empty())
+    if (!api.handle(add_alias_message) || state.aliases.size() != 1)
     {
         std::fprintf(stderr, "delete alias failed\n");
+        return EXIT_FAILURE;
+    }
+    std::memcpy(alias_data, alias_exe, sizeof(alias_exe));
+    std::memcpy(alias_data + 3, u"z", sizeof(char16_t));
+    if (!api.handle(add_alias_message) || !state.aliases.empty())
+    {
+        std::fprintf(stderr, "delete second alias failed\n");
         return EXIT_FAILURE;
     }
 
