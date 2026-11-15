@@ -36,6 +36,14 @@ class server_dispatcher final
         case CONSOLE_IO_RAW_FLUSH:
             coreio::prepare_completion(message);
             return true;
+        case CONSOLE_IO_RAW_WRITE:
+            session_.write_raw(std::span<const char>{reinterpret_cast<const char *>(message.body),
+                                                    static_cast<std::size_t>(message.descriptor.InputSize)});
+            coreio::prepare_completion(message);
+            return true;
+        case CONSOLE_IO_RAW_READ:
+            coreio::prepare_completion(message);
+            return true;
         case CONSOLE_IO_USER_DEFINED:
             session_.handle(message);
             return true;

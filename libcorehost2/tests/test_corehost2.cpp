@@ -113,6 +113,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    const char raw_text[]{"Hi"};
+    server.write_raw(std::span<const char>{raw_text, 2});
+    if (server_buffer.at(0, 0).primary() != u'H' ||
+        server_buffer.at(1, 0).primary() != u'i')
+    {
+        std::fprintf(stderr, "raw write failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
 }

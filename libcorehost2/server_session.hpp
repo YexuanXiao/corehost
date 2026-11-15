@@ -1,6 +1,10 @@
 #pragma once
 
 #include "console_api.hpp"
+#include "apply.hpp"
+#include "utf8.hpp"
+#include "vt_parser.hpp"
+#include "vtstate.hpp"
 
 #include "screen_buffer.hpp"
 #include "console_state.hpp"
@@ -19,8 +23,30 @@ class server_session final
     server_session(screen::screen_buffer &buffer, screen::console_state &state,
                    consoleinput::input_queue &input,
                    std::uintptr_t input_object = 0) noexcept
-        : input_{input}, api_{buffer, state, &input, input_object, &processes_}
+        : screen_{buffer}, state_{state}, input_{input}, parser_{raw_}, applier_{},
+          api_{buffer, state, &input, input_object, &processes_}
     {
+    }
+
+    void write_raw(std::span<const char> bytes)
+    {
+        text_.clear();
+        error_.clear();
+        vtparser::decode_utf8(std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()),
+                                                         bytes.size()},
+                             text_, error_);
+        auto input = std::span<const char32_t>{text_};
+        while (!input.empty())
+        {
+            const auto result = parser_.parse(std::u32string_view{input.data(), input.size()});
+            input = input.subspan(result.consumed);
+            if (result.id == vtparser::vt_message_id::continue_)
+            {
+                continue;
+            }
+            (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
+            parser_.reset();
+        }
     }
 
     [[nodiscard]] coreio::process_registry &processes() noexcept
@@ -49,7 +75,14 @@ class server_session final
     }
 
   private:
+    screen::screen_buffer &screen_;
+    screen::console_state &state_;
     consoleinput::input_queue &input_;
+    vtparser::raw_u32_buffer raw_;
+    vtparser::vt_parser parser_;
+    vtstate::state_applier applier_;
+    std::u32string text_;
+    std::string error_;
     coreio::process_registry processes_;
     consoleapi::console_api api_;
 };
