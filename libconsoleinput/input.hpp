@@ -137,6 +137,12 @@ class input_queue final
     {
         const auto count = std::min(destination.size(), events_.size());
         std::copy_n(events_.begin(), count, destination.begin());
+        if (count == events_.size())
+        {
+            events_.clear();
+            key_count_ = 0;
+            return count;
+        }
         for (std::size_t i = 0; i < count; ++i)
         {
             if (events_.front().type == input_event_type::key && events_.front().key.key_down)
