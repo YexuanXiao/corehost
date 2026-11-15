@@ -18,7 +18,7 @@ namespace corehost::corehost2
 
 // Assembly object for the ConDrv server side. It owns only the console-facing
 // handler; reading/completion batching stays in libcoreio.
-class server_session final
+class server_session final : public consoleapi::console_text_writer
 {
   public:
     server_session(screen::screen_buffer &buffer, screen::console_state &state,
@@ -26,7 +26,7 @@ class server_session final
                    std::uintptr_t input_object = 0,
                    win32::handle_view server = {}) noexcept
         : server_{server}, screen_{buffer}, state_{state}, input_{input}, parser_{raw_}, applier_{},
-          payload_{server}, api_{buffer, state, &input, input_object, &processes_, &payload_}
+          payload_{server}, api_{buffer, state, &input, input_object, &processes_, &payload_, this}
     {
     }
 
@@ -60,6 +60,31 @@ class server_session final
             }
         }
     }
+    std::size_t write(std::u16string_view input) override
+    {
+        std::size_t consumed = 0;
+        while (!input.empty())
+        {
+            const auto result = parser_.parse(input);
+            consumed += result.consumed;
+            input.remove_prefix(result.consumed);
+            if (result.id == vtparser::vt_message_id::continue_)
+            {
+                break;
+            }
+            if ((result.id == vtparser::vt_message_id::apc_sequence ||
+                 result.id == vtparser::vt_message_id::dcs_sequence) &&
+                applier_.apply_image(result.raw_sequence, screen_, state_))
+            {
+                parser_.reset();
+                continue;
+            }
+            (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
+            parser_.reset();
+        }
+        return consumed;
+    }
+
     void push_raw(std::span<const char> bytes)
     {
         raw_in_.append(bytes.data(), bytes.size());

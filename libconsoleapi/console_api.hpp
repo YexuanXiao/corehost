@@ -25,6 +25,13 @@
 namespace corehost::consoleapi
 {
 
+class console_text_writer
+{
+  public:
+    virtual ~console_text_writer() = default;
+    virtual std::size_t write(std::u16string_view text) = 0;
+};
+
 // Native console-facing operations. This layer owns cursor advancement and
 // ABI projection, while libscreen owns cell storage.
 class console_api final
@@ -40,9 +47,10 @@ class console_api final
                 consoleinput::input_queue *input = nullptr,
                 std::uintptr_t input_object = 0,
                 coreio::process_registry *processes = nullptr,
-                coreio::input_payload_reader *payload = nullptr) noexcept
+                coreio::input_payload_reader *payload = nullptr,
+                console_text_writer *writer = nullptr) noexcept
         : buffer_{buffer}, state_{state}, input_{input}, input_object_{input_object}, processes_{processes},
-          payload_{payload}
+          payload_{payload}, writer_{writer}
     {
     }
 
@@ -2486,6 +2494,10 @@ class console_api final
 
     std::size_t write_console_text(std::u16string_view text) noexcept
     {
+        if (writer_ != nullptr)
+        {
+            return writer_->write(text);
+        }
         screen::coord cursor{static_cast<std::int32_t>(state_.cursor().x),
                              static_cast<std::int32_t>(state_.cursor().y)};
         std::size_t written = 0;
@@ -2722,6 +2734,7 @@ class console_api final
     std::uintptr_t window_handle_{};
     coreio::process_registry *processes_{};
     coreio::input_payload_reader *payload_{};
+    console_text_writer *writer_{};
     std::u16string cooked_line_;
     std::size_t cooked_cursor_{};
     screen::coord cooked_origin_{};
