@@ -106,6 +106,10 @@ class console_api final
         {
             return set_screen_buffer_info(message);
         }
+        if (header->ApiNumber == ConsolepGetMouseInfo)
+        {
+            return get_mouse_info(message);
+        }
         if (header->ApiNumber == ConsolepGetNumberOfFonts)
         {
             return get_number_of_fonts(message);
@@ -537,6 +541,21 @@ class console_api final
                                           request->ScrollPosition.X + window_width - 1,
                                           request->ScrollPosition.Y + window_height - 1});
         coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool get_mouse_info(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETMOUSEINFO_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETMOUSEINFO_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->NumButtons = 5;
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETMOUSEINFO_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETMOUSEINFO_MSG));
         return true;
     }
 

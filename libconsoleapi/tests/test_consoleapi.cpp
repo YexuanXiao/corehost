@@ -615,6 +615,24 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg mouse_message{};
+    mouse_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETMOUSEINFO_MSG);
+    mouse_message.descriptor.OutputSize = sizeof(mouse_message.body);
+    auto *mouse_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(mouse_message.body);
+    mouse_header->ApiNumber = ConsolepGetMouseInfo;
+    if (!api.handle(mouse_message))
+    {
+        std::fprintf(stderr, "get mouse info failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *mouse_info = reinterpret_cast<const CONSOLE_GETMOUSEINFO_MSG *>(
+        mouse_message.body + sizeof(CONSOLE_MSG_HEADER));
+    if (mouse_info->NumButtons != 5)
+    {
+        std::fprintf(stderr, "get mouse info data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
