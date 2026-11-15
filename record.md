@@ -416,3 +416,37 @@ Code page: 65001
 与原始 OpenConsole 一致。
 
 该修复不影响 edit 的重复状态栏问题；重复状态栏仍然存在。
+
+## 2026-11-16 SGR mouse tracking
+
+WT 对 edit 发送的是 X10 鼠标序列：
+
+```text
+ESC [ M 20 40 2E
+```
+
+corehost2 的 parser 只识别 SGR 1006（`ESC[<b;x;yM`），X10 序列被当成普通字符，点击编辑区会插入 `@.#` 之类的文本，并触发错误重绘。
+
+修复：
+
+- conpty 启动时主动发送：
+
+  ```text
+  ESC[?1002;1006;2004h
+  ```
+
+- 同步设置 `private_modes` 1002/1006/2004；
+- WT 改为发送 SGR 鼠标序列，parser 生成 `mouse_sgr`；
+- 回归测试检查 SGR `0;2;2M` 对应 0-based `(1,1)`。
+
+提交：
+
+```text
+87bbf61 fix(corehost2): enable SGR mouse tracking for conpty sessions
+```
+
+效果：
+
+- 点击编辑区不再插入 `@.#`；
+- 点击菜单栏不再出现重复状态栏；
+- File 菜单仍然没有通过鼠标打开，需继续定位。
