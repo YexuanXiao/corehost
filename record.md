@@ -989,6 +989,12 @@ mixed  old=26.4318 ns/unit new=26.0547 ns/unit ratio≈1.01x
 b33bbde perf(libscreen): skip grapheme segmentation for printable ascii
 ```
 
+ASCII fast path 进入时只做一次 cursor 合法性检查，循环内只保留宽度检查，删除每 cell 的重复 bounds 检查：
+
+```text
+fb4d3ef perf(libscreen): remove per-cell bounds checks in ascii run
+```
+
 ### 单码点 scratch 去零初始化
 
 `append_utf16` 单码点路径的 4 字节栈缓冲不再零初始化；encoder 会写入实际使用的字节：
