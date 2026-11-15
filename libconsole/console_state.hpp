@@ -141,6 +141,8 @@ class console_state final
     bool scrollback_cleared{};
     bool cursor_changed{};
     bool viewport_changed{};
+    bool win32_input_mode{true};
+    bool win32_input_changed{};
     std::bitset<2048> private_modes;
     std::vector<std::pair<std::uint16_t, bool>> private_mode_changes;
     std::uint32_t output_code_page{};
@@ -247,6 +249,17 @@ class console_state final
         const auto changed = cursor_changed;
         cursor_changed = false;
         return changed;
+    }
+
+    [[nodiscard]] bool take_win32_input_change(bool &enabled) noexcept
+    {
+        if (!win32_input_changed)
+        {
+            return false;
+        }
+        win32_input_changed = false;
+        enabled = win32_input_mode;
+        return true;
     }
 
     [[nodiscard]] bool take_viewport_changed() noexcept

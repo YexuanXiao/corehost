@@ -60,6 +60,11 @@ class session final
         return state_.take_title_changed();
     }
 
+    [[nodiscard]] bool take_win32_input_change(bool &enabled) noexcept
+    {
+        return state_.take_win32_input_change(enabled);
+    }
+
     void queue_window_size(std::int16_t width, std::int16_t height)
     {
         if ((state_.input_mode & 0x0008) == 0 || (width == window_width_ && height == window_height_))

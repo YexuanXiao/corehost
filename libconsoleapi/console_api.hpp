@@ -1149,6 +1149,8 @@ class console_api final
                 coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
                 return true;
             }
+            state_.win32_input_mode = (state_.input_mode & 0x0200) == 0;
+            state_.win32_input_changed = true;
         }
         else
         {
