@@ -187,6 +187,21 @@ int main()
         return EXIT_FAILURE;
     }
 
+    buffer.clear();
+    append_erase_line(buffer, 2);
+    if (buffer.bytes().size() != 4 || buffer.bytes()[2] != u'2' || buffer.bytes()[3] != u'K')
+    {
+        std::fprintf(stderr, "erase line failed\n");
+        return EXIT_FAILURE;
+    }
+    buffer.clear();
+    append_erase_display(buffer, 1);
+    if (buffer.bytes().size() != 4 || buffer.bytes()[3] != u'J')
+    {
+        std::fprintf(stderr, "erase display failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtserializer tests passed\n");
     return EXIT_SUCCESS;
 }
