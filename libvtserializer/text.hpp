@@ -17,15 +17,17 @@ inline void append_utf16(byte_buffer &output, std::u16string_view text)
 
     auto *first = reinterpret_cast<char *>(output.mutable_data() + offset);
     auto *last = first;
+    unicode::decoder<char16_t> decoder;
+    unicode::encoder<char> encoder;
     auto iterator = text.begin();
     while (iterator != text.end())
     {
-        auto codepoint = unicode::decoder<char16_t>{}(iterator);
+        auto codepoint = decoder(iterator);
         if (!codepoint.has_value())
         {
             codepoint = 0xFFFD;
         }
-        last = unicode::encoder<char>{}(*codepoint, last);
+        last = encoder(*codepoint, last);
     }
 
     output.resize(offset + static_cast<std::size_t>(last - first));
