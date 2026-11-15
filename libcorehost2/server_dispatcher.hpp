@@ -83,14 +83,16 @@ class server_dispatcher final
             LOG("raw write prepared status=0x%08lX info=%llu",
                 static_cast<unsigned long>(message.complete.IoStatus.Status),
                 static_cast<unsigned long long>(message.complete.IoStatus.Information));
-            if (server_.valid())
+#ifdef COREHOST2_TESTING
+            if (!server_.valid())
             {
-                coreio::complete_io(server_, message.complete);
-                LOG("raw write completed inline");
-                return false;
+                LOG("raw write deferred (no server)");
+                return true;
             }
-            LOG("raw write deferred (no server)");
-            return true;
+#endif
+            coreio::complete_io(server_, message.complete);
+            LOG("raw write completed inline");
+            return false;
         }
         case CONSOLE_IO_RAW_READ:
         {

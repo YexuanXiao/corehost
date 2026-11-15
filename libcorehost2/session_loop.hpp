@@ -55,6 +55,11 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
     {
         server_worker_context &context;
 
+        [[nodiscard]] bool should_flush() const noexcept
+        {
+            return !context.writer->empty();
+        }
+
         void flush() const
         {
             LOG("handler flush begin");
@@ -62,9 +67,9 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
             LOG("handler flush end");
         }
 
-        bool handle(coreio::io_msg &message) const
+        bool handle(coreio::io_msg &message)
         {
-            std::vector<std::pair<DWORD, DWORD>> ctrl_events;
+            ctrl_events.clear();
             {
                 std::unique_lock guard{*context.mutex};
                 const bool alternate_before = context.state->screen().alternate_active();
@@ -98,13 +103,11 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
                     static_cast<std::int32_t>(context.state->state().cursor().x),
                     static_cast<std::int32_t>(context.state->state().cursor().y),
                 };
-                bool rendered = false;
                 if (context.state->take_alternate_changed() || context.state->take_viewport_changed())
                 {
                     vtserializer::render_viewport(context.writer->buffer(), context.state->screen(),
                                                   cursor, &context.state->state());
                     context.state->screen().clear_damage();
-                    rendered = true;
                 }
                 else if (context.state->screen().has_damage() ||
                          context.state->state().take_cursor_changed())
@@ -112,42 +115,36 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
                     vtserializer::render_damage(context.writer->buffer(), context.state->screen(),
                                                 cursor, &context.state->state());
                     context.state->screen().clear_damage();
-                    rendered = true;
                 }
                 if (context.state->take_echo_line_feed())
                 {
                     context.writer->buffer().append_text(u8"\r\n");
-                    rendered = true;
                 }
                 if (context.state->take_title_changed())
                 {
                     vtserializer::append_window_title(context.writer->buffer(),
                                                       context.state->state().title);
-                    rendered = true;
                 }
                 if (context.state->take_scrollback_cleared())
                 {
                     vtserializer::append_erase_display(context.writer->buffer(), 2);
                     vtserializer::append_erase_display(context.writer->buffer(), 3);
-                    rendered = true;
                 }
                 bool win32_input = true;
                 if (context.state->take_win32_input_change(win32_input))
                 {
                     vtserializer::append_private_mode(context.writer->buffer(), 9001, win32_input);
-                    rendered = true;
-                }
-                if (rendered)
-                {
-                    context.writer->flush();
                 }
             }
             for (const auto [event, pid] : ctrl_events)
             {
                 context.delivery->deliver(pid, event);
             }
+            ctrl_events.clear();
             return true;
         }
+
+        std::vector<std::pair<DWORD, DWORD>> ctrl_events;
     };
     message_handler handler{context};
     coreio::run_server(transport, handler, *context.stop);
@@ -166,20 +163,21 @@ class session_input_sink final
     void on_input_bytes(std::span<const std::byte> bytes)
     {
         std::unique_lock guard{mutex_};
+        const bool raw_pending = console_.raw_pending();
         LOG("input bytes=%zu alt=%d raw_pending=%d console_read=%d", bytes.size(),
-            state_.screen().alternate_active() ? 1 : 0, console_.raw_pending() ? 1 : 0,
+            state_.screen().alternate_active() ? 1 : 0, raw_pending ? 1 : 0,
             console_.console_read_pending() ? 1 : 0);
         LOG_HEX("input", bytes.data(), bytes.size() < 256 ? bytes.size() : 256);
         decoder_.decode(
             std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()},
             text_);
-        if (console_.raw_pending())
+        if (raw_pending)
         {
             console_.push_raw(std::span<const char>{reinterpret_cast<const char *>(bytes.data()),
                                                    bytes.size()});
         }
         state_.feed_input(text_, (state_.state().input_mode & 0x0200) != 0 &&
-                                  !console_.raw_pending() && !console_.console_read_pending());
+                                  !raw_pending && !console_.console_read_pending());
         console_.signal_input_event();
         const bool completed = console_.complete_pending();
         LOG("input parsed text=%zu queue=%zu read_pending=%d completed=%d", text_.size(),

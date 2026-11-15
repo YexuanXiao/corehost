@@ -328,7 +328,7 @@ class console_api final
 
     void queue_window_buffer_size_event()
     {
-        if (input_ == nullptr || (state_.input_mode & 0x0008) == 0)
+        if (!has_input() || (state_.input_mode & 0x0008) == 0)
         {
             return;
         }
@@ -408,7 +408,7 @@ class console_api final
             message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
 
         std::size_t count = 0;
-        if (input_ != nullptr)
+        if (has_input())
         {
             std::array<consoleinput::input_event, 64> events{};
             const auto requested = std::min<std::size_t>(max_records, events.size());
@@ -506,7 +506,7 @@ class console_api final
         }
         auto *request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto local = sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLE_MSG);
-        if (message.descriptor.OutputSize <= sizeof(CONSOLE_READCONSOLE_MSG) || input_ == nullptr)
+        if (message.descriptor.OutputSize <= sizeof(CONSOLE_READCONSOLE_MSG) || !has_input())
         {
             request->NumBytes = 0;
             coreio::prepare_completion(message, 0, sizeof(CONSOLE_READCONSOLE_MSG),
@@ -527,21 +527,9 @@ class console_api final
         }
         else if (request->Unicode && request->InitialNumBytes != 0)
         {
-            std::span<const std::byte> payload;
-            if (payload_ != nullptr)
-            {
-                payload = payload_->read(message, sizeof(CONSOLE_MSG_HEADER) +
-                                                     sizeof(CONSOLE_READCONSOLE_MSG));
-            }
-            else
-            {
-                const auto local_bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
-                                         sizeof(CONSOLE_READCONSOLE_MSG);
-                payload = std::span<const std::byte>{
-                    reinterpret_cast<const std::byte *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                          sizeof(CONSOLE_READCONSOLE_MSG)),
-                    local_bytes};
-            }
+            const auto payload = read_input_payload(
+                message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG),
+                message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLE_MSG));
             const auto exe_bytes = static_cast<std::size_t>(request->ExeNameLength) * sizeof(char16_t);
             if (exe_bytes <= payload.size())
             {
@@ -772,17 +760,17 @@ class console_api final
         {
             const auto code_page = state_.input_code_page;
             const auto capacity = max_units * sizeof(char16_t);
-            std::vector<char> ansi(capacity);
+            ansi_buffer_.resize(capacity);
             const auto converted = ::WideCharToMultiByte(
                 code_page, 0, reinterpret_cast<const wchar_t *>(output), static_cast<int>(units),
-                ansi.data(), static_cast<int>(ansi.size()), nullptr, nullptr);
+                ansi_buffer_.data(), static_cast<int>(ansi_buffer_.size()), nullptr, nullptr);
             if (converted == 0 && units != 0)
             {
                 coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
                 return true;
             }
             bytes = static_cast<std::size_t>(converted);
-            std::memcpy(output, ansi.data(), bytes);
+            std::memcpy(output, ansi_buffer_.data(), bytes);
             request->NumBytes = static_cast<ULONG>(bytes);
         }
         coreio::prepare_completion(message, 0, bytes,
@@ -953,23 +941,11 @@ class console_api final
             return true;
         }
         auto *request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
-        std::span<const std::byte> payload;
-        if (payload_ != nullptr)
-        {
-            payload = payload_->read(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG));
-        }
-        else
-        {
-            const auto bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
-                               sizeof(CONSOLE_WRITECONSOLE_MSG);
-            payload = std::span<const std::byte>{
-                reinterpret_cast<const std::byte *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                    sizeof(CONSOLE_WRITECONSOLE_MSG)),
-                bytes};
-        }
+        const auto payload = read_input_payload(
+            message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG),
+            message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLE_MSG));
 
         std::size_t written = 0;
-        std::u16string text;
         if (request->Unicode)
         {
             const auto *data = reinterpret_cast<const char16_t *>(payload.data());
@@ -983,16 +959,16 @@ class console_api final
             const auto *bytes_data = reinterpret_cast<const char *>(payload.data());
             const auto units = ::MultiByteToWideChar(code_page, 0, bytes_data,
                                                      static_cast<int>(payload.size()), nullptr, 0);
-            text.resize(static_cast<std::size_t>(std::max(units, 0)), u'\0');
+            text_buffer_.resize(static_cast<std::size_t>(std::max(units, 0)));
             if (units > 0)
             {
                 (void)::MultiByteToWideChar(code_page, 0, bytes_data, static_cast<int>(payload.size()),
-                                            reinterpret_cast<LPWSTR>(text.data()), units);
+                                            reinterpret_cast<LPWSTR>(text_buffer_.data()), units);
             }
-            written = write_console_text(text);
+            written = write_console_text(text_buffer_);
             const auto encoded = ::WideCharToMultiByte(
-                code_page, 0, reinterpret_cast<const wchar_t *>(text.data()), static_cast<int>(written),
-                nullptr, 0, nullptr, nullptr);
+                code_page, 0, reinterpret_cast<const wchar_t *>(text_buffer_.data()),
+                static_cast<int>(written), nullptr, 0, nullptr, nullptr);
             request->NumBytes = static_cast<ULONG>(std::max(encoded, 0));
         }
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLE_MSG),
@@ -1009,25 +985,15 @@ class console_api final
         }
         auto *request = reinterpret_cast<CONSOLE_WRITECONSOLEINPUT_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
-        std::span<const std::byte> payload;
-        if (payload_ != nullptr)
-        {
-            payload = payload_->read(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
-        }
-        else
-        {
-            const auto bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
-                               sizeof(CONSOLE_WRITECONSOLEINPUT_MSG);
-            payload = std::span<const std::byte>{
-                reinterpret_cast<const std::byte *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                        sizeof(CONSOLE_WRITECONSOLEINPUT_MSG)),
-                bytes};
-        }
+        const auto payload = read_input_payload(
+            message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG),
+            message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
         const auto records = std::min<std::size_t>(request->NumRecords, payload.size() / sizeof(INPUT_RECORD));
         const auto *input = reinterpret_cast<const INPUT_RECORD *>(payload.data());
         std::size_t written = 0;
-        std::vector<consoleinput::input_event> prepend;
-        if (input_ != nullptr)
+        prepend_buffer_.clear();
+        auto &prepend = prepend_buffer_;
+        if (has_input())
         {
             for (std::size_t i = 0; i < records; ++i)
             {
@@ -1217,7 +1183,7 @@ class console_api final
 
     [[nodiscard]] bool flush_input_buffer(coreio::io_msg &message) noexcept
     {
-        if (input_ != nullptr)
+        if (has_input())
         {
             input_->clear();
         }
@@ -1228,7 +1194,8 @@ class console_api final
 
     void take_ctrl_events(std::vector<std::pair<DWORD, DWORD>> &output)
     {
-        output.swap(ctrl_events_);
+        output.append_range(ctrl_events_);
+        ctrl_events_.clear();
     }
 
     [[nodiscard]] bool take_cancel_pending() noexcept
@@ -1248,7 +1215,7 @@ class console_api final
         const auto capacity = message.descriptor.OutputSize <= sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG)
                                   ? 0
                                   : std::min<std::size_t>(message.descriptor.OutputSize - sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG), local) / sizeof(std::uint32_t);
-        const auto count = processes_ != nullptr
+        const auto count = has_processes()
                                ? std::min<std::size_t>(processes_->size(), capacity)
                                : 0;
         info->dwProcessCount = static_cast<ULONG>(count);
@@ -1963,20 +1930,9 @@ class console_api final
         }
         const auto *request = reinterpret_cast<const CONSOLE_SETTITLE_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
-        std::span<const std::byte> payload;
-        if (payload_ != nullptr)
-        {
-            payload = payload_->read(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG));
-        }
-        else
-        {
-            const auto bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
-                               sizeof(CONSOLE_SETTITLE_MSG);
-            payload = std::span<const std::byte>{
-                reinterpret_cast<const std::byte *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                    sizeof(CONSOLE_SETTITLE_MSG)),
-                bytes};
-        }
+        const auto payload = read_input_payload(
+            message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG),
+            message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_SETTITLE_MSG));
 
         std::u16string title;
         if (request->Unicode)
@@ -2068,12 +2024,12 @@ class console_api final
             return true;
         }
         if (request->ProcessGroupId != 0 &&
-            (processes_ == nullptr || !processes_->contains_group(request->ProcessGroupId)))
+            (!has_processes() || !processes_->contains_group(request->ProcessGroupId)))
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        if (processes_ != nullptr)
+        if (has_processes())
         {
             std::vector<std::uintptr_t> targets(processes_->size());
             const auto count = processes_->copy_for_group(request->ProcessGroupId, targets);
@@ -2140,7 +2096,7 @@ class console_api final
         }
         auto *info = reinterpret_cast<CONSOLE_GETNUMBEROFINPUTEVENTS_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
-        info->ReadyEvents = input_ != nullptr ? static_cast<ULONG>(input_->size()) : 0;
+        info->ReadyEvents = has_input() ? static_cast<ULONG>(input_->size()) : 0;
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG));
@@ -2220,11 +2176,11 @@ class console_api final
         else if (request->StringType == CONSOLE_ASCII)
         {
             const auto count = std::min<std::size_t>(requested, capacity);
-            std::vector<char16_t> chars(count);
-            const auto read = buffer_.read_chars(coordinate, std::span<char16_t>{chars});
+            char_buffer_.resize(count);
+            const auto read = buffer_.read_chars(coordinate, std::span<char16_t>{char_buffer_});
             const auto code_page = state_.output_code_page;
             const auto converted = ::WideCharToMultiByte(
-                code_page, 0, reinterpret_cast<const wchar_t *>(chars.data()),
+                code_page, 0, reinterpret_cast<const wchar_t *>(char_buffer_.data()),
                 static_cast<int>(read), reinterpret_cast<char *>(data),
                 static_cast<int>(capacity), nullptr, nullptr);
             written = static_cast<std::size_t>(std::max(converted, 0));
@@ -2484,18 +2440,9 @@ class console_api final
             return true;
         }
 
-        std::span<const std::byte> cell_bytes;
-        if (payload_ != nullptr)
-        {
-            cell_bytes = payload_->read(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG));
-        }
-        else
-        {
-            cell_bytes = std::span<const std::byte>{
-                reinterpret_cast<const std::byte *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                    sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG)),
-                count * sizeof(interop::win32::char_info)};
-        }
+        const auto cell_bytes = read_input_payload(
+            message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG),
+            count * sizeof(interop::win32::char_info));
         if (cell_bytes.size() < count * sizeof(interop::win32::char_info))
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
@@ -2663,6 +2610,39 @@ class console_api final
         return written;
     }
   private:
+    [[nodiscard]] bool has_input() const noexcept
+    {
+#ifdef COREHOST2_TESTING
+        return input_ != nullptr;
+#else
+        return true;
+#endif
+    }
+
+    [[nodiscard]] bool has_processes() const noexcept
+    {
+#ifdef COREHOST2_TESTING
+        return processes_ != nullptr;
+#else
+        return true;
+#endif
+    }
+
+    [[nodiscard]] std::span<const std::byte> read_input_payload(
+        coreio::io_msg &message, std::size_t header_size, std::size_t fallback_size) const noexcept
+    {
+#ifdef COREHOST2_TESTING
+        if (payload_ == nullptr)
+        {
+            return std::span<const std::byte>{
+                reinterpret_cast<const std::byte *>(message.body + header_size), fallback_size};
+        }
+#else
+        (void)fallback_size;
+#endif
+        return payload_->read(message, header_size);
+    }
+
     void expand_console_alias(std::u16string &line) const
     {
         if (line.empty())
@@ -2853,6 +2833,9 @@ class console_api final
     coreio::process_registry *processes_{};
     coreio::input_payload_reader *payload_{};
     std::u16string text_buffer_;
+    std::vector<char> ansi_buffer_;
+    std::vector<char16_t> char_buffer_;
+    std::vector<consoleinput::input_event> prepend_buffer_;
     std::u16string cooked_line_;
     std::size_t cooked_cursor_{};
     screen::coord cooked_origin_{};

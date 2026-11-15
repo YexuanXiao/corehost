@@ -29,6 +29,7 @@ int main()
     {
         int handled{};
         bool handle(corehost::coreio::io_msg &) noexcept { ++handled; return true; }
+        bool should_flush() const noexcept { return false; }
         void flush() noexcept {}
     };
 
@@ -38,6 +39,54 @@ int main()
     if (handler.handled != 2)
     {
         std::fprintf(stderr, "server loop failed\n");
+        return EXIT_FAILURE;
+    }
+
+    struct batching_transport
+    {
+        int reads{};
+        corehost::coreio::read_io_result read(CD_IO_COMPLETE *, corehost::coreio::io_msg &) noexcept
+        {
+            ++reads;
+            if (reads <= 5)
+            {
+                return corehost::coreio::read_io_result::got_message;
+            }
+            if (reads == 6)
+            {
+                return corehost::coreio::read_io_result::no_message;
+            }
+            return corehost::coreio::read_io_result::disconnected;
+        }
+        void wait() noexcept {}
+    };
+    struct batching_handler
+    {
+        int handled{};
+        int flushes{};
+        bool ready{};
+        bool handle(corehost::coreio::io_msg &) noexcept
+        {
+            ++handled;
+            if (handled == 3)
+            {
+                ready = true;
+            }
+            return true;
+        }
+        bool should_flush() const noexcept { return ready; }
+        void flush() noexcept
+        {
+            ++flushes;
+            ready = false;
+        }
+    };
+    batching_transport batching_source;
+    batching_handler batching_sink;
+    corehost::coreio::run_server(batching_source, batching_sink);
+    if (batching_sink.handled != 5 || batching_sink.flushes != 3)
+    {
+        std::fprintf(stderr, "server flush batching failed\n");
         return EXIT_FAILURE;
     }
 

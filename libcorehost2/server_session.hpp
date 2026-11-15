@@ -77,7 +77,12 @@ class server_session final
                     continue;
                 }
                 (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
-                if (writer_ != nullptr && should_forward_to_terminal(result.id))
+#ifdef COREHOST2_TESTING
+                const bool forward = writer_ != nullptr && should_forward_to_terminal(result.id);
+#else
+                const bool forward = should_forward_to_terminal(result.id);
+#endif
+                if (forward)
                 {
                     LOG("forward id=%d chars=%zu", static_cast<int>(result.id), result.raw_sequence.size());
                     for (const auto ch : result.raw_sequence)
@@ -155,7 +160,11 @@ class server_session final
     void on_input_eof()
     {
         raw_eof_ = true;
+#ifdef COREHOST2_TESTING
         if (!pending_active_ || !server_.valid())
+#else
+        if (!pending_active_)
+#endif
         {
             return;
         }
@@ -362,6 +371,13 @@ class server_session final
     }
     [[nodiscard]] screen::screen_buffer &screen() noexcept { return screen_; }
 
+#ifdef COREHOST2_TESTING
+    [[nodiscard]] bool should_flush() const noexcept
+    {
+        return writer_ != nullptr && !writer_->empty();
+    }
+#endif
+
     void flush() noexcept {}
 
     conptyio::terminal_writer *writer_{};
@@ -403,7 +419,10 @@ class server_session final
                 ? pending_kind::console_input
                 : pending_kind::console_read;
         if (pending_kind_ == pending_kind::console_input && !initial_repaint_sent_ &&
-            writer_ != nullptr && screen_.alternate_active())
+#ifdef COREHOST2_TESTING
+            writer_ != nullptr &&
+#endif
+            screen_.alternate_active())
         {
             LOG("render initial alternate viewport");
             initial_repaint_sent_ = true;
@@ -423,7 +442,11 @@ class server_session final
 
     bool cancel_pending()
     {
+#ifdef COREHOST2_TESTING
         if (!pending_active_ || !server_.valid())
+#else
+        if (!pending_active_)
+#endif
         {
             return false;
         }
@@ -465,7 +488,11 @@ class server_session final
 
     bool complete_pending()
     {
+#ifdef COREHOST2_TESTING
         if (!pending_active_ || !server_.valid())
+#else
+        if (!pending_active_)
+#endif
         {
             return false;
         }

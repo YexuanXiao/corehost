@@ -5,9 +5,9 @@
 
 #include "utf8.hpp"
 
+#include <array>
 #include <span>
 #include <string>
-#include <vector>
 
 namespace corehost::conptyio
 {
@@ -24,7 +24,6 @@ class terminal_reader final
         const auto result = win32::read_some(input_, std::span<char8_t>{bytes_});
         if (result.closed())
         {
-            closed_ = true;
             return false;
         }
         if (result.failed())
@@ -33,7 +32,6 @@ class terminal_reader final
         }
         if (result.bytes == 0)
         {
-            closed_ = true;
             return false;
         }
 
@@ -47,17 +45,11 @@ class terminal_reader final
         return codepoints_;
     }
 
-    [[nodiscard]] bool closed() const noexcept
-    {
-        return closed_;
-    }
-
   private:
     win32::handle_view input_;
-    std::vector<char8_t> bytes_ = std::vector<char8_t>(4096);
+    std::array<char8_t, 4096> bytes_{};
     vtparser::utf8_decoder decoder_;
     std::u16string codepoints_;
-    bool closed_{};
 };
 
 } // namespace corehost::conptyio

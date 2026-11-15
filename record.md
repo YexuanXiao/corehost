@@ -893,3 +893,54 @@ CoreIO.Reference     Passed
 LibScreen.Reference  Passed
 ConsoleState         Passed
 ```
+
+## 2026-11-16 高频 I/O 与缓冲优化
+
+### server / vt_in / vt_out
+
+- `vt_in` 保持 `vt_input_thread` 的固定 64 KiB 批量读取。
+- `server` 的 `READ_IO` 一次只返回一条消息；保留当前把上一条 completion 作为下一次 READ_IO 输入的 piggyback 机制。
+- `vt_out` 删除 `message_handler` 内部 flush 和 `run_server` 无条件 flush 的重复：只有 writer 有数据时才 flush；进入 wait、disconnect、stop 前保证 flush。
+- 真实 WT 验证发现：服务端 READ_IO 是同步阻塞的，不能在“下一条消息未到达”时延迟 flush，否则 edit 初始帧会一直留在缓冲里。因此当前按“有输出就 flush”执行，批处理边界受同步 READ_IO 限制；没有引入额外线程或异步队列。
+
+### 固定缓冲/复用
+
+- `terminal_reader` 的 4096 字节缓冲从 `std::vector<char8_t>` 改为 `std::array<char8_t, 4096>`。
+- 删除 `terminal_reader::closed_` 和未调用的 `closed()`。
+- `message_handler` 复用 ctrl 事件 vector。
+- `console_api` 复用：
+  - `text_buffer_`
+  - `ansi_buffer_`
+  - `char_buffer_`
+  - `prepend_buffer_`
+- `take_ctrl_events` 使用 `append_range` 并保留容量。
+- 新增/更新 `CoreIO.Reference` 的 flush 测试。
+
+### 测试宏隔离
+
+`COREHOST2_TESTING` 只定义在测试目标：
+
+- `test_corehost2`
+- `test_consoleapi`
+
+生产 corehost2 中以下测试分支被编译掉：
+
+- `server_session` 的 null writer 分支；
+- `console_api` 的 null payload / input / processes fallback；
+- `server_dispatcher` 的无 server 分支；
+- session loop 中未启动 server/signal 的等待分支。
+
+### 验证
+
+```text
+CoreIO.Reference     Passed
+ConptyIO.Reference   Passed
+CoreHost2.Reference  Passed
+ConsoleAPI.Reference Passed
+```
+
+真实 WT：edit 初始 UI、鼠标菜单正常；PowerShell/cmd/pwsh 无回归。
+
+### 测试稳定性
+
+`cancellable_read` 的“in read”事件改为 manual-reset，避免 waiter 先消费 auto-reset 通知、`CancelSynchronousIo` 尚未执行时阻塞读线程造成偶发 join 超时。ConptyIO 连续 20 次运行通过。

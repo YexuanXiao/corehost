@@ -27,6 +27,7 @@ void run_server(Transport &transport, Handler &handler, std::stop_token stop = {
     {
         if (stop.stop_requested())
         {
+            handler.flush();
             return;
         }
         const auto result = transport.read(previous, message);
@@ -40,17 +41,23 @@ void run_server(Transport &transport, Handler &handler, std::stop_token stop = {
             {
                 previous = nullptr;
             }
-            handler.flush();
+            if (handler.should_flush())
+            {
+                handler.flush();
+            }
             continue;
         }
         if (result == read_io_result::disconnected)
         {
+            handler.flush();
             return;
         }
         if (stop.stop_requested())
         {
+            handler.flush();
             return;
         }
+        handler.flush();
         transport.wait();
     }
 }
@@ -65,6 +72,7 @@ void run_server(Transport &transport, Handler &handler, const std::atomic_bool &
     {
         if (stop.load(std::memory_order_relaxed))
         {
+            handler.flush();
             return;
         }
         const auto result = transport.read(previous, message);
@@ -78,18 +86,24 @@ void run_server(Transport &transport, Handler &handler, const std::atomic_bool &
             {
                 previous = nullptr;
             }
-            handler.flush();
+            if (handler.should_flush())
+            {
+                handler.flush();
+            }
             continue;
         }
         if (result == read_io_result::disconnected)
         {
+            handler.flush();
             return;
         }
         if (stop.load(std::memory_order_relaxed))
         {
+            handler.flush();
             return;
         }
         previous = nullptr;
+        handler.flush();
         transport.wait();
     }
 }
