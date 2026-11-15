@@ -1001,6 +1001,18 @@ fb4d3ef perf(libscreen): remove per-cell bounds checks in ascii run
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### 命令历史队列
+
+`console_state::command_history` 从 `std::vector<std::u16string>` 改为 `bizwen::deque<std::u16string>`：
+
+- 达到上限时 `pop_front()`；
+- 设置上限时循环 `pop_front()`；
+- 不再 `erase(begin)`。
+
+```text
+2c17d1b perf(console): use deque for command history
+```
+
 ### 待处理 Console Input 队列
 
 `server_session::queued_console_inputs_` 从 `std::vector<coreio::io_msg>` 改为 `bizwen::deque<coreio::io_msg>`，头部消费不再 `erase(begin)`：
