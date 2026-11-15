@@ -78,6 +78,10 @@ class console_api final
         {
             return get_largest_window_size(message);
         }
+        if (header->ApiNumber == ConsolepWriteConsoleInput)
+        {
+            return write_console_input(message);
+        }
         if (header->ApiNumber == ConsolepGetSelectionInfo)
         {
             return get_selection_info(message);
@@ -208,6 +212,47 @@ class console_api final
         coreio::prepare_completion(message, 0, count * sizeof(INPUT_RECORD),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    count * sizeof(INPUT_RECORD));
+        return true;
+    }
+
+    [[nodiscard]] bool write_console_input(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *request = reinterpret_cast<CONSOLE_WRITECONSOLEINPUT_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
+                           sizeof(CONSOLE_WRITECONSOLEINPUT_MSG);
+        const auto records = std::min<std::size_t>(request->NumRecords, bytes / sizeof(INPUT_RECORD));
+        const auto *input = reinterpret_cast<const INPUT_RECORD *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
+        std::size_t written = 0;
+        if (input_ != nullptr)
+        {
+            for (std::size_t i = 0; i < records; ++i)
+            {
+                if (input[i].EventType != KEY_EVENT)
+                {
+                    continue;
+                }
+                consoleinput::key_event key;
+                key.character = input[i].Event.KeyEvent.uChar.UnicodeChar;
+                key.key = static_cast<consoleinput::virtual_key>(input[i].Event.KeyEvent.wVirtualKeyCode);
+                key.scan_code = input[i].Event.KeyEvent.wVirtualScanCode;
+                key.control_state = input[i].Event.KeyEvent.dwControlKeyState;
+                key.repeat_count = input[i].Event.KeyEvent.wRepeatCount;
+                key.key_down = input[i].Event.KeyEvent.bKeyDown != FALSE;
+                input_->push(consoleinput::input_event{consoleinput::input_event_type::key, key});
+                ++written;
+            }
+        }
+        request->NumRecords = static_cast<ULONG>(written);
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLEINPUT_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
         return true;
     }
 

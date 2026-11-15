@@ -386,6 +386,34 @@ int main()
         return EXIT_FAILURE;
     }
 
+    INPUT_RECORD input_record{};
+    input_record.EventType = KEY_EVENT;
+    input_record.Event.KeyEvent.bKeyDown = TRUE;
+    input_record.Event.KeyEvent.wRepeatCount = 1;
+    input_record.Event.KeyEvent.wVirtualKeyCode = 0x41;
+    input_record.Event.KeyEvent.uChar.UnicodeChar = u'A';
+    corehost::coreio::io_msg write_input_message{};
+    write_input_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                               sizeof(CONSOLE_WRITECONSOLEINPUT_MSG) +
+                                               sizeof(input_record);
+    write_input_message.descriptor.OutputSize = sizeof(write_input_message.body);
+    auto *write_input_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(write_input_message.body);
+    write_input_header->ApiNumber = ConsolepWriteConsoleInput;
+    auto *write_input_request = reinterpret_cast<CONSOLE_WRITECONSOLEINPUT_MSG *>(
+        write_input_message.body + sizeof(CONSOLE_MSG_HEADER));
+    write_input_request->NumRecords = 1;
+    write_input_request->Unicode = TRUE;
+    write_input_request->Append = TRUE;
+    auto *write_input_record = reinterpret_cast<INPUT_RECORD *>(
+        write_input_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
+    *write_input_record = input_record;
+    if (!input_api.handle(write_input_message) || write_input_request->NumRecords != 1 ||
+        input_queue.size() != 1)
+    {
+        std::fprintf(stderr, "write console input failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
