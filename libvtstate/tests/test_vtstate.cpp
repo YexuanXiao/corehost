@@ -327,6 +327,24 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b[3G");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.cursor().x != 2)
+    {
+        std::fprintf(stderr, "cursor horizontal absolute failed\n");
+        return EXIT_FAILURE;
+    }
+
+    parser.reset();
+    result = parser.parse(U"\x1b[4d");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.cursor().y != 3)
+    {
+        std::fprintf(stderr, "cursor vertical absolute failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }

@@ -37,6 +37,12 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::use_main_buffer:
         applier.apply_alternate_buffer(false, buffer, state);
         return true;
+    case vtparser::vt_message_id::cursor_horiz_absolute:
+        applier.apply_cursor_horizontal_absolute(message, state);
+        return true;
+    case vtparser::vt_message_id::cursor_vert_absolute:
+        applier.apply_cursor_vertical_absolute(message, state);
+        return true;
     case vtparser::vt_message_id::cursor_up:
         applier.apply_cursor_relative(message, state, 0, -1);
         return true;

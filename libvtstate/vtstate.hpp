@@ -84,6 +84,20 @@ class state_applier final
         }
     }
 
+    void apply_cursor_horizontal_absolute(const vtparser::vt_message &message,
+                                         screen::console_state &state) noexcept
+    {
+        state.set_cursor(static_cast<std::size_t>(std::max<int>(message.payload.position.col - 1, 0)),
+                         state.cursor().y);
+    }
+
+    void apply_cursor_vertical_absolute(const vtparser::vt_message &message,
+                                       screen::console_state &state) noexcept
+    {
+        state.set_cursor(state.cursor().x,
+                         static_cast<std::size_t>(std::max<int>(message.payload.position.row - 1, 0)));
+    }
+
     void apply_cursor_relative(const vtparser::vt_message &message,
                              screen::console_state &state,
                              std::ptrdiff_t dx, std::ptrdiff_t dy) noexcept
