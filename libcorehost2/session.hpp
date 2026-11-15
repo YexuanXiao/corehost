@@ -197,7 +197,7 @@ class session final
         {
             if (const auto key = consoleinput::key_from_message(result.id, result.message); key.has_value())
             {
-                if (key->character == 0)
+                if (key->character == 0 && (raw_passthrough || screen_.alternate_active()))
                 {
                     if (key->key_down)
                     {

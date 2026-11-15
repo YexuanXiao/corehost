@@ -596,6 +596,7 @@ int main()
     }
 
     corehost::corehost2::session f10_session{8, 2};
+    f10_session.feed_input(std::u16string_view{u"\x1b[?1049h"}, false);
     f10_session.feed_input(std::u16string_view{u"\x1b[121;68;0;1;0;1_"}, false);
     constexpr char16_t f10_sequence[]{u'\x1b', u'[', u'2', u'1', u'~'};
     std::array<corehost::consoleinput::input_event, 8> f10_events{};
@@ -612,6 +613,19 @@ int main()
             std::fprintf(stderr, "F10 VT sequence mismatch at %zu\n", i);
             return EXIT_FAILURE;
         }
+    }
+
+    corehost::corehost2::session page_up_session{8, 2};
+    page_up_session.feed_input(std::u16string_view{u"\x1b[33;73;0;1;0;1_"}, false);
+    corehost::consoleinput::input_event page_up_event{};
+    if (page_up_session.input().peek(
+            std::span<corehost::consoleinput::input_event>{&page_up_event, 1}) == 0 ||
+        page_up_event.type != corehost::consoleinput::input_event_type::key ||
+        page_up_event.key.key != corehost::consoleinput::virtual_key::page_up ||
+        page_up_event.key.character != 0)
+    {
+        std::fprintf(stderr, "PageUp key was not preserved on the normal screen\n");
+        return EXIT_FAILURE;
     }
 
     std::printf("libcorehost2 tests passed\n");
