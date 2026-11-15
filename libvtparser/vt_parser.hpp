@@ -82,6 +82,7 @@ enum class vt_message_id
     carriage_return, // \r
     line_feed,
     next_line, // \n
+    index,
     reverse_index,
 
     // 光标移动和光标状态。相对移动的 count payload 默认 1；绝对定位保持
@@ -1152,7 +1153,7 @@ class vt_parser
         case u'M':
             return vt_message_id::reverse_index;
         case u'D':
-            return vt_message_id::line_feed;
+            return vt_message_id::index;
         case u'E':
             return vt_message_id::next_line;
         case u'7':

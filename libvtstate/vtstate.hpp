@@ -253,6 +253,29 @@ class state_applier final
         }
     }
 
+    void apply_index(screen::screen_buffer &buffer, screen::console_state &state)
+    {
+        const auto x = state.cursor().x;
+        const auto y = state.cursor().y;
+        if (y + 1 < state.height())
+        {
+            state.set_cursor(x, y + 1);
+            return;
+        }
+
+        const auto top = state.scroll_top();
+        const auto bottom = state.scroll_bottom();
+        if (top == 0 && bottom + 1 == state.height())
+        {
+            buffer.scroll_up(1, state.default_style);
+        }
+        else
+        {
+            buffer.scroll_region_up(screen::rectangle{0, top, state.width(), bottom - top + 1}, 1, state.default_style);
+        }
+        state.set_cursor(x, bottom);
+    }
+
     void apply_reverse_index(screen::screen_buffer &buffer, screen::console_state &state)
     {
         const auto top = state.scroll_top();
