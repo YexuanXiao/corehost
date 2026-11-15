@@ -2279,13 +2279,13 @@ class console_api final
             const auto code_page = state_.output_code_page;
             const auto units = ::MultiByteToWideChar(code_page, 0, chars, static_cast<int>(count),
                                                      nullptr, 0);
-            std::u16string text(static_cast<std::size_t>(std::max(units, 0)), u'\0');
+            text_buffer_.resize(static_cast<std::size_t>(std::max(units, 0)));
             if (units > 0)
             {
                 (void)::MultiByteToWideChar(code_page, 0, chars, static_cast<int>(count),
-                                            reinterpret_cast<LPWSTR>(text.data()), units);
+                                            reinterpret_cast<LPWSTR>(text_buffer_.data()), units);
             }
-            written = buffer_.write_chars(coordinate, text);
+            written = buffer_.write_chars(coordinate, text_buffer_);
         }
         request->NumRecords = static_cast<ULONG>(written);
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG),
@@ -2852,6 +2852,7 @@ class console_api final
     std::uintptr_t window_handle_{};
     coreio::process_registry *processes_{};
     coreio::input_payload_reader *payload_{};
+    std::u16string text_buffer_;
     std::u16string cooked_line_;
     std::size_t cooked_cursor_{};
     screen::coord cooked_origin_{};

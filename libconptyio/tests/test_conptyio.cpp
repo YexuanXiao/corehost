@@ -186,6 +186,28 @@ int main()
     signal_stop_thread.stop_and_join();
     ::CloseHandle(signal_stop_write);
     ::CloseHandle(signal_stop_read);
+
+    HANDLE bad_read = nullptr;
+    HANDLE bad_write = nullptr;
+    if (!::CreatePipe(&bad_read, &bad_write, nullptr, 0))
+    {
+        std::fprintf(stderr, "create bad signal pipe failed\n");
+        return EXIT_FAILURE;
+    }
+    recording_signal_sink bad_sink;
+    corehost::conptyio::pty_signal_thread bad_thread{win32::handle_view{bad_read}, bad_sink};
+    bad_thread.start();
+    const std::uint16_t bad_id = 99;
+    ::WriteFile(bad_write, &bad_id, sizeof(bad_id), &signal_written, nullptr);
+    ::CloseHandle(bad_write);
+    bad_thread.join();
+    if (bad_sink.id != 0 || bad_sink.eof)
+    {
+        std::fprintf(stderr, "invalid signal did not stop cleanly\n");
+        return EXIT_FAILURE;
+    }
+    ::CloseHandle(bad_read);
+
     corehost::screen::screen_buffer signal_buffer{8, 2};
     corehost::screen::console_state signal_state{8, 2};
     corehost::conptyio::pseudo_window signal_window;

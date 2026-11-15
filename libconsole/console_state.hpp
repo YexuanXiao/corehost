@@ -48,11 +48,11 @@ namespace corehost::screen
         }
         narrow[index] = static_cast<char>(buffer[index]);
     }
-    UINT code_page = 0;
+    UINT code_page = CP_UTF8;
     const auto parsed = std::from_chars(narrow, narrow + length, code_page);
     if (parsed.ec != std::errc{})
     {
-        throw std::system_error(static_cast<int>(parsed.ec), std::system_category());
+        code_page = CP_UTF8;
     }
 #else
     const auto code_page = ::GetOEMCP();

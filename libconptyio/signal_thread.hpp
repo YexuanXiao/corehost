@@ -10,7 +10,6 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <span>
 #include <type_traits>
 
@@ -64,22 +63,8 @@ class pty_signal_thread final
   private:
     static DWORD WINAPI thread_entry(LPVOID self)
     {
-        try
-        {
-            static_cast<pty_signal_thread *>(self)->run();
-        }
-        catch (...)
-        {
-            LOG("pty_signal_thread: unrecoverable error");
-            std::abort();
-        }
+        static_cast<pty_signal_thread *>(self)->run();
         return 0;
-    }
-
-    static void unrecoverable(const char *reason) noexcept
-    {
-        LOG("pty_signal_thread: %s", reason);
-        std::abort();
     }
 
     void run()
@@ -98,7 +83,8 @@ class pty_signal_thread final
             {
                 if (id_bytes != 0)
                 {
-                    unrecoverable("truncated PtySignal id");
+                    LOG("pty_signal_thread: truncated PtySignal id");
+                    return;
                 }
                 consumer_.on_signal_eof();
                 return;
@@ -140,7 +126,8 @@ class pty_signal_thread final
                 break;
             }
             default:
-                unrecoverable("invalid PtySignal id");
+                LOG("pty_signal_thread: invalid PtySignal id %u", static_cast<unsigned>(id));
+                return;
             }
         }
     }
@@ -158,7 +145,8 @@ class pty_signal_thread final
         }
         if (status != win32::cancellable_read::status::data)
         {
-            unrecoverable("truncated PtySignal payload");
+            LOG("pty_signal_thread: truncated PtySignal payload");
+            return false;
         }
         assert(bytes == sizeof(payload));
         return true;

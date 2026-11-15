@@ -22,11 +22,9 @@
 #include "win32/srwlock.hpp"
 #include "win32/thread.hpp"
 
-#include <cassert>
 #include <cstddef>
 #include <mutex>
 #include <atomic>
-#include <cstdlib>
 #include <string>
 #include <iterator>
 #include <libunicode/convert.h>
@@ -385,7 +383,6 @@ inline void run_conpty_session(win32::handle_view server,
 
     std::array<HANDLE, 4> waits{};
     DWORD wait_count = 0;
-    assert(input_thread.view().valid());
     waits[wait_count++] = input_thread.view().get();
     if (server_thread.valid())
     {
@@ -395,14 +392,7 @@ inline void run_conpty_session(win32::handle_view server,
     {
         waits[wait_count++] = pty_signal_thread.view().get();
     }
-    if (window.close_requested().valid())
-    {
-        waits[wait_count++] = window.close_requested().get();
-    }
-    if (wait_count == 0)
-    {
-        std::abort();
-    }
+    waits[wait_count++] = window.close_requested().get();
     const auto wait = ::WaitForMultipleObjects(wait_count, waits.data(), FALSE, INFINITE);
     if (wait == WAIT_FAILED)
     {

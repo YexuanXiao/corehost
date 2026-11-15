@@ -848,12 +848,15 @@ LibScreen.Reference  Passed
 8aa7e7f refactor: tighten pty signal io, utf8 decoding, and console defaults
 ```
 
-- `pty_signal_thread` 按 id 读取局部 `uint16_t/uint32_t/uint64_t`，不再保留 8 字节 payload 成员；截断/未知 id 记录日志后 `std::abort()`。
+- `pty_signal_thread` 按 id 读取局部 `uint16_t/uint32_t/uint64_t`，不再保留 8 字节 payload 成员；未知 id、截断 payload 记录日志后正常返回，让会话线程有序收尾。
+- `thread_entry` 不捕获异常，异常不再被转成 abort。
 - 删除仅测试使用的 `libconptyio/signal_reader.hpp`。
 - 新增 `vtparser::utf8_decoder`，pending 固定为 `std::array<char8_t,4>`；`terminal_reader` 使用 `std::vector<char8_t>`，删除 `std::string pending_`。
-- `read_raw` 不再创建临时 `std::string line`，直接在输出缓冲中完成 CR/LF 归一化。
-- `console_state` 按 libcorehost 规则初始化输入/输出代码页；删除 console API 中 `code_page != 0` fallback。
+- `read_raw` 不再创建临时 `std::string line`，也移除了 `emit` lambda，直接写入输出缓冲完成 CR/LF 归一化。
+- `console_state` 按 libcorehost 规则初始化输入/输出代码页；`from_chars` 失败 fallback 到 `CP_UTF8`，删除 console API 中 `code_page != 0` fallback。
+- `WriteConsole`/`WriteConsoleOutputString` 的非 Unicode 路径不再分配临时 `std::u16string`，改为复用已有缓冲。
 - `conpty_entry` 断言 `vt_in`/`vt_out` 有效；输入线程无条件启动。
+- 删除等待数组的 `wait_count == 0` abort，以及输入/窗口句柄的显式合法性检查，交给 `WaitForMultipleObjects` 报错。
 - 删除启动时无条件发送的 `?1002;1006;2004h` 和本地 private mode 强制启用。
 - 增加 `server_session::should_forward_to_terminal(set_private_mode)` 测试。
 

@@ -243,23 +243,20 @@ class server_session final
         const bool add_lf = consumed != 0 && raw_in_[consumed - 1] == '\r' && (eof || complete);
 
         std::size_t written = 0;
-        const auto emit = [&](char value) {
-            if (written < output.size())
-            {
-                output[written++] = value;
-            }
-        };
         for (std::size_t index = 0; index < consumed; ++index)
         {
-            if (add_cr && index + 1 == consumed)
+            if (add_cr && index + 1 == consumed && written < output.size())
             {
-                emit('\r');
+                output[written++] = '\r';
             }
-            emit(raw_in_[index]);
+            if (written < output.size())
+            {
+                output[written++] = raw_in_[index];
+            }
         }
-        if (add_lf)
+        if (add_lf && written < output.size())
         {
-            emit('\n');
+            output[written++] = '\n';
         }
 
         raw_in_.erase(0, consumed);
@@ -345,16 +342,16 @@ class server_session final
             const auto *bytes_data = reinterpret_cast<const char *>(payload.data());
             const auto units = ::MultiByteToWideChar(code_page, 0, bytes_data,
                                                      static_cast<int>(payload.size()), nullptr, 0);
-            std::u16string text(static_cast<std::size_t>(std::max(units, 0)), u'\0');
+            text_.resize(static_cast<std::size_t>(std::max(units, 0)));
             if (units > 0)
             {
                 (void)::MultiByteToWideChar(code_page, 0, bytes_data,
                                             static_cast<int>(payload.size()),
-                                            reinterpret_cast<LPWSTR>(text.data()), units);
+                                            reinterpret_cast<LPWSTR>(text_.data()), units);
             }
-            written = write_text(text);
+            written = write_text(text_);
             const auto encoded = ::WideCharToMultiByte(
-                code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                code_page, 0, reinterpret_cast<const wchar_t *>(text_.data()),
                 static_cast<int>(written), nullptr, 0, nullptr, nullptr);
             request->NumBytes = static_cast<ULONG>(std::max(encoded, 0));
         }
