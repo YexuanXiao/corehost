@@ -62,10 +62,11 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
         append_cup(output, static_cast<unsigned>(row),
                    static_cast<unsigned>(begin - static_cast<std::size_t>(origin.x)));
 
+        const auto cells = buffer.row_cells(y);
         screen::cell_style current_style = static_cast<screen::cell_style>(-1);
         for (auto x = begin; x < end; ++x)
         {
-            const auto &value = buffer.at(x, y);
+            const auto &value = cells[x];
             if (value.is_continuation())
             {
                 continue;
@@ -155,6 +156,7 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
         append_line_rendition(output, rendition);
         append_cup(output, static_cast<unsigned>(row), 0);
 
+        const auto cells = buffer.row_cells(y);
         for (std::int32_t column = 0; column < size.x; ++column)
         {
             const auto x = static_cast<std::size_t>(origin.x + column);
@@ -162,7 +164,7 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
             {
                 break;
             }
-            const auto &value = buffer.at(x, y);
+            const auto &value = cells[x];
             if (value.is_continuation())
             {
                 continue;
