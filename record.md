@@ -371,3 +371,48 @@ LibScreen.Reference  Passed
 - F10 未打开 File 下拉菜单；原始 OpenConsole 会打开。
 - 鼠标点击菜单栏后，corehost2 底部出现两行状态栏，原始 OpenConsole 只有一行。
 - 这属于 edit 重绘/鼠标输入路径的输出问题，初步怀疑与 alternate screen 下 raw 输出和 screen_buffer 重绘同时发生有关，尚未修复。
+
+## 2026-11-16 console code page 初始化
+
+`mode con` 对比：
+
+原始 OpenConsole：
+
+```text
+Lines: 28
+Columns: 105
+Code page: 65001
+```
+
+corehost2：
+
+```text
+Lines: 28
+Columns: 105
+Code page: 0
+```
+
+根因：`run_conpty_session` 创建 `console_state` 后没有设置默认输入/输出代码页。
+
+修复：
+
+```cpp
+state.state().input_code_page = 65001;
+state.state().output_code_page = 65001;
+```
+
+提交：
+
+```text
+aa891b9 fix(corehost2): initialize conpty code pages to UTF-8
+```
+
+修复后 corehost2 `mode con`：
+
+```text
+Code page: 65001
+```
+
+与原始 OpenConsole 一致。
+
+该修复不影响 edit 的重复状态栏问题；重复状态栏仍然存在。
