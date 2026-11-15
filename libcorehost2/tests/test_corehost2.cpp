@@ -61,6 +61,21 @@ int main()
     corehost::consoleinput::input_queue write_server_input;
     corehost::corehost2::server_session write_server{write_server_buffer, write_server_state,
                                                     write_server_input};
+    HANDLE write_server_event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    write_server.set_input_event(win32::handle_view{write_server_event});
+    write_server.signal_input_event();
+    if (::WaitForSingleObject(write_server_event, 0) != WAIT_OBJECT_0)
+    {
+        std::fprintf(stderr, "server input event signal failed\n");
+        return EXIT_FAILURE;
+    }
+    write_server.reset_input_event_if_empty();
+    if (::WaitForSingleObject(write_server_event, 0) != WAIT_TIMEOUT)
+    {
+        std::fprintf(stderr, "server input event reset failed\n");
+        return EXIT_FAILURE;
+    }
+    ::CloseHandle(write_server_event);
     constexpr char16_t write_vt_text[]{u'A', u'\x1b', u'[', u'3', u'1', u'm', u'B'};
     corehost::coreio::io_msg write_vt_message{};
     write_vt_message.descriptor.InputSize =

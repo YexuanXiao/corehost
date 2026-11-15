@@ -87,6 +87,11 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
                     context.state->screen().clear_damage();
                     (void)context.state->take_alternate_changed();
                     (void)context.state->take_viewport_changed();
+                    if (context.state->take_title_changed())
+                    {
+                        vtserializer::append_window_title(context.writer->buffer(),
+                                                          context.state->state().title);
+                    }
                     return true;
                 }
                 context.dispatcher->take_ctrl_events(ctrl_events);
@@ -176,6 +181,7 @@ class session_input_sink final
         }
         state_.feed_input(text_, (state_.state().input_mode & 0x0200) != 0 &&
                                   !console_.raw_pending() && !console_.console_read_pending());
+        console_.signal_input_event();
         const bool completed = console_.complete_pending();
         LOG("input parsed text=%zu queue=%zu read_pending=%d completed=%d", text_.size(),
             state_.input().size(), console_.console_read_pending() ? 1 : 0, completed ? 1 : 0);
@@ -346,6 +352,8 @@ inline void run_conpty_session(win32::handle_view server,
     std::atomic_bool server_stop{};
 
     server_session console_session{state.screen(), state.state(), state.input(), 0, server, &writer};
+    console_session.set_input_event(event);
+    console_session.signal_input_event();
     console_session.set_window_handle(reinterpret_cast<std::uintptr_t>(window.handle()));
     if (config.attached_process_id != 0)
     {

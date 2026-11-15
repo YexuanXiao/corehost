@@ -116,6 +116,28 @@ class server_session final
     void push_raw(std::span<const char> bytes)
     {
         raw_in_.append(bytes.data(), bytes.size());
+        signal_input_event();
+    }
+
+    void set_input_event(win32::handle_view event) noexcept
+    {
+        input_event_ = event;
+    }
+
+    void signal_input_event() const noexcept
+    {
+        if (input_event_.valid())
+        {
+            (void)::SetEvent(input_event_.get());
+        }
+    }
+
+    void reset_input_event_if_empty() const noexcept
+    {
+        if (input_event_.valid() && input_.empty() && raw_in_.empty())
+        {
+            (void)::ResetEvent(input_event_.get());
+        }
     }
 
     [[nodiscard]] bool raw_pending() const noexcept
@@ -355,6 +377,7 @@ class server_session final
             {
                 (void)complete_pending();
             }
+            reset_input_event_if_empty();
             return true;
         }
         const auto requested_kind = api_.take_pending_read_kind();
@@ -499,6 +522,7 @@ class server_session final
     };
 
     win32::handle_view server_;
+    win32::handle_view input_event_;
     screen::screen_buffer &screen_;
     screen::console_state &state_;
     consoleinput::input_queue &input_;
