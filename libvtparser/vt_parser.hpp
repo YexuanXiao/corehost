@@ -41,9 +41,11 @@
 //
 #pragma once
 #include <algorithm>
+#include <bit>
 #include <ranges>
 #include <cstdint>
 #include <charconv>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <libunicode/convert.h>
@@ -540,9 +542,31 @@ class vt_parser
     // 确认 parser 处于 ground；函数只负责找到首个 C0/DEL 控制字符。
     [[nodiscard]] size_t _direct_ground_text_run_length(std::u16string_view text) const noexcept
     {
+        constexpr std::uint64_t high = 0x8000800080008000ull;
+        constexpr std::uint64_t low = 0x0020002000200020ull;
+        constexpr std::uint64_t del = 0x007F007F007F007Full;
+        constexpr std::uint64_t one = 0x0001000100010001ull;
+
         size_t count = 0;
-        for (const char16_t ch : text)
+        while (count + 4 <= text.size())
         {
+            std::uint64_t word = 0;
+            std::memcpy(&word, text.data() + count, sizeof(word));
+
+            const auto below_low = ~(((word | high) - low)) & high;
+            const auto is_del = word ^ del;
+            const auto at_del = ~((is_del | high) - one) & ~is_del & high;
+            const auto control = below_low | at_del;
+            if (control != 0)
+            {
+                return count + (std::countr_zero(control) >> 4);
+            }
+            count += 4;
+        }
+
+        while (count < text.size())
+        {
+            const auto ch = text[count];
             if ((ch < 0x20) | (ch == 0x7F))
             {
                 break;

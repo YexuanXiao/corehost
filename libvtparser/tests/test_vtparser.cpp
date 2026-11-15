@@ -47,6 +47,21 @@ int main()
     check(result.message.payload.text == u"abc", "ground text payload");
 
     parser.reset();
+    result = parser.parse(u"ABCDEFG\x01");
+    check(result.id == vt_message_id::continue_text && result.consumed == 7,
+          "ground text c0 boundary");
+
+    parser.reset();
+    result = parser.parse(u"ABCDEFG\x7F");
+    check(result.id == vt_message_id::continue_text && result.consumed == 7,
+          "ground text del boundary");
+
+    parser.reset();
+    result = parser.parse(u"ABCDEFG\u4E2D");
+    check(result.id == vt_message_id::continue_text && result.consumed == 8,
+          "ground text non-ascii run");
+
+    parser.reset();
     result = parser.parse(u"\x1b]2;corehost\x07");
     check(result.id == vt_message_id::set_window_title, "title id");
     check(result.message.payload.title == u"corehost", "title payload");
