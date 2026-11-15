@@ -280,7 +280,7 @@ class pseudo_window final
     static constexpr UINT wm_stop_thread = WM_APP + 1;
     static constexpr UINT wm_set_visibility = WM_APP + 2;
     static constexpr UINT wm_set_owner = WM_APP + 3;
-    static constexpr const wchar_t *class_name_ = L"PseudoConsoleWindow";
+    static constexpr const wchar_t *class_name_ = L"CorehostPseudoConsoleWindow";
 
     win32::handle_view server_;
     std::wstring title_;

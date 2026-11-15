@@ -14,7 +14,7 @@ namespace corehost::conptyio
 {
 
 // Batched vt_in reader. Bytes are read into a reusable buffer, decoded into a
-// reusable UTF-32 buffer, and incomplete UTF-8 tails are retained across reads.
+// reusable UTF-16 buffer, and incomplete UTF-8 tails are retained across reads.
 class terminal_reader final
 {
   public:
