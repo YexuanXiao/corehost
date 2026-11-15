@@ -191,6 +191,18 @@ class session final
                 arrow_key = consoleinput::virtual_key::right;
                 has_arrow = true;
                 break;
+            case vtparser::vt_message_id::cursor_position:
+                if (result.message.payload.position.row == 1 &&
+                    result.message.payload.position.col == 1)
+                {
+                    arrow_key = consoleinput::virtual_key::home;
+                    has_arrow = true;
+                }
+                break;
+            case vtparser::vt_message_id::cursor_prev_line:
+                arrow_key = consoleinput::virtual_key::end;
+                has_arrow = true;
+                break;
             default:
                 break;
             }

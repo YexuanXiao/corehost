@@ -297,6 +297,39 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer home_buffer{8, 2};
+    corehost::screen::console_state home_state{8, 2};
+    corehost::consoleinput::input_queue home_input;
+    corehost::corehost2::session home_session{8, 2};
+    constexpr char16_t home_text[]{u'A', u'B', u'\x1b', u'[', u'H', u'X', u'\r'};
+    home_session.feed_input(home_text);
+    home_input = std::move(home_session.input());
+    corehost::consoleapi::console_api home_api{home_buffer, home_state, &home_input};
+    corehost::coreio::io_msg home_message{};
+    home_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    home_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    auto *home_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(home_message.body);
+    home_header->ApiNumber = ConsolepReadConsole;
+    auto *home_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        home_message.body + sizeof(CONSOLE_MSG_HEADER));
+    home_request->Unicode = TRUE;
+    if (!home_api.handle(home_message) || home_request->NumBytes != 5 * sizeof(char16_t))
+    {
+        std::fprintf(stderr, "real ReadConsole home failed bytes=%lu\n", home_request->NumBytes);
+        return EXIT_FAILURE;
+    }
+    const auto *home_output = reinterpret_cast<const char16_t *>(
+        home_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+    if (home_output[0] != u'X' || home_output[1] != u'A' || home_output[2] != u'B' ||
+        home_output[3] != u'\r' || home_output[4] != u'\n')
+    {
+        std::fprintf(stderr, "real ReadConsole home data failed %04x %04x %04x\n",
+                     home_output[0], home_output[1], home_output[2]);
+        return EXIT_FAILURE;
+    }
+
     corehost::screen::screen_buffer delete_buffer{8, 2};
     corehost::screen::console_state delete_state{8, 2};
     corehost::consoleinput::input_queue delete_input;
