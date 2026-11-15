@@ -2,6 +2,7 @@
 
 #include "console_api.hpp"
 #include "terminal_writer.hpp"
+#include "viewport.hpp"
 #include "utility/log.hpp"
 #include "apply.hpp"
 #include "utf8.hpp"
@@ -86,10 +87,6 @@ class server_session final
                 }
                 parser_.reset();
             }
-        }
-        if (screen_.alternate_active())
-        {
-            alternate_raw_.append(bytes.data(), bytes.size());
         }
     }
     std::size_t write_text(std::u16string_view input)
@@ -398,12 +395,19 @@ class server_session final
                 ? pending_kind::console_input
                 : pending_kind::console_read;
         if (pending_kind_ == pending_kind::console_input && !initial_repaint_sent_ &&
-            writer_ != nullptr && !alternate_raw_.empty())
+            writer_ != nullptr && screen_.alternate_active())
         {
-            LOG("replay initial alternate frame bytes=%zu", alternate_raw_.size());
+            LOG("render initial alternate viewport");
             initial_repaint_sent_ = true;
-            writer_->buffer().append(std::span<const char8_t>{
-                reinterpret_cast<const char8_t *>(alternate_raw_.data()), alternate_raw_.size()});
+            const auto cursor = screen::coord{
+                static_cast<std::int32_t>(state_.cursor().x),
+                static_cast<std::int32_t>(state_.cursor().y),
+            };
+            vtserializer::render_viewport(writer_->buffer(), screen_, cursor, &state_);
+            if (!state_.title.empty())
+            {
+                vtserializer::append_window_title(writer_->buffer(), state_.title);
+            }
             writer_->flush();
         }
         return false;
@@ -544,7 +548,6 @@ class server_session final
     vtstate::state_applier applier_;
     std::u16string text_;
     std::string raw_in_;
-    std::string alternate_raw_;
     bool raw_eof_{};
     bool raw_alerted_{};
     coreio::process_registry processes_;
