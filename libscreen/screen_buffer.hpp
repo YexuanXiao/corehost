@@ -1139,11 +1139,16 @@ inline std::size_t screen_buffer::read_chars(coord start, std::span<char16_t> ou
 }
 inline std::size_t screen_buffer::read_attrs(coord start, std::span<std::uint16_t> out) const noexcept
 {
-    std::size_t count = 0;
     auto x = start.x;
     auto y = start.y;
-    while (count < out.size() && x >= 0 && y >= 0 && static_cast<std::size_t>(x) < width_ &&
-           static_cast<std::size_t>(y) < height_)
+    if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ ||
+        static_cast<std::size_t>(y) >= height_)
+    {
+        return 0;
+    }
+
+    std::size_t count = 0;
+    while (count < out.size() && static_cast<std::size_t>(y) < height_)
     {
         out[count++] = char_info_at(coord{x, y}).attributes;
         if (++x >= static_cast<std::int32_t>(width_))
