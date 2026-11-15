@@ -1,4 +1,5 @@
 #include "conpty.hpp"
+#include "server_session.hpp"
 #include "session.hpp"
 
 #include <cstdio>
@@ -44,6 +45,21 @@ int main()
 
     ::CloseHandle(output);
     ::CloseHandle(input_read);
+
+    corehost::screen::screen_buffer server_buffer{8, 2};
+    corehost::screen::console_state server_state{8, 2};
+    corehost::corehost2::server_session server{server_buffer, server_state};
+    corehost::coreio::io_msg message{};
+    message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG);
+    message.descriptor.OutputSize = sizeof(message.body);
+    auto *header = reinterpret_cast<CONSOLE_MSG_HEADER *>(message.body);
+    header->ApiNumber = ConsolepGetScreenBufferInfo;
+    server.handle(message);
+    if (message.complete.IoStatus.Status != 0)
+    {
+        std::fprintf(stderr, "server session failed\n");
+        return EXIT_FAILURE;
+    }
 
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
