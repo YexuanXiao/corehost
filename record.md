@@ -972,6 +972,22 @@ b0939ea perf(consoleapi): reuse GetConsoleInput event scratch buffer
 f7a29de perf(consoleapi): reuse ReadConsole event scratch buffer
 ```
 
+### 单码点文本序列化
+
+`append_utf16` 对 `text.size() == 1` 使用 4 字节栈缓冲，编码后 `append`，避免为一个码点 resize 3 倍再缩小：
+
+```text
+67cd7c0 perf(vtserializer): fast-path single-code-unit text
+```
+
+`C:\1\bench_serializer.cpp`，Release `/O2`，2000 万次：
+
+```text
+one-ascii   old=5.865-6.281 ns  new=4.511-4.554 ns  ratio=1.30-1.39x
+one-cjk     old=7.005-7.749 ns  new=6.373-6.855 ns  ratio=1.06-1.18x
+eight-ascii old=12.542-13.680 ns new=10.759-11.268 ns ratio=1.12-1.27x
+```
+
 ### VT ground 文本扫描
 
 `std::bitset<0x10000>` 和 128 项查表都不是有效优化，已撤销：
