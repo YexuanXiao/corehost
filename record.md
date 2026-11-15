@@ -1374,6 +1374,17 @@ cjk   old=0.9885-1.3247 ns/byte new=0.9811-1.0390 ns/byte ratio=1.00-1.28x
 
 收益不稳定，部分场景反而变慢，代码复杂度增加，因此不保留，恢复原实现。
 
+### 未保留：8 字符 ground SWAR
+
+尝试把 `_direct_ground_text_run_length` 从每次 4 个 `char16_t` 扩展到 8 个。独立基准：
+
+```text
+ascii   old=0.1581-0.1732 ns/unit new=0.1617-0.1761 ns/unit ratio=0.90-1.07x
+control old=0.0839-0.0892 ns/unit new=0.0815-0.0859 ns/unit ratio=1.02-1.09x
+```
+
+收益不稳定，部分场景变慢，代码量翻倍，因此保留 4 字符版本。
+
 ### UTF-8 解码 ASCII 块
 
 `utf8_decoder::decode` 先处理未完成序列；pending 为空后，以 64 位字一次检查 8 个 ASCII 字节，整块写入 `u16string`，不再逐字节走 `consume`。
