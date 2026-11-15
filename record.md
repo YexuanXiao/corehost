@@ -1093,6 +1093,14 @@ if (character < u' ')
 eebdc63 perf(consoleapi): dispatch virtual keys with switch
 ```
 
+### SGR scratch 去零初始化
+
+`append_sgr_style` 的 96 字节栈缓冲不再整体零初始化；所有写入都按 `first` 顺序覆盖实际使用范围：
+
+```text
+7fdebb5 perf(vtserializer): avoid zeroing sgr scratch
+```
+
 ### VT 序列化按行取 cell span
 
 `render_damage` / `render_viewport` 原来每个单元格调用 `buffer.at(x, y)`，会重新选择 active page。现在每行只调用一次 `row_cells(y)`，循环内直接索引 span：
