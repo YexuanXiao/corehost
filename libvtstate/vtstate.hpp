@@ -84,6 +84,43 @@ class state_applier final
         }
     }
 
+    void apply_insert_characters(const vtparser::vt_message &message,
+                                  screen::screen_buffer &buffer,
+                                  screen::console_state &state)
+    {
+        const auto count = static_cast<std::size_t>(std::max<int>(message.payload.count.value, 0));
+        const auto x = state.cursor().x;
+        const auto y = state.cursor().y;
+        const auto width = state.width();
+        if (count == 0 || x >= width)
+        {
+            return;
+        }
+        buffer.copy_rect(screen::rectangle{x, y, width - x, 1}, screen::rectangle{}, false,
+                         screen::coord{static_cast<std::int32_t>(x + count), static_cast<std::int32_t>(y)});
+        buffer.fill_rect(screen::rectangle{x, y, std::min(count, width - x), 1},
+                        screen::cell::blank(state.default_style, state.default_hyperlink));
+    }
+
+    void apply_delete_characters(const vtparser::vt_message &message,
+                                  screen::screen_buffer &buffer,
+                                  screen::console_state &state)
+    {
+        const auto count = static_cast<std::size_t>(std::max<int>(message.payload.count.value, 0));
+        const auto x = state.cursor().x;
+        const auto y = state.cursor().y;
+        const auto width = state.width();
+        if (count == 0 || x >= width)
+        {
+            return;
+        }
+        const auto removed = std::min(count, width - x);
+        buffer.copy_rect(screen::rectangle{x + removed, y, width - x - removed, 1}, screen::rectangle{}, false,
+                         screen::coord{static_cast<std::int32_t>(x), static_cast<std::int32_t>(y)});
+        buffer.fill_rect(screen::rectangle{width - removed, y, removed, 1},
+                        screen::cell::blank(state.default_style, state.default_hyperlink));
+    }
+
     void apply_sgr(const vtparser::vt_message &message,
                     screen::screen_buffer &buffer,
                     screen::console_state &state)

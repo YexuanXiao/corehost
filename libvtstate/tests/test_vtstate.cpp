@@ -231,6 +231,29 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer edit_buffer{4, 1};
+    corehost::screen::console_state edit_state{4, 1};
+    corehost::screen::coord edit_cursor{0, 0};
+    (void)edit_buffer.write_text_row(edit_cursor, u"ABCD", {}, corehost::screen::cell_style{}, false);
+    parser.reset();
+    result = parser.parse(U"\x1b[2@");
+    (void)corehost::vtstate::apply(result.id, result.message, edit_buffer, edit_state, applier);
+    if (edit_buffer.at(0, 0).primary() != u' ' || edit_buffer.at(2, 0).primary() != u'A' ||
+        edit_buffer.at(3, 0).primary() != u'B')
+    {
+        std::fprintf(stderr, "insert characters failed\n");
+        return EXIT_FAILURE;
+    }
+
+    parser.reset();
+    result = parser.parse(U"\x1b[2P");
+    (void)corehost::vtstate::apply(result.id, result.message, edit_buffer, edit_state, applier);
+    if (edit_buffer.at(0, 0).primary() != u'A' || edit_buffer.at(1, 0).primary() != u'B')
+    {
+        std::fprintf(stderr, "delete characters failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }
