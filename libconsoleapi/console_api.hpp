@@ -1677,27 +1677,61 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_SETTITLE_MSG);
-        const auto *data = message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG);
-        const auto *request =
-            reinterpret_cast<const CONSOLE_SETTITLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
-        state_.title.clear();
-        if (request->Unicode)
+        const auto *request = reinterpret_cast<const CONSOLE_SETTITLE_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        std::span<const std::byte> payload;
+        if (payload_ != nullptr)
         {
-            const auto *chars = reinterpret_cast<const char16_t *>(data);
-            state_.title.assign(chars, bytes / sizeof(char16_t));
+            payload = payload_->read(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG));
         }
         else
         {
-            for (std::size_t i = 0; i < bytes; ++i)
+            const auto bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
+                               sizeof(CONSOLE_SETTITLE_MSG);
+            payload = std::span<const std::byte>{
+                reinterpret_cast<const std::byte *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                    sizeof(CONSOLE_SETTITLE_MSG)),
+                bytes};
+        }
+
+        std::u16string title;
+        if (request->Unicode)
+        {
+            const auto *chars = reinterpret_cast<const char16_t *>(payload.data());
+            title.assign(chars, payload.size() / sizeof(char16_t));
+        }
+        else
+        {
+            const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+            const auto units = ::MultiByteToWideChar(
+                code_page, 0, reinterpret_cast<const char *>(payload.data()),
+                static_cast<int>(payload.size()), nullptr, 0);
+            title.resize(static_cast<std::size_t>(std::max(units, 0)));
+            if (units > 0)
             {
-                state_.title.push_back(static_cast<unsigned char>(data[i]));
+                (void)::MultiByteToWideChar(
+                    code_page, 0, reinterpret_cast<const char *>(payload.data()),
+                    static_cast<int>(payload.size()),
+                    reinterpret_cast<LPWSTR>(title.data()), units);
             }
+        }
+
+        if (state_.title.empty())
+        {
+            state_.original_title = title;
+        }
+        state_.title = title;
+        state_.title_changed = true;
+
+        if (window_handle_ != 0)
+        {
+            std::wstring wide;
+            wide.assign(title.begin(), title.end());
+            ::SetWindowTextW(reinterpret_cast<HWND>(window_handle_), wide.c_str());
         }
         coreio::prepare_completion(message);
         return true;
     }
-
     [[nodiscard]] bool get_language_id(coreio::io_msg &message) noexcept
     {
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_LANGID_MSG))

@@ -110,6 +110,12 @@ inline void append_clear_screen(byte_buffer &output)
     output.append_text(u8"\x1b[2J");
 }
 
+inline void append_window_title(byte_buffer &output, std::u16string_view title)
+{
+    output.append_text(u8"\x1b]0;");
+    append_utf16(output, title);
+    output.push_back(static_cast<char8_t>(0x07));
+}
 inline void append_request_cursor_position(byte_buffer &output)
 {
     output.append_text(u8"\x1b[6n");

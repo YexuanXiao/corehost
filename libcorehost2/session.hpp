@@ -50,6 +50,11 @@ class session final
         }
     }
 
+    [[nodiscard]] bool take_title_changed() noexcept
+    {
+        return state_.take_title_changed();
+    }
+
     [[nodiscard]] bool take_alternate_changed() noexcept
     {
         const auto changed = state_.alternate_changed;
