@@ -56,21 +56,35 @@ class state_applier final
                      screen::screen_buffer &buffer,
                      screen::console_state &state)
     {
-        const auto kitty = vtparser::parse_kitty_graphics(raw_sequence);
-        if (!kitty.has_value() || kitty->image_id == 0)
+        screen::image_fragment fragment{};
+        std::size_t columns = 1;
+        std::size_t rows = 1;
+
+        if (const auto kitty = vtparser::parse_kitty_graphics(raw_sequence);
+            kitty.has_value() && kitty->image_id != 0)
+        {
+            fragment.image_id = kitty->image_id;
+            fragment.placement_id = kitty->placement_id != 0 ? kitty->placement_id : kitty->image_id;
+            fragment.source_width = kitty->width != 0 ? kitty->width : kitty->columns;
+            fragment.source_height = kitty->height != 0 ? kitty->height : kitty->rows;
+            columns = std::max<std::size_t>(kitty->columns, 1);
+            rows = std::max<std::size_t>(kitty->rows, 1);
+        }
+        else if (const auto sixel = vtparser::parse_sixel(raw_sequence); sixel.has_value())
+        {
+            fragment.image_id = 1;
+            fragment.placement_id = 1;
+            fragment.source_width = sixel->width;
+            fragment.source_height = sixel->height;
+            columns = std::max<std::size_t>((sixel->width + 7) / 8, 1);
+            rows = std::max<std::size_t>((sixel->height + 15) / 16, 1);
+        }
+        else
         {
             return false;
         }
 
-        screen::image_fragment fragment{};
-        fragment.image_id = kitty->image_id;
-        fragment.placement_id = kitty->placement_id != 0 ? kitty->placement_id : kitty->image_id;
-        fragment.source_width = kitty->width != 0 ? kitty->width : kitty->columns;
-        fragment.source_height = kitty->height != 0 ? kitty->height : kitty->rows;
         const auto fragment_id = buffer.images().intern(fragment);
-
-        const auto columns = std::max<std::size_t>(kitty->columns, 1);
-        const auto rows = std::max<std::size_t>(kitty->rows, 1);
         const auto start_x = state.cursor().x;
         const auto start_y = state.cursor().y;
         for (std::size_t row = 0; row < rows; ++row)
@@ -80,8 +94,7 @@ class state_applier final
                 (void)buffer.write_image(start_x + column, start_y + row, fragment_id,
                                          state.default_style, screen::cell_width::narrow);
             }
-        }
-        state.set_cursor(std::min<std::size_t>(start_x + columns, state.width() - 1),
+        }        state.set_cursor(std::min<std::size_t>(start_x + columns, state.width() - 1),
                          std::min<std::size_t>(start_y + rows - 1, state.height() - 1));
         return true;
     }

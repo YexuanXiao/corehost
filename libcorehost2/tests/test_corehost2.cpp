@@ -205,6 +205,16 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::corehost2::session sixel_session{8, 2};
+    sixel_session.feed(
+        std::u16string_view{u"\x1bPq\"1;1;16;16#0~~\x1b\\"});
+    if (sixel_session.screen().images().size() != 2 ||
+        !sixel_session.screen().at(0, 0).has_image())
+    {
+        std::fprintf(stderr, "sixel placement failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
 }
