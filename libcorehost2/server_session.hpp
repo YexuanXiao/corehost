@@ -87,6 +87,10 @@ class server_session final
                 parser_.reset();
             }
         }
+        if (screen_.alternate_active())
+        {
+            alternate_raw_.append(bytes.data(), bytes.size());
+        }
     }
     std::size_t write_text(std::u16string_view input)
     {
@@ -393,6 +397,15 @@ class server_session final
             requested_kind == consoleapi::console_api::pending_read_kind::console_input
                 ? pending_kind::console_input
                 : pending_kind::console_read;
+        if (pending_kind_ == pending_kind::console_input && !initial_repaint_sent_ &&
+            writer_ != nullptr && !alternate_raw_.empty())
+        {
+            LOG("replay initial alternate frame bytes=%zu", alternate_raw_.size());
+            initial_repaint_sent_ = true;
+            writer_->buffer().append(std::span<const char8_t>{
+                reinterpret_cast<const char8_t *>(alternate_raw_.data()), alternate_raw_.size()});
+            writer_->flush();
+        }
         return false;
     }
 
@@ -531,6 +544,7 @@ class server_session final
     vtstate::state_applier applier_;
     std::u16string text_;
     std::string raw_in_;
+    std::string alternate_raw_;
     bool raw_eof_{};
     bool raw_alerted_{};
     coreio::process_registry processes_;
@@ -540,6 +554,7 @@ class server_session final
     std::vector<coreio::io_msg> queued_console_inputs_;
     bool pending_active_{};
     pending_kind pending_kind_{};
+    bool initial_repaint_sent_{};
 };
 
 } // namespace corehost::corehost2
