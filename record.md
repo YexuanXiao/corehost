@@ -1001,6 +1001,14 @@ fb4d3ef perf(libscreen): remove per-cell bounds checks in ascii run
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### 命令历史直接编码到输出
+
+`get_command_history_length` 使用 `console_text_length`；`get_command_history` 直接写入输出，不再为每条 command 构造临时字符串。容量预检查也改为精确的编码后大小，去掉了第二重检查。
+
+```text
+766a11a perf(consoleapi): encode command history directly into output
+```
+
 ### Alias 值直接写入输出
 
 `get_aliases` 的长度计算使用 `console_text_length`；`append_alias_value` 在容量足够时直接调用 `WideCharToMultiByte` 写入输出，不再为 source/target 构造临时字符串：
