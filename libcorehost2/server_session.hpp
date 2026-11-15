@@ -308,20 +308,28 @@ class server_session final
         }
 
         std::size_t written = 0;
-        for (std::size_t index = 0; index < consumed; ++index)
+        if (add_cr)
         {
-            if (add_cr && index + 1 == consumed && written < output.size())
+            const auto prefix = consumed - 1;
+            written = std::min(prefix, output.size());
+            std::memcpy(output.data(), raw_in_.data(), written);
+            if (written < output.size())
             {
                 output[written++] = '\r';
             }
             if (written < output.size())
             {
-                output[written++] = raw_in_[index];
+                output[written++] = '\n';
             }
         }
-        if (add_lf && written < output.size())
+        else
         {
-            output[written++] = '\n';
+            written = std::min(consumed, output.size());
+            std::memcpy(output.data(), raw_in_.data(), written);
+            if (written < output.size())
+            {
+                output[written++] = '\n';
+            }
         }
 
         raw_in_.erase(0, consumed);
