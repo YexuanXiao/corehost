@@ -110,6 +110,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b[2J");
+    applier.apply_erase_in_display(result.message, buffer, state);
+    if (buffer.at(0, 0).primary() != u' ' || buffer.at(4, 2).primary() != u' ')
+    {
+        std::fprintf(stderr, "erase display failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::vtstate::state_applier line_applier;
     parser.reset();
     result = parser.parse(U"\n");

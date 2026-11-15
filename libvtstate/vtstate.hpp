@@ -39,6 +39,40 @@ class state_applier final
         last_consumed_ = result.consumed;
     }
 
+    void apply_erase_in_display(const vtparser::vt_message &message,
+                                screen::screen_buffer &buffer,
+                                const screen::console_state &state)
+    {
+        const auto x = state.cursor().x;
+        const auto y = state.cursor().y;
+        const auto width = state.width();
+        const auto height = state.height();
+        const auto blank = screen::cell::blank(state.default_style, state.default_hyperlink);
+        switch (message.payload.erase_mode)
+        {
+        case 0:
+            buffer.fill_rect(screen::rectangle{x, y, width - x, 1}, blank);
+            if (y + 1 < height)
+            {
+                buffer.fill_rect(screen::rectangle{0, y + 1, width, height - y - 1}, blank);
+            }
+            break;
+        case 1:
+            if (y != 0)
+            {
+                buffer.fill_rect(screen::rectangle{0, 0, width, y}, blank);
+            }
+            buffer.fill_rect(screen::rectangle{0, y, x + 1, 1}, blank);
+            break;
+        case 2:
+        case 3:
+            buffer.fill_rect(screen::rectangle{0, 0, width, height}, blank);
+            break;
+        default:
+            break;
+        }
+    }
+
     void apply_erase_in_line(const vtparser::vt_message &message,
                              screen::screen_buffer &buffer,
                              const screen::console_state &state)
