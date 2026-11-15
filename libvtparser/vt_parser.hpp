@@ -68,6 +68,7 @@ enum class vt_message_id
     // 文本之外的 OSC/窗口元数据。title 会写入本地状态；OSC 8 只透传给
     // 宿主终端，corehost 不建模 hyperlink 属性。
     set_window_title,
+    set_private_mode,
     osc8_hyperlink,
     semantic_prompt_mark,
     apc_sequence,
@@ -383,6 +384,12 @@ struct vt_mouse_payload
     bool release = false;
 };
 
+struct vt_private_mode_payload final
+{
+    unsigned short mode{};
+    bool enabled{};
+};
+
 struct vt_hyperlink_payload final
 {
     // OSC 8 params（例如 id=foo）、URI、从 params 提取的 id。
@@ -431,6 +438,8 @@ union vt_message_payload {
     vt_win32_key_payload win32_key;
     // SGR 1006 鼠标事件。
     vt_mouse_payload mouse;
+    // DEC private mode h/l（鼠标、bracketed paste、focus 等）。
+    vt_private_mode_payload private_mode;
 
     // 默认构造为 sgr 分支，使 union 内含对象处于可析构/可赋值的平凡状态。
     constexpr vt_message_payload() noexcept : sgr{}
@@ -1486,7 +1495,9 @@ class vt_parser
             case 1049:
                 return vt_message_id::use_alternate_buffer;
             default:
-                return vt_message_id::continue_;
+                m.payload.private_mode.mode = static_cast<unsigned short>(_get_param(0));
+                m.payload.private_mode.enabled = true;
+                return vt_message_id::set_private_mode;
             }
         case U'l':
             if (!priv)
@@ -1505,7 +1516,9 @@ class vt_parser
             case 1049:
                 return vt_message_id::use_main_buffer;
             default:
-                return vt_message_id::continue_;
+                m.payload.private_mode.mode = static_cast<unsigned short>(_get_param(0));
+                m.payload.private_mode.enabled = false;
+                return vt_message_id::set_private_mode;
             }
 
         // 滚动

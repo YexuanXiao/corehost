@@ -12,6 +12,7 @@
 #include <span>
 #include <utility>
 #include <vector>
+#include <bitset>
 
 namespace corehost::screen
 {
@@ -130,6 +131,8 @@ class console_state final
     std::vector<std::u16string> command_history;
     std::size_t command_history_limit{50};
     std::uint32_t display_mode{};
+    std::bitset<2048> private_modes;
+    std::vector<std::pair<std::uint16_t, bool>> private_mode_changes;
     std::uint32_t output_code_page{};
     std::uint32_t font_index{};
     coord font_size{8, 12};
@@ -190,6 +193,21 @@ class console_state final
     void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y,
                        selection_mode mode) noexcept;
     [[nodiscard]] std::u16string selected_text(const screen_buffer &buffer) const;
+    void set_private_mode(std::uint16_t mode, bool enabled)
+    {
+        if (mode >= private_modes.size() || private_modes.test(mode) == enabled)
+        {
+            return;
+        }
+        private_modes.set(mode, enabled);
+        private_mode_changes.emplace_back(mode, enabled);
+    }
+
+    [[nodiscard]] std::vector<std::pair<std::uint16_t, bool>> take_private_modes()
+    {
+        return std::move(private_mode_changes);
+    }
+
     void add_command(std::u16string_view command);
     void expunge_commands() noexcept
     {

@@ -202,6 +202,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    buffer.clear();
+    append_private_mode(buffer, 1000, true);
+    if (buffer.bytes().size() != 8 || buffer.bytes()[2] != u'?' ||
+        buffer.bytes()[7] != u'h')
+    {
+        std::fprintf(stderr, "private mode sequence failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtserializer tests passed\n");
     return EXIT_SUCCESS;
 }

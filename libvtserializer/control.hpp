@@ -84,6 +84,13 @@ inline void append_cursor_shape(byte_buffer &output, unsigned style, bool blinki
                                            static_cast<std::size_t>(first - sequence)});
 }
 
+inline void append_private_mode(byte_buffer &output, int mode, bool enabled)
+{
+    output.append_text(u8"\x1b[?");
+    output.append_number(mode);
+    output.append_text(enabled ? u8"h" : u8"l");
+}
+
 inline void append_erase_line(byte_buffer &output, int mode = 0)
 {
     output.append_text(u8"\x1b[");

@@ -162,6 +162,13 @@ class state_applier final
                          static_cast<std::size_t>(std::max<std::ptrdiff_t>(y, 0)));
     }
 
+    void apply_private_mode(const vtparser::vt_message &message,
+                             screen::console_state &state) noexcept
+    {
+        state.set_private_mode(message.payload.private_mode.mode,
+                              message.payload.private_mode.enabled);
+    }
+
     void apply_columns(const vtparser::vt_message &message,
                        screen::screen_buffer &buffer,
                        screen::console_state &state)

@@ -142,6 +142,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    constexpr char32_t mouse_mode[]{U'\x1b', U'[', U'?', U'1', U'0', U'0', U'0', U'h'};
+    session.feed_input(mouse_mode);
+    const auto mode_changes = session.state().take_private_modes();
+    if (mode_changes.size() != 1 || mode_changes[0].first != 1000 || !mode_changes[0].second)
+    {
+        std::fprintf(stderr, "private mode forwarding failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
 }

@@ -128,6 +128,10 @@ inline void run_conpty_session(win32::handle_view server,
     {
         const std::scoped_lock lock{session_mutex};
         state.feed_input(reader.codepoints());
+        for (const auto [mode, enabled] : state.state().take_private_modes())
+        {
+            vtserializer::append_private_mode(writer.buffer(), mode, enabled);
+        }
 
         const auto cursor = screen::coord{
             static_cast<std::int32_t>(state.state().cursor().x),
