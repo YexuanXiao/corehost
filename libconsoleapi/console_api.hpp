@@ -978,7 +978,10 @@ class console_api final
         }
         const auto *request = reinterpret_cast<const CONSOLE_SCREENBUFFERINFO_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
-        if (request->Size.X <= 0 || request->Size.Y <= 0)
+        if (request->Size.X <= 0 || request->Size.Y <= 0 || request->Size.X == SHRT_MAX ||
+            request->Size.Y == SHRT_MAX || request->CurrentWindowSize.X <= 0 ||
+            request->CurrentWindowSize.Y <= 0 || request->CurrentWindowSize.X > request->Size.X ||
+            request->CurrentWindowSize.Y > request->Size.Y)
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
@@ -987,9 +990,7 @@ class console_api final
                       static_cast<std::size_t>(request->Size.Y));
         buffer_.resize(static_cast<std::size_t>(request->Size.X),
                        static_cast<std::size_t>(request->Size.Y), state_.default_style);
-        state_.set_cursor(static_cast<std::size_t>(request->CursorPosition.X),
-                          static_cast<std::size_t>(request->CursorPosition.Y));
-        state_.cursor_changed = true;
+        state_.clamp_cursor();
         state_.default_attributes = request->Attributes;
         state_.default_style = buffer_.style_for_attributes(request->Attributes);
         state_.max_window_size = screen::coord{request->MaximumWindowSize.X,
@@ -999,11 +1000,11 @@ class console_api final
         {
             state_.color_table[i] = request->ColorTable[i];
         }
-        const auto window_width = std::max<std::int32_t>(request->CurrentWindowSize.X, 1);
-        const auto window_height = std::max<std::int32_t>(request->CurrentWindowSize.Y, 1);
-        buffer_.set_viewport(screen::rect{request->ScrollPosition.X, request->ScrollPosition.Y,
-                                          request->ScrollPosition.X + window_width - 1,
-                                          request->ScrollPosition.Y + window_height - 1});
+        const auto origin = buffer_.viewport_origin();
+        buffer_.set_viewport(screen::rect{origin.x, origin.y,
+                                          origin.x + request->CurrentWindowSize.X - 1,
+                                          origin.y + request->CurrentWindowSize.Y - 1});
+        state_.viewport_changed = true;
         coreio::prepare_completion(message);
         return true;
     }
@@ -1992,7 +1993,8 @@ class console_api final
         }
         const auto *request = reinterpret_cast<const CONSOLE_SETSCREENBUFFERSIZE_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
-        if (request->Size.X <= 0 || request->Size.Y <= 0)
+        if (request->Size.X <= 0 || request->Size.Y <= 0 || request->Size.X == SHRT_MAX ||
+            request->Size.Y == SHRT_MAX)
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
@@ -2001,6 +2003,8 @@ class console_api final
                       static_cast<std::size_t>(request->Size.Y));
         buffer_.resize(static_cast<std::size_t>(request->Size.X),
                        static_cast<std::size_t>(request->Size.Y), state_.default_style);
+        state_.clamp_cursor();
+        state_.viewport_changed = true;
         coreio::prepare_completion(message);
         return true;
     }

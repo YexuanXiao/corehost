@@ -606,7 +606,7 @@ int main()
     info_request->MaximumWindowSize = COORD{6, 3};
     info_request->PopupAttributes = 0x07;
     if (!info_api.handle(info_message) || info_buffer.buffer_size() != corehost::screen::coord{6, 3} ||
-        info_state.cursor().x != 1 || info_state.cursor().y != 2 ||
+        info_state.cursor().x != 0 || info_state.cursor().y != 0 ||
         info_state.default_attributes != 0x1F ||
         info_buffer.viewport_size() != corehost::screen::coord{4, 2})
     {

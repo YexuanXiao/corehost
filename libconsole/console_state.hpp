@@ -140,6 +140,7 @@ class console_state final
     bool title_changed{};
     bool scrollback_cleared{};
     bool cursor_changed{};
+    bool viewport_changed{};
     std::bitset<2048> private_modes;
     std::vector<std::pair<std::uint16_t, bool>> private_mode_changes;
     std::uint32_t output_code_page{};
@@ -245,6 +246,13 @@ class console_state final
     {
         const auto changed = cursor_changed;
         cursor_changed = false;
+        return changed;
+    }
+
+    [[nodiscard]] bool take_viewport_changed() noexcept
+    {
+        const auto changed = viewport_changed;
+        viewport_changed = false;
         return changed;
     }
 

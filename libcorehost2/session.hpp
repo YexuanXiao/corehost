@@ -60,6 +60,11 @@ class session final
         return state_.take_title_changed();
     }
 
+    [[nodiscard]] bool take_viewport_changed() noexcept
+    {
+        return state_.take_viewport_changed();
+    }
+
     [[nodiscard]] bool take_alternate_changed() noexcept
     {
         const auto changed = state_.alternate_changed;

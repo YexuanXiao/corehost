@@ -71,7 +71,7 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
                     static_cast<std::int32_t>(context.state->state().cursor().y),
                 };
                 bool rendered = false;
-                if (context.state->take_alternate_changed())
+                if (context.state->take_alternate_changed() || context.state->take_viewport_changed())
                 {
                     vtserializer::render_viewport(context.writer->buffer(), context.state->screen(),
                                                   cursor, &context.state->state());
@@ -149,7 +149,7 @@ class session_input_sink final : public conptyio::vt_input_sink
             static_cast<std::int32_t>(state_.state().cursor().x),
             static_cast<std::int32_t>(state_.state().cursor().y),
         };
-        if (state_.take_alternate_changed())
+        if (state_.take_alternate_changed() || state_.take_viewport_changed())
         {
             vtserializer::render_viewport(writer_.buffer(), state_.screen(), cursor, &state_.state());
         }
@@ -206,7 +206,7 @@ class session_signal_sink final : public conptyio::signal_sink
             static_cast<std::int32_t>(state_.state().cursor().x),
             static_cast<std::int32_t>(state_.state().cursor().y),
         };
-        if (state_.take_alternate_changed())
+        if (state_.take_alternate_changed() || state_.take_viewport_changed())
         {
             vtserializer::render_viewport(writer_.buffer(), state_.screen(), cursor, &state_.state());
         }
