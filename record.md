@@ -966,6 +966,31 @@ b0939ea perf(consoleapi): reuse GetConsoleInput event scratch buffer
 
 `GetConsoleInput` 的 64 项 `input_event` scratch array 从每次调用构造的局部数组改为 `console_api` 成员 `read_events_`，避免每次 API 调用重新构造/清零 64 项事件。
 
+同一条 `read_events_` 复用于 `ReadConsole`，去掉第二个局部 64 项数组：
+
+```text
+f7a29de perf(consoleapi): reuse ReadConsole event scratch buffer
+```
+
+### VT ground 文本扫描
+
+`vt_parser::_direct_ground_text_run_length` 原来对每个字符判断 `ch < 0x80`，再查 128 项表。改为 65536 项控制字符查表，直接按 `char16_t` 索引，不再有逐字符 `0x80` 分支：
+
+```cpp
+for (const char16_t ch : text)
+{
+    if (control[static_cast<size_t>(ch)])
+    {
+        break;
+    }
+    ++count;
+}
+```
+
+```text
+6ae820a perf(vtparser): remove ascii branch from ground text scanning
+```
+
 `vtserializer::append_utf16` 改为每次文本 run 只构造一次 `unicode::decoder<char16_t>`/`encoder<char>`，而不是每码点构造：
 
 ```text
