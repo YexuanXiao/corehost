@@ -84,6 +84,17 @@ class state_applier final
         }
     }
 
+    void apply_cursor_relative(const vtparser::vt_message &message,
+                             screen::console_state &state,
+                             std::ptrdiff_t dx, std::ptrdiff_t dy) noexcept
+    {
+        const auto count = std::max<int>(message.payload.count.value, 1);
+        const auto x = static_cast<std::ptrdiff_t>(state.cursor().x) + dx * count;
+        const auto y = static_cast<std::ptrdiff_t>(state.cursor().y) + dy * count;
+        state.set_cursor(static_cast<std::size_t>(std::max<std::ptrdiff_t>(x, 0)),
+                         static_cast<std::size_t>(std::max<std::ptrdiff_t>(y, 0)));
+    }
+
     void apply_cursor_visibility(bool visible,
                                   screen::console_state &state) noexcept
     {

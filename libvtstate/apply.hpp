@@ -37,6 +37,32 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::use_main_buffer:
         applier.apply_alternate_buffer(false, buffer, state);
         return true;
+    case vtparser::vt_message_id::cursor_up:
+        applier.apply_cursor_relative(message, state, 0, -1);
+        return true;
+    case vtparser::vt_message_id::cursor_down:
+        applier.apply_cursor_relative(message, state, 0, 1);
+        return true;
+    case vtparser::vt_message_id::cursor_forward:
+        applier.apply_cursor_relative(message, state, 1, 0);
+        return true;
+    case vtparser::vt_message_id::cursor_backward:
+        applier.apply_cursor_relative(message, state, -1, 0);
+        return true;
+    case vtparser::vt_message_id::cursor_next_line:
+        applier.apply_cursor_relative(message, state, 0, 1);
+        state.set_cursor(0, state.cursor().y);
+        return true;
+    case vtparser::vt_message_id::cursor_prev_line:
+        applier.apply_cursor_relative(message, state, 0, -1);
+        state.set_cursor(0, state.cursor().y);
+        return true;
+    case vtparser::vt_message_id::carriage_return:
+        state.set_cursor(0, state.cursor().y);
+        return true;
+    case vtparser::vt_message_id::cursor_forward_tab:
+        state.set_cursor(state.next_tab_stop(state.cursor().x), state.cursor().y);
+        return true;
     case vtparser::vt_message_id::cursor_show:
         applier.apply_cursor_visibility(true, state);
         return true;
