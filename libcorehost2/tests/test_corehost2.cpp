@@ -1,5 +1,4 @@
 #include "conpty.hpp"
-#include "conpty.hpp"
 #include "session.hpp"
 
 #include <cstdio>
