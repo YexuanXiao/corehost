@@ -588,6 +588,33 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer info_buffer{8, 2};
+    corehost::screen::console_state info_state{8, 2};
+    corehost::consoleapi::console_api info_api{info_buffer, info_state};
+    corehost::coreio::io_msg info_message{};
+    info_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG);
+    info_message.descriptor.OutputSize = sizeof(info_message.body);
+    auto *info_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(info_message.body);
+    info_header->ApiNumber = ConsolepSetScreenBufferInfo;
+    auto *info_request = reinterpret_cast<CONSOLE_SCREENBUFFERINFO_MSG *>(
+        info_message.body + sizeof(CONSOLE_MSG_HEADER));
+    info_request->Size = COORD{6, 3};
+    info_request->CursorPosition = COORD{1, 2};
+    info_request->ScrollPosition = COORD{0, 0};
+    info_request->Attributes = 0x1F;
+    info_request->CurrentWindowSize = COORD{4, 2};
+    info_request->MaximumWindowSize = COORD{6, 3};
+    info_request->PopupAttributes = 0x07;
+    if (!info_api.handle(info_message) || info_buffer.buffer_size() != corehost::screen::coord{6, 3} ||
+        info_state.cursor().x != 1 || info_state.cursor().y != 2 ||
+        info_state.default_attributes != 0x1F ||
+        info_buffer.viewport_size() != corehost::screen::coord{4, 2})
+    {
+        std::fprintf(stderr, "set screen buffer info failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

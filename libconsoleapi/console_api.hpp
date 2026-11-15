@@ -102,6 +102,10 @@ class console_api final
         {
             return write_console_input(message);
         }
+        if (header->ApiNumber == ConsolepSetScreenBufferInfo)
+        {
+            return set_screen_buffer_info(message);
+        }
         if (header->ApiNumber == ConsolepGetNumberOfFonts)
         {
             return get_number_of_fonts(message);
@@ -487,6 +491,44 @@ class console_api final
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLEINPUT_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool set_screen_buffer_info(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *request = reinterpret_cast<const CONSOLE_SCREENBUFFERINFO_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        if (request->Size.X <= 0 || request->Size.Y <= 0)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        state_.resize(static_cast<std::size_t>(request->Size.X),
+                      static_cast<std::size_t>(request->Size.Y));
+        buffer_.resize(static_cast<std::size_t>(request->Size.X),
+                       static_cast<std::size_t>(request->Size.Y), state_.default_style);
+        state_.set_cursor(static_cast<std::size_t>(request->CursorPosition.X),
+                          static_cast<std::size_t>(request->CursorPosition.Y));
+        state_.default_attributes = request->Attributes;
+        state_.default_style = buffer_.style_for_attributes(request->Attributes);
+        state_.max_window_size = screen::coord{request->MaximumWindowSize.X,
+                                               request->MaximumWindowSize.Y};
+        state_.popup_attributes = request->PopupAttributes;
+        for (std::size_t i = 0; i < state_.color_table.size(); ++i)
+        {
+            state_.color_table[i] = request->ColorTable[i];
+        }
+        const auto window_width = std::max<std::int32_t>(request->CurrentWindowSize.X, 1);
+        const auto window_height = std::max<std::int32_t>(request->CurrentWindowSize.Y, 1);
+        buffer_.set_viewport(screen::rect{request->ScrollPosition.X, request->ScrollPosition.Y,
+                                          request->ScrollPosition.X + window_width - 1,
+                                          request->ScrollPosition.Y + window_height - 1});
+        coreio::prepare_completion(message);
         return true;
     }
 
