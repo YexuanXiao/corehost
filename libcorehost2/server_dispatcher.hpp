@@ -65,6 +65,12 @@ class server_dispatcher final
                 std::span<char>{reinterpret_cast<char *>(message.body), capacity});
             if (written == 0)
             {
+                if (session_.raw_alerted())
+                {
+                    session_.clear_raw_alerted();
+                    coreio::prepare_completion(message, coreio::error::status_alerted, 0, nullptr, 0);
+                    return true;
+                }
                 if (session_.raw_eof())
                 {
                     session_.clear_raw_eof();

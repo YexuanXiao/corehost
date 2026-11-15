@@ -554,6 +554,17 @@ class console_api final
                 continue;
             }
 
+            if (character == 3 && (state_.input_mode & 0x0001) != 0)
+            {
+                cooked_active_ = false;
+                cooked_line_.clear();
+                request->NumBytes = 0;
+                request->ControlKeyState = 0;
+                coreio::prepare_completion(message, coreio::error::status_alerted, 0,
+                                           message.body + sizeof(CONSOLE_MSG_HEADER),
+                                           sizeof(CONSOLE_READCONSOLE_MSG));
+                return true;
+            }
             if (request->ProcessControlZ != FALSE && character == 26 &&
                 (state_.input_mode & 0x0001) != 0)
             {

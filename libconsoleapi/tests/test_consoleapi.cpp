@@ -1748,6 +1748,31 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::input_queue ctrl_c_queue;
+    ctrl_c_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key,
+        corehost::consoleinput::key_event{u'\x03'}});
+    corehost::screen::screen_buffer ctrl_c_buffer{8, 2};
+    corehost::screen::console_state ctrl_c_state{8, 2};
+    corehost::consoleapi::console_api ctrl_c_api{ctrl_c_buffer, ctrl_c_state, &ctrl_c_queue};
+    corehost::coreio::io_msg ctrl_c_message{};
+    ctrl_c_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    ctrl_c_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    auto *ctrl_c_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(ctrl_c_message.body);
+    ctrl_c_header->ApiNumber = ConsolepReadConsole;
+    auto *ctrl_c_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        ctrl_c_message.body + sizeof(CONSOLE_MSG_HEADER));
+    ctrl_c_request->Unicode = TRUE;
+    if (!ctrl_c_api.handle(ctrl_c_message) ||
+        ctrl_c_message.complete.IoStatus.Status != corehost::coreio::error::status_alerted ||
+        ctrl_c_request->NumBytes != 0)
+    {
+        std::fprintf(stderr, "ctrl+c read alert failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

@@ -118,6 +118,12 @@ class server_session final
                 complete = true;
                 break;
             }
+            if (value == 3 && (state_.input_mode & 0x0001) != 0)
+            {
+                raw_alerted_ = true;
+                complete = true;
+                break;
+            }
             if (value == 26 && (state_.input_mode & 0x0001) != 0)
             {
                 eof = true;
@@ -157,6 +163,16 @@ class server_session final
     [[nodiscard]] bool raw_eof() const noexcept
     {
         return raw_eof_;
+    }
+
+    [[nodiscard]] bool raw_alerted() const noexcept
+    {
+        return raw_alerted_;
+    }
+
+    void clear_raw_alerted() noexcept
+    {
+        raw_alerted_ = false;
     }
 
     void clear_raw_eof() noexcept
@@ -282,15 +298,24 @@ class server_session final
                                                          sizeof(pending_message_.body));
             const auto written = read_raw(std::span<char>{
                 reinterpret_cast<char *>(pending_message_.body), capacity});
+            LONG status = 0;
             if (written == 0)
             {
-                if (!raw_eof_)
+                if (raw_alerted_)
+                {
+                    clear_raw_alerted();
+                    status = coreio::error::status_alerted;
+                }
+                else if (!raw_eof_)
                 {
                     return false;
                 }
-                clear_raw_eof();
+                else
+                {
+                    clear_raw_eof();
+                }
             }
-            coreio::prepare_completion(pending_message_, 0, written, pending_message_.body, written);
+            coreio::prepare_completion(pending_message_, status, written, pending_message_.body, written);
         }
         else if (pending_kind_ == pending_kind::console_input)
         {
@@ -328,6 +353,7 @@ class server_session final
     std::u16string text_;
     std::string raw_in_;
     bool raw_eof_{};
+    bool raw_alerted_{};
     coreio::process_registry processes_;
     consoleapi::console_api api_;
     coreio::io_msg pending_message_{};
