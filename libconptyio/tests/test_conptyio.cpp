@@ -207,7 +207,8 @@ int main()
     ::CloseHandle(signal_read);
 
     corehost::conptyio::pseudo_window signal_window;
-    if (!signal_window.create())
+    signal_window.start();
+    if (signal_window.handle() == nullptr)
     {
         std::fprintf(stderr, "pseudo window create failed\n");
         return EXIT_FAILURE;
@@ -216,6 +217,10 @@ int main()
     corehost::conptyio::apply_signal(
         1, std::span<const std::byte>{reinterpret_cast<const std::byte *>(&visible), sizeof(visible)},
         signal_buffer, signal_state, &signal_window);
+
+    signal_window.stop_and_join();
+
+    signal_window.stop_and_join();
 
     std::printf("libconptyio tests passed\n");
     return EXIT_SUCCESS;

@@ -138,11 +138,8 @@ inline void run_conpty_session(win32::handle_view server,
     session state{width, height, config.text_measurement, config.ambiguous_is_wide};
     conptyio::terminal_reader reader{vt_in};
     conptyio::terminal_writer writer{vt_out};
-    conptyio::pseudo_window window;
-    if (!window.create())
-    {
-        std::abort();
-    }
+    conptyio::pseudo_window window{server};
+    window.start();
     vtserializer::append_clear_screen(writer.buffer());
     vtserializer::append_cup(writer.buffer(), 0, 0);
     if (config.inherit_cursor)
