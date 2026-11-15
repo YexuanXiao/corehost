@@ -31,8 +31,14 @@ void run_server(Transport &transport, Handler &handler, std::stop_token stop = {
         const auto result = transport.read(previous, message);
         if (result == read_io_result::got_message)
         {
-            handler(message);
-            previous = &message.complete;
+            if (handler(message))
+            {
+                previous = &message.complete;
+            }
+            else
+            {
+                previous = nullptr;
+            }
             continue;
         }
         if (result == read_io_result::disconnected)

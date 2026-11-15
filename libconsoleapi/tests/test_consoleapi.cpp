@@ -1323,6 +1323,34 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::input_queue pending_queue;
+    corehost::screen::screen_buffer pending_buffer{4, 2};
+    corehost::screen::console_state pending_state{4, 2};
+    corehost::consoleapi::console_api pending_api{pending_buffer, pending_state, &pending_queue};
+    corehost::coreio::io_msg pending_message{};
+    pending_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    pending_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                            sizeof(CONSOLE_READCONSOLE_MSG) + sizeof(char16_t);
+    auto *pending_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(pending_message.body);
+    pending_header->ApiNumber = ConsolepReadConsole;
+    auto *pending_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        pending_message.body + sizeof(CONSOLE_MSG_HEADER));
+    pending_request->Unicode = TRUE;
+    if (pending_api.handle(pending_message))
+    {
+        std::fprintf(stderr, "read console did not suspend\n");
+        return EXIT_FAILURE;
+    }
+    pending_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'A'}});
+    if (!pending_api.resume_read(pending_message) ||
+        pending_request->NumBytes != sizeof(char16_t))
+    {
+        std::fprintf(stderr, "read console resume failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

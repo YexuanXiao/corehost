@@ -11,6 +11,7 @@
 
 #include "condrv_io.hpp"
 #include "input.hpp"
+#include <memory>
 
 namespace corehost::corehost2
 {
@@ -22,8 +23,9 @@ class server_session final
   public:
     server_session(screen::screen_buffer &buffer, screen::console_state &state,
                    consoleinput::input_queue &input,
-                   std::uintptr_t input_object = 0) noexcept
-        : screen_{buffer}, state_{state}, input_{input}, parser_{raw_}, applier_{},
+                   std::uintptr_t input_object = 0,
+                   win32::handle_view server = {}) noexcept
+        : server_{server}, screen_{buffer}, state_{state}, input_{input}, parser_{raw_}, applier_{},
           api_{buffer, state, &input, input_object, &processes_}
     {
     }
@@ -94,17 +96,39 @@ class server_session final
         api_.set_window_handle(window);
     }
 
-    void operator()(coreio::io_msg &message) noexcept
+    bool operator()(coreio::io_msg &message)
     {
-        handle(message);
+        return handle(message);
     }
 
-    void handle(coreio::io_msg &message) noexcept
+    bool handle(coreio::io_msg &message)
     {
-        (void)api_.handle(message);
+        if (api_.handle(message))
+        {
+            return true;
+        }
+        pending_ = std::make_unique<coreio::io_msg>(message);
+        return false;
+    }
+
+    bool complete_pending()
+    {
+        if (!pending_ || input_.empty() || !server_.valid())
+        {
+            return false;
+        }
+        auto message = std::move(pending_);
+        if (!api_.resume_read(*message))
+        {
+            pending_ = std::move(message);
+            return false;
+        }
+        coreio::complete_io(server_, message->complete);
+        return true;
     }
 
   private:
+    win32::handle_view server_;
     screen::screen_buffer &screen_;
     screen::console_state &state_;
     consoleinput::input_queue &input_;
@@ -115,6 +139,7 @@ class server_session final
     std::string error_;
     coreio::process_registry processes_;
     consoleapi::console_api api_;
+    std::unique_ptr<coreio::io_msg> pending_;
 };
 
 } // namespace corehost::corehost2

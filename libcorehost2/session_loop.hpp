@@ -64,25 +64,29 @@ inline void run_conpty_session(win32::handle_view server,
     std::jthread server_thread;
     std::jthread signal_thread;
 
+    server_session console_session{state.screen(), state.state(), state.input(), 0, server};
+    console_session.set_window_handle(reinterpret_cast<std::uintptr_t>(window.handle()));
+    if (config.attached_process_id != 0)
+    {
+        console_session.processes().add(config.attached_process_id);
+    }
+    server_dispatcher dispatcher{server, condrv_input, condrv_output, console_session};
+
     if (server.valid())
     {
         server_thread = std::jthread{[&](std::stop_token stop) {
             try
             {
                 coreio::win32_transport transport{server, event};
-                server_session console_session{state.screen(), state.state(), state.input()};
-                console_session.set_window_handle(reinterpret_cast<std::uintptr_t>(window.handle()));
-                if (config.attached_process_id != 0)
-                {
-                    console_session.processes().add(config.attached_process_id);
-                }
-                server_dispatcher dispatcher{server, condrv_input, condrv_output, console_session};
-                auto handler = [&](coreio::io_msg &message) {
+                auto handler = [&](coreio::io_msg &message) -> bool {
                     const std::scoped_lock lock{session_mutex};
-                    dispatcher.handle(message);
+                    if (!dispatcher.handle(message))
+                    {
+                        return false;
+                    }
                     if (!state.screen().has_damage())
                     {
-                        return;
+                        return true;
                     }
                     const auto cursor = screen::coord{
                         static_cast<std::int32_t>(state.state().cursor().x),
@@ -91,6 +95,7 @@ inline void run_conpty_session(win32::handle_view server,
                     vtserializer::render_damage(writer.buffer(), state.screen(), cursor, &state.state());
                     state.screen().clear_damage();
                     (void)writer.flush();
+                    return true;
                 };
                 coreio::run_server(transport, handler, stop);
             }
@@ -128,6 +133,7 @@ inline void run_conpty_session(win32::handle_view server,
     {
         const std::scoped_lock lock{session_mutex};
         state.feed_input(reader.codepoints());
+        (void)console_session.complete_pending();
         for (const auto [mode, enabled] : state.state().take_private_modes())
         {
             vtserializer::append_private_mode(writer.buffer(), mode, enabled);

@@ -367,7 +367,12 @@ class console_api final
         return true;
     }
 
-    [[nodiscard]] bool read_console(coreio::io_msg &message) noexcept
+    [[nodiscard]] bool resume_read(coreio::io_msg &message) noexcept
+    {
+        return read_console(message, false);
+    }
+
+    [[nodiscard]] bool read_console(coreio::io_msg &message, bool pending_allowed = true) noexcept
     {
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG))
         {
@@ -415,6 +420,10 @@ class console_api final
 
         std::array<consoleinput::input_event, 64> events{};
         const auto parsed = input_->read(std::span<consoleinput::input_event>{events.data(), events.size()});
+        if (parsed == 0 && pending_allowed)
+        {
+            return false;
+        }
         std::size_t consumed_events = 0;
         for (std::size_t i = 0; i < parsed; ++i)
         {
