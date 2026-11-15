@@ -2,7 +2,7 @@ add_executable(test_libscreen
     test_libscreen.cpp
 )
 
-target_link_libraries(test_libscreen PRIVATE libscreen)
+target_link_libraries(test_libscreen PRIVATE libscreen libconsole)
 target_compile_features(test_libscreen PRIVATE cxx_std_23)
 
 # MSVC Debug builds link AddressSanitizer dynamically. Copy the runtime next to
@@ -26,7 +26,7 @@ set_tests_properties(LibScreen.Reference PROPERTIES LABELS "libscreen;screen16" 
 add_executable(test_libscreen_features
     test_libscreen_features.cpp
 )
-target_link_libraries(test_libscreen_features PRIVATE libscreen)
+target_link_libraries(test_libscreen_features PRIVATE libscreen libconsole)
 target_compile_features(test_libscreen_features PRIVATE cxx_std_23)
 add_test(NAME LibScreen.Features COMMAND test_libscreen_features)
 set_tests_properties(LibScreen.Features PROPERTIES LABELS "libscreen;features" TIMEOUT 30)

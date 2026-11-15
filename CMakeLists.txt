@@ -78,6 +78,9 @@ add_subdirectory(libvtserializer)
 add_subdirectory(libscreen)
 add_subdirectory(libscreen/bench)
 
+# ── libconsole (console state on top of libscreen) ────
+add_subdirectory(libconsole)
+
 # ── libvtstate (parser messages -> libscreen state) ──
 add_subdirectory(libvtstate)
 
