@@ -759,7 +759,8 @@ class console_api final
             return true;
         }
         auto *info = reinterpret_cast<CONSOLE_MODE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
-        info->Mode = input ? state_.input_mode : state_.output_mode;
+        info->Mode = input ? (state_.input_mode | 0x0080 | state_.input_private_mode)
+                            : state_.output_mode;
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_MODE_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_MODE_MSG));
         return true;
@@ -773,12 +774,34 @@ class console_api final
             return true;
         }
         const auto *info = reinterpret_cast<const CONSOLE_MODE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        constexpr std::uint32_t valid_input = 0x0001 | 0x0002 | 0x0004 | 0x0008 | 0x0010 | 0x0200;
+        constexpr std::uint32_t private_input = 0x0020 | 0x0040 | 0x0080 | 0x0100;
+        constexpr std::uint32_t valid_output = 0x0001 | 0x0002 | 0x0004 | 0x0008 | 0x0010;
         if (input)
         {
-            state_.input_mode = info->Mode;
+            const auto requested = info->Mode;
+            state_.input_mode = requested & ~private_input;
+            if ((requested & 0x0080) != 0)
+            {
+                state_.input_private_mode = requested & private_input;
+            }
+            else
+            {
+                state_.input_private_mode |= requested & private_input;
+            }
+            if ((requested & ~(valid_input | private_input)) != 0)
+            {
+                coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+                return true;
+            }
         }
         else
         {
+            if ((info->Mode & ~valid_output) != 0)
+            {
+                coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+                return true;
+            }
             state_.output_mode = info->Mode;
         }
         coreio::prepare_completion(message);

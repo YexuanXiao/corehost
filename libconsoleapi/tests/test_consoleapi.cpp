@@ -1102,6 +1102,31 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleapi::console_api mode_api{buffer, state, nullptr, 0x55};
+    set_mode_message.descriptor.Object = 0x55;
+    set_mode_request->Mode = 0x0200 | 0x0080 | 0x0020;
+    if (!mode_api.handle(set_mode_message) || (state.input_mode & 0x0200) == 0 ||
+        (state.input_private_mode & 0x0020) == 0)
+    {
+        std::fprintf(stderr, "set input mode private failed\n");
+        return EXIT_FAILURE;
+    }
+    get_mode_message.descriptor.Object = 0x55;
+    if (!mode_api.handle(get_mode_message) ||
+        (reinterpret_cast<const CONSOLE_MODE_MSG *>(
+             get_mode_message.body + sizeof(CONSOLE_MSG_HEADER))->Mode & 0x0080) == 0)
+    {
+        std::fprintf(stderr, "get input mode extended failed\n");
+        return EXIT_FAILURE;
+    }
+    set_mode_message.descriptor.Object = 0;
+    set_mode_request->Mode = 0x100;
+    if (!api.handle(set_mode_message) || set_mode_message.complete.IoStatus.Status == 0)
+    {
+        std::fprintf(stderr, "invalid output mode accepted\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
