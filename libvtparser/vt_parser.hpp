@@ -536,14 +536,14 @@ class vt_parser
     }
 
   private:
-    [[nodiscard]] static constexpr std::array<bool, 0x80> _control_table() noexcept
+    [[nodiscard]] static constexpr std::array<std::uint8_t, 0x10000> _control_table() noexcept
     {
-        std::array<bool, 0x80> table{};
+        std::array<std::uint8_t, 0x10000> table{};
         for (size_t i = 0; i < 0x20; ++i)
         {
-            table[i] = true;
+            table[i] = 1;
         }
-        table[0x7F] = true;
+        table[0x7F] = 1;
         return table;
     }
     // 返回输入开头可直接作为 ground 文本消费的 codepoint 数。调用点已经
@@ -555,14 +555,7 @@ class vt_parser
         size_t count = 0;
         for (const char16_t ch : text)
         {
-            if (ch < 0x80)
-            {
-                if (control[static_cast<size_t>(ch)])
-                {
-                    break;
-                }
-            }
-            else if (ch == 0x7F)
+            if (control[static_cast<size_t>(ch)])
             {
                 break;
             }
