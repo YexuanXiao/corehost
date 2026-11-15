@@ -46,6 +46,7 @@
 #include <charconv>
 #include <string>
 #include <string_view>
+#include <libunicode/convert.h>
 #include <array>
 #include <vector>
 #include "raw_buffer.hpp"
@@ -1773,5 +1774,24 @@ class vt_parser
         }
     }
 };
+
+template <typename Handler>
+void parse_utf16(vt_parser &parser, std::u16string_view input, Handler &&handler)
+{
+    std::u32string codepoints;
+    unicode::convert_to<char32_t>(input, std::back_inserter(codepoints));
+    auto view = std::u32string_view{codepoints};
+    while (!view.empty())
+    {
+        auto result = parser.parse(view);
+        view.remove_prefix(result.consumed);
+        if (result.id == vt_message_id::continue_)
+        {
+            continue;
+        }
+        handler(result);
+        parser.reset();
+    }
+}
 
 } // namespace corehost::vtparser
