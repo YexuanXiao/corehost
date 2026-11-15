@@ -985,7 +985,7 @@ int main()
     auto *get_alias_data = reinterpret_cast<char16_t *>(get_alias_request + 1);
     std::memcpy(get_alias_data, alias_source, sizeof(alias_source));
     std::memcpy(get_alias_data + 1, alias_exe, sizeof(alias_exe));
-    if (!api.handle(get_alias_message) || get_alias_request->TargetLength != 1 ||
+    if (!api.handle(get_alias_message) || get_alias_request->TargetLength != sizeof(char16_t) * 2 ||
         get_alias_data[0] != u'y')
     {
         std::fprintf(stderr, "get alias failed\n");

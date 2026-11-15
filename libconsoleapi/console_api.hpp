@@ -1164,11 +1164,12 @@ class console_api final
         {
             if (alias.source == source && alias.executable == executable)
             {
-                const auto bytes = alias.target.size() * unit;
+                const auto bytes = (alias.target.size() + 1) * unit;
                 auto *output = reinterpret_cast<char *>(request + 1);
                 if (request->Unicode)
                 {
-                    std::memcpy(output, alias.target.data(), bytes);
+                    std::memcpy(output, alias.target.data(), alias.target.size() * sizeof(char16_t));
+                    *reinterpret_cast<char16_t *>(output + alias.target.size() * sizeof(char16_t)) = 0;
                 }
                 else
                 {
@@ -1176,8 +1177,9 @@ class console_api final
                     {
                         output[i] = static_cast<char>(alias.target[i] < 0x80 ? alias.target[i] : '?');
                     }
+                    output[alias.target.size()] = 0;
                 }
-                request->TargetLength = static_cast<USHORT>(alias.target.size());
+                request->TargetLength = static_cast<USHORT>(bytes);
                 coreio::prepare_completion(message, 0, bytes, message.body + sizeof(CONSOLE_MSG_HEADER),
                                            bytes);
                 return true;
