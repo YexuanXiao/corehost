@@ -1341,13 +1341,22 @@ class console_api final
             else
             {
                 const auto code_page = state_.input_code_page;
-                const auto encoded = encode_console_text(alias.executable, code_page);
-                if (written + encoded.size() + 1 > capacity)
+                const auto units =
+                    ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(alias.executable.data()),
+                                          static_cast<int>(alias.executable.size()), nullptr, 0, nullptr, nullptr);
+                const auto size = static_cast<std::size_t>(std::max(units, 0));
+                if (written + size + 1 > capacity)
                 {
                     break;
                 }
-                std::memcpy(output + written, encoded.data(), encoded.size());
-                written += encoded.size();
+                if (size != 0)
+                {
+                    (void)::WideCharToMultiByte(
+                        code_page, 0, reinterpret_cast<const wchar_t *>(alias.executable.data()),
+                        static_cast<int>(alias.executable.size()), reinterpret_cast<char *>(output + written),
+                        static_cast<int>(size), nullptr, nullptr);
+                    written += size;
+                }
                 output[written++] = 0;
             }
         }
