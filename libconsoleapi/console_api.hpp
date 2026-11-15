@@ -1820,7 +1820,7 @@ class console_api final
                                                 message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
                                                     sizeof(CONSOLE_SETTITLE_MSG));
 
-        auto &title = title_buffer_;
+        auto &title = text_buffer_;
         title.clear();
         if (request->Unicode)
         {
@@ -1850,8 +1850,9 @@ class console_api final
 
         if (window_handle_ != 0)
         {
-            wide_title_buffer_.assign(title.begin(), title.end());
-            ::SetWindowTextW(reinterpret_cast<HWND>(window_handle_), wide_title_buffer_.c_str());
+            static_assert(sizeof(wchar_t) == sizeof(char16_t));
+            ::SetWindowTextW(reinterpret_cast<HWND>(window_handle_),
+                             reinterpret_cast<LPCWSTR>(title.c_str()));
         }
         coreio::prepare_completion(message);
         return true;
@@ -2054,11 +2055,11 @@ class console_api final
         else if (request->StringType == CONSOLE_ASCII)
         {
             const auto count = std::min<std::size_t>(requested, capacity);
-            char_buffer_.resize(count);
-            const auto read = buffer_.read_chars(coordinate, std::span<char16_t>{char_buffer_});
+            text_buffer_.resize(count);
+            const auto read = buffer_.read_chars(coordinate, std::span<char16_t>{text_buffer_});
             const auto code_page = state_.output_code_page;
             const auto converted = ::WideCharToMultiByte(
-                code_page, 0, reinterpret_cast<const wchar_t *>(char_buffer_.data()), static_cast<int>(read),
+                code_page, 0, reinterpret_cast<const wchar_t *>(text_buffer_.data()), static_cast<int>(read),
                 reinterpret_cast<char *>(data), static_cast<int>(capacity), nullptr, nullptr);
             written = static_cast<std::size_t>(std::max(converted, 0));
         }
@@ -2696,14 +2697,11 @@ class console_api final
     coreio::process_registry *processes_{};
     coreio::input_payload_reader *payload_{};
     std::u16string text_buffer_;
-    std::u16string title_buffer_;
-    std::wstring wide_title_buffer_;
     std::u16string history_selection_;
     std::vector<std::u16string_view> alias_exes_seen_;
     std::vector<std::uintptr_t> ctrl_targets_;
     std::array<consoleinput::input_event, 64> read_events_;
     std::vector<char> ansi_buffer_;
-    std::vector<char16_t> char_buffer_;
     std::vector<consoleinput::input_event> prepend_buffer_;
     std::u16string cooked_line_;
     std::u16string expanded_line_;
