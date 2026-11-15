@@ -198,6 +198,8 @@ class session_signal_sink final : public conptyio::signal_sink
     {
         std::unique_lock guard{mutex_};
         conptyio::apply_signal(id, payload, state_.screen(), state_.state(), &window_);
+        state_.queue_window_size(static_cast<std::int16_t>(state_.state().width()),
+                                 static_cast<std::int16_t>(state_.state().height()));
         if (!state_.screen().has_damage())
         {
             return;

@@ -60,6 +60,20 @@ class session final
         return state_.take_title_changed();
     }
 
+    void queue_window_size(std::int16_t width, std::int16_t height)
+    {
+        if ((state_.input_mode & 0x0008) == 0 || (width == window_width_ && height == window_height_))
+        {
+            return;
+        }
+        window_width_ = width;
+        window_height_ = height;
+        consoleinput::input_event event{consoleinput::input_event_type::window};
+        event.window.width = width;
+        event.window.height = height;
+        input_.push(event);
+    }
+
     [[nodiscard]] bool take_viewport_changed() noexcept
     {
         return state_.take_viewport_changed();
@@ -181,6 +195,8 @@ class session final
     vtstate::state_applier applier_;
     consoleinput::input_queue input_;
     std::uint32_t mouse_button_state_{};
+    std::int16_t window_width_{};
+    std::int16_t window_height_{};
 };
 
 } // namespace corehost::corehost2

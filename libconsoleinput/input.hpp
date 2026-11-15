@@ -47,6 +47,12 @@ struct mouse_event final
     std::uint32_t event_flags{};
 };
 
+struct window_event final
+{
+    std::int16_t width{};
+    std::int16_t height{};
+};
+
 struct key_event final
 {
     char16_t character{};
@@ -61,6 +67,7 @@ enum class input_event_type : std::uint8_t
 {
     key,
     mouse,
+    window,
 };
 
 struct input_event final
@@ -68,6 +75,7 @@ struct input_event final
     input_event_type type{input_event_type::key};
     key_event key;
     mouse_event mouse;
+    window_event window;
 };
 
 // Converts parser keyboard messages to a portable key event. Non-keyboard
