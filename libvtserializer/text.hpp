@@ -4,6 +4,7 @@
 
 #include <libunicode/convert.h>
 
+#include <array>
 #include <string_view>
 #include <string>
 
@@ -12,6 +13,18 @@ namespace corehost::vtserializer
 
 inline void append_utf16(byte_buffer &output, std::u16string_view text)
 {
+    if (text.size() == 1)
+    {
+        std::array<char, 4> encoded{};
+        unicode::decoder<char16_t> decoder;
+        unicode::encoder<char> encoder;
+        auto iterator = text.begin();
+        auto *last = encoder(decoder(iterator).value_or(0xFFFD), encoded.data());
+        output.append(std::span<const char8_t>{reinterpret_cast<const char8_t *>(encoded.data()),
+                                               static_cast<std::size_t>(last - encoded.data())});
+        return;
+    }
+
     const auto offset = output.size();
     output.resize(offset + text.size() * 3);
 
