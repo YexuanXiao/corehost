@@ -114,6 +114,10 @@ class pty_signal_thread final
         {
             throw std::runtime_error{"truncated PtySignal read"};
         }
+        if (status == win32::cancellable_read::status::closed && bytes != 0)
+        {
+            throw std::runtime_error{"truncated PtySignal message"};
+        }
         return status;
     }
 
