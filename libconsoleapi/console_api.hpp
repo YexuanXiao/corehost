@@ -910,10 +910,18 @@ class console_api final
                     {
                         const auto code_page =
                             state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
-                        const auto ascii = input[i].Event.KeyEvent.uChar.AsciiChar;
-                        wchar_t wide = 0;
-                        (void)::MultiByteToWideChar(code_page, 0, &ascii, 1, &wide, 1);
-                        key.character = static_cast<char16_t>(wide);
+                        char bytes[2]{input[i].Event.KeyEvent.uChar.AsciiChar, 0};
+                        int byte_count = 1;
+                        if (::IsDBCSLeadByteEx(code_page, static_cast<BYTE>(bytes[0])) &&
+                            i + 1 < records && input[i + 1].EventType == KEY_EVENT)
+                        {
+                            bytes[1] = input[i + 1].Event.KeyEvent.uChar.AsciiChar;
+                            byte_count = 2;
+                            ++i;
+                        }
+                        wchar_t wide[2]{};
+                        const auto units = ::MultiByteToWideChar(code_page, 0, bytes, byte_count, wide, 2);
+                        key.character = units > 0 ? static_cast<char16_t>(wide[0]) : 0;
                     }
                     key.key = static_cast<consoleinput::virtual_key>(
                         input[i].Event.KeyEvent.wVirtualKeyCode);
