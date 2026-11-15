@@ -441,6 +441,19 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer reverse_buffer{4, 3};
+    corehost::screen::console_state reverse_state{4, 3};
+    (void)reverse_buffer.write_scalar(0, 0, u'A', corehost::screen::cell_style{});
+    parser.reset();
+    result = parser.parse(U"\x1bM");
+    (void)corehost::vtstate::apply(result.id, result.message, reverse_buffer, reverse_state, applier);
+    if (reverse_buffer.at(0, 0).primary() != u' ' ||
+        reverse_buffer.at(0, 1).primary() != u'A')
+    {
+        std::fprintf(stderr, "reverse index failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }

@@ -162,6 +162,22 @@ class state_applier final
                          static_cast<std::size_t>(std::max<std::ptrdiff_t>(y, 0)));
     }
 
+    void apply_reverse_index(screen::screen_buffer &buffer,
+                             screen::console_state &state)
+    {
+        const auto top = state.scroll_top();
+        const auto bottom = state.scroll_bottom();
+        if (state.cursor().y == top)
+        {
+            buffer.scroll_region_down(screen::rectangle{0, top, state.width(), bottom - top + 1},
+                                     1, state.default_style);
+        }
+        else
+        {
+            state.set_cursor(state.cursor().x, state.cursor().y - 1);
+        }
+    }
+
     void apply_private_mode(const vtparser::vt_message &message,
                              screen::console_state &state) noexcept
     {

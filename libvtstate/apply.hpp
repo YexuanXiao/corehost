@@ -75,6 +75,9 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::cursor_forward_tab:
         state.set_cursor(state.next_tab_stop(state.cursor().x), state.cursor().y);
         return true;
+    case vtparser::vt_message_id::reverse_index:
+        applier.apply_reverse_index(buffer, state);
+        return true;
     case vtparser::vt_message_id::set_private_mode:
         applier.apply_private_mode(message, state);
         return true;
