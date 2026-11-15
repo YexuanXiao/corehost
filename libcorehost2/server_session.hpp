@@ -228,10 +228,17 @@ class server_session final
             }
             return true;
         }
+        const auto requested_kind = api_.take_pending_read_kind();
+        if (pending_active_ &&
+            requested_kind == consoleapi::console_api::pending_read_kind::console_input)
+        {
+            queued_console_inputs_.push_back(message);
+            return false;
+        }
         pending_message_ = message;
         pending_active_ = true;
         pending_kind_ =
-            api_.take_pending_read_kind() == consoleapi::console_api::pending_read_kind::console_input
+            requested_kind == consoleapi::console_api::pending_read_kind::console_input
                 ? pending_kind::console_input
                 : pending_kind::console_read;
         return false;
@@ -263,6 +270,12 @@ class server_session final
         coreio::complete_io(server_, pending_message_.complete);
         pending_active_ = false;
         pending_kind_ = pending_kind::none;
+        for (auto &queued : queued_console_inputs_)
+        {
+            coreio::prepare_completion(queued, 0, 0, queued.body, 0);
+            coreio::complete_io(server_, queued.complete);
+        }
+        queued_console_inputs_.clear();
         return true;
     }
     bool suspend_raw(coreio::io_msg &message)
@@ -336,6 +349,14 @@ class server_session final
         coreio::complete_io(server_, pending_message_.complete);
         pending_active_ = false;
         pending_kind_ = pending_kind::none;
+        if (!queued_console_inputs_.empty())
+        {
+            pending_message_ = queued_console_inputs_.front();
+            queued_console_inputs_.erase(queued_console_inputs_.begin());
+            pending_active_ = true;
+            pending_kind_ = pending_kind::console_input;
+            (void)complete_pending();
+        }
         return true;
     }
 
@@ -363,6 +384,7 @@ class server_session final
     coreio::input_payload_reader payload_;
     consoleapi::console_api api_;
     coreio::io_msg pending_message_{};
+    std::vector<coreio::io_msg> queued_console_inputs_;
     bool pending_active_{};
     pending_kind pending_kind_{};
 };

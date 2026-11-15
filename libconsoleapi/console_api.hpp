@@ -358,6 +358,11 @@ class console_api final
         }
         auto *request = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
+        if ((request->Flags & ~CONSOLE_READ_VALID) != 0)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
         const auto local = sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) -
                            sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
         if (message.descriptor.OutputSize <= sizeof(CONSOLE_GETCONSOLEINPUT_MSG))
