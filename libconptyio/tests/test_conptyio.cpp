@@ -1,3 +1,5 @@
+#include "terminal_reader.hpp"
+#include "terminal_reader.hpp"
 #include "terminal_writer.hpp"
 
 #include <windows.h>
@@ -24,6 +26,28 @@ int main()
     }
 
     ::CloseHandle(raw);
+    HANDLE pipe_read = nullptr;
+    HANDLE pipe_write = nullptr;
+    if (!::CreatePipe(&pipe_read, &pipe_write, nullptr, 0))
+    {
+        std::fprintf(stderr, "create pipe failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::conptyio::terminal_reader reader{win32::handle_view{pipe_read}};
+    const char text[] = {static_cast<char>(0xE4), static_cast<char>(0xB8), static_cast<char>(0xAD)};
+    DWORD written = 0;
+    ::WriteFile(pipe_write, text, 3, &written, nullptr);
+    (void)reader.read_batch();
+    if (reader.codepoints().size() != 1 || reader.codepoints()[0] != U'\u4E2D')
+    {
+        std::fprintf(stderr, "utf8 decode failed\n");
+        return EXIT_FAILURE;
+    }
+
+    ::CloseHandle(pipe_write);
+    ::CloseHandle(pipe_read);
+
     std::printf("libconptyio tests passed\n");
     return EXIT_SUCCESS;
 }
