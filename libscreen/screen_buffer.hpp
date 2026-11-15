@@ -1137,11 +1137,14 @@ inline std::size_t screen_buffer::write_chars(coord start, std::u16string_view t
         }
 
         const auto &old = at(static_cast<std::size_t>(x), static_cast<std::size_t>(y));
-        (void)write_codepoint(static_cast<std::size_t>(x),
-                              static_cast<std::size_t>(y),
-                              decoded.value, old.style(),
-                              columns >= 2 ? cell_width::wide : cell_width::narrow,
-                              old.hyperlink(), old.flags());
+        if (!write_codepoint(static_cast<std::size_t>(x),
+                               static_cast<std::size_t>(y),
+                               decoded.value, old.style(),
+                               columns >= 2 ? cell_width::wide : cell_width::narrow,
+                               old.hyperlink(), old.flags()))
+        {
+            break;
+        }
         count += decoded.units;
         x += columns;
         if (x >= static_cast<std::int32_t>(width_))
@@ -1280,7 +1283,11 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                 continue;
             }
 
-            (void)write_glyph(cursor, text.substr(span.offset, span.units), columns, style);
+            if (!write_glyph(cursor, text.substr(span.offset, span.units), columns, style))
+            {
+                result.row_end = true;
+                break;
+            }
             cursor.x += columns;
             result.consumed = span.offset + span.units;
         }
@@ -1318,9 +1325,13 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
         }
 
         const auto width = columns >= 2 ? cell_width::wide : cell_width::narrow;
-        (void)write_codepoint(static_cast<std::size_t>(cursor.x),
-                              static_cast<std::size_t>(cursor.y),
-                              decoded.value, style, width);
+        if (!write_codepoint(static_cast<std::size_t>(cursor.x),
+                               static_cast<std::size_t>(cursor.y),
+                               decoded.value, style, width))
+        {
+            result.row_end = true;
+            break;
+        }
         cursor.x += columns;
         offset += decoded.units;
         result.consumed = offset;
