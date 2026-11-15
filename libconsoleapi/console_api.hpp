@@ -612,10 +612,12 @@ class console_api final
                 {
                     erase_character(output, units, cursor, cursor - 1);
                     --cursor;
+                    history_position = state_.command_history.size();
                 }
                 redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
                 continue;
             }
+            history_position = state_.command_history.size();
             if (units < max_units)
             {
                 if (cursor < units)
@@ -2248,6 +2250,20 @@ class console_api final
         }
     }
 
+    static void echo_position(screen::coord origin, std::int32_t width, std::size_t index,
+                              std::int32_t &x, std::int32_t &y) noexcept
+    {
+        const auto first_capacity = std::max(width - origin.x, 1);
+        if (index < static_cast<std::size_t>(first_capacity))
+        {
+            x = origin.x + static_cast<std::int32_t>(index);
+            y = origin.y;
+            return;
+        }
+        const auto rest = index - static_cast<std::size_t>(first_capacity);
+        x = static_cast<std::int32_t>(rest % static_cast<std::size_t>(width));
+        y = origin.y + 1 + static_cast<std::int32_t>(rest / static_cast<std::size_t>(width));
+    }
     void redraw_echo_line(const char16_t *output, std::size_t units, std::size_t cursor, bool echo,
                           screen::coord origin, std::size_t &echo_length,
                           screen::coord &echo_cursor) const noexcept
@@ -2257,28 +2273,42 @@ class console_api final
             return;
         }
         const auto width = static_cast<std::int32_t>(state_.width());
-        const auto limit = std::max(width - origin.x, 0);
-        const auto visible = std::min<std::size_t>(units, static_cast<std::size_t>(limit));
-        for (std::size_t i = 0; i < visible; ++i)
-        {
-            (void)buffer_.write_scalar(static_cast<std::size_t>(origin.x + i),
-                                       static_cast<std::size_t>(origin.y), output[i],
-                                       state_.default_style, screen::cell_width::narrow,
-                                       state_.default_hyperlink);
-        }
-        for (std::size_t i = visible; i < echo_length; ++i)
-        {
-            (void)buffer_.write_scalar(static_cast<std::size_t>(origin.x + i),
-                                       static_cast<std::size_t>(origin.y), u' ',
-                                       state_.default_style, screen::cell_width::narrow,
-                                       state_.default_hyperlink);
-        }
-        echo_length = visible;
-        echo_cursor = screen::coord{
-            origin.x + static_cast<std::int32_t>(std::min(cursor, static_cast<std::size_t>(limit))),
-            origin.y};
-    }
+        const auto height = static_cast<std::int32_t>(state_.height());
+        const auto first_capacity = std::max(width - origin.x, 1);
 
+
+        for (std::size_t i = 0; i < units; ++i)
+        {
+            std::int32_t x = 0;
+            std::int32_t y = 0;
+            echo_position(origin, width, i, x, y);
+            if (y < 0 || y >= height)
+            {
+                continue;
+            }
+            (void)buffer_.write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
+                                       output[i], state_.default_style, screen::cell_width::narrow,
+                                       state_.default_hyperlink);
+        }
+        for (std::size_t i = units; i < echo_length; ++i)
+        {
+            std::int32_t x = 0;
+            std::int32_t y = 0;
+            echo_position(origin, width, i, x, y);
+            if (y < 0 || y >= height)
+            {
+                continue;
+            }
+            (void)buffer_.write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
+                                       u' ', state_.default_style, screen::cell_width::narrow,
+                                       state_.default_hyperlink);
+        }
+        echo_length = units;
+        std::int32_t cursor_x = origin.x;
+        std::int32_t cursor_y = origin.y;
+        echo_position(origin, width, cursor, cursor_x, cursor_y);
+        echo_cursor = screen::coord{cursor_x, cursor_y};
+    }
     void fill_rect_segment(std::size_t x, std::size_t y, std::size_t width, char16_t fill_char,
                            std::uint16_t attributes) noexcept
     {
