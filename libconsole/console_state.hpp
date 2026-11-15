@@ -117,6 +117,7 @@ class console_state final
     std::uint32_t input_private_mode{};
     std::uint32_t input_code_page{};
     std::uint16_t language_id{0x0409};
+    std::uint32_t display_mode{};
     std::uint32_t output_code_page{};
     std::uint32_t font_index{};
     coord font_size{8, 12};

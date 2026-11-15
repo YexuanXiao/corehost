@@ -120,6 +120,14 @@ class console_api final
         {
             return set_current_font(message);
         }
+        if (header->ApiNumber == ConsolepGetDisplayMode)
+        {
+            return get_display_mode(message);
+        }
+        if (header->ApiNumber == ConsolepSetDisplayMode)
+        {
+            return set_display_mode(message);
+        }
         if (header->ApiNumber == ConsolepGetFontInfo)
         {
             return get_font_info(message);
@@ -634,6 +642,38 @@ class console_api final
             state_.face_name.push_back(static_cast<char16_t>(ch));
         }
         coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool get_display_mode(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETDISPLAYMODE_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETDISPLAYMODE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->ModeFlags = state_.display_mode;
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETDISPLAYMODE_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETDISPLAYMODE_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool set_display_mode(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETDISPLAYMODE_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_SETDISPLAYMODE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        state_.display_mode = info->dwFlags;
+        info->ScreenBufferDimensions = COORD{static_cast<SHORT>(buffer_.width()),
+                                             static_cast<SHORT>(buffer_.height())};
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_SETDISPLAYMODE_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_SETDISPLAYMODE_MSG));
         return true;
     }
 

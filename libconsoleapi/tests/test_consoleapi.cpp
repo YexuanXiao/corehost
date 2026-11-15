@@ -711,6 +711,36 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg set_display_message{};
+    set_display_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETDISPLAYMODE_MSG);
+    set_display_message.descriptor.OutputSize = sizeof(set_display_message.body);
+    auto *set_display_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(set_display_message.body);
+    set_display_header->ApiNumber = ConsolepSetDisplayMode;
+    auto *set_display_request = reinterpret_cast<CONSOLE_SETDISPLAYMODE_MSG *>(
+        set_display_message.body + sizeof(CONSOLE_MSG_HEADER));
+    set_display_request->dwFlags = 1;
+    if (!api.handle(set_display_message) || state.display_mode != 1 ||
+        set_display_request->ScreenBufferDimensions.X != 6)
+    {
+        std::fprintf(stderr, "set display mode failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::io_msg get_display_message{};
+    get_display_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETDISPLAYMODE_MSG);
+    get_display_message.descriptor.OutputSize = sizeof(get_display_message.body);
+    auto *get_display_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(get_display_message.body);
+    get_display_header->ApiNumber = ConsolepGetDisplayMode;
+    if (!api.handle(get_display_message) ||
+        reinterpret_cast<const CONSOLE_GETDISPLAYMODE_MSG *>(
+            get_display_message.body + sizeof(CONSOLE_MSG_HEADER))->ModeFlags != 1)
+    {
+        std::fprintf(stderr, "get display mode failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
