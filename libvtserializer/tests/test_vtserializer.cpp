@@ -65,6 +65,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    buffer.clear();
+    append_utf16(buffer, u"A\u4E2D\U0001F600");
+    if (buffer.bytes().size() != utf8.size() ||
+        !std::equal(buffer.bytes().begin(), buffer.bytes().end(), utf8.begin()))
+    {
+        std::fprintf(stderr, "utf16 serialization failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtserializer tests passed\n");
     return EXIT_SUCCESS;
 }
