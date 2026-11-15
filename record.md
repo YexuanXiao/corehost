@@ -1140,6 +1140,18 @@ c839ce5 Reapply "perf(consoleinput): track key events instead of scanning queue"
 5cefccc perf(consoleinput): use bizwen deque for input queue
 ```
 
+全部消费时直接 `clear()`，不再逐项 `pop_front`：
+
+```text
+314844b perf(consoleinput): clear deque when consuming all events
+```
+
+`C:\1\bench_queue.cpp`，4096 项、2 万次，Release `/O2`：
+
+```text
+pop=0.4081-0.4648 ns/event  clear=0.0041 ns/event  ratio≈99-115x
+```
+
 ### 已撤销的样式微优化
 
 ```text
