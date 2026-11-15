@@ -36,10 +36,21 @@ class utf8_decoder final
                 {
                     const auto offset = output.size();
                     output.resize(offset + 8);
-                    for (std::size_t i = 0; i < 8; ++i)
-                    {
-                        output[offset + i] = static_cast<char16_t>(bytes[index + i]);
-                    }
+
+                    std::uint32_t first = 0;
+                    std::uint32_t second = 0;
+                    std::memcpy(&first, bytes.data() + index, sizeof(first));
+                    std::memcpy(&second, bytes.data() + index + 4, sizeof(second));
+                    const auto widen = [](std::uint32_t value) noexcept {
+                        return static_cast<std::uint64_t>(value & 0x000000FFu) |
+                               (static_cast<std::uint64_t>(value & 0x0000FF00u) << 8) |
+                               (static_cast<std::uint64_t>(value & 0x00FF0000u) << 16) |
+                               (static_cast<std::uint64_t>(value & 0xFF000000u) << 24);
+                    };
+                    const auto first_wide = widen(first);
+                    const auto second_wide = widen(second);
+                    std::memcpy(output.data() + offset, &first_wide, sizeof(first_wide));
+                    std::memcpy(output.data() + offset + 4, &second_wide, sizeof(second_wide));
                     index += 8;
                     continue;
                 }
