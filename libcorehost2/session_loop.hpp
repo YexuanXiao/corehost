@@ -13,6 +13,7 @@
 #include "terminal_writer.hpp"
 #include "viewport.hpp"
 
+#include "win32/event.hpp"
 #include "win32/handle.hpp"
 #include "win32/srwlock.hpp"
 #include "win32/thread.hpp"
@@ -34,6 +35,7 @@ struct server_worker_context final
 {
     win32::handle_view server;
     win32::handle_view event;
+    win32::handle_view stop_event;
     server_dispatcher *dispatcher{};
     session *state{};
     conptyio::terminal_writer *writer{};
@@ -44,7 +46,7 @@ struct server_worker_context final
 inline DWORD WINAPI server_worker_entry(LPVOID raw)
 {
     auto &context = *static_cast<server_worker_context *>(raw);
-    coreio::win32_transport transport{context.server, context.event};
+    coreio::win32_transport transport{context.server, context.event, context.stop_event};
     auto handler = [&](coreio::io_msg &message) -> bool {
         std::unique_lock guard{*context.mutex};
         if (!context.dispatcher->handle(message))
@@ -166,13 +168,33 @@ inline void run_conpty_session(win32::handle_view server,
     server_dispatcher dispatcher{server, condrv_input, condrv_output, console_session};
     std::u16string input_text_;
 
-    server_worker_context server_context{server, event, &dispatcher, &state, &writer,
+    struct worker_join_guard final
+    {
+        win32::basic_thread &thread;
+        std::atomic_bool &stop;
+        win32::handle_view stop_event;
+
+        ~worker_join_guard()
+        {
+            if (!thread.valid())
+            {
+                return;
+            }
+            stop.store(true, std::memory_order_relaxed);
+            (void)::SetEvent(stop_event.get());
+            (void)::CancelSynchronousIo(thread.get());
+            thread.join();
+        }
+    };
+    win32::event server_stop_event{win32::create_tag, true, false};
+    server_worker_context server_context{server, event, server_stop_event.view(), &dispatcher, &state, &writer,
                                          &session_mutex, &server_stop};
     if (server.valid())
     {
         server_thread = win32::basic_thread{&server_worker_entry, &server_context,
                                             {.name = L"corehost2-server"}};
     }
+    worker_join_guard server_join{server_thread, server_stop, server_stop_event.view()};
 
     signal_worker_context signal_context{signal_pipe, &state, &writer, &window, &session_mutex,
                                          &signal_stop};
@@ -181,6 +203,7 @@ inline void run_conpty_session(win32::handle_view server,
         signal_thread = win32::basic_thread{&signal_worker_entry, &signal_context,
                                             {.name = L"corehost2-signal"}};
     }
+    worker_join_guard signal_join{signal_thread, signal_stop};
 
     while (reader.read_batch())
     {
@@ -210,19 +233,7 @@ inline void run_conpty_session(win32::handle_view server,
         }
     }
 
-    if (server_thread.valid())
-    {
-        server_stop.store(true, std::memory_order_relaxed);
-        ::CancelSynchronousIo(server_thread.get());
-        server_thread.join();
-    }
 
-    if (signal_thread.valid())
-    {
-        signal_stop.store(true, std::memory_order_relaxed);
-        ::CancelSynchronousIo(signal_thread.get());
-        signal_thread.join();
-    }
 }
 
 } // namespace corehost::corehost2

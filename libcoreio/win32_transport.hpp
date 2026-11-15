@@ -15,8 +15,9 @@ namespace corehost::coreio
 class win32_transport final
 {
   public:
-    win32_transport(win32::handle_view server, win32::handle_view event) noexcept
-        : server_{server}, event_{event}
+    win32_transport(win32::handle_view server, win32::handle_view event,
+                    win32::handle_view stop_event = {}) noexcept
+        : server_{server}, event_{event}, stop_event_{stop_event}
     {
     }
 
@@ -27,19 +28,36 @@ class win32_transport final
 
     void wait() const
     {
-        if (!event_.valid())
+        HANDLE waits[2]{};
+        DWORD count = 0;
+        DWORD stop_index = MAXDWORD;
+        DWORD event_index = MAXDWORD;
+        if (stop_event_.valid())
+        {
+            stop_index = count;
+            waits[count++] = stop_event_.get();
+        }
+        if (event_.valid())
+        {
+            event_index = count;
+            waits[count++] = event_.get();
+        }
+        if (count == 0)
         {
             std::abort();
         }
-        if (::WaitForSingleObject(event_.get(), INFINITE) != WAIT_OBJECT_0)
+        const auto result = ::WaitForMultipleObjects(count, waits, FALSE, INFINITE);
+        if (result == WAIT_OBJECT_0 + stop_index || result == WAIT_OBJECT_0 + event_index)
         {
-            win32::throw_last_error();
+            return;
         }
+        win32::throw_last_error();
     }
 
   private:
     win32::handle_view server_;
     win32::handle_view event_;
+    win32::handle_view stop_event_;
 };
 
 } // namespace corehost::coreio
