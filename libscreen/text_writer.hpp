@@ -9,9 +9,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 namespace corehost::screen
 {
@@ -30,18 +32,13 @@ struct width_options final
 {
     text_measurement mode{text_measurement::console};
     bool ambiguous_is_wide{false};
+
+    friend constexpr bool operator==(const width_options &, const width_options &) noexcept = default;
 };
 
-[[nodiscard]] constexpr bool is_combining(char32_t value) noexcept
-{
-    return (value >= 0x0300 && value <= 0x036F) ||
-           (value >= 0x1AB0 && value <= 0x1AFF) ||
-           (value >= 0x1DC0 && value <= 0x1DFF) ||
-           (value >= 0x20D0 && value <= 0x20FF) ||
-           (value >= 0xFE00 && value <= 0xFE0F) ||
-           (value >= 0xFE20 && value <= 0xFE2F) ||
-           (value >= 0xE0100 && value <= 0xE01EF);
-}
+inline constexpr width_options console_width_options{};
+inline constexpr width_options wcswidth_options{text_measurement::wcswidth, false};
+inline constexpr width_options grapheme_width_options{text_measurement::graphemes, false};
 
 [[nodiscard]] constexpr int console_width(char32_t value) noexcept
 {
@@ -86,10 +83,6 @@ struct width_options final
         return 2;
     }
 
-    if (value >= 0x2500 && value <= 0x257F)
-    {
-        return 1;
-    }
     return 1;
 }
 
@@ -110,25 +103,23 @@ struct width_options final
     return static_cast<int>(unicode::width(value));
 }
 
-[[nodiscard]] inline int codepoint_width(char32_t value, width_options options) noexcept
+template <width_options Options>
+[[nodiscard]] constexpr int codepoint_width(char32_t value) noexcept
 {
-    switch (options.mode)
+    if constexpr (Options.mode == text_measurement::console)
     {
-    case text_measurement::console:
         return console_width(value);
-    case text_measurement::wcswidth:
-        return unicode_width(value, options.ambiguous_is_wide);
-    case text_measurement::graphemes:
-        return unicode_width(value, options.ambiguous_is_wide);
     }
-    return 1;
+    else
+    {
+        return unicode_width(value, Options.ambiguous_is_wide);
+    }
 }
 
-[[nodiscard]] inline int char_width_for_mode(char32_t value,
-                                             text_measurement mode,
-                                             bool ambiguous_is_wide = false) noexcept
+template <width_options Options>
+[[nodiscard]] constexpr int char_width_for_mode(char32_t value) noexcept
 {
-    return codepoint_width(value, width_options{mode, ambiguous_is_wide});
+    return codepoint_width<Options>(value);
 }
 
 struct codepoint_result final
@@ -137,36 +128,68 @@ struct codepoint_result final
     std::size_t units{};
 };
 
+template <std::input_iterator Iterator, std::sentinel_for<Iterator> Sentinel>
+[[nodiscard]] codepoint_result next_codepoint(Iterator &iterator, Sentinel end) noexcept
+{
+    if (iterator == end)
+    {
+        return {};
+    }
+
+    const auto first = static_cast<std::uint32_t>(*iterator++);
+    std::size_t units = 1;
+    char16_t buffer[2]{static_cast<char16_t>(first), 0};
+    if (first >= 0xD800 && first <= 0xDBFF)
+    {
+        if (iterator == end)
+        {
+            return codepoint_result{U'\uFFFD', 1};
+        }
+        buffer[1] = *iterator++;
+        units = 2;
+    }
+    else if (first >= 0xDC00 && first <= 0xDFFF)
+    {
+        return codepoint_result{U'\uFFFD', 1};
+    }
+
+    auto source = std::begin(buffer);
+    const auto decoded = unicode::decoder<char16_t>{}(source);
+    if (!decoded.has_value())
+    {
+        return codepoint_result{U'\uFFFD', units};
+    }
+    return codepoint_result{decoded.value(), units};
+}
+
 [[nodiscard]] inline codepoint_result next_codepoint(std::u16string_view text, std::size_t offset) noexcept
 {
     if (offset >= text.size())
     {
         return {};
     }
-
-    const auto first = static_cast<std::uint32_t>(text[offset]);
-    if (first >= 0xD800 && first <= 0xDBFF && offset + 1 >= text.size())
-    {
-        return codepoint_result{U'\uFFFD', 1};
-    }
-
     auto iterator = text.begin() + static_cast<std::ptrdiff_t>(offset);
-    const auto decoded = unicode::decoder<char16_t>{}(iterator);
-    if (!decoded.has_value())
-    {
-        return codepoint_result{U'\uFFFD', 1};
-    }
-    return codepoint_result{decoded.value(), static_cast<std::size_t>(iterator - text.begin()) - offset};
+    const auto start = iterator;
+    const auto decoded = next_codepoint(iterator, text.end());
+    return codepoint_result{decoded.value, static_cast<std::size_t>(iterator - start)};
 }
 
-[[nodiscard]] inline std::u16string to_u16(char32_t codepoint)
+template <std::output_iterator<char16_t> Output>
+[[nodiscard]] Output to_u16(char32_t codepoint, Output output)
 {
-    return unicode::convert_to<char16_t>(codepoint);
+    return unicode::encoder<char16_t>{}(codepoint, output);
 }
 
-[[nodiscard]] inline std::u32string to_u32(std::u16string_view text)
+template <std::output_iterator<char32_t> Output>
+[[nodiscard]] Output to_u32(std::u16string_view text, Output output)
 {
-    return unicode::convert_to<char32_t>(text);
+    return unicode::convert_to<char32_t>(text, output);
+}
+
+template <std::output_iterator<char32_t> Output>
+[[nodiscard]] Output to_u32(std::u32string_view text, Output output)
+{
+    return std::copy(text.begin(), text.end(), output);
 }
 
 struct grapheme_cluster final
@@ -175,6 +198,7 @@ struct grapheme_cluster final
     int width{};
 };
 
+template <width_options Options>
 class grapheme_iterator final
 {
   public:
@@ -187,22 +211,21 @@ class grapheme_iterator final
 
     grapheme_iterator() noexcept = default;
 
-    grapheme_iterator(std::u16string_view text, width_options options) noexcept
-        : text_{text},
-          options_{options}
+    explicit grapheme_iterator(std::u16string_view text) noexcept
+        : text_{text}
     {
-        scan();
     }
 
     [[nodiscard]] value_type operator*() const noexcept
     {
-        return value_type{std::span<const char16_t>{text_.data() + begin_, end_ - begin_}, width_};
+        const auto result = scan(offset_);
+        return value_type{std::span<const char16_t>{text_.data() + offset_, result.end - offset_},
+                          result.width};
     }
 
     grapheme_iterator &operator++() noexcept
     {
-        begin_ = end_;
-        scan();
+        offset_ = scan(offset_).end;
         return *this;
     }
 
@@ -215,28 +238,30 @@ class grapheme_iterator final
 
     friend bool operator==(const grapheme_iterator &iterator, std::default_sentinel_t) noexcept
     {
-        return iterator.at_end_;
+        return iterator.offset_ >= iterator.text_.size();
     }
 
   private:
-    void scan() noexcept
+    struct scan_result final
     {
-        if (begin_ >= text_.size())
+        std::size_t end{};
+        int width{};
+    };
+
+    [[nodiscard]] scan_result scan(std::size_t start) const noexcept
+    {
+        if (start >= text_.size())
         {
-            end_ = begin_;
-            width_ = 0;
-            at_end_ = true;
-            return;
+            return {};
         }
 
-        at_end_ = false;
-        auto cursor = begin_;
+        auto cursor = start;
         const auto first = next_codepoint(text_, cursor);
         cursor += first.units;
 
         unicode::grapheme_segmenter_state state{};
         unicode::grapheme_process_init(first.value, state);
-        auto width = first.value == 0xFE0F ? 2 : unicode_width(first.value, options_.ambiguous_is_wide);
+        auto width = first.value == 0xFE0F ? 2 : unicode_width(first.value, Options.ambiguous_is_wide);
 
         while (cursor < text_.size())
         {
@@ -245,34 +270,29 @@ class grapheme_iterator final
             {
                 break;
             }
-            width += next.value == 0xFE0F ? 2 : unicode_width(next.value, options_.ambiguous_is_wide);
+            width += next.value == 0xFE0F ? 2 : unicode_width(next.value, Options.ambiguous_is_wide);
             cursor += next.units;
         }
 
-        end_ = cursor;
-        width_ = width > 2 ? 2 : width;
+        return scan_result{cursor, width > 2 ? 2 : width};
     }
 
     std::u16string_view text_{};
-    width_options options_{};
-    std::size_t begin_{};
-    std::size_t end_{};
-    int width_{};
-    bool at_end_{true};
+    std::size_t offset_{};
 };
 
+template <width_options Options>
 class grapheme_range final
 {
   public:
-    grapheme_range(std::u16string_view text, width_options options) noexcept
-        : text_{text},
-          options_{options}
+    explicit grapheme_range(std::u16string_view text) noexcept
+        : text_{text}
     {
     }
 
-    [[nodiscard]] grapheme_iterator begin() const noexcept
+    [[nodiscard]] grapheme_iterator<Options> begin() const noexcept
     {
-        return grapheme_iterator{text_, options_};
+        return grapheme_iterator<Options>{text_};
     }
 
     [[nodiscard]] std::default_sentinel_t end() const noexcept
@@ -282,84 +302,96 @@ class grapheme_range final
 
   private:
     std::u16string_view text_;
-    width_options options_;
 };
-[[nodiscard]] inline int glyph_width(std::u16string_view glyph, width_options options) noexcept
+
+template <width_options Options>
+[[nodiscard]] inline int glyph_width(std::u16string_view glyph) noexcept
 {
     if (glyph.empty())
     {
         return 0;
     }
 
-    if (options.mode == text_measurement::graphemes)
+    if constexpr (Options.mode == text_measurement::graphemes)
     {
         int total = 0;
-        for (const auto cluster : grapheme_range{glyph, options})
+        for (const auto cluster : grapheme_range<Options>{glyph})
         {
             total += cluster.width;
         }
         return total;
     }
-
-    auto result = next_codepoint(glyph, 0);
-    auto width = codepoint_width(result.value, options);
-    auto offset = result.units;
-    while (offset < glyph.size())
-    {
-        result = next_codepoint(glyph, offset);
-        width += codepoint_width(result.value, options);
-        offset += result.units;
-    }
-    return width;
-}
-
-[[nodiscard]] inline int text_width_for_mode(std::u16string_view text,
-                                             text_measurement mode,
-                                             bool ambiguous_is_wide = false) noexcept
-{
-    const width_options options{mode, ambiguous_is_wide};
-    switch (mode)
-    {
-    case text_measurement::console:
+    else
     {
         std::size_t offset = 0;
-        int total = 0;
-        while (offset < text.size())
+        int width = 0;
+        while (offset < glyph.size())
         {
-            const auto decoded = next_codepoint(text, offset);
-            total += console_width(decoded.value);
+            const auto decoded = next_codepoint(glyph, offset);
+            width += codepoint_width<Options>(decoded.value);
             offset += decoded.units;
         }
-        return total;
+        return width;
     }
-    case text_measurement::graphemes:
-    {
-        int total = 0;
-        for (const auto cluster : grapheme_range{text, options})
-        {
-            total += cluster.width;
-        }
-        return total;
-    }
-    case text_measurement::wcswidth:
-    {
-        std::size_t offset = 0;
-        int total = 0;
-        while (offset < text.size())
-        {
-            const auto decoded = next_codepoint(text, offset);
-            total += unicode_width(decoded.value, ambiguous_is_wide);
-            offset += decoded.units;
-        }
-        return total;
-    }
-    }
-    return 0;
 }
 
-[[nodiscard]] inline int text_width(std::u16string_view text, width_options options) noexcept
+template <width_options Options, std::ranges::input_range Range>
+requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<Range>>, char16_t>
+[[nodiscard]] inline int text_width(Range &&text) noexcept
 {
-    return text_width_for_mode(text, options.mode, options.ambiguous_is_wide);
+    auto iterator = std::ranges::begin(text);
+    const auto end = std::ranges::end(text);
+
+    if constexpr (Options.mode == text_measurement::graphemes)
+    {
+        int total = 0;
+        int cluster = 0;
+        bool first = true;
+        unicode::grapheme_segmenter_state state{};
+
+        while (iterator != end)
+        {
+            const auto decoded = next_codepoint(iterator, end);
+            if (first)
+            {
+                unicode::grapheme_process_init(decoded.value, state);
+                cluster = decoded.value == 0xFE0F ? 2 : unicode_width(decoded.value, Options.ambiguous_is_wide);
+                first = false;
+            }
+            else if (unicode::grapheme_process_breakable(decoded.value, state))
+            {
+                total += cluster > 2 ? 2 : cluster;
+                unicode::grapheme_process_init(decoded.value, state);
+                cluster = decoded.value == 0xFE0F ? 2 : unicode_width(decoded.value, Options.ambiguous_is_wide);
+            }
+            else
+            {
+                cluster += decoded.value == 0xFE0F ? 2 : unicode_width(decoded.value, Options.ambiguous_is_wide);
+            }
+        }
+
+        if (!first)
+        {
+            total += cluster > 2 ? 2 : cluster;
+        }
+        return total;
+    }
+    else
+    {
+        int total = 0;
+        while (iterator != end)
+        {
+            const auto decoded = next_codepoint(iterator, end);
+            total += codepoint_width<Options>(decoded.value);
+        }
+        return total;
+    }
+}
+
+template <width_options Options>
+[[nodiscard]] inline int text_width(std::u16string_view text) noexcept
+{
+    return text_width<Options>(std::views::all(text));
 }
 
 } // namespace corehost::screen

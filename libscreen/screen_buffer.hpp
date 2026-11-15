@@ -361,12 +361,12 @@ class screen_buffer final
         bool row_end{};
     };
 
+    template <width_options Options = width_options{}>
     text_write_result write_text_row(coord &cursor,
                                      std::u16string_view text,
                                      std::span<const std::uint8_t> widths,
                                      cell_style style,
-                                     bool wrap_at_eol = true,
-                                     width_options options = {}) noexcept;
+                                     bool wrap_at_eol = true) noexcept;
     [[nodiscard]] bool write_glyph(coord position, std::u16string_view glyph, int columns, cell_style style) noexcept;
 
     void copy_rect(rectangle source, rectangle clip, bool use_clip, coord destination) noexcept;
@@ -797,9 +797,11 @@ inline bool screen_buffer::write_codepoint(std::size_t x, std::size_t y, char32_
         return write_scalar(x, y, static_cast<char16_t>(codepoint), style, width, hyperlink, flags);
     }
 
-    const auto cluster = to_u16(codepoint);
-    return write_cluster(x, y, std::span<const char16_t>{cluster.data(), cluster.size()},
-                        style, width, hyperlink, flags);
+    char16_t cluster[2]{};
+    const auto cluster_end = to_u16(codepoint, cluster);
+    const auto cluster_size = static_cast<std::size_t>(cluster_end - cluster);
+    return write_cluster(x, y, std::span<const char16_t>{cluster, cluster_size},
+                         style, width, hyperlink, flags);
 }
 
 inline std::u16string screen_buffer::glyph_at(std::size_t x, std::size_t y) const
@@ -1231,17 +1233,17 @@ inline std::uint16_t screen_buffer::attr_at(coord position) const noexcept
     return char_info_at(position).attributes;
 }
 
+template <width_options Options>
 inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cursor,
                                                                       std::u16string_view text,
                                                                       std::span<const std::uint8_t> widths,
                                                                       cell_style style,
-                                                                      bool wrap_at_eol,
-                                                                      width_options options) noexcept
+                                                                      bool wrap_at_eol) noexcept
 {
     text_write_result result;
-    if (options.mode == text_measurement::graphemes)
+    if constexpr (Options.mode == text_measurement::graphemes)
     {
-        for (const auto cluster : grapheme_range{text, options})
+        for (const auto cluster : grapheme_range<Options>{text})
         {
             if (cursor.x < 0 || cursor.y < 0 ||
                 static_cast<std::size_t>(cursor.x) >= width_ ||
@@ -1290,7 +1292,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
         }
 
         const auto decoded = next_codepoint(text, offset);
-        auto columns = widths.empty() ? codepoint_width(decoded.value, options)
+        auto columns = widths.empty() ? codepoint_width<Options>(decoded.value)
                                       : (offset < widths.size() ? static_cast<int>(widths[offset]) : 1);
         if (columns <= 0)
         {
