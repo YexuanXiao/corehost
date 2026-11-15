@@ -99,6 +99,10 @@ class server_session final
     {
         if (api_.handle(message))
         {
+            if (pending_active_)
+            {
+                (void)complete_pending();
+            }
             return true;
         }
         pending_message_ = message;
