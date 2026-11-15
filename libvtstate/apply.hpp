@@ -90,6 +90,12 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::designate_charset_ascii:
         applier.apply_charset(false, state);
         return true;
+    case vtparser::vt_message_id::keypad_app_mode:
+        state.set_keypad_application(true);
+        return true;
+    case vtparser::vt_message_id::keypad_numeric_mode:
+        state.set_keypad_application(false);
+        return true;
     case vtparser::vt_message_id::reverse_index:
         applier.apply_reverse_index(buffer, state);
         return true;

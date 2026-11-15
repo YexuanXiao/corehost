@@ -132,6 +132,8 @@ class console_state final
     std::size_t command_history_limit{50};
     std::uint32_t display_mode{};
     bool line_drawing_charset{};
+    bool keypad_application{};
+    bool keypad_changed{};
     std::bitset<2048> private_modes;
     std::vector<std::pair<std::uint16_t, bool>> private_mode_changes;
     std::uint32_t output_code_page{};
@@ -194,6 +196,23 @@ class console_state final
     void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y,
                        selection_mode mode) noexcept;
     [[nodiscard]] std::u16string selected_text(const screen_buffer &buffer) const;
+    void set_keypad_application(bool value) noexcept
+    {
+        if (keypad_application == value)
+        {
+            return;
+        }
+        keypad_application = value;
+        keypad_changed = true;
+    }
+
+    [[nodiscard]] bool take_keypad_changed() noexcept
+    {
+        const auto changed = keypad_changed;
+        keypad_changed = false;
+        return changed;
+    }
+
     [[nodiscard]] bool mouse_tracking() const noexcept
     {
         return private_modes.test(1000) || private_modes.test(1002) || private_modes.test(1003);

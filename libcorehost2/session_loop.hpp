@@ -132,6 +132,10 @@ inline void run_conpty_session(win32::handle_view server,
         {
             vtserializer::append_private_mode(writer.buffer(), mode, enabled);
         }
+        if (state.state().take_keypad_changed())
+        {
+            writer.buffer().append_text(state.state().keypad_application ? u8"\x1b=" : u8"\x1b>");
+        }
 
         const auto cursor = screen::coord{
             static_cast<std::int32_t>(state.state().cursor().x),
