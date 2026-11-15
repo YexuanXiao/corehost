@@ -1134,7 +1134,6 @@ class console_api final
         const auto *data = reinterpret_cast<const char *>(request + 1);
         const auto unit = request->Unicode ? sizeof(char16_t) : sizeof(char);
         const auto source_bytes = static_cast<std::size_t>(request->SourceLength) * unit;
-        const auto exe_offset = source_bytes;
         const auto exe_bytes = static_cast<std::size_t>(request->ExeLength) * unit;
         if (source_bytes + exe_bytes >
             message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETALIAS_MSG))
@@ -1158,8 +1157,8 @@ class console_api final
             }
             return value;
         };
-        const auto source = read(0, source_bytes);
-        const auto executable = read(exe_offset, exe_bytes);
+        const auto executable = read(0, exe_bytes);
+        const auto source = read(exe_bytes, source_bytes);
         for (const auto &alias : state_.aliases)
         {
             if (alias.source == source && alias.executable == executable)
