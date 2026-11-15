@@ -73,6 +73,10 @@ class console_api final
         {
             return get_largest_window_size(message);
         }
+        if (header->ApiNumber == ConsolepFillConsoleOutput)
+        {
+            return fill_console_output(message);
+        }
         if (header->ApiNumber == ConsolepReadConsoleOutput)
         {
             return read_console_output(message);
@@ -108,6 +112,47 @@ class console_api final
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCURSORINFO_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETCURSORINFO_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool fill_console_output(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_FILLCONSOLEOUTPUT_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *request = reinterpret_cast<const CONSOLE_FILLCONSOLEOUTPUT_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        if (request->WriteCoord.X < 0 || request->WriteCoord.Y < 0)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+
+        std::size_t remaining = request->Length;
+        auto x = static_cast<std::size_t>(request->WriteCoord.X);
+        auto y = static_cast<std::size_t>(request->WriteCoord.Y);
+        const auto width = buffer_.width();
+        while (remaining != 0 && y < buffer_.height() && x < width)
+        {
+            const auto count = std::min(remaining, width - x);
+            const screen::rect area{static_cast<std::int32_t>(x), static_cast<std::int32_t>(y),
+                                    static_cast<std::int32_t>(x + count - 1), static_cast<std::int32_t>(y)};
+            if (request->ElementType == CONSOLE_ATTRIBUTE)
+            {
+                buffer_.fill_attrs(area, request->Element);
+            }
+            else
+            {
+                buffer_.fill_chars(area, static_cast<char16_t>(request->Element));
+            }
+            remaining -= count;
+            x = 0;
+            ++y;
+        }
+
+        coreio::prepare_completion(message, 0, request->Length - remaining);
         return true;
     }
 

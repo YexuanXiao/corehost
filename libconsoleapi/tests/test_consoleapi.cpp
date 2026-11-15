@@ -163,6 +163,26 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg fill_message{};
+    fill_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_FILLCONSOLEOUTPUT_MSG);
+    fill_message.descriptor.OutputSize = sizeof(fill_message.body);
+    auto *fill_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(fill_message.body);
+    fill_header->ApiNumber = ConsolepFillConsoleOutput;
+    auto *fill_request = reinterpret_cast<CONSOLE_FILLCONSOLEOUTPUT_MSG *>(
+        fill_message.body + sizeof(CONSOLE_MSG_HEADER));
+    fill_request->WriteCoord = COORD{1, 1};
+    fill_request->ElementType = CONSOLE_REAL_UNICODE;
+    fill_request->Element = u'F';
+    fill_request->Length = 3;
+    if (!api.handle(fill_message) || buffer.at(1, 1).primary() != u'F' ||
+        buffer.at(3, 1).primary() != u'F' ||
+        fill_message.complete.IoStatus.Information != 3)
+    {
+        std::fprintf(stderr, "fill console output failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
