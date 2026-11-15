@@ -167,6 +167,16 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::corehost2::session ambiguous_session{4, 2,
+                                                   corehost::screen::text_measurement::graphemes, true};
+    constexpr char32_t ambiguous_text[]{U'\u00A1'};
+    ambiguous_session.feed(ambiguous_text);
+    if (ambiguous_session.state().cursor().x != 2)
+    {
+        std::fprintf(stderr, "ambiguous width failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
 }

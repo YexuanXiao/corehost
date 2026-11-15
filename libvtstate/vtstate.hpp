@@ -20,8 +20,9 @@ class state_applier final
 {
   public:
     explicit state_applier(screen::text_measurement measurement =
-                              screen::text_measurement::graphemes) noexcept
-        : measurement_{measurement}
+                              screen::text_measurement::graphemes,
+                          bool ambiguous_is_wide = false) noexcept
+        : measurement_{measurement}, ambiguous_is_wide_{ambiguous_is_wide}
     {
     }
 
@@ -34,22 +35,40 @@ class state_applier final
                     screen::screen_buffer &buffer,
                     screen::console_state &state)
     {
-        switch (measurement_)
+        if (ambiguous_is_wide_)
         {
-        case screen::text_measurement::console:
-            apply_text_impl<screen::text_measurement::console>(message, buffer, state);
-            break;
-        case screen::text_measurement::wcswidth:
-            apply_text_impl<screen::text_measurement::wcswidth>(message, buffer, state);
-            break;
-        default:
-            apply_text_impl<screen::text_measurement::graphemes>(message, buffer, state);
-            break;
+            switch (measurement_)
+            {
+            case screen::text_measurement::console:
+                apply_text_impl<screen::text_measurement::console, true>(message, buffer, state);
+                break;
+            case screen::text_measurement::wcswidth:
+                apply_text_impl<screen::text_measurement::wcswidth, true>(message, buffer, state);
+                break;
+            default:
+                apply_text_impl<screen::text_measurement::graphemes, true>(message, buffer, state);
+                break;
+            }
+        }
+        else
+        {
+            switch (measurement_)
+            {
+            case screen::text_measurement::console:
+                apply_text_impl<screen::text_measurement::console, false>(message, buffer, state);
+                break;
+            case screen::text_measurement::wcswidth:
+                apply_text_impl<screen::text_measurement::wcswidth, false>(message, buffer, state);
+                break;
+            default:
+                apply_text_impl<screen::text_measurement::graphemes, false>(message, buffer, state);
+                break;
+            }
         }
     }
 
   public:
-    template <screen::text_measurement Mode>
+    template <screen::text_measurement Mode, bool Ambiguous>
     void apply_text_impl(const vtparser::vt_message &message,
                     screen::screen_buffer &buffer,
                     screen::console_state &state)
@@ -63,7 +82,7 @@ class state_applier final
         };
 
         std::size_t consumed = 0;
-        for (const auto cluster : screen::grapheme_range<Mode>{text_})
+        for (const auto cluster : screen::grapheme_range<Mode, Ambiguous>{text_})
         {
             auto columns = cluster.width;
             if (columns <= 0)
@@ -629,6 +648,7 @@ class state_applier final
   private:
     std::size_t last_consumed_{};
     screen::text_measurement measurement_{screen::text_measurement::graphemes};
+    bool ambiguous_is_wide_{};
 };
 
 } // namespace corehost::vtstate

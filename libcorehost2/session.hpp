@@ -21,8 +21,10 @@ class session final
 {
   public:
     session(std::size_t width, std::size_t height,
-            screen::text_measurement measurement = screen::text_measurement::graphemes)
-        : screen_{width, height}, state_{width, height}, parser_{raw_}, applier_{measurement}
+            screen::text_measurement measurement = screen::text_measurement::graphemes,
+            bool ambiguous_is_wide = false)
+        : screen_{width, height}, state_{width, height}, parser_{raw_},
+          applier_{measurement, ambiguous_is_wide}
     {
     }
 
