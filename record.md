@@ -1006,6 +1006,23 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### ReadConsole 控制键范围前置
+
+普通可打印字符不再依次检查 Ctrl-C、Ctrl-Z、CtrlWakeupMask；三项控制键处理统一放进：
+
+```cpp
+if (character < u' ')
+{
+    ...
+}
+```
+
+普通字符只用一次范围判断就跳过全部控制键分支：
+
+```text
+2253a30 perf(consoleapi): gate control key handling on control range
+```
+
 ### ReadConsole 虚拟键 switch
 
 `read_console` 的方向/编辑键由 `if/else if` 链改为 `switch`，箭头上/下不再走完整比较链：
