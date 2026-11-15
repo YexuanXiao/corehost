@@ -87,6 +87,18 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::reverse_index:
         applier.apply_reverse_index(buffer, state);
         return true;
+    case vtparser::vt_message_id::cursor_keys_app_mode:
+        state.set_private_mode(1, true);
+        return true;
+    case vtparser::vt_message_id::cursor_keys_normal_mode:
+        state.set_private_mode(1, false);
+        return true;
+    case vtparser::vt_message_id::cursor_enable_blinking:
+        state.set_private_mode(12, true);
+        return true;
+    case vtparser::vt_message_id::cursor_disable_blinking:
+        state.set_private_mode(12, false);
+        return true;
     case vtparser::vt_message_id::set_private_mode:
         applier.apply_private_mode(message, state);
         return true;

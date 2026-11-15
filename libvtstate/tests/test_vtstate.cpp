@@ -480,6 +480,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b[?1h");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (!state.private_modes.test(1))
+    {
+        std::fprintf(stderr, "cursor key mode failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }
