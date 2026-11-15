@@ -119,6 +119,10 @@ class console_api final
             const bool input = input_object_ != 0 && message.descriptor.Object == input_object_;
             return header->ApiNumber == ConsolepGetMode ? get_mode(message, input) : set_mode(message, input);
         }
+        if (header->ApiNumber == ConsolepFlushInputBuffer)
+        {
+            return flush_input_buffer(message);
+        }
         if (header->ApiNumber == ConsolepGetConsoleProcessList)
         {
             return get_process_list(message);
@@ -610,6 +614,16 @@ class console_api final
         else
         {
             state_.output_mode = info->Mode;
+        }
+        coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool flush_input_buffer(coreio::io_msg &message) noexcept
+    {
+        if (input_ != nullptr)
+        {
+            input_->clear();
         }
         coreio::prepare_completion(message);
         return true;

@@ -765,6 +765,18 @@ int main()
         return EXIT_FAILURE;
     }
 
+    input_queue.push(corehost::consoleinput::input_event{});
+    corehost::coreio::io_msg flush_message{};
+    flush_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER);
+    flush_message.descriptor.OutputSize = sizeof(flush_message.body);
+    auto *flush_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(flush_message.body);
+    flush_header->ApiNumber = ConsolepFlushInputBuffer;
+    if (!input_api.handle(flush_message) || !input_queue.empty())
+    {
+        std::fprintf(stderr, "flush input buffer failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
