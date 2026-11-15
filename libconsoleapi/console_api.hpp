@@ -1851,8 +1851,11 @@ class console_api final
         state_.title = title;
         state_.title_changed = true;
 
+#ifdef COREHOST2_TESTING
         if (window_handle_ != 0)
+#endif
         {
+            assert(window_handle_ != 0);
             static_assert(sizeof(wchar_t) == sizeof(char16_t));
             ::SetWindowTextW(reinterpret_cast<HWND>(window_handle_),
                              reinterpret_cast<LPCWSTR>(title.c_str()));
