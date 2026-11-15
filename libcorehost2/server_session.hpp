@@ -128,6 +128,13 @@ class server_session final
     }
 
   private:
+    enum class pending_kind : std::uint8_t
+    {
+        none,
+        console_read,
+        raw_read,
+    };
+
     win32::handle_view server_;
     screen::screen_buffer &screen_;
     screen::console_state &state_;
@@ -140,6 +147,7 @@ class server_session final
     coreio::process_registry processes_;
     consoleapi::console_api api_;
     std::unique_ptr<coreio::io_msg> pending_;
+    pending_kind pending_kind_{};
 };
 
 } // namespace corehost::corehost2
