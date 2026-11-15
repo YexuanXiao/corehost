@@ -151,6 +151,22 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::corehost2::session mouse_session{8, 2};
+    constexpr char32_t mouse_sequence[]{U'\x1b', U'[', U'<', U'0', U';', U'2', U';', U'2', U'M'};
+    mouse_session.feed_input(mouse_sequence);
+    if (!mouse_session.input().empty())
+    {
+        std::fprintf(stderr, "mouse accepted without tracking mode\n");
+        return EXIT_FAILURE;
+    }
+    mouse_session.feed_input(mouse_mode);
+    mouse_session.feed_input(mouse_sequence);
+    if (mouse_session.input().size() != 1)
+    {
+        std::fprintf(stderr, "mouse rejected with tracking mode\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
 }

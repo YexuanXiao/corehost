@@ -193,6 +193,11 @@ class console_state final
     void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y,
                        selection_mode mode) noexcept;
     [[nodiscard]] std::u16string selected_text(const screen_buffer &buffer) const;
+    [[nodiscard]] bool mouse_tracking() const noexcept
+    {
+        return private_modes.test(1000) || private_modes.test(1002) || private_modes.test(1003);
+    }
+
     void set_private_mode(std::uint16_t mode, bool enabled)
     {
         if (mode >= private_modes.size() || private_modes.test(mode) == enabled)

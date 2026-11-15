@@ -72,7 +72,7 @@ class session final
             }
 
             if (const auto mouse = consoleinput::mouse_from_message(result.id, result.message);
-                mouse.has_value())
+                mouse.has_value() && state_.mouse_tracking())
             {
                 consoleinput::input_event event{consoleinput::input_event_type::mouse};
                 event.mouse = *mouse;
