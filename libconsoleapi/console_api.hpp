@@ -989,6 +989,7 @@ class console_api final
                        static_cast<std::size_t>(request->Size.Y), state_.default_style);
         state_.set_cursor(static_cast<std::size_t>(request->CursorPosition.X),
                           static_cast<std::size_t>(request->CursorPosition.Y));
+        state_.cursor_changed = true;
         state_.default_attributes = request->Attributes;
         state_.default_style = buffer_.style_for_attributes(request->Attributes);
         state_.max_window_size = screen::coord{request->MaximumWindowSize.X,
@@ -2333,8 +2334,14 @@ class console_api final
         }
         const auto *info = reinterpret_cast<const CONSOLE_SETCURSORINFO_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
+        if (info->CursorSize == 0 || info->CursorSize > 100)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
         state_.cursor().visible = info->Visible != FALSE;
         state_.cursor().size = info->CursorSize;
+        state_.cursor_changed = true;
         coreio::prepare_completion(message);
         return true;
     }
@@ -2348,13 +2355,16 @@ class console_api final
         }
         const auto *position = reinterpret_cast<const CONSOLE_SETCURSORPOSITION_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
-        if (position->CursorPosition.X < 0 || position->CursorPosition.Y < 0)
+        if (position->CursorPosition.X < 0 || position->CursorPosition.Y < 0 ||
+            static_cast<std::size_t>(position->CursorPosition.X) >= buffer_.width() ||
+            static_cast<std::size_t>(position->CursorPosition.Y) >= buffer_.height())
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
         state_.set_cursor(static_cast<std::size_t>(position->CursorPosition.X),
                           static_cast<std::size_t>(position->CursorPosition.Y));
+        state_.cursor_changed = true;
         coreio::prepare_completion(message);
         return true;
     }

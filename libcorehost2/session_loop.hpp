@@ -78,7 +78,8 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
                     context.state->screen().clear_damage();
                     rendered = true;
                 }
-                else if (context.state->screen().has_damage())
+                else if (context.state->screen().has_damage() ||
+                         context.state->state().take_cursor_changed())
                 {
                     vtserializer::render_damage(context.writer->buffer(), context.state->screen(),
                                                 cursor, &context.state->state());
