@@ -467,7 +467,7 @@ class console_api final
         }
         bool line_complete = false;
 
-        std::array<consoleinput::input_event, 64> events{};
+        auto &events = read_events_;
         const auto parsed = input_->read(std::span<consoleinput::input_event>{events.data(), events.size()});
         if (parsed == 0 && pending_allowed)
         {
