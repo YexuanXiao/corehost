@@ -84,6 +84,20 @@ class state_applier final
         }
     }
 
+    void apply_palette_color(const vtparser::vt_message &message,
+                               screen::console_state &state)
+    {
+        const auto index = message.payload.palette.index;
+        if (index < 0 || index >= 16)
+        {
+            return;
+        }
+        state.color_table[static_cast<std::size_t>(index)] =
+            (static_cast<std::uint32_t>(message.payload.palette.r) << 16) |
+            (static_cast<std::uint32_t>(message.payload.palette.g) << 8) |
+            message.payload.palette.b;
+    }
+
     void apply_insert_characters(const vtparser::vt_message &message,
                                   screen::screen_buffer &buffer,
                                   screen::console_state &state)

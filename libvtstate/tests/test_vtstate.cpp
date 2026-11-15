@@ -254,6 +254,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b]4;1;rgb:ff/00/00\x07");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.color_table[1] != 0xFF0000)
+    {
+        std::fprintf(stderr, "palette color failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }
