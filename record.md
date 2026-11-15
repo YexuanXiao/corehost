@@ -1409,6 +1409,14 @@ control old=0.0839-0.0892 ns/unit new=0.0815-0.0859 ns/unit ratio=1.02-1.09x
 
 收益不稳定，部分场景变慢，代码量翻倍，因此保留 4 字符版本。
 
+### ESC D 作为 IND 保留列
+
+`ESC D` 原来映射到 `line_feed`，会把光标列清零。按 VT 语义改为独立的 `vt_message_id::index`，新增 `apply_index`：下移保留列，在滚动区域底部滚动后仍保留列。`VtState.Reference` 的 index 测试由此恢复通过。
+
+```text
+9fef5ad fix(vt): treat ESC D as index preserving column
+```
+
 ### 未保留：UTF-8 单码点指针编码
 
 尝试把 `utf8_decoder::append` 的 `std::back_inserter` 改成：
