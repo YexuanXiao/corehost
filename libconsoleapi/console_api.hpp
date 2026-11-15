@@ -180,7 +180,7 @@ class console_api final
         }
         auto *info = reinterpret_cast<CONSOLE_GETCURSORINFO_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
-        info->CursorSize = 25;
+        info->CursorSize = state_.cursor().size;
         info->Visible = state_.cursor().visible ? TRUE : FALSE;
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCURSORINFO_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
@@ -865,6 +865,7 @@ class console_api final
         const auto *info = reinterpret_cast<const CONSOLE_SETCURSORINFO_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
         state_.cursor().visible = info->Visible != FALSE;
+        state_.cursor().size = info->CursorSize;
         coreio::prepare_completion(message);
         return true;
     }

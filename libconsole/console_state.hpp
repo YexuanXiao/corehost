@@ -28,6 +28,7 @@ struct cursor_state final
     std::size_t x{};
     std::size_t y{};
     bool visible{true};
+    std::uint32_t size{25};
     cursor_style style{cursor_style::block};
 };
 

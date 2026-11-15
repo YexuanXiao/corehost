@@ -109,8 +109,9 @@ int main()
     cursor_info_header->ApiNumber = ConsolepSetCursorInfo;
     auto *cursor_set = reinterpret_cast<CONSOLE_SETCURSORINFO_MSG *>(
         cursor_info_message.body + sizeof(CONSOLE_MSG_HEADER));
+    cursor_set->CursorSize = 50;
     cursor_set->Visible = FALSE;
-    if (!api.handle(cursor_info_message) || state.cursor().visible)
+    if (!api.handle(cursor_info_message) || state.cursor().visible || state.cursor().size != 50)
     {
         std::fprintf(stderr, "set cursor info failed\n");
         return EXIT_FAILURE;
