@@ -343,8 +343,10 @@ class console_api final
 
         std::array<consoleinput::input_event, 64> events{};
         const auto parsed = input_->read(std::span<consoleinput::input_event>{events.data(), events.size()});
+        std::size_t consumed_events = 0;
         for (std::size_t i = 0; i < parsed; ++i)
         {
+            consumed_events = i + 1;
             if (events[i].type != consoleinput::input_event_type::key || !events[i].key.key_down)
             {
                 continue;
@@ -368,6 +370,10 @@ class console_api final
             }
         }
 
+        for (std::size_t i = parsed; i > consumed_events; --i)
+        {
+            input_->push_front(events[i - 1]);
+        }
         request->NumBytes = static_cast<ULONG>(units * sizeof(char16_t));
         coreio::prepare_completion(message, 0, units * sizeof(char16_t),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),

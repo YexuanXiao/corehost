@@ -873,6 +873,37 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::input_queue line_queue;
+    corehost::consoleinput::key_event line_key;
+    line_key.character = u'A';
+    line_queue.push(corehost::consoleinput::input_event{corehost::consoleinput::input_event_type::key, line_key});
+    line_key.character = u'\r';
+    line_queue.push(corehost::consoleinput::input_event{corehost::consoleinput::input_event_type::key, line_key});
+    line_key.character = u'B';
+    line_queue.push(corehost::consoleinput::input_event{corehost::consoleinput::input_event_type::key, line_key});
+    corehost::consoleapi::console_api line_api{buffer, state, &line_queue};
+    corehost::coreio::io_msg line_message{};
+    line_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    line_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) +
+                                         sizeof(char16_t);
+    auto *line_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(line_message.body);
+    line_header->ApiNumber = ConsolepReadConsole;
+    auto *line_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        line_message.body + sizeof(CONSOLE_MSG_HEADER));
+    line_request->Unicode = TRUE;
+    if (!line_api.handle(line_message) || line_queue.size() != 1)
+    {
+        std::fprintf(stderr, "read console unread restore failed\n");
+        return EXIT_FAILURE;
+    }
+    corehost::consoleinput::input_event remaining{};
+    if (line_queue.read(std::span<corehost::consoleinput::input_event>{&remaining, 1}) != 1 ||
+        remaining.key.character != u'B')
+    {
+        std::fprintf(stderr, "read console remaining order failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
