@@ -22,12 +22,7 @@ inline void append_utf16(byte_buffer &output, std::u16string_view text)
     auto iterator = text.begin();
     while (iterator != text.end())
     {
-        auto codepoint = decoder(iterator);
-        if (!codepoint.has_value())
-        {
-            codepoint = 0xFFFD;
-        }
-        last = encoder(*codepoint, last);
+        last = encoder(decoder(iterator).value_or(0xFFFD), last);
     }
 
     output.resize(offset + static_cast<std::size_t>(last - first));
