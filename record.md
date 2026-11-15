@@ -514,3 +514,41 @@ F10 File 菜单
 Ctrl+Q Unsaved Changes
 Don't Save 退出
 ```
+
+### 保存/打开文件
+
+已验证：
+
+```text
+edit
+输入 HELLO-SAVE
+Ctrl+S
+Save As...
+Ctrl+A -> c2save.txt -> Enter
+```
+
+生成：
+
+```text
+C:\Users\xyx\c2save.txt
+内容 HELLO-SAVE
+```
+
+随后：
+
+```text
+Ctrl+Q
+edit C:\Users\xyx\c2save.txt
+```
+
+打开后：
+
+```text
+标题 c2save.txt - edit
+编辑区 HELLO-SAVE
+状态栏 [CRLF] [UTF-8] [Spaces:4] 1:11   [c2save.txt]
+```
+
+保存和打开文件的实际读写通过。
+
+仍有一个启动问题：首次启动 `edit <file>` 后窗口可能保持空白，需要一次 resize/鼠标点击后才显示 UI；该问题尚未修复。
