@@ -25,4 +25,14 @@ inline void append_hyperlink_close(byte_buffer &output)
     output.push_back(static_cast<char8_t>(0x07));
 }
 
+inline void append_line_rendition(byte_buffer &output, unsigned value)
+{
+    const char8_t sequence[3]{
+        static_cast<char8_t>(0x1B),
+        u8'#',
+        static_cast<char8_t>(u8'0' + value),
+    };
+    output.append(std::span<const char8_t>{sequence, 3});
+}
+
 } // namespace corehost::vtserializer

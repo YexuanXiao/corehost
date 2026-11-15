@@ -43,6 +43,16 @@ int main()
         return EXIT_FAILURE;
     }
 
+    buffer.clear();
+    append_line_rendition(buffer, 3);
+    constexpr std::u8string_view rendition = u8"\x1b#3";
+    if (buffer.bytes().size() != rendition.size() ||
+        !std::equal(buffer.bytes().begin(), buffer.bytes().end(), rendition.begin()))
+    {
+        std::fprintf(stderr, "line rendition serialization failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtserializer tests passed\n");
     return EXIT_SUCCESS;
 }
