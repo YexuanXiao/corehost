@@ -2025,7 +2025,8 @@ class console_api final
         }
         auto *request = reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
-        if (request->WriteCoord.X < 0 || request->WriteCoord.Y < 0)
+        if (request->StringType != CONSOLE_ASCII && request->StringType != CONSOLE_REAL_UNICODE &&
+            request->StringType != CONSOLE_FALSE_UNICODE && request->StringType != CONSOLE_ATTRIBUTE)
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
@@ -2052,26 +2053,17 @@ class console_api final
         else if (request->StringType == CONSOLE_ASCII)
         {
             const auto count = std::min<std::size_t>(request->NumRecords, data_size);
-            auto x = static_cast<std::size_t>(coordinate.x);
-            auto y = static_cast<std::size_t>(coordinate.y);
             const auto *chars = reinterpret_cast<const char *>(data);
-            for (std::size_t i = 0; i < count && y < buffer_.height(); ++i)
+            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+            const auto units = ::MultiByteToWideChar(code_page, 0, chars, static_cast<int>(count),
+                                                     nullptr, 0);
+            std::u16string text(static_cast<std::size_t>(std::max(units, 0)), u'\0');
+            if (units > 0)
             {
-                if (x >= buffer_.width())
-                {
-                    x = 0;
-                    ++y;
-                    if (y >= buffer_.height())
-                    {
-                        break;
-                    }
-                }
-                (void)buffer_.write_codepoint(x, y, static_cast<unsigned char>(chars[i]),
-                                             state_.default_style, screen::cell_width::narrow,
-                                             state_.default_hyperlink);
-                ++x;
-                ++written;
+                (void)::MultiByteToWideChar(code_page, 0, chars, static_cast<int>(count),
+                                            reinterpret_cast<LPWSTR>(text.data()), units);
             }
+            written = buffer_.write_chars(coordinate, text);
         }
         request->NumRecords = static_cast<ULONG>(written);
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG),
