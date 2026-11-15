@@ -1393,6 +1393,21 @@ control old=0.0839-0.0892 ns/unit new=0.0815-0.0859 ns/unit ratio=1.02-1.09x
 
 收益不稳定，部分场景变慢，代码量翻倍，因此保留 4 字符版本。
 
+### UTF-8 ASCII 块 64 位写回
+
+ASCII 块不再逐字符写 `u16string`，而是一次读取 4 字节， widen 成 4 个 `char16_t`，再用 64 位 `memcpy` 写回；每个 8 字节块执行两次。
+
+```text
+7c94db4 perf(vtparser): widen ascii blocks with word stores
+```
+
+`C:\1\bench_utf8_expand.cpp`，64 KiB，2 万次：
+
+```text
+ascii old=0.4049-0.4443 ns/byte new=0.3646-0.4480 ns/byte ratio=0.99-1.11x
+mixed old=0.4001-0.4388 ns/byte new=0.3613-0.3700 ns/byte ratio=1.08-1.20x
+```
+
 ### UTF-8 解码 ASCII 块
 
 `utf8_decoder::decode` 先处理未完成序列；pending 为空后，以 64 位字一次检查 8 个 ASCII 字节，整块写入 `u16string`，不再逐字节走 `consume`。
