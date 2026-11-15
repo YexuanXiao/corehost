@@ -1062,9 +1062,21 @@ class console_api final
             }
             return value;
         };
-        state_.aliases.push_back(screen::console_state::alias_entry{
+        auto entry = screen::console_state::alias_entry{
             read(0, source_end), read(source_end, target_end - source_end),
-            read(target_end, exe_end - target_end)});
+            read(target_end, exe_end - target_end)};
+        const auto existing = std::ranges::find_if(
+            state_.aliases, [&](const auto &alias) {
+                return alias.source == entry.source && alias.executable == entry.executable;
+            });
+        if (existing != state_.aliases.end())
+        {
+            existing->target = std::move(entry.target);
+        }
+        else
+        {
+            state_.aliases.push_back(std::move(entry));
+        }
         coreio::prepare_completion(message);
         return true;
     }
