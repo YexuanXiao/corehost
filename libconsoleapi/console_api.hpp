@@ -759,9 +759,10 @@ class console_api final
         const auto *request = reinterpret_cast<const CONSOLE_SCROLLSCREENBUFFER_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto source = request->ScrollRectangle;
-        if (source.Left > source.Right || source.Top > source.Bottom)
+        if (source.Left > source.Right || source.Top > source.Bottom ||
+            (source.Left == request->DestinationOrigin.X && source.Top == request->DestinationOrigin.Y))
         {
-            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            coreio::prepare_completion(message);
             return true;
         }
         const screen::rectangle source_rect{static_cast<std::size_t>(source.Left),
@@ -775,9 +776,21 @@ class console_api final
         const screen::coord destination{request->DestinationOrigin.X, request->DestinationOrigin.Y};
         buffer_.copy_rect(source_rect, clip_rect, request->Clip != FALSE, destination);
 
-        const auto fill_char = request->Unicode ? request->Fill.Char.UnicodeChar
-                                               : static_cast<char16_t>(request->Fill.Char.AsciiChar);
-        const auto fill_attributes = request->Fill.Attributes;
+        char16_t fill_char = request->Fill.Char.UnicodeChar;
+        if (!request->Unicode)
+        {
+            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+            const char byte = request->Fill.Char.AsciiChar;
+            wchar_t wide[4]{};
+            const auto units = ::MultiByteToWideChar(code_page, 0, &byte, 1, wide, 4);
+            fill_char = units > 0 ? static_cast<char16_t>(wide[0]) : u'?';
+        }
+        auto fill_attributes = request->Fill.Attributes;
+        if (fill_char == 0 && fill_attributes == 0)
+        {
+            fill_char = u' ';
+            fill_attributes = state_.default_attributes;
+        }
         const auto dest_left = static_cast<std::size_t>(std::max<std::int32_t>(destination.x, 0));
         const auto dest_top = static_cast<std::size_t>(std::max<std::int32_t>(destination.y, 0));
         const auto dest_right = dest_left + source_rect.width;
@@ -799,6 +812,20 @@ class console_api final
                 fill_rect_segment(right_start, y, source_rect.x + source_rect.width - right_start, fill_char, fill_attributes);
             }
         }
+        const auto full_screen_scroll =
+            source.Left <= 0 && source.Top <= 0 &&
+            source.Right >= static_cast<SHORT>(buffer_.width() - 1) &&
+            source.Bottom >= static_cast<SHORT>(buffer_.height() - 1) &&
+            request->DestinationOrigin.X == 0 &&
+            request->DestinationOrigin.Y <= -static_cast<SHORT>(buffer_.height()) &&
+            request->Clip == FALSE && fill_char == u' ';
+        if (full_screen_scroll)
+        {
+            buffer_.clear_history();
+            state_.scrollback_cleared = true;
+            state_.set_cursor(0, 0);
+        }
+        state_.viewport_changed = true;
         coreio::prepare_completion(message);
         return true;
     }
@@ -825,7 +852,17 @@ class console_api final
             area = screen::rect{area.left + origin.x, area.top + origin.y,
                                 area.right + origin.x, area.bottom + origin.y};
         }
+        const auto window_width = static_cast<std::size_t>(area.right - area.left + 1);
+        const auto window_height = static_cast<std::size_t>(area.bottom - area.top + 1);
+        if (window_width > buffer_.width() || window_height > buffer_.height())
+        {
+            const auto width = std::max<std::size_t>(buffer_.width(), window_width);
+            const auto height = std::max<std::size_t>(buffer_.height(), window_height);
+            state_.resize(width, height);
+            buffer_.resize(width, height, state_.default_style);
+        }
         buffer_.set_viewport(area);
+        state_.viewport_changed = true;
         coreio::prepare_completion(message);
         return true;
     }
