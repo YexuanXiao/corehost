@@ -1405,7 +1405,14 @@ class console_api final
             {
                 continue;
             }
-            const auto bytes = (alias.source.size() + alias.target.size() + 2) * unit;
+            const auto bytes = info->Unicode
+                                   ? (alias.source.size() + alias.target.size() + 2) *
+                                         sizeof(char16_t)
+                                   : encode_console_text(alias.source, state_.input_code_page)
+                                             .size() +
+                                         encode_console_text(alias.target, state_.input_code_page)
+                                             .size() +
+                                         2;
             if (written + bytes > capacity)
             {
                 break;
