@@ -123,6 +123,7 @@ enum class vt_message_id
     erase_in_display,
     erase_in_line,
     set_scrolling_region,
+    set_line_rendition,
     use_alternate_buffer,
     use_main_buffer,
     set_columns_132,
@@ -400,6 +401,8 @@ union vt_message_payload {
     short erase_mode;
     // DECSTBM 滚动区域参数。
     vt_scroll_region_payload scroll_region;
+    // DEC line rendition: 3/4/5/6（DECDWL/DECDHL top/bottom）。
+    short line_rendition = 0;
     // DECSCUSR 光标形状参数，0 表示未指定形状。
     short cursor_shape;
     // DECCOLM 目标宽度；当前主要由 message id 表达 80/132。
@@ -827,12 +830,21 @@ class vt_parser
         case U'(':
             _intermediate = '(';
             return vt_message_id::continue_; // 等待字符集终态
+        case U'#':
+            _intermediate = '#';
+            return vt_message_id::continue_; // 等待 line rendition final
         default:
             _mode = parser_mode::ground;
             if (_intermediate == '(')
             {
                 _intermediate = 0;
                 auto id = _dispatch_charset(ch);
+                return _finish_seq(id);
+            }
+            if (_intermediate == '#')
+            {
+                _intermediate = 0;
+                auto id = _dispatch_line_rendition(ch);
                 return _finish_seq(id);
             }
             if (_intermediate != 0)
@@ -1069,6 +1081,17 @@ class vt_parser
         default:
             return vt_message_id::continue_;
         }
+    }
+
+    // 分发 ESC # 3/4/5/6 line rendition。
+    vt_message_id _dispatch_line_rendition(char32_t final) noexcept
+    {
+        if (final < U'3' || final > U'6')
+        {
+            return vt_message_id::continue_;
+        }
+        _msg.payload.line_rendition = static_cast<short>(final - U'0');
+        return vt_message_id::set_line_rendition;
     }
 
     // 分发 G0 字符集选择；当前只建模 DEC line drawing 和 ASCII。

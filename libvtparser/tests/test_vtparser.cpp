@@ -55,6 +55,11 @@ int main()
     check(result.id == vt_message_id::osc8_hyperlink, "hyperlink close id");
     check(result.message.payload.hyperlink.uri.empty(), "hyperlink close uri");
 
+    parser.reset();
+    result = parser.parse(U"\x1b#3");
+    check(result.id == vt_message_id::set_line_rendition, "line rendition id");
+    check(result.message.payload.line_rendition == 3, "line rendition payload");
+
     if (failures != 0)
     {
         std::fprintf(stderr, "%d failures\n", failures);
