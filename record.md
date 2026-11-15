@@ -1006,6 +1006,14 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### ReadConsole 单次绑定事件
+
+`read_console` 的事件循环也改为每轮绑定 `const auto &event = events[i];`，避免重复数组索引：
+
+```text
+7b3c064 perf(consoleapi): bind read console event once
+```
+
 ### GetConsoleInput 优先判断键盘事件
 
 `get_console_input` 同样把键盘事件放到第一个分支，键盘输入只需一次比较：
