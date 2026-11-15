@@ -2090,6 +2090,13 @@ class console_api final
             return true;
         }
 
+        if (request->ElementType != CONSOLE_ASCII && request->ElementType != CONSOLE_REAL_UNICODE &&
+            request->ElementType != CONSOLE_FALSE_UNICODE && request->ElementType != CONSOLE_ATTRIBUTE)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+
         std::size_t remaining = request->Length;
         auto x = static_cast<std::size_t>(request->WriteCoord.X);
         auto y = static_cast<std::size_t>(request->WriteCoord.Y);
@@ -2105,7 +2112,19 @@ class console_api final
             }
             else
             {
-                buffer_.fill_chars(area, static_cast<char16_t>(request->Element));
+                char16_t fill = static_cast<char16_t>(request->Element);
+                if (request->ElementType == CONSOLE_ASCII)
+                {
+                    const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+                    const char byte = static_cast<char>(request->Element & 0xFF);
+                    wchar_t wide[4]{};
+                    const auto units = ::MultiByteToWideChar(code_page, 0, &byte, 1, wide, 4);
+                    if (units > 0)
+                    {
+                        fill = static_cast<char16_t>(wide[0]);
+                    }
+                }
+                buffer_.fill_chars(area, fill);
             }
             remaining -= count;
             x = 0;
