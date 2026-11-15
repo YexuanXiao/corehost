@@ -68,6 +68,20 @@ class state_applier final
         last_consumed_ = consumed;
     }
 
+    void apply_resize_window(const vtparser::vt_message &message,
+                             screen::screen_buffer &buffer,
+                             screen::console_state &state)
+    {
+        const auto rows = message.payload.resize.rows;
+        const auto cols = message.payload.resize.cols;
+        if (rows <= 0 || cols <= 0)
+        {
+            return;
+        }
+        state.resize(static_cast<std::size_t>(cols), static_cast<std::size_t>(rows));
+        buffer.resize(static_cast<std::size_t>(cols), static_cast<std::size_t>(rows), state.default_style);
+    }
+
     void apply_alternate_buffer(bool enabled,
                                 screen::screen_buffer &buffer,
                                 screen::console_state &state)

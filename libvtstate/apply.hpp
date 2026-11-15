@@ -31,6 +31,9 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::osc8_hyperlink:
         applier.apply_hyperlink(message, buffer, state);
         return true;
+    case vtparser::vt_message_id::resize_window:
+        applier.apply_resize_window(message, buffer, state);
+        return true;
     case vtparser::vt_message_id::use_alternate_buffer:
         applier.apply_alternate_buffer(true, buffer, state);
         return true;

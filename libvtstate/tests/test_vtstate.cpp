@@ -378,6 +378,17 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer resize_buffer{4, 2};
+    corehost::screen::console_state resize_state{4, 2};
+    parser.reset();
+    result = parser.parse(U"\x1b[8;3;5t");
+    (void)corehost::vtstate::apply(result.id, result.message, resize_buffer, resize_state, applier);
+    if (resize_buffer.buffer_size() != corehost::screen::coord{5, 3} || resize_state.height() != 3)
+    {
+        std::fprintf(stderr, "resize window failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }
