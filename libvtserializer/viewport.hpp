@@ -1,6 +1,7 @@
 #pragma once
 
 #include "attributes.hpp"
+#include "sgr.hpp"
 #include "control.hpp"
 #include "text.hpp"
 
@@ -61,7 +62,8 @@ inline void render_damage(byte_buffer &output,
         append_cup(output, static_cast<unsigned>(row),
                    static_cast<unsigned>(begin - static_cast<std::size_t>(origin.x)));
 
-        std::uint16_t current_attributes = 0xFFFF;
+        screen::cell_style current_style{};
+        bool has_style = false;
         for (auto x = begin; x < end; ++x)
         {
             const auto &value = buffer.at(x, y);
@@ -85,12 +87,12 @@ inline void render_damage(byte_buffer &output,
                 current_hyperlink = hyperlink;
             }
 
-            const auto attributes = buffer.attr_at(
-                screen::coord{static_cast<std::int32_t>(x), static_cast<std::int32_t>(y)});
-            if (attributes != current_attributes)
+            const auto style = value.style();
+            if (!has_style || style != current_style)
             {
-                append_sgr_legacy(output, attributes);
-                current_attributes = attributes;
+                append_sgr_style(output, buffer.styles().at(style));
+                current_style = style;
+                has_style = true;
             }
 
             if (const auto cluster = buffer.cluster_of(value); !cluster.empty())

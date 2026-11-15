@@ -143,6 +143,19 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::text_style color_style;
+    color_style.foreground = corehost::screen::color{corehost::screen::color_kind::rgb, 0x112233};
+    const auto color_id = screen.styles().intern(color_style);
+    (void)screen.write_glyph(corehost::screen::coord{1, 0}, u"C", 1, color_id);
+    buffer.clear();
+    render_damage(buffer, screen, corehost::screen::coord{2, 0});
+    const std::u8string color_output{buffer.bytes().begin(), buffer.bytes().end()};
+    if (color_output.find(u8"\x1b[0;38;2;17;34;51m") == std::u8string::npos)
+    {
+        std::fprintf(stderr, "truecolor serialization missing\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtserializer tests passed\n");
     return EXIT_SUCCESS;
 }
