@@ -26,7 +26,7 @@ class server_session final
                    std::uintptr_t input_object = 0,
                    win32::handle_view server = {}) noexcept
         : server_{server}, screen_{buffer}, state_{state}, input_{input}, parser_{raw_}, applier_{},
-          api_{buffer, state, &input, input_object, &processes_}
+          payload_{server}, api_{buffer, state, &input, input_object, &processes_, &payload_}
     {
     }
 
@@ -355,6 +355,7 @@ class server_session final
     bool raw_eof_{};
     bool raw_alerted_{};
     coreio::process_registry processes_;
+    coreio::input_payload_reader payload_;
     consoleapi::console_api api_;
     coreio::io_msg pending_message_{};
     bool pending_active_{};

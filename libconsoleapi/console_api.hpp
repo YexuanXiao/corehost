@@ -5,6 +5,7 @@
 
 #include "win32_types.hpp"
 #include "input.hpp"
+#include "input_payload.hpp"
 #include "process_registry.hpp"
 
 #include "condrv_io.hpp"
@@ -38,8 +39,10 @@ class console_api final
     console_api(screen::screen_buffer &buffer, screen::console_state &state,
                 consoleinput::input_queue *input = nullptr,
                 std::uintptr_t input_object = 0,
-                coreio::process_registry *processes = nullptr) noexcept
-        : buffer_{buffer}, state_{state}, input_{input}, input_object_{input_object}, processes_{processes}
+                coreio::process_registry *processes = nullptr,
+                coreio::input_payload_reader *payload = nullptr) noexcept
+        : buffer_{buffer}, state_{state}, input_{input}, input_object_{input_object}, processes_{processes},
+          payload_{payload}
     {
     }
 
@@ -445,15 +448,26 @@ class console_api final
         }
         else if (request->Unicode && request->InitialNumBytes != 0)
         {
-            const auto payload_bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
-                                       sizeof(CONSOLE_READCONSOLE_MSG);
-            const auto exe_bytes = static_cast<std::size_t>(request->ExeNameLength) * sizeof(char16_t);
-            if (exe_bytes <= payload_bytes)
+            std::span<const std::byte> payload;
+            if (payload_ != nullptr)
             {
-                const auto *initial = reinterpret_cast<const char16_t *>(
-                    message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) +
-                    exe_bytes);
-                const auto available = (payload_bytes - exe_bytes) / sizeof(char16_t);
+                payload = payload_->read(message, sizeof(CONSOLE_MSG_HEADER) +
+                                                     sizeof(CONSOLE_READCONSOLE_MSG));
+            }
+            else
+            {
+                const auto local_bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
+                                         sizeof(CONSOLE_READCONSOLE_MSG);
+                payload = std::span<const std::byte>{
+                    reinterpret_cast<const std::byte *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                          sizeof(CONSOLE_READCONSOLE_MSG)),
+                    local_bytes};
+            }
+            const auto exe_bytes = static_cast<std::size_t>(request->ExeNameLength) * sizeof(char16_t);
+            if (exe_bytes <= payload.size())
+            {
+                const auto *initial = reinterpret_cast<const char16_t *>(payload.data() + exe_bytes);
+                const auto available = (payload.size() - exe_bytes) / sizeof(char16_t);
                 const auto initial_units =
                     std::min({static_cast<std::size_t>(request->InitialNumBytes / sizeof(char16_t)),
                               available, max_units});
@@ -2359,6 +2373,7 @@ class console_api final
     std::uintptr_t alternate_object_{};
     std::uintptr_t window_handle_{};
     coreio::process_registry *processes_{};
+    coreio::input_payload_reader *payload_{};
     std::u16string cooked_line_;
     std::size_t cooked_cursor_{};
     screen::coord cooked_origin_{};
