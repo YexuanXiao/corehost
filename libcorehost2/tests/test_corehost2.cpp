@@ -202,6 +202,31 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer input_buffer{8, 2};
+    corehost::screen::console_state input_state{8, 2};
+    corehost::consoleinput::input_queue input_queue;
+    corehost::corehost2::session key_session{8, 2};
+    constexpr char16_t key_text[]{u'X', u'\r'};
+    key_session.feed_input(key_text);
+    input_queue = std::move(key_session.input());
+    corehost::consoleapi::console_api input_api{input_buffer, input_state, &input_queue};
+    corehost::coreio::io_msg input_message{};
+    input_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+    input_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG) +
+        4 * sizeof(INPUT_RECORD);
+    auto *input_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(input_message.body);
+    input_header->ApiNumber = ConsolepGetConsoleInput;
+    auto *input_request = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(
+        input_message.body + sizeof(CONSOLE_MSG_HEADER));
+    input_request->Flags = CONSOLE_READ_NOWAIT;
+    if (!input_api.handle(input_message) || input_request->NumRecords != 4)
+    {
+        std::fprintf(stderr, "real ReadConsoleInput path failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::corehost2::session console_session{4, 2,
                                                  corehost::screen::text_measurement::console};
     console_session.feed(input);
