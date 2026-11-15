@@ -144,6 +144,14 @@ class console_api final
         {
             return set_current_font(message);
         }
+        if (header->ApiNumber == ConsolepAddAlias)
+        {
+            return add_alias(message);
+        }
+        if (header->ApiNumber == ConsolepGetAlias)
+        {
+            return get_alias(message);
+        }
         if (header->ApiNumber == ConsolepExpungeCommandHistory)
         {
             return expunge_command_history(message);
@@ -839,6 +847,110 @@ class console_api final
         return true;
     }
 
+    [[nodiscard]] bool add_alias(coreio::io_msg &message)
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *request = reinterpret_cast<CONSOLE_ADDALIAS_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto *data = reinterpret_cast<const char *>(request + 1);
+        const auto unit = request->Unicode ? sizeof(char16_t) : sizeof(char);
+        const auto source_end = static_cast<std::size_t>(request->SourceLength) * unit;
+        const auto target_end = source_end + static_cast<std::size_t>(request->TargetLength) * unit;
+        const auto exe_end = target_end + static_cast<std::size_t>(request->ExeLength) * unit;
+        if (exe_end > message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_ADDALIAS_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto read = [&](std::size_t offset, std::size_t bytes) {
+            std::u16string value;
+            if (request->Unicode)
+            {
+                const auto *chars = reinterpret_cast<const char16_t *>(data + offset);
+                value.assign(chars, chars + bytes / sizeof(char16_t));
+            }
+            else
+            {
+                for (std::size_t i = 0; i < bytes; ++i)
+                {
+                    value.push_back(static_cast<unsigned char>(data[offset + i]));
+                }
+            }
+            return value;
+        };
+        state_.aliases.push_back(screen::console_state::alias_entry{
+            read(0, source_end), read(source_end, target_end - source_end),
+            read(target_end, exe_end - target_end)});
+        coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool get_alias(coreio::io_msg &message)
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIAS_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *request = reinterpret_cast<CONSOLE_GETALIAS_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto *data = reinterpret_cast<const char *>(request + 1);
+        const auto unit = request->Unicode ? sizeof(char16_t) : sizeof(char);
+        const auto source_bytes = static_cast<std::size_t>(request->SourceLength) * unit;
+        const auto exe_offset = source_bytes;
+        const auto exe_bytes = static_cast<std::size_t>(request->ExeLength) * unit;
+        if (source_bytes + exe_bytes >
+            message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETALIAS_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto read = [&](std::size_t offset, std::size_t bytes) {
+            std::u16string value;
+            if (request->Unicode)
+            {
+                const auto *chars = reinterpret_cast<const char16_t *>(data + offset);
+                value.assign(chars, chars + bytes / sizeof(char16_t));
+            }
+            else
+            {
+                for (std::size_t i = 0; i < bytes; ++i)
+                {
+                    value.push_back(static_cast<unsigned char>(data[offset + i]));
+                }
+            }
+            return value;
+        };
+        const auto source = read(0, source_bytes);
+        const auto executable = read(exe_offset, exe_bytes);
+        for (const auto &alias : state_.aliases)
+        {
+            if (alias.source == source && alias.executable == executable)
+            {
+                const auto bytes = alias.target.size() * unit;
+                auto *output = reinterpret_cast<char *>(request + 1);
+                if (request->Unicode)
+                {
+                    std::memcpy(output, alias.target.data(), bytes);
+                }
+                else
+                {
+                    for (std::size_t i = 0; i < alias.target.size(); ++i)
+                    {
+                        output[i] = static_cast<char>(alias.target[i] < 0x80 ? alias.target[i] : '?');
+                    }
+                }
+                request->TargetLength = static_cast<USHORT>(alias.target.size());
+                coreio::prepare_completion(message, 0, bytes, message.body + sizeof(CONSOLE_MSG_HEADER),
+                                           bytes);
+                return true;
+            }
+        }
+        coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+        return true;
+    }
     [[nodiscard]] bool expunge_command_history(coreio::io_msg &message) noexcept
     {
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_EXPUNGECOMMANDHISTORY_MSG))

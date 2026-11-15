@@ -987,6 +987,80 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg set_nls_message{};
+    set_nls_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_NLS_MODE_MSG);
+    set_nls_message.descriptor.OutputSize = sizeof(set_nls_message.body);
+    auto *set_nls_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(set_nls_message.body);
+    set_nls_header->ApiNumber = ConsolepSetNlsMode;
+    auto *set_nls_request = reinterpret_cast<CONSOLE_NLS_MODE_MSG *>(
+        set_nls_message.body + sizeof(CONSOLE_MSG_HEADER));
+    set_nls_request->NlsMode = 7;
+    if (!api.handle(set_nls_message) || state.nls_mode != 7)
+    {
+        std::fprintf(stderr, "set nls mode failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::io_msg get_nls_message{};
+    get_nls_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_NLS_MODE_MSG);
+    get_nls_message.descriptor.OutputSize = sizeof(get_nls_message.body);
+    auto *get_nls_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(get_nls_message.body);
+    get_nls_header->ApiNumber = ConsolepGetNlsMode;
+    if (!api.handle(get_nls_message) ||
+        reinterpret_cast<const CONSOLE_NLS_MODE_MSG *>(
+            get_nls_message.body + sizeof(CONSOLE_MSG_HEADER))->NlsMode != 7)
+    {
+        std::fprintf(stderr, "get nls mode failed\n");
+        return EXIT_FAILURE;
+    }
+
+    constexpr char16_t alias_source[]{u'x'};
+    constexpr char16_t alias_target[]{u'y'};
+    constexpr char16_t alias_exe[]{u'c', u'm', u'd'};
+    corehost::coreio::io_msg add_alias_message{};
+    add_alias_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG) +
+                                              (sizeof(alias_source) + sizeof(alias_target) +
+                                               sizeof(alias_exe));
+    add_alias_message.descriptor.OutputSize = sizeof(add_alias_message.body);
+    auto *add_alias_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(add_alias_message.body);
+    add_alias_header->ApiNumber = ConsolepAddAlias;
+    auto *add_alias_request = reinterpret_cast<CONSOLE_ADDALIAS_MSG *>(
+        add_alias_message.body + sizeof(CONSOLE_MSG_HEADER));
+    add_alias_request->SourceLength = 1;
+    add_alias_request->TargetLength = 1;
+    add_alias_request->ExeLength = 3;
+    add_alias_request->Unicode = TRUE;
+    auto *alias_data = reinterpret_cast<char16_t *>(add_alias_request + 1);
+    std::memcpy(alias_data, alias_source, sizeof(alias_source));
+    std::memcpy(alias_data + 1, alias_target, sizeof(alias_target));
+    std::memcpy(alias_data + 2, alias_exe, sizeof(alias_exe));
+    if (!api.handle(add_alias_message) || state.aliases.size() != 1)
+    {
+        std::fprintf(stderr, "add alias failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::io_msg get_alias_message{};
+    get_alias_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIAS_MSG) +
+                                              sizeof(alias_source) + sizeof(alias_exe);
+    get_alias_message.descriptor.OutputSize = sizeof(get_alias_message.body);
+    auto *get_alias_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(get_alias_message.body);
+    get_alias_header->ApiNumber = ConsolepGetAlias;
+    auto *get_alias_request = reinterpret_cast<CONSOLE_GETALIAS_MSG *>(
+        get_alias_message.body + sizeof(CONSOLE_MSG_HEADER));
+    get_alias_request->SourceLength = 1;
+    get_alias_request->ExeLength = 3;
+    get_alias_request->Unicode = TRUE;
+    auto *get_alias_data = reinterpret_cast<char16_t *>(get_alias_request + 1);
+    std::memcpy(get_alias_data, alias_source, sizeof(alias_source));
+    std::memcpy(get_alias_data + 1, alias_exe, sizeof(alias_exe));
+    if (!api.handle(get_alias_message) || get_alias_request->TargetLength != 1 ||
+        get_alias_data[0] != u'y')
+    {
+        std::fprintf(stderr, "get alias failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

@@ -120,6 +120,13 @@ class console_state final
     std::uint32_t history_buffer_size{50};
     std::uint32_t history_buffers{4};
     std::uint32_t history_flags{};
+    struct alias_entry
+    {
+        std::u16string source;
+        std::u16string target;
+        std::u16string executable;
+    };
+    std::vector<alias_entry> aliases;
     std::vector<std::u16string> command_history;
     std::size_t command_history_limit{50};
     std::uint32_t display_mode{};
