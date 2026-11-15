@@ -193,6 +193,9 @@ void test_text_writer()
     static_assert(static_cast<int>(text_measurement::wcswidth) == 2);
     check(codepoint_width(U'\u4E2D', width_options{text_measurement::wcswidth, false}) == 2,
           "wcswidth wide");
+    check(char_width_for_mode(U'\u4E2D', text_measurement::console) == 2, "console char width");
+    check(text_width_for_mode(u"\u4E2D" "A", text_measurement::console) == 3, "console text width");
+    check(text_width_for_mode(u"\u4E2D" "A", text_measurement::wcswidth) == 3, "wcswidth text width");
     check(text_width(u"A\u0301", width_options{text_measurement::graphemes, false}) == 1,
           "grapheme combining width");
     check(text_width(u"\u2764\uFE0F", width_options{text_measurement::graphemes, false}) == 2,
