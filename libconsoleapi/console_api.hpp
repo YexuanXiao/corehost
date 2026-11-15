@@ -19,6 +19,7 @@
 #include <cassert>
 #include <cstring>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 #include <string_view>
@@ -1816,7 +1817,8 @@ class console_api final
                                                 message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
                                                     sizeof(CONSOLE_SETTITLE_MSG));
 
-        std::u16string title;
+        auto &title = title_buffer_;
+        title.clear();
         if (request->Unicode)
         {
             const auto *chars = reinterpret_cast<const char16_t *>(payload.data());
@@ -1845,9 +1847,8 @@ class console_api final
 
         if (window_handle_ != 0)
         {
-            std::wstring wide;
-            wide.assign(title.begin(), title.end());
-            ::SetWindowTextW(reinterpret_cast<HWND>(window_handle_), wide.c_str());
+            wide_title_buffer_.assign(title.begin(), title.end());
+            ::SetWindowTextW(reinterpret_cast<HWND>(window_handle_), wide_title_buffer_.c_str());
         }
         coreio::prepare_completion(message);
         return true;
@@ -2684,6 +2685,8 @@ class console_api final
     coreio::process_registry *processes_{};
     coreio::input_payload_reader *payload_{};
     std::u16string text_buffer_;
+    std::u16string title_buffer_;
+    std::wstring wide_title_buffer_;
     std::u16string history_selection_;
     std::vector<std::u16string_view> alias_exes_seen_;
     std::vector<std::uintptr_t> ctrl_targets_;
