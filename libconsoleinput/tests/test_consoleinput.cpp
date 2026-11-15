@@ -46,6 +46,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b[1;5A");
+    key = key_from_message(result.id, result.message);
+    if (!key.has_value() || key->key != virtual_key::up || key->control_state != 0x0008)
+    {
+        std::fprintf(stderr, "ctrl key mapping failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleinput tests passed\n");
     return EXIT_SUCCESS;
 }

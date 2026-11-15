@@ -1406,21 +1406,29 @@ class vt_parser
         case U'A':
             if (priv)
                 return vt_message_id::continue_;
+            if (_param_index > 1 && _get_param(1, 1) == 5)
+                return vt_message_id::key_ctrl_up;
             m.payload.count.value = _clamp(n);
             return vt_message_id::cursor_up;
         case U'B':
             if (priv)
                 return vt_message_id::continue_;
+            if (_param_index > 1 && _get_param(1, 1) == 5)
+                return vt_message_id::key_ctrl_down;
             m.payload.count.value = _clamp(n);
             return vt_message_id::cursor_down;
         case U'C':
             if (priv)
                 return vt_message_id::continue_;
+            if (_param_index > 1 && _get_param(1, 1) == 5)
+                return vt_message_id::key_ctrl_right;
             m.payload.count.value = _clamp(n);
             return vt_message_id::cursor_forward;
         case U'D':
             if (priv)
                 return vt_message_id::continue_;
+            if (_param_index > 1 && _get_param(1, 1) == 5)
+                return vt_message_id::key_ctrl_left;
             m.payload.count.value = _clamp(n);
             return vt_message_id::cursor_backward;
         case U'E':

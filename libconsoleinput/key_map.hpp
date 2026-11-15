@@ -23,6 +23,22 @@ key_from_message(vtparser::vt_message_id id, const vtparser::vt_message &message
     key_event event;
     switch (id)
     {
+    case vtparser::vt_message_id::key_ctrl_up:
+        event.key = virtual_key::up;
+        event.control_state = 0x0008;
+        break;
+    case vtparser::vt_message_id::key_ctrl_down:
+        event.key = virtual_key::down;
+        event.control_state = 0x0008;
+        break;
+    case vtparser::vt_message_id::key_ctrl_left:
+        event.key = virtual_key::left;
+        event.control_state = 0x0008;
+        break;
+    case vtparser::vt_message_id::key_ctrl_right:
+        event.key = virtual_key::right;
+        event.control_state = 0x0008;
+        break;
     case vtparser::vt_message_id::key_up:
         event.key = virtual_key::up;
         break;
