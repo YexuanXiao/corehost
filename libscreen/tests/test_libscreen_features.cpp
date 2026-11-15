@@ -157,9 +157,6 @@ void test_text_writer()
 {
     using namespace corehost::screen;
 
-    constexpr width_options console_options{};
-    constexpr width_options wcswidth_options{text_measurement::wcswidth, false};
-    constexpr width_options grapheme_options{text_measurement::graphemes, false};
 
     screen_buffer buffer(10, 3);
     coord cursor{0, 0};
@@ -177,30 +174,30 @@ void test_text_writer()
     coord glyph_cursor{0, 2};
     check(buffer.write_glyph(glyph_cursor, u"e\u0301", 1, style1), "write glyph cluster");
     check(buffer.glyph_at(0, 2) == u"e\u0301", "glyph cluster data");
-    check(glyph_width<console_options>(u"e\u0301") == 1, "cluster width");
+    check(glyph_width<text_measurement::console>(u"e\u0301") == 1, "cluster width");
 
     screen_buffer grapheme_buffer(10, 2);
     coord grapheme_cursor{0, 0};
-    const auto grapheme_result = grapheme_buffer.write_text_row<grapheme_options>(
+    const auto grapheme_result = grapheme_buffer.write_text_row<text_measurement::graphemes>(
         grapheme_cursor, u"e\u0301", {}, style1, true);
     check(grapheme_result.consumed == 2, "grapheme writer consumed");
     check(grapheme_cursor.x == 1, "grapheme writer cursor");
     check(grapheme_buffer.glyph_at(0, 0) == u"e\u0301", "grapheme writer cluster");
 
-    check(codepoint_width<console_options>(U'\u0301') == 0, "combining width");
-    check(codepoint_width<console_options>(U'\u4E2D') == 2, "wide width");
-    check(codepoint_width<console_options>(U'A') == 1, "ascii width");
+    check(codepoint_width<text_measurement::console>(U'\u0301') == 0, "combining width");
+    check(codepoint_width<text_measurement::console>(U'\u4E2D') == 2, "wide width");
+    check(codepoint_width<text_measurement::console>(U'A') == 1, "ascii width");
 
     static_assert(static_cast<int>(text_measurement::console) == 0);
     static_assert(static_cast<int>(text_measurement::graphemes) == 1);
     static_assert(static_cast<int>(text_measurement::wcswidth) == 2);
-    check(codepoint_width<wcswidth_options>(U'\u4E2D') == 2, "wcswidth wide");
-    check(char_width_for_mode<console_options>(U'\u4E2D') == 2, "console char width");
-    check(text_width<console_options>(u"\u4E2D" "A") == 3, "console text width");
-    check(text_width<wcswidth_options>(u"\u4E2D" "A") == 3, "wcswidth text width");
+    check(codepoint_width<text_measurement::wcswidth>(U'\u4E2D') == 2, "wcswidth wide");
+    check(char_width_for_mode<text_measurement::console>(U'\u4E2D') == 2, "console char width");
+    check(text_width<text_measurement::console>(u"\u4E2D" "A") == 3, "console text width");
+    check(text_width<text_measurement::wcswidth>(u"\u4E2D" "A") == 3, "wcswidth text width");
     int clusters = 0;
     int cluster_widths = 0;
-    for (const auto cluster : grapheme_range<grapheme_options>{u"e\u0301" u"A"})
+    for (const auto cluster : grapheme_range<text_measurement::graphemes>{u"e\u0301" u"A"})
     {
         ++clusters;
         cluster_widths += cluster.width;
@@ -208,8 +205,8 @@ void test_text_writer()
     }
     check(clusters == 2 && cluster_widths == 2, "grapheme iterator output");
 
-    check(text_width<grapheme_options>(u"A\u0301") == 1, "grapheme combining width");
-    check(text_width<grapheme_options>(u"\u2764\uFE0F") == 2, "grapheme emoji width");
+    check(text_width<text_measurement::graphemes>(u"A\u0301") == 1, "grapheme combining width");
+    check(text_width<text_measurement::graphemes>(u"\u2764\uFE0F") == 2, "grapheme emoji width");
 }
 
 void test_copy_scroll()

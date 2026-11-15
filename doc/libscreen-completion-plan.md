@@ -237,17 +237,15 @@ attr_at(coord)
 enum class text_measurement
 {
     console,
-    unicode,
+    graphemes,
+    wcswidth,
 };
 
-struct width_options
-{
-    text_measurement mode{text_measurement::console};
-    bool ambiguous_is_wide{false};
-};
+template <text_measurement Mode, bool AmbiguousIsWide = false>
+int codepoint_width(char32_t) noexcept;
 
-int glyph_width(char32_t, width_options) noexcept;
-int grapheme_width(std::u16string_view, width_options) noexcept;
+template <text_measurement Mode, bool AmbiguousIsWide = false>
+int text_width(std::ranges::input_range auto &&) noexcept;
 ```
 
 `screen_buffer` 增加：
@@ -259,12 +257,12 @@ struct text_write_result
     bool row_end{};
 };
 
+template <text_measurement Mode, bool AmbiguousIsWide = false>
 text_write_result write_text_row(
     coord &cursor,
     std::u16string_view text,
     std::span<const std::uint8_t> widths,
-    cell_style style,
-    width_options options);
+    cell_style style);
 
 bool write_glyph(coord, std::u16string_view, int columns, cell_style);
 ```
@@ -652,8 +650,9 @@ corehost 的 `screen_buffer_row` 有 filled/uniform/measured-run 优化；libscr
   `char_info_at`、`read/write_char_info`、`read/write_chars`、`read/write_attrs`、
   `fill_chars/fill_attrs`、`set_attr/attr_at`；支持 DBCS leading/trailing。
 - **Phase 3**：`text_writer.hpp` 提供 `console`/`graphemes`/`wcswidth` 三种
-  `text_measurement`，`width_options` 是 NTTP，提供 `char_width_for_mode<Options>()`、
-  `text_width<Options>()`；`grapheme_range<Options>`/`grapheme_iterator<Options>` 每次输出一个
+  `text_measurement`，宽度模式直接作为 NTTP，提供
+  `char_width_for_mode<Mode, Ambiguous>()`、`text_width<Mode, Ambiguous>()`；
+  `grapheme_range<Mode, Ambiguous>`/`grapheme_iterator<Mode, Ambiguous>` 每次输出一个
   `grapheme_cluster { std::span<const char16_t> text, int width }`，不保存结果、不返回
   `std::vector<grapheme_span>`；`to_u16`/`to_u32` 使用 output iterator，
   `text_width` 接受任意 UTF-16 input range；`screen_buffer` 增加 `write_text_row`、`write_glyph`。

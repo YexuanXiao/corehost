@@ -361,7 +361,7 @@ class screen_buffer final
         bool row_end{};
     };
 
-    template <width_options Options = width_options{}>
+    template <text_measurement Mode = text_measurement::console, bool AmbiguousIsWide = false>
     text_write_result write_text_row(coord &cursor,
                                      std::u16string_view text,
                                      std::span<const std::uint8_t> widths,
@@ -1233,7 +1233,7 @@ inline std::uint16_t screen_buffer::attr_at(coord position) const noexcept
     return char_info_at(position).attributes;
 }
 
-template <width_options Options>
+template <text_measurement Mode, bool AmbiguousIsWide>
 inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cursor,
                                                                       std::u16string_view text,
                                                                       std::span<const std::uint8_t> widths,
@@ -1241,9 +1241,9 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                                                                       bool wrap_at_eol) noexcept
 {
     text_write_result result;
-    if constexpr (Options.mode == text_measurement::graphemes)
+    if constexpr (Mode == text_measurement::graphemes)
     {
-        for (const auto cluster : grapheme_range<Options>{text})
+        for (const auto cluster : grapheme_range<Mode, AmbiguousIsWide>{text})
         {
             if (cursor.x < 0 || cursor.y < 0 ||
                 static_cast<std::size_t>(cursor.x) >= width_ ||
@@ -1292,7 +1292,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
         }
 
         const auto decoded = next_codepoint(text, offset);
-        auto columns = widths.empty() ? codepoint_width<Options>(decoded.value)
+        auto columns = widths.empty() ? codepoint_width<Mode, AmbiguousIsWide>(decoded.value)
                                       : (offset < widths.size() ? static_cast<int>(widths[offset]) : 1);
         if (columns <= 0)
         {

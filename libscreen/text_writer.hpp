@@ -26,20 +26,6 @@ enum class text_measurement
     wcswidth,
 };
 
-using text_measurement_mode = text_measurement;
-
-struct width_options final
-{
-    text_measurement mode{text_measurement::console};
-    bool ambiguous_is_wide{false};
-
-    friend constexpr bool operator==(const width_options &, const width_options &) noexcept = default;
-};
-
-inline constexpr width_options console_width_options{};
-inline constexpr width_options wcswidth_options{text_measurement::wcswidth, false};
-inline constexpr width_options grapheme_width_options{text_measurement::graphemes, false};
-
 [[nodiscard]] constexpr int console_width(char32_t value) noexcept
 {
     if (value < 0x20 || value == 0x7F || value == 0x00AD)
@@ -103,23 +89,23 @@ inline constexpr width_options grapheme_width_options{text_measurement::grapheme
     return static_cast<int>(unicode::width(value));
 }
 
-template <width_options Options>
+template <text_measurement Mode, bool AmbiguousIsWide = false>
 [[nodiscard]] constexpr int codepoint_width(char32_t value) noexcept
 {
-    if constexpr (Options.mode == text_measurement::console)
+    if constexpr (Mode == text_measurement::console)
     {
         return console_width(value);
     }
     else
     {
-        return unicode_width(value, Options.ambiguous_is_wide);
+        return unicode_width(value, AmbiguousIsWide);
     }
 }
 
-template <width_options Options>
+template <text_measurement Mode, bool AmbiguousIsWide = false>
 [[nodiscard]] constexpr int char_width_for_mode(char32_t value) noexcept
 {
-    return codepoint_width<Options>(value);
+    return codepoint_width<Mode, AmbiguousIsWide>(value);
 }
 
 struct codepoint_result final
@@ -206,7 +192,7 @@ struct grapheme_cluster final
     int width{};
 };
 
-template <width_options Options>
+template <text_measurement Mode, bool AmbiguousIsWide = false>
 class grapheme_iterator final
 {
   public:
@@ -269,7 +255,7 @@ class grapheme_iterator final
 
         unicode::grapheme_segmenter_state state{};
         unicode::grapheme_process_init(first.value, state);
-        auto width = first.value == 0xFE0F ? 2 : unicode_width(first.value, Options.ambiguous_is_wide);
+        auto width = first.value == 0xFE0F ? 2 : unicode_width(first.value, AmbiguousIsWide);
 
         while (cursor < text_.size())
         {
@@ -278,7 +264,7 @@ class grapheme_iterator final
             {
                 break;
             }
-            width += next.value == 0xFE0F ? 2 : unicode_width(next.value, Options.ambiguous_is_wide);
+            width += next.value == 0xFE0F ? 2 : unicode_width(next.value, AmbiguousIsWide);
             cursor += next.units;
         }
 
@@ -289,7 +275,7 @@ class grapheme_iterator final
     std::size_t offset_{};
 };
 
-template <width_options Options>
+template <text_measurement Mode, bool AmbiguousIsWide = false>
 class grapheme_range final
 {
   public:
@@ -298,9 +284,9 @@ class grapheme_range final
     {
     }
 
-    [[nodiscard]] grapheme_iterator<Options> begin() const noexcept
+    [[nodiscard]] grapheme_iterator<Mode, AmbiguousIsWide> begin() const noexcept
     {
-        return grapheme_iterator<Options>{text_};
+        return grapheme_iterator<Mode, AmbiguousIsWide>{text_};
     }
 
     [[nodiscard]] std::default_sentinel_t end() const noexcept
@@ -312,7 +298,7 @@ class grapheme_range final
     std::u16string_view text_;
 };
 
-template <width_options Options>
+template <text_measurement Mode, bool AmbiguousIsWide = false>
 [[nodiscard]] inline int glyph_width(std::u16string_view glyph) noexcept
 {
     if (glyph.empty())
@@ -320,10 +306,10 @@ template <width_options Options>
         return 0;
     }
 
-    if constexpr (Options.mode == text_measurement::graphemes)
+    if constexpr (Mode == text_measurement::graphemes)
     {
         int total = 0;
-        for (const auto cluster : grapheme_range<Options>{glyph})
+        for (const auto cluster : grapheme_range<Mode, AmbiguousIsWide>{glyph})
         {
             total += cluster.width;
         }
@@ -336,21 +322,21 @@ template <width_options Options>
         while (offset < glyph.size())
         {
             const auto decoded = next_codepoint(glyph, offset);
-            width += codepoint_width<Options>(decoded.value);
+            width += codepoint_width<Mode, AmbiguousIsWide>(decoded.value);
             offset += decoded.units;
         }
         return width;
     }
 }
 
-template <width_options Options, std::ranges::input_range Range>
+template <text_measurement Mode, bool AmbiguousIsWide = false, std::ranges::input_range Range>
 requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<Range>>, char16_t>
 [[nodiscard]] inline int text_width(Range &&text) noexcept
 {
     auto iterator = std::ranges::begin(text);
     const auto end = std::ranges::end(text);
 
-    if constexpr (Options.mode == text_measurement::graphemes)
+    if constexpr (Mode == text_measurement::graphemes)
     {
         int total = 0;
         int cluster = 0;
@@ -363,18 +349,18 @@ requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<Range>>, ch
             if (first)
             {
                 unicode::grapheme_process_init(decoded.value, state);
-                cluster = decoded.value == 0xFE0F ? 2 : unicode_width(decoded.value, Options.ambiguous_is_wide);
+                cluster = decoded.value == 0xFE0F ? 2 : unicode_width(decoded.value, AmbiguousIsWide);
                 first = false;
             }
             else if (unicode::grapheme_process_breakable(decoded.value, state))
             {
                 total += cluster > 2 ? 2 : cluster;
                 unicode::grapheme_process_init(decoded.value, state);
-                cluster = decoded.value == 0xFE0F ? 2 : unicode_width(decoded.value, Options.ambiguous_is_wide);
+                cluster = decoded.value == 0xFE0F ? 2 : unicode_width(decoded.value, AmbiguousIsWide);
             }
             else
             {
-                cluster += decoded.value == 0xFE0F ? 2 : unicode_width(decoded.value, Options.ambiguous_is_wide);
+                cluster += decoded.value == 0xFE0F ? 2 : unicode_width(decoded.value, AmbiguousIsWide);
             }
         }
 
@@ -384,22 +370,40 @@ requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<Range>>, ch
         }
         return total;
     }
-    else
+    else if constexpr (Mode == text_measurement::console)
     {
         int total = 0;
         while (iterator != end)
         {
             const auto decoded = next_codepoint(iterator, end);
-            total += codepoint_width<Options>(decoded.value);
+            total += console_width(decoded.value);
         }
         return total;
     }
+    else if constexpr (Mode == text_measurement::wcswidth)
+    {
+        int total = 0;
+        while (iterator != end)
+        {
+            const auto decoded = next_codepoint(iterator, end);
+            total += unicode_width(decoded.value, AmbiguousIsWide);
+        }
+        return total;
+    }
+    else
+    {
+        static_assert(Mode == text_measurement::console ||
+                          Mode == text_measurement::graphemes ||
+                          Mode == text_measurement::wcswidth,
+                      "unsupported text measurement mode");
+        return 0;
+    }
 }
 
-template <width_options Options>
+template <text_measurement Mode, bool AmbiguousIsWide = false>
 [[nodiscard]] inline int text_width(std::u16string_view text) noexcept
 {
-    return text_width<Options>(std::views::all(text));
+    return text_width<Mode, AmbiguousIsWide>(std::views::all(text));
 }
 
 } // namespace corehost::screen

@@ -424,8 +424,8 @@ history_row:
 - `write_image`：写 image 类型 cell，fragment metadata 在 screen-wide image table；
 - `write_codepoint`：通过 `libunicode::convert_to<char16_t>` 把 `char32_t` 转为 UTF-16
   code unit 或 surrogate-pair cluster；UTF-16 解码使用 `unicode::decoder<char16_t>`；
-- `width_options` 是 NTTP；`char_width_for_mode<Options>()`/`text_width<Options>()` 支持
-  `console`/`graphemes`/`wcswidth`；`grapheme_range<Options>` 的迭代器每次输出
+- `text_measurement` 直接作为 NTTP；`char_width_for_mode<Mode>()`/`text_width<Mode>()`
+  支持 `console`/`graphemes`/`wcswidth`；`grapheme_range<Mode>` 的迭代器每次输出
   `std::span<const char16_t>` + width，不保存结果、不分配 `vector<grapheme_span>`；
   `text_width` 接受任意 UTF-16 input range；`to_u16`/`to_u32` 使用 output iterator；
 - `glyph_at`/`codepoint_at`/`line_text`：UTF-16 读取完整 glyph/整行，`char16_t` 原生；
