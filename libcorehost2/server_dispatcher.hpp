@@ -31,6 +31,7 @@ class server_dispatcher final
         case CONSOLE_IO_CLOSE_OBJECT:
             return handle_close_object(message);
         case CONSOLE_IO_DISCONNECT:
+            return handle_disconnect(message);
         case CONSOLE_IO_RAW_FLUSH:
             coreio::prepare_completion(message);
             return true;
@@ -50,6 +51,7 @@ class server_dispatcher final
         {
             coreio::accept_connection(server_, message, input_, output_);
             input_id_ = reinterpret_cast<ULONG_PTR>(input_.get());
+            session_.processes().add(message.descriptor.Process);
             output_id_ = reinterpret_cast<ULONG_PTR>(output_.get());
             session_.set_input_object(input_id_);
             return true;
@@ -57,6 +59,13 @@ class server_dispatcher final
 
         coreio::prepare_connection_completion(message, input_.view(), output_.view(),
                                              message.descriptor.Process);
+        return true;
+    }
+
+    bool handle_disconnect(coreio::io_msg &message)
+    {
+        session_.processes().remove(message.descriptor.Process);
+        coreio::prepare_completion(message);
         return true;
     }
 

@@ -19,8 +19,13 @@ class server_session final
     server_session(screen::screen_buffer &buffer, screen::console_state &state,
                    consoleinput::input_queue &input,
                    std::uintptr_t input_object = 0) noexcept
-        : input_{input}, api_{buffer, state, &input, input_object}
+        : input_{input}, api_{buffer, state, &input, input_object, &processes_}
     {
+    }
+
+    [[nodiscard]] coreio::process_registry &processes() noexcept
+    {
+        return processes_;
     }
 
     void set_input_object(std::uintptr_t object) noexcept
@@ -40,6 +45,7 @@ class server_session final
 
   private:
     consoleinput::input_queue &input_;
+    coreio::process_registry processes_;
     consoleapi::console_api api_;
 };
 

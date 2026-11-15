@@ -5,6 +5,7 @@
 
 #include "win32_types.hpp"
 #include "input.hpp"
+#include "process_registry.hpp"
 
 #include "condrv_io.hpp"
 #include "os/Console/conmsgl1.h"
@@ -28,8 +29,9 @@ class console_api final
   public:
     console_api(screen::screen_buffer &buffer, screen::console_state &state,
                 consoleinput::input_queue *input = nullptr,
-                std::uintptr_t input_object = 0) noexcept
-        : buffer_{buffer}, state_{state}, input_{input}, input_object_{input_object}
+                std::uintptr_t input_object = 0,
+                coreio::process_registry *processes = nullptr) noexcept
+        : buffer_{buffer}, state_{state}, input_{input}, input_object_{input_object}, processes_{processes}
     {
     }
 
@@ -116,6 +118,10 @@ class console_api final
         {
             const bool input = input_object_ != 0 && message.descriptor.Object == input_object_;
             return header->ApiNumber == ConsolepGetMode ? get_mode(message, input) : set_mode(message, input);
+        }
+        if (header->ApiNumber == ConsolepGetConsoleProcessList)
+        {
+            return get_process_list(message);
         }
         if (header->ApiNumber == ConsolepGetMouseInfo)
         {
@@ -606,6 +612,34 @@ class console_api final
             state_.output_mode = info->Mode;
         }
         coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool get_process_list(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETCONSOLEPROCESSLIST_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto local = sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG);
+        const auto capacity = message.descriptor.OutputSize <= sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG)
+                                  ? 0
+                                  : std::min<std::size_t>(message.descriptor.OutputSize - sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG), local) / sizeof(std::uint32_t);
+        const auto count = processes_ != nullptr
+                               ? std::min<std::size_t>(processes_->size(), capacity)
+                               : 0;
+        info->dwProcessCount = static_cast<ULONG>(count);
+        auto *output = reinterpret_cast<std::uint32_t *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            output[i] = static_cast<std::uint32_t>(processes_->processes()[i]);
+        }
+        coreio::prepare_completion(message, 0, count * sizeof(std::uint32_t),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   count * sizeof(std::uint32_t));
         return true;
     }
 
@@ -1249,6 +1283,7 @@ class console_api final
     screen::console_state &state_;
     consoleinput::input_queue *input_{};
     std::uintptr_t input_object_{};
+    coreio::process_registry *processes_{};
 };
 
 } // namespace corehost::consoleapi

@@ -741,6 +741,30 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::process_registry processes;
+    processes.add(42);
+    corehost::consoleapi::console_api process_api{buffer, state, nullptr, 0, &processes};
+    corehost::coreio::io_msg process_message{};
+    process_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG);
+    process_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                           sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG) + sizeof(std::uint32_t);
+    auto *process_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(process_message.body);
+    process_header->ApiNumber = ConsolepGetConsoleProcessList;
+    if (!process_api.handle(process_message))
+    {
+        std::fprintf(stderr, "get process list failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *process_info = reinterpret_cast<const CONSOLE_GETCONSOLEPROCESSLIST_MSG *>(
+        process_message.body + sizeof(CONSOLE_MSG_HEADER));
+    const auto *process_data = reinterpret_cast<const std::uint32_t *>(
+        process_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
+    if (process_info->dwProcessCount != 1 || process_data[0] != 42)
+    {
+        std::fprintf(stderr, "get process list data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
