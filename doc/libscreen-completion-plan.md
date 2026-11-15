@@ -1,6 +1,6 @@
 # libscreen 完善计划
 
-Status: proposed; not started.
+Status: Phase 0–7 implemented; Phase 8–9 pending. See "执行记录" below.
 
 ## 1. 目标
 
@@ -633,7 +633,49 @@ corehost 的 `screen_buffer_row` 有 filled/uniform/measured-run 优化；libscr
 | row fill/uniform 压缩 | P2 | benchmark |
 | corehost adapter | P1 | P0/P1 |
 
-## 11. 完成定义
+## 11. 执行记录
+
+### 已完成
+
+- **libinterop**：新增 ABI 兼容的 `coord`、`small_rect`、`char_info`、
+  `console_screen_buffer_info`、`console_cursor_info`、`console_selection_info`、
+  `console_font_info`/`console_font_infoex`；有大小/offset 静态断言；不包含 Windows 头文件。
+- **Phase 0**：新增 `libscreen/bench/bench_libscreen.cpp` 与 `bench_libscreen` target；
+  Debug/ASAN 基线可运行（数字仅作回归基线，不作为发布性能）。
+- **Phase 1**：`geometry.hpp` 提供 `coord`/`rect`/`viewport`；`screen_buffer` 增加
+  buffer/viewport 分离、`view()`、`set_viewport()`、`snap_viewport_to_cursor()`。
+- **Phase 2**：`legacy_projection.hpp` + `screen_buffer` 增加 `try_at`、
+  `char_info_at`、`read/write_char_info`、`read/write_chars`、`read/write_attrs`、
+  `fill_chars/fill_attrs`、`set_attr/attr_at`；支持 DBCS leading/trailing。
+- **Phase 3**：`text_writer.hpp` 提供宽度策略、codepoint 解码；`screen_buffer` 增加
+  `write_text_row`、`write_glyph`。
+- **Phase 4**：`copy_rect`、`scroll_rect`，支持 clip、重叠、fill char/attr。
+- **Phase 5**：`console_state` 增加 modes/code pages/title/font/colors/max window/
+  default attributes/saved cursor/alt cursor/DEC line drawing/text measurement；
+  `save_cursor/restore_cursor/save_alt_cursor/restore_alt_cursor`。
+- **Phase 6**：selection 支持 block/line、`selected_text()`；search 查询保留。
+- **Phase 7**：alt/history 行为有测试；history 保留 compact `history_state`。
+
+### 偏差
+
+- `selection` 没有单独 `selection.hpp`，目前放在 `console_state.hpp`；API 已覆盖 block/line
+  selection 和 copy。
+- `write_text_row` 目前按 codepoint 写入，尚未实现 corehost 的完整 grapheme
+  segmentation/measured-run 快路径。
+- `copy_rect`/`scroll_rect` 为正确性优先实现，仍有临时 cell 缓冲；Phase 8 再优化。
+- Phase 8（row fill/uniform attrs/PMR/pool）未做。
+- Phase 9（corehost 兼容 adapter）未做；目前只完成测试侧类型/ABI 基础。
+
+### 验证
+
+```text
+LibScreen.Reference  Passed
+LibScreen.Features   Passed
+```
+
+`libscreen` 不包含 `windows.h`；`libinterop` 也不包含 Windows 头文件。
+
+## 12. 完成定义
 
 当以下条件全部满足时，计划完成：
 

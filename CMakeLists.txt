@@ -65,8 +65,12 @@ add_subdirectory(proxy)
 # ── common (核心基础设施: os/ntapi/win32/com/utility) ──
 add_subdirectory(common)
 
+# ── libinterop (ABI-compatible Win32 console types) ───
+add_subdirectory(libinterop)
+
 # ── libscreen (16-byte cell 屏幕缓冲区参考实现) ────────
 add_subdirectory(libscreen)
+add_subdirectory(libscreen/bench)
 
 # ── libcorehost (ConPTY 核心静态库) ──────────────────
 add_subdirectory(libcorehost)

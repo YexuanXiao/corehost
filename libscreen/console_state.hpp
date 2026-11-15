@@ -4,6 +4,8 @@
 #include "screen_buffer.hpp"
 
 #include <algorithm>
+#include <array>
+#include <string>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -43,9 +45,16 @@ class tab_stop_table final
     std::vector<std::uint8_t> values_;
 };
 
+enum class selection_mode : std::uint8_t
+{
+    block = 0,
+    line = 1,
+};
+
 struct selection_range final
 {
     bool active{};
+    selection_mode mode{selection_mode::block};
     std::size_t anchor_x{};
     std::size_t anchor_y{};
     std::size_t caret_x{};
@@ -87,12 +96,47 @@ class console_state final
     void set_cursor(std::size_t x, std::size_t y) noexcept;
     void move_cursor(std::ptrdiff_t dx, std::ptrdiff_t dy) noexcept;
     void clamp_cursor() noexcept;
+    void save_cursor() noexcept;
+    [[nodiscard]] bool restore_cursor() noexcept;
+    void save_alt_cursor() noexcept;
+    [[nodiscard]] bool restore_alt_cursor() noexcept;
 
     bool wrap_at_eol{true};
     bool insert_mode{false};
     bool origin_mode{false};
+    bool dec_line_drawing_mode{false};
     cell_style default_style{default_cell_style};
     cell_hyperlink default_hyperlink{no_cell_hyperlink};
+    std::uint16_t default_attributes{0x07};
+    std::uint16_t popup_attributes{0x07};
+
+    // Console-mode state kept platform-neutral; libinterop converts to WORD/DWORD.
+    std::uint32_t input_mode{};
+    std::uint32_t output_mode{};
+    std::uint32_t input_private_mode{};
+    std::uint32_t input_code_page{};
+    std::uint32_t output_code_page{};
+    std::uint32_t font_index{};
+    coord font_size{8, 12};
+    std::uint32_t font_family{};
+    std::uint32_t font_weight{400};
+    std::u16string face_name{u"Consolas"};
+    std::array<std::uint32_t, 16> color_table{};
+    std::u16string title;
+    std::u16string original_title;
+    coord max_window_size{};
+    text_measurement measurement{text_measurement::console};
+    bool ambiguous_is_wide{false};
+
+    struct saved_cursor_state final
+    {
+        bool valid{};
+        cursor_state cursor;
+        cell_style style{default_cell_style};
+    };
+
+    saved_cursor_state saved_cursor;
+    saved_cursor_state alt_saved_cursor;
 
     [[nodiscard]] std::size_t scroll_top() const noexcept
     {
@@ -128,6 +172,9 @@ class console_state final
     }
 
     void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y) noexcept;
+    void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y,
+                       selection_mode mode) noexcept;
+    [[nodiscard]] std::u16string selected_text(const screen_buffer &buffer) const;
     void clear_selection() noexcept;
     [[nodiscard]] bool has_selection() const noexcept;
     [[nodiscard]] bool is_selected(std::size_t x, std::size_t y) const noexcept;
@@ -191,6 +238,10 @@ inline bool selection_range::contains(std::size_t x, std::size_t y) const noexce
     const auto right = std::max(anchor_x, caret_x);
     const auto top = std::min(anchor_y, caret_y);
     const auto bottom = std::max(anchor_y, caret_y);
+    if (mode == selection_mode::line)
+    {
+        return y >= top && y <= bottom;
+    }
     return x >= left && x <= right && y >= top && y <= bottom;
 }
 
@@ -238,6 +289,44 @@ inline void console_state::clamp_cursor() noexcept
 {
     cursor_.x = std::min(cursor_.x, width_ - 1);
     cursor_.y = std::min(cursor_.y, height_ - 1);
+}
+
+inline void console_state::save_cursor() noexcept
+{
+    saved_cursor.valid = true;
+    saved_cursor.cursor = cursor_;
+    saved_cursor.style = default_style;
+}
+
+inline bool console_state::restore_cursor() noexcept
+{
+    if (!saved_cursor.valid)
+    {
+        return false;
+    }
+    cursor_ = saved_cursor.cursor;
+    default_style = saved_cursor.style;
+    clamp_cursor();
+    return true;
+}
+
+inline void console_state::save_alt_cursor() noexcept
+{
+    alt_saved_cursor.valid = true;
+    alt_saved_cursor.cursor = cursor_;
+    alt_saved_cursor.style = default_style;
+}
+
+inline bool console_state::restore_alt_cursor() noexcept
+{
+    if (!alt_saved_cursor.valid)
+    {
+        return false;
+    }
+    cursor_ = alt_saved_cursor.cursor;
+    default_style = alt_saved_cursor.style;
+    clamp_cursor();
+    return true;
 }
 
 inline void console_state::set_scroll_region(std::size_t top, std::size_t bottom)
@@ -297,11 +386,67 @@ inline void console_state::set_selection(std::size_t anchor_x,
                                          std::size_t caret_x,
                                          std::size_t caret_y) noexcept
 {
+    set_selection(anchor_x, anchor_y, caret_x, caret_y, selection_mode::block);
+}
+
+inline void console_state::set_selection(std::size_t anchor_x,
+                                         std::size_t anchor_y,
+                                         std::size_t caret_x,
+                                         std::size_t caret_y,
+                                         selection_mode mode) noexcept
+{
     selection_.active = true;
+    selection_.mode = mode;
     selection_.anchor_x = std::min(anchor_x, width_ - 1);
     selection_.anchor_y = std::min(anchor_y, height_ - 1);
     selection_.caret_x = std::min(caret_x, width_ - 1);
     selection_.caret_y = std::min(caret_y, height_ - 1);
+}
+
+inline std::u16string console_state::selected_text(const screen_buffer &buffer) const
+{
+    if (!selection_.active)
+    {
+        return {};
+    }
+
+    const auto left = std::min(selection_.anchor_x, selection_.caret_x);
+    const auto right = std::max(selection_.anchor_x, selection_.caret_x);
+    const auto top = std::min(selection_.anchor_y, selection_.caret_y);
+    const auto bottom = std::max(selection_.anchor_y, selection_.caret_y);
+    std::u16string result;
+
+    for (auto y = top; y <= bottom; ++y)
+    {
+        if (y >= buffer.height())
+        {
+            break;
+        }
+        if (selection_.mode == selection_mode::line)
+        {
+            auto line = buffer.line_text(y);
+            while (!line.empty() && line.back() == u' ')
+            {
+                line.pop_back();
+            }
+            result.append(line);
+        }
+        else
+        {
+            for (auto x = left; x <= right && x < buffer.width(); ++x)
+            {
+                if (!buffer.is_trailing(x, y))
+                {
+                    result.append(buffer.glyph_at(x, y));
+                }
+            }
+        }
+        if (y != bottom)
+        {
+            result.push_back(u'\n');
+        }
+    }
+    return result;
 }
 
 inline void console_state::clear_selection() noexcept

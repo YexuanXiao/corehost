@@ -1060,6 +1060,11 @@ semantic_prompt
 
 ### 9.8 用 libscreen 替换 libcorehost screen 的缺口
 
+> 状态：Phase 0–7 的参考实现已完成（见
+> [doc/libscreen-completion-plan.md](doc/libscreen-completion-plan.md)）；Phase 8–9 尚未
+> 完成。以下清单按 **corehost 完整行为** 计，“缺失”不表示 Phase 0–7 的基础 API 完全
+> 不存在，而是表示仍需 adapter/兼容测试/行为补齐。
+
 `libcorehost::screen_buffer` 不是“cell 数组”这么简单，它同时承担：
 
 - Console API 的 buffer/viewport 模型；
