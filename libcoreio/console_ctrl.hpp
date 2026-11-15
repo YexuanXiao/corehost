@@ -36,6 +36,7 @@ class ctrl_delivery final
   public:
     ctrl_delivery() : control_{resolve_console_control()}
     {
+        assert(control_ != nullptr);
         if (control_ == nullptr)
         {
             std::abort();

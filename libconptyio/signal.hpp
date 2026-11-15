@@ -43,7 +43,7 @@ inline void apply_signal(std::uint16_t id,
                          std::span<const std::byte> payload,
                          screen::screen_buffer &buffer,
                          screen::console_state &state,
-                         pseudo_window *window = nullptr)
+                         pseudo_window &window)
 {
     if (payload.size() != payload_size_for(id))
     {
@@ -70,19 +70,17 @@ inline void apply_signal(std::uint16_t id,
         break;
     }
     case pty_signal::show_hide_window:
-        if (window != nullptr)
         {
             std::uint16_t visible = 0;
             std::memcpy(&visible, payload.data(), sizeof(visible));
-            window->show(visible != 0);
+            window.show(visible != 0);
         }
         break;
     case pty_signal::set_parent:
-        if (window != nullptr)
         {
             std::uint64_t parent = 0;
             std::memcpy(&parent, payload.data(), sizeof(parent));
-            window->set_parent(reinterpret_cast<HWND>(parent));
+            window.set_parent(reinterpret_cast<HWND>(parent));
         }
         break;
     default:

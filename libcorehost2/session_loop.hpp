@@ -229,7 +229,7 @@ class session_signal_sink final
     void handle_signal(std::uint16_t id, std::span<const std::byte> payload)
     {
         std::unique_lock guard{mutex_};
-        conptyio::apply_signal(id, payload, state_.screen(), state_.state(), &window_);
+        conptyio::apply_signal(id, payload, state_.screen(), state_.state(), window_);
         state_.queue_window_size(static_cast<std::int16_t>(state_.state().width()),
                                  static_cast<std::int16_t>(state_.state().height()));
         (void)console_.complete_pending();

@@ -175,10 +175,11 @@ int main()
     ::CloseHandle(signal_stop_read);
     corehost::screen::screen_buffer signal_buffer{8, 2};
     corehost::screen::console_state signal_state{8, 2};
+    corehost::conptyio::pseudo_window signal_window;
     std::uint32_t resize = (3u << 16) | 10u;
     corehost::conptyio::apply_signal(
         8, std::span<const std::byte>{reinterpret_cast<const std::byte *>(&resize), sizeof(resize)},
-        signal_buffer, signal_state);
+        signal_buffer, signal_state, signal_window);
     if (signal_buffer.buffer_size() != corehost::screen::coord{10, 3} || signal_state.width() != 10)
     {
         std::fprintf(stderr, "signal resize failed\n");
@@ -188,7 +189,7 @@ int main()
     const std::uint16_t clear = 0;
     corehost::conptyio::apply_signal(
         2, std::span<const std::byte>{reinterpret_cast<const std::byte *>(&clear), sizeof(clear)},
-        signal_buffer, signal_state);
+        signal_buffer, signal_state, signal_window);
     if (signal_state.cursor().x != 0 || signal_state.cursor().y != 0)
     {
         std::fprintf(stderr, "signal clear failed\n");
@@ -216,7 +217,6 @@ int main()
     }
     ::CloseHandle(signal_read);
 
-    corehost::conptyio::pseudo_window signal_window;
     signal_window.start();
     if (signal_window.handle() == nullptr)
     {
@@ -226,7 +226,7 @@ int main()
     const std::uint16_t visible = 1;
     corehost::conptyio::apply_signal(
         1, std::span<const std::byte>{reinterpret_cast<const std::byte *>(&visible), sizeof(visible)},
-        signal_buffer, signal_state, &signal_window);
+        signal_buffer, signal_state, signal_window);
 
     signal_window.stop_and_join();
 
