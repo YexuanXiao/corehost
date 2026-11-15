@@ -1,5 +1,7 @@
 #include "buffer.hpp"
+#include "control.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 
@@ -27,6 +29,17 @@ int main()
     if (buffer.bytes().size() != 2 || buffer.bytes()[0] != u8'x')
     {
         std::fprintf(stderr, "reuse failed\n");
+        return EXIT_FAILURE;
+    }
+
+    buffer.clear();
+    append_hyperlink_open(buffer, u8"id=x", u8"https://e");
+    append_hyperlink_close(buffer);
+    constexpr std::u8string_view expected = u8"\x1b]8;id=x;https://e\x07\x1b]8;;\x07";
+    if (buffer.bytes().size() != expected.size() ||
+        !std::equal(buffer.bytes().begin(), buffer.bytes().end(), expected.begin()))
+    {
+        std::fprintf(stderr, "hyperlink serialization failed\n");
         return EXIT_FAILURE;
     }
 
