@@ -1001,6 +1001,14 @@ fb4d3ef perf(libscreen): remove per-cell bounds checks in ascii run
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### 历史选择缓冲复用
+
+`read_console` 的上/下方向键历史选择不再每次构造局部 `std::u16string`，复用成员 `history_selection_`：
+
+```text
+cafc79f perf(consoleapi): reuse history selection buffer
+```
+
 ### 单码点 scratch 去零初始化
 
 `append_utf16` 单码点路径的 4 字节栈缓冲不再零初始化；encoder 会写入实际使用的字节：
