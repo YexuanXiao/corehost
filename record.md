@@ -47,8 +47,8 @@ cmake --build build --target corehost corehost2 --config Release
 
 | 项目 | 现象 | 初步原因 |
 |---|---|---|
-| edit.exe 启动 | alternate screen 已进入，但菜单/编辑区不绘制，进程停在初始化 | edit 发送 `OSC 4/10/11` 颜色查询，宿主未向终端转发查询，也未把终端应答回送给 edit |
-| PowerShell/pwsh 大小写与连字符 | 自动输入 `A-` 只显示 `a`；`Write-Host` 变成 `writehost` | 原始 Win32 input 序列包含 `uc=65` / `uc=45`；需核对 ReadConsoleInput 的扫描码/控制状态转换，cmd 的 cooked ReadConsole 路径正常 |
+| edit.exe 启动 | alternate screen 已进入，但菜单/编辑区不绘制，进程停在初始化 | 已与 `build/Release/corehost.exe` 逐条对比：libcorehost 在 RAW_WRITE 137 字节后收到 `GetConsoleInput` 返回 560 字节终端应答，再写 RAW_WRITE 4351 字节绘制 UI；corehost2 写 137 字节后没有后续 API。直接同步透传 RAW_WRITE 会在 `terminal_writer::flush()` 阻塞，说明需要独立输出队列，不能在 server 线程同步写 |
+| PowerShell/pwsh 大小写与连字符 | 自动输入 `A-` 只显示 `a`；`Write-Host` 变成 `writehost` | 已对比 libcorehost：同一输入下 libcorehost 显示 `A-`，corehost2 只显示 `a`。原始 Win32 序列为 `ESC[65;0;65;1;48;1_` 与 `ESC[189;0;45;1;32;1_`；ReadConsoleInput 记录也带 char=65/45。需要继续对比 libcorehost 的输入队列/修饰键处理 |
 
 ## 复现命令
 
@@ -56,6 +56,20 @@ cmake --build build --target corehost corehost2 --config Release
 Copy-Item build\Release\corehost2.exe 'C:\1\terminal-1.24.12741.0\OpenConsole.exe' -Force
 Start-Process 'C:\1\terminal-1.24.12741.0\WindowsTerminal.exe'
 ```
+
+## 与 libcorehost 的直接对比
+
+| 场景 | libcorehost | corehost2 |
+|---|---|---|
+| PowerShell 输入 `A-` | 显示 `A-` | 只显示 `a` |
+| edit 启动 | 菜单/编辑区正常绘制 | alt screen 空白 |
+
+截图：
+
+- libcorehost：`build/corehost1_A.png`
+- corehost2：`build/scan2.png`
+- 原始 conhost edit：`build/edit_orig.png`
+- corehost2 edit：`build/edit_route.png`
 
 ## 备注
 
