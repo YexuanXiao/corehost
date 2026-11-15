@@ -199,6 +199,24 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b[31m");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if ((state.default_attributes & 0x0F) != 0x04)
+    {
+        std::fprintf(stderr, "sgr red failed\n");
+        return EXIT_FAILURE;
+    }
+
+    parser.reset();
+    result = parser.parse(U"\x1b[1;44m");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if ((state.default_attributes & 0x08) == 0 || ((state.default_attributes >> 4) & 0x0F) != 0x01)
+    {
+        std::fprintf(stderr, "sgr bold/blue failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }

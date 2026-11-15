@@ -55,6 +55,83 @@ class state_applier final
         }
     }
 
+    void apply_sgr(const vtparser::vt_message &message,
+                    screen::screen_buffer &buffer,
+                    screen::console_state &state)
+    {
+        const auto &payload = message.payload.sgr;
+        auto style = buffer.styles().at(state.default_style);
+        if (payload.has(vtparser::vt_sgr_flag::reset))
+        {
+            style = screen::text_style{};
+            state.default_attributes = 0x07;
+        }
+        if (payload.has(vtparser::vt_sgr_flag::bold))
+        {
+            state.default_attributes |= 0x08;
+        }
+        if (payload.clears(vtparser::vt_sgr_flag::bold))
+        {
+            state.default_attributes &= static_cast<std::uint16_t>(~0x08);
+        }
+        if (payload.has(vtparser::vt_sgr_flag::underline))
+        {
+            state.default_attributes |= 0x8000;
+        }
+        if (payload.clears(vtparser::vt_sgr_flag::underline))
+        {
+            state.default_attributes &= static_cast<std::uint16_t>(~0x8000);
+        }
+        if (payload.fg.kind != vtparser::vt_sgr_color_kind::none)
+        {
+            if (payload.fg.is_default())
+            {
+                style.foreground = screen::color{};
+                state.default_attributes = static_cast<std::uint16_t>((state.default_attributes & 0xFFF0) | 0x07);
+            }
+            else if (payload.fg.is_indexed())
+            {
+                style.foreground = screen::color{screen::color_kind::indexed, payload.fg.value};
+                state.default_attributes = static_cast<std::uint16_t>((state.default_attributes & 0xFFF0) | ansi_to_bgri(payload.fg.value));
+            }
+            else
+            {
+                style.foreground = screen::color{screen::color_kind::rgb,
+                                                 (static_cast<std::uint32_t>(payload.fg.value) << 16) |
+                                                 (static_cast<std::uint32_t>(payload.fg.g) << 8) |
+                                                 payload.fg.b};
+            }
+        }
+        if (payload.bg.kind != vtparser::vt_sgr_color_kind::none)
+        {
+            if (payload.bg.is_default())
+            {
+                style.background = screen::color{};
+            }
+            else if (payload.bg.is_indexed())
+            {
+                style.background = screen::color{screen::color_kind::indexed, payload.bg.value};
+                state.default_attributes = static_cast<std::uint16_t>((state.default_attributes & 0xFF0F) | (ansi_to_bgri(payload.bg.value) << 4));
+            }
+            else
+            {
+                style.background = screen::color{screen::color_kind::rgb,
+                                                 (static_cast<std::uint32_t>(payload.bg.value) << 16) |
+                                                 (static_cast<std::uint32_t>(payload.bg.g) << 8) |
+                                                 payload.bg.b};
+            }
+        }
+        style.legacy_attributes = state.default_attributes;
+        state.default_style = buffer.styles().intern(style);
+    }
+
+    static std::uint16_t ansi_to_bgri(std::uint8_t index) noexcept
+    {
+        const auto low = static_cast<std::uint16_t>(index & 0x0F);
+        return static_cast<std::uint16_t>((low & 0x01 ? 0x04 : 0) | (low & 0x02 ? 0x02 : 0) |
+                                          (low & 0x04 ? 0x01 : 0) | (low & 0x08 ? 0x08 : 0));
+    }
+
     void apply_semantic_prompt(const vtparser::vt_message &message,
                               screen::screen_buffer &buffer,
                               const screen::console_state &state)

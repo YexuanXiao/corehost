@@ -37,6 +37,9 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::use_main_buffer:
         applier.apply_alternate_buffer(false, buffer, state);
         return true;
+    case vtparser::vt_message_id::sgr:
+        applier.apply_sgr(message, buffer, state);
+        return true;
     case vtparser::vt_message_id::semantic_prompt_mark:
         applier.apply_semantic_prompt(message, buffer, state);
         return true;
