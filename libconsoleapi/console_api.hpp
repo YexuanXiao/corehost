@@ -1765,13 +1765,14 @@ class console_api final
         else
         {
             const auto code_page = state_.input_code_page;
-            std::vector<char> ansi(title.size() * 2 + 2);
-            const auto converted = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(title.data()),
-                                                         static_cast<int>(title.size()), ansi.data(),
-                                                         static_cast<int>(ansi.size()), nullptr, nullptr);
+            ansi_buffer_.resize(title.size() * 2 + 2);
+            const auto converted =
+                ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(title.data()),
+                                      static_cast<int>(title.size()), ansi_buffer_.data(),
+                                      static_cast<int>(ansi_buffer_.size()), nullptr, nullptr);
             const auto total = static_cast<std::size_t>(std::max(converted, 0));
             const auto units = std::min<std::size_t>(total, capacity);
-            std::memcpy(output, ansi.data(), units);
+            std::memcpy(output, ansi_buffer_.data(), units);
             if (units < capacity)
             {
                 output[units] = 0;
