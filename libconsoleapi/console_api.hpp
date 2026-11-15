@@ -1012,6 +1012,14 @@ class console_api final
                 }
             };
             write(alias.source);
+            if (info->Unicode)
+            {
+                *reinterpret_cast<char16_t *>(output + written - sizeof(char16_t)) = u'=';
+            }
+            else
+            {
+                output[written - 1] = '=';
+            }
             write(alias.target);
         }
         info->AliasesBufferLength = static_cast<ULONG>(written);

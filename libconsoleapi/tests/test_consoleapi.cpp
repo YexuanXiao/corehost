@@ -1022,7 +1022,7 @@ int main()
     }
     const auto *aliases_text = reinterpret_cast<const char16_t *>(
         aliases_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASES_MSG));
-    if (aliases_text[0] != u'x' || aliases_text[1] != 0 || aliases_text[2] != u'y' ||
+    if (aliases_text[0] != u'x' || aliases_text[1] != u'=' || aliases_text[2] != u'y' ||
         aliases_text[3] != 0)
     {
         std::fprintf(stderr, "get aliases data failed\n");
