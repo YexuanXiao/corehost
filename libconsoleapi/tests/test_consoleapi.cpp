@@ -943,6 +943,50 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer history_buffer{4, 2};
+    corehost::screen::console_state history_state{4, 2};
+    corehost::consoleapi::console_api history_api{history_buffer, history_state};
+    history_state.add_command(u"cmd");
+    corehost::coreio::io_msg history_length_message{};
+    history_length_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG);
+    history_length_message.descriptor.OutputSize = sizeof(history_length_message.body);
+    auto *history_length_header =
+        reinterpret_cast<CONSOLE_MSG_HEADER *>(history_length_message.body);
+    history_length_header->ApiNumber = ConsolepGetCommandHistoryLength;
+    auto *history_length_request = reinterpret_cast<CONSOLE_GETCOMMANDHISTORYLENGTH_MSG *>(
+        history_length_message.body + sizeof(CONSOLE_MSG_HEADER));
+    history_length_request->Unicode = TRUE;
+    if (!history_api.handle(history_length_message) || history_length_request->CommandHistoryLength != 4)
+    {
+        std::fprintf(stderr, "command history length failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::io_msg history_message{};
+    history_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG);
+    history_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                            sizeof(CONSOLE_GETCOMMANDHISTORY_MSG) +
+                                            4 * sizeof(char16_t);
+    auto *history_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(history_message.body);
+    history_header->ApiNumber = ConsolepGetCommandHistory;
+    auto *history_request = reinterpret_cast<CONSOLE_GETCOMMANDHISTORY_MSG *>(
+        history_message.body + sizeof(CONSOLE_MSG_HEADER));
+    history_request->Unicode = TRUE;
+    if (!history_api.handle(history_message))
+    {
+        std::fprintf(stderr, "get command history failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *history_text = reinterpret_cast<const char16_t *>(
+        history_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG));
+    if (history_text[0] != u'c' || history_text[2] != u'd' || history_text[3] != 0)
+    {
+        std::fprintf(stderr, "get command history data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

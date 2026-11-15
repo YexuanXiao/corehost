@@ -117,13 +117,11 @@ class console_state final
     std::uint32_t input_private_mode{};
     std::uint32_t input_code_page{};
     std::uint16_t language_id{0x0409};
-<<<<<<< HEAD
-=======
-    std::u16string keyboard_layout{u"00000409"};
     std::uint32_t history_buffer_size{50};
     std::uint32_t history_buffers{4};
     std::uint32_t history_flags{};
->>>>>>> 6991b89 (feat(consoleapi): handle console history settings)
+    std::vector<std::u16string> command_history;
+    std::size_t command_history_limit{50};
     std::uint32_t display_mode{};
     std::uint32_t output_code_page{};
     std::uint32_t font_index{};
@@ -185,6 +183,32 @@ class console_state final
     void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y,
                        selection_mode mode) noexcept;
     [[nodiscard]] std::u16string selected_text(const screen_buffer &buffer) const;
+    void add_command(std::u16string_view command);
+    void expunge_commands() noexcept
+    {
+        command_history.clear();
+    }
+
+    void set_command_limit(std::size_t limit)
+    {
+        command_history_limit = limit;
+        if (command_history.size() > limit)
+        {
+            command_history.erase(command_history.begin(),
+                                  command_history.begin() + (command_history.size() - limit));
+        }
+    }
+
+    [[nodiscard]] std::size_t command_history_length() const noexcept
+    {
+        std::size_t length = 0;
+        for (const auto &command : command_history)
+        {
+            length += command.size() + 1;
+        }
+        return length;
+    }
+
     void clear_selection() noexcept;
     [[nodiscard]] bool has_selection() const noexcept;
     [[nodiscard]] bool is_selected(std::size_t x, std::size_t y) const noexcept;
@@ -461,6 +485,19 @@ inline std::u16string console_state::selected_text(const screen_buffer &buffer) 
         }
     }
     return result;
+}
+
+inline void console_state::add_command(std::u16string_view command)
+{
+    if (command.empty())
+    {
+        return;
+    }
+    command_history.emplace_back(command);
+    if (command_history.size() > command_history_limit)
+    {
+        command_history.erase(command_history.begin());
+    }
 }
 
 inline void console_state::clear_selection() noexcept

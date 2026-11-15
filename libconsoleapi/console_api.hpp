@@ -144,6 +144,22 @@ class console_api final
         {
             return set_current_font(message);
         }
+        if (header->ApiNumber == ConsolepExpungeCommandHistory)
+        {
+            return expunge_command_history(message);
+        }
+        if (header->ApiNumber == ConsolepSetNumberOfCommands)
+        {
+            return set_number_of_commands(message);
+        }
+        if (header->ApiNumber == ConsolepGetCommandHistoryLength)
+        {
+            return get_command_history_length(message);
+        }
+        if (header->ApiNumber == ConsolepGetCommandHistory)
+        {
+            return get_command_history(message);
+        }
         if (header->ApiNumber == ConsolepGetHistory)
         {
             return get_history_info(message);
@@ -399,6 +415,7 @@ class console_api final
 
             if (character == u'\u000D' || character == u'\u000A')
             {
+                state_.add_command(std::u16string_view{output, units});
                 break;
             }
             if (character == u'\u0008')
@@ -819,6 +836,90 @@ class console_api final
             state_.face_name.push_back(static_cast<char16_t>(ch));
         }
         coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool expunge_command_history(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_EXPUNGECOMMANDHISTORY_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        state_.expunge_commands();
+        coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool set_number_of_commands(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETNUMBEROFCOMMANDS_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *info = reinterpret_cast<const CONSOLE_SETNUMBEROFCOMMANDS_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        state_.set_command_limit(info->NumCommands);
+        coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool get_command_history_length(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETCOMMANDHISTORYLENGTH_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto units = state_.command_history_length();
+        info->CommandHistoryLength = static_cast<ULONG>(info->Unicode ? units : units);
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool get_command_history(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETCOMMANDHISTORY_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *output = message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCOMMANDHISTORY_MSG);
+        const auto capacity = message.descriptor.OutputSize > sizeof(CONSOLE_GETCOMMANDHISTORY_MSG)
+                                  ? message.descriptor.OutputSize - sizeof(CONSOLE_GETCOMMANDHISTORY_MSG)
+                                  : 0;
+        std::size_t written = 0;
+        for (const auto &command : state_.command_history)
+        {
+            const auto unit_size = info->Unicode ? sizeof(char16_t) : sizeof(char);
+            if (written + (command.size() + 1) * unit_size > capacity)
+            {
+                break;
+            }
+            if (info->Unicode)
+            {
+                std::memcpy(output + written, command.data(), command.size() * sizeof(char16_t));
+                written += command.size() * sizeof(char16_t);
+                output[written] = 0;
+                written += sizeof(char16_t);
+            }
+            else
+            {
+                for (const char16_t ch : command)
+                {
+                    output[written++] = static_cast<char>(ch < 0x80 ? ch : '?');
+                }
+                output[written++] = 0;
+            }
+        }
+        info->CommandBufferLength = static_cast<ULONG>(written);
+        coreio::prepare_completion(message, 0, written, message.body + sizeof(CONSOLE_MSG_HEADER), written);
         return true;
     }
 
