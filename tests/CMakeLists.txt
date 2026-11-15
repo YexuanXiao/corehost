@@ -450,6 +450,9 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/libconsoleinput/tests ${CMAKE_CURRENT_BINAR
 # ── libcoreio 测试 ──────────────────────────────────
 add_subdirectory(${CMAKE_SOURCE_DIR}/libcoreio/tests ${CMAKE_CURRENT_BINARY_DIR}/libcoreio-tests)
 
+# ── libconptyio 测试 ────────────────────────────────
+add_subdirectory(${CMAKE_SOURCE_DIR}/libconptyio/tests ${CMAKE_CURRENT_BINARY_DIR}/libconptyio-tests)
+
 # ── libvtstate 测试 ─────────────────────────────────
 add_subdirectory(${CMAKE_SOURCE_DIR}/libvtstate/tests ${CMAKE_CURRENT_BINARY_DIR}/libvtstate-tests)
 

@@ -80,6 +80,9 @@ add_subdirectory(libvtserializer)
 # ── libconsoleinput (parser keys -> portable input events) ─
 add_subdirectory(libconsoleinput)
 
+# ── libconptyio (terminal pipe vt_out sink) ───────────
+add_subdirectory(libconptyio)
+
 # ── libscreen (16-byte cell 屏幕缓冲区参考实现) ────────
 add_subdirectory(libscreen)
 add_subdirectory(libscreen/bench)
