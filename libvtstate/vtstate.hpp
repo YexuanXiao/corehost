@@ -658,11 +658,10 @@ class state_applier final
     void apply_line_feed(screen::screen_buffer &buffer,
                            screen::console_state &state)
     {
-        const auto x = state.cursor().x;
         const auto y = state.cursor().y;
         if (y + 1 < state.height())
         {
-            state.set_cursor(x, y + 1);
+            state.set_cursor(0, y + 1);
             return;
         }
 
@@ -678,7 +677,7 @@ class state_applier final
                 screen::rectangle{0, top, state.width(), bottom - top + 1},
                 1, state.default_style);
         }
-        state.set_cursor(x, bottom);
+        state.set_cursor(0, bottom);
     }
 
     void apply_next_line(screen::screen_buffer &buffer,

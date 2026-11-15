@@ -33,6 +33,8 @@ class server_dispatcher final
             state_.handle_connect(message);
             session_.set_input_object(state_.input_id());
             session_.set_input_handle(reinterpret_cast<std::uintptr_t>(state_.input().get()));
+            session_.set_output_object(state_.output_id());
+            session_.set_alternate_object(state_.alternate_output_id());
             return true;
         case CONSOLE_IO_CREATE_OBJECT:
             state_.handle_create_object(message);

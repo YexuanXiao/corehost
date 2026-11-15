@@ -107,11 +107,9 @@ class console_api final
         }
 
         const auto *header = reinterpret_cast<const CONSOLE_MSG_HEADER *>(message.body);
+        const auto body_size = static_cast<std::size_t>(message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER));
         if (header->ApiDescriptorSize != 0 &&
-            (header->ApiDescriptorSize < sizeof(CONSOLE_MSG_HEADER) ||
-             header->ApiDescriptorSize > sizeof(message.body) ||
-             header->ApiDescriptorSize >
-                 message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER)))
+            (header->ApiDescriptorSize > sizeof(message.body) || header->ApiDescriptorSize > body_size))
         {
             coreio::prepare_completion(message, coreio::error::status_illegal_function);
             return true;
@@ -1953,8 +1951,9 @@ class console_api final
             }
             written = units;
             request->TitleLength = static_cast<ULONG>(total);
-        }        coreio::prepare_completion(message, 0, written,
-                                   message.body + sizeof(CONSOLE_MSG_HEADER), written);
+        }
+        coreio::prepare_completion(message, 0, written, message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETTITLE_MSG) + written);
         return true;
     }
 
@@ -2483,8 +2482,24 @@ class console_api final
             return true;
         }
 
-        const auto *cells = reinterpret_cast<const interop::win32::char_info *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG));
+        std::span<const std::byte> cell_bytes;
+        if (payload_ != nullptr)
+        {
+            cell_bytes = payload_->read(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG));
+        }
+        else
+        {
+            cell_bytes = std::span<const std::byte>{
+                reinterpret_cast<const std::byte *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                    sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG)),
+                count * sizeof(interop::win32::char_info)};
+        }
+        if (cell_bytes.size() < count * sizeof(interop::win32::char_info))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *cells = reinterpret_cast<const interop::win32::char_info *>(cell_bytes.data());
         const screen::rect area{request->CharRegion.Left, request->CharRegion.Top,
                                 request->CharRegion.Right, request->CharRegion.Bottom};
         const auto written = buffer_.write_char_info_abi(area, std::span<const interop::win32::char_info>{cells, count});
