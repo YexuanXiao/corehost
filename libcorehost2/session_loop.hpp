@@ -335,6 +335,8 @@ inline void run_conpty_session(win32::handle_view server,
     const auto height = config.height > 0 ? static_cast<std::size_t>(config.height) : std::size_t{30};
 
     session state{width, height, config.text_measurement, config.ambiguous_is_wide};
+    state.state().input_code_page = 65001;
+    state.state().output_code_page = 65001;
     state.state().output_mode = 0x0001 | 0x0002 | 0x0004;
     conptyio::terminal_writer writer{vt_out};
     conptyio::pseudo_window window{server};
