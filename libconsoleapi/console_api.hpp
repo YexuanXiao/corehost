@@ -897,7 +897,7 @@ class console_api final
         {
             for (std::size_t i = 0; i < records; ++i)
             {
-                consoleinput::input_event converted{};
+                consoleinput::input_event converted;
                 if (input[i].EventType == MOUSE_EVENT)
                 {
                     converted.type = consoleinput::input_event_type::mouse;
