@@ -51,6 +51,43 @@ class session final
         return screen_;
     }
 
+    void feed_input(std::span<const char32_t> input)
+    {
+        while (!input.empty())
+        {
+            const auto result = parser_.parse(std::u32string_view{input.data(), input.size()});
+            input = input.subspan(result.consumed);
+            if (result.id == vtparser::vt_message_id::continue_)
+            {
+                continue;
+            }
+
+            if (const auto key = consoleinput::key_from_message(result.id, result.message);
+                key.has_value())
+            {
+                input_.push(consoleinput::input_event{consoleinput::input_event_type::key, *key});
+                parser_.reset();
+                continue;
+            }
+
+            if (result.id == vtparser::vt_message_id::continue_text ||
+                result.id == vtparser::vt_message_id::text)
+            {
+                for (const char32_t ch : result.message.payload.text)
+                {
+                    consoleinput::key_event key;
+                    key.character = ch <= 0xFFFF ? static_cast<char16_t>(ch) : u'\uFFFD';
+                    input_.push(consoleinput::input_event{consoleinput::input_event_type::key, key});
+                }
+                parser_.reset();
+                continue;
+            }
+
+            (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
+            parser_.reset();
+        }
+    }
+
     [[nodiscard]] consoleinput::input_queue &input() noexcept
     {
         return input_;

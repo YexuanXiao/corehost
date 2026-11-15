@@ -97,7 +97,7 @@ inline void run_conpty_session(win32::handle_view server,
     while (reader.read_batch())
     {
         const std::scoped_lock lock{session_mutex};
-        state.feed(reader.codepoints());
+        state.feed_input(reader.codepoints());
 
         const auto cursor = screen::coord{
             static_cast<std::int32_t>(state.state().cursor().x),

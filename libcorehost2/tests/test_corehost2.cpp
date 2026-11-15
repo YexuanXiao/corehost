@@ -93,6 +93,16 @@ int main()
     fake_transport transport;
     corehost::coreio::run_server(transport, server);
 
+    corehost::corehost2::session input_session{4, 2};
+    constexpr char32_t text_input[]{U'A'};
+    input_session.feed_input(text_input);
+    if (input_session.input().size() != 1 ||
+        input_session.screen().at(0, 0).primary() != u' ')
+    {
+        std::fprintf(stderr, "session feed_input failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
 }
