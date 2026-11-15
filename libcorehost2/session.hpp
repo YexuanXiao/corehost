@@ -118,7 +118,7 @@ class session final
 
         if (input_direction)
         {
-            if (const auto mouse = consoleinput::mouse_from_message(result.id, result.message);
+            if (const auto mouse = consoleinput::mouse_from_message(result.id, result.message, &mouse_button_state_);
                 mouse.has_value() && state_.mouse_tracking())
             {
                 consoleinput::input_event event{consoleinput::input_event_type::mouse};
@@ -160,6 +160,7 @@ class session final
     vtparser::vt_parser parser_;
     vtstate::state_applier applier_;
     consoleinput::input_queue input_;
+    std::uint32_t mouse_button_state_{};
 };
 
 } // namespace corehost::corehost2

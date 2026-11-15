@@ -135,7 +135,8 @@ key_from_message(vtparser::vt_message_id id, const vtparser::vt_message &message
 }
 
 [[nodiscard]] inline std::optional<mouse_event>
-mouse_from_message(vtparser::vt_message_id id, const vtparser::vt_message &message) noexcept
+mouse_from_message(vtparser::vt_message_id id, const vtparser::vt_message &message,
+                   std::uint32_t *current_buttons) noexcept
 {
     if (id != vtparser::vt_message_id::mouse_sgr)
     {
@@ -145,23 +146,46 @@ mouse_from_message(vtparser::vt_message_id id, const vtparser::vt_message &messa
     event.x = message.payload.mouse.x;
     event.y = message.payload.mouse.y;
     const auto encoding = message.payload.mouse.encoding;
-    if (!message.payload.mouse.release && (encoding & 0x40) == 0)
+    const bool wheel = (encoding & 0x40) != 0;
+    const bool motion = (encoding & 0x20) != 0;
+    const auto base = encoding & 0x03;
+    std::uint32_t buttons = current_buttons != nullptr ? *current_buttons : 0;
+
+    if (wheel)
     {
-        switch (encoding & 0x03)
+        const bool horizontal = base >= 2;
+        event.event_flags = horizontal ? 0x0008 : 0x0004;
+        const short delta = (base == 0 || base == 2) ? 120 : -120;
+        event.button_state = buttons | (static_cast<std::uint32_t>(static_cast<std::uint16_t>(delta)) << 16);
+    }
+    else if (message.payload.mouse.release || base == 3)
+    {
+        buttons = 0;
+    }
+    else if (!motion)
+    {
+        switch (base)
         {
         case 0:
-            event.button_state = 0x0001;
+            buttons = 0x0001;
             break;
         case 1:
-            event.button_state = 0x0004;
+            buttons = 0x0004;
             break;
         case 2:
-            event.button_state = 0x0002;
+            buttons = 0x0002;
             break;
         default:
             break;
         }
+        event.button_state = buttons;
     }
+    else
+    {
+        event.event_flags |= 0x0001;
+        event.button_state = buttons;
+    }
+
     if ((encoding & 0x04) != 0)
     {
         event.control_state |= 0x0010;
@@ -174,15 +198,10 @@ mouse_from_message(vtparser::vt_message_id id, const vtparser::vt_message &messa
     {
         event.control_state |= 0x0008;
     }
-    if ((encoding & 0x20) != 0)
+    if (current_buttons != nullptr)
     {
-        event.event_flags |= 0x0001;
-    }
-    if ((encoding & 0x40) != 0)
-    {
-        event.event_flags |= 0x0004;
+        *current_buttons = buttons;
     }
     return event;
 }
-
 } // namespace corehost::consoleinput
