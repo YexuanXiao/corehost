@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <mutex>
 #include <atomic>
+#include <cstdlib>
 #include <string>
 #include <iterator>
 #include <libunicode/convert.h>
@@ -61,7 +62,10 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
         vtserializer::render_damage(context.writer->buffer(), context.state->screen(), cursor,
                                     &context.state->state());
         context.state->screen().clear_damage();
-        (void)context.writer->flush();
+        if (!context.writer->flush())
+        {
+            return true;
+        }
         return true;
     };
     coreio::run_server(transport, handler, *context.stop);
@@ -98,7 +102,10 @@ inline DWORD WINAPI signal_worker_entry(LPVOID raw)
         vtserializer::render_damage(context.writer->buffer(), context.state->screen(), cursor,
                                     &context.state->state());
         context.state->screen().clear_damage();
-        (void)context.writer->flush();
+        if (!context.writer->flush())
+        {
+            break;
+        }
     }
     return 0;
 }
@@ -130,14 +137,20 @@ inline void run_conpty_session(win32::handle_view server,
     conptyio::terminal_reader reader{vt_in};
     conptyio::terminal_writer writer{vt_out};
     conptyio::pseudo_window window;
-    (void)window.create();
+    if (!window.create())
+    {
+        std::abort();
+    }
     vtserializer::append_clear_screen(writer.buffer());
     vtserializer::append_cup(writer.buffer(), 0, 0);
     if (config.inherit_cursor)
     {
         vtserializer::append_request_cursor_position(writer.buffer());
     }
-    (void)writer.flush();
+    if (!writer.flush())
+    {
+        return;
+    }
     win32::srwlock session_mutex;
     win32::basic_thread server_thread;
     win32::basic_thread signal_thread;

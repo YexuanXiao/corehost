@@ -23,13 +23,18 @@ class terminal_reader final
     [[nodiscard]] bool read_batch()
     {
         const auto result = win32::read_some(input_, std::span<char>{bytes_});
-        if (result.closed() || result.failed())
+        if (result.closed())
         {
-            closed_ = result.closed();
+            closed_ = true;
             return false;
+        }
+        if (result.failed())
+        {
+            throw result.error;
         }
         if (result.bytes == 0)
         {
+            closed_ = true;
             return false;
         }
 

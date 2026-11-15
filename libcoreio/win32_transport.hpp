@@ -5,6 +5,7 @@
 #include "win32/handle.hpp"
 
 #include <Windows.h>
+#include <cstdlib>
 
 namespace corehost::coreio
 {
@@ -24,15 +25,15 @@ class win32_transport final
         return read_io_try(server_, previous, message);
     }
 
-    void wait() const noexcept
+    void wait() const
     {
-        if (event_.valid())
+        if (!event_.valid())
         {
-            ::WaitForSingleObject(event_.get(), 16);
+            std::abort();
         }
-        else
+        if (::WaitForSingleObject(event_.get(), INFINITE) != WAIT_OBJECT_0)
         {
-            ::Sleep(1);
+            win32::throw_last_error();
         }
     }
 

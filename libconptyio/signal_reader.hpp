@@ -22,7 +22,7 @@ class signal_reader final
 
     [[nodiscard]] bool read_one()
     {
-        if (!win32::read_exact(pipe_, std::span<std::byte>{reinterpret_cast<std::byte *>(&id_), sizeof(id_)}))
+        if (!read_exact(std::span<std::byte>{reinterpret_cast<std::byte *>(&id_), sizeof(id_)}))
         {
             return false;
         }
@@ -33,7 +33,7 @@ class signal_reader final
             return false;
         }
 
-        if (!win32::read_exact(pipe_, std::span<std::byte>{payload_.data(), size}))
+        if (!read_exact(std::span<std::byte>{payload_.data(), size}))
         {
             return false;
         }
@@ -51,6 +51,27 @@ class signal_reader final
         return std::span<const std::byte>{payload_.data(), size_};
     }
 
+    bool read_exact(std::span<std::byte> buffer)
+    {
+        while (!buffer.empty())
+        {
+            const auto result = win32::read_some(pipe_, buffer);
+            if (result.closed())
+            {
+                return false;
+            }
+            if (result.failed())
+            {
+                throw result.error;
+            }
+            if (result.bytes == 0)
+            {
+                return false;
+            }
+            buffer = buffer.subspan(result.bytes);
+        }
+        return true;
+    }
   private:
     win32::handle_view pipe_;
     std::uint16_t id_{};

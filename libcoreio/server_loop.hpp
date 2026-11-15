@@ -46,6 +46,10 @@ void run_server(Transport &transport, Handler &handler, std::stop_token stop = {
         {
             return;
         }
+        if (stop.stop_requested())
+        {
+            return;
+        }
         transport.wait();
     }
 }
@@ -76,6 +80,10 @@ void run_server(Transport &transport, Handler &handler, const std::atomic_bool &
             continue;
         }
         if (result == read_io_result::disconnected)
+        {
+            return;
+        }
+        if (stop.load(std::memory_order_relaxed))
         {
             return;
         }
