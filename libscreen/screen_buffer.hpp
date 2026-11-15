@@ -1202,12 +1202,18 @@ inline std::size_t screen_buffer::write_chars(coord start, std::u16string_view t
 
 inline std::size_t screen_buffer::write_attrs(coord start, std::span<const std::uint16_t> attrs) noexcept
 {
-    std::size_t count = 0;
     auto x = start.x;
     auto y = start.y;
+    if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ ||
+        static_cast<std::size_t>(y) >= height_)
+    {
+        return 0;
+    }
+
+    std::size_t count = 0;
     for (const auto attributes : attrs)
     {
-        if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
+        if (static_cast<std::size_t>(y) >= height_)
         {
             break;
         }
