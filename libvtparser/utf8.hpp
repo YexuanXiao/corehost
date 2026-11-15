@@ -26,32 +26,24 @@ class utf8_decoder final
         constexpr std::uint64_t high_bits = 0x8080808080808080ull;
         std::size_t index = 0;
 
-        while (index < bytes.size() && pending_size_ != 0)
-        {
-            consume(static_cast<std::uint8_t>(bytes[index]), output);
-            ++index;
-        }
-
-        while (index + 8 <= bytes.size())
-        {
-            std::uint64_t word = 0;
-            std::memcpy(&word, bytes.data() + index, sizeof(word));
-            if ((word & high_bits) != 0)
-            {
-                break;
-            }
-
-            const auto offset = output.size();
-            output.resize(offset + 8);
-            for (std::size_t i = 0; i < 8; ++i)
-            {
-                output[offset + i] = static_cast<char16_t>(bytes[index + i]);
-            }
-            index += 8;
-        }
-
         while (index < bytes.size())
         {
+            if (pending_size_ == 0 && index + 8 <= bytes.size())
+            {
+                std::uint64_t word = 0;
+                std::memcpy(&word, bytes.data() + index, sizeof(word));
+                if ((word & high_bits) == 0)
+                {
+                    const auto offset = output.size();
+                    output.resize(offset + 8);
+                    for (std::size_t i = 0; i < 8; ++i)
+                    {
+                        output[offset + i] = static_cast<char16_t>(bytes[index + i]);
+                    }
+                    index += 8;
+                    continue;
+                }
+            }
             consume(static_cast<std::uint8_t>(bytes[index]), output);
             ++index;
         }
