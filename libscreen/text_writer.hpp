@@ -180,10 +180,18 @@ template <std::output_iterator<char16_t> Output>
     return unicode::encoder<char16_t>{}(codepoint, output);
 }
 
-template <std::output_iterator<char32_t> Output>
-[[nodiscard]] Output to_u32(std::u16string_view text, Output output)
+template <std::ranges::input_range Range, std::output_iterator<char32_t> Output>
+requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<Range>>, char16_t>
+[[nodiscard]] Output to_u32(Range &&text, Output output)
 {
-    return unicode::convert_to<char32_t>(text, output);
+    auto iterator = std::ranges::begin(text);
+    const auto end = std::ranges::end(text);
+    while (iterator != end)
+    {
+        const auto decoded = next_codepoint(iterator, end);
+        *output++ = decoded.value;
+    }
+    return output;
 }
 
 template <std::output_iterator<char32_t> Output>
