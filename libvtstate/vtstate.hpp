@@ -39,6 +39,25 @@ class state_applier final
         last_consumed_ = result.consumed;
     }
 
+    void apply_line_feed(screen::screen_buffer &buffer,
+                           screen::console_state &state)
+    {
+        const auto x = state.cursor().x;
+        const auto y = state.cursor().y;
+        if (y + 1 < state.height())
+        {
+            state.set_cursor(x, y + 1);
+            return;
+        }
+
+        const auto top = state.scroll_top();
+        const auto bottom = state.scroll_bottom();
+        buffer.scroll_region_up(
+            screen::rectangle{0, top, state.width(), bottom - top + 1},
+            1, state.default_style);
+        state.set_cursor(x, bottom);
+    }
+
     void apply_cursor_position(const vtparser::vt_message &message,
                               screen::console_state &state)
     {

@@ -75,6 +75,29 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::vtstate::state_applier line_applier;
+    parser.reset();
+    result = parser.parse(U"\n");
+    if (result.id != vtparser::vt_message_id::line_feed)
+    {
+        std::fprintf(stderr, "line feed parse failed\n");
+        return EXIT_FAILURE;
+    }
+    line_applier.apply_line_feed(buffer, state);
+    if (state.cursor().y != 3)
+    {
+        std::fprintf(stderr, "line feed cursor failed\n");
+        return EXIT_FAILURE;
+    }
+
+    state.set_cursor(0, 4);
+    line_applier.apply_line_feed(buffer, state);
+    if (state.cursor().y != 4)
+    {
+        std::fprintf(stderr, "line feed scroll failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }
