@@ -33,7 +33,7 @@ void conpty_entry(win32::handle_view server,
     config.inherit_cursor = inherit_cursor;
     config.text_measurement = text_measurement;
     config.ambiguous_is_wide = ambiguous_is_wide;
-    run_conpty_session(server, event, vt_in, vt_out, signal_pipe, config);
+    run_conpty_session(server, event, condrv_input, condrv_output, vt_in, vt_out, signal_pipe, config);
 }
 
 } // namespace corehost::corehost2

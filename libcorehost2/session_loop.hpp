@@ -38,6 +38,8 @@ struct conpty_session_config final
 // handling are added by later modules; this establishes the new session entry.
 inline void run_conpty_session(win32::handle_view server,
                                win32::handle_view event,
+                               win32::handle_view condrv_input,
+                               win32::handle_view condrv_output,
                                win32::handle_view vt_in,
                                win32::handle_view vt_out,
                                win32::handle_view signal_pipe,
@@ -71,7 +73,7 @@ inline void run_conpty_session(win32::handle_view server,
                 {
                     console_session.processes().add(config.attached_process_id);
                 }
-                server_dispatcher dispatcher{server, console_session};
+                server_dispatcher dispatcher{server, condrv_input, condrv_output, console_session};
                 auto handler = [&](coreio::io_msg &message) {
                     const std::scoped_lock lock{session_mutex};
                     dispatcher.handle(message);

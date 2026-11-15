@@ -15,8 +15,9 @@ namespace corehost::corehost2
 class server_dispatcher final
 {
   public:
-    server_dispatcher(win32::handle_view server, server_session &session) noexcept
-        : server_{server}, session_{session}
+    server_dispatcher(win32::handle_view server, win32::handle_view condrv_input,
+                      win32::handle_view condrv_output, server_session &session) noexcept
+        : server_{server}, session_{session}, fixed_input_{condrv_input}, fixed_output_{condrv_output}
     {
     }
 
@@ -49,6 +50,16 @@ class server_dispatcher final
     {
         if (!input_.valid() || !output_.valid())
         {
+            if (fixed_input_.valid() && fixed_output_.valid())
+            {
+                input_id_ = reinterpret_cast<ULONG_PTR>(fixed_input_.get());
+                output_id_ = reinterpret_cast<ULONG_PTR>(fixed_output_.get());
+                session_.processes().add(message.descriptor.Process);
+                coreio::prepare_connection_completion(message, fixed_input_, fixed_output_,
+                                                     message.descriptor.Process);
+                session_.set_input_object(input_id_);
+                return true;
+            }
             coreio::accept_connection(server_, message, input_, output_);
             input_id_ = reinterpret_cast<ULONG_PTR>(input_.get());
             session_.processes().add(message.descriptor.Process);
@@ -57,7 +68,8 @@ class server_dispatcher final
             return true;
         }
 
-        coreio::prepare_connection_completion(message, input_.view(), output_.view(),
+        coreio::prepare_connection_completion(message, fixed_input_.valid() ? fixed_input_ : input_.view(),
+                                             fixed_output_.valid() ? fixed_output_ : output_.view(),
                                              message.descriptor.Process);
         return true;
     }
@@ -136,6 +148,8 @@ class server_dispatcher final
 
     win32::handle_view server_;
     server_session &session_;
+    win32::handle_view fixed_input_;
+    win32::handle_view fixed_output_;
     win32::handle input_;
     win32::handle output_;
     ULONG_PTR input_id_{};

@@ -104,7 +104,7 @@ int main()
         return EXIT_FAILURE;
     }
 
-    corehost::corehost2::server_dispatcher dispatcher{win32::handle_view{}, server};
+    corehost::corehost2::server_dispatcher dispatcher{win32::handle_view{}, win32::handle_view{}, win32::handle_view{}, server};
     corehost::coreio::io_msg close_message{};
     close_message.descriptor.Function = CONSOLE_IO_CLOSE_OBJECT;
     if (!dispatcher.handle(close_message) || close_message.complete.IoStatus.Status != 0)
