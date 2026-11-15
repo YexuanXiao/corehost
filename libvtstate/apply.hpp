@@ -22,6 +22,12 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::cursor_position:
         applier.apply_cursor_position(message, state);
         return true;
+    case vtparser::vt_message_id::char_backspace:
+        if (state.cursor().x > 0)
+        {
+            state.set_cursor(state.cursor().x - 1, state.cursor().y);
+        }
+        return true;
     case vtparser::vt_message_id::line_feed:
         applier.apply_line_feed(buffer, state);
         return true;

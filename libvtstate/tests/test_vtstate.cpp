@@ -512,6 +512,26 @@ int main()
         return EXIT_FAILURE;
     }
 
+    state.set_cursor(1, 0);
+    parser.reset();
+    result = parser.parse(U"\b");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.cursor().x != 0)
+    {
+        std::fprintf(stderr, "backspace failed\n");
+        return EXIT_FAILURE;
+    }
+
+    state.set_cursor(1, 0);
+    parser.reset();
+    result = parser.parse(U"\b");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.cursor().x != 0)
+    {
+        std::fprintf(stderr, "backspace failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }

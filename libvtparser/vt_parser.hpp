@@ -176,6 +176,7 @@ enum class vt_message_id
     key_ctrl_down,
     key_ctrl_right,
     key_ctrl_left,
+    char_backspace,
     char_del,
     char_sub,
     char_esc,
@@ -655,6 +656,7 @@ class vt_parser
         case ground_char_kind::nul:
             return vt_message_id::char_nul;
         case ground_char_kind::backspace:
+            return vt_message_id::char_backspace;
         case ground_char_kind::del:
             return vt_message_id::char_del;
         case ground_char_kind::sub:
