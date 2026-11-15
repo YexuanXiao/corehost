@@ -66,15 +66,27 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
                     return false;
                 }
                 context.dispatcher->take_ctrl_events(ctrl_events);
-                if (context.state->screen().has_damage())
+                const auto cursor = screen::coord{
+                    static_cast<std::int32_t>(context.state->state().cursor().x),
+                    static_cast<std::int32_t>(context.state->state().cursor().y),
+                };
+                bool rendered = false;
+                if (context.state->take_alternate_changed())
                 {
-                    const auto cursor = screen::coord{
-                        static_cast<std::int32_t>(context.state->state().cursor().x),
-                        static_cast<std::int32_t>(context.state->state().cursor().y),
-                    };
+                    vtserializer::render_viewport(context.writer->buffer(), context.state->screen(),
+                                                  cursor, &context.state->state());
+                    context.state->screen().clear_damage();
+                    rendered = true;
+                }
+                else if (context.state->screen().has_damage())
+                {
                     vtserializer::render_damage(context.writer->buffer(), context.state->screen(),
                                                 cursor, &context.state->state());
                     context.state->screen().clear_damage();
+                    rendered = true;
+                }
+                if (rendered)
+                {
                     context.writer->flush();
                 }
             }
@@ -123,7 +135,14 @@ class session_input_sink final : public conptyio::vt_input_sink
             static_cast<std::int32_t>(state_.state().cursor().x),
             static_cast<std::int32_t>(state_.state().cursor().y),
         };
-        vtserializer::render_damage(writer_.buffer(), state_.screen(), cursor, &state_.state());
+        if (state_.take_alternate_changed())
+        {
+            vtserializer::render_viewport(writer_.buffer(), state_.screen(), cursor, &state_.state());
+        }
+        else
+        {
+            vtserializer::render_damage(writer_.buffer(), state_.screen(), cursor, &state_.state());
+        }
         state_.screen().clear_damage();
         writer_.flush();
     }
@@ -164,7 +183,14 @@ class session_signal_sink final : public conptyio::signal_sink
             static_cast<std::int32_t>(state_.state().cursor().x),
             static_cast<std::int32_t>(state_.state().cursor().y),
         };
-        vtserializer::render_damage(writer_.buffer(), state_.screen(), cursor, &state_.state());
+        if (state_.take_alternate_changed())
+        {
+            vtserializer::render_viewport(writer_.buffer(), state_.screen(), cursor, &state_.state());
+        }
+        else
+        {
+            vtserializer::render_damage(writer_.buffer(), state_.screen(), cursor, &state_.state());
+        }
         state_.screen().clear_damage();
         writer_.flush();
     }

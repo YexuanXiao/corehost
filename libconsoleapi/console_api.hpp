@@ -1018,6 +1018,7 @@ class console_api final
         const bool alternate = alternate_object_ != 0 &&
                                message.descriptor.Object == alternate_object_;
         buffer_.set_alternate(alternate);
+        state_.alternate_changed = true;
         coreio::prepare_completion(message);
         return true;
     }

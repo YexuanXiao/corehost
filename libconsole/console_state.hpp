@@ -136,6 +136,7 @@ class console_state final
     bool line_drawing_charset{};
     bool keypad_application{};
     bool keypad_changed{};
+    bool alternate_changed{};
     std::bitset<2048> private_modes;
     std::vector<std::pair<std::uint16_t, bool>> private_mode_changes;
     std::uint32_t output_code_page{};

@@ -50,6 +50,13 @@ class session final
         }
     }
 
+    [[nodiscard]] bool take_alternate_changed() noexcept
+    {
+        const auto changed = state_.alternate_changed;
+        state_.alternate_changed = false;
+        return changed;
+    }
+
     [[nodiscard]] screen::screen_buffer &screen() noexcept
     {
         return screen_;
