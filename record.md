@@ -364,4 +364,10 @@ CoreHost2.Reference  Passed
 LibScreen.Reference  Passed
 ```
 
-`VtState.Reference` 当前在测试程序中报告 `index failed`，该失败与本轮标题修复无关的怀疑尚未排除；需要在后续单独确认其基线状态。
+`VtState.Reference` 当前在测试程序中报告 `index failed`；用 `d127fc5^` 的原始测试文件复跑同样失败，确认是既有基线失败，不是标题修复引入。
+
+### edit 剩余差异
+
+- F10 未打开 File 下拉菜单；原始 OpenConsole 会打开。
+- 鼠标点击菜单栏后，corehost2 底部出现两行状态栏，原始 OpenConsole 只有一行。
+- 这属于 edit 重绘/鼠标输入路径的输出问题，初步怀疑与 alternate screen 下 raw 输出和 screen_buffer 重绘同时发生有关，尚未修复。
