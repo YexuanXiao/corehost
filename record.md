@@ -1006,6 +1006,27 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### DBCS 转换 scratch 去零初始化
+
+`write_console_input` 的 `wchar_t wide[2]{}` 改为 `wchar_t wide[2]`；只在 `MultiByteToWideChar` 返回 `units > 0` 时读取 `wide[0]`，无需预先清零：
+
+```text
+93a3ab6 perf(consoleapi): avoid zeroing dbcs scratch
+```
+
+### 未保留：扩大单码点 stack fast path
+
+尝试把 `append_utf16` 的 `text.size() == 1` 扩展到 `<= 4`。基准（2000 万次）：
+
+```text
+two-ascii   old=6.056-7.167 ns new=6.649-7.186 ns ratio=0.84-1.04x
+four-cjk    old=7.961-9.025 ns new=8.466-9.131 ns ratio=0.91-0.99x
+four-cjk2   old=8.334-9.012 ns new=7.551-8.081 ns ratio=1.09-1.12x
+eight-ascii old=11.460-12.036 ns new=14.309-14.426 ns ratio=0.80-0.83x
+```
+
+2-4 字符收益不稳定，且 8 字符路径明显变慢，因此恢复为仅 `size() == 1` 的快路径。
+
 ### WriteConsoleInput 转换事件去零初始化
 
 `write_console_input` 的 `consoleinput::input_event converted{}` 改为 `converted`；每个事件类型都会写满其实际读取的字段，不再为每个输入记录整块清零：
