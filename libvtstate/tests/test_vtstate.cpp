@@ -398,6 +398,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b]0;Hello\x07");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.title != u"Hello")
+    {
+        std::fprintf(stderr, "window title failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }

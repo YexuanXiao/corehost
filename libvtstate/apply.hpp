@@ -75,6 +75,9 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::cursor_forward_tab:
         state.set_cursor(state.next_tab_stop(state.cursor().x), state.cursor().y);
         return true;
+    case vtparser::vt_message_id::set_window_title:
+        applier.apply_window_title(message, state);
+        return true;
     case vtparser::vt_message_id::set_cursor_shape:
         applier.apply_cursor_shape(message, state);
         return true;

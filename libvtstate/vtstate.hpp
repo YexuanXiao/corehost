@@ -162,6 +162,13 @@ class state_applier final
                          static_cast<std::size_t>(std::max<std::ptrdiff_t>(y, 0)));
     }
 
+    void apply_window_title(const vtparser::vt_message &message,
+                            screen::console_state &state)
+    {
+        state.title.clear();
+        unicode::convert_to<char16_t>(message.payload.title, std::back_inserter(state.title));
+    }
+
     void apply_cursor_shape(const vtparser::vt_message &message,
                             screen::console_state &state) noexcept
     {
