@@ -9,7 +9,7 @@
 // FILE_FLAG_OVERLAPPED by us.
 //
 // This wrapper makes such a read cancellable by another thread:
-// - The reader signals an "in read" auto-reset event immediately
+// - The reader signals a manual-reset "in read" event immediately
 //   before calling ReadFile and resets it afterwards.
 // - A stopper waits on {reader thread, "in read" event} with no
 //   timeout: whenever the event signals, the reader has just entered
@@ -64,7 +64,7 @@ class cancellable_read
     // Creating the "in read" event can fail; that is fatal, so the
     // constructor is intentionally not noexcept.
     explicit cancellable_read(win32::handle_view pipe)
-        : _pipe{pipe}, _in_read{win32::create_tag, /*manual_reset=*/false, /*initial=*/false}
+        : _pipe{pipe}, _in_read{win32::create_tag, /*manual_reset=*/true, /*initial=*/false}
     {
     }
 
@@ -188,9 +188,9 @@ class cancellable_read
     // Non-owning pipe handle; the session owns it.
     win32::handle_view _pipe;
 
-    // Auto-reset: signaled while this thread is inside ReadFile. The
-    // stopper waits on it instead of polling; no memory ordering is
-    // needed because the wait itself is the synchronization.
+    // Manual-reset: signaled while this thread is inside ReadFile. A waiter
+    // must not consume the notification before CancelSynchronousIo observes it;
+    // the reader resets it when ReadFile returns.
     win32::event _in_read;
 
     // Set by request_stop(); distinguishes "cancelled" from "aborted by
