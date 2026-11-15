@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cell.hpp"
+#include "deque.hpp"
 #include "screen_buffer.hpp"
 
 #include <Windows.h>
@@ -170,7 +171,7 @@ class console_state final
         std::u16string executable;
     };
     std::vector<alias_entry> aliases;
-    std::vector<std::u16string> command_history;
+    bizwen::deque<std::u16string> command_history;
     std::size_t history_browse_index{no_history_selection};
     std::u16string history_saved_input;
     std::size_t command_history_limit{50};
@@ -393,9 +394,9 @@ class console_state final
     void set_command_limit(std::size_t limit)
     {
         command_history_limit = limit;
-        if (command_history.size() > limit)
+        while (command_history.size() > limit)
         {
-            command_history.erase(command_history.begin(), command_history.begin() + (command_history.size() - limit));
+            command_history.pop_front();
         }
     }
 
@@ -710,7 +711,7 @@ inline void console_state::add_command(std::u16string_view command)
     command_history.emplace_back(command);
     if (command_history.size() > command_history_limit)
     {
-        command_history.erase(command_history.begin());
+        command_history.pop_front();
     }
 }
 
