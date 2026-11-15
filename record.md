@@ -1051,6 +1051,27 @@ feb6ca0 perf(libscreen): replace bgri ternaries with compact table
 915c54b perf(consoleapi): avoid zeroing each INPUT_RECORD
 ```
 
+### 相邻单元格样式缓存
+
+`screen_buffer::write_char_info` 缓存上一个单元格的 legacy 属性与样式 ID；连续同属性单元格不再重复 `style_for_legacy`/`styles_.intern`：
+
+```text
+0178ec2 perf(libscreen): reuse style lookup across adjacent cells
+```
+
+### 输入队列 key 计数
+
+`input_queue::has_key` 原来每次从 `head_` 扫描到队尾。现在维护 `key_count_`：
+
+- `push` / `push_front` 遇到 key-down 事件递增；
+- `read` 消费 key-down 事件时递减；
+- `clear` 归零；
+- `has_key()` 直接返回 `key_count_ != 0`。
+
+```text
+b10ba83 perf(consoleinput): track key events instead of scanning queue
+```
+
 ### Console API 分派
 
 `console_api::handle` 不再使用长串 `if (header->ApiNumber == ...)`。先取 `layer = ApiNumber >> 24`，再按 L1/L2/L3 分别 switch，和 libcorehost 的分派结构一致。未知 layer/API 仍返回 `status_not_implemented`。
