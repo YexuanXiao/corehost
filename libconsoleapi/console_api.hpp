@@ -587,38 +587,38 @@ class console_api final
                     line_complete = true;
                     break;
                 }
-            }
-            if (character == u'\u000D' || character == u'\u000A')
-            {
-                redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
-                if (echo)
+                if (character == u'\u000D' || character == u'\u000A')
                 {
-                    echo_cursor.x = 0;
-                    ++echo_cursor.y;
-                    state_.echo_line_feed = true;
+                    redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
+                    if (echo)
+                    {
+                        echo_cursor.x = 0;
+                        ++echo_cursor.y;
+                        state_.echo_line_feed = true;
+                    }
+                    auto &expanded = history_selection_;
+                    expanded.assign(output, units);
+                    expand_console_alias(expanded);
+                    units = std::min<std::size_t>(expanded.size(), max_units);
+                    std::copy_n(expanded.data(), units, output);
+                    state_.add_command(std::u16string_view{output, units});
+                    line_complete = true;
+                    break;
                 }
-                auto &expanded = history_selection_;
-                expanded.assign(output, units);
-                expand_console_alias(expanded);
-                units = std::min<std::size_t>(expanded.size(), max_units);
-                std::copy_n(expanded.data(), units, output);
-                state_.add_command(std::u16string_view{output, units});
-                line_complete = true;
-                break;
-            }
-            if (character == u'\u0008')
-            {
-                if (cursor != 0)
+                if (character == u'\u0008')
                 {
-                    erase_character(output, units, cursor, cursor - 1);
-                    state_.break_history_browse();
+                    if (cursor != 0)
+                    {
+                        erase_character(output, units, cursor, cursor - 1);
+                        state_.break_history_browse();
+                    }
+                    redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
+                    continue;
                 }
-                redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
-                continue;
-            }
-            if (character == 0 || (character < u' ' && character != u'\t'))
-            {
-                continue;
+                if (character != u'\t')
+                {
+                    continue;
+                }
             }
             state_.break_history_browse();
             if (units < max_units)
