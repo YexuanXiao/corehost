@@ -1044,15 +1044,16 @@ inline std::size_t screen_buffer::write_char_info(rect area, std::span<const cha
 
 inline std::size_t screen_buffer::read_char_info_abi(rect area, std::span<interop::win32::char_info> out) const noexcept
 {
+    const auto left = std::max(area.left, 0);
+    const auto top = std::max(area.top, 0);
+    const auto right = std::min(area.right, static_cast<std::int32_t>(width_) - 1);
+    const auto bottom = std::min(area.bottom, static_cast<std::int32_t>(height_) - 1);
+
     std::size_t count = 0;
-    for (auto y = area.top; y <= area.bottom && count < out.size(); ++y)
+    for (auto y = top; y <= bottom && count < out.size(); ++y)
     {
-        for (auto x = area.left; x <= area.right && count < out.size(); ++x)
+        for (auto x = left; x <= right && count < out.size(); ++x)
         {
-            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
-            {
-                continue;
-            }
             out[count++] = to_win32(char_info_at(coord{x, y}));
         }
     }
