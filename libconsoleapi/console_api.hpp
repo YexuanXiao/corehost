@@ -818,7 +818,7 @@ class console_api final
         }
         else
         {
-            const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
             const auto *bytes_data = reinterpret_cast<const char *>(data);
             const auto units = ::MultiByteToWideChar(code_page, 0, bytes_data, static_cast<int>(bytes),
                                                      nullptr, 0);
@@ -1652,20 +1652,31 @@ class console_api final
         {
             const auto units = std::min<std::size_t>(title.size(), capacity / sizeof(char16_t));
             std::memcpy(output, title.data(), units * sizeof(char16_t));
+            if (units < capacity / sizeof(char16_t))
+            {
+                *reinterpret_cast<char16_t *>(output + units * sizeof(char16_t)) = 0;
+            }
             written = units * sizeof(char16_t);
-            request->TitleLength = static_cast<ULONG>(units);
+            request->TitleLength = static_cast<ULONG>(title.size());
         }
         else
         {
-            const auto units = std::min<std::size_t>(title.size(), capacity);
-            for (std::size_t i = 0; i < units; ++i)
+            const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+            std::vector<char> ansi(title.size() * 2 + 2);
+            const auto converted = ::WideCharToMultiByte(
+                code_page, 0, reinterpret_cast<const wchar_t *>(title.data()),
+                static_cast<int>(title.size()), ansi.data(), static_cast<int>(ansi.size()), nullptr,
+                nullptr);
+            const auto total = static_cast<std::size_t>(std::max(converted, 0));
+            const auto units = std::min<std::size_t>(total, capacity);
+            std::memcpy(output, ansi.data(), units);
+            if (units < capacity)
             {
-                output[i] = static_cast<char>(title[i] < 0x80 ? title[i] : '?');
+                output[units] = 0;
             }
             written = units;
-            request->TitleLength = static_cast<ULONG>(units);
-        }
-        coreio::prepare_completion(message, 0, written,
+            request->TitleLength = static_cast<ULONG>(total);
+        }        coreio::prepare_completion(message, 0, written,
                                    message.body + sizeof(CONSOLE_MSG_HEADER), written);
         return true;
     }
