@@ -533,6 +533,12 @@ class console_api final
                 continue;
             }
             const auto character = events[i].key.character;
+            if (events[i].key.repeat_count > 1)
+            {
+                auto remaining = events[i];
+                --remaining.key.repeat_count;
+                input_->push_front(remaining);
+            }
             if (character == 0)
             {
                 if (events[i].key.key == consoleinput::virtual_key::left)
