@@ -103,7 +103,11 @@ class server_session final : public consoleapi::console_text_writer
     void on_input_eof()
     {
         raw_eof_ = true;
-        if (pending_active_ && pending_kind_ == pending_kind::raw_read && server_.valid())
+        if (!pending_active_ || !server_.valid())
+        {
+            return;
+        }
+        if (pending_kind_ == pending_kind::raw_read)
         {
             const auto capacity = std::min<std::size_t>(pending_message_.descriptor.OutputSize,
                                                          sizeof(pending_message_.body));
@@ -112,10 +116,20 @@ class server_session final : public consoleapi::console_text_writer
             raw_in_.clear();
             coreio::prepare_completion(pending_message_, 0, written, pending_message_.body,
                                        written);
-            coreio::complete_io(server_, pending_message_.complete);
-            pending_active_ = false;
-            pending_kind_ = pending_kind::none;
         }
+        else
+        {
+            coreio::prepare_completion(pending_message_, 0, 0, pending_message_.body, 0);
+        }
+        coreio::complete_io(server_, pending_message_.complete);
+        pending_active_ = false;
+        pending_kind_ = pending_kind::none;
+        for (auto &queued : queued_console_inputs_)
+        {
+            coreio::prepare_completion(queued, 0, 0, queued.body, 0);
+            coreio::complete_io(server_, queued.complete);
+        }
+        queued_console_inputs_.clear();
     }
 
     std::size_t read_raw(std::span<char> output)

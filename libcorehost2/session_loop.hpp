@@ -249,6 +249,8 @@ class session_signal_sink final : public conptyio::signal_sink
 
     void on_signal_eof() override
     {
+        std::unique_lock guard{mutex_};
+        console_.on_input_eof();
     }
 
   private:
