@@ -1,6 +1,7 @@
 #pragma once
 
 #include "apply.hpp"
+#include "key_map.hpp"
 #include "vt_parser.hpp"
 #include "vtstate.hpp"
 
@@ -8,6 +9,7 @@
 #include "screen_buffer.hpp"
 
 #include <cstddef>
+#include <optional>
 #include <span>
 
 namespace corehost::corehost2
@@ -34,6 +36,11 @@ class session final
                 continue;
             }
 
+            if (const auto key = consoleinput::key_from_message(result.id, result.message);
+                key.has_value())
+            {
+                input_.push(consoleinput::input_event{consoleinput::input_event_type::key, *key});
+            }
             (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
             parser_.reset();
         }
@@ -42,6 +49,11 @@ class session final
     [[nodiscard]] screen::screen_buffer &screen() noexcept
     {
         return screen_;
+    }
+
+    [[nodiscard]] consoleinput::input_queue &input() noexcept
+    {
+        return input_;
     }
 
     [[nodiscard]] screen::console_state &state() noexcept
@@ -55,6 +67,7 @@ class session final
     vtparser::raw_u32_buffer raw_;
     vtparser::vt_parser parser_;
     vtstate::state_applier applier_;
+    consoleinput::input_queue input_;
 };
 
 } // namespace corehost::corehost2

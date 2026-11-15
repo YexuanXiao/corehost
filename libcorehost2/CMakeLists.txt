@@ -4,6 +4,6 @@ target_include_directories(libcorehost2 INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(libcorehost2 INTERFACE libvtparser libvtstate libconsole libscreen libvtserializer libconptyio libconsoleapi libcoreio common)
+target_link_libraries(libcorehost2 INTERFACE libvtparser libvtstate libconsole libscreen libvtserializer libconptyio libconsoleapi libconsoleinput libcoreio common)
 
 target_compile_features(libcorehost2 INTERFACE cxx_std_23)

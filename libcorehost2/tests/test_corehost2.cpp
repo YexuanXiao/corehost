@@ -47,6 +47,14 @@ int main()
     ::CloseHandle(output);
     ::CloseHandle(input_read);
 
+    constexpr char32_t key_input[]{U'\x1b', U'O', U'A'};
+    session.feed(key_input);
+    if (session.input().size() != 1)
+    {
+        std::fprintf(stderr, "session key queue failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::screen::screen_buffer server_buffer{8, 2};
     corehost::screen::console_state server_state{8, 2};
     corehost::corehost2::server_session server{server_buffer, server_state};
