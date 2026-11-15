@@ -2523,7 +2523,7 @@ class console_api final
             {
                 continue;
             }
-            auto &expanded = alias_expanded_;
+            auto &expanded = decoded_source_;
             expanded.assign(alias.target);
             if (word_end != std::u16string::npos)
             {
@@ -2704,7 +2704,6 @@ class console_api final
     std::vector<char> ansi_buffer_;
     std::vector<consoleinput::input_event> prepend_buffer_;
     std::u16string cooked_line_;
-    std::u16string alias_expanded_;
     std::u16string decoded_executable_;
     std::u16string decoded_source_;
     std::size_t cooked_cursor_{};
