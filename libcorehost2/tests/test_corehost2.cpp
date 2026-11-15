@@ -122,6 +122,17 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::key_event raw_read_key;
+    raw_read_key.character = u'X';
+    server_input.push(
+        corehost::consoleinput::input_event{corehost::consoleinput::input_event_type::key, raw_read_key});
+    char raw_read_data[1]{};
+    if (server.read_raw(std::span<char>{raw_read_data, 1}) != 1 || raw_read_data[0] != 'X')
+    {
+        std::fprintf(stderr, "raw read failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
 }

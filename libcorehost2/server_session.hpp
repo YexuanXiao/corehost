@@ -49,6 +49,31 @@ class server_session final
         }
     }
 
+    std::size_t read_raw(std::span<char> output)
+    {
+        std::array<consoleinput::input_event, 32> events{};
+        const auto count = input_.read(
+            std::span<consoleinput::input_event>{events.data(), events.size()});
+        std::size_t written = 0;
+        for (std::size_t i = 0; i < count && written < output.size(); ++i)
+        {
+            if (events[i].type != consoleinput::input_event_type::key || !events[i].key.key_down)
+            {
+                continue;
+            }
+            const auto character = events[i].key.character;
+            if (character < 0x80)
+            {
+                output[written++] = static_cast<char>(character);
+            }
+            else
+            {
+                output[written++] = static_cast<char>('?');
+            }
+        }
+        return written;
+    }
+
     [[nodiscard]] coreio::process_registry &processes() noexcept
     {
         return processes_;
