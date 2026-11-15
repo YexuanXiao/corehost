@@ -995,6 +995,12 @@ ASCII fast path 进入时只做一次 cursor 合法性检查，循环内只保�
 fb4d3ef perf(libscreen): remove per-cell bounds checks in ascii run
 ```
 
+ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.size(), available)`，不再每字符检查 `cursor.x >= width`，`write_scalar` 的返回值也无需在已知合法范围内判断：
+
+```text
+839fd49 perf(libscreen): bound ascii run loop by row remainder
+```
+
 `text.empty()` 检查移到 `write_text_row` 最外层，避免只在 ASCII 分支内重复判断：
 
 ```text
