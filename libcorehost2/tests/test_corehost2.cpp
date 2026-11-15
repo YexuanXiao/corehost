@@ -502,6 +502,15 @@ int main()
         std::fprintf(stderr, "mouse rejected with tracking mode\n");
         return EXIT_FAILURE;
     }
+    corehost::consoleinput::input_event mouse_event{};
+    if (mouse_session.input().peek(
+            std::span<corehost::consoleinput::input_event>{&mouse_event, 1}) == 0 ||
+        mouse_event.type != corehost::consoleinput::input_event_type::mouse ||
+        mouse_event.mouse.x != 1 || mouse_event.mouse.y != 1)
+    {
+        std::fprintf(stderr, "mouse coordinates are not zero-based\n");
+        return EXIT_FAILURE;
+    }
 
     corehost::corehost2::session ambiguous_session{4, 2,
                                                    corehost::screen::text_measurement::graphemes, true};

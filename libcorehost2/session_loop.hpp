@@ -344,6 +344,10 @@ inline void run_conpty_session(win32::handle_view server,
     vtserializer::append_clear_screen(writer.buffer());
     vtserializer::append_cup(writer.buffer(), 0, 0);
     writer.buffer().append_text(u8"\x1b[?9001h");
+    writer.buffer().append_text(u8"\x1b[?1002;1006;2004h");
+    state.state().set_private_mode(1002, true);
+    state.state().set_private_mode(1006, true);
+    state.state().set_private_mode(2004, true);
     if (config.inherit_cursor)
     {
         vtserializer::append_request_cursor_position(writer.buffer());
