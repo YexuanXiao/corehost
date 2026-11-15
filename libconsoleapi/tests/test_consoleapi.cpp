@@ -1119,6 +1119,20 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg console_window_message{};
+    console_window_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEWINDOW_MSG64);
+    console_window_message.descriptor.OutputSize = sizeof(console_window_message.body);
+    auto *console_window_header =
+        reinterpret_cast<CONSOLE_MSG_HEADER *>(console_window_message.body);
+    console_window_header->ApiNumber = ConsolepGetConsoleWindow;
+    if (!api.handle(console_window_message) ||
+        reinterpret_cast<const CONSOLE_GETCONSOLEWINDOW_MSG64 *>(
+            console_window_message.body + sizeof(CONSOLE_MSG_HEADER))->hwnd != 0)
+    {
+        std::fprintf(stderr, "get console window failed\n");
+        return EXIT_FAILURE;
+    }
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

@@ -192,6 +192,10 @@ class console_api final
         {
             return set_history_info(message);
         }
+        if (header->ApiNumber == ConsolepGetConsoleWindow)
+        {
+            return get_console_window(message);
+        }
         if (header->ApiNumber == ConsolepGetDisplayMode)
         {
             return get_display_mode(message);
@@ -1216,7 +1220,23 @@ class console_api final
         return true;
     }
 
-    (coreio::io_msg &message) noexcept
+    [[nodiscard]] bool get_console_window(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEWINDOW_MSG64))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETCONSOLEWINDOW_MSG64 *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->hwnd = 0;
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCONSOLEWINDOW_MSG64),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETCONSOLEWINDOW_MSG64));
+        return true;
+    }
+
+    [[nodiscard]] bool get_display_mode(coreio::io_msg &message) noexcept
     {
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETDISPLAYMODE_MSG))
         {
