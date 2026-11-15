@@ -1127,6 +1127,36 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::input_queue initial_queue;
+    initial_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'A'}});
+    corehost::screen::screen_buffer initial_buffer{4, 2};
+    corehost::screen::console_state initial_state{4, 2};
+    corehost::consoleapi::console_api initial_api{initial_buffer, initial_state, &initial_queue};
+    corehost::coreio::io_msg initial_message{};
+    initial_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                            sizeof(CONSOLE_READCONSOLE_MSG) + sizeof(char16_t);
+    initial_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                             sizeof(CONSOLE_READCONSOLE_MSG) + 2 * sizeof(char16_t);
+    auto *initial_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(initial_message.body);
+    initial_header->ApiNumber = ConsolepReadConsole;
+    auto *initial_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        initial_message.body + sizeof(CONSOLE_MSG_HEADER));
+    initial_request->Unicode = TRUE;
+    initial_request->InitialNumBytes = sizeof(char16_t);
+    *reinterpret_cast<char16_t *>(initial_request + 1) = u'Z';
+    if (!initial_api.handle(initial_message) || initial_request->NumBytes != 2 * sizeof(char16_t))
+    {
+        std::fprintf(stderr, "read console initial data failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *initial_output = reinterpret_cast<const char16_t *>(initial_request + 1);
+    if (initial_output[0] != u'Z' || initial_output[1] != u'A')
+    {
+        std::fprintf(stderr, "read console initial data content failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

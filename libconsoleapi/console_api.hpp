@@ -390,6 +390,25 @@ class console_api final
             message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
         const auto max_units = capacity / sizeof(char16_t);
         std::size_t units = 0;
+        if (request->Unicode && request->InitialNumBytes != 0)
+        {
+            const auto payload_bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
+                                       sizeof(CONSOLE_READCONSOLE_MSG);
+            const auto exe_bytes = static_cast<std::size_t>(request->ExeNameLength) * sizeof(char16_t);
+            if (exe_bytes <= payload_bytes)
+            {
+                const auto *initial = reinterpret_cast<const char16_t *>(
+                    message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) +
+                    exe_bytes);
+                const auto available = (payload_bytes - exe_bytes) / sizeof(char16_t);
+                const auto initial_units =
+                    std::min({static_cast<std::size_t>(request->InitialNumBytes / sizeof(char16_t)),
+                              available, max_units});
+                std::copy_n(initial, initial_units, output);
+                units = initial_units;
+            }
+        }
+
         const bool echo = (state_.input_mode & 0x0004) != 0;
         screen::coord echo_cursor{static_cast<std::int32_t>(state_.cursor().x),
                                   static_cast<std::int32_t>(state_.cursor().y)};
