@@ -198,3 +198,29 @@ PWSH-OK
 截图：`C:\1\c2_matrix.png`、`C:\1\c2_resize.png`（测试后清理）。
 
 edit 仍停留在 alternate screen，菜单/编辑区不绘制；尚未找到最小修复。
+
+## 2026-11-15 原始 OpenConsole 截图基线
+
+将 `C:\1\OpenConsole.exe` 临时复制为 WT 的宿主，执行相同矩阵：
+
+```text
+PS C:\Users\xyx> echo PS5-A-\
+PS5-A-\
+PS C:\Users\xyx> cmd /c echo CMD-X-1
+CMD-X-1
+PS C:\Users\xyx> pwsh -NoLogo -Command "Write-Output PWSH-OK"
+PWSH-OK
+```
+
+原始 OpenConsole 与修复后的 corehost2 输出一致（PS5、cmd、pwsh 的大小写/连字符/反斜杠均正确）。
+
+edit 原始 OpenConsole 截图：
+
+- 菜单栏 `File Edit View Help`；
+- 行号 `1`；
+- 底部状态栏 `[CRLF] [UTF-8] [Spaces:4] 1:1 [Untitled-1.txt]`；
+- 编辑区正常绘制。
+
+corehost2 仍只有 alternate screen 光标，菜单和编辑区为空。
+
+截图基线：`C:\1\orig_matrix.png`、`C:\1\orig_edit.png`（测试后清理）。
