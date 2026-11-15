@@ -898,22 +898,7 @@ class console_api final
             for (std::size_t i = 0; i < records; ++i)
             {
                 consoleinput::input_event converted;
-                if (input[i].EventType == MOUSE_EVENT)
-                {
-                    converted.type = consoleinput::input_event_type::mouse;
-                    converted.mouse.x = input[i].Event.MouseEvent.dwMousePosition.X;
-                    converted.mouse.y = input[i].Event.MouseEvent.dwMousePosition.Y;
-                    converted.mouse.button_state = input[i].Event.MouseEvent.dwButtonState;
-                    converted.mouse.control_state = input[i].Event.MouseEvent.dwControlKeyState;
-                    converted.mouse.event_flags = input[i].Event.MouseEvent.dwEventFlags;
-                }
-                else if (input[i].EventType == WINDOW_BUFFER_SIZE_EVENT)
-                {
-                    converted.type = consoleinput::input_event_type::window;
-                    converted.window.width = input[i].Event.WindowBufferSizeEvent.dwSize.X;
-                    converted.window.height = input[i].Event.WindowBufferSizeEvent.dwSize.Y;
-                }
-                else if (input[i].EventType == KEY_EVENT)
+                if (input[i].EventType == KEY_EVENT)
                 {
                     consoleinput::key_event key;
                     if (request->Unicode)
@@ -943,6 +928,21 @@ class console_api final
                     key.key_down = input[i].Event.KeyEvent.bKeyDown != FALSE;
                     converted.type = consoleinput::input_event_type::key;
                     converted.key = key;
+                }
+                else if (input[i].EventType == MOUSE_EVENT)
+                {
+                    converted.type = consoleinput::input_event_type::mouse;
+                    converted.mouse.x = input[i].Event.MouseEvent.dwMousePosition.X;
+                    converted.mouse.y = input[i].Event.MouseEvent.dwMousePosition.Y;
+                    converted.mouse.button_state = input[i].Event.MouseEvent.dwButtonState;
+                    converted.mouse.control_state = input[i].Event.MouseEvent.dwControlKeyState;
+                    converted.mouse.event_flags = input[i].Event.MouseEvent.dwEventFlags;
+                }
+                else if (input[i].EventType == WINDOW_BUFFER_SIZE_EVENT)
+                {
+                    converted.type = consoleinput::input_event_type::window;
+                    converted.window.width = input[i].Event.WindowBufferSizeEvent.dwSize.X;
+                    converted.window.height = input[i].Event.WindowBufferSizeEvent.dwSize.Y;
                 }
                 else
                 {
