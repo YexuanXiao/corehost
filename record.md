@@ -1001,6 +1001,22 @@ fb4d3ef perf(libscreen): remove per-cell bounds checks in ascii run
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### 待处理 Console Input 队列
+
+`server_session::queued_console_inputs_` 从 `std::vector<coreio::io_msg>` 改为 `bizwen::deque<coreio::io_msg>`，头部消费不再 `erase(begin)`：
+
+```text
+b6dcd71 perf(corehost2): use deque for queued console inputs
+```
+
+同类队列基准（4096 项，Release `/O2`）：
+
+```text
+vector erase(begin)=1817.503 ns/event
+deque pop_front=1.527 ns/event
+ratio≈1190x
+```
+
 ### GetConsoleTitle ANSI 缓冲复用
 
 `get_title` 的非 Unicode 分支不再每次构造 `std::vector<char>`，复用成员 `ansi_buffer_`：
