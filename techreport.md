@@ -1304,6 +1304,9 @@ libscreen 的 row_block 当前是“每行完整 16B cell vector”：
 
 其中 1–5 是 Console API 兼容的 P0；6–7 是行为兼容；8 是性能回归修复。
 
+具体模块、API 草案、分阶段任务、测试与验收标准见
+[doc/libscreen-completion-plan.md](doc/libscreen-completion-plan.md)。
+
 ## 10. 结论
 
 16 字节 cell 是 corehost 面向 Windows 的一个明确取舍：
