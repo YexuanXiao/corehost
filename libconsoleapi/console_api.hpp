@@ -809,7 +809,8 @@ class console_api final
                                             reinterpret_cast<LPWSTR>(text.data()), units);
             }
             written = write_console_text(text);
-        }        request->NumBytes = static_cast<ULONG>(written * (request->Unicode ? sizeof(char16_t) : 1));
+        }
+        request->NumBytes = static_cast<ULONG>(written * (request->Unicode ? sizeof(char16_t) : 1));
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLE_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_WRITECONSOLE_MSG));
