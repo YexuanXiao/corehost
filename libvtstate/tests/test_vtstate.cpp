@@ -170,6 +170,35 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer alt_buffer{4, 2};
+    corehost::screen::console_state alt_state{4, 2};
+    corehost::vtstate::state_applier alt_applier;
+    parser.reset();
+    result = parser.parse(U"M");
+    alt_applier.apply_text(result.message, alt_buffer, alt_state);
+
+    parser.reset();
+    result = parser.parse(U"\x1b[?1049h");
+    (void)corehost::vtstate::apply(result.id, result.message, alt_buffer, alt_state, alt_applier);
+    if (!alt_buffer.alternate_active() || alt_buffer.at(0, 0).primary() != u' ')
+    {
+        std::fprintf(stderr, "alternate buffer enter failed\n");
+        return EXIT_FAILURE;
+    }
+
+    parser.reset();
+    result = parser.parse(U"A");
+    alt_applier.apply_text(result.message, alt_buffer, alt_state);
+
+    parser.reset();
+    result = parser.parse(U"\x1b[?1049l");
+    (void)corehost::vtstate::apply(result.id, result.message, alt_buffer, alt_state, alt_applier);
+    if (alt_buffer.alternate_active() || alt_buffer.at(0, 0).primary() != u'M')
+    {
+        std::fprintf(stderr, "alternate buffer exit failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }

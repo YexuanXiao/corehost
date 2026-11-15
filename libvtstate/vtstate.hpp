@@ -39,6 +39,22 @@ class state_applier final
         last_consumed_ = result.consumed;
     }
 
+    void apply_alternate_buffer(bool enabled,
+                                screen::screen_buffer &buffer,
+                                screen::console_state &state)
+    {
+        if (enabled)
+        {
+            state.save_alt_cursor();
+            buffer.set_alternate(true);
+        }
+        else
+        {
+            buffer.set_alternate(false);
+            (void)state.restore_alt_cursor();
+        }
+    }
+
     void apply_semantic_prompt(const vtparser::vt_message &message,
                               screen::screen_buffer &buffer,
                               const screen::console_state &state)
