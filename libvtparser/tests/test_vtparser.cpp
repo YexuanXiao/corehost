@@ -1,7 +1,6 @@
 #include "kitty.hpp"
 #include "sixel.hpp"
-#include "kitty.hpp"
-#include "sixel.hpp"
+#include "utf8.hpp"
 #include "vt_parser.hpp"
 
 #include <cstdio>
@@ -97,6 +96,13 @@ int main()
         check(sixel->parameters == U"0;1", "sixel parameters");
         check(sixel->data == U"abc", "sixel data");
     }
+
+    std::u32string decoded;
+    std::string pending;
+    constexpr char8_t utf8_text[]{0x41, 0xE4, 0xB8, 0xAD};
+    decode_utf8(utf8_text, decoded, pending);
+    check(decoded == U"A\u4E2D", "utf8 decode");
+    check(pending.empty(), "utf8 pending empty");
 
     if (failures != 0)
     {
