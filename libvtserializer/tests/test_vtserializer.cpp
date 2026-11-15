@@ -5,6 +5,7 @@
 #include "viewport.hpp"
 
 #include <algorithm>
+#include <string>
 #include <cstdio>
 #include <cstdlib>
 
@@ -116,6 +117,18 @@ int main()
     if (!found_ab)
     {
         std::fprintf(stderr, "viewport text missing\n");
+        return EXIT_FAILURE;
+    }
+
+    const auto link = screen.hyperlinks().intern(u"https://e", u"id");
+    (void)screen.write_glyph(corehost::screen::coord{0, 1}, u"L", 1,
+                             corehost::screen::cell_style{}, link);
+    buffer.clear();
+    render_damage(buffer, screen, corehost::screen::coord{1, 1});
+    const std::u8string rendered{buffer.bytes().begin(), buffer.bytes().end()};
+    if (rendered.find(u8"\x1b]8;id=id;https://e") == std::u8string::npos)
+    {
+        std::fprintf(stderr, "hyperlink serialization missing\n");
         return EXIT_FAILURE;
     }
 

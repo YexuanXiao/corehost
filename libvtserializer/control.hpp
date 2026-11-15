@@ -1,6 +1,7 @@
 #pragma once
 
 #include "buffer.hpp"
+#include "text.hpp"
 
 #include <charconv>
 #include <cstdint>
@@ -50,6 +51,17 @@ inline void append_cup(byte_buffer &output, unsigned row, unsigned column)
     *first++ = 'H';
     output.append(std::span<const char8_t>{reinterpret_cast<const char8_t *>(sequence),
                                            static_cast<std::size_t>(first - sequence)});
+}
+
+inline void append_hyperlink_open_id(byte_buffer &output,
+                                    std::u16string_view id,
+                                    std::u16string_view uri)
+{
+    output.append_text(u8"\x1b]8;id=");
+    append_utf16(output, id);
+    output.append_text(u8";");
+    append_utf16(output, uri);
+    output.push_back(static_cast<char8_t>(0x07));
 }
 
 } // namespace corehost::vtserializer

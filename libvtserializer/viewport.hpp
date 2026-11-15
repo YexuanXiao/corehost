@@ -23,6 +23,8 @@ inline void render_damage(byte_buffer &output,
     const auto size = buffer.viewport_size();
     const auto buffer_width = static_cast<std::size_t>(buffer.buffer_size().x);
 
+    auto current_hyperlink = screen::no_cell_hyperlink;
+
     for (std::int32_t row = 0; row < size.y; ++row)
     {
         const auto y = static_cast<std::size_t>(origin.y + row);
@@ -53,6 +55,21 @@ inline void render_damage(byte_buffer &output,
                 continue;
             }
 
+            const auto hyperlink = value.hyperlink();
+            if (hyperlink != current_hyperlink)
+            {
+                if (current_hyperlink != screen::no_cell_hyperlink)
+                {
+                    append_hyperlink_close(output);
+                }
+                if (hyperlink != screen::no_cell_hyperlink)
+                {
+                    const auto &link = buffer.hyperlinks().at(hyperlink);
+                    append_hyperlink_open_id(output, link.id, link.uri);
+                }
+                current_hyperlink = hyperlink;
+            }
+
             const auto attributes = buffer.attr_at(
                 screen::coord{static_cast<std::int32_t>(x), static_cast<std::int32_t>(y)});
             if (attributes != current_attributes)
@@ -71,6 +88,11 @@ inline void render_damage(byte_buffer &output,
                 append_utf16(output, std::u16string_view{&primary, 1});
             }
         }
+    }
+
+    if (current_hyperlink != screen::no_cell_hyperlink)
+    {
+        append_hyperlink_close(output);
     }
 
     append_cup(output, static_cast<unsigned>(cursor.y - origin.y),
