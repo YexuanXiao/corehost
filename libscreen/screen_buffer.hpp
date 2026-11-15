@@ -1241,8 +1241,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
     text_write_result result;
     if (options.mode == text_measurement::graphemes)
     {
-        const auto spans = grapheme_spans(text, options);
-        for (const auto &span : spans)
+        for (const auto cluster : grapheme_range{text, options})
         {
             if (cursor.x < 0 || cursor.y < 0 ||
                 static_cast<std::size_t>(cursor.x) >= width_ ||
@@ -1252,10 +1251,10 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                 break;
             }
 
-            auto columns = span.width;
-            if (!widths.empty() && span.offset < widths.size())
+            auto columns = cluster.width;
+            if (!widths.empty() && result.consumed < widths.size())
             {
-                columns = static_cast<int>(widths[span.offset]);
+                columns = static_cast<int>(widths[result.consumed]);
             }
             if (columns <= 0)
             {
@@ -1264,22 +1263,17 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
             if (cursor.x + columns > static_cast<std::int32_t>(width_))
             {
                 result.row_end = true;
-                if (!wrap_at_eol)
-                {
-                    break;
-                }
-                cursor.x = 0;
-                ++cursor.y;
-                continue;
+                break;
             }
 
-            if (!write_glyph(cursor, text.substr(span.offset, span.units), columns, style))
+            const std::u16string_view cluster_text{cluster.text.data(), cluster.text.size()};
+            if (!write_glyph(cursor, cluster_text, columns, style))
             {
                 result.row_end = true;
                 break;
             }
             cursor.x += columns;
-            result.consumed = span.offset + span.units;
+            result.consumed += cluster.text.size();
         }
         return result;
     }

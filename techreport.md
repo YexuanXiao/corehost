@@ -425,8 +425,9 @@ history_row:
 - `write_codepoint`：通过 `libunicode::convert_to<char16_t>` 把 `char32_t` 转为 UTF-16
   code unit 或 surrogate-pair cluster；UTF-16 解码使用 `unicode::decoder<char16_t>`；
 - `char_width_for_mode()`/`text_width_for_mode()`：支持 `console`/`graphemes`/`wcswidth`；
-  `console` 使用 corehost 等价区间，`graphemes`/`wcswidth` 使用 `libunicode` 的
-  `grapheme_cluster_width`/`width`；
+  `grapheme_range` 的迭代器每次输出 `std::span<const char16_t>` + width，不分配
+  `vector<grapheme_span>`；`console` 使用 corehost 等价区间，`graphemes`/`wcswidth`
+  使用 `libunicode`；
 - `glyph_at`/`codepoint_at`/`line_text`：UTF-16 读取完整 glyph/整行，`char16_t` 原生；
 - `glyph_width`/`is_trailing`/`used_columns`：corehost 行布局需要的列信息；
 - `legacy_at`/`write_legacy_scalar`：与 `CHAR_INFO`/`WORD` 属性边界对应；

@@ -8,9 +8,10 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
+#include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace corehost::screen
 {
@@ -168,8 +169,121 @@ struct codepoint_result final
     return unicode::convert_to<char32_t>(text);
 }
 
-[[nodiscard]] inline int cluster_width(std::u32string_view cluster, width_options options) noexcept;
+struct grapheme_cluster final
+{
+    std::span<const char16_t> text;
+    int width{};
+};
 
+class grapheme_iterator final
+{
+  public:
+    using iterator_concept = std::forward_iterator_tag;
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = grapheme_cluster;
+    using difference_type = std::ptrdiff_t;
+    using reference = value_type;
+    using pointer = void;
+
+    grapheme_iterator() noexcept = default;
+
+    grapheme_iterator(std::u16string_view text, width_options options) noexcept
+        : text_{text},
+          options_{options}
+    {
+        scan();
+    }
+
+    [[nodiscard]] value_type operator*() const noexcept
+    {
+        return value_type{std::span<const char16_t>{text_.data() + begin_, end_ - begin_}, width_};
+    }
+
+    grapheme_iterator &operator++() noexcept
+    {
+        begin_ = end_;
+        scan();
+        return *this;
+    }
+
+    grapheme_iterator operator++(int) noexcept
+    {
+        auto copy = *this;
+        ++*this;
+        return copy;
+    }
+
+    friend bool operator==(const grapheme_iterator &iterator, std::default_sentinel_t) noexcept
+    {
+        return iterator.at_end_;
+    }
+
+  private:
+    void scan() noexcept
+    {
+        if (begin_ >= text_.size())
+        {
+            end_ = begin_;
+            width_ = 0;
+            at_end_ = true;
+            return;
+        }
+
+        at_end_ = false;
+        auto cursor = begin_;
+        const auto first = next_codepoint(text_, cursor);
+        cursor += first.units;
+
+        unicode::grapheme_segmenter_state state{};
+        unicode::grapheme_process_init(first.value, state);
+        auto width = first.value == 0xFE0F ? 2 : unicode_width(first.value, options_.ambiguous_is_wide);
+
+        while (cursor < text_.size())
+        {
+            const auto next = next_codepoint(text_, cursor);
+            if (unicode::grapheme_process_breakable(next.value, state))
+            {
+                break;
+            }
+            width += next.value == 0xFE0F ? 2 : unicode_width(next.value, options_.ambiguous_is_wide);
+            cursor += next.units;
+        }
+
+        end_ = cursor;
+        width_ = width > 2 ? 2 : width;
+    }
+
+    std::u16string_view text_{};
+    width_options options_{};
+    std::size_t begin_{};
+    std::size_t end_{};
+    int width_{};
+    bool at_end_{true};
+};
+
+class grapheme_range final
+{
+  public:
+    grapheme_range(std::u16string_view text, width_options options) noexcept
+        : text_{text},
+          options_{options}
+    {
+    }
+
+    [[nodiscard]] grapheme_iterator begin() const noexcept
+    {
+        return grapheme_iterator{text_, options_};
+    }
+
+    [[nodiscard]] std::default_sentinel_t end() const noexcept
+    {
+        return {};
+    }
+
+  private:
+    std::u16string_view text_;
+    width_options options_;
+};
 [[nodiscard]] inline int glyph_width(std::u16string_view glyph, width_options options) noexcept
 {
     if (glyph.empty())
@@ -179,8 +293,12 @@ struct codepoint_result final
 
     if (options.mode == text_measurement::graphemes)
     {
-        const auto text = to_u32(glyph);
-        return cluster_width(std::u32string_view{text}, options);
+        int total = 0;
+        for (const auto cluster : grapheme_range{glyph, options})
+        {
+            total += cluster.width;
+        }
+        return total;
     }
 
     auto result = next_codepoint(glyph, 0);
@@ -193,67 +311,6 @@ struct codepoint_result final
         offset += result.units;
     }
     return width;
-}
-
-struct grapheme_span final
-{
-    std::size_t offset{};
-    std::size_t units{};
-    int width{};
-};
-
-[[nodiscard]] inline int cluster_width(std::u32string_view cluster, width_options options) noexcept
-{
-    int total = 0;
-    for (const auto codepoint : cluster)
-    {
-        total += codepoint == 0xFE0F ? 2 : unicode_width(codepoint, options.ambiguous_is_wide);
-    }
-    return total > 2 ? 2 : total;
-}
-
-[[nodiscard]] inline std::vector<grapheme_span> grapheme_spans(std::u16string_view text,
-                                                               width_options options) noexcept
-{
-    std::vector<grapheme_span> result;
-    if (text.empty())
-    {
-        return result;
-    }
-
-    std::u32string codepoints;
-    std::vector<std::size_t> offsets;
-    std::vector<std::size_t> units;
-    codepoints.reserve(text.size());
-    offsets.reserve(text.size());
-    units.reserve(text.size());
-
-    std::size_t offset = 0;
-    while (offset < text.size())
-    {
-        const auto decoded = next_codepoint(text, offset);
-        codepoints.push_back(decoded.value);
-        offsets.push_back(offset);
-        units.push_back(decoded.units);
-        offset += decoded.units;
-    }
-
-    auto segment = unicode::grapheme_segmenter{codepoints};
-    for (;;)
-    {
-        const auto cluster = *segment;
-        const auto start = static_cast<std::size_t>(cluster.data() - codepoints.data());
-        const auto count = cluster.size();
-        const auto end = start + count;
-        const auto width = cluster_width(cluster, options);
-        result.push_back(grapheme_span{offsets[start], offsets[end - 1] + units[end - 1] - offsets[start], width});
-        if (!segment.codepointsAvailable())
-        {
-            break;
-        }
-        ++segment;
-    }
-    return result;
 }
 
 [[nodiscard]] inline int text_width_for_mode(std::u16string_view text,
@@ -278,9 +335,9 @@ struct grapheme_span final
     case text_measurement::graphemes:
     {
         int total = 0;
-        for (const auto &span : grapheme_spans(text, options))
+        for (const auto cluster : grapheme_range{text, options})
         {
-            total += span.width;
+            total += cluster.width;
         }
         return total;
     }

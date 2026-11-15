@@ -652,9 +652,10 @@ corehost 的 `screen_buffer_row` 有 filled/uniform/measured-run 优化；libscr
   `char_info_at`、`read/write_char_info`、`read/write_chars`、`read/write_attrs`、
   `fill_chars/fill_attrs`、`set_attr/attr_at`；支持 DBCS leading/trailing。
 - **Phase 3**：`text_writer.hpp` 提供 `console`/`graphemes`/`wcswidth` 三种
-  `text_measurement`，提供 `char_width_for_mode()`、`text_width_for_mode()`，使用
-  `libunicode` 的 `width`、`grapheme_segmenter`、`grapheme_cluster_width`；
-  `screen_buffer` 增加 `write_text_row`、`write_glyph`。
+  `text_measurement`，提供 `char_width_for_mode()`、`text_width_for_mode()`；
+  `grapheme_range`/`grapheme_iterator` 每次输出一个
+  `grapheme_cluster { std::span<const char16_t> text, int width }`，不再返回
+  `std::vector<grapheme_span>`；`screen_buffer` 增加 `write_text_row`、`write_glyph`。
 - **Phase 4**：`copy_rect`、`scroll_rect`，支持 clip、重叠、fill char/attr。
 - **Phase 5**：`console_state` 增加 modes/code pages/title/font/colors/max window/
   default attributes/saved cursor/alt cursor/DEC line drawing/text measurement；

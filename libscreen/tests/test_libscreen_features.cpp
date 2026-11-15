@@ -196,6 +196,16 @@ void test_text_writer()
     check(char_width_for_mode(U'\u4E2D', text_measurement::console) == 2, "console char width");
     check(text_width_for_mode(u"\u4E2D" "A", text_measurement::console) == 3, "console text width");
     check(text_width_for_mode(u"\u4E2D" "A", text_measurement::wcswidth) == 3, "wcswidth text width");
+    int clusters = 0;
+    int cluster_widths = 0;
+    for (const auto cluster : grapheme_range{u"e\u0301" u"A", width_options{text_measurement::graphemes, false}})
+    {
+        ++clusters;
+        cluster_widths += cluster.width;
+        check(!cluster.text.empty(), "grapheme iterator span");
+    }
+    check(clusters == 2 && cluster_widths == 2, "grapheme iterator output");
+
     check(text_width(u"A\u0301", width_options{text_measurement::graphemes, false}) == 1,
           "grapheme combining width");
     check(text_width(u"\u2764\uFE0F", width_options{text_measurement::graphemes, false}) == 2,
