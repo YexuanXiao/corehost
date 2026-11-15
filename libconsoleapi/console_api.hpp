@@ -397,8 +397,7 @@ class console_api final
         if (message.descriptor.OutputSize <= sizeof(CONSOLE_GETCONSOLEINPUT_MSG))
         {
             request->NumRecords = 0;
-            coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG),
-                                       message.body + sizeof(CONSOLE_MSG_HEADER),
+            coreio::prepare_completion(message, 0, 0, message.body + sizeof(CONSOLE_MSG_HEADER),
                                        sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
             return true;
         }
@@ -468,9 +467,9 @@ class console_api final
         }
         pending_read_kind_ = pending_read_kind::none;
         request->NumRecords = static_cast<ULONG>(count);
-        coreio::prepare_completion(message, 0, count * sizeof(INPUT_RECORD),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   count * sizeof(INPUT_RECORD));
+        const auto data_bytes = static_cast<ULONG>(count * sizeof(INPUT_RECORD));
+        coreio::prepare_completion(message, 0, data_bytes, message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   static_cast<ULONG>(sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + data_bytes));
         return true;
     }
 

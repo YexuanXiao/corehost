@@ -442,6 +442,17 @@ int main()
         std::fprintf(stderr, "real ReadConsoleInput path failed\n");
         return EXIT_FAILURE;
     }
+    // The client receives CONSOLE_GETCONSOLEINPUT_MSG followed by the
+    // INPUT_RECORD array. Write.Size must include the reply struct; only
+    // Information is the record-data byte count.
+    if (input_message.complete.IoStatus.Information != 4 * sizeof(INPUT_RECORD) ||
+        input_message.complete.Write.Size !=
+            sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + 4 * sizeof(INPUT_RECORD) ||
+        input_message.complete.Write.Data != input_message.body + sizeof(CONSOLE_MSG_HEADER))
+    {
+        std::fprintf(stderr, "ReadConsoleInput completion layout failed\n");
+        return EXIT_FAILURE;
+    }
 
     corehost::corehost2::session console_session{4, 2,
                                                  corehost::screen::text_measurement::console};
