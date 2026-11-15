@@ -2,6 +2,7 @@
 #include "signal_reader.hpp"
 #include "signal_reader.hpp"
 #include "terminal_reader.hpp"
+#include "pseudo_window.hpp"
 #include "terminal_writer.hpp"
 
 #include <windows.h>
@@ -92,6 +93,17 @@ int main()
         return EXIT_FAILURE;
     }
     ::CloseHandle(signal_read);
+
+    corehost::conptyio::pseudo_window signal_window;
+    if (!signal_window.create())
+    {
+        std::fprintf(stderr, "pseudo window create failed\n");
+        return EXIT_FAILURE;
+    }
+    const std::uint16_t visible = 1;
+    corehost::conptyio::apply_signal(
+        1, std::span<const std::byte>{reinterpret_cast<const std::byte *>(&visible), sizeof(visible)},
+        signal_buffer, signal_state, &signal_window);
 
     std::printf("libconptyio tests passed\n");
     return EXIT_SUCCESS;

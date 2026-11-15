@@ -51,6 +51,8 @@ inline void run_conpty_session(win32::handle_view server,
     session state{width, height};
     conptyio::terminal_reader reader{vt_in};
     conptyio::terminal_writer writer{vt_out};
+    conptyio::pseudo_window window;
+    (void)window.create();
     vtserializer::append_clear_screen(writer.buffer());
     vtserializer::append_cup(writer.buffer(), 0, 0);
     if (config.inherit_cursor)
@@ -104,7 +106,8 @@ inline void run_conpty_session(win32::handle_view server,
             while (!stop.stop_requested() && signals.read_one())
             {
                 const std::scoped_lock lock{session_mutex};
-                conptyio::apply_signal(signals.id(), signals.payload(), state.screen(), state.state());
+                conptyio::apply_signal(signals.id(), signals.payload(), state.screen(), state.state(),
+                                       &window);
                 if (!state.screen().has_damage())
                 {
                     continue;
