@@ -134,6 +134,21 @@ class session final
     }
 
   private:
+    [[nodiscard]] static bool is_terminal_response(vtparser::vt_message_id id) noexcept
+    {
+        switch (id)
+        {
+        case vtparser::vt_message_id::device_attributes:
+        case vtparser::vt_message_id::cpr_response:
+        case vtparser::vt_message_id::set_palette_color:
+        case vtparser::vt_message_id::set_window_title:
+        case vtparser::vt_message_id::unknown_sequence:
+            return true;
+        default:
+            return false;
+        }
+    }
+
     void consume(const vtparser::vt_parse_result &result, bool input_direction,
                  bool raw_passthrough = false)
     {
@@ -152,6 +167,20 @@ class session final
                 input_.push(consoleinput::input_event{
                     consoleinput::input_event_type::key,
                     consoleinput::key_from_character(ch, false)});
+            }
+            return;
+        }
+
+        if (input_direction && !raw_passthrough && is_terminal_response(result.id))
+        {
+            for (const auto ch : result.raw_sequence)
+            {
+                input_.push(consoleinput::input_event{
+                    consoleinput::input_event_type::key, consoleinput::key_from_character(ch, true)});
+                auto up = consoleinput::key_from_character(ch, true);
+                up.character = 0;
+                up.key_down = false;
+                input_.push(consoleinput::input_event{consoleinput::input_event_type::key, up});
             }
             return;
         }

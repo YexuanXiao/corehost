@@ -288,10 +288,34 @@ class state_applier final
     }
 
     void apply_private_mode(const vtparser::vt_message &message,
-                             screen::console_state &state) noexcept
+                             screen::screen_buffer &buffer,
+                             screen::console_state &state)
     {
-        state.set_private_mode(message.payload.private_mode.mode,
-                              message.payload.private_mode.enabled);
+        const auto mode = message.payload.private_mode.mode;
+        const auto enabled = message.payload.private_mode.enabled;
+        state.set_private_mode(mode, enabled);
+        switch (mode)
+        {
+        case 47:
+        case 1047:
+            buffer.set_alternate(enabled);
+            break;
+        case 1048:
+            if (enabled)
+            {
+                state.save_cursor();
+            }
+            else
+            {
+                (void)state.restore_cursor();
+            }
+            break;
+        case 1049:
+            apply_alternate_buffer(enabled, buffer, state);
+            break;
+        default:
+            break;
+        }
     }
 
     void apply_columns(const vtparser::vt_message &message,

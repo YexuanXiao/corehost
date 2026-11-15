@@ -124,7 +124,7 @@ namespace corehost::vtstate
         state.set_private_mode(12, false);
         return true;
     case vtparser::vt_message_id::set_private_mode:
-        applier.apply_private_mode(message, state);
+        applier.apply_private_mode(message, buffer, state);
         return true;
     case vtparser::vt_message_id::set_columns_80:
     case vtparser::vt_message_id::set_columns_132:
