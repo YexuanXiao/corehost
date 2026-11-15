@@ -93,8 +93,9 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
                 current_style = style;
             }
 
-            if (const auto cluster = buffer.cluster_of(value); !cluster.empty())
+            if (value.has_cluster())
             {
+                const auto cluster = buffer.cluster_of(value);
                 append_utf16(output, std::u16string_view{cluster.data(), cluster.size()});
             }
             else
@@ -189,8 +190,9 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
                 current_style = style;
             }
 
-            if (const auto cluster = buffer.cluster_of(value); !cluster.empty())
+            if (value.has_cluster())
             {
+                const auto cluster = buffer.cluster_of(value);
                 append_utf16(output, std::u16string_view{cluster.data(), cluster.size()});
             }
             else
