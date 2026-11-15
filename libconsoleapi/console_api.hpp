@@ -82,6 +82,10 @@ class console_api final
         {
             return scroll_console_buffer(message);
         }
+        if (header->ApiNumber == ConsolepSetWindowInfo)
+        {
+            return set_window_info(message);
+        }
         if (header->ApiNumber == ConsolepWriteConsole)
         {
             return write_console(message);
@@ -289,6 +293,33 @@ class console_api final
                 fill_segment(right_start, y, source_rect.x + source_rect.width - right_start);
             }
         }
+        coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool set_window_info(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETWINDOWINFO_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *request = reinterpret_cast<const CONSOLE_SETWINDOWINFO_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto &window = request->Window;
+        if (window.Left > window.Right || window.Top > window.Bottom)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto area = screen::rect{window.Left, window.Top, window.Right, window.Bottom};
+        if (!request->Absolute)
+        {
+            const auto origin = buffer_.viewport_origin();
+            area = screen::rect{area.left + origin.x, area.top + origin.y,
+                                area.right + origin.x, area.bottom + origin.y};
+        }
+        buffer_.set_viewport(area);
         coreio::prepare_completion(message);
         return true;
     }

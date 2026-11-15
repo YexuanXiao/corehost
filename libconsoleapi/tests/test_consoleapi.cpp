@@ -481,6 +481,26 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer window_buffer{8, 2};
+    corehost::screen::console_state window_state{8, 2};
+    corehost::consoleapi::console_api window_api{window_buffer, window_state};
+    corehost::coreio::io_msg window_message{};
+    window_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETWINDOWINFO_MSG);
+    window_message.descriptor.OutputSize = sizeof(window_message.body);
+    auto *window_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(window_message.body);
+    window_header->ApiNumber = ConsolepSetWindowInfo;
+    auto *window_request = reinterpret_cast<CONSOLE_SETWINDOWINFO_MSG *>(
+        window_message.body + sizeof(CONSOLE_MSG_HEADER));
+    window_request->Absolute = TRUE;
+    window_request->Window = SMALL_RECT{0, 0, 3, 1};
+    if (!window_api.handle(window_message) ||
+        window_buffer.viewport_size() != corehost::screen::coord{4, 2})
+    {
+        std::fprintf(stderr, "set window info failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
