@@ -670,3 +670,19 @@ edit C:\Users\xyx\c2save.txt
 ```text
 render initial alternate viewport
 ```
+
+### edit 编辑、resize、保存验证
+
+- 打开 `c2save.txt` 后点击编辑区，`HELLO-SAVE` 后：
+  - `{END}`、`!`、Backspace、左移、`X`、Enter；
+  - 结果第一行 `HELLOX`，第二行 `-`；
+  - 状态栏 `2:1 *`。
+- 窗口从 `1129x635` resize 到 `900x540` 后 UI 仍正常，无重复状态栏。
+- `Ctrl+S` 覆盖保存 `c2save.txt`，文件内容：
+
+```text
+HELLOX
+-
+```
+
+- `Ctrl+Q` 退出并返回 PowerShell prompt。
