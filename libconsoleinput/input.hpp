@@ -2,12 +2,13 @@
 
 #include "vt_parser.hpp"
 
+#include "deque.hpp"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
-#include <vector>
 
 namespace corehost::consoleinput
 {
@@ -87,8 +88,8 @@ struct input_event final
                                                             const vtparser::vt_message &message,
                                                             std::uint32_t *current_buttons = nullptr) noexcept;
 
-// Batch-oriented input queue. read() copies a whole span and never pops one
-// element at a time; consumed storage is compacted only when it dominates.
+// Batch-oriented input queue. read() copies a whole span and pops from the
+// front; an intrusive deque avoids vector front-erase and keeps push_front O(1).
 class input_queue final
 {
   public:
@@ -107,22 +108,17 @@ class input_queue final
         {
             ++key_count_;
         }
-        if (head_ != 0)
-        {
-            events_[--head_] = event;
-            return;
-        }
-        events_.insert(events_.begin(), event);
+        events_.push_front(event);
     }
 
     [[nodiscard]] std::size_t size() const noexcept
     {
-        return events_.size() - head_;
+        return events_.size();
     }
 
     [[nodiscard]] bool empty() const noexcept
     {
-        return size() == 0;
+        return events_.empty();
     }
 
     [[nodiscard]] bool has_key() const noexcept
@@ -132,33 +128,22 @@ class input_queue final
 
     std::size_t peek(std::span<input_event> destination) const noexcept
     {
-        const auto count = std::min(destination.size(), size());
-        std::copy_n(events_.begin() + static_cast<std::ptrdiff_t>(head_), count, destination.begin());
+        const auto count = std::min(destination.size(), events_.size());
+        std::copy_n(events_.begin(), count, destination.begin());
         return count;
     }
 
     std::size_t read(std::span<input_event> destination) noexcept
     {
-        const auto count = std::min(destination.size(), size());
-        std::copy_n(events_.begin() + static_cast<std::ptrdiff_t>(head_), count, destination.begin());
-        for (std::size_t i = head_; i < head_ + count; ++i)
+        const auto count = std::min(destination.size(), events_.size());
+        std::copy_n(events_.begin(), count, destination.begin());
+        for (std::size_t i = 0; i < count; ++i)
         {
-            if (events_[i].type == input_event_type::key && events_[i].key.key_down)
+            if (events_.front().type == input_event_type::key && events_.front().key.key_down)
             {
                 --key_count_;
             }
-        }
-        head_ += count;
-        if (head_ == events_.size())
-        {
-            events_.clear();
-            head_ = 0;
-        }
-        else if (head_ != 0 && head_ * 2 >= events_.size())
-        {
-            std::shift_left(events_.begin(), events_.end(), static_cast<std::ptrdiff_t>(head_));
-            events_.resize(events_.size() - head_);
-            head_ = 0;
+            events_.pop_front();
         }
         return count;
     }
@@ -166,13 +151,11 @@ class input_queue final
     void clear() noexcept
     {
         events_.clear();
-        head_ = 0;
         key_count_ = 0;
     }
 
   private:
-    std::vector<input_event> events_;
-    std::size_t head_{};
+    bizwen::deque<input_event> events_;
     std::size_t key_count_{};
 };
 
