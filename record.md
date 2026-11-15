@@ -1000,6 +1000,31 @@ ace2785 perf(vtparser): use compact bitset for control lookup
 b520c69 perf(libscreen): cache default legacy style id
 ```
 
+### 文本序列化写入
+
+`append_utf16` 原来每次：
+
+```cpp
+output.resize(offset + text.size() * 3);
+...
+output.resize(actual);
+```
+
+会先零填充 3 倍空间再缩小。现在只 `reserve` 最坏容量，通过 `std::back_inserter` 直接写入实际编码字节：
+
+```cpp
+output.reserve(output.size() + text.size() * 3);
+auto destination = std::back_inserter(output);
+...
+destination = encoder(decoder(iterator).value_or(0xFFFD), destination);
+```
+
+`byte_buffer` 增加 `value_type = char8_t` 以支持 back inserter。
+
+```text
+16a4010 perf(vtserializer): append encoded text without resize zeroing
+```
+
 `vtserializer::append_utf16` 改为每次文本 run 只构造一次 `unicode::decoder<char16_t>`/`encoder<char>`，而不是每码点构造：
 
 ```text
