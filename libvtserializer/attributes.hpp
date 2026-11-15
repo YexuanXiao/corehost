@@ -24,7 +24,7 @@ inline void append_sgr_legacy(byte_buffer &output, std::uint16_t attributes)
     const unsigned fg_code = (foreground & 0x08 ? 90u : 30u) + fg;
     const unsigned bg_code = (background & 0x08 ? 100u : 40u) + bg;
 
-    char sequence[32]{};
+    char sequence[32];
     auto *first = sequence;
     *first++ = static_cast<char>(0x1B);
     *first++ = '[';

@@ -37,7 +37,7 @@ inline void append_line_rendition(byte_buffer &output, unsigned value)
 
 inline void append_cup(byte_buffer &output, unsigned row, unsigned column)
 {
-    char sequence[32]{};
+    char sequence[32];
     auto *first = sequence;
     *first++ = static_cast<char>(0x1B);
     *first++ = '[';
@@ -68,7 +68,7 @@ inline void append_cursor_visibility(byte_buffer &output, bool visible)
 inline void append_cursor_shape(byte_buffer &output, unsigned style, bool blinking)
 {
     const unsigned code = style * 2 + (blinking ? 1u : 2u);
-    char sequence[8]{};
+    char sequence[8];
     auto *first = sequence;
     *first++ = static_cast<char>(0x1B);
     *first++ = '[';
