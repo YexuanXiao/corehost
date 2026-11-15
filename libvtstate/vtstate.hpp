@@ -631,6 +631,13 @@ class state_applier final
         state.set_cursor(x, bottom);
     }
 
+    void apply_next_line(screen::screen_buffer &buffer,
+                           screen::console_state &state)
+    {
+        state.set_cursor(0, state.cursor().y);
+        apply_line_feed(buffer, state);
+    }
+
     void apply_cursor_position(const vtparser::vt_message &message,
                               screen::console_state &state)
     {

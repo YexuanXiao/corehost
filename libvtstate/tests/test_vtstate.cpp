@@ -558,6 +558,24 @@ int main()
         return EXIT_FAILURE;
     }
 
+    state.set_cursor(2, 0);
+    parser.reset();
+    result = parser.parse(U"\x1b" "D");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.cursor().x != 2 || state.cursor().y != 1)
+    {
+        std::fprintf(stderr, "index failed\n");
+        return EXIT_FAILURE;
+    }
+    parser.reset();
+    result = parser.parse(U"\x1b" "E");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.cursor().x != 0 || state.cursor().y != 2)
+    {
+        std::fprintf(stderr, "next line failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }

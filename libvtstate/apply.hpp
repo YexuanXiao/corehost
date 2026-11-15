@@ -28,6 +28,9 @@ namespace corehost::vtstate
             state.set_cursor(state.cursor().x - 1, state.cursor().y);
         }
         return true;
+    case vtparser::vt_message_id::next_line:
+        applier.apply_next_line(buffer, state);
+        return true;
     case vtparser::vt_message_id::line_feed:
         applier.apply_line_feed(buffer, state);
         return true;

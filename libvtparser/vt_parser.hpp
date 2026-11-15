@@ -77,7 +77,8 @@ enum class vt_message_id
     // C0/ESC 基础控制。输入方向用于行编辑和 RAW_READ 行终止判断；输出方向会
     // 更新本地 cursor/screen 并序列化为对应 VT。
     carriage_return, // \r
-    line_feed,       // \n
+    line_feed,
+    next_line,       // \n
     reverse_index,
 
     // 光标移动和光标状态。相对移动的 count payload 默认 1；绝对定位保持
@@ -1141,6 +1142,10 @@ class vt_parser
         {
         case U'M':
             return vt_message_id::reverse_index;
+        case U'D':
+            return vt_message_id::line_feed;
+        case U'E':
+            return vt_message_id::next_line;
         case U'7':
             return vt_message_id::save_cursor;
         case U'8':
