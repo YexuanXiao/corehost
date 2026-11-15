@@ -686,3 +686,43 @@ HELLOX
 ```
 
 - `Ctrl+Q` 退出并返回 PowerShell prompt。
+
+## 2026-11-16 PageUp/特殊键与正常屏幕
+
+测试 PowerShell 输出 100 行后按 PageUp：
+
+corehost2 之前把 PageUp 的 Win32Input 特判转换成 `ESC[5~` 字符，PowerShell 提示符出现：
+
+```text
+PS C:\Users\xyx> 5~
+```
+
+原始 OpenConsole 保持为 KEY_EVENT(PageUp)，提示符不出现 `5~`。
+
+根因：`vt_input_sequence` 转换被无条件用于正常屏幕。
+
+修复：
+
+```cpp
+if (key->character == 0 && (raw_passthrough || screen_.alternate_active()))
+```
+
+- 正常屏幕保持 KEY_EVENT；
+- alternate screen（edit）转换为 VT 序列；
+- 新增 PageUp 正常屏幕回归测试；
+- F10 alternate screen 测试更新为先进入 1049h。
+
+提交：
+
+```text
+dddf2b4 fix(corehost2): keep special keys as key events on normal screen
+```
+
+真实 WT 验证：
+
+```text
+powershell -File C:\1\scroll_test.ps1
+PageUp
+```
+
+提示符不再出现 `5~`，行为与原始 OpenConsole 一致；edit F10 菜单仍正常。
