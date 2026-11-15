@@ -587,6 +587,10 @@ class console_api final
                     echo_cursor.x = 0;
                     ++echo_cursor.y;
                 }
+                std::u16string expanded{output, units};
+                expand_console_alias(expanded);
+                units = std::min<std::size_t>(expanded.size(), max_units);
+                std::copy_n(expanded.data(), units, output);
                 state_.add_command(std::u16string_view{output, units});
                 line_complete = true;
                 break;
@@ -2176,6 +2180,30 @@ class console_api final
         return written;
     }
   private:
+    void expand_console_alias(std::u16string &line) const
+    {
+        if (line.empty())
+        {
+            return;
+        }
+        const auto word_end = line.find(u' ');
+        const auto end = word_end == std::u16string::npos ? line.size() : word_end;
+        const std::u16string_view source{line.data(), end};
+        for (const auto &alias : state_.aliases)
+        {
+            if (alias.source != source)
+            {
+                continue;
+            }
+            std::u16string expanded = alias.target;
+            if (word_end != std::u16string::npos)
+            {
+                expanded.append(line, word_end, std::u16string::npos);
+            }
+            line = std::move(expanded);
+            return;
+        }
+    }
     static void erase_character(char16_t *output, std::size_t &units, std::size_t &cursor,
                                 std::size_t position) noexcept
     {
