@@ -974,12 +974,18 @@ f7a29de perf(consoleapi): reuse ReadConsole event scratch buffer
 
 ### VT ground 文本扫描
 
-`vt_parser::_direct_ground_text_run_length` 原来对每个字符判断 `ch < 0x80`，再查 128 项表。改为 `std::bitset<0x10000>` 控制字符查表，直接按 `char16_t` 索引，不再有逐字符 `0x80` 分支：
+`std::bitset<0x10000>` 和 128 项查表都不是有效优化，已撤销：
+
+```text
+e24eed5 Revert "perf(vtparser): use compact bitset for control lookup"
+```
+
+最终 `vt_parser::_direct_ground_text_run_length` 不使用查找表，直接做无分支条件组合：
 
 ```cpp
 for (const char16_t ch : text)
 {
-    if (control[static_cast<size_t>(ch)])
+    if ((ch < 0x20) | (ch == 0x7F))
     {
         break;
     }
@@ -987,9 +993,12 @@ for (const char16_t ch : text)
 }
 ```
 
+- 无逐字符 `0x80` 判断；
+- 无查找表；
+- 只保留循环退出分支。
+
 ```text
-6ae820a perf(vtparser): remove ascii branch from ground text scanning
-ace2785 perf(vtparser): use compact bitset for control lookup
+2620154 perf(vtparser): test control chars without lookup table
 ```
 
 ### 默认 legacy 样式缓存
@@ -1002,33 +1011,44 @@ b520c69 perf(libscreen): cache default legacy style id
 
 ### 文本序列化写入
 
-`append_utf16` 原来每次：
-
-```cpp
-output.resize(offset + text.size() * 3);
-...
-output.resize(actual);
-```
-
-会先零填充 3 倍空间再缩小。现在只 `reserve` 最坏容量，通过 `std::back_inserter` 直接写入实际编码字节：
-
-```cpp
-output.reserve(output.size() + text.size() * 3);
-auto destination = std::back_inserter(output);
-...
-destination = encoder(decoder(iterator).value_or(0xFFFD), destination);
-```
-
-`byte_buffer` 增加 `value_type = char8_t` 以支持 back inserter。
+`std::back_inserter` 不是有效优化，已撤销：
 
 ```text
-16a4010 perf(vtserializer): append encoded text without resize zeroing
+363f7bc Revert "perf(vtserializer): append encoded text without resize zeroing"
 ```
 
-`vtserializer::append_utf16` 改为每次文本 run 只构造一次 `unicode::decoder<char16_t>`/`encoder<char>`，而不是每码点构造：
+保留的 `append_utf16` 优化只有：每次文本 run 复用一次 `unicode::decoder<char16_t>`/`encoder<char>`，并用 `value_or(0xFFFD)` 去掉 optional 分支：
 
 ```text
 aeb8170 perf(vtserializer): reuse unicode codecs per text run
+1eb81a9 perf(vtserializer): remove optional branch for text codepoints
+```
+
+### legacy 颜色索引
+
+`style_for_legacy` 的 BGRI 转索引原来用 4 个条件：
+
+```cpp
+(bgri & 4 ? 1 : 0) | (bgri & 2 ? 2 : 0) | (bgri & 1 ? 4 : 0) | (bgri & 8 ? 8 : 0)
+```
+
+改为 16 项常量表，正好移除 4 个分支，表元素数小于 256：
+
+```cpp
+static constexpr std::array<std::uint8_t, 16> legacy_color_index{
+    0, 4, 2, 6, 1, 5, 3, 7, 8, 12, 10, 14, 9, 13, 11, 15};
+```
+
+```text
+feb6ca0 perf(libscreen): replace bgri ternaries with compact table
+```
+
+### INPUT_RECORD
+
+`GetConsoleInput` 转换每条记录时不再整体执行 `record = INPUT_RECORD{}` 清零；三种事件分支都会填满各自被读取的字段：
+
+```text
+915c54b perf(consoleapi): avoid zeroing each INPUT_RECORD
 ```
 
 ### Console API 分派
