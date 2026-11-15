@@ -389,6 +389,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b[4 q");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.cursor().style != corehost::screen::cursor_style::underline)
+    {
+        std::fprintf(stderr, "cursor shape failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }

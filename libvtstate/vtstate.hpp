@@ -131,6 +131,25 @@ class state_applier final
                          static_cast<std::size_t>(std::max<std::ptrdiff_t>(y, 0)));
     }
 
+    void apply_cursor_shape(const vtparser::vt_message &message,
+                            screen::console_state &state) noexcept
+    {
+        switch (message.payload.cursor_shape)
+        {
+        case 3:
+        case 4:
+            state.cursor().style = screen::cursor_style::underline;
+            break;
+        case 5:
+        case 6:
+            state.cursor().style = screen::cursor_style::bar;
+            break;
+        default:
+            state.cursor().style = screen::cursor_style::block;
+            break;
+        }
+    }
+
     void apply_cursor_visibility(bool visible,
                                   screen::console_state &state) noexcept
     {
