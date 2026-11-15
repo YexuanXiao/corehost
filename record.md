@@ -1395,6 +1395,15 @@ mixed old=1.9513-2.0340 ns/byte new=1.2541-1.3859 ns/byte ratio=1.5-1.6x
 190c147 perf(vtparser): resume ascii blocks after non-ascii bytes
 ```
 
+尝试把 ASCII 块的 `output.resize` 改为 `resize_and_overwrite`，基准反而变慢：
+
+```text
+ascii old=0.4733-0.5085 ns/byte new=0.6312-0.6479 ns/byte ratio=0.75-0.80x
+mixed old=0.4813-0.4865 ns/byte new=0.6240-0.6475 ns/byte ratio=0.74-0.78x
+```
+
+已撤销该实验。
+
 `C:\1\bench_utf8_resume.cpp`，64 KiB，2 万次：
 
 ```text
