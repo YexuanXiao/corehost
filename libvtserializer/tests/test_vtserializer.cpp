@@ -1,6 +1,8 @@
 #include "buffer.hpp"
 #include "control.hpp"
+#include "attributes.hpp"
 #include "text.hpp"
+#include "attributes.hpp"
 #include "text.hpp"
 
 #include <algorithm>
@@ -81,6 +83,16 @@ int main()
         !std::equal(buffer.bytes().begin(), buffer.bytes().end(), cup.begin()))
     {
         std::fprintf(stderr, "cup serialization failed\n");
+        return EXIT_FAILURE;
+    }
+
+    buffer.clear();
+    append_sgr_legacy(buffer, 0x1F);
+    constexpr std::u8string_view sgr = u8"\x1b[0;97;44m";
+    if (buffer.bytes().size() != sgr.size() ||
+        !std::equal(buffer.bytes().begin(), buffer.bytes().end(), sgr.begin()))
+    {
+        std::fprintf(stderr, "sgr serialization failed\n");
         return EXIT_FAILURE;
     }
 
