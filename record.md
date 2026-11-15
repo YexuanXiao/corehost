@@ -972,6 +972,23 @@ b0939ea perf(consoleapi): reuse GetConsoleInput event scratch buffer
 f7a29de perf(consoleapi): reuse ReadConsole event scratch buffer
 ```
 
+### 可打印 ASCII 跳过 grapheme 分割
+
+`write_text_row<text_measurement::graphemes>` 在执行 Unicode grapheme 分割前，用 64 位 SWAR 检查整段是否为可打印 ASCII；是则直接按单 cell 写入。混合文本仍走原 grapheme 路径。
+
+`C:\1\bench_text.cpp`，4096 units，30 万次，Release `/O2`：
+
+```text
+ascii  old=26.7911 ns/unit new=0.2198 ns/unit ratio≈121.9x
+mixed  old=26.4318 ns/unit new=26.0547 ns/unit ratio≈1.01x
+```
+
+新增 ASCII/控制/DEL/非 ASCII 检测测试。
+
+```text
+b33bbde perf(libscreen): skip grapheme segmentation for printable ascii
+```
+
 ### 单码点文本序列化
 
 `append_utf16` 对 `text.size() == 1` 使用 4 字节栈缓冲，编码后 `append`，避免为一个码点 resize 3 倍再缩小：
