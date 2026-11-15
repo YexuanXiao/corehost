@@ -77,6 +77,14 @@ class console_api final
         {
             return get_largest_window_size(message);
         }
+        if (header->ApiNumber == ConsolepGetTitle)
+        {
+            return get_title(message);
+        }
+        if (header->ApiNumber == ConsolepSetTitle)
+        {
+            return set_title(message);
+        }
         if (header->ApiNumber == ConsolepGetCP)
         {
             return get_code_page(message);
@@ -195,6 +203,52 @@ class console_api final
         coreio::prepare_completion(message, 0, count * sizeof(INPUT_RECORD),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    count * sizeof(INPUT_RECORD));
+        return true;
+    }
+
+    [[nodiscard]] bool get_title(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *request = reinterpret_cast<CONSOLE_GETTITLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto local = sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETTITLE_MSG);
+        if (message.descriptor.OutputSize <= sizeof(CONSOLE_GETTITLE_MSG))
+        {
+            request->TitleLength = 0;
+            coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETTITLE_MSG),
+                                       message.body + sizeof(CONSOLE_MSG_HEADER),
+                                       sizeof(CONSOLE_GETTITLE_MSG));
+            return true;
+        }
+        const auto capacity = std::min<std::size_t>(
+            message.descriptor.OutputSize - sizeof(CONSOLE_GETTITLE_MSG), local);
+        const auto &title = request->Original ? state_.original_title : state_.title;
+        const auto units = std::min<std::size_t>(title.size(), capacity / sizeof(char16_t));
+        auto *output = reinterpret_cast<char16_t *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
+        std::memcpy(output, title.data(), units * sizeof(char16_t));
+        request->TitleLength = static_cast<ULONG>(units);
+        coreio::prepare_completion(message, 0, units * sizeof(char16_t),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   units * sizeof(char16_t));
+        return true;
+    }
+
+    [[nodiscard]] bool set_title(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_SETTITLE_MSG);
+        const auto *data = reinterpret_cast<const char16_t *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG));
+        state_.title.assign(data, bytes / sizeof(char16_t));
+        coreio::prepare_completion(message);
         return true;
     }
 

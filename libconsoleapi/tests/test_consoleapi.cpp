@@ -326,6 +326,47 @@ int main()
         return EXIT_FAILURE;
     }
 
+    constexpr char16_t title_text[]{u'C', u'H'};
+    corehost::coreio::io_msg title_message{};
+    title_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG) +
+                                          sizeof(title_text);
+    title_message.descriptor.OutputSize = sizeof(title_message.body);
+    auto *title_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(title_message.body);
+    title_header->ApiNumber = ConsolepSetTitle;
+    auto *title_request = reinterpret_cast<CONSOLE_SETTITLE_MSG *>(
+        title_message.body + sizeof(CONSOLE_MSG_HEADER));
+    title_request->Unicode = TRUE;
+    std::memcpy(title_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG),
+                title_text, sizeof(title_text));
+    if (!api.handle(title_message) || state.title != u"CH")
+    {
+        std::fprintf(stderr, "set title failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::io_msg get_title_message{};
+    get_title_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG);
+    get_title_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG) +
+                                              2 * sizeof(char16_t);
+    auto *get_title_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(get_title_message.body);
+    get_title_header->ApiNumber = ConsolepGetTitle;
+    auto *get_title_request = reinterpret_cast<CONSOLE_GETTITLE_MSG *>(
+        get_title_message.body + sizeof(CONSOLE_MSG_HEADER));
+    get_title_request->Unicode = TRUE;
+    get_title_request->Original = FALSE;
+    if (!api.handle(get_title_message) || get_title_request->TitleLength != 2)
+    {
+        std::fprintf(stderr, "get title failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *title_data = reinterpret_cast<const char16_t *>(
+        get_title_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
+    if (title_data[0] != u'C' || title_data[1] != u'H')
+    {
+        std::fprintf(stderr, "get title data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
