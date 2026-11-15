@@ -121,6 +121,9 @@ void test_char_info_and_attrs()
     check(buffer.at(1, 0).primary() == u'X', "fill chars");
     check(buffer.attr_at(coord{1, 0}) == 0x5A, "fill chars preserves attrs");
 
+    buffer.scroll_region_down(rectangle{0, 0, 10, 2}, 1, cell_style{});
+    check(buffer.at(0, 0).primary() == u' ', "scroll down blank top");
+
     const std::vector<std::uint16_t> attrs{0x11, 0x22};
     check(buffer.write_attrs(coord{0, 1}, attrs) == 2, "write attrs");
     check(buffer.attr_at(coord{0, 1}) == 0x11, "write attrs first");

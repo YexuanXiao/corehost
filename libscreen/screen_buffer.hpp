@@ -390,6 +390,7 @@ class screen_buffer final
     // scrollback; the alternate page never records history.
     void scroll_up(std::size_t lines, cell_style fill_style = default_cell_style);
     void scroll_region_up(rectangle area, std::size_t lines, cell_style fill_style = default_cell_style);
+    void scroll_region_down(rectangle area, std::size_t lines, cell_style fill_style = default_cell_style);
 
     void resize(std::size_t width, std::size_t height, cell_style fill_style = default_cell_style);
     void set_alternate(bool enabled);
@@ -1583,6 +1584,24 @@ inline void screen_buffer::scroll_up(std::size_t lines, cell_style fill_style)
     target.mark_all_dirty();
 }
 
+
+inline void screen_buffer::scroll_region_down(rectangle area, std::size_t lines, cell_style fill_style)
+{
+    if (lines == 0 || area.width == 0 || area.height == 0)
+    {
+        return;
+    }
+    const auto top = area.y;
+    const auto bottom = std::min(area.y + area.height, height_);
+    if (top >= bottom)
+    {
+        return;
+    }
+    lines = std::min(lines, bottom - top);
+    copy_rect(rectangle{area.x, top, area.width, bottom - top - lines}, rectangle{}, false,
+             coord{static_cast<std::int32_t>(area.x), static_cast<std::int32_t>(top + lines)});
+    fill_rect(rectangle{area.x, top, area.width, lines}, cell::blank(fill_style));
+}
 
 inline void screen_buffer::scroll_region_up(rectangle area, std::size_t lines, cell_style fill_style)
 {
