@@ -707,6 +707,10 @@ class console_api final
                 redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
                 continue;
             }
+            if (character == 0 || (character < u' ' && character != u'\t'))
+            {
+                continue;
+            }
             state_.break_history_browse();
             if (units < max_units)
             {
