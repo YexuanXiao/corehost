@@ -1409,6 +1409,14 @@ control old=0.0839-0.0892 ns/unit new=0.0815-0.0859 ns/unit ratio=1.02-1.09x
 
 收益不稳定，部分场景变慢，代码量翻倍，因此保留 4 字符版本。
 
+### VT ASCII cell 直接写 scalar
+
+ASCII 快速路径不再构造 `u16string_view` 调用 `write_glyph`，而是直接调用 `write_scalar`，跳过 glyph 空串和边界检查：
+
+```text
+81e4e19 perf(vtstate): write ascii cells directly
+```
+
 ### VT 文本 ASCII 快速路径
 
 `apply_text_impl` 在纯可打印 ASCII 文本时跳过 `grapheme_range`，直接逐字符写入；换行、滚动和光标逻辑与 grapheme 路径一致。非 ASCII 或 line-drawing 文本仍走原路径。
