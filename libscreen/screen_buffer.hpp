@@ -379,6 +379,11 @@ class screen_buffer final
                                    cell_hyperlink hyperlink = no_cell_hyperlink) noexcept;
 
     void copy_rect(rectangle source, rectangle clip, bool use_clip, coord destination) noexcept;
+    void copy_rect_rows(std::int32_t copy_left, std::int32_t copy_top, std::int32_t copy_right,
+                        std::int32_t copy_bottom, std::int32_t destination_x,
+                        std::int32_t destination_y, bool descending) noexcept;
+    void fill_scroll_segment(std::int32_t x, std::int32_t y, std::int32_t width, char16_t fill_char,
+                             std::uint16_t fill_attr) noexcept;
     void scroll_rect(rectangle source,
                      rectangle clip,
                      bool use_clip,
@@ -1443,54 +1448,63 @@ inline void screen_buffer::copy_rect(rectangle source, rectangle clip, bool use_
 
     const auto destination_x = destination.x + (copy_left - left);
     const auto destination_y = destination.y + (copy_top - top);
+    copy_rect_rows(copy_left, copy_top, copy_right, copy_bottom, destination_x, destination_y,
+                    destination_y > copy_top);
+}
+inline void screen_buffer::copy_rect_rows(std::int32_t copy_left, std::int32_t copy_top,
+                                          std::int32_t copy_right, std::int32_t copy_bottom,
+                                          std::int32_t destination_x, std::int32_t destination_y,
+                                          bool descending) noexcept
+{
     auto &target = active_page();
-
-    const auto copy_rows = [&](bool descending) {
-        for (auto row = 0; row < (copy_bottom - copy_top); ++row)
+    for (auto row = 0; row < (copy_bottom - copy_top); ++row)
+    {
+        const auto source_y = descending ? copy_bottom - 1 - row : copy_top + row;
+        const auto dest_y = destination_y + (source_y - copy_top);
+        if (dest_y < 0 || dest_y >= static_cast<std::int32_t>(height_))
         {
-            const auto source_y = descending ? copy_bottom - 1 - row : copy_top + row;
-            const auto dest_y = destination_y + (source_y - copy_top);
-            if (dest_y < 0 || dest_y >= static_cast<std::int32_t>(height_))
-            {
-                continue;
-            }
-
-            auto source_begin = std::max(copy_left, copy_left - destination_x);
-            auto source_end = std::min(copy_right, copy_left + static_cast<std::int32_t>(width_) - destination_x);
-            if (source_begin >= source_end)
-            {
-                continue;
-            }
-            const auto dest_x = destination_x + (source_begin - copy_left);
-            const auto count = static_cast<std::size_t>(source_end - source_begin);
-            auto source_row = row_cells(static_cast<std::size_t>(source_y));
-            auto dest_row = row_cells(static_cast<std::size_t>(dest_y));
-            const auto source_offset = static_cast<std::size_t>(source_begin);
-            const auto dest_offset = static_cast<std::size_t>(dest_x);
-
-            if (source_y == dest_y && dest_x > source_begin)
-            {
-                std::copy_backward(source_row.begin() + static_cast<std::ptrdiff_t>(source_offset),
-                                  source_row.begin() + static_cast<std::ptrdiff_t>(source_offset + count),
-                                  dest_row.begin() + static_cast<std::ptrdiff_t>(dest_offset + count));
-            }
-            else
-            {
-                std::copy_n(source_row.begin() + static_cast<std::ptrdiff_t>(source_offset), count,
-                            dest_row.begin() + static_cast<std::ptrdiff_t>(dest_offset));
-            }
-            target.mark_dirty(static_cast<std::size_t>(dest_y), dest_offset, dest_offset + count);
+            continue;
         }
-    };
 
-    if (destination_y > copy_top)
-    {
-        copy_rows(true);
+        auto source_begin = std::max(copy_left, copy_left - destination_x);
+        auto source_end = std::min(copy_right, copy_left + static_cast<std::int32_t>(width_) - destination_x);
+        if (source_begin >= source_end)
+        {
+            continue;
+        }
+        const auto dest_x = destination_x + (source_begin - copy_left);
+        const auto count = static_cast<std::size_t>(source_end - source_begin);
+        auto source_row = row_cells(static_cast<std::size_t>(source_y));
+        auto dest_row = row_cells(static_cast<std::size_t>(dest_y));
+        const auto source_offset = static_cast<std::size_t>(source_begin);
+        const auto dest_offset = static_cast<std::size_t>(dest_x);
+
+        if (source_y == dest_y && dest_x > source_begin)
+        {
+            std::copy_backward(source_row.begin() + static_cast<std::ptrdiff_t>(source_offset),
+                               source_row.begin() + static_cast<std::ptrdiff_t>(source_offset + count),
+                               dest_row.begin() + static_cast<std::ptrdiff_t>(dest_offset + count));
+        }
+        else
+        {
+            std::copy_n(source_row.begin() + static_cast<std::ptrdiff_t>(source_offset), count,
+                        dest_row.begin() + static_cast<std::ptrdiff_t>(dest_offset));
+        }
+        target.mark_dirty(static_cast<std::size_t>(dest_y), dest_offset, dest_offset + count);
     }
-    else
+}
+
+inline void screen_buffer::fill_scroll_segment(std::int32_t x, std::int32_t y, std::int32_t width,
+                                               char16_t fill_char,
+                                               std::uint16_t fill_attr) noexcept
+{
+    if (width <= 0)
     {
-        copy_rows(false);
+        return;
     }
+    const rect segment{x, y, x + width - 1, y};
+    fill_chars(segment, fill_char);
+    fill_attrs(segment, fill_attr);
 }
 inline void screen_buffer::scroll_rect(rectangle source, rectangle clip, bool use_clip, coord destination,
                                        char16_t fill_char, std::uint16_t fill_attr) noexcept
@@ -1528,31 +1542,21 @@ inline void screen_buffer::scroll_rect(rectangle source, rectangle clip, bool us
     const auto horizontal = copy_right - copy_left;
     const auto dest_left = destination.x + (copy_left - left);
     const auto dest_top = destination.y + (copy_top - top);
-    const auto fill_segment = [&](std::int32_t x, std::int32_t y, std::int32_t width) {
-        if (width <= 0)
-        {
-            return;
-        }
-        const rect segment{x, y, x + width - 1, y};
-        fill_chars(segment, fill_char);
-        fill_attrs(segment, fill_attr);
-    };
-
     for (auto y = copy_top; y < copy_bottom; ++y)
     {
         if (y < dest_top || y >= dest_top + vertical)
         {
-            fill_segment(copy_left, y, horizontal);
+            fill_scroll_segment(copy_left, y, horizontal, fill_char, fill_attr);
             continue;
         }
         if (copy_left < dest_left)
         {
-            fill_segment(copy_left, y, std::min(dest_left, copy_right) - copy_left);
+            fill_scroll_segment(copy_left, y, std::min(dest_left, copy_right) - copy_left, fill_char, fill_attr);
         }
         const auto right_start = std::max(dest_left + horizontal, copy_left);
         if (right_start < copy_right)
         {
-            fill_segment(right_start, y, copy_right - right_start);
+            fill_scroll_segment(right_start, y, copy_right - right_start, fill_char, fill_attr);
         }
     }
 }

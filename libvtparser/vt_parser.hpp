@@ -537,19 +537,21 @@ class vt_parser
     }
 
   private:
+    [[nodiscard]] static constexpr std::array<bool, 0x80> _control_table() noexcept
+    {
+        std::array<bool, 0x80> table{};
+        for (size_t i = 0; i < 0x20; ++i)
+        {
+            table[i] = true;
+        }
+        table[0x7F] = true;
+        return table;
+    }
     // 返回输入开头可直接作为 ground 文本消费的 codepoint 数。调用点已经
     // 确认 parser 处于 ground；函数只负责找到首个 C0/DEL 控制字符。
     [[nodiscard]] size_t _direct_ground_text_run_length(std::u16string_view text) const noexcept
     {
-        static constexpr std::array<bool, 0x80> control = [] {
-            std::array<bool, 0x80> table{};
-            for (size_t i = 0; i < 0x20; ++i)
-            {
-                table[i] = true;
-            }
-            table[0x7F] = true;
-            return table;
-        }();
+        static constexpr auto control = _control_table();
 
         size_t count = 0;
         for (const char16_t ch : text)

@@ -52,34 +52,40 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
 {
     auto &context = *static_cast<server_worker_context *>(raw);
     coreio::win32_transport transport{context.server, context.event, context.stop_event};
-    auto handler = [&](coreio::io_msg &message) -> bool {
-        std::vector<std::pair<DWORD, DWORD>> ctrl_events;
+    struct message_handler final
+    {
+        server_worker_context &context;
+
+        bool operator()(coreio::io_msg &message) const
         {
-            std::unique_lock guard{*context.mutex};
-            if (!context.dispatcher->handle(message))
+            std::vector<std::pair<DWORD, DWORD>> ctrl_events;
             {
-                return false;
+                std::unique_lock guard{*context.mutex};
+                if (!context.dispatcher->handle(message))
+                {
+                    return false;
+                }
+                context.dispatcher->take_ctrl_events(ctrl_events);
+                if (context.state->screen().has_damage())
+                {
+                    const auto cursor = screen::coord{
+                        static_cast<std::int32_t>(context.state->state().cursor().x),
+                        static_cast<std::int32_t>(context.state->state().cursor().y),
+                    };
+                    vtserializer::render_damage(context.writer->buffer(), context.state->screen(),
+                                                cursor, &context.state->state());
+                    context.state->screen().clear_damage();
+                    context.writer->flush();
+                }
             }
-            context.dispatcher->take_ctrl_events(ctrl_events);
-            if (context.state->screen().has_damage())
+            for (const auto [event, pid] : ctrl_events)
             {
-                const auto cursor = screen::coord{
-                    static_cast<std::int32_t>(context.state->state().cursor().x),
-                    static_cast<std::int32_t>(context.state->state().cursor().y),
-                };
-                vtserializer::render_damage(context.writer->buffer(), context.state->screen(),
-                                            cursor, &context.state->state());
-                context.state->screen().clear_damage();
-                context.writer->flush();
+                context.delivery->deliver(pid, event);
             }
+            return true;
         }
-        for (const auto [event, pid] : ctrl_events)
-        {
-            context.delivery->deliver(pid, event);
-        }
-        return true;
     };
-    coreio::run_server(transport, handler, *context.stop);
+    message_handler handler{context};    coreio::run_server(transport, handler, *context.stop);
     return 0;
 }
 
