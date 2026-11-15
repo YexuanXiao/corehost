@@ -48,4 +48,50 @@ inline void decode_utf8(std::span<const char8_t> bytes,
     pending.erase(0, offset);
 }
 
+inline void decode_utf8(std::span<const char8_t> bytes,
+                        std::u16string &output,
+                        std::string &pending)
+{
+    output.clear();
+    pending.append(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+
+    std::size_t offset = 0;
+    while (offset < pending.size())
+    {
+        auto iterator = pending.begin() + static_cast<std::ptrdiff_t>(offset);
+        const auto start = iterator;
+        const auto decoded = unicode::decoder<char>{}(iterator);
+        if (decoded.has_value())
+        {
+            const auto value = decoded.value();
+            if (value <= 0xFFFF)
+            {
+                output.push_back(static_cast<char16_t>(value));
+            }
+            else
+            {
+                const auto adjusted = value - 0x10000;
+                output.push_back(static_cast<char16_t>(0xD800 + (adjusted >> 10)));
+                output.push_back(static_cast<char16_t>(0xDC00 + (adjusted & 0x3FF)));
+            }
+            offset = static_cast<std::size_t>(iterator - pending.begin());
+            continue;
+        }
+
+        if (iterator == pending.end())
+        {
+            break;
+        }
+
+        output.push_back(0xFFFD);
+        offset = static_cast<std::size_t>(iterator - pending.begin());
+        if (iterator == start)
+        {
+            ++offset;
+        }
+    }
+
+    pending.erase(0, offset);
+}
+
 } // namespace corehost::vtparser

@@ -32,22 +32,49 @@ class server_session final
 
     void write_raw(std::span<const char> bytes)
     {
-        text_.clear();
-        error_.clear();
         vtparser::decode_utf8(std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()),
                                                          bytes.size()},
-                             text_, error_);
-        auto input = std::span<const char32_t>{text_};
-        while (!input.empty())
-        {
-            const auto result = parser_.parse(std::u32string_view{input.data(), input.size()});
-            input = input.subspan(result.consumed);
-            if (result.id == vtparser::vt_message_id::continue_)
+                             text_, utf8_pending_);
+
+        std::array<char32_t, 256> codepoints{};
+        std::size_t count = 0;
+        const auto flush = [&] {
+            auto input = std::span<const char32_t>{codepoints.data(), count};
+            while (!input.empty())
             {
-                continue;
+                const auto result = parser_.parse(std::u32string_view{input.data(), input.size()});
+                input = input.subspan(result.consumed);
+                if (result.id == vtparser::vt_message_id::continue_)
+                {
+                    continue;
+                }
+                (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
+                parser_.reset();
             }
-            (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
-            parser_.reset();
+            count = 0;
+        };
+
+        for (std::size_t i = 0; i < text_.size(); ++i)
+        {
+            char32_t value = text_[i];
+            if (value >= 0xD800 && value <= 0xDBFF && i + 1 < text_.size())
+            {
+                const auto low = static_cast<char32_t>(text_[i + 1]);
+                if (low >= 0xDC00 && low <= 0xDFFF)
+                {
+                    value = 0x10000 + ((value - 0xD800) << 10) + (low - 0xDC00);
+                    ++i;
+                }
+            }
+            codepoints[count++] = value;
+            if (count == codepoints.size())
+            {
+                flush();
+            }
+        }
+        if (count != 0)
+        {
+            flush();
         }
     }
 
@@ -164,8 +191,8 @@ class server_session final
     vtparser::raw_u32_buffer raw_;
     vtparser::vt_parser parser_;
     vtstate::state_applier applier_;
-    std::u32string text_;
-    std::string error_;
+    std::u16string text_;
+    std::string utf8_pending_;
     coreio::process_registry processes_;
     consoleapi::console_api api_;
     coreio::io_msg pending_message_{};

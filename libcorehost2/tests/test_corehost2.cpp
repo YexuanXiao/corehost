@@ -177,6 +177,14 @@ int main()
         return EXIT_FAILURE;
     }
 
+    const char utf8_text[]{static_cast<char>(0xE4), static_cast<char>(0xB8), static_cast<char>(0xAD)};
+    server.write_raw(std::span<const char>{utf8_text, sizeof(utf8_text)});
+    if (server_buffer.at(2, 0).primary() != u'\u4E2D')
+    {
+        std::fprintf(stderr, "raw utf8 write failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
 }
