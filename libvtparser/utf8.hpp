@@ -21,39 +21,9 @@ class utf8_decoder final
     void decode(std::span<const char8_t> bytes, std::u16string &output)
     {
         output.clear();
-
-        std::size_t index = 0;
-        while (index < bytes.size())
+        for (const auto value : bytes)
         {
-            if (pending_size_ != 0)
-            {
-                consume(static_cast<std::uint8_t>(bytes[index]), output);
-                ++index;
-                continue;
-            }
-
-            const auto value = static_cast<std::uint8_t>(bytes[index]);
-            if (value < 0x80)
-            {
-                const auto begin = index;
-                while (index < bytes.size() && static_cast<std::uint8_t>(bytes[index]) < 0x80)
-                {
-                    ++index;
-                }
-
-                const auto count = index - begin;
-                const auto offset = output.size();
-                output.resize(offset + count);
-                auto *destination = output.data() + offset;
-                for (std::size_t i = 0; i < count; ++i)
-                {
-                    destination[i] = static_cast<char16_t>(bytes[begin + i]);
-                }
-                continue;
-            }
-
-            consume(value, output);
-            ++index;
+            consume(static_cast<std::uint8_t>(value), output);
         }
     }
 

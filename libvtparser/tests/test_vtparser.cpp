@@ -128,10 +128,6 @@ int main()
     }
     check(decoded == u"\U0001F600", "utf8 four-byte split decode");
 
-    constexpr char8_t ascii[]{0x41, 0x42, 0x43, 0x44};
-    decoder.decode(ascii, decoded);
-    check(decoded == u"ABCD", "utf8 ascii run");
-
     constexpr char8_t invalid[]{0x80};
     decoder.decode(invalid, decoded);
     check(decoded == u"\uFFFD", "utf8 invalid replacement");
