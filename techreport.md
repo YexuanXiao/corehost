@@ -590,8 +590,15 @@ console 状态。
   O(1) 或 O(n) 的线性路径；
 - **常数不同**：libscreen 16B cell、32B ID、较重的 row metadata 和 history copy 使其
   顺序扫描/滚动约比 Ghostty 慢 1.5–2×，但不会改变渐近复杂度；
-- **不可能完全追平**：除非放弃 corehost 需要的 32 位 screen-wide ID 和 16B cell；
-  当前目标是保持同一复杂度，并把可避免的复制和线性查找去掉。
+- **16B cell / 32 位 ID 限制的是原始扫描带宽**，不是 page 复用；
+- **page 复用与当前 cell/ID 目标不冲突**：它可以直接使用 16B cell 和 32 位 screen-wide
+  ID。当前 history 选择行复制，是为了保持 `history_line()` 的稳定 span、按行 history
+  limit 和简单的 resize 语义，不是 cell 布局的要求；
+- 真正的限制是滚动粒度和所有权：如果一次只滚动一行，单纯“整页复用”仍要替换页内
+  一行；要完全避免复制，需要 **row-block pool** 或 ring/page-list 存储，而不是只把
+  `history_entry` 换成 page 指针；
+- 因此 page/row 复用是下一项可做的存储优化；当前目标是先保持同一复杂度，并把可避免
+  的 cell 复制和线性查找去掉。
 
 ### 7.4 为什么不是 8B
 
