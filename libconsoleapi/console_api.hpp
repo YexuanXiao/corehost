@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cstring>
 #include <span>
 #include <utility>
@@ -2618,19 +2619,6 @@ class console_api final
         return static_cast<std::size_t>(std::max(units, 0));
     }
 
-    static std::string encode_console_text(std::u16string_view value, UINT code_page)
-    {
-        const auto units = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(value.data()),
-                                                 static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
-        std::string encoded(static_cast<std::size_t>(std::max(units, 0)), '\0');
-        if (units > 0)
-        {
-            (void)::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(value.data()),
-                                        static_cast<int>(value.size()), encoded.data(), units, nullptr, nullptr);
-        }
-        return encoded;
-    }
-
     static std::u16string decode_console_text(const char *data, std::size_t offset, std::size_t bytes, bool unicode,
                                               UINT code_page)
     {
@@ -2673,23 +2661,14 @@ class console_api final
         const auto code_page = state_.input_code_page;
         const auto units = console_text_length(value, code_page);
         const auto available = capacity - written - 1;
-        if (units <= available)
+        assert(units <= available);
+        if (units != 0)
         {
-            if (units != 0)
-            {
-                (void)::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(value.data()),
-                                            static_cast<int>(value.size()), output + written,
-                                            static_cast<int>(units), nullptr, nullptr);
-                written += units;
-            }
-            output[written++] = 0;
-            return;
+            (void)::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(value.data()),
+                                        static_cast<int>(value.size()), output + written, static_cast<int>(units),
+                                        nullptr, nullptr);
+            written += units;
         }
-
-        const auto encoded = encode_console_text(value, code_page);
-        const auto bytes = std::min(encoded.size(), available);
-        std::memcpy(output + written, encoded.data(), bytes);
-        written += bytes;
         output[written++] = 0;
     }
     screen::screen_buffer &buffer_;
