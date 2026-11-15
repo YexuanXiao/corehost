@@ -17,9 +17,7 @@ namespace corehost::vtserializer
 // Repaints only rows/columns marked damaged by libscreen. Each row emits one
 // CUP, SGR only on attribute changes, and glyph runs are UTF-8 encoded directly
 // into the shared serializer buffer.
-inline void render_damage(byte_buffer &output,
-                          const screen::screen_buffer &buffer,
-                          screen::coord cursor,
+inline void render_damage(byte_buffer &output, const screen::screen_buffer &buffer, screen::coord cursor,
                           const screen::console_state *state = nullptr)
 {
     const auto origin = buffer.viewport_origin();
@@ -114,8 +112,7 @@ inline void render_damage(byte_buffer &output,
         append_hyperlink_close(output);
     }
 
-    append_cup(output, static_cast<unsigned>(cursor.y - origin.y),
-               static_cast<unsigned>(cursor.x - origin.x));
+    append_cup(output, static_cast<unsigned>(cursor.y - origin.y), static_cast<unsigned>(cursor.x - origin.x));
     if (state != nullptr)
     {
         append_cursor_visibility(output, state->cursor().visible);
@@ -125,9 +122,7 @@ inline void render_damage(byte_buffer &output,
 
 // Full viewport repaint used when the terminal may have lost local content,
 // notably after switching to/from the alternate buffer.
-inline void render_viewport(byte_buffer &output,
-                            const screen::screen_buffer &buffer,
-                            screen::coord cursor,
+inline void render_viewport(byte_buffer &output, const screen::screen_buffer &buffer, screen::coord cursor,
                             const screen::console_state *state = nullptr)
 {
     const auto origin = buffer.viewport_origin();
@@ -214,8 +209,7 @@ inline void render_viewport(byte_buffer &output,
     {
         append_hyperlink_close(output);
     }
-    append_cup(output, static_cast<unsigned>(cursor.y - origin.y),
-               static_cast<unsigned>(cursor.x - origin.x));
+    append_cup(output, static_cast<unsigned>(cursor.y - origin.y), static_cast<unsigned>(cursor.x - origin.x));
     if (state != nullptr)
     {
         append_cursor_visibility(output, state->cursor().visible);

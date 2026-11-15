@@ -24,13 +24,11 @@ namespace corehost::corehost2
 class server_session final
 {
   public:
-    server_session(screen::screen_buffer &buffer, screen::console_state &state,
-                   consoleinput::input_queue &input,
-                   std::uintptr_t input_object = 0,
-                   win32::handle_view server = {},
+    server_session(screen::screen_buffer &buffer, screen::console_state &state, consoleinput::input_queue &input,
+                   std::uintptr_t input_object = 0, win32::handle_view server = {},
                    conptyio::terminal_writer *writer = nullptr) noexcept
-        : server_{server}, screen_{buffer}, state_{state}, input_{input}, parser_{raw_}, applier_{},
-          payload_{server}, writer_{writer}, api_{buffer, state, &input, input_object, &processes_, &payload_}
+        : server_{server}, screen_{buffer}, state_{state}, input_{input}, parser_{raw_}, applier_{}, payload_{server},
+          writer_{writer}, api_{buffer, state, &input, input_object, &processes_, &payload_}
     {
     }
 
@@ -54,13 +52,13 @@ class server_session final
     void write_raw(std::span<const char> bytes)
     {
         const auto code_page = state_.output_code_page;
-        const auto units = ::MultiByteToWideChar(code_page, 0, bytes.data(),
-                                               static_cast<int>(bytes.size()), nullptr, 0);
+        const auto units =
+            ::MultiByteToWideChar(code_page, 0, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0);
         text_.resize(static_cast<std::size_t>(std::max(units, 0)));
         if (units > 0)
         {
-            (void)::MultiByteToWideChar(code_page, 0, bytes.data(),
-                                        static_cast<int>(bytes.size()), reinterpret_cast<LPWSTR>(text_.data()), units);
+            (void)::MultiByteToWideChar(code_page, 0, bytes.data(), static_cast<int>(bytes.size()),
+                                        reinterpret_cast<LPWSTR>(text_.data()), units);
         }
         auto input = std::u16string_view{text_};
         while (!input.empty())
@@ -170,13 +168,12 @@ class server_session final
         }
         if (pending_kind_ == pending_kind::raw_read)
         {
-            const auto capacity = std::min<std::size_t>(pending_message_.descriptor.OutputSize,
-                                                         sizeof(pending_message_.body));
+            const auto capacity =
+                std::min<std::size_t>(pending_message_.descriptor.OutputSize, sizeof(pending_message_.body));
             const auto written = std::min<std::size_t>(raw_in_.size(), capacity);
             std::copy_n(raw_in_.begin(), written, pending_message_.body);
             raw_in_.clear();
-            coreio::prepare_completion(pending_message_, 0, written, pending_message_.body,
-                                       written);
+            coreio::prepare_completion(pending_message_, 0, written, pending_message_.body, written);
         }
         else
         {
@@ -247,8 +244,8 @@ class server_session final
             consumed = limit;
         }
 
-        const bool add_cr = consumed != 0 && raw_in_[consumed - 1] == '\n' &&
-                            (consumed < 2 || raw_in_[consumed - 2] != '\r');
+        const bool add_cr =
+            consumed != 0 && raw_in_[consumed - 1] == '\n' && (consumed < 2 || raw_in_[consumed - 2] != '\r');
         const bool add_lf = consumed != 0 && raw_in_[consumed - 1] == '\r' && (eof || complete);
 
         std::size_t written = 0;
@@ -333,10 +330,8 @@ class server_session final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        auto *request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
-        const auto payload = payload_.read(message, sizeof(CONSOLE_MSG_HEADER) +
-                                                         sizeof(CONSOLE_WRITECONSOLE_MSG));
+        auto *request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto payload = payload_.read(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG));
         std::size_t written = 0;
         if (request->Unicode)
         {
@@ -349,27 +344,27 @@ class server_session final
         {
             const auto code_page = state_.output_code_page;
             const auto *bytes_data = reinterpret_cast<const char *>(payload.data());
-            const auto units = ::MultiByteToWideChar(code_page, 0, bytes_data,
-                                                     static_cast<int>(payload.size()), nullptr, 0);
+            const auto units =
+                ::MultiByteToWideChar(code_page, 0, bytes_data, static_cast<int>(payload.size()), nullptr, 0);
             text_.resize(static_cast<std::size_t>(std::max(units, 0)));
             if (units > 0)
             {
-                (void)::MultiByteToWideChar(code_page, 0, bytes_data,
-                                            static_cast<int>(payload.size()),
+                (void)::MultiByteToWideChar(code_page, 0, bytes_data, static_cast<int>(payload.size()),
                                             reinterpret_cast<LPWSTR>(text_.data()), units);
             }
             written = write_text(text_);
-            const auto encoded = ::WideCharToMultiByte(
-                code_page, 0, reinterpret_cast<const wchar_t *>(text_.data()),
-                static_cast<int>(written), nullptr, 0, nullptr, nullptr);
+            const auto encoded = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text_.data()),
+                                                       static_cast<int>(written), nullptr, 0, nullptr, nullptr);
             request->NumBytes = static_cast<ULONG>(std::max(encoded, 0));
         }
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLE_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_WRITECONSOLE_MSG));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_WRITECONSOLE_MSG));
         return true;
     }
-    [[nodiscard]] screen::screen_buffer &screen() noexcept { return screen_; }
+    [[nodiscard]] screen::screen_buffer &screen() noexcept
+    {
+        return screen_;
+    }
 
 #ifdef COREHOST2_TESTING
     [[nodiscard]] bool should_flush() const noexcept
@@ -378,7 +373,9 @@ class server_session final
     }
 #endif
 
-    void flush() noexcept {}
+    void flush() noexcept
+    {
+    }
 
     conptyio::terminal_writer *writer_{};
 
@@ -406,18 +403,16 @@ class server_session final
             return true;
         }
         const auto requested_kind = api_.take_pending_read_kind();
-        if (pending_active_ &&
-            requested_kind == consoleapi::console_api::pending_read_kind::console_input)
+        if (pending_active_ && requested_kind == consoleapi::console_api::pending_read_kind::console_input)
         {
             queued_console_inputs_.push_back(message);
             return false;
         }
         pending_message_ = message;
         pending_active_ = true;
-        pending_kind_ =
-            requested_kind == consoleapi::console_api::pending_read_kind::console_input
-                ? pending_kind::console_input
-                : pending_kind::console_read;
+        pending_kind_ = requested_kind == consoleapi::console_api::pending_read_kind::console_input
+                            ? pending_kind::console_input
+                            : pending_kind::console_read;
         if (pending_kind_ == pending_kind::console_input && !initial_repaint_sent_ &&
 #ifdef COREHOST2_TESTING
             writer_ != nullptr &&
@@ -516,10 +511,9 @@ class server_session final
         }
         if (pending_kind_ == pending_kind::raw_read)
         {
-            const auto capacity = std::min<std::size_t>(pending_message_.descriptor.OutputSize,
-                                                         sizeof(pending_message_.body));
-            const auto written = read_raw(std::span<char>{
-                reinterpret_cast<char *>(pending_message_.body), capacity});
+            const auto capacity =
+                std::min<std::size_t>(pending_message_.descriptor.OutputSize, sizeof(pending_message_.body));
+            const auto written = read_raw(std::span<char>{reinterpret_cast<char *>(pending_message_.body), capacity});
             LONG status = 0;
             if (written == 0)
             {

@@ -7,11 +7,8 @@ namespace corehost::vtstate
 
 // Applies the parser messages implemented so far. Returns false when the
 // message is not a screen/console state change handled by this module.
-[[nodiscard]] inline bool apply(vtparser::vt_message_id id,
-                                const vtparser::vt_message &message,
-                                screen::screen_buffer &buffer,
-                                screen::console_state &state,
-                                state_applier &applier)
+[[nodiscard]] inline bool apply(vtparser::vt_message_id id, const vtparser::vt_message &message,
+                                screen::screen_buffer &buffer, screen::console_state &state, state_applier &applier)
 {
     switch (id)
     {

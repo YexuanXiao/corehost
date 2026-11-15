@@ -128,26 +128,25 @@ int run_com_handoff()
     auto vt_out = win32::handle::from_uintptr(handoff.vt_out);
     auto signal = win32::handle::from_uintptr(handoff.signal);
 
-    corehost::corehost2::conpty_entry(
-        server.view(), event.view(), std::move(condrv_input), std::move(condrv_output), vt_in.view(),
-        vt_out.view(), std::move(signal), handoff.width, handoff.height, false,
-        corehost::screen::text_measurement::graphemes, true);
+    corehost::corehost2::conpty_entry(server.view(), event.view(), std::move(condrv_input), std::move(condrv_output),
+                                      vt_in.view(), vt_out.view(), std::move(signal), handoff.width, handoff.height,
+                                      false, corehost::screen::text_measurement::graphemes, true);
     return 0;
 }
 
 int run_headless(const parsed_arguments &args)
 {
     auto server = win32::handle::from_uintptr(args.server);
-    LOG("corehost2 headless server=%p stdin=%p stdout=%p", server.get(),
-        ::GetStdHandle(STD_INPUT_HANDLE), ::GetStdHandle(STD_OUTPUT_HANDLE));
+    LOG("corehost2 headless server=%p stdin=%p stdout=%p", server.get(), ::GetStdHandle(STD_INPUT_HANDLE),
+        ::GetStdHandle(STD_OUTPUT_HANDLE));
     auto input_event = win32::event{win32::create_tag, true, false};
     corehost::coreio::set_server_info(server.view(), input_event.view());
 
     auto signal = win32::handle::from_uintptr(args.signal);
     corehost::corehost2::conpty_entry(
         server.view(), input_event.view(), {}, {}, win32::handle_view{::GetStdHandle(STD_INPUT_HANDLE)},
-        win32::handle_view{::GetStdHandle(STD_OUTPUT_HANDLE)}, std::move(signal), args.width,
-        args.height, args.inherit_cursor, args.measurement, args.ambiguous_is_wide);
+        win32::handle_view{::GetStdHandle(STD_OUTPUT_HANDLE)}, std::move(signal), args.width, args.height,
+        args.inherit_cursor, args.measurement, args.ambiguous_is_wide);
     return 0;
 }
 

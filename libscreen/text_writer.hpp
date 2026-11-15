@@ -36,33 +36,22 @@ enum class text_measurement
     {
         return 0;
     }
-    if ((value >= 0x0300 && value <= 0x036F) ||
-        (value >= 0x1AB0 && value <= 0x1AFF) ||
-        (value >= 0x1DC0 && value <= 0x1DFF) ||
-        (value >= 0x20D0 && value <= 0x20FF) ||
-        (value >= 0xFE20 && value <= 0xFE2F) ||
-        (value >= 0xFE00 && value <= 0xFE0F) ||
+    if ((value >= 0x0300 && value <= 0x036F) || (value >= 0x1AB0 && value <= 0x1AFF) ||
+        (value >= 0x1DC0 && value <= 0x1DFF) || (value >= 0x20D0 && value <= 0x20FF) ||
+        (value >= 0xFE20 && value <= 0xFE2F) || (value >= 0xFE00 && value <= 0xFE0F) ||
         (value >= 0xE0100 && value <= 0xE01EF))
     {
         return 0;
     }
 
-    if ((value >= 0x4E00 && value <= 0x9FFF) ||
-        (value >= 0x3400 && value <= 0x4DBF) ||
-        (value >= 0x20000 && value <= 0x3134F) ||
-        (value >= 0xF900 && value <= 0xFAFF) ||
-        (value >= 0x2F800 && value <= 0x2FA1F) ||
-        (value >= 0xFF01 && value <= 0xFF60) ||
-        (value >= 0xFFE0 && value <= 0xFFE6) ||
-        (value >= 0x3040 && value <= 0x309F) ||
-        (value >= 0x30A0 && value <= 0x30FF) ||
-        (value >= 0x31F0 && value <= 0x31FF) ||
-        (value >= 0xAC00 && value <= 0xD7AF) ||
-        (value >= 0x3130 && value <= 0x318F) ||
-        (value >= 0x3000 && value <= 0x303F) ||
-        (value >= 0x3200 && value <= 0x33FF) ||
-        (value >= 0x2E80 && value <= 0x2FDF) ||
-        (value >= 0x31C0 && value <= 0x31EF) ||
+    if ((value >= 0x4E00 && value <= 0x9FFF) || (value >= 0x3400 && value <= 0x4DBF) ||
+        (value >= 0x20000 && value <= 0x3134F) || (value >= 0xF900 && value <= 0xFAFF) ||
+        (value >= 0x2F800 && value <= 0x2FA1F) || (value >= 0xFF01 && value <= 0xFF60) ||
+        (value >= 0xFFE0 && value <= 0xFFE6) || (value >= 0x3040 && value <= 0x309F) ||
+        (value >= 0x30A0 && value <= 0x30FF) || (value >= 0x31F0 && value <= 0x31FF) ||
+        (value >= 0xAC00 && value <= 0xD7AF) || (value >= 0x3130 && value <= 0x318F) ||
+        (value >= 0x3000 && value <= 0x303F) || (value >= 0x3200 && value <= 0x33FF) ||
+        (value >= 0x2E80 && value <= 0x2FDF) || (value >= 0x31C0 && value <= 0x31EF) ||
         (value >= 0x1F000 && value <= 0x1FFFF) ||
         (value >= 0x2600 && value <= 0x27BF && value != 0x263A && value != 0x263B))
     {
@@ -167,7 +156,7 @@ template <std::output_iterator<char16_t> Output>
 }
 
 template <std::ranges::input_range Range, std::output_iterator<char32_t> Output>
-requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<Range>>, char16_t>
+    requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<Range>>, char16_t>
 [[nodiscard]] Output to_u32(Range &&text, Output output)
 {
     auto iterator = std::ranges::begin(text);
@@ -205,16 +194,14 @@ class grapheme_iterator final
 
     grapheme_iterator() noexcept = default;
 
-    explicit grapheme_iterator(std::u16string_view text) noexcept
-        : text_{text}
+    explicit grapheme_iterator(std::u16string_view text) noexcept : text_{text}
     {
     }
 
     [[nodiscard]] value_type operator*() const noexcept
     {
         const auto result = scan(offset_);
-        return value_type{std::span<const char16_t>{text_.data() + offset_, result.end - offset_},
-                          result.width};
+        return value_type{std::span<const char16_t>{text_.data() + offset_, result.end - offset_}, result.width};
     }
 
     grapheme_iterator &operator++() noexcept
@@ -279,8 +266,7 @@ template <text_measurement Mode, bool AmbiguousIsWide = false>
 class grapheme_range final
 {
   public:
-    explicit grapheme_range(std::u16string_view text) noexcept
-        : text_{text}
+    explicit grapheme_range(std::u16string_view text) noexcept : text_{text}
     {
     }
 
@@ -330,7 +316,7 @@ template <text_measurement Mode, bool AmbiguousIsWide = false>
 }
 
 template <text_measurement Mode, bool AmbiguousIsWide = false, std::ranges::input_range Range>
-requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<Range>>, char16_t>
+    requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<Range>>, char16_t>
 [[nodiscard]] inline int text_width(Range &&text) noexcept
 {
     auto iterator = std::ranges::begin(text);
@@ -392,8 +378,7 @@ requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<Range>>, ch
     }
     else
     {
-        static_assert(Mode == text_measurement::console ||
-                          Mode == text_measurement::graphemes ||
+        static_assert(Mode == text_measurement::console || Mode == text_measurement::graphemes ||
                           Mode == text_measurement::wcswidth,
                       "unsupported text measurement mode");
         return 0;

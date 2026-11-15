@@ -82,8 +82,8 @@ class viewport final
 
     [[nodiscard]] bool contains(coord value) const noexcept
     {
-        return value.x >= bounds_.left && value.x <= bounds_.right &&
-               value.y >= bounds_.top && value.y <= bounds_.bottom;
+        return value.x >= bounds_.left && value.x <= bounds_.right && value.y >= bounds_.top &&
+               value.y <= bounds_.bottom;
     }
 
     [[nodiscard]] coord relative(coord buffer_position) const noexcept
@@ -98,9 +98,7 @@ class viewport final
 
     [[nodiscard]] rect relative_rect(rect buffer_rect) const noexcept
     {
-        return rect{buffer_rect.left - bounds_.left,
-                    buffer_rect.top - bounds_.top,
-                    buffer_rect.right - bounds_.left,
+        return rect{buffer_rect.left - bounds_.left, buffer_rect.top - bounds_.top, buffer_rect.right - bounds_.left,
                     buffer_rect.bottom - bounds_.top};
     }
 
@@ -120,18 +118,13 @@ class viewport final
     [[nodiscard]] bool set_origin(coord requested, coord buffer_size) noexcept
     {
         const auto current = size();
-        return set_rect(rect{requested.x,
-                             requested.y,
-                             requested.x + current.x - 1,
-                             requested.y + current.y - 1},
+        return set_rect(rect{requested.x, requested.y, requested.x + current.x - 1, requested.y + current.y - 1},
                         buffer_size);
     }
 
     [[nodiscard]] bool set_size(coord requested, coord buffer_size) noexcept
     {
-        return set_rect(rect{bounds_.left,
-                             bounds_.top,
-                             bounds_.left + std::max<std::int32_t>(requested.x, 1) - 1,
+        return set_rect(rect{bounds_.left, bounds_.top, bounds_.left + std::max<std::int32_t>(requested.x, 1) - 1,
                              bounds_.top + std::max<std::int32_t>(requested.y, 1) - 1},
                         buffer_size);
     }

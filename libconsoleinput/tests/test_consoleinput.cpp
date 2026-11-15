@@ -39,8 +39,7 @@ int main()
     queue.push(input_event{input_event_type::key, key_event{u'A'}});
     queue.push_front(input_event{input_event_type::key, key_event{u'B'}});
     input_event ordered[2]{};
-    if (queue.read(ordered) != 2 || ordered[0].key.character != u'B' ||
-        ordered[1].key.character != u'A')
+    if (queue.read(ordered) != 2 || ordered[0].key.character != u'B' || ordered[1].key.character != u'A')
     {
         std::fprintf(stderr, "push_front order failed\n");
         return EXIT_FAILURE;

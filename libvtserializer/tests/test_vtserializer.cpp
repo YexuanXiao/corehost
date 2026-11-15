@@ -60,8 +60,7 @@ int main()
     buffer.clear();
     append_utf16(buffer, u"A\u4E2D\U0001F600");
     constexpr std::u8string_view utf8 = u8"A\u4E2D\U0001F600";
-    if (buffer.bytes().size() != utf8.size() ||
-        !std::equal(buffer.bytes().begin(), buffer.bytes().end(), utf8.begin()))
+    if (buffer.bytes().size() != utf8.size() || !std::equal(buffer.bytes().begin(), buffer.bytes().end(), utf8.begin()))
     {
         std::fprintf(stderr, "utf16 serialization failed\n");
         return EXIT_FAILURE;
@@ -69,8 +68,7 @@ int main()
 
     buffer.clear();
     append_utf16(buffer, u"A\u4E2D\U0001F600");
-    if (buffer.bytes().size() != utf8.size() ||
-        !std::equal(buffer.bytes().begin(), buffer.bytes().end(), utf8.begin()))
+    if (buffer.bytes().size() != utf8.size() || !std::equal(buffer.bytes().begin(), buffer.bytes().end(), utf8.begin()))
     {
         std::fprintf(stderr, "utf16 serialization failed\n");
         return EXIT_FAILURE;
@@ -79,8 +77,7 @@ int main()
     buffer.clear();
     append_cup(buffer, 0, 0);
     constexpr std::u8string_view cup = u8"\x1b[1;1H";
-    if (buffer.bytes().size() != cup.size() ||
-        !std::equal(buffer.bytes().begin(), buffer.bytes().end(), cup.begin()))
+    if (buffer.bytes().size() != cup.size() || !std::equal(buffer.bytes().begin(), buffer.bytes().end(), cup.begin()))
     {
         std::fprintf(stderr, "cup serialization failed\n");
         return EXIT_FAILURE;
@@ -89,8 +86,7 @@ int main()
     buffer.clear();
     append_sgr_legacy(buffer, 0x1F);
     constexpr std::u8string_view sgr = u8"\x1b[0;97;44m";
-    if (buffer.bytes().size() != sgr.size() ||
-        !std::equal(buffer.bytes().begin(), buffer.bytes().end(), sgr.begin()))
+    if (buffer.bytes().size() != sgr.size() || !std::equal(buffer.bytes().begin(), buffer.bytes().end(), sgr.begin()))
     {
         std::fprintf(stderr, "sgr serialization failed\n");
         return EXIT_FAILURE;
@@ -132,8 +128,7 @@ int main()
     screen.set_flags(0, 0);
 
     const auto link = screen.hyperlinks().intern(u"https://e", u"id");
-    (void)screen.write_glyph(corehost::screen::coord{0, 1}, u"L", 1,
-                             corehost::screen::cell_style{}, link);
+    (void)screen.write_glyph(corehost::screen::coord{0, 1}, u"L", 1, corehost::screen::cell_style{}, link);
     buffer.clear();
     render_damage(buffer, screen, corehost::screen::coord{1, 1});
     const std::u8string rendered{buffer.bytes().begin(), buffer.bytes().end()};
@@ -204,8 +199,7 @@ int main()
 
     buffer.clear();
     append_private_mode(buffer, 1000, true);
-    if (buffer.bytes().size() != 8 || buffer.bytes()[2] != u'?' ||
-        buffer.bytes()[7] != u'h')
+    if (buffer.bytes().size() != 8 || buffer.bytes()[2] != u'?' || buffer.bytes()[7] != u'h')
     {
         std::fprintf(stderr, "private mode sequence failed\n");
         return EXIT_FAILURE;

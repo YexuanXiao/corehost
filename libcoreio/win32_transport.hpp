@@ -15,8 +15,7 @@ namespace corehost::coreio
 class win32_transport final
 {
   public:
-    win32_transport(win32::handle_view server, win32::handle_view event,
-                    win32::handle_view stop_event = {}) noexcept
+    win32_transport(win32::handle_view server, win32::handle_view event, win32::handle_view stop_event = {}) noexcept
         : server_{server}, event_{event}, stop_event_{stop_event}
     {
     }

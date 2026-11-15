@@ -32,8 +32,7 @@ struct alignas(2) small_rect final
     friend constexpr bool operator==(const small_rect &, const small_rect &) noexcept = default;
 };
 
-union char_union final
-{
+union char_union final {
     char16_t unicode_char;
     char ascii_char;
 };

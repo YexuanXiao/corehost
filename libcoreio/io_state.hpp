@@ -27,10 +27,9 @@ class io_state final
         alternate_output,
     };
 
-    io_state(win32::handle_view server, win32::handle_view fixed_input,
-             win32::handle_view fixed_output, process_registry &processes) noexcept
-        : server_{server}, fixed_input_{fixed_input}, fixed_output_{fixed_output},
-          processes_{processes}
+    io_state(win32::handle_view server, win32::handle_view fixed_input, win32::handle_view fixed_output,
+             process_registry &processes) noexcept
+        : server_{server}, fixed_input_{fixed_input}, fixed_output_{fixed_output}, processes_{processes}
     {
     }
 
@@ -83,8 +82,7 @@ class io_state final
             input_id_ = reinterpret_cast<ULONG_PTR>(fixed_input_.get());
             output_id_ = reinterpret_cast<ULONG_PTR>(fixed_output_.get());
             accepted_ = true;
-            prepare_connection_completion(message, fixed_input_, fixed_output_,
-                                          static_cast<ULONG_PTR>(pid));
+            prepare_connection_completion(message, fixed_input_, fixed_output_, static_cast<ULONG_PTR>(pid));
             return;
         }
 

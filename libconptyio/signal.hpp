@@ -39,11 +39,8 @@ enum class pty_signal : std::uint16_t
 
 // Applies one complete PtySignal payload. No globals, no Windows handles; the
 // session pump owns reading and synchronization.
-inline void apply_signal(std::uint16_t id,
-                         std::span<const std::byte> payload,
-                         screen::screen_buffer &buffer,
-                         screen::console_state &state,
-                         pseudo_window &window)
+inline void apply_signal(std::uint16_t id, std::span<const std::byte> payload, screen::screen_buffer &buffer,
+                         screen::console_state &state, pseudo_window &window)
 {
     assert(payload.size() == payload_size_for(id));
 
@@ -53,8 +50,7 @@ inline void apply_signal(std::uint16_t id,
         buffer.clear(state.default_style);
         state.set_cursor(0, 0);
         break;
-    case pty_signal::resize_window:
-    {
+    case pty_signal::resize_window: {
         std::uint32_t packed = 0;
         std::memcpy(&packed, payload.data(), sizeof(packed));
         const auto width = static_cast<std::uint16_t>(packed & 0xFFFFu);
@@ -66,20 +62,18 @@ inline void apply_signal(std::uint16_t id,
         }
         break;
     }
-    case pty_signal::show_hide_window:
-        {
-            std::uint16_t visible = 0;
-            std::memcpy(&visible, payload.data(), sizeof(visible));
-            window.show(visible != 0);
-        }
-        break;
-    case pty_signal::set_parent:
-        {
-            std::uint64_t parent = 0;
-            std::memcpy(&parent, payload.data(), sizeof(parent));
-            window.set_parent(reinterpret_cast<HWND>(parent));
-        }
-        break;
+    case pty_signal::show_hide_window: {
+        std::uint16_t visible = 0;
+        std::memcpy(&visible, payload.data(), sizeof(visible));
+        window.show(visible != 0);
+    }
+    break;
+    case pty_signal::set_parent: {
+        std::uint64_t parent = 0;
+        std::memcpy(&parent, payload.data(), sizeof(parent));
+        window.set_parent(reinterpret_cast<HWND>(parent));
+    }
+    break;
     default:
         break;
     }

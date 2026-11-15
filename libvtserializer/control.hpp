@@ -10,9 +10,7 @@
 namespace corehost::vtserializer
 {
 
-inline void append_hyperlink_open(byte_buffer &output,
-                                  std::u8string_view params,
-                                  std::u8string_view uri)
+inline void append_hyperlink_open(byte_buffer &output, std::u8string_view params, std::u8string_view uri)
 {
     output.append_text(u8"\x1b]8;");
     output.append_text(params);
@@ -53,9 +51,7 @@ inline void append_cup(byte_buffer &output, unsigned row, unsigned column)
                                            static_cast<std::size_t>(first - sequence)});
 }
 
-inline void append_hyperlink_open_id(byte_buffer &output,
-                                    std::u16string_view id,
-                                    std::u16string_view uri)
+inline void append_hyperlink_open_id(byte_buffer &output, std::u16string_view id, std::u16string_view uri)
 {
     output.append_text(u8"\x1b]8;id=");
     append_utf16(output, id);

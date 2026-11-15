@@ -19,10 +19,10 @@ namespace corehost::corehost2
 class server_dispatcher final
 {
   public:
-    server_dispatcher(win32::handle_view server, win32::handle_view condrv_input,
-                      win32::handle_view condrv_output, server_session &session) noexcept
-        : state_{server, condrv_input, condrv_output, session.processes()}, session_{session},
-          server_{server}, payload_{server}
+    server_dispatcher(win32::handle_view server, win32::handle_view condrv_input, win32::handle_view condrv_output,
+                      server_session &session) noexcept
+        : state_{server, condrv_input, condrv_output, session.processes()}, session_{session}, server_{server},
+          payload_{server}
     {
     }
 
@@ -47,8 +47,7 @@ class server_dispatcher final
             session_.set_output_object(state_.output_id());
             session_.set_alternate_object(state_.alternate_output_id());
             LOG("connect input=%llu output=%llu alternate=%llu handle=%p",
-                static_cast<unsigned long long>(state_.input_id()),
-                static_cast<unsigned long long>(state_.output_id()),
+                static_cast<unsigned long long>(state_.input_id()), static_cast<unsigned long long>(state_.output_id()),
                 static_cast<unsigned long long>(state_.alternate_output_id()), state_.input().get());
             return true;
         case CONSOLE_IO_CREATE_OBJECT:
@@ -71,14 +70,11 @@ class server_dispatcher final
         case CONSOLE_IO_RAW_FLUSH:
             state_.handle_raw_flush(message);
             return true;
-        case CONSOLE_IO_RAW_WRITE:
-        {
+        case CONSOLE_IO_RAW_WRITE: {
             const auto payload = payload_.read(message, 0);
-            LOG("raw write bytes=%zu alt=%d", payload.size(),
-                session_.screen().alternate_active() ? 1 : 0);
+            LOG("raw write bytes=%zu alt=%d", payload.size(), session_.screen().alternate_active() ? 1 : 0);
             LOG_HEX("raw output", payload.data(), payload.size() < 160 ? payload.size() : 160);
-            session_.write_raw(std::span<const char>{
-                reinterpret_cast<const char *>(payload.data()), payload.size()});
+            session_.write_raw(std::span<const char>{reinterpret_cast<const char *>(payload.data()), payload.size()});
             coreio::prepare_completion(message, 0, payload.size());
             LOG("raw write prepared status=0x%08lX info=%llu",
                 static_cast<unsigned long>(message.complete.IoStatus.Status),
@@ -94,17 +90,14 @@ class server_dispatcher final
             LOG("raw write completed inline");
             return false;
         }
-        case CONSOLE_IO_RAW_READ:
-        {
-            const auto capacity = std::min<std::size_t>(message.descriptor.OutputSize,
-                                                         sizeof(message.body));
+        case CONSOLE_IO_RAW_READ: {
+            const auto capacity = std::min<std::size_t>(message.descriptor.OutputSize, sizeof(message.body));
             if (capacity == 0)
             {
                 coreio::prepare_completion(message, 0, 0, message.body, 0);
                 return true;
             }
-            const auto written = session_.read_raw(
-                std::span<char>{reinterpret_cast<char *>(message.body), capacity});
+            const auto written = session_.read_raw(std::span<char>{reinterpret_cast<char *>(message.body), capacity});
             if (written == 0)
             {
                 if (session_.raw_alerted())

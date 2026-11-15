@@ -62,8 +62,7 @@ int main()
     }
     ::WriteFile(pipe_write, emoji + 2, 2, &written, nullptr);
     (void)reader.read_batch();
-    if (reader.codepoints().size() != 2 || reader.codepoints()[0] != 0xD83D ||
-        reader.codepoints()[1] != 0xDE00)
+    if (reader.codepoints().size() != 2 || reader.codepoints()[0] != 0xD83D || reader.codepoints()[1] != 0xDE00)
     {
         std::fprintf(stderr, "split utf8 decode failed\n");
         return EXIT_FAILURE;
@@ -149,8 +148,7 @@ int main()
         return EXIT_FAILURE;
     }
     recording_signal_sink signal_sink;
-    corehost::conptyio::pty_signal_thread signal_thread{
-        win32::handle_view{signal_thread_read}, signal_sink};
+    corehost::conptyio::pty_signal_thread signal_thread{win32::handle_view{signal_thread_read}, signal_sink};
     signal_thread.start();
     const std::uint16_t signal_id = 8;
     const std::uint32_t signal_resize = (4u << 16) | 12u;
@@ -180,8 +178,7 @@ int main()
         return EXIT_FAILURE;
     }
     recording_signal_sink signal_stop_sink;
-    corehost::conptyio::pty_signal_thread signal_stop_thread{
-        win32::handle_view{signal_stop_read}, signal_stop_sink};
+    corehost::conptyio::pty_signal_thread signal_stop_thread{win32::handle_view{signal_stop_read}, signal_stop_sink};
     signal_stop_thread.start();
     signal_stop_thread.stop_and_join();
     ::CloseHandle(signal_stop_write);
@@ -213,8 +210,8 @@ int main()
     corehost::conptyio::pseudo_window signal_window;
     std::uint32_t resize = (3u << 16) | 10u;
     corehost::conptyio::apply_signal(
-        8, std::span<const std::byte>{reinterpret_cast<const std::byte *>(&resize), sizeof(resize)},
-        signal_buffer, signal_state, signal_window);
+        8, std::span<const std::byte>{reinterpret_cast<const std::byte *>(&resize), sizeof(resize)}, signal_buffer,
+        signal_state, signal_window);
     if (signal_buffer.buffer_size() != corehost::screen::coord{10, 3} || signal_state.width() != 10)
     {
         std::fprintf(stderr, "signal resize failed\n");
@@ -223,8 +220,8 @@ int main()
 
     const std::uint16_t clear = 0;
     corehost::conptyio::apply_signal(
-        2, std::span<const std::byte>{reinterpret_cast<const std::byte *>(&clear), sizeof(clear)},
-        signal_buffer, signal_state, signal_window);
+        2, std::span<const std::byte>{reinterpret_cast<const std::byte *>(&clear), sizeof(clear)}, signal_buffer,
+        signal_state, signal_window);
     if (signal_state.cursor().x != 0 || signal_state.cursor().y != 0)
     {
         std::fprintf(stderr, "signal clear failed\n");
@@ -239,8 +236,8 @@ int main()
     }
     const std::uint16_t visible = 1;
     corehost::conptyio::apply_signal(
-        1, std::span<const std::byte>{reinterpret_cast<const std::byte *>(&visible), sizeof(visible)},
-        signal_buffer, signal_state, signal_window);
+        1, std::span<const std::byte>{reinterpret_cast<const std::byte *>(&visible), sizeof(visible)}, signal_buffer,
+        signal_state, signal_window);
 
     signal_window.stop_and_join();
 

@@ -21,10 +21,8 @@ class pseudo_window final
 {
   public:
     explicit pseudo_window(win32::handle_view server = {}, std::wstring title = {})
-        : server_{server}, title_{std::move(title)},
-          ready_{win32::create_tag, true, false},
-          close_requested_{win32::create_tag, true, false},
-          show_event_{win32::create_tag, false, false},
+        : server_{server}, title_{std::move(title)}, ready_{win32::create_tag, true, false},
+          close_requested_{win32::create_tag, true, false}, show_event_{win32::create_tag, false, false},
           hide_event_{win32::create_tag, false, false}
     {
     }
@@ -46,8 +44,7 @@ class pseudo_window final
         {
             return;
         }
-        thread_ = win32::basic_thread{&pseudo_window::thread_entry, this,
-                                      {.name = L"corehost2-window"}};
+        thread_ = win32::basic_thread{&pseudo_window::thread_entry, this, {.name = L"corehost2-window"}};
         ready_.wait();
     }
 
@@ -142,9 +139,8 @@ class pseudo_window final
         }
 
         const HWND created =
-            ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
-                              class_name_, title_.c_str(), WS_POPUP, 0, 0, 0, 0, nullptr, nullptr,
-                              nullptr, this);
+            ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP, class_name_,
+                              title_.c_str(), WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, nullptr, this);
         if (created == nullptr)
         {
             ready_.set();
@@ -176,13 +172,11 @@ class pseudo_window final
         if (message == WM_CREATE)
         {
             const auto *create = reinterpret_cast<CREATESTRUCTW *>(lparam);
-            ::SetWindowLongPtrW(hwnd, GWLP_USERDATA,
-                                reinterpret_cast<LONG_PTR>(create->lpCreateParams));
+            ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(create->lpCreateParams));
             return 0;
         }
 
-        auto *self = reinterpret_cast<pseudo_window *>(
-            ::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        auto *self = reinterpret_cast<pseudo_window *>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
         if (self == nullptr)
         {
             return ::DefWindowProcW(hwnd, message, wparam, lparam);
@@ -221,10 +215,8 @@ class pseudo_window final
         case wm_stop_thread:
             ::PostQuitMessage(0);
             return 0;
-        case WM_ACTIVATE:
-        {
-            const auto owner = reinterpret_cast<HWND>(
-                ::GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT));
+        case WM_ACTIVATE: {
+            const auto owner = reinterpret_cast<HWND>(::GetWindowLongPtrW(hwnd, GWLP_HWNDPARENT));
             if (owner != nullptr && ::IsWindow(owner) != FALSE)
             {
                 ::SetFocus(owner);

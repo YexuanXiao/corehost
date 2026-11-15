@@ -58,8 +58,7 @@ class process_registry final
         return processes_;
     }
 
-    [[nodiscard]] std::size_t copy_for_group(std::uintptr_t group,
-                                             std::span<std::uintptr_t> output) const noexcept
+    [[nodiscard]] std::size_t copy_for_group(std::uintptr_t group, std::span<std::uintptr_t> output) const noexcept
     {
         std::size_t written = 0;
         for (std::size_t i = 0; i < processes_.size() && written < output.size(); ++i)

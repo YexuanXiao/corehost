@@ -10,18 +10,10 @@ namespace corehost::corehost2
 {
 
 // Same external shape as libcorehost's conpty entry, with new native types.
-void conpty_entry(win32::handle_view server,
-                  win32::handle_view event,
-                  win32::handle condrv_input,
-                  win32::handle condrv_output,
-                  win32::handle_view vt_in,
-                  win32::handle_view vt_out,
-                  win32::handle signal_pipe,
-                  short width,
-                  short height,
-                  bool inherit_cursor,
-                  screen::text_measurement text_measurement,
-                  bool ambiguous_is_wide = false)
+void conpty_entry(win32::handle_view server, win32::handle_view event, win32::handle condrv_input,
+                  win32::handle condrv_output, win32::handle_view vt_in, win32::handle_view vt_out,
+                  win32::handle signal_pipe, short width, short height, bool inherit_cursor,
+                  screen::text_measurement text_measurement, bool ambiguous_is_wide = false)
 {
     assert(vt_in.valid());
     assert(vt_out.valid());

@@ -169,8 +169,7 @@ class utf8_decoder final
 inline void convert_to_utf16(std::span<const char16_t> input, std::u16string &output)
 {
     output.clear();
-    unicode::convert_to<char16_t>(std::u16string_view{input.data(), input.size()},
-                                  std::back_inserter(output));
+    unicode::convert_to<char16_t>(std::u16string_view{input.data(), input.size()}, std::back_inserter(output));
 }
 
 } // namespace corehost::vtparser

@@ -17,7 +17,9 @@ namespace corehost::conptyio
 class terminal_reader final
 {
   public:
-    explicit terminal_reader(win32::handle_view input) noexcept : input_{input} {}
+    explicit terminal_reader(win32::handle_view input) noexcept : input_{input}
+    {
+    }
 
     [[nodiscard]] bool read_batch()
     {
@@ -35,8 +37,7 @@ class terminal_reader final
             return false;
         }
 
-        decoder_.decode(
-            std::span<const char8_t>{bytes_.data(), result.bytes}, codepoints_);
+        decoder_.decode(std::span<const char8_t>{bytes_.data(), result.bytes}, codepoints_);
         return true;
     }
 

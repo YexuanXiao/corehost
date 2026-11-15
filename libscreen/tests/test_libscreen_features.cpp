@@ -155,14 +155,12 @@ void test_char_info_and_attrs()
     check(buffer.write_char_info_abi(rect{6, 1, 7, 1}, abi_in) == 2, "write ABI char_info");
     std::vector<corehost::interop::win32::char_info> abi_out(2);
     check(buffer.read_char_info_abi(rect{6, 1, 7, 1}, abi_out) == 2, "read ABI char_info");
-    check(abi_out[0].char_data.unicode_char == u'K' && abi_out[1].attributes == 0x3C,
-          "ABI char_info data");
+    check(abi_out[0].char_data.unicode_char == u'K' && abi_out[1].attributes == 0x3C, "ABI char_info data");
 }
 
 void test_text_writer()
 {
     using namespace corehost::screen;
-
 
     screen_buffer buffer(10, 3);
     coord cursor{0, 0};
@@ -184,8 +182,8 @@ void test_text_writer()
 
     screen_buffer grapheme_buffer(10, 2);
     coord grapheme_cursor{0, 0};
-    const auto grapheme_result = grapheme_buffer.write_text_row<text_measurement::graphemes>(
-        grapheme_cursor, u"e\u0301", {}, style1, true);
+    const auto grapheme_result =
+        grapheme_buffer.write_text_row<text_measurement::graphemes>(grapheme_cursor, u"e\u0301", {}, style1, true);
     check(grapheme_result.consumed == 2, "grapheme writer consumed");
     check(grapheme_cursor.x == 1, "grapheme writer cursor");
     check(grapheme_buffer.glyph_at(0, 0) == u"e\u0301", "grapheme writer cluster");
@@ -199,11 +197,16 @@ void test_text_writer()
     static_assert(static_cast<int>(text_measurement::wcswidth) == 2);
     check(codepoint_width<text_measurement::wcswidth>(U'\u4E2D') == 2, "wcswidth wide");
     check(char_width_for_mode<text_measurement::console>(U'\u4E2D') == 2, "console char width");
-    check(text_width<text_measurement::console>(u"\u4E2D" "A") == 3, "console text width");
-    check(text_width<text_measurement::wcswidth>(u"\u4E2D" "A") == 3, "wcswidth text width");
+    check(text_width<text_measurement::console>(u"\u4E2D"
+                                                "A") == 3,
+          "console text width");
+    check(text_width<text_measurement::wcswidth>(u"\u4E2D"
+                                                 "A") == 3,
+          "wcswidth text width");
     int clusters = 0;
     int cluster_widths = 0;
-    for (const auto cluster : grapheme_range<text_measurement::graphemes>{u"e\u0301" u"A"})
+    for (const auto cluster : grapheme_range<text_measurement::graphemes>{u"e\u0301"
+                                                                          u"A"})
     {
         ++clusters;
         cluster_widths += cluster.width;

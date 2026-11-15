@@ -40,7 +40,8 @@ class hyperlink_table final
             return found->second;
         }
 
-        const auto max_id = static_cast<std::size_t>(std::numeric_limits<std::underlying_type_t<cell_hyperlink>>::max());
+        const auto max_id =
+            static_cast<std::size_t>(std::numeric_limits<std::underlying_type_t<cell_hyperlink>>::max());
         assert(links_.size() <= max_id);
 
         const auto value = static_cast<cell_hyperlink>(links_.size());

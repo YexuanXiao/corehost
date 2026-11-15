@@ -23,10 +23,8 @@ class session final
 {
   public:
     session(std::size_t width, std::size_t height,
-            screen::text_measurement measurement = screen::text_measurement::graphemes,
-            bool ambiguous_is_wide = false)
-        : screen_{width, height}, state_{width, height}, parser_{raw_},
-          applier_{measurement, ambiguous_is_wide}
+            screen::text_measurement measurement = screen::text_measurement::graphemes, bool ambiguous_is_wide = false)
+        : screen_{width, height}, state_{width, height}, parser_{raw_}, applier_{measurement, ambiguous_is_wide}
     {
         window_width_ = static_cast<std::int16_t>(width);
         window_height_ = static_cast<std::int16_t>(height);
@@ -154,34 +152,56 @@ class session final
     {
         switch (key)
         {
-        case consoleinput::virtual_key::f1: return u"\x1bOP";
-        case consoleinput::virtual_key::f2: return u"\x1bOQ";
-        case consoleinput::virtual_key::f3: return u"\x1bOR";
-        case consoleinput::virtual_key::f4: return u"\x1bOS";
-        case consoleinput::virtual_key::f5: return u"\x1b[15~";
-        case consoleinput::virtual_key::f6: return u"\x1b[17~";
-        case consoleinput::virtual_key::f7: return u"\x1b[18~";
-        case consoleinput::virtual_key::f8: return u"\x1b[19~";
-        case consoleinput::virtual_key::f9: return u"\x1b[20~";
-        case consoleinput::virtual_key::f10: return u"\x1b[21~";
-        case consoleinput::virtual_key::f11: return u"\x1b[23~";
-        case consoleinput::virtual_key::f12: return u"\x1b[24~";
-        case consoleinput::virtual_key::up: return u"\x1b[A";
-        case consoleinput::virtual_key::down: return u"\x1b[B";
-        case consoleinput::virtual_key::right: return u"\x1b[C";
-        case consoleinput::virtual_key::left: return u"\x1b[D";
-        case consoleinput::virtual_key::home: return u"\x1b[H";
-        case consoleinput::virtual_key::end: return u"\x1b[F";
-        case consoleinput::virtual_key::insert: return u"\x1b[2~";
-        case consoleinput::virtual_key::del: return u"\x1b[3~";
-        case consoleinput::virtual_key::page_up: return u"\x1b[5~";
-        case consoleinput::virtual_key::page_down: return u"\x1b[6~";
-        default: return {};
+        case consoleinput::virtual_key::f1:
+            return u"\x1bOP";
+        case consoleinput::virtual_key::f2:
+            return u"\x1bOQ";
+        case consoleinput::virtual_key::f3:
+            return u"\x1bOR";
+        case consoleinput::virtual_key::f4:
+            return u"\x1bOS";
+        case consoleinput::virtual_key::f5:
+            return u"\x1b[15~";
+        case consoleinput::virtual_key::f6:
+            return u"\x1b[17~";
+        case consoleinput::virtual_key::f7:
+            return u"\x1b[18~";
+        case consoleinput::virtual_key::f8:
+            return u"\x1b[19~";
+        case consoleinput::virtual_key::f9:
+            return u"\x1b[20~";
+        case consoleinput::virtual_key::f10:
+            return u"\x1b[21~";
+        case consoleinput::virtual_key::f11:
+            return u"\x1b[23~";
+        case consoleinput::virtual_key::f12:
+            return u"\x1b[24~";
+        case consoleinput::virtual_key::up:
+            return u"\x1b[A";
+        case consoleinput::virtual_key::down:
+            return u"\x1b[B";
+        case consoleinput::virtual_key::right:
+            return u"\x1b[C";
+        case consoleinput::virtual_key::left:
+            return u"\x1b[D";
+        case consoleinput::virtual_key::home:
+            return u"\x1b[H";
+        case consoleinput::virtual_key::end:
+            return u"\x1b[F";
+        case consoleinput::virtual_key::insert:
+            return u"\x1b[2~";
+        case consoleinput::virtual_key::del:
+            return u"\x1b[3~";
+        case consoleinput::virtual_key::page_up:
+            return u"\x1b[5~";
+        case consoleinput::virtual_key::page_down:
+            return u"\x1b[6~";
+        default:
+            return {};
         }
     }
 
-    void consume(const vtparser::vt_parse_result &result, bool input_direction,
-                 bool raw_passthrough = false)
+    void consume(const vtparser::vt_parse_result &result, bool input_direction, bool raw_passthrough = false)
     {
         if (result.id == vtparser::vt_message_id::continue_)
         {
@@ -203,9 +223,8 @@ class session final
                     {
                         for (const auto ch : vt_input_sequence(key->key))
                         {
-                            input_.push(consoleinput::input_event{
-                                consoleinput::input_event_type::key,
-                                consoleinput::key_from_character(ch, true)});
+                            input_.push(consoleinput::input_event{consoleinput::input_event_type::key,
+                                                                  consoleinput::key_from_character(ch, true)});
                         }
                     }
                     return;
@@ -219,12 +238,10 @@ class session final
         {
             for (const auto ch : result.raw_sequence)
             {
-                input_.push(consoleinput::input_event{
-                    consoleinput::input_event_type::key,
-                    consoleinput::key_from_character(ch, true)});
-                input_.push(consoleinput::input_event{
-                    consoleinput::input_event_type::key,
-                    consoleinput::key_from_character(ch, false)});
+                input_.push(consoleinput::input_event{consoleinput::input_event_type::key,
+                                                      consoleinput::key_from_character(ch, true)});
+                input_.push(consoleinput::input_event{consoleinput::input_event_type::key,
+                                                      consoleinput::key_from_character(ch, false)});
             }
             return;
         }
@@ -234,8 +251,8 @@ class session final
             LOG("terminal response id=%d chars=%zu", static_cast<int>(result.id), result.raw_sequence.size());
             for (const auto ch : result.raw_sequence)
             {
-                input_.push(consoleinput::input_event{
-                    consoleinput::input_event_type::key, consoleinput::key_from_character(ch, true)});
+                input_.push(consoleinput::input_event{consoleinput::input_event_type::key,
+                                                      consoleinput::key_from_character(ch, true)});
                 auto up = consoleinput::key_from_character(ch, true);
                 up.character = 0;
                 up.key_down = false;
@@ -244,8 +261,7 @@ class session final
             return;
         }
 
-        if (const auto key = consoleinput::key_from_message(result.id, result.message);
-            key.has_value())
+        if (const auto key = consoleinput::key_from_message(result.id, result.message); key.has_value())
         {
             input_.push(consoleinput::input_event{consoleinput::input_event_type::key, *key});
         }
@@ -259,9 +275,8 @@ class session final
                 {
                     for (const auto ch : result.raw_sequence)
                     {
-                        input_.push(consoleinput::input_event{
-                            consoleinput::input_event_type::key,
-                            consoleinput::key_from_character(ch, true)});
+                        input_.push(consoleinput::input_event{consoleinput::input_event_type::key,
+                                                              consoleinput::key_from_character(ch, true)});
                     }
                     return;
                 }
@@ -295,8 +310,7 @@ class session final
                 has_arrow = true;
                 break;
             case vtparser::vt_message_id::cursor_position:
-                if (result.message.payload.position.row == 1 &&
-                    result.message.payload.position.col == 1)
+                if (result.message.payload.position.row == 1 && result.message.payload.position.col == 1)
                 {
                     arrow_key = consoleinput::virtual_key::home;
                     has_arrow = true;
@@ -356,28 +370,25 @@ class session final
             }
             if (has_control)
             {
-                input_.push(consoleinput::input_event{
-                    consoleinput::input_event_type::key,
-                    consoleinput::key_from_character(control, true)});
-                input_.push(consoleinput::input_event{
-                    consoleinput::input_event_type::key,
-                    consoleinput::key_from_character(control, false)});
+                input_.push(consoleinput::input_event{consoleinput::input_event_type::key,
+                                                      consoleinput::key_from_character(control, true)});
+                input_.push(consoleinput::input_event{consoleinput::input_event_type::key,
+                                                      consoleinput::key_from_character(control, false)});
                 return;
             }
         }
 
         if (input_direction &&
-            (result.id == vtparser::vt_message_id::continue_text ||
-             result.id == vtparser::vt_message_id::text))
+            (result.id == vtparser::vt_message_id::continue_text || result.id == vtparser::vt_message_id::text))
         {
             for (const auto ch : result.message.payload.text)
             {
-                input_.push(consoleinput::input_event{
-                    consoleinput::input_event_type::key,
-                    consoleinput::key_from_character(static_cast<char16_t>(ch), true)});
-                input_.push(consoleinput::input_event{
-                    consoleinput::input_event_type::key,
-                    consoleinput::key_from_character(static_cast<char16_t>(ch), false)});
+                input_.push(
+                    consoleinput::input_event{consoleinput::input_event_type::key,
+                                              consoleinput::key_from_character(static_cast<char16_t>(ch), true)});
+                input_.push(
+                    consoleinput::input_event{consoleinput::input_event_type::key,
+                                              consoleinput::key_from_character(static_cast<char16_t>(ch), false)});
             }
             return;
         }

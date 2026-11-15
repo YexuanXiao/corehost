@@ -34,8 +34,7 @@ class vt_input_thread final
 
     void start()
     {
-        thread_ = win32::basic_thread{&vt_input_thread::thread_entry, this,
-                                      {.name = L"corehost2-vt-input"}};
+        thread_ = win32::basic_thread{&vt_input_thread::thread_entry, this, {.name = L"corehost2-vt-input"}};
     }
 
     [[nodiscard]] win32::handle_view view() const noexcept
@@ -100,8 +99,7 @@ class vt_input_thread final
             (void)::ResetEvent(io_event.get());
             DWORD read = 0;
             const BOOL started =
-                ::ReadFile(vt_in_.get(), staging_.data(), static_cast<DWORD>(staging_.size()),
-                           &read, &overlapped);
+                ::ReadFile(vt_in_.get(), staging_.data(), static_cast<DWORD>(staging_.size()), &read, &overlapped);
             if (started == FALSE)
             {
                 const auto error = win32::get_last_error();
@@ -152,8 +150,7 @@ class vt_input_thread final
                 return;
             }
 
-            consumer_.on_input_bytes(
-                std::span<const std::byte>{staging_.data(), static_cast<std::size_t>(read)});
+            consumer_.on_input_bytes(std::span<const std::byte>{staging_.data(), static_cast<std::size_t>(read)});
         }
     }
 
@@ -174,8 +171,7 @@ class vt_input_thread final
             }
             if (read != 0)
             {
-                consumer_.on_input_bytes(
-                    std::span<const std::byte>{staging_.data(), static_cast<std::size_t>(read)});
+                consumer_.on_input_bytes(std::span<const std::byte>{staging_.data(), static_cast<std::size_t>(read)});
             }
         }
     }

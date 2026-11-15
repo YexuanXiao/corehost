@@ -225,19 +225,16 @@ void test_screen_buffer()
     check(screen.write_legacy_scalar(0, 2, u'Q', 0x1F), "legacy scalar");
     check(screen.legacy_at(0, 2).attributes == 0x1F, "legacy attributes");
     const auto legacy_color_style = screen.styles().at(screen.style_for_attributes(0x1C));
-    check(legacy_color_style.foreground.kind == color_kind::indexed &&
-              legacy_color_style.foreground.value == 9,
+    check(legacy_color_style.foreground.kind == color_kind::indexed && legacy_color_style.foreground.value == 9,
           "legacy foreground color");
-    check(legacy_color_style.background.kind == color_kind::indexed &&
-              legacy_color_style.background.value == 4,
+    check(legacy_color_style.background.kind == color_kind::indexed && legacy_color_style.background.value == 4,
           "legacy background color");
     const auto default_style = screen.styles().at(screen.style_for_attributes(0x07));
     check(default_style.foreground.kind == color_kind::default_color &&
               default_style.background.kind == color_kind::default_color,
           "legacy default attributes use terminal defaults");
     const auto red_foreground_style = screen.styles().at(screen.style_for_attributes(0x0C));
-    check(red_foreground_style.foreground.kind == color_kind::indexed &&
-              red_foreground_style.foreground.value == 9 &&
+    check(red_foreground_style.foreground.kind == color_kind::indexed && red_foreground_style.foreground.value == 9 &&
               red_foreground_style.background.kind == color_kind::default_color,
           "legacy red foreground keeps default background");
     check(screen.damage_begin(0) <= 0 && screen.damage_end(0) >= 1, "scalar damage");

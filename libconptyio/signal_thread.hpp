@@ -22,8 +22,7 @@ template <typename Consumer>
 class pty_signal_thread final
 {
   public:
-    pty_signal_thread(win32::handle_view pipe, Consumer &consumer)
-        : consumer_{consumer}, reader_{pipe}
+    pty_signal_thread(win32::handle_view pipe, Consumer &consumer) : consumer_{consumer}, reader_{pipe}
     {
     }
 
@@ -32,8 +31,7 @@ class pty_signal_thread final
 
     void start()
     {
-        thread_ = win32::basic_thread{&pty_signal_thread::thread_entry, this,
-                                      {.name = L"corehost2-pty-signal"}};
+        thread_ = win32::basic_thread{&pty_signal_thread::thread_entry, this, {.name = L"corehost2-pty-signal"}};
     }
 
     [[nodiscard]] win32::handle_view view() const noexcept
@@ -73,8 +71,8 @@ class pty_signal_thread final
         {
             std::uint16_t id = 0;
             DWORD id_bytes = 0;
-            const auto id_status = read_exact(
-                std::span<std::byte>{reinterpret_cast<std::byte *>(&id), sizeof(id)}, id_bytes);
+            const auto id_status =
+                read_exact(std::span<std::byte>{reinterpret_cast<std::byte *>(&id), sizeof(id)}, id_bytes);
             if (id_status == win32::cancellable_read::status::cancelled)
             {
                 return;
@@ -95,8 +93,7 @@ class pty_signal_thread final
             switch (static_cast<pty_signal>(id))
             {
             case pty_signal::show_hide_window:
-            case pty_signal::clear_buffer:
-            {
+            case pty_signal::clear_buffer: {
                 std::uint16_t payload = 0;
                 if (!read_payload(payload))
                 {
@@ -105,8 +102,7 @@ class pty_signal_thread final
                 consumer_.on_signal(id, std::as_bytes(std::span{&payload, 1}));
                 break;
             }
-            case pty_signal::resize_window:
-            {
+            case pty_signal::resize_window: {
                 std::uint32_t payload = 0;
                 if (!read_payload(payload))
                 {
@@ -115,8 +111,7 @@ class pty_signal_thread final
                 consumer_.on_signal(id, std::as_bytes(std::span{&payload, 1}));
                 break;
             }
-            case pty_signal::set_parent:
-            {
+            case pty_signal::set_parent: {
                 std::uint64_t payload = 0;
                 if (!read_payload(payload))
                 {
@@ -152,8 +147,7 @@ class pty_signal_thread final
         return true;
     }
 
-    [[nodiscard]] win32::cancellable_read::status read_exact(std::span<std::byte> destination,
-                                                             DWORD &bytes)
+    [[nodiscard]] win32::cancellable_read::status read_exact(std::span<std::byte> destination, DWORD &bytes)
     {
         return reader_.read_exact(destination, bytes);
     }

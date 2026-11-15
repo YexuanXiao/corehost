@@ -31,8 +31,7 @@ namespace corehost::screen
 #elif defined(COREHOST_RUN_AS_UTF8)
     wchar_t buffer[6]{};
     DWORD size = sizeof(buffer);
-    const auto result = ::RegGetValueW(HKEY_LOCAL_MACHINE,
-                                       L"SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage",
+    const auto result = ::RegGetValueW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage",
                                        L"OEMCP", RRF_RT_REG_SZ, nullptr, buffer, &size);
     if (result != ERROR_SUCCESS || size < 2 || size > sizeof(buffer))
     {
@@ -349,8 +348,7 @@ class console_state final
         }
     }
 
-    [[nodiscard]] bool browse_history_up(std::u16string_view current_input,
-                                         std::u16string &selected)
+    [[nodiscard]] bool browse_history_up(std::u16string_view current_input, std::u16string &selected)
     {
         if (command_history.empty())
         {
@@ -397,8 +395,7 @@ class console_state final
         command_history_limit = limit;
         if (command_history.size() > limit)
         {
-            command_history.erase(command_history.begin(),
-                                  command_history.begin() + (command_history.size() - limit));
+            command_history.erase(command_history.begin(), command_history.begin() + (command_history.size() - limit));
         }
     }
 
@@ -482,9 +479,7 @@ inline bool selection_range::contains(std::size_t x, std::size_t y) const noexce
     return x >= left && x <= right && y >= top && y <= bottom;
 }
 
-inline console_state::console_state(std::size_t width, std::size_t height)
-    : width_{width},
-      height_{height}
+inline console_state::console_state(std::size_t width, std::size_t height) : width_{width}, height_{height}
 {
     assert(width != 0 && height != 0);
 
@@ -529,10 +524,10 @@ inline void console_state::move_cursor(std::ptrdiff_t dx, std::ptrdiff_t dy) noe
 {
     const auto next_x = static_cast<std::ptrdiff_t>(cursor_.x) + dx;
     const auto next_y = static_cast<std::ptrdiff_t>(cursor_.y) + dy;
-    const auto clamped_x = std::min<std::size_t>(
-        width_ - 1, static_cast<std::size_t>(std::max<std::ptrdiff_t>(0, next_x)));
-    const auto clamped_y = std::min<std::size_t>(
-        height_ - 1, static_cast<std::size_t>(std::max<std::ptrdiff_t>(0, next_y)));
+    const auto clamped_x =
+        std::min<std::size_t>(width_ - 1, static_cast<std::size_t>(std::max<std::ptrdiff_t>(0, next_x)));
+    const auto clamped_y =
+        std::min<std::size_t>(height_ - 1, static_cast<std::size_t>(std::max<std::ptrdiff_t>(0, next_y)));
     if (clamped_x != cursor_.x || clamped_y != cursor_.y)
     {
         cursor_changed = true;
@@ -643,19 +638,14 @@ inline std::size_t console_state::previous_tab_stop(std::size_t column) const no
     return 0;
 }
 
-inline void console_state::set_selection(std::size_t anchor_x,
-                                         std::size_t anchor_y,
-                                         std::size_t caret_x,
+inline void console_state::set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x,
                                          std::size_t caret_y) noexcept
 {
     set_selection(anchor_x, anchor_y, caret_x, caret_y, selection_mode::block);
 }
 
-inline void console_state::set_selection(std::size_t anchor_x,
-                                         std::size_t anchor_y,
-                                         std::size_t caret_x,
-                                         std::size_t caret_y,
-                                         selection_mode mode) noexcept
+inline void console_state::set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x,
+                                         std::size_t caret_y, selection_mode mode) noexcept
 {
     selection_.active = true;
     selection_.mode = mode;
@@ -758,8 +748,7 @@ inline bool console_state::is_search_match(std::size_t x, std::size_t y) const n
 {
     for (const auto &match : search_matches_)
     {
-        if (x >= match.x && x < match.x + match.width &&
-            y >= match.y && y < match.y + match.height)
+        if (x >= match.x && x < match.x + match.width && y >= match.y && y < match.y + match.height)
         {
             return true;
         }

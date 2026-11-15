@@ -19,7 +19,9 @@ namespace corehost::coreio
 class input_payload_reader final
 {
   public:
-    explicit input_payload_reader(win32::handle_view server) noexcept : server_{server} {}
+    explicit input_payload_reader(win32::handle_view server) noexcept : server_{server}
+    {
+    }
 
     [[nodiscard]] std::span<const std::byte> read(io_msg &message, std::size_t offset)
     {
@@ -32,15 +34,13 @@ class input_payload_reader final
         const auto local = std::min(total - offset, sizeof(message.body) - offset);
         if (local == total - offset)
         {
-            return std::span<const std::byte>{
-                reinterpret_cast<const std::byte *>(message.body) + offset, local};
+            return std::span<const std::byte>{reinterpret_cast<const std::byte *>(message.body) + offset, local};
         }
 
         buffer_.resize(total - offset);
         std::memcpy(buffer_.data(), message.body + offset, local);
         read_input(server_, message.descriptor.Identifier, static_cast<ULONG>(offset + local),
-                   std::span<BYTE>{reinterpret_cast<BYTE *>(buffer_.data() + local),
-                                   buffer_.size() - local});
+                   std::span<BYTE>{reinterpret_cast<BYTE *>(buffer_.data() + local), buffer_.size() - local});
         return buffer_;
     }
 

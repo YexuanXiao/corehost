@@ -328,8 +328,8 @@ class screen_buffer final
     [[nodiscard]] legacy_cell legacy_at(std::size_t x, std::size_t y) const;
 
     // Convenience path for Console API writes that only carry a legacy WORD.
-    [[nodiscard]] bool write_legacy_scalar(std::size_t x, std::size_t y, char16_t primary,
-                                           std::uint16_t attributes, cell_width width = cell_width::narrow);
+    [[nodiscard]] bool write_legacy_scalar(std::size_t x, std::size_t y, char16_t primary, std::uint16_t attributes,
+                                           cell_width width = cell_width::narrow);
 
     // Writes an image-fragment cell. The fragment metadata lives in images();
     // rasterization/decoding is a renderer responsibility.
@@ -348,10 +348,9 @@ class screen_buffer final
     // number of cells actually processed; internal accessors still assert.
     [[nodiscard]] std::size_t read_char_info(rect area, std::span<char_info> out) const noexcept;
     [[nodiscard]] std::size_t write_char_info(rect area, std::span<const char_info> values) noexcept;
-    [[nodiscard]] std::size_t read_char_info_abi(rect area,
-                                               std::span<interop::win32::char_info> out) const noexcept;
+    [[nodiscard]] std::size_t read_char_info_abi(rect area, std::span<interop::win32::char_info> out) const noexcept;
     [[nodiscard]] std::size_t write_char_info_abi(rect area,
-                                                std::span<const interop::win32::char_info> values) noexcept;
+                                                  std::span<const interop::win32::char_info> values) noexcept;
     [[nodiscard]] std::size_t read_chars(coord start, std::span<char16_t> out) const noexcept;
     [[nodiscard]] std::size_t read_attrs(coord start, std::span<std::uint16_t> out) const noexcept;
     [[nodiscard]] std::size_t write_chars(coord start, std::u16string_view text) noexcept;
@@ -369,26 +368,19 @@ class screen_buffer final
     };
 
     template <text_measurement Mode = text_measurement::console, bool AmbiguousIsWide = false>
-    text_write_result write_text_row(coord &cursor,
-                                     std::u16string_view text,
-                                     std::span<const std::uint8_t> widths,
-                                     cell_style style,
-                                     bool wrap_at_eol = true,
+    text_write_result write_text_row(coord &cursor, std::u16string_view text, std::span<const std::uint8_t> widths,
+                                     cell_style style, bool wrap_at_eol = true,
                                      cell_hyperlink hyperlink = no_cell_hyperlink) noexcept;
     [[nodiscard]] bool write_glyph(coord position, std::u16string_view glyph, int columns, cell_style style,
                                    cell_hyperlink hyperlink = no_cell_hyperlink) noexcept;
 
     void copy_rect(rectangle source, rectangle clip, bool use_clip, coord destination) noexcept;
     void copy_rect_rows(std::int32_t copy_left, std::int32_t copy_top, std::int32_t copy_right,
-                        std::int32_t copy_bottom, std::int32_t destination_x,
-                        std::int32_t destination_y, bool descending) noexcept;
+                        std::int32_t copy_bottom, std::int32_t destination_x, std::int32_t destination_y,
+                        bool descending) noexcept;
     void fill_scroll_segment(std::int32_t x, std::int32_t y, std::int32_t width, char16_t fill_char,
                              std::uint16_t fill_attr) noexcept;
-    void scroll_rect(rectangle source,
-                     rectangle clip,
-                     bool use_clip,
-                     coord destination,
-                     char16_t fill_char,
+    void scroll_rect(rectangle source, rectangle clip, bool use_clip, coord destination, char16_t fill_char,
                      std::uint16_t fill_attr) noexcept;
 
     // Full-page vertical scroll. On the main page, the top lines are moved to
@@ -487,7 +479,6 @@ class screen_buffer final
     grapheme_store graphemes_;
 };
 
-
 namespace
 {
 using cluster_remap = std::flat_map<cluster_offset, grapheme_store::ref>;
@@ -546,8 +537,7 @@ bool remap_line(std::vector<cell> &line, const grapheme_store &source, grapheme_
 }
 } // namespace
 
-inline page::page(std::size_t width, std::size_t height, cell_style fill_style)
-    : width_{width}, height_{height}
+inline page::page(std::size_t width, std::size_t height, cell_style fill_style) : width_{width}, height_{height}
 {
     assert(width != 0 && height != 0);
     for (std::size_t y = 0; y < height_; ++y)
@@ -589,7 +579,8 @@ inline void page::mark_dirty(std::size_t y, std::size_t begin, std::size_t end) 
 inline void page::mark_used(std::size_t y, std::size_t end) noexcept
 {
     assert(y < rows_.size());
-    rows_[y].state.used_columns = std::max(rows_[y].state.used_columns, static_cast<std::uint32_t>(std::min(end, width_)));
+    rows_[y].state.used_columns =
+        std::max(rows_[y].state.used_columns, static_cast<std::uint32_t>(std::min(end, width_)));
 }
 
 inline void page::clear_damage() noexcept
@@ -613,7 +604,8 @@ inline void page::mark_all_dirty() noexcept
 }
 
 inline screen_buffer::screen_buffer(std::size_t width, std::size_t height, std::size_t history_limit)
-    : width_{width}, height_{height}, history_limit_{history_limit}, main_(width, height), view_(coord{static_cast<std::int32_t>(width), static_cast<std::int32_t>(height)})
+    : width_{width}, height_{height}, history_limit_{history_limit}, main_(width, height),
+      view_(coord{static_cast<std::int32_t>(width), static_cast<std::int32_t>(height)})
 {
     assert(width != 0 && height != 0);
 }
@@ -625,8 +617,7 @@ inline const cell &screen_buffer::at(std::size_t x, std::size_t y) const noexcep
 
 inline std::optional<cell> screen_buffer::try_at(coord position) const noexcept
 {
-    if (position.x < 0 || position.y < 0 ||
-        static_cast<std::size_t>(position.x) >= width_ ||
+    if (position.x < 0 || position.y < 0 || static_cast<std::size_t>(position.x) >= width_ ||
         static_cast<std::size_t>(position.y) >= height_)
     {
         return std::nullopt;
@@ -789,8 +780,8 @@ inline bool screen_buffer::write_cell(std::size_t x, std::size_t y, cell value)
     return true;
 }
 
-inline bool screen_buffer::write_scalar(std::size_t x, std::size_t y, char16_t primary, cell_style style, cell_width width,
-                                 cell_hyperlink hyperlink, cell_flags flags)
+inline bool screen_buffer::write_scalar(std::size_t x, std::size_t y, char16_t primary, cell_style style,
+                                        cell_width width, cell_hyperlink hyperlink, cell_flags flags)
 {
     if (width == cell_width::tail)
     {
@@ -800,8 +791,8 @@ inline bool screen_buffer::write_scalar(std::size_t x, std::size_t y, char16_t p
     return write_cell(x, y, cell::scalar(primary, style, width, hyperlink, flags));
 }
 
-inline bool screen_buffer::write_cluster(std::size_t x, std::size_t y, std::span<const char16_t> cluster, cell_style style,
-                                  cell_width width, cell_hyperlink hyperlink, cell_flags flags)
+inline bool screen_buffer::write_cluster(std::size_t x, std::size_t y, std::span<const char16_t> cluster,
+                                         cell_style style, cell_width width, cell_hyperlink hyperlink, cell_flags flags)
 {
     if (x >= width_ || y >= height_ || cluster.empty() || !graphemes_.can_append(cluster.size()))
     {
@@ -817,9 +808,8 @@ inline bool screen_buffer::write_cluster(std::size_t x, std::size_t y, std::span
     return write_cell(x, y, cell::complex(ref.offset, ref.length, style, width, hyperlink, flags));
 }
 
-inline bool screen_buffer::write_codepoint(std::size_t x, std::size_t y, char32_t codepoint,
-                                           cell_style style, cell_width width, cell_hyperlink hyperlink,
-                                           cell_flags flags)
+inline bool screen_buffer::write_codepoint(std::size_t x, std::size_t y, char32_t codepoint, cell_style style,
+                                           cell_width width, cell_hyperlink hyperlink, cell_flags flags)
 {
     if (codepoint > 0x10FFFFu || (codepoint >= 0xD800u && codepoint <= 0xDFFFu))
     {
@@ -834,8 +824,7 @@ inline bool screen_buffer::write_codepoint(std::size_t x, std::size_t y, char32_
     char16_t cluster[2]{};
     const auto cluster_end = to_u16(codepoint, cluster);
     const auto cluster_size = static_cast<std::size_t>(cluster_end - cluster);
-    return write_cluster(x, y, std::span<const char16_t>{cluster, cluster_size},
-                         style, width, hyperlink, flags);
+    return write_cluster(x, y, std::span<const char16_t>{cluster, cluster_size}, style, width, hyperlink, flags);
 }
 
 inline std::u16string screen_buffer::glyph_at(std::size_t x, std::size_t y) const
@@ -928,8 +917,8 @@ inline legacy_cell screen_buffer::legacy_at(std::size_t x, std::size_t y) const
     return legacy_cell{value.character, value.attributes};
 }
 
-inline bool screen_buffer::write_legacy_scalar(std::size_t x, std::size_t y, char16_t primary,
-                                               std::uint16_t attributes, cell_width width)
+inline bool screen_buffer::write_legacy_scalar(std::size_t x, std::size_t y, char16_t primary, std::uint16_t attributes,
+                                               cell_width width)
 {
     auto value = text_style{};
     value.legacy_attributes = attributes;
@@ -937,7 +926,7 @@ inline bool screen_buffer::write_legacy_scalar(std::size_t x, std::size_t y, cha
 }
 
 inline bool screen_buffer::write_image(std::size_t x, std::size_t y, std::uint32_t fragment, cell_style style,
-                                cell_width width, cell_hyperlink hyperlink, cell_flags flags)
+                                       cell_width width, cell_hyperlink hyperlink, cell_flags flags)
 {
     if (fragment == 0 || fragment >= images_.size())
     {
@@ -995,8 +984,7 @@ inline std::size_t screen_buffer::read_char_info(rect area, std::span<char_info>
     {
         for (auto x = area.left; x <= area.right && count < out.size(); ++x)
         {
-            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ ||
-                static_cast<std::size_t>(y) >= height_)
+            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
             {
                 continue;
             }
@@ -1013,8 +1001,7 @@ inline std::size_t screen_buffer::write_char_info(rect area, std::span<const cha
     {
         for (auto x = area.left; x <= area.right && index < values.size(); ++x)
         {
-            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ ||
-                static_cast<std::size_t>(y) >= height_)
+            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
             {
                 ++index;
                 continue;
@@ -1033,11 +1020,10 @@ inline std::size_t screen_buffer::write_char_info(rect area, std::span<const cha
                 continue;
             }
 
-            const auto next_is_tail = index < values.size() &&
-                                      (values[index].attributes & interop::win32::lvb_trailing_byte) != 0;
+            const auto next_is_tail =
+                index < values.size() && (values[index].attributes & interop::win32::lvb_trailing_byte) != 0;
             const auto wide = is_head || next_is_tail;
-            (void)write_cell(static_cast<std::size_t>(x),
-                             static_cast<std::size_t>(y),
+            (void)write_cell(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
                              cell::scalar(value.character, style, wide ? cell_width::wide : cell_width::narrow));
             if (wide)
             {
@@ -1052,16 +1038,14 @@ inline std::size_t screen_buffer::write_char_info(rect area, std::span<const cha
     return index;
 }
 
-inline std::size_t screen_buffer::read_char_info_abi(rect area,
-                                                     std::span<interop::win32::char_info> out) const noexcept
+inline std::size_t screen_buffer::read_char_info_abi(rect area, std::span<interop::win32::char_info> out) const noexcept
 {
     std::size_t count = 0;
     for (auto y = area.top; y <= area.bottom && count < out.size(); ++y)
     {
         for (auto x = area.left; x <= area.right && count < out.size(); ++x)
         {
-            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ ||
-                static_cast<std::size_t>(y) >= height_)
+            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
             {
                 continue;
             }
@@ -1071,16 +1055,15 @@ inline std::size_t screen_buffer::read_char_info_abi(rect area,
     return count;
 }
 
-inline std::size_t screen_buffer::write_char_info_abi(
-    rect area, std::span<const interop::win32::char_info> values) noexcept
+inline std::size_t screen_buffer::write_char_info_abi(rect area,
+                                                      std::span<const interop::win32::char_info> values) noexcept
 {
     std::size_t index = 0;
     for (auto y = area.top; y <= area.bottom && index < values.size(); ++y)
     {
         for (auto x = area.left; x <= area.right && index < values.size(); ++x)
         {
-            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ ||
-                static_cast<std::size_t>(y) >= height_)
+            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
             {
                 ++index;
                 continue;
@@ -1095,18 +1078,15 @@ inline std::size_t screen_buffer::write_char_info_abi(
 
             if (is_tail)
             {
-                (void)write_cell(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
-                                 cell::tail(style));
+                (void)write_cell(static_cast<std::size_t>(x), static_cast<std::size_t>(y), cell::tail(style));
                 continue;
             }
 
-            const auto next_is_tail =
-                index < values.size() &&
-                (from_win32(values[index]).attributes & interop::win32::lvb_trailing_byte) != 0;
+            const auto next_is_tail = index < values.size() &&
+                                      (from_win32(values[index]).attributes & interop::win32::lvb_trailing_byte) != 0;
             const auto wide = is_head || next_is_tail;
             (void)write_cell(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
-                             cell::scalar(value.character, style,
-                                          wide ? cell_width::wide : cell_width::narrow));
+                             cell::scalar(value.character, style, wide ? cell_width::wide : cell_width::narrow));
             if (wide)
             {
                 if (index < values.size())
@@ -1142,10 +1122,8 @@ inline std::size_t screen_buffer::read_chars(coord start, std::span<char16_t> ou
             else
             {
                 const auto cluster = cluster_of(value);
-                out[count++] = cluster.empty() ||
-                                       (cluster[0] >= 0xD800 && cluster[0] <= 0xDBFF)
-                                   ? u'\uFFFD'
-                                   : cluster[0];
+                out[count++] =
+                    cluster.empty() || (cluster[0] >= 0xD800 && cluster[0] <= 0xDBFF) ? u'\uFFFD' : cluster[0];
             }
             ++x;
         }
@@ -1157,8 +1135,8 @@ inline std::size_t screen_buffer::read_attrs(coord start, std::span<std::uint16_
     std::size_t count = 0;
     auto x = start.x;
     auto y = start.y;
-    while (count < out.size() && x >= 0 && y >= 0 &&
-           static_cast<std::size_t>(x) < width_ && static_cast<std::size_t>(y) < height_)
+    while (count < out.size() && x >= 0 && y >= 0 && static_cast<std::size_t>(x) < width_ &&
+           static_cast<std::size_t>(y) < height_)
     {
         out[count++] = char_info_at(coord{x, y}).attributes;
         if (++x >= static_cast<std::int32_t>(width_))
@@ -1177,8 +1155,7 @@ inline std::size_t screen_buffer::write_chars(coord start, std::u16string_view t
     auto y = start.y;
     while (count < text.size())
     {
-        if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ ||
-            static_cast<std::size_t>(y) >= height_)
+        if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
         {
             break;
         }
@@ -1195,11 +1172,8 @@ inline std::size_t screen_buffer::write_chars(coord start, std::u16string_view t
         }
 
         const auto &old = at(static_cast<std::size_t>(x), static_cast<std::size_t>(y));
-        if (!write_codepoint(static_cast<std::size_t>(x),
-                               static_cast<std::size_t>(y),
-                               decoded.value, old.style(),
-                               columns >= 2 ? cell_width::wide : cell_width::narrow,
-                               old.hyperlink(), old.flags()))
+        if (!write_codepoint(static_cast<std::size_t>(x), static_cast<std::size_t>(y), decoded.value, old.style(),
+                             columns >= 2 ? cell_width::wide : cell_width::narrow, old.hyperlink(), old.flags()))
         {
             break;
         }
@@ -1221,8 +1195,7 @@ inline std::size_t screen_buffer::write_attrs(coord start, std::span<const std::
     auto y = start.y;
     for (const auto attributes : attrs)
     {
-        if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ ||
-            static_cast<std::size_t>(y) >= height_)
+        if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
         {
             break;
         }
@@ -1243,15 +1216,13 @@ inline void screen_buffer::fill_chars(rect area, char16_t character) noexcept
     {
         for (auto x = area.left; x <= area.right; ++x)
         {
-            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ ||
-                static_cast<std::size_t>(y) >= height_)
+            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
             {
                 continue;
             }
             const auto &old = at(static_cast<std::size_t>(x), static_cast<std::size_t>(y));
             (void)write_cell(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
-                             cell::scalar(character, old.style(), cell_width::narrow,
-                                          old.hyperlink(), old.flags()));
+                             cell::scalar(character, old.style(), cell_width::narrow, old.hyperlink(), old.flags()));
         }
     }
 }
@@ -1264,15 +1235,13 @@ inline void screen_buffer::fill_attrs(rect area, std::uint16_t attributes) noexc
     {
         for (auto x = area.left; x <= area.right; ++x)
         {
-            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ ||
-                static_cast<std::size_t>(y) >= height_)
+            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
             {
                 continue;
             }
             target.at(static_cast<std::size_t>(x), static_cast<std::size_t>(y)) =
                 target.at(static_cast<std::size_t>(x), static_cast<std::size_t>(y)).with_style(style);
-            target.mark_dirty(static_cast<std::size_t>(y),
-                              static_cast<std::size_t>(x),
+            target.mark_dirty(static_cast<std::size_t>(y), static_cast<std::size_t>(x),
                               static_cast<std::size_t>(x + 1));
         }
     }
@@ -1285,16 +1254,14 @@ inline cell_style screen_buffer::style_for_attributes(std::uint16_t attributes)
 
 inline bool screen_buffer::set_attr(coord position, std::uint16_t attributes) noexcept
 {
-    if (position.x < 0 || position.y < 0 ||
-        static_cast<std::size_t>(position.x) >= width_ ||
+    if (position.x < 0 || position.y < 0 || static_cast<std::size_t>(position.x) >= width_ ||
         static_cast<std::size_t>(position.y) >= height_)
     {
         return false;
     }
     auto &target = active_page().at(static_cast<std::size_t>(position.x), static_cast<std::size_t>(position.y));
     target = target.with_style(style_for_legacy(attributes));
-    active_page().mark_dirty(static_cast<std::size_t>(position.y),
-                             static_cast<std::size_t>(position.x),
+    active_page().mark_dirty(static_cast<std::size_t>(position.y), static_cast<std::size_t>(position.x),
                              static_cast<std::size_t>(position.x + 1));
     return true;
 }
@@ -1305,11 +1272,9 @@ inline std::uint16_t screen_buffer::attr_at(coord position) const noexcept
 }
 
 template <text_measurement Mode, bool AmbiguousIsWide>
-inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cursor,
-                                                                      std::u16string_view text,
+inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cursor, std::u16string_view text,
                                                                       std::span<const std::uint8_t> widths,
-                                                                      cell_style style,
-                                                                      bool wrap_at_eol,
+                                                                      cell_style style, bool wrap_at_eol,
                                                                       cell_hyperlink hyperlink) noexcept
 {
     text_write_result result;
@@ -1317,8 +1282,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
     {
         for (const auto cluster : grapheme_range<Mode, AmbiguousIsWide>{text})
         {
-            if (cursor.x < 0 || cursor.y < 0 ||
-                static_cast<std::size_t>(cursor.x) >= width_ ||
+            if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.x) >= width_ ||
                 static_cast<std::size_t>(cursor.y) >= height_)
             {
                 result.row_end = true;
@@ -1355,8 +1319,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
     std::size_t offset = 0;
     while (offset < text.size())
     {
-        if (cursor.x < 0 || cursor.y < 0 ||
-            static_cast<std::size_t>(cursor.x) >= width_ ||
+        if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.x) >= width_ ||
             static_cast<std::size_t>(cursor.y) >= height_)
         {
             result.row_end = true;
@@ -1383,9 +1346,8 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
         }
 
         const auto width = columns >= 2 ? cell_width::wide : cell_width::narrow;
-        if (!write_codepoint(static_cast<std::size_t>(cursor.x),
-                               static_cast<std::size_t>(cursor.y),
-                               decoded.value, style, width, hyperlink))
+        if (!write_codepoint(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y), decoded.value,
+                             style, width, hyperlink))
         {
             result.row_end = true;
             break;
@@ -1402,11 +1364,10 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
     return result;
 }
 
-inline bool screen_buffer::write_glyph(coord position, std::u16string_view glyph, int columns,
-                                       cell_style style, cell_hyperlink hyperlink) noexcept
+inline bool screen_buffer::write_glyph(coord position, std::u16string_view glyph, int columns, cell_style style,
+                                       cell_hyperlink hyperlink) noexcept
 {
-    if (glyph.empty() || position.x < 0 || position.y < 0 ||
-        static_cast<std::size_t>(position.x) >= width_ ||
+    if (glyph.empty() || position.x < 0 || position.y < 0 || static_cast<std::size_t>(position.x) >= width_ ||
         static_cast<std::size_t>(position.y) >= height_)
     {
         return false;
@@ -1416,12 +1377,10 @@ inline bool screen_buffer::write_glyph(coord position, std::u16string_view glyph
     const auto width = columns >= 2 ? cell_width::wide : cell_width::narrow;
     if (glyph.size() == 1)
     {
-        return write_scalar(static_cast<std::size_t>(position.x),
-                            static_cast<std::size_t>(position.y),
-                            glyph[0], style, width, hyperlink);
+        return write_scalar(static_cast<std::size_t>(position.x), static_cast<std::size_t>(position.y), glyph[0], style,
+                            width, hyperlink);
     }
-    return write_cluster(static_cast<std::size_t>(position.x),
-                         static_cast<std::size_t>(position.y),
+    return write_cluster(static_cast<std::size_t>(position.x), static_cast<std::size_t>(position.y),
                          std::span<const char16_t>{glyph.data(), glyph.size()}, style, width, hyperlink);
 }
 
@@ -1429,8 +1388,10 @@ inline void screen_buffer::copy_rect(rectangle source, rectangle clip, bool use_
 {
     const auto left = std::max<std::int32_t>(static_cast<std::int32_t>(source.x), 0);
     const auto top = std::max<std::int32_t>(static_cast<std::int32_t>(source.y), 0);
-    const auto right = std::min<std::int32_t>(static_cast<std::int32_t>(source.x + source.width), static_cast<std::int32_t>(width_));
-    const auto bottom = std::min<std::int32_t>(static_cast<std::int32_t>(source.y + source.height), static_cast<std::int32_t>(height_));
+    const auto right =
+        std::min<std::int32_t>(static_cast<std::int32_t>(source.x + source.width), static_cast<std::int32_t>(width_));
+    const auto bottom =
+        std::min<std::int32_t>(static_cast<std::int32_t>(source.y + source.height), static_cast<std::int32_t>(height_));
     if (left >= right || top >= bottom)
     {
         return;
@@ -1455,12 +1416,11 @@ inline void screen_buffer::copy_rect(rectangle source, rectangle clip, bool use_
     const auto destination_x = destination.x + (copy_left - left);
     const auto destination_y = destination.y + (copy_top - top);
     copy_rect_rows(copy_left, copy_top, copy_right, copy_bottom, destination_x, destination_y,
-                    destination_y > copy_top);
+                   destination_y > copy_top);
 }
-inline void screen_buffer::copy_rect_rows(std::int32_t copy_left, std::int32_t copy_top,
-                                          std::int32_t copy_right, std::int32_t copy_bottom,
-                                          std::int32_t destination_x, std::int32_t destination_y,
-                                          bool descending) noexcept
+inline void screen_buffer::copy_rect_rows(std::int32_t copy_left, std::int32_t copy_top, std::int32_t copy_right,
+                                          std::int32_t copy_bottom, std::int32_t destination_x,
+                                          std::int32_t destination_y, bool descending) noexcept
 {
     auto &target = active_page();
     for (auto row = 0; row < (copy_bottom - copy_top); ++row)
@@ -1500,8 +1460,7 @@ inline void screen_buffer::copy_rect_rows(std::int32_t copy_left, std::int32_t c
     }
 }
 
-inline void screen_buffer::fill_scroll_segment(std::int32_t x, std::int32_t y, std::int32_t width,
-                                               char16_t fill_char,
+inline void screen_buffer::fill_scroll_segment(std::int32_t x, std::int32_t y, std::int32_t width, char16_t fill_char,
                                                std::uint16_t fill_attr) noexcept
 {
     if (width <= 0)
@@ -1517,10 +1476,10 @@ inline void screen_buffer::scroll_rect(rectangle source, rectangle clip, bool us
 {
     const auto left = std::max<std::int32_t>(static_cast<std::int32_t>(source.x), 0);
     const auto top = std::max<std::int32_t>(static_cast<std::int32_t>(source.y), 0);
-    const auto right = std::min<std::int32_t>(static_cast<std::int32_t>(source.x + source.width),
-                                              static_cast<std::int32_t>(width_));
-    const auto bottom = std::min<std::int32_t>(static_cast<std::int32_t>(source.y + source.height),
-                                               static_cast<std::int32_t>(height_));
+    const auto right =
+        std::min<std::int32_t>(static_cast<std::int32_t>(source.x + source.width), static_cast<std::int32_t>(width_));
+    const auto bottom =
+        std::min<std::int32_t>(static_cast<std::int32_t>(source.y + source.height), static_cast<std::int32_t>(height_));
     if (left >= right || top >= bottom)
     {
         return;
@@ -1594,7 +1553,6 @@ inline void screen_buffer::scroll_up(std::size_t lines, cell_style fill_style)
     target.mark_all_dirty();
 }
 
-
 inline void screen_buffer::scroll_region_down(rectangle area, std::size_t lines, cell_style fill_style)
 {
     if (lines == 0 || area.width == 0 || area.height == 0)
@@ -1609,7 +1567,7 @@ inline void screen_buffer::scroll_region_down(rectangle area, std::size_t lines,
     }
     lines = std::min(lines, bottom - top);
     copy_rect(rectangle{area.x, top, area.width, bottom - top - lines}, rectangle{}, false,
-             coord{static_cast<std::int32_t>(area.x), static_cast<std::int32_t>(top + lines)});
+              coord{static_cast<std::int32_t>(area.x), static_cast<std::int32_t>(top + lines)});
     fill_rect(rectangle{area.x, top, area.width, lines}, cell::blank(fill_style));
 }
 
@@ -1658,7 +1616,8 @@ inline void screen_buffer::resize(std::size_t width, std::size_t height, cell_st
     for (std::size_t y = 0; y < copy_height; ++y)
     {
         std::copy_n(main_.row_cells(y).begin(), copy_width, resized_main.row_cells(y).begin());
-        resized_main.row(y).used_columns = static_cast<std::uint32_t>(std::min<std::size_t>(main_.row(y).used_columns, width));
+        resized_main.row(y).used_columns =
+            static_cast<std::uint32_t>(std::min<std::size_t>(main_.row(y).used_columns, width));
         resized_main.row(y).flags = main_.row(y).flags;
         resized_main.row(y).command_exit_code = main_.row(y).command_exit_code;
     }
@@ -1669,7 +1628,8 @@ inline void screen_buffer::resize(std::size_t width, std::size_t height, cell_st
         for (std::size_t y = 0; y < copy_height; ++y)
         {
             std::copy_n(alternate_->row_cells(y).begin(), copy_width, resized_alt.row_cells(y).begin());
-            resized_alt.row(y).used_columns = static_cast<std::uint32_t>(std::min<std::size_t>(alternate_->row(y).used_columns, width));
+            resized_alt.row(y).used_columns =
+                static_cast<std::uint32_t>(std::min<std::size_t>(alternate_->row(y).used_columns, width));
             resized_alt.row(y).flags = alternate_->row(y).flags;
             resized_alt.row(y).command_exit_code = alternate_->row(y).command_exit_code;
         }
@@ -1802,6 +1762,5 @@ inline const page &screen_buffer::active_page() const noexcept
     }
     return main_;
 }
-
 
 } // namespace corehost::screen

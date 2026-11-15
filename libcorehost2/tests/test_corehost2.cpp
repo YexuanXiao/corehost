@@ -11,8 +11,7 @@
 int main()
 {
     corehost::corehost2::session session{8, 2};
-    if (session.state().input_code_page == 0 ||
-        session.state().input_code_page != session.state().output_code_page)
+    if (session.state().input_code_page == 0 || session.state().input_code_page != session.state().output_code_page)
     {
         std::fprintf(stderr, "console code pages not initialized\n");
         return EXIT_FAILURE;
@@ -27,8 +26,7 @@ int main()
     constexpr char16_t input[]{u'A', u'B'};
     session.feed(input);
 
-    if (session.screen().at(0, 0).primary() != u'A' ||
-        session.screen().at(1, 0).primary() != u'B')
+    if (session.screen().at(0, 0).primary() != u'A' || session.screen().at(1, 0).primary() != u'B')
     {
         std::fprintf(stderr, "session text failed\n");
         return EXIT_FAILURE;
@@ -56,8 +54,8 @@ int main()
     }
 
     corehost::corehost2::conpty_entry(win32::handle_view{}, win32::handle_view{}, {}, {},
-                                      win32::handle_view{input_read}, win32::handle_view{output}, {},
-                                      8, 2, false, corehost::screen::text_measurement::console);
+                                      win32::handle_view{input_read}, win32::handle_view{output}, {}, 8, 2, false,
+                                      corehost::screen::text_measurement::console);
 
     ::CloseHandle(output);
     ::CloseHandle(input_read);
@@ -73,8 +71,7 @@ int main()
     corehost::screen::screen_buffer write_server_buffer{8, 2};
     corehost::screen::console_state write_server_state{8, 2};
     corehost::consoleinput::input_queue write_server_input;
-    corehost::corehost2::server_session write_server{write_server_buffer, write_server_state,
-                                                    write_server_input};
+    corehost::corehost2::server_session write_server{write_server_buffer, write_server_state, write_server_input};
     HANDLE write_server_event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
     write_server.set_input_event(win32::handle_view{write_server_event});
     write_server.signal_input_event();
@@ -96,14 +93,12 @@ int main()
         sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) + sizeof(write_vt_text);
     auto *write_vt_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(write_vt_message.body);
     write_vt_header->ApiNumber = ConsolepWriteConsole;
-    auto *write_vt_request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(
-        write_vt_message.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *write_vt_request =
+        reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(write_vt_message.body + sizeof(CONSOLE_MSG_HEADER));
     write_vt_request->Unicode = TRUE;
     std::memcpy(write_vt_request + 1, write_vt_text, sizeof(write_vt_text));
-    if (!write_server.handle(write_vt_message) ||
-        write_vt_request->NumBytes != sizeof(write_vt_text) ||
-        write_server_buffer.at(0, 0).primary() != u'A' ||
-        write_server_buffer.at(1, 0).primary() != u'B')
+    if (!write_server.handle(write_vt_message) || write_vt_request->NumBytes != sizeof(write_vt_text) ||
+        write_server_buffer.at(0, 0).primary() != u'A' || write_server_buffer.at(1, 0).primary() != u'B')
     {
         std::fprintf(stderr, "server WriteConsole VT failed\n");
         return EXIT_FAILURE;
@@ -134,14 +129,15 @@ int main()
             {
                 return corehost::coreio::read_io_result::disconnected;
             }
-            message.descriptor.InputSize =
-                sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG);
+            message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG);
             message.descriptor.OutputSize = sizeof(message.body);
             auto *header = reinterpret_cast<CONSOLE_MSG_HEADER *>(message.body);
             header->ApiNumber = ConsolepGetScreenBufferInfo;
             return corehost::coreio::read_io_result::got_message;
         }
-        void wait() noexcept {}
+        void wait() noexcept
+        {
+        }
     };
 
     fake_transport transport;
@@ -150,14 +146,14 @@ int main()
     corehost::corehost2::session input_session{4, 2};
     constexpr char16_t text_input[]{u'A'};
     input_session.feed_input(text_input);
-    if (input_session.input().size() != 2 ||
-        input_session.screen().at(0, 0).primary() != u' ')
+    if (input_session.input().size() != 2 || input_session.screen().at(0, 0).primary() != u' ')
     {
         std::fprintf(stderr, "session feed_input failed\n");
         return EXIT_FAILURE;
     }
 
-    corehost::corehost2::server_dispatcher dispatcher{win32::handle_view{}, win32::handle_view{}, win32::handle_view{}, server};
+    corehost::corehost2::server_dispatcher dispatcher{win32::handle_view{}, win32::handle_view{}, win32::handle_view{},
+                                                      server};
     corehost::coreio::io_msg close_message{};
     close_message.descriptor.Function = CONSOLE_IO_CLOSE_OBJECT;
     if (!dispatcher.handle(close_message) || close_message.complete.IoStatus.Status != 0)
@@ -169,8 +165,7 @@ int main()
     server_state.output_code_page = 65001;
     const char raw_text[]{"Hi"};
     server.write_raw(std::span<const char>{raw_text, 2});
-    if (server_buffer.at(0, 0).primary() != u'H' ||
-        server_buffer.at(1, 0).primary() != u'i')
+    if (server_buffer.at(0, 0).primary() != u'H' || server_buffer.at(1, 0).primary() != u'i')
     {
         std::fprintf(stderr, "raw write failed\n");
         return EXIT_FAILURE;
@@ -186,8 +181,8 @@ int main()
     }
     const char raw_cr[]{"\r"};
     server.push_raw(std::span<const char>{raw_cr, 1});
-    if (server.read_raw(std::span<char>{raw_read_data}) != 3 || raw_read_data[0] != 'X' ||
-        raw_read_data[1] != '\r' || raw_read_data[2] != '\n')
+    if (server.read_raw(std::span<char>{raw_read_data}) != 3 || raw_read_data[0] != 'X' || raw_read_data[1] != '\r' ||
+        raw_read_data[2] != '\n')
     {
         std::fprintf(stderr, "raw read failed\n");
         return EXIT_FAILURE;
@@ -195,8 +190,8 @@ int main()
 
     const char raw_lf[]{"Y\n"};
     server.push_raw(std::span<const char>{raw_lf, 2});
-    if (server.read_raw(std::span<char>{raw_read_data}) != 3 || raw_read_data[0] != 'Y' ||
-        raw_read_data[1] != '\r' || raw_read_data[2] != '\n')
+    if (server.read_raw(std::span<char>{raw_read_data}) != 3 || raw_read_data[0] != 'Y' || raw_read_data[1] != '\r' ||
+        raw_read_data[2] != '\n')
     {
         std::fprintf(stderr, "raw LF normalization failed\n");
         return EXIT_FAILURE;
@@ -206,8 +201,7 @@ int main()
     constexpr char16_t enter_input[]{u'A', u'\r'};
     enter_session.feed_input(enter_input);
     std::array<corehost::consoleinput::input_event, 8> enter_events{};
-    const auto enter_count =
-        enter_session.input().peek(std::span<corehost::consoleinput::input_event>{enter_events});
+    const auto enter_count = enter_session.input().peek(std::span<corehost::consoleinput::input_event>{enter_events});
     if (enter_count != 4 || enter_events[2].key.character != u'\r')
     {
         std::fprintf(stderr, "enter input key failed\n");
@@ -225,8 +219,8 @@ int main()
     window_session.queue_window_size(10, 5);
     corehost::consoleinput::input_event window_event{};
     if (window_session.input().peek(std::span<corehost::consoleinput::input_event>{&window_event, 1}) != 1 ||
-        window_event.type != corehost::consoleinput::input_event_type::window ||
-        window_event.window.width != 10 || window_event.window.height != 5)
+        window_event.type != corehost::consoleinput::input_event_type::window || window_event.window.width != 10 ||
+        window_event.window.height != 5)
     {
         std::fprintf(stderr, "window event failed\n");
         return EXIT_FAILURE;
@@ -241,24 +235,20 @@ int main()
     read_session.feed_input(read_text);
     read_input = std::move(read_session.input());
     corehost::coreio::io_msg read_message{};
-    read_message.descriptor.InputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
-    read_message.descriptor.OutputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    read_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    read_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
     auto *read_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(read_message.body);
     read_header->ApiNumber = ConsolepReadConsole;
-    auto *read_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
-        read_message.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *read_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(read_message.body + sizeof(CONSOLE_MSG_HEADER));
     read_request->Unicode = TRUE;
     if (!read_api.handle(read_message) || read_request->NumBytes != 4 * sizeof(char16_t))
     {
         std::fprintf(stderr, "real ReadConsole path failed\n");
         return EXIT_FAILURE;
     }
-    const auto *read_output = reinterpret_cast<const char16_t *>(
-        read_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
-    if (read_output[0] != u'A' || read_output[1] != u'B' || read_output[2] != u'\r' ||
-        read_output[3] != u'\n')
+    const auto *read_output = reinterpret_cast<const char16_t *>(read_message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                                 sizeof(CONSOLE_READCONSOLE_MSG));
+    if (read_output[0] != u'A' || read_output[1] != u'B' || read_output[2] != u'\r' || read_output[3] != u'\n')
     {
         std::fprintf(stderr, "real ReadConsole data failed\n");
         return EXIT_FAILURE;
@@ -268,24 +258,22 @@ int main()
     read_session.feed_input(history_text);
     read_input = std::move(read_session.input());
     corehost::coreio::io_msg history_message{};
-    history_message.descriptor.InputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
-    history_message.descriptor.OutputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    history_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    history_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
     auto *history_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(history_message.body);
     history_header->ApiNumber = ConsolepReadConsole;
-    auto *history_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
-        history_message.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *history_request =
+        reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(history_message.body + sizeof(CONSOLE_MSG_HEADER));
     history_request->Unicode = TRUE;
     if (!read_api.handle(history_message) || history_request->NumBytes != 4 * sizeof(char16_t))
     {
         std::fprintf(stderr, "real ReadConsole history failed bytes=%lu\n", history_request->NumBytes);
         return EXIT_FAILURE;
     }
-    const auto *history_output = reinterpret_cast<const char16_t *>(
-        history_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
-    if (history_output[0] != u'A' || history_output[1] != u'B' ||
-        history_output[2] != u'\r' || history_output[3] != u'\n')
+    const auto *history_output = reinterpret_cast<const char16_t *>(history_message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                                    sizeof(CONSOLE_READCONSOLE_MSG));
+    if (history_output[0] != u'A' || history_output[1] != u'B' || history_output[2] != u'\r' ||
+        history_output[3] != u'\n')
     {
         std::fprintf(stderr, "real ReadConsole history data failed\n");
         return EXIT_FAILURE;
@@ -300,28 +288,23 @@ int main()
     edit_input = std::move(edit_session.input());
     corehost::consoleapi::console_api edit_api{edit_buffer, edit_state, &edit_input};
     corehost::coreio::io_msg edit_message{};
-    edit_message.descriptor.InputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
-    edit_message.descriptor.OutputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    edit_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    edit_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
     auto *edit_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(edit_message.body);
     edit_header->ApiNumber = ConsolepReadConsole;
-    auto *edit_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
-        edit_message.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *edit_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(edit_message.body + sizeof(CONSOLE_MSG_HEADER));
     edit_request->Unicode = TRUE;
     if (!edit_api.handle(edit_message) || edit_request->NumBytes != 4 * sizeof(char16_t))
     {
         std::fprintf(stderr, "real ReadConsole edit failed\n");
         return EXIT_FAILURE;
     }
-    const auto *edit_output = reinterpret_cast<const char16_t *>(
-        edit_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
-    if (edit_output[0] != u'A' || edit_output[1] != u'C' || edit_output[2] != u'\r' ||
-        edit_output[3] != u'\n')
+    const auto *edit_output = reinterpret_cast<const char16_t *>(edit_message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                                 sizeof(CONSOLE_READCONSOLE_MSG));
+    if (edit_output[0] != u'A' || edit_output[1] != u'C' || edit_output[2] != u'\r' || edit_output[3] != u'\n')
     {
         std::fprintf(stderr, "real ReadConsole edit data failed bytes=%lu: %04x %04x %04x %04x\\n",
-                     edit_request->NumBytes, edit_output[0], edit_output[1], edit_output[2],
-                     edit_output[3]);
+                     edit_request->NumBytes, edit_output[0], edit_output[1], edit_output[2], edit_output[3]);
         return EXIT_FAILURE;
     }
 
@@ -334,28 +317,23 @@ int main()
     arrow_input = std::move(arrow_session.input());
     corehost::consoleapi::console_api arrow_api{arrow_buffer, arrow_state, &arrow_input};
     corehost::coreio::io_msg arrow_message{};
-    arrow_message.descriptor.InputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
-    arrow_message.descriptor.OutputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    arrow_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    arrow_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
     auto *arrow_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(arrow_message.body);
     arrow_header->ApiNumber = ConsolepReadConsole;
-    auto *arrow_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
-        arrow_message.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *arrow_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(arrow_message.body + sizeof(CONSOLE_MSG_HEADER));
     arrow_request->Unicode = TRUE;
     if (!arrow_api.handle(arrow_message) || arrow_request->NumBytes != 5 * sizeof(char16_t))
     {
         std::fprintf(stderr, "real ReadConsole arrow failed bytes=%lu\\n", arrow_request->NumBytes);
         return EXIT_FAILURE;
     }
-    const auto *arrow_output = reinterpret_cast<const char16_t *>(
-        arrow_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
-    if (arrow_output[0] != u'A' || arrow_output[1] != u'X' || arrow_output[2] != u'B' ||
-        arrow_output[3] != u'\r')
+    const auto *arrow_output = reinterpret_cast<const char16_t *>(arrow_message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                                  sizeof(CONSOLE_READCONSOLE_MSG));
+    if (arrow_output[0] != u'A' || arrow_output[1] != u'X' || arrow_output[2] != u'B' || arrow_output[3] != u'\r')
     {
-        std::fprintf(stderr, "real ReadConsole arrow data failed %04x %04x %04x %04x %04x\\n",
-                     arrow_output[0], arrow_output[1], arrow_output[2], arrow_output[3],
-                     arrow_output[4]);
+        std::fprintf(stderr, "real ReadConsole arrow data failed %04x %04x %04x %04x %04x\\n", arrow_output[0],
+                     arrow_output[1], arrow_output[2], arrow_output[3], arrow_output[4]);
         return EXIT_FAILURE;
     }
 
@@ -368,27 +346,24 @@ int main()
     home_input = std::move(home_session.input());
     corehost::consoleapi::console_api home_api{home_buffer, home_state, &home_input};
     corehost::coreio::io_msg home_message{};
-    home_message.descriptor.InputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
-    home_message.descriptor.OutputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    home_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    home_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
     auto *home_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(home_message.body);
     home_header->ApiNumber = ConsolepReadConsole;
-    auto *home_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
-        home_message.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *home_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(home_message.body + sizeof(CONSOLE_MSG_HEADER));
     home_request->Unicode = TRUE;
     if (!home_api.handle(home_message) || home_request->NumBytes != 5 * sizeof(char16_t))
     {
         std::fprintf(stderr, "real ReadConsole home failed bytes=%lu\n", home_request->NumBytes);
         return EXIT_FAILURE;
     }
-    const auto *home_output = reinterpret_cast<const char16_t *>(
-        home_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
-    if (home_output[0] != u'X' || home_output[1] != u'A' || home_output[2] != u'B' ||
-        home_output[3] != u'\r' || home_output[4] != u'\n')
+    const auto *home_output = reinterpret_cast<const char16_t *>(home_message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                                 sizeof(CONSOLE_READCONSOLE_MSG));
+    if (home_output[0] != u'X' || home_output[1] != u'A' || home_output[2] != u'B' || home_output[3] != u'\r' ||
+        home_output[4] != u'\n')
     {
-        std::fprintf(stderr, "real ReadConsole home data failed %04x %04x %04x\n",
-                     home_output[0], home_output[1], home_output[2]);
+        std::fprintf(stderr, "real ReadConsole home data failed %04x %04x %04x\n", home_output[0], home_output[1],
+                     home_output[2]);
         return EXIT_FAILURE;
     }
 
@@ -396,28 +371,25 @@ int main()
     corehost::screen::console_state delete_state{8, 2};
     corehost::consoleinput::input_queue delete_input;
     corehost::corehost2::session delete_session{8, 2};
-    constexpr char16_t delete_text[]{u'A', u'B', u'\x1b', u'[', u'D',
-                                     u'\x1b', u'[', u'3', u'~', u'\r'};
+    constexpr char16_t delete_text[]{u'A', u'B', u'\x1b', u'[', u'D', u'\x1b', u'[', u'3', u'~', u'\r'};
     delete_session.feed_input(delete_text);
     delete_input = std::move(delete_session.input());
     corehost::consoleapi::console_api delete_api{delete_buffer, delete_state, &delete_input};
     corehost::coreio::io_msg delete_message{};
-    delete_message.descriptor.InputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
-    delete_message.descriptor.OutputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    delete_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    delete_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
     auto *delete_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(delete_message.body);
     delete_header->ApiNumber = ConsolepReadConsole;
-    auto *delete_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
-        delete_message.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *delete_request =
+        reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(delete_message.body + sizeof(CONSOLE_MSG_HEADER));
     delete_request->Unicode = TRUE;
     if (!delete_api.handle(delete_message) || delete_request->NumBytes != 3 * sizeof(char16_t))
     {
         std::fprintf(stderr, "real ReadConsole delete failed\n");
         return EXIT_FAILURE;
     }
-    const auto *delete_output = reinterpret_cast<const char16_t *>(
-        delete_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+    const auto *delete_output = reinterpret_cast<const char16_t *>(delete_message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                                   sizeof(CONSOLE_READCONSOLE_MSG));
     if (delete_output[0] != u'A' || delete_output[1] != u'\r' || delete_output[2] != u'\n')
     {
         std::fprintf(stderr, "real ReadConsole delete data failed\n");
@@ -433,24 +405,21 @@ int main()
     tab_input = std::move(tab_session.input());
     corehost::consoleapi::console_api tab_api{tab_buffer, tab_state, &tab_input};
     corehost::coreio::io_msg tab_message{};
-    tab_message.descriptor.InputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
-    tab_message.descriptor.OutputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    tab_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    tab_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
     auto *tab_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(tab_message.body);
     tab_header->ApiNumber = ConsolepReadConsole;
-    auto *tab_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
-        tab_message.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *tab_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(tab_message.body + sizeof(CONSOLE_MSG_HEADER));
     tab_request->Unicode = TRUE;
     if (!tab_api.handle(tab_message) || tab_request->NumBytes != 5 * sizeof(char16_t))
     {
         std::fprintf(stderr, "real ReadConsole tab failed\n");
         return EXIT_FAILURE;
     }
-    const auto *tab_output = reinterpret_cast<const char16_t *>(
-        tab_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
-    if (tab_output[0] != u'A' || tab_output[1] != u'\t' || tab_output[2] != u'B' ||
-        tab_output[3] != u'\r' || tab_output[4] != u'\n')
+    const auto *tab_output = reinterpret_cast<const char16_t *>(tab_message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                                sizeof(CONSOLE_READCONSOLE_MSG));
+    if (tab_output[0] != u'A' || tab_output[1] != u'\t' || tab_output[2] != u'B' || tab_output[3] != u'\r' ||
+        tab_output[4] != u'\n')
     {
         std::fprintf(stderr, "real ReadConsole tab data failed\n");
         return EXIT_FAILURE;
@@ -465,15 +434,13 @@ int main()
     input_queue = std::move(key_session.input());
     corehost::consoleapi::console_api input_api{input_buffer, input_state, &input_queue};
     corehost::coreio::io_msg input_message{};
-    input_message.descriptor.InputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+    input_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
     input_message.descriptor.OutputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG) +
-        4 * sizeof(INPUT_RECORD);
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + 4 * sizeof(INPUT_RECORD);
     auto *input_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(input_message.body);
     input_header->ApiNumber = ConsolepGetConsoleInput;
-    auto *input_request = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(
-        input_message.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *input_request =
+        reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(input_message.body + sizeof(CONSOLE_MSG_HEADER));
     input_request->Flags = CONSOLE_READ_NOWAIT;
     if (!input_api.handle(input_message) || input_request->NumRecords != 4)
     {
@@ -484,16 +451,14 @@ int main()
     // INPUT_RECORD array. Write.Size must include the reply struct; only
     // Information is the record-data byte count.
     if (input_message.complete.IoStatus.Information != 4 * sizeof(INPUT_RECORD) ||
-        input_message.complete.Write.Size !=
-            sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + 4 * sizeof(INPUT_RECORD) ||
+        input_message.complete.Write.Size != sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + 4 * sizeof(INPUT_RECORD) ||
         input_message.complete.Write.Data != input_message.body + sizeof(CONSOLE_MSG_HEADER))
     {
         std::fprintf(stderr, "ReadConsoleInput completion layout failed\n");
         return EXIT_FAILURE;
     }
 
-    corehost::corehost2::session console_session{4, 2,
-                                                 corehost::screen::text_measurement::console};
+    corehost::corehost2::session console_session{4, 2, corehost::screen::text_measurement::console};
     console_session.feed(input);
     if (console_session.screen().at(0, 0).primary() != u'A')
     {
@@ -533,10 +498,9 @@ int main()
         return EXIT_FAILURE;
     }
     corehost::consoleinput::input_event mouse_event{};
-    if (mouse_session.input().peek(
-            std::span<corehost::consoleinput::input_event>{&mouse_event, 1}) == 0 ||
-        mouse_event.type != corehost::consoleinput::input_event_type::mouse ||
-        mouse_event.mouse.x != 1 || mouse_event.mouse.y != 1)
+    if (mouse_session.input().peek(std::span<corehost::consoleinput::input_event>{&mouse_event, 1}) == 0 ||
+        mouse_event.type != corehost::consoleinput::input_event_type::mouse || mouse_event.mouse.x != 1 ||
+        mouse_event.mouse.y != 1)
     {
         std::fprintf(stderr, "mouse coordinates are not zero-based\n");
         return EXIT_FAILURE;
@@ -544,11 +508,9 @@ int main()
 
     corehost::corehost2::session alternate_mouse_session{8, 2};
     constexpr char16_t alternate_mode[]{u'\x1b', u'[', u'?', u'1', u'0', u'4', u'9', u'h'};
-    alternate_mouse_session.feed_input(
-        std::u16string_view{alternate_mode, std::size(alternate_mode)}, true);
+    alternate_mouse_session.feed_input(std::u16string_view{alternate_mode, std::size(alternate_mode)}, true);
     alternate_mouse_session.feed_input(std::u16string_view{mouse_mode, std::size(mouse_mode)}, true);
-    alternate_mouse_session.feed_input(
-        std::u16string_view{mouse_sequence, std::size(mouse_sequence)}, true);
+    alternate_mouse_session.feed_input(std::u16string_view{mouse_sequence, std::size(mouse_sequence)}, true);
     corehost::consoleinput::input_event alternate_mouse_event{};
     if (alternate_mouse_session.input().peek(
             std::span<corehost::consoleinput::input_event>{&alternate_mouse_event, 1}) == 0 ||
@@ -559,8 +521,7 @@ int main()
         return EXIT_FAILURE;
     }
 
-    corehost::corehost2::session ambiguous_session{4, 2,
-                                                   corehost::screen::text_measurement::graphemes, true};
+    corehost::corehost2::session ambiguous_session{4, 2, corehost::screen::text_measurement::graphemes, true};
     constexpr char16_t ambiguous_text[]{u'\u00A1'};
     ambiguous_session.feed(ambiguous_text);
     if (ambiguous_session.state().cursor().x != 2)
@@ -589,18 +550,15 @@ int main()
 
     corehost::corehost2::session image_session{8, 2};
     image_session.feed(std::u16string_view{u"\x1b_Ga=T,i=7,s=4,v=4,c=2,r=1;AAAA\x1b\\"});
-    if (image_session.screen().images().size() != 2 ||
-        !image_session.screen().at(0, 0).has_image())
+    if (image_session.screen().images().size() != 2 || !image_session.screen().at(0, 0).has_image())
     {
         std::fprintf(stderr, "image placement failed\n");
         return EXIT_FAILURE;
     }
 
     corehost::corehost2::session sixel_session{8, 2};
-    sixel_session.feed(
-        std::u16string_view{u"\x1bPq\"1;1;16;16#0~~\x1b\\"});
-    if (sixel_session.screen().images().size() != 2 ||
-        !sixel_session.screen().at(0, 0).has_image())
+    sixel_session.feed(std::u16string_view{u"\x1bPq\"1;1;16;16#0~~\x1b\\"});
+    if (sixel_session.screen().images().size() != 2 || !sixel_session.screen().at(0, 0).has_image())
     {
         std::fprintf(stderr, "sixel placement failed\n");
         return EXIT_FAILURE;
@@ -610,8 +568,7 @@ int main()
     // ENABLE_VIRTUAL_TERMINAL_INPUT. The raw CSI must not be re-decoded into
     // individual 'E', '[', '6', ... key events.
     corehost::corehost2::session win32_input_session{8, 2};
-    win32_input_session.feed_input(
-        std::u16string_view{u"\x1b[65;30;65;1;16;1_\x1b[65;30;65;0;16;1_"}, true);
+    win32_input_session.feed_input(std::u16string_view{u"\x1b[65;30;65;1;16;1_\x1b[65;30;65;0;16;1_"}, true);
     if (win32_input_session.input().size() != 2)
     {
         std::fprintf(stderr, "Win32Input raw_passthrough produced wrong event count\n");
@@ -650,11 +607,9 @@ int main()
     corehost::corehost2::session page_up_session{8, 2};
     page_up_session.feed_input(std::u16string_view{u"\x1b[33;73;0;1;0;1_"}, false);
     corehost::consoleinput::input_event page_up_event{};
-    if (page_up_session.input().peek(
-            std::span<corehost::consoleinput::input_event>{&page_up_event, 1}) == 0 ||
+    if (page_up_session.input().peek(std::span<corehost::consoleinput::input_event>{&page_up_event, 1}) == 0 ||
         page_up_event.type != corehost::consoleinput::input_event_type::key ||
-        page_up_event.key.key != corehost::consoleinput::virtual_key::page_up ||
-        page_up_event.key.character != 0)
+        page_up_event.key.key != corehost::consoleinput::virtual_key::page_up || page_up_event.key.character != 0)
     {
         std::fprintf(stderr, "PageUp key was not preserved on the normal screen\n");
         return EXIT_FAILURE;

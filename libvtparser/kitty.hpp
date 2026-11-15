@@ -59,8 +59,7 @@ inline std::optional<std::uint32_t> field_value(std::u16string_view control, cha
 
 // Parses the APC payload captured by vt_parser. The input includes ESC _ G and
 // the trailing ST/BEL. Only metadata is parsed; image bytes stay a view.
-[[nodiscard]] inline std::optional<kitty_graphics>
-parse_kitty_graphics(std::u16string_view apc) noexcept
+[[nodiscard]] inline std::optional<kitty_graphics> parse_kitty_graphics(std::u16string_view apc) noexcept
 {
     if (!apc.starts_with(u"\x1b_G"))
     {
@@ -79,8 +78,7 @@ parse_kitty_graphics(std::u16string_view apc) noexcept
 
     const auto separator = body.find(u';');
     const auto control = separator == std::u16string_view::npos ? body : body.substr(0, separator);
-    const auto payload = separator == std::u16string_view::npos ? std::u16string_view{}
-                                                                 : body.substr(separator + 1);
+    const auto payload = separator == std::u16string_view::npos ? std::u16string_view{} : body.substr(separator + 1);
 
     kitty_graphics result;
     result.control = control;

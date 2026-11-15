@@ -47,105 +47,99 @@ struct server_worker_context final
     coreio::ctrl_delivery *delivery{};
 };
 
+struct message_handler final
+{
+    server_worker_context &context;
+    [[nodiscard]] bool should_flush() const noexcept
+    {
+        return !context.writer->empty();
+    }
+    void flush() const
+    {
+        LOG("handler flush begin");
+        context.writer->flush();
+        LOG("handler flush end");
+    }
+    bool handle(coreio::io_msg &message)
+    {
+        ctrl_events.clear();
+        {
+            std::unique_lock guard{*context.mutex};
+            const bool alternate_before = context.state->screen().alternate_active();
+            std::span<const std::byte> raw_output;
+            coreio::input_payload_reader raw_reader{context.server};
+            if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE)
+            {
+                raw_output = raw_reader.read(message, 0);
+            }
+            if (!context.dispatcher->handle(message))
+            {
+                return false;
+            }
+            if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE &&
+                (alternate_before || context.state->screen().alternate_active()))
+            {
+                context.writer->buffer().append(
+                    std::span<const char8_t>{reinterpret_cast<const char8_t *>(raw_output.data()), raw_output.size()});
+                context.state->screen().clear_damage();
+                (void)context.state->take_alternate_changed();
+                (void)context.state->take_viewport_changed();
+                if (context.state->take_title_changed())
+                {
+                    vtserializer::append_window_title(context.writer->buffer(), context.state->state().title);
+                }
+                return true;
+            }
+            context.dispatcher->take_ctrl_events(ctrl_events);
+            const auto cursor = screen::coord{
+                static_cast<std::int32_t>(context.state->state().cursor().x),
+                static_cast<std::int32_t>(context.state->state().cursor().y),
+            };
+            if (context.state->take_alternate_changed() || context.state->take_viewport_changed())
+            {
+                vtserializer::render_viewport(context.writer->buffer(), context.state->screen(), cursor,
+                                              &context.state->state());
+                context.state->screen().clear_damage();
+            }
+            else if (context.state->screen().has_damage() || context.state->state().take_cursor_changed())
+            {
+                vtserializer::render_damage(context.writer->buffer(), context.state->screen(), cursor,
+                                            &context.state->state());
+                context.state->screen().clear_damage();
+            }
+            if (context.state->take_echo_line_feed())
+            {
+                context.writer->buffer().append_text(u8"\r\n");
+            }
+            if (context.state->take_title_changed())
+            {
+                vtserializer::append_window_title(context.writer->buffer(), context.state->state().title);
+            }
+            if (context.state->take_scrollback_cleared())
+            {
+                vtserializer::append_erase_display(context.writer->buffer(), 2);
+                vtserializer::append_erase_display(context.writer->buffer(), 3);
+            }
+            bool win32_input = true;
+            if (context.state->take_win32_input_change(win32_input))
+            {
+                vtserializer::append_private_mode(context.writer->buffer(), 9001, win32_input);
+            }
+        }
+        for (const auto [event, pid] : ctrl_events)
+        {
+            context.delivery->deliver(pid, event);
+        }
+        ctrl_events.clear();
+        return true;
+    }
+    std::vector<std::pair<DWORD, DWORD>> ctrl_events;
+};
+
 inline DWORD WINAPI server_worker_entry(LPVOID raw)
 {
     auto &context = *static_cast<server_worker_context *>(raw);
     coreio::win32_transport transport{context.server, context.event, context.stop_event};
-    struct message_handler final
-    {
-        server_worker_context &context;
-
-        [[nodiscard]] bool should_flush() const noexcept
-        {
-            return !context.writer->empty();
-        }
-
-        void flush() const
-        {
-            LOG("handler flush begin");
-            context.writer->flush();
-            LOG("handler flush end");
-        }
-
-        bool handle(coreio::io_msg &message)
-        {
-            ctrl_events.clear();
-            {
-                std::unique_lock guard{*context.mutex};
-                const bool alternate_before = context.state->screen().alternate_active();
-                std::span<const std::byte> raw_output;
-                coreio::input_payload_reader raw_reader{context.server};
-                if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE)
-                {
-                    raw_output = raw_reader.read(message, 0);
-                }
-                if (!context.dispatcher->handle(message))
-                {
-                    return false;
-                }
-                if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE &&
-                    (alternate_before || context.state->screen().alternate_active()))
-                {
-                    context.writer->buffer().append(std::span<const char8_t>{
-                        reinterpret_cast<const char8_t *>(raw_output.data()), raw_output.size()});
-                    context.state->screen().clear_damage();
-                    (void)context.state->take_alternate_changed();
-                    (void)context.state->take_viewport_changed();
-                    if (context.state->take_title_changed())
-                    {
-                        vtserializer::append_window_title(context.writer->buffer(),
-                                                          context.state->state().title);
-                    }
-                    return true;
-                }
-                context.dispatcher->take_ctrl_events(ctrl_events);
-                const auto cursor = screen::coord{
-                    static_cast<std::int32_t>(context.state->state().cursor().x),
-                    static_cast<std::int32_t>(context.state->state().cursor().y),
-                };
-                if (context.state->take_alternate_changed() || context.state->take_viewport_changed())
-                {
-                    vtserializer::render_viewport(context.writer->buffer(), context.state->screen(),
-                                                  cursor, &context.state->state());
-                    context.state->screen().clear_damage();
-                }
-                else if (context.state->screen().has_damage() ||
-                         context.state->state().take_cursor_changed())
-                {
-                    vtserializer::render_damage(context.writer->buffer(), context.state->screen(),
-                                                cursor, &context.state->state());
-                    context.state->screen().clear_damage();
-                }
-                if (context.state->take_echo_line_feed())
-                {
-                    context.writer->buffer().append_text(u8"\r\n");
-                }
-                if (context.state->take_title_changed())
-                {
-                    vtserializer::append_window_title(context.writer->buffer(),
-                                                      context.state->state().title);
-                }
-                if (context.state->take_scrollback_cleared())
-                {
-                    vtserializer::append_erase_display(context.writer->buffer(), 2);
-                    vtserializer::append_erase_display(context.writer->buffer(), 3);
-                }
-                bool win32_input = true;
-                if (context.state->take_win32_input_change(win32_input))
-                {
-                    vtserializer::append_private_mode(context.writer->buffer(), 9001, win32_input);
-                }
-            }
-            for (const auto [event, pid] : ctrl_events)
-            {
-                context.delivery->deliver(pid, event);
-            }
-            ctrl_events.clear();
-            return true;
-        }
-
-        std::vector<std::pair<DWORD, DWORD>> ctrl_events;
-    };
     message_handler handler{context};
     coreio::run_server(transport, handler, *context.stop);
     return 0;
@@ -154,8 +148,8 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
 class session_input_sink final
 {
   public:
-    session_input_sink(session &state, conptyio::terminal_writer &writer,
-                       win32::srwlock &mutex, server_session &console)
+    session_input_sink(session &state, conptyio::terminal_writer &writer, win32::srwlock &mutex,
+                       server_session &console)
         : state_{state}, writer_{writer}, mutex_{mutex}, console_{console}
     {
     }
@@ -165,23 +159,19 @@ class session_input_sink final
         std::unique_lock guard{mutex_};
         const bool raw_pending = console_.raw_pending();
         LOG("input bytes=%zu alt=%d raw_pending=%d console_read=%d", bytes.size(),
-            state_.screen().alternate_active() ? 1 : 0, raw_pending ? 1 : 0,
-            console_.console_read_pending() ? 1 : 0);
+            state_.screen().alternate_active() ? 1 : 0, raw_pending ? 1 : 0, console_.console_read_pending() ? 1 : 0);
         LOG_HEX("input", bytes.data(), bytes.size() < 256 ? bytes.size() : 256);
-        decoder_.decode(
-            std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()},
-            text_);
+        decoder_.decode(std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()}, text_);
         if (raw_pending)
         {
-            console_.push_raw(std::span<const char>{reinterpret_cast<const char *>(bytes.data()),
-                                                   bytes.size()});
+            console_.push_raw(std::span<const char>{reinterpret_cast<const char *>(bytes.data()), bytes.size()});
         }
-        state_.feed_input(text_, (state_.state().input_mode & 0x0200) != 0 &&
-                                  !raw_pending && !console_.console_read_pending());
+        state_.feed_input(text_, (state_.state().input_mode & 0x0200) != 0 && !raw_pending &&
+                                     !console_.console_read_pending());
         console_.signal_input_event();
         const bool completed = console_.complete_pending();
-        LOG("input parsed text=%zu queue=%zu read_pending=%d completed=%d", text_.size(),
-            state_.input().size(), console_.console_read_pending() ? 1 : 0, completed ? 1 : 0);
+        LOG("input parsed text=%zu queue=%zu read_pending=%d completed=%d", text_.size(), state_.input().size(),
+            console_.console_read_pending() ? 1 : 0, completed ? 1 : 0);
         for (const auto [mode, enabled] : state_.state().take_private_modes())
         {
             vtserializer::append_private_mode(writer_.buffer(), mode, enabled);
@@ -242,9 +232,8 @@ class session_input_sink final
 class session_signal_sink final
 {
   public:
-    session_signal_sink(session &state, conptyio::terminal_writer &writer,
-                        conptyio::pseudo_window &window, win32::srwlock &mutex,
-                        server_session &console)
+    session_signal_sink(session &state, conptyio::terminal_writer &writer, conptyio::pseudo_window &window,
+                        win32::srwlock &mutex, server_session &console)
         : state_{state}, writer_{writer}, window_{window}, mutex_{mutex}, console_{console}
     {
     }
@@ -319,14 +308,9 @@ struct conpty_session_config final
 
 // Minimal vt_in -> parser -> libscreen -> vt_out loop. ConDrv server and signal
 // handling are added by later modules; this establishes the new session entry.
-inline void run_conpty_session(win32::handle_view server,
-                               win32::handle_view event,
-                               win32::handle_view condrv_input,
-                               win32::handle_view condrv_output,
-                               win32::handle_view vt_in,
-                               win32::handle_view vt_out,
-                               win32::handle_view signal_pipe,
-                               const conpty_session_config &config)
+inline void run_conpty_session(win32::handle_view server, win32::handle_view event, win32::handle_view condrv_input,
+                               win32::handle_view condrv_output, win32::handle_view vt_in, win32::handle_view vt_out,
+                               win32::handle_view signal_pipe, const conpty_session_config &config)
 {
     const auto width = config.width > 0 ? static_cast<std::size_t>(config.width) : std::size_t{120};
     const auto height = config.height > 0 ? static_cast<std::size_t>(config.height) : std::size_t{30};
@@ -360,12 +344,12 @@ inline void run_conpty_session(win32::handle_view server,
 
     win32::event server_stop_event{win32::create_tag, true, false};
     coreio::ctrl_delivery ctrl_delivery;
-    server_worker_context server_context{server, event, server_stop_event.view(), &dispatcher, &state, &writer,
+    server_worker_context server_context{server,         event,        server_stop_event.view(),
+                                         &dispatcher,    &state,       &writer,
                                          &session_mutex, &server_stop, &ctrl_delivery};
     if (server.valid())
     {
-        server_thread = win32::basic_thread{&server_worker_entry, &server_context,
-                                            {.name = L"corehost2-server"}};
+        server_thread = win32::basic_thread{&server_worker_entry, &server_context, {.name = L"corehost2-server"}};
     }
 
     session_input_sink input_sink{state, writer, session_mutex, console_session};

@@ -79,7 +79,7 @@ enum class vt_message_id
     // 更新本地 cursor/screen 并序列化为对应 VT。
     carriage_return, // \r
     line_feed,
-    next_line,       // \n
+    next_line, // \n
     reverse_index,
 
     // 光标移动和光标状态。相对移动的 count payload 默认 1；绝对定位保持
@@ -400,7 +400,6 @@ struct vt_hyperlink_payload final
     std::u16string_view uri;
     std::u16string_view id;
 };
-
 
 struct vt_semantic_payload final
 {
@@ -1311,8 +1310,7 @@ class vt_parser
 
         switch (code)
         {
-        case 8:
-        {
+        case 8: {
             const auto separator = payload.find(u';');
             if (separator == std::u16string_view::npos)
             {
@@ -1334,22 +1332,19 @@ class vt_parser
                 {
                     id_end = m.payload.hyperlink.params.size();
                 }
-                m.payload.hyperlink.id =
-                    m.payload.hyperlink.params.substr(value_start, id_end - value_start);
+                m.payload.hyperlink.id = m.payload.hyperlink.params.substr(value_start, id_end - value_start);
             }
             return vt_message_id::osc8_hyperlink;
         }
 
-        case 133:
-        {
+        case 133: {
             if (payload.empty())
             {
                 return vt_message_id::unknown_sequence;
             }
             m.payload.semantic.kind = static_cast<char16_t>(payload[0]);
-            m.payload.semantic.argument = payload.size() > 1 && payload[1] == u';'
-                                              ? payload.substr(2)
-                                              : std::u16string_view{};
+            m.payload.semantic.argument =
+                payload.size() > 1 && payload[1] == u';' ? payload.substr(2) : std::u16string_view{};
             return vt_message_id::semantic_prompt_mark;
         }
         case 0:

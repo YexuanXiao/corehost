@@ -29,8 +29,7 @@ inline std::uint32_t raster_value(std::u16string_view data, std::size_t &positio
     return value;
 }
 
-inline void parse_raster_attributes(std::u16string_view data, std::uint32_t &width,
-                                    std::uint32_t &height) noexcept
+inline void parse_raster_attributes(std::u16string_view data, std::uint32_t &width, std::uint32_t &height) noexcept
 {
     const auto marker = data.find(u'"');
     if (marker == std::u16string_view::npos)

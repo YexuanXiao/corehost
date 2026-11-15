@@ -10,9 +10,7 @@
 namespace corehost::vtserializer
 {
 
-inline char *append_color(char *first, char *last,
-                          const screen::color &value,
-                          unsigned base_code) noexcept
+inline char *append_color(char *first, char *last, const screen::color &value, unsigned base_code) noexcept
 {
     if (value.kind == screen::color_kind::rgb)
     {

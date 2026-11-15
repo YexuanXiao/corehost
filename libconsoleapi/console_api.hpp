@@ -36,10 +36,8 @@ class console_api final
         console_read,
         console_input,
     };
-    console_api(screen::screen_buffer &buffer, screen::console_state &state,
-                consoleinput::input_queue *input = nullptr,
-                std::uintptr_t input_object = 0,
-                coreio::process_registry *processes = nullptr,
+    console_api(screen::screen_buffer &buffer, screen::console_state &state, consoleinput::input_queue *input = nullptr,
+                std::uintptr_t input_object = 0, coreio::process_registry *processes = nullptr,
                 coreio::input_payload_reader *payload = nullptr) noexcept
         : buffer_{buffer}, state_{state}, input_{input}, input_object_{input_object}, processes_{processes},
           payload_{payload}
@@ -56,8 +54,7 @@ class console_api final
         };
         const auto result = buffer_.write_text_row<screen::text_measurement::console>(
             cursor, text, {}, state_.default_style, true, state_.default_hyperlink);
-        state_.set_cursor(static_cast<std::size_t>(cursor.x),
-                          static_cast<std::size_t>(cursor.y));
+        state_.set_cursor(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y));
         return result.consumed == text.size();
     }
 
@@ -353,13 +350,11 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        auto *info = reinterpret_cast<CONSOLE_GETCURSORINFO_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *info = reinterpret_cast<CONSOLE_GETCURSORINFO_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         info->CursorSize = state_.cursor().size;
         info->Visible = state_.cursor().visible ? TRUE : FALSE;
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCURSORINFO_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_GETCURSORINFO_MSG));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETCURSORINFO_MSG));
         return true;
     }
 
@@ -385,15 +380,13 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_handle);
             return true;
         }
-        auto *request = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *request = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         if ((request->Flags & ~CONSOLE_READ_VALID) != 0)
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto local = sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) -
-                           sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+        const auto local = sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
         if (message.descriptor.OutputSize <= sizeof(CONSOLE_GETCONSOLEINPUT_MSG))
         {
             request->NumRecords = 0;
@@ -401,11 +394,11 @@ class console_api final
                                        sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
             return true;
         }
-        const auto capacity = std::min<std::size_t>(
-            message.descriptor.OutputSize - sizeof(CONSOLE_GETCONSOLEINPUT_MSG), local);
+        const auto capacity =
+            std::min<std::size_t>(message.descriptor.OutputSize - sizeof(CONSOLE_GETCONSOLEINPUT_MSG), local);
         const auto max_records = capacity / sizeof(INPUT_RECORD);
-        auto *output = reinterpret_cast<INPUT_RECORD *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+        auto *output = reinterpret_cast<INPUT_RECORD *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                        sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
 
         std::size_t count = 0;
         if (has_input())
@@ -422,8 +415,8 @@ class console_api final
                 if (events[i].type == consoleinput::input_event_type::mouse)
                 {
                     record.EventType = MOUSE_EVENT;
-                    record.Event.MouseEvent.dwMousePosition = COORD{
-                        static_cast<SHORT>(events[i].mouse.x), static_cast<SHORT>(events[i].mouse.y)};
+                    record.Event.MouseEvent.dwMousePosition =
+                        COORD{static_cast<SHORT>(events[i].mouse.x), static_cast<SHORT>(events[i].mouse.y)};
                     record.Event.MouseEvent.dwButtonState = events[i].mouse.button_state;
                     record.Event.MouseEvent.dwControlKeyState = events[i].mouse.control_state;
                     record.Event.MouseEvent.dwEventFlags = events[i].mouse.event_flags;
@@ -431,16 +424,14 @@ class console_api final
                 else if (events[i].type == consoleinput::input_event_type::window)
                 {
                     record.EventType = WINDOW_BUFFER_SIZE_EVENT;
-                    record.Event.WindowBufferSizeEvent.dwSize = COORD{events[i].window.width,
-                                                                      events[i].window.height};
+                    record.Event.WindowBufferSizeEvent.dwSize = COORD{events[i].window.width, events[i].window.height};
                 }
                 else
                 {
                     record.EventType = KEY_EVENT;
                     record.Event.KeyEvent.bKeyDown = events[i].key.key_down ? TRUE : FALSE;
                     record.Event.KeyEvent.wRepeatCount = events[i].key.repeat_count;
-                    record.Event.KeyEvent.wVirtualKeyCode =
-                        static_cast<WORD>(std::to_underlying(events[i].key.key));
+                    record.Event.KeyEvent.wVirtualKeyCode = static_cast<WORD>(std::to_underlying(events[i].key.key));
                     record.Event.KeyEvent.wVirtualScanCode = events[i].key.scan_code;
                     if (request->Unicode)
                     {
@@ -450,9 +441,9 @@ class console_api final
                     {
                         const auto code_page = state_.output_code_page;
                         char narrow = 0;
-                        (void)::WideCharToMultiByte(
-                            code_page, 0, reinterpret_cast<const wchar_t *>(&events[i].key.character),
-                            1, &narrow, 1, nullptr, nullptr);
+                        (void)::WideCharToMultiByte(code_page, 0,
+                                                    reinterpret_cast<const wchar_t *>(&events[i].key.character), 1,
+                                                    &narrow, 1, nullptr, nullptr);
                         record.Event.KeyEvent.uChar.AsciiChar = narrow;
                     }
                     record.Event.KeyEvent.dwControlKeyState = events[i].key.control_state;
@@ -510,14 +501,13 @@ class console_api final
         {
             request->NumBytes = 0;
             coreio::prepare_completion(message, 0, sizeof(CONSOLE_READCONSOLE_MSG),
-                                       message.body + sizeof(CONSOLE_MSG_HEADER),
-                                       sizeof(CONSOLE_READCONSOLE_MSG));
+                                       message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_READCONSOLE_MSG));
             return true;
         }
-        const auto capacity = std::min<std::size_t>(
-            message.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLE_MSG), local);
-        auto *output = reinterpret_cast<char16_t *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+        const auto capacity =
+            std::min<std::size_t>(message.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLE_MSG), local);
+        auto *output =
+            reinterpret_cast<char16_t *>(message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
         const auto max_units = capacity / sizeof(char16_t);
         std::size_t units = 0;
         if (cooked_active_)
@@ -535,19 +525,17 @@ class console_api final
             {
                 const auto *initial = reinterpret_cast<const char16_t *>(payload.data() + exe_bytes);
                 const auto available = (payload.size() - exe_bytes) / sizeof(char16_t);
-                const auto initial_units =
-                    std::min({static_cast<std::size_t>(request->InitialNumBytes / sizeof(char16_t)),
-                              available, max_units});
+                const auto initial_units = std::min(
+                    {static_cast<std::size_t>(request->InitialNumBytes / sizeof(char16_t)), available, max_units});
                 std::copy_n(initial, initial_units, output);
                 units = initial_units;
             }
         }
 
         const bool echo = (state_.input_mode & 0x0004) != 0;
-        const screen::coord echo_origin = cooked_active_
-                                               ? cooked_origin_
-                                               : screen::coord{static_cast<std::int32_t>(state_.cursor().x),
-                                                               static_cast<std::int32_t>(state_.cursor().y)};
+        const screen::coord echo_origin = cooked_active_ ? cooked_origin_
+                                                         : screen::coord{static_cast<std::int32_t>(state_.cursor().x),
+                                                                         static_cast<std::int32_t>(state_.cursor().y)};
         screen::coord echo_cursor = echo_origin;
         std::size_t cursor = cooked_active_ ? std::min(cooked_cursor_, units) : units;
         std::size_t echo_length = cooked_active_ ? cooked_echo_length_ : 0;
@@ -642,18 +630,15 @@ class console_api final
                 request->NumBytes = 0;
                 request->ControlKeyState = 0;
                 coreio::prepare_completion(message, coreio::error::status_alerted, 0,
-                                           message.body + sizeof(CONSOLE_MSG_HEADER),
-                                           sizeof(CONSOLE_READCONSOLE_MSG));
+                                           message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_READCONSOLE_MSG));
                 return true;
             }
-            if (request->ProcessControlZ != FALSE && character == 26 &&
-                (state_.input_mode & 0x0001) != 0)
+            if (request->ProcessControlZ != FALSE && character == 26 && (state_.input_mode & 0x0001) != 0)
             {
                 line_complete = true;
                 break;
             }
-            if (character >= 1 && character <= 26 &&
-                (request->CtrlWakeupMask & (1u << (character - 1))) != 0)
+            if (character >= 1 && character <= 26 && (request->CtrlWakeupMask & (1u << (character - 1))) != 0)
             {
                 if (units < max_units)
                 {
@@ -731,8 +716,7 @@ class console_api final
             pending_read_kind_ = pending_read_kind::console_read;
             if (echo)
             {
-                state_.set_cursor(static_cast<std::size_t>(echo_cursor.x),
-                                  static_cast<std::size_t>(echo_cursor.y));
+                state_.set_cursor(static_cast<std::size_t>(echo_cursor.x), static_cast<std::size_t>(echo_cursor.y));
             }
             return false;
         }
@@ -746,8 +730,7 @@ class console_api final
 
         if (echo)
         {
-            state_.set_cursor(static_cast<std::size_t>(echo_cursor.x),
-                              static_cast<std::size_t>(echo_cursor.y));
+            state_.set_cursor(static_cast<std::size_t>(echo_cursor.x), static_cast<std::size_t>(echo_cursor.y));
         }
         request->ControlKeyState = 0;
         std::size_t bytes = 0;
@@ -761,9 +744,9 @@ class console_api final
             const auto code_page = state_.input_code_page;
             const auto capacity = max_units * sizeof(char16_t);
             ansi_buffer_.resize(capacity);
-            const auto converted = ::WideCharToMultiByte(
-                code_page, 0, reinterpret_cast<const wchar_t *>(output), static_cast<int>(units),
-                ansi_buffer_.data(), static_cast<int>(ansi_buffer_.size()), nullptr, nullptr);
+            const auto converted =
+                ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(output), static_cast<int>(units),
+                                      ansi_buffer_.data(), static_cast<int>(ansi_buffer_.size()), nullptr, nullptr);
             if (converted == 0 && units != 0)
             {
                 coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
@@ -773,8 +756,7 @@ class console_api final
             std::memcpy(output, ansi_buffer_.data(), bytes);
             request->NumBytes = static_cast<ULONG>(bytes);
         }
-        coreio::prepare_completion(message, 0, bytes,
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+        coreio::prepare_completion(message, 0, bytes, message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_READCONSOLE_MSG) + bytes);
         return true;
     }
@@ -786,8 +768,8 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *request = reinterpret_cast<const CONSOLE_SETTEXTATTRIBUTE_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto *request =
+            reinterpret_cast<const CONSOLE_SETTEXTATTRIBUTE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         state_.default_attributes = request->Attributes;
         state_.default_style = buffer_.style_for_attributes(request->Attributes);
         coreio::prepare_completion(message);
@@ -801,8 +783,8 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *request = reinterpret_cast<const CONSOLE_SCROLLSCREENBUFFER_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto *request =
+            reinterpret_cast<const CONSOLE_SCROLLSCREENBUFFER_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto source = request->ScrollRectangle;
         if (source.Left > source.Right || source.Top > source.Bottom ||
             (source.Left == request->DestinationOrigin.X && source.Top == request->DestinationOrigin.Y))
@@ -810,14 +792,13 @@ class console_api final
             coreio::prepare_completion(message);
             return true;
         }
-        const screen::rectangle source_rect{static_cast<std::size_t>(source.Left),
-                                           static_cast<std::size_t>(source.Top),
-                                           static_cast<std::size_t>(source.Right - source.Left + 1),
-                                           static_cast<std::size_t>(source.Bottom - source.Top + 1)};
-        const screen::rectangle clip_rect{static_cast<std::size_t>(request->ClipRectangle.Left),
-                                          static_cast<std::size_t>(request->ClipRectangle.Top),
-                                          static_cast<std::size_t>(request->ClipRectangle.Right - request->ClipRectangle.Left + 1),
-                                          static_cast<std::size_t>(request->ClipRectangle.Bottom - request->ClipRectangle.Top + 1)};
+        const screen::rectangle source_rect{static_cast<std::size_t>(source.Left), static_cast<std::size_t>(source.Top),
+                                            static_cast<std::size_t>(source.Right - source.Left + 1),
+                                            static_cast<std::size_t>(source.Bottom - source.Top + 1)};
+        const screen::rectangle clip_rect{
+            static_cast<std::size_t>(request->ClipRectangle.Left), static_cast<std::size_t>(request->ClipRectangle.Top),
+            static_cast<std::size_t>(request->ClipRectangle.Right - request->ClipRectangle.Left + 1),
+            static_cast<std::size_t>(request->ClipRectangle.Bottom - request->ClipRectangle.Top + 1)};
         const screen::coord destination{request->DestinationOrigin.X, request->DestinationOrigin.Y};
         buffer_.copy_rect(source_rect, clip_rect, request->Clip != FALSE, destination);
 
@@ -871,19 +852,16 @@ class console_api final
                 const auto right_start = std::max(dest_right, static_cast<std::int32_t>(copy_left));
                 if (right_start < static_cast<std::int32_t>(copy_right))
                 {
-                    fill_rect_segment(right_start, y,
-                                      static_cast<std::int32_t>(copy_right) - right_start,
-                                      fill_char, fill_attributes);
+                    fill_rect_segment(right_start, y, static_cast<std::int32_t>(copy_right) - right_start, fill_char,
+                                      fill_attributes);
                 }
             }
         }
         const auto full_screen_scroll =
-            source.Left <= 0 && source.Top <= 0 &&
-            source.Right >= static_cast<SHORT>(buffer_.width() - 1) &&
-            source.Bottom >= static_cast<SHORT>(buffer_.height() - 1) &&
-            request->DestinationOrigin.X == 0 &&
-            request->DestinationOrigin.Y <= -static_cast<SHORT>(buffer_.height()) &&
-            request->Clip == FALSE && fill_char == u' ';
+            source.Left <= 0 && source.Top <= 0 && source.Right >= static_cast<SHORT>(buffer_.width() - 1) &&
+            source.Bottom >= static_cast<SHORT>(buffer_.height() - 1) && request->DestinationOrigin.X == 0 &&
+            request->DestinationOrigin.Y <= -static_cast<SHORT>(buffer_.height()) && request->Clip == FALSE &&
+            fill_char == u' ';
         if (full_screen_scroll)
         {
             buffer_.clear_history();
@@ -902,8 +880,8 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *request = reinterpret_cast<const CONSOLE_SETWINDOWINFO_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto *request =
+            reinterpret_cast<const CONSOLE_SETWINDOWINFO_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto &window = request->Window;
         if (window.Left > window.Right || window.Top > window.Bottom)
         {
@@ -914,8 +892,8 @@ class console_api final
         if (!request->Absolute)
         {
             const auto origin = buffer_.viewport_origin();
-            area = screen::rect{area.left + origin.x, area.top + origin.y,
-                                area.right + origin.x, area.bottom + origin.y};
+            area =
+                screen::rect{area.left + origin.x, area.top + origin.y, area.right + origin.x, area.bottom + origin.y};
         }
         const auto window_width = static_cast<std::size_t>(area.right - area.left + 1);
         const auto window_height = static_cast<std::size_t>(area.bottom - area.top + 1);
@@ -941,9 +919,9 @@ class console_api final
             return true;
         }
         auto *request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
-        const auto payload = read_input_payload(
-            message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG),
-            message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLE_MSG));
+        const auto payload = read_input_payload(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG),
+                                                message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
+                                                    sizeof(CONSOLE_WRITECONSOLE_MSG));
 
         std::size_t written = 0;
         if (request->Unicode)
@@ -957,8 +935,8 @@ class console_api final
         {
             const auto code_page = state_.output_code_page;
             const auto *bytes_data = reinterpret_cast<const char *>(payload.data());
-            const auto units = ::MultiByteToWideChar(code_page, 0, bytes_data,
-                                                     static_cast<int>(payload.size()), nullptr, 0);
+            const auto units =
+                ::MultiByteToWideChar(code_page, 0, bytes_data, static_cast<int>(payload.size()), nullptr, 0);
             text_buffer_.resize(static_cast<std::size_t>(std::max(units, 0)));
             if (units > 0)
             {
@@ -966,14 +944,13 @@ class console_api final
                                             reinterpret_cast<LPWSTR>(text_buffer_.data()), units);
             }
             written = write_console_text(text_buffer_);
-            const auto encoded = ::WideCharToMultiByte(
-                code_page, 0, reinterpret_cast<const wchar_t *>(text_buffer_.data()),
-                static_cast<int>(written), nullptr, 0, nullptr, nullptr);
+            const auto encoded =
+                ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text_buffer_.data()),
+                                      static_cast<int>(written), nullptr, 0, nullptr, nullptr);
             request->NumBytes = static_cast<ULONG>(std::max(encoded, 0));
         }
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLE_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_WRITECONSOLE_MSG));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_WRITECONSOLE_MSG));
         return true;
     }
     [[nodiscard]] bool write_console_input(coreio::io_msg &message) noexcept
@@ -983,8 +960,7 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        auto *request = reinterpret_cast<CONSOLE_WRITECONSOLEINPUT_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *request = reinterpret_cast<CONSOLE_WRITECONSOLEINPUT_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto payload = read_input_payload(
             message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG),
             message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
@@ -1025,8 +1001,8 @@ class console_api final
                         const auto code_page = state_.input_code_page;
                         char bytes[2]{input[i].Event.KeyEvent.uChar.AsciiChar, 0};
                         int byte_count = 1;
-                        if (::IsDBCSLeadByteEx(code_page, static_cast<BYTE>(bytes[0])) &&
-                            i + 1 < records && input[i + 1].EventType == KEY_EVENT)
+                        if (::IsDBCSLeadByteEx(code_page, static_cast<BYTE>(bytes[0])) && i + 1 < records &&
+                            input[i + 1].EventType == KEY_EVENT)
                         {
                             bytes[1] = input[i + 1].Event.KeyEvent.uChar.AsciiChar;
                             byte_count = 2;
@@ -1036,8 +1012,7 @@ class console_api final
                         const auto units = ::MultiByteToWideChar(code_page, 0, bytes, byte_count, wide, 2);
                         key.character = units > 0 ? static_cast<char16_t>(wide[0]) : 0;
                     }
-                    key.key = static_cast<consoleinput::virtual_key>(
-                        input[i].Event.KeyEvent.wVirtualKeyCode);
+                    key.key = static_cast<consoleinput::virtual_key>(input[i].Event.KeyEvent.wVirtualKeyCode);
                     key.scan_code = input[i].Event.KeyEvent.wVirtualScanCode;
                     key.control_state = input[i].Event.KeyEvent.dwControlKeyState;
                     key.repeat_count = input[i].Event.KeyEvent.wRepeatCount;
@@ -1066,8 +1041,7 @@ class console_api final
         }
         request->NumRecords = static_cast<ULONG>(written);
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLEINPUT_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
         return true;
     }
 
@@ -1078,34 +1052,30 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *request = reinterpret_cast<const CONSOLE_SCREENBUFFERINFO_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto *request =
+            reinterpret_cast<const CONSOLE_SCREENBUFFERINFO_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         if (request->Size.X <= 0 || request->Size.Y <= 0 || request->Size.X == SHRT_MAX ||
-            request->Size.Y == SHRT_MAX || request->CurrentWindowSize.X <= 0 ||
-            request->CurrentWindowSize.Y <= 0 || request->CurrentWindowSize.X > request->Size.X ||
-            request->CurrentWindowSize.Y > request->Size.Y)
+            request->Size.Y == SHRT_MAX || request->CurrentWindowSize.X <= 0 || request->CurrentWindowSize.Y <= 0 ||
+            request->CurrentWindowSize.X > request->Size.X || request->CurrentWindowSize.Y > request->Size.Y)
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        state_.resize(static_cast<std::size_t>(request->Size.X),
-                      static_cast<std::size_t>(request->Size.Y));
-        buffer_.resize(static_cast<std::size_t>(request->Size.X),
-                       static_cast<std::size_t>(request->Size.Y), state_.default_style);
+        state_.resize(static_cast<std::size_t>(request->Size.X), static_cast<std::size_t>(request->Size.Y));
+        buffer_.resize(static_cast<std::size_t>(request->Size.X), static_cast<std::size_t>(request->Size.Y),
+                       state_.default_style);
         queue_window_buffer_size_event();
         state_.clamp_cursor();
         state_.default_attributes = request->Attributes;
         state_.default_style = buffer_.style_for_attributes(request->Attributes);
-        state_.max_window_size = screen::coord{request->MaximumWindowSize.X,
-                                               request->MaximumWindowSize.Y};
+        state_.max_window_size = screen::coord{request->MaximumWindowSize.X, request->MaximumWindowSize.Y};
         state_.popup_attributes = request->PopupAttributes;
         for (std::size_t i = 0; i < state_.color_table.size(); ++i)
         {
             state_.color_table[i] = request->ColorTable[i];
         }
         const auto origin = buffer_.viewport_origin();
-        buffer_.set_viewport(screen::rect{origin.x, origin.y,
-                                          origin.x + request->CurrentWindowSize.X - 1,
+        buffer_.set_viewport(screen::rect{origin.x, origin.y, origin.x + request->CurrentWindowSize.X - 1,
                                           origin.y + request->CurrentWindowSize.Y - 1});
         state_.viewport_changed = true;
         coreio::prepare_completion(message);
@@ -1120,10 +1090,9 @@ class console_api final
             return true;
         }
         auto *info = reinterpret_cast<CONSOLE_MODE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
-        info->Mode = input ? (state_.input_mode | 0x0080 | state_.input_private_mode)
-                            : state_.output_mode;
-        coreio::prepare_completion(message, 0, sizeof(CONSOLE_MODE_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_MODE_MSG));
+        info->Mode = input ? (state_.input_mode | 0x0080 | state_.input_private_mode) : state_.output_mode;
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_MODE_MSG), message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_MODE_MSG));
         return true;
     }
 
@@ -1173,8 +1142,7 @@ class console_api final
 
     [[nodiscard]] bool set_active_screen_buffer(coreio::io_msg &message) noexcept
     {
-        const bool alternate = alternate_object_ != 0 &&
-                               message.descriptor.Object == alternate_object_;
+        const bool alternate = alternate_object_ != 0 && message.descriptor.Object == alternate_object_;
         buffer_.set_alternate(alternate);
         state_.alternate_changed = true;
         coreio::prepare_completion(message);
@@ -1211,23 +1179,23 @@ class console_api final
             return true;
         }
         auto *info = reinterpret_cast<CONSOLE_GETCONSOLEPROCESSLIST_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
-        const auto local = sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG);
-        const auto capacity = message.descriptor.OutputSize <= sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG)
-                                  ? 0
-                                  : std::min<std::size_t>(message.descriptor.OutputSize - sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG), local) / sizeof(std::uint32_t);
-        const auto count = has_processes()
-                               ? std::min<std::size_t>(processes_->size(), capacity)
-                               : 0;
+        const auto local =
+            sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG);
+        const auto capacity =
+            message.descriptor.OutputSize <= sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG)
+                ? 0
+                : std::min<std::size_t>(message.descriptor.OutputSize - sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG),
+                                        local) /
+                      sizeof(std::uint32_t);
+        const auto count = has_processes() ? std::min<std::size_t>(processes_->size(), capacity) : 0;
         info->dwProcessCount = static_cast<ULONG>(count);
-        auto *output = reinterpret_cast<std::uint32_t *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
+        auto *output = reinterpret_cast<std::uint32_t *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                         sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
         for (std::size_t i = 0; i < count; ++i)
         {
-            output[i] = static_cast<std::uint32_t>(
-                processes_->processes()[processes_->size() - 1 - i]);
+            output[i] = static_cast<std::uint32_t>(processes_->processes()[processes_->size() - 1 - i]);
         }
-        coreio::prepare_completion(message, 0, count * sizeof(std::uint32_t),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+        coreio::prepare_completion(message, 0, count * sizeof(std::uint32_t), message.body + sizeof(CONSOLE_MSG_HEADER),
                                    count * sizeof(std::uint32_t));
         return true;
     }
@@ -1242,8 +1210,7 @@ class console_api final
         auto *info = reinterpret_cast<CONSOLE_GETMOUSEINFO_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         info->NumButtons = 5;
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETMOUSEINFO_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_GETMOUSEINFO_MSG));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETMOUSEINFO_MSG));
         return true;
     }
 
@@ -1254,8 +1221,8 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *request = reinterpret_cast<const CONSOLE_CURRENTFONT_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto *request =
+            reinterpret_cast<const CONSOLE_CURRENTFONT_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         state_.font_index = request->FontIndex;
         state_.font_size = screen::coord{request->FontSize.X, request->FontSize.Y};
         state_.font_family = request->FontFamily;
@@ -1274,8 +1241,7 @@ class console_api final
     }
 
     [[nodiscard]] static std::u16string alias_exe_from_message(const coreio::io_msg &message,
-                                                              std::size_t descriptor_size,
-                                                              bool unicode)
+                                                               std::size_t descriptor_size, bool unicode)
     {
         const auto offset = sizeof(CONSOLE_MSG_HEADER) + descriptor_size;
         if (offset >= message.descriptor.InputSize)
@@ -1307,8 +1273,7 @@ class console_api final
         }
         auto *info = reinterpret_cast<CONSOLE_GETALIASESLENGTH_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
-        const auto exe = alias_exe_from_message(message, sizeof(CONSOLE_GETALIASESLENGTH_MSG),
-                                                info->Unicode != FALSE);
+        const auto exe = alias_exe_from_message(message, sizeof(CONSOLE_GETALIASESLENGTH_MSG), info->Unicode != FALSE);
         std::size_t length = 0;
         for (const auto &alias : state_.aliases)
         {
@@ -1329,8 +1294,7 @@ class console_api final
         }
         info->AliasesLength = static_cast<ULONG>(length);
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETALIASESLENGTH_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_GETALIASESLENGTH_MSG));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETALIASESLENGTH_MSG));
         return true;
     }
 
@@ -1341,8 +1305,7 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        auto *info = reinterpret_cast<CONSOLE_GETALIASEXESLENGTH_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *info = reinterpret_cast<CONSOLE_GETALIASEXESLENGTH_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
         std::size_t length = 0;
         std::vector<std::u16string_view> seen;
@@ -1365,8 +1328,7 @@ class console_api final
         }
         info->AliasExesLength = static_cast<ULONG>(length);
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETALIASEXESLENGTH_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_GETALIASEXESLENGTH_MSG));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETALIASEXESLENGTH_MSG));
         return true;
     }
 
@@ -1383,8 +1345,7 @@ class console_api final
                                   ? message.descriptor.OutputSize - sizeof(CONSOLE_GETALIASES_MSG)
                                   : 0;
         const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
-        const auto exe = alias_exe_from_message(message, sizeof(CONSOLE_GETALIASES_MSG),
-                                                info->Unicode != FALSE);
+        const auto exe = alias_exe_from_message(message, sizeof(CONSOLE_GETALIASES_MSG), info->Unicode != FALSE);
         std::size_t written = 0;
         for (const auto &alias : state_.aliases)
         {
@@ -1392,14 +1353,9 @@ class console_api final
             {
                 continue;
             }
-            const auto bytes = info->Unicode
-                                   ? (alias.source.size() + alias.target.size() + 2) *
-                                         sizeof(char16_t)
-                                   : encode_console_text(alias.source, state_.input_code_page)
-                                             .size() +
-                                         encode_console_text(alias.target, state_.input_code_page)
-                                             .size() +
-                                         2;
+            const auto bytes = info->Unicode ? (alias.source.size() + alias.target.size() + 2) * sizeof(char16_t)
+                                             : encode_console_text(alias.source, state_.input_code_page).size() +
+                                                   encode_console_text(alias.target, state_.input_code_page).size() + 2;
             if (written + bytes > capacity)
             {
                 break;
@@ -1451,8 +1407,7 @@ class console_api final
             }
             if (info->Unicode)
             {
-                std::memcpy(output + written, alias.executable.data(),
-                            alias.executable.size() * sizeof(char16_t));
+                std::memcpy(output + written, alias.executable.data(), alias.executable.size() * sizeof(char16_t));
                 written += alias.executable.size() * sizeof(char16_t);
                 output[written] = 0;
                 written += sizeof(char16_t);
@@ -1495,8 +1450,12 @@ class console_api final
         }
 
         auto entry = screen::console_state::alias_entry{
-            decode_console_text(reinterpret_cast<const char *>(data), exe_end, source_end - exe_end, request->Unicode != FALSE, state_.input_code_page), decode_console_text(reinterpret_cast<const char *>(data), source_end, target_end - source_end, request->Unicode != FALSE, state_.input_code_page),
-            decode_console_text(reinterpret_cast<const char *>(data), 0, exe_end, request->Unicode != FALSE, state_.input_code_page)};
+            decode_console_text(reinterpret_cast<const char *>(data), exe_end, source_end - exe_end,
+                                request->Unicode != FALSE, state_.input_code_page),
+            decode_console_text(reinterpret_cast<const char *>(data), source_end, target_end - source_end,
+                                request->Unicode != FALSE, state_.input_code_page),
+            decode_console_text(reinterpret_cast<const char *>(data), 0, exe_end, request->Unicode != FALSE,
+                                state_.input_code_page)};
         if (entry.source.empty())
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
@@ -1555,8 +1514,10 @@ class console_api final
             return true;
         }
 
-        const auto executable = decode_console_text(reinterpret_cast<const char *>(data), 0, exe_bytes, request->Unicode != FALSE, state_.input_code_page);
-        const auto source = decode_console_text(reinterpret_cast<const char *>(data), exe_bytes, source_bytes, request->Unicode != FALSE, state_.input_code_page);
+        const auto executable = decode_console_text(reinterpret_cast<const char *>(data), 0, exe_bytes,
+                                                    request->Unicode != FALSE, state_.input_code_page);
+        const auto source = decode_console_text(reinterpret_cast<const char *>(data), exe_bytes, source_bytes,
+                                                request->Unicode != FALSE, state_.input_code_page);
         for (const auto &alias : state_.aliases)
         {
             if (alias.source == source && alias.executable == executable)
@@ -1572,10 +1533,9 @@ class console_api final
                     if (bytes > available)
                     {
                         request->TargetLength = static_cast<USHORT>(available);
-                        coreio::prepare_completion(message, coreio::error::status_buffer_too_small,
-                                                   sizeof(CONSOLE_GETALIAS_MSG),
-                                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                                   sizeof(CONSOLE_GETALIAS_MSG));
+                        coreio::prepare_completion(
+                            message, coreio::error::status_buffer_too_small, sizeof(CONSOLE_GETALIAS_MSG),
+                            message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETALIAS_MSG));
                         return true;
                     }
                     std::memcpy(output, alias.target.data(), alias.target.size() * sizeof(char16_t));
@@ -1588,10 +1548,9 @@ class console_api final
                     if (encoded.size() + 1 > available)
                     {
                         request->TargetLength = static_cast<USHORT>(available);
-                        coreio::prepare_completion(message, coreio::error::status_buffer_too_small,
-                                                   sizeof(CONSOLE_GETALIAS_MSG),
-                                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                                   sizeof(CONSOLE_GETALIAS_MSG));
+                        coreio::prepare_completion(
+                            message, coreio::error::status_buffer_too_small, sizeof(CONSOLE_GETALIAS_MSG),
+                            message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETALIAS_MSG));
                         return true;
                     }
                     std::memcpy(output, encoded.data(), encoded.size());
@@ -1599,8 +1558,7 @@ class console_api final
                     bytes = encoded.size() + 1;
                 }
                 request->TargetLength = static_cast<USHORT>(bytes);
-                coreio::prepare_completion(message, 0, bytes, message.body + sizeof(CONSOLE_MSG_HEADER),
-                                           bytes);
+                coreio::prepare_completion(message, 0, bytes, message.body + sizeof(CONSOLE_MSG_HEADER), bytes);
                 return true;
             }
         }
@@ -1626,8 +1584,8 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *info = reinterpret_cast<const CONSOLE_SETNUMBEROFCOMMANDS_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto *info =
+            reinterpret_cast<const CONSOLE_SETNUMBEROFCOMMANDS_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         state_.set_command_limit(info->NumCommands);
         coreio::prepare_completion(message);
         return true;
@@ -1640,8 +1598,7 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        auto *info = reinterpret_cast<CONSOLE_GETCOMMANDHISTORYLENGTH_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *info = reinterpret_cast<CONSOLE_GETCOMMANDHISTORYLENGTH_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         std::size_t length = 0;
         for (const auto &command : state_.command_history)
         {
@@ -1718,8 +1675,7 @@ class console_api final
         info->HistoryBufferSize = state_.history_buffer_size;
         info->NumberOfHistoryBuffers = state_.history_buffers;
         info->dwFlags = state_.history_flags;
-        coreio::prepare_completion(message, 0, sizeof(CONSOLE_HISTORY_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_HISTORY_MSG), message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_HISTORY_MSG));
         return true;
     }
@@ -1731,8 +1687,7 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *info = reinterpret_cast<const CONSOLE_HISTORY_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto *info = reinterpret_cast<const CONSOLE_HISTORY_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         state_.history_buffer_size = info->HistoryBufferSize;
         state_.history_buffers = info->NumberOfHistoryBuffers;
         state_.history_flags = info->dwFlags;
@@ -1747,12 +1702,10 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        auto *info = reinterpret_cast<CONSOLE_GETCONSOLEWINDOW_MSG64 *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *info = reinterpret_cast<CONSOLE_GETCONSOLEWINDOW_MSG64 *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         info->hwnd = reinterpret_cast<HWND>(window_handle_);
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCONSOLEWINDOW_MSG64),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_GETCONSOLEWINDOW_MSG64));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETCONSOLEWINDOW_MSG64));
         return true;
     }
 
@@ -1766,8 +1719,7 @@ class console_api final
         auto *info = reinterpret_cast<CONSOLE_GETDISPLAYMODE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         info->ModeFlags = state_.display_mode;
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETDISPLAYMODE_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_GETDISPLAYMODE_MSG));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETDISPLAYMODE_MSG));
         return true;
     }
 
@@ -1784,13 +1736,10 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        state_.display_mode =
-            (info->dwFlags & CONSOLE_FULLSCREEN_MODE) != 0 ? CONSOLE_FULLSCREEN_MODE : 0;
-        info->ScreenBufferDimensions = COORD{static_cast<SHORT>(buffer_.width()),
-                                             static_cast<SHORT>(buffer_.height())};
+        state_.display_mode = (info->dwFlags & CONSOLE_FULLSCREEN_MODE) != 0 ? CONSOLE_FULLSCREEN_MODE : 0;
+        info->ScreenBufferDimensions = COORD{static_cast<SHORT>(buffer_.width()), static_cast<SHORT>(buffer_.height())};
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_SETDISPLAYMODE_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_SETDISPLAYMODE_MSG));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_SETDISPLAYMODE_MSG));
         return true;
     }
 
@@ -1807,11 +1756,9 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        info->FontSize = COORD{static_cast<SHORT>(state_.font_size.x),
-                               static_cast<SHORT>(state_.font_size.y)};
+        info->FontSize = COORD{static_cast<SHORT>(state_.font_size.x), static_cast<SHORT>(state_.font_size.y)};
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETFONTSIZE_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_GETFONTSIZE_MSG));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETFONTSIZE_MSG));
         return true;
     }
 
@@ -1824,16 +1771,14 @@ class console_api final
         }
         auto *info = reinterpret_cast<CONSOLE_CURRENTFONT_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         info->FontIndex = state_.font_index;
-        info->FontSize = COORD{static_cast<SHORT>(state_.font_size.x),
-                              static_cast<SHORT>(state_.font_size.y)};
+        info->FontSize = COORD{static_cast<SHORT>(state_.font_size.x), static_cast<SHORT>(state_.font_size.y)};
         info->FontFamily = state_.font_family;
         info->FontWeight = state_.font_weight;
         const auto units = std::min<std::size_t>(state_.face_name.size(), LF_FACESIZE - 1);
         std::memcpy(info->FaceName, state_.face_name.data(), units * sizeof(char16_t));
         info->FaceName[units] = 0;
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_CURRENTFONT_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_CURRENTFONT_MSG));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_CURRENTFONT_MSG));
         return true;
     }
 
@@ -1850,8 +1795,8 @@ class console_api final
         if (selection.active)
         {
             info->SelectionInfo.dwFlags = CONSOLE_SELECTION_IN_PROGRESS | CONSOLE_SELECTION_NOT_EMPTY;
-            info->SelectionInfo.dwSelectionAnchor = COORD{static_cast<SHORT>(selection.anchor_x),
-                                                          static_cast<SHORT>(selection.anchor_y)};
+            info->SelectionInfo.dwSelectionAnchor =
+                COORD{static_cast<SHORT>(selection.anchor_x), static_cast<SHORT>(selection.anchor_y)};
             const auto left = std::min(selection.anchor_x, selection.caret_x);
             const auto top = std::min(selection.anchor_y, selection.caret_y);
             const auto right = std::max(selection.anchor_x, selection.caret_x);
@@ -1860,8 +1805,7 @@ class console_api final
                                                          static_cast<SHORT>(right), static_cast<SHORT>(bottom)};
         }
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETSELECTIONINFO_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_GETSELECTIONINFO_MSG));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETSELECTIONINFO_MSG));
         return true;
     }
 
@@ -1878,12 +1822,11 @@ class console_api final
         {
             request->TitleLength = 0;
             coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETTITLE_MSG),
-                                       message.body + sizeof(CONSOLE_MSG_HEADER),
-                                       sizeof(CONSOLE_GETTITLE_MSG));
+                                       message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETTITLE_MSG));
             return true;
         }
-        const auto capacity = std::min<std::size_t>(
-            message.descriptor.OutputSize - sizeof(CONSOLE_GETTITLE_MSG), local);
+        const auto capacity =
+            std::min<std::size_t>(message.descriptor.OutputSize - sizeof(CONSOLE_GETTITLE_MSG), local);
         const auto &title = request->Original ? state_.original_title : state_.title;
         auto *output = message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG);
         std::size_t written = 0;
@@ -1902,10 +1845,9 @@ class console_api final
         {
             const auto code_page = state_.input_code_page;
             std::vector<char> ansi(title.size() * 2 + 2);
-            const auto converted = ::WideCharToMultiByte(
-                code_page, 0, reinterpret_cast<const wchar_t *>(title.data()),
-                static_cast<int>(title.size()), ansi.data(), static_cast<int>(ansi.size()), nullptr,
-                nullptr);
+            const auto converted = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(title.data()),
+                                                         static_cast<int>(title.size()), ansi.data(),
+                                                         static_cast<int>(ansi.size()), nullptr, nullptr);
             const auto total = static_cast<std::size_t>(std::max(converted, 0));
             const auto units = std::min<std::size_t>(total, capacity);
             std::memcpy(output, ansi.data(), units);
@@ -1928,11 +1870,10 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *request = reinterpret_cast<const CONSOLE_SETTITLE_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
-        const auto payload = read_input_payload(
-            message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG),
-            message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_SETTITLE_MSG));
+        const auto *request = reinterpret_cast<const CONSOLE_SETTITLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto payload = read_input_payload(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG),
+                                                message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
+                                                    sizeof(CONSOLE_SETTITLE_MSG));
 
         std::u16string title;
         if (request->Unicode)
@@ -1943,16 +1884,14 @@ class console_api final
         else
         {
             const auto code_page = state_.input_code_page;
-            const auto units = ::MultiByteToWideChar(
-                code_page, 0, reinterpret_cast<const char *>(payload.data()),
-                static_cast<int>(payload.size()), nullptr, 0);
+            const auto units = ::MultiByteToWideChar(code_page, 0, reinterpret_cast<const char *>(payload.data()),
+                                                     static_cast<int>(payload.size()), nullptr, 0);
             title.resize(static_cast<std::size_t>(std::max(units, 0)));
             if (units > 0)
             {
-                (void)::MultiByteToWideChar(
-                    code_page, 0, reinterpret_cast<const char *>(payload.data()),
-                    static_cast<int>(payload.size()),
-                    reinterpret_cast<LPWSTR>(title.data()), units);
+                (void)::MultiByteToWideChar(code_page, 0, reinterpret_cast<const char *>(payload.data()),
+                                            static_cast<int>(payload.size()), reinterpret_cast<LPWSTR>(title.data()),
+                                            units);
             }
         }
 
@@ -2004,8 +1943,8 @@ class console_api final
             info->LangId = state_.language_id;
             break;
         }
-        coreio::prepare_completion(message, 0, sizeof(CONSOLE_LANGID_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_LANGID_MSG));
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_LANGID_MSG), message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_LANGID_MSG));
         return true;
     }
 
@@ -2016,15 +1955,14 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *request = reinterpret_cast<const CONSOLE_CTRLEVENT_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto *request =
+            reinterpret_cast<const CONSOLE_CTRLEVENT_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         if (request->CtrlEvent != 0 && request->CtrlEvent != 1)
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        if (request->ProcessGroupId != 0 &&
-            (!has_processes() || !processes_->contains_group(request->ProcessGroupId)))
+        if (request->ProcessGroupId != 0 && (!has_processes() || !processes_->contains_group(request->ProcessGroupId)))
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
@@ -2035,8 +1973,7 @@ class console_api final
             const auto count = processes_->copy_for_group(request->ProcessGroupId, targets);
             for (std::size_t i = 0; i < count; ++i)
             {
-                ctrl_events_.push_back({static_cast<DWORD>(request->CtrlEvent),
-                                        static_cast<DWORD>(targets[i])});
+                ctrl_events_.push_back({static_cast<DWORD>(request->CtrlEvent), static_cast<DWORD>(targets[i])});
             }
         }
         coreio::prepare_completion(message);
@@ -2052,8 +1989,8 @@ class console_api final
         }
         auto *info = reinterpret_cast<CONSOLE_GETCP_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         info->CodePage = info->Output ? state_.output_code_page : state_.input_code_page;
-        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCP_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETCP_MSG));
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCP_MSG), message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETCP_MSG));
         return true;
     }
 
@@ -2094,8 +2031,7 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_handle);
             return true;
         }
-        auto *info = reinterpret_cast<CONSOLE_GETNUMBEROFINPUTEVENTS_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *info = reinterpret_cast<CONSOLE_GETNUMBEROFINPUTEVENTS_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         info->ReadyEvents = has_input() ? static_cast<ULONG>(input_->size()) : 0;
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
@@ -2110,18 +2046,16 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *request = reinterpret_cast<const CONSOLE_SETSCREENBUFFERSIZE_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
-        if (request->Size.X <= 0 || request->Size.Y <= 0 || request->Size.X == SHRT_MAX ||
-            request->Size.Y == SHRT_MAX)
+        const auto *request =
+            reinterpret_cast<const CONSOLE_SETSCREENBUFFERSIZE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        if (request->Size.X <= 0 || request->Size.Y <= 0 || request->Size.X == SHRT_MAX || request->Size.Y == SHRT_MAX)
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        state_.resize(static_cast<std::size_t>(request->Size.X),
-                      static_cast<std::size_t>(request->Size.Y));
-        buffer_.resize(static_cast<std::size_t>(request->Size.X),
-                       static_cast<std::size_t>(request->Size.Y), state_.default_style);
+        state_.resize(static_cast<std::size_t>(request->Size.X), static_cast<std::size_t>(request->Size.Y));
+        buffer_.resize(static_cast<std::size_t>(request->Size.X), static_cast<std::size_t>(request->Size.Y),
+                       state_.default_style);
         queue_window_buffer_size_event();
         state_.clamp_cursor();
         state_.viewport_changed = true;
@@ -2136,8 +2070,8 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        auto *request = reinterpret_cast<CONSOLE_READCONSOLEOUTPUTSTRING_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *request =
+            reinterpret_cast<CONSOLE_READCONSOLEOUTPUTSTRING_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto requested = static_cast<std::size_t>(request->NumRecords);
         request->NumRecords = 0;
         if (request->StringType != CONSOLE_ASCII && request->StringType != CONSOLE_REAL_UNICODE &&
@@ -2146,17 +2080,17 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto local = sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) -
-                           sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
+        const auto local =
+            sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
         if (message.descriptor.OutputSize <= sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG))
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto capacity = std::min<std::size_t>(
-            message.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG), local);
-        auto *data = reinterpret_cast<std::byte *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
+        const auto capacity =
+            std::min<std::size_t>(message.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG), local);
+        auto *data = reinterpret_cast<std::byte *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                   sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
         std::memset(data, 0, capacity);
         std::size_t written = 0;
         const auto coordinate = screen::coord{request->ReadCoord.X, request->ReadCoord.Y};
@@ -2164,14 +2098,12 @@ class console_api final
         {
             const auto count = std::min<std::size_t>(requested, capacity / sizeof(std::uint16_t));
             written = buffer_.read_attrs(coordinate,
-                std::span<std::uint16_t>{reinterpret_cast<std::uint16_t *>(data), count});
+                                         std::span<std::uint16_t>{reinterpret_cast<std::uint16_t *>(data), count});
         }
-        else if (request->StringType == CONSOLE_REAL_UNICODE ||
-                 request->StringType == CONSOLE_FALSE_UNICODE)
+        else if (request->StringType == CONSOLE_REAL_UNICODE || request->StringType == CONSOLE_FALSE_UNICODE)
         {
             const auto count = std::min<std::size_t>(requested, capacity / sizeof(char16_t));
-            written = buffer_.read_chars(coordinate,
-                std::span<char16_t>{reinterpret_cast<char16_t *>(data), count});
+            written = buffer_.read_chars(coordinate, std::span<char16_t>{reinterpret_cast<char16_t *>(data), count});
         }
         else if (request->StringType == CONSOLE_ASCII)
         {
@@ -2180,17 +2112,16 @@ class console_api final
             const auto read = buffer_.read_chars(coordinate, std::span<char16_t>{char_buffer_});
             const auto code_page = state_.output_code_page;
             const auto converted = ::WideCharToMultiByte(
-                code_page, 0, reinterpret_cast<const wchar_t *>(char_buffer_.data()),
-                static_cast<int>(read), reinterpret_cast<char *>(data),
-                static_cast<int>(capacity), nullptr, nullptr);
+                code_page, 0, reinterpret_cast<const wchar_t *>(char_buffer_.data()), static_cast<int>(read),
+                reinterpret_cast<char *>(data), static_cast<int>(capacity), nullptr, nullptr);
             written = static_cast<std::size_t>(std::max(converted, 0));
         }
         request->NumRecords = static_cast<ULONG>(written);
         const auto unit = request->StringType == CONSOLE_ATTRIBUTE ? sizeof(std::uint16_t)
-                          : request->StringType == CONSOLE_ASCII      ? sizeof(char)
-                                                                       : sizeof(char16_t);
-        coreio::prepare_completion(message, 0, written * unit,
-                                   message.body + sizeof(CONSOLE_MSG_HEADER), written * unit);
+                          : request->StringType == CONSOLE_ASCII   ? sizeof(char)
+                                                                   : sizeof(char16_t);
+        coreio::prepare_completion(message, 0, written * unit, message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   written * unit);
         return true;
     }
 
@@ -2201,40 +2132,38 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        auto *request = reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *request =
+            reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         if (request->StringType != CONSOLE_ASCII && request->StringType != CONSOLE_REAL_UNICODE &&
             request->StringType != CONSOLE_FALSE_UNICODE && request->StringType != CONSOLE_ATTRIBUTE)
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *data = reinterpret_cast<const std::byte *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
-        const auto data_size = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
-                               sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
+        const auto *data = reinterpret_cast<const std::byte *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                               sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+        const auto data_size =
+            message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
         const auto coordinate = screen::coord{request->WriteCoord.X, request->WriteCoord.Y};
         std::size_t written = 0;
         if (request->StringType == CONSOLE_ATTRIBUTE)
         {
             const auto count = std::min<std::size_t>(request->NumRecords, data_size / sizeof(std::uint16_t));
-            written = buffer_.write_attrs(coordinate,
-                std::span<const std::uint16_t>{reinterpret_cast<const std::uint16_t *>(data), count});
+            written = buffer_.write_attrs(
+                coordinate, std::span<const std::uint16_t>{reinterpret_cast<const std::uint16_t *>(data), count});
         }
-        else if (request->StringType == CONSOLE_REAL_UNICODE ||
-                 request->StringType == CONSOLE_FALSE_UNICODE)
+        else if (request->StringType == CONSOLE_REAL_UNICODE || request->StringType == CONSOLE_FALSE_UNICODE)
         {
             const auto count = std::min<std::size_t>(request->NumRecords, data_size / sizeof(char16_t));
-            written = buffer_.write_chars(coordinate,
-                std::u16string_view{reinterpret_cast<const char16_t *>(data), count});
+            written =
+                buffer_.write_chars(coordinate, std::u16string_view{reinterpret_cast<const char16_t *>(data), count});
         }
         else if (request->StringType == CONSOLE_ASCII)
         {
             const auto count = std::min<std::size_t>(request->NumRecords, data_size);
             const auto *chars = reinterpret_cast<const char *>(data);
             const auto code_page = state_.output_code_page;
-            const auto units = ::MultiByteToWideChar(code_page, 0, chars, static_cast<int>(count),
-                                                     nullptr, 0);
+            const auto units = ::MultiByteToWideChar(code_page, 0, chars, static_cast<int>(count), nullptr, 0);
             text_buffer_.resize(static_cast<std::size_t>(std::max(units, 0)));
             if (units > 0)
             {
@@ -2257,8 +2186,8 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *request = reinterpret_cast<const CONSOLE_FILLCONSOLEOUTPUT_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto *request =
+            reinterpret_cast<const CONSOLE_FILLCONSOLEOUTPUT_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         if (request->WriteCoord.X < 0 || request->WriteCoord.Y < 0)
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
@@ -2307,9 +2236,8 @@ class console_api final
             ++y;
         }
 
-        if (request->ElementType != CONSOLE_ATTRIBUTE && request->WriteCoord.X == 0 &&
-            request->WriteCoord.Y == 0 && fill == u' ' &&
-            request->Length >= width * buffer_.height())
+        if (request->ElementType != CONSOLE_ATTRIBUTE && request->WriteCoord.X == 0 && request->WriteCoord.Y == 0 &&
+            fill == u' ' && request->Length >= width * buffer_.height())
         {
             buffer_.clear_history();
             state_.scrollback_cleared = true;
@@ -2326,8 +2254,7 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        auto *request = reinterpret_cast<CONSOLE_READCONSOLEOUTPUT_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *request = reinterpret_cast<CONSOLE_READCONSOLEOUTPUT_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto &region = request->CharRegion;
         if (region.Left > region.Right || region.Top > region.Bottom)
         {
@@ -2336,19 +2263,18 @@ class console_api final
             return true;
         }
 
-        const auto local = sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) -
-                           sizeof(CONSOLE_READCONSOLEOUTPUT_MSG);
+        const auto local = sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUT_MSG);
         if (message.descriptor.OutputSize <= sizeof(CONSOLE_READCONSOLEOUTPUT_MSG))
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto capacity = std::min<std::size_t>(
-            message.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLEOUTPUT_MSG), local);
+        const auto capacity =
+            std::min<std::size_t>(message.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLEOUTPUT_MSG), local);
         const auto width = static_cast<int>(region.Right) - static_cast<int>(region.Left) + 1;
         const auto height = static_cast<int>(region.Bottom) - static_cast<int>(region.Top) + 1;
-        const auto required = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) *
-                              sizeof(interop::win32::char_info);
+        const auto required =
+            static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * sizeof(interop::win32::char_info);
         if (width <= 0 || height <= 0 || required > capacity)
         {
             request->CharRegion = SMALL_RECT{0, 0, 0, 0};
@@ -2356,8 +2282,8 @@ class console_api final
             return true;
         }
 
-        auto *out = reinterpret_cast<interop::win32::char_info *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
+        auto *out = reinterpret_cast<interop::win32::char_info *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                                  sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
         std::memset(out, 0, required);
 
         auto clipped = region;
@@ -2380,8 +2306,7 @@ class console_api final
         if (clipped.Left > clipped.Right || clipped.Top > clipped.Bottom)
         {
             request->CharRegion = SMALL_RECT{0, 0, 0, 0};
-            coreio::prepare_completion(message, 0, required, message.body + sizeof(CONSOLE_MSG_HEADER),
-                                       required);
+            coreio::prepare_completion(message, 0, required, message.body + sizeof(CONSOLE_MSG_HEADER), required);
             return true;
         }
 
@@ -2392,8 +2317,7 @@ class console_api final
                         static_cast<std::size_t>(clipped.Left - region.Left);
             (void)buffer_.read_char_info_abi(
                 screen::rect{clipped.Left, y, clipped.Right, y},
-                std::span<interop::win32::char_info>{row,
-                                                     static_cast<std::size_t>(clipped.Right - clipped.Left + 1)});
+                std::span<interop::win32::char_info>{row, static_cast<std::size_t>(clipped.Right - clipped.Left + 1)});
             if (!request->Unicode)
             {
                 for (auto x = clipped.Left; x <= clipped.Right; ++x)
@@ -2401,8 +2325,8 @@ class console_api final
                     auto &target = row[x - clipped.Left];
                     char mb = ' ';
                     (void)::WideCharToMultiByte(code_page, 0,
-                                                reinterpret_cast<const wchar_t *>(&target.char_data.unicode_char),
-                                                1, &mb, 1, nullptr, nullptr);
+                                                reinterpret_cast<const wchar_t *>(&target.char_data.unicode_char), 1,
+                                                &mb, 1, nullptr, nullptr);
                     target.char_data.ascii_char = mb;
                 }
             }
@@ -2420,8 +2344,8 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *request = reinterpret_cast<const CONSOLE_WRITECONSOLEOUTPUT_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto *request =
+            reinterpret_cast<const CONSOLE_WRITECONSOLEOUTPUT_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         if (request->CharRegion.Left < 0 || request->CharRegion.Top < 0 ||
             request->CharRegion.Right < request->CharRegion.Left ||
             request->CharRegion.Bottom < request->CharRegion.Top)
@@ -2440,18 +2364,19 @@ class console_api final
             return true;
         }
 
-        const auto cell_bytes = read_input_payload(
-            message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG),
-            count * sizeof(interop::win32::char_info));
+        const auto cell_bytes =
+            read_input_payload(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG),
+                               count * sizeof(interop::win32::char_info));
         if (cell_bytes.size() < count * sizeof(interop::win32::char_info))
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
         const auto *cells = reinterpret_cast<const interop::win32::char_info *>(cell_bytes.data());
-        const screen::rect area{request->CharRegion.Left, request->CharRegion.Top,
-                                request->CharRegion.Right, request->CharRegion.Bottom};
-        const auto written = buffer_.write_char_info_abi(area, std::span<const interop::win32::char_info>{cells, count});
+        const screen::rect area{request->CharRegion.Left, request->CharRegion.Top, request->CharRegion.Right,
+                                request->CharRegion.Bottom};
+        const auto written =
+            buffer_.write_char_info_abi(area, std::span<const interop::win32::char_info>{cells, count});
         coreio::prepare_completion(message, 0, written);
         return true;
     }
@@ -2463,8 +2388,8 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *info = reinterpret_cast<const CONSOLE_SETCURSORINFO_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto *info =
+            reinterpret_cast<const CONSOLE_SETCURSORINFO_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         if (info->CursorSize == 0 || info->CursorSize > 100)
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
@@ -2484,8 +2409,8 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *position = reinterpret_cast<const CONSOLE_SETCURSORPOSITION_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto *position =
+            reinterpret_cast<const CONSOLE_SETCURSORPOSITION_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         if (position->CursorPosition.X < 0 || position->CursorPosition.Y < 0 ||
             static_cast<std::size_t>(position->CursorPosition.X) >= buffer_.width() ||
             static_cast<std::size_t>(position->CursorPosition.Y) >= buffer_.height())
@@ -2507,13 +2432,10 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        auto *info = reinterpret_cast<CONSOLE_GETLARGESTWINDOWSIZE_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
-        info->Size = COORD{static_cast<SHORT>(state_.max_window_size.x),
-                           static_cast<SHORT>(state_.max_window_size.y)};
+        auto *info = reinterpret_cast<CONSOLE_GETLARGESTWINDOWSIZE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->Size = COORD{static_cast<SHORT>(state_.max_window_size.x), static_cast<SHORT>(state_.max_window_size.y)};
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETLARGESTWINDOWSIZE_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_GETLARGESTWINDOWSIZE_MSG));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETLARGESTWINDOWSIZE_MSG));
         return true;
     }
 
@@ -2525,8 +2447,7 @@ class console_api final
             return true;
         }
 
-        auto *info = reinterpret_cast<CONSOLE_SCREENBUFFERINFO_MSG *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *info = reinterpret_cast<CONSOLE_SCREENBUFFERINFO_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         std::memset(info, 0, sizeof(*info));
         const auto size = buffer_.buffer_size();
         const auto cursor = state_.cursor();
@@ -2537,8 +2458,8 @@ class console_api final
         info->ScrollPosition = COORD{static_cast<SHORT>(origin.x), static_cast<SHORT>(origin.y)};
         info->Attributes = state_.default_attributes;
         info->CurrentWindowSize = COORD{static_cast<SHORT>(window.x), static_cast<SHORT>(window.y)};
-        info->MaximumWindowSize = COORD{static_cast<SHORT>(state_.max_window_size.x),
-                                        static_cast<SHORT>(state_.max_window_size.y)};
+        info->MaximumWindowSize =
+            COORD{static_cast<SHORT>(state_.max_window_size.x), static_cast<SHORT>(state_.max_window_size.y)};
         info->PopupAttributes = state_.popup_attributes;
         info->FullscreenSupported = FALSE;
         for (std::size_t i = 0; i < state_.color_table.size(); ++i)
@@ -2547,13 +2468,11 @@ class console_api final
         }
 
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_SCREENBUFFERINFO_MSG),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   sizeof(CONSOLE_SCREENBUFFERINFO_MSG));
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_SCREENBUFFERINFO_MSG));
         return true;
     }
 
-    [[nodiscard]] std::size_t read_cells(screen::rect area,
-                                         std::span<interop::win32::char_info> output) noexcept
+    [[nodiscard]] std::size_t read_cells(screen::rect area, std::span<interop::win32::char_info> output) noexcept
     {
         return buffer_.read_char_info_abi(area, output);
     }
@@ -2567,16 +2486,15 @@ class console_api final
         while (offset < text.size())
         {
             auto segment_end = offset;
-            while (segment_end < text.size() && text[segment_end] != u'\r' &&
-                   text[segment_end] != u'\n')
+            while (segment_end < text.size() && text[segment_end] != u'\r' && text[segment_end] != u'\n')
             {
                 ++segment_end;
             }
             if (segment_end > offset)
             {
                 const auto result = buffer_.write_text_row<screen::text_measurement::console>(
-                    cursor, text.substr(offset, segment_end - offset), {}, state_.default_style,
-                    true, state_.default_hyperlink);
+                    cursor, text.substr(offset, segment_end - offset), {}, state_.default_style, true,
+                    state_.default_hyperlink);
                 written += result.consumed;
                 if (cursor.x >= static_cast<std::int32_t>(state_.width()))
                 {
@@ -2599,16 +2517,16 @@ class console_api final
             {
                 const auto top = state_.scroll_top();
                 const auto bottom = state_.scroll_bottom();
-                buffer_.scroll_region_up(screen::rectangle{0, top, state_.width(), bottom - top + 1},
-                                         1, state_.default_style);
+                buffer_.scroll_region_up(screen::rectangle{0, top, state_.width(), bottom - top + 1}, 1,
+                                         state_.default_style);
                 cursor.y = static_cast<std::int32_t>(bottom);
             }
             offset = segment_end;
         }
-        state_.set_cursor(static_cast<std::size_t>(cursor.x),
-                          static_cast<std::size_t>(cursor.y));
+        state_.set_cursor(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y));
         return written;
     }
+
   private:
     [[nodiscard]] bool has_input() const noexcept
     {
@@ -2628,14 +2546,14 @@ class console_api final
 #endif
     }
 
-    [[nodiscard]] std::span<const std::byte> read_input_payload(
-        coreio::io_msg &message, std::size_t header_size, std::size_t fallback_size) const noexcept
+    [[nodiscard]] std::span<const std::byte> read_input_payload(coreio::io_msg &message, std::size_t header_size,
+                                                                std::size_t fallback_size) const noexcept
     {
 #ifdef COREHOST2_TESTING
         if (payload_ == nullptr)
         {
-            return std::span<const std::byte>{
-                reinterpret_cast<const std::byte *>(message.body + header_size), fallback_size};
+            return std::span<const std::byte>{reinterpret_cast<const std::byte *>(message.body + header_size),
+                                              fallback_size};
         }
 #else
         (void)fallback_size;
@@ -2684,8 +2602,8 @@ class console_api final
         }
     }
 
-    static void echo_position(screen::coord origin, std::int32_t width, std::size_t index,
-                              std::int32_t &x, std::int32_t &y) noexcept
+    static void echo_position(screen::coord origin, std::int32_t width, std::size_t index, std::int32_t &x,
+                              std::int32_t &y) noexcept
     {
         const auto first_capacity = std::max(width - origin.x, 1);
         if (index < static_cast<std::size_t>(first_capacity))
@@ -2699,8 +2617,7 @@ class console_api final
         y = origin.y + 1 + static_cast<std::int32_t>(rest / static_cast<std::size_t>(width));
     }
     void redraw_echo_line(const char16_t *output, std::size_t units, std::size_t cursor, bool echo,
-                          screen::coord origin, std::size_t &echo_length,
-                          screen::coord &echo_cursor) const noexcept
+                          screen::coord origin, std::size_t &echo_length, screen::coord &echo_cursor) const noexcept
     {
         if (!echo)
         {
@@ -2709,7 +2626,6 @@ class console_api final
         const auto width = static_cast<std::int32_t>(state_.width());
         const auto height = static_cast<std::int32_t>(state_.height());
         const auto first_capacity = std::max(width - origin.x, 1);
-
 
         for (std::size_t i = 0; i < units; ++i)
         {
@@ -2720,9 +2636,8 @@ class console_api final
             {
                 continue;
             }
-            (void)buffer_.write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
-                                       output[i], state_.default_style, screen::cell_width::narrow,
-                                       state_.default_hyperlink);
+            (void)buffer_.write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y), output[i],
+                                       state_.default_style, screen::cell_width::narrow, state_.default_hyperlink);
         }
         for (std::size_t i = units; i < echo_length; ++i)
         {
@@ -2733,9 +2648,8 @@ class console_api final
             {
                 continue;
             }
-            (void)buffer_.write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
-                                       u' ', state_.default_style, screen::cell_width::narrow,
-                                       state_.default_hyperlink);
+            (void)buffer_.write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y), u' ',
+                                       state_.default_style, screen::cell_width::narrow, state_.default_hyperlink);
         }
         echo_length = units;
         std::int32_t cursor_x = origin.x;
@@ -2751,29 +2665,25 @@ class console_api final
             return;
         }
         const screen::rect segment{static_cast<std::int32_t>(x), static_cast<std::int32_t>(y),
-                                   static_cast<std::int32_t>(x + width - 1),
-                                   static_cast<std::int32_t>(y)};
+                                   static_cast<std::int32_t>(x + width - 1), static_cast<std::int32_t>(y)};
         buffer_.fill_chars(segment, fill_char);
         buffer_.fill_attrs(segment, attributes);
     }
 
     static std::string encode_console_text(std::u16string_view value, UINT code_page)
     {
-        const auto units = ::WideCharToMultiByte(
-            code_page, 0, reinterpret_cast<const wchar_t *>(value.data()),
-            static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+        const auto units = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(value.data()),
+                                                 static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
         std::string encoded(static_cast<std::size_t>(std::max(units, 0)), '\0');
         if (units > 0)
         {
-            (void)::WideCharToMultiByte(
-                code_page, 0, reinterpret_cast<const wchar_t *>(value.data()),
-                static_cast<int>(value.size()), encoded.data(), units, nullptr, nullptr);
+            (void)::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(value.data()),
+                                        static_cast<int>(value.size()), encoded.data(), units, nullptr, nullptr);
         }
         return encoded;
     }
 
-    static std::u16string decode_console_text(const char *data, std::size_t offset,
-                                              std::size_t bytes, bool unicode,
+    static std::u16string decode_console_text(const char *data, std::size_t offset, std::size_t bytes, bool unicode,
                                               UINT code_page)
     {
         std::u16string value;
@@ -2784,8 +2694,7 @@ class console_api final
         }
         else
         {
-            const auto units = ::MultiByteToWideChar(
-                code_page, 0, data + offset, static_cast<int>(bytes), nullptr, 0);
+            const auto units = ::MultiByteToWideChar(code_page, 0, data + offset, static_cast<int>(bytes), nullptr, 0);
             value.resize(static_cast<std::size_t>(std::max(units, 0)));
             if (units > 0)
             {
@@ -2796,8 +2705,8 @@ class console_api final
         return value;
     }
 
-    void append_alias_value(char *output, std::size_t &written, std::size_t capacity,
-                            std::u16string_view value, bool unicode) const
+    void append_alias_value(char *output, std::size_t &written, std::size_t capacity, std::u16string_view value,
+                            bool unicode) const
     {
         if (unicode)
         {

@@ -224,8 +224,7 @@ int main()
     corehost::vtstate::state_applier wrap_applier;
     wrap_applier.apply_text(result.message, wrap_buffer, wrap_state);
     if (wrap_buffer.at(0, 0).primary() != u'A' || wrap_buffer.at(3, 0).primary() != u'D' ||
-        wrap_buffer.at(0, 1).primary() != u'E' ||
-        !wrap_buffer.has_flag(0, screen::line_flag::wrapped))
+        wrap_buffer.at(0, 1).primary() != u'E' || !wrap_buffer.has_flag(0, screen::line_flag::wrapped))
     {
         std::fprintf(stderr, "text wrap failed\n");
         return EXIT_FAILURE;
@@ -265,16 +264,18 @@ int main()
 
     state.set_cursor(2, 1);
     parser.reset();
-    result = parser.parse(u"\x1b" "7");
+    result = parser.parse(u"\x1b"
+                          "7");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     state.set_cursor(0, 0);
     parser.reset();
-    result = parser.parse(u"\x1b" "8");
+    result = parser.parse(u"\x1b"
+                          "8");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().x != 2 || state.cursor().y != 1)
     {
-        std::fprintf(stderr, "save/restore cursor failed x=%zu y=%zu valid=%d\n",
-                     state.cursor().x, state.cursor().y, state.saved_cursor.valid);
+        std::fprintf(stderr, "save/restore cursor failed x=%zu y=%zu valid=%d\n", state.cursor().x, state.cursor().y,
+                     state.saved_cursor.valid);
         return EXIT_FAILURE;
     }
 
@@ -448,8 +449,7 @@ int main()
     parser.reset();
     result = parser.parse(u"\x1bM");
     (void)corehost::vtstate::apply(result.id, result.message, reverse_buffer, reverse_state, applier);
-    if (reverse_buffer.at(0, 0).primary() != u' ' ||
-        reverse_buffer.at(0, 1).primary() != u'A')
+    if (reverse_buffer.at(0, 0).primary() != u' ' || reverse_buffer.at(0, 1).primary() != u'A')
     {
         std::fprintf(stderr, "reverse index failed\n");
         return EXIT_FAILURE;
@@ -552,8 +552,7 @@ int main()
     (void)history_buffer.write_scalar(0, 0, u'A', corehost::screen::cell_style{});
     history_state.set_cursor(0, 1);
     applier.apply_line_feed(history_buffer, history_state);
-    if (history_buffer.history_size() != 1 ||
-        history_buffer.history_line(0)[0].primary() != u'A')
+    if (history_buffer.history_size() != 1 || history_buffer.history_line(0)[0].primary() != u'A')
     {
         std::fprintf(stderr, "line feed history failed\n");
         return EXIT_FAILURE;
@@ -561,7 +560,8 @@ int main()
 
     state.set_cursor(2, 0);
     parser.reset();
-    result = parser.parse(u"\x1b" "D");
+    result = parser.parse(u"\x1b"
+                          "D");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().x != 2 || state.cursor().y != 1)
     {
@@ -569,7 +569,8 @@ int main()
         return EXIT_FAILURE;
     }
     parser.reset();
-    result = parser.parse(u"\x1b" "E");
+    result = parser.parse(u"\x1b"
+                          "E");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().x != 0 || state.cursor().y != 2)
     {

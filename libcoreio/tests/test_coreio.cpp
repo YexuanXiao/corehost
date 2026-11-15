@@ -7,8 +7,7 @@
 
 int main()
 {
-    if (corehost::coreio::IOCTL_READ_IO == 0 ||
-        corehost::coreio::IOCTL_COMPLETE_IO == 0 ||
+    if (corehost::coreio::IOCTL_READ_IO == 0 || corehost::coreio::IOCTL_COMPLETE_IO == 0 ||
         sizeof(corehost::coreio::io_msg) < 4096)
     {
         std::fprintf(stderr, "coreio ABI failed\n");
@@ -23,14 +22,25 @@ int main()
             return ++reads <= 2 ? corehost::coreio::read_io_result::got_message
                                 : corehost::coreio::read_io_result::disconnected;
         }
-        void wait() noexcept {}
+        void wait() noexcept
+        {
+        }
     };
     struct fake_handler
     {
         int handled{};
-        bool handle(corehost::coreio::io_msg &) noexcept { ++handled; return true; }
-        bool should_flush() const noexcept { return false; }
-        void flush() noexcept {}
+        bool handle(corehost::coreio::io_msg &) noexcept
+        {
+            ++handled;
+            return true;
+        }
+        bool should_flush() const noexcept
+        {
+            return false;
+        }
+        void flush() noexcept
+        {
+        }
     };
 
     fake_transport transport;
@@ -58,7 +68,9 @@ int main()
             }
             return corehost::coreio::read_io_result::disconnected;
         }
-        void wait() noexcept {}
+        void wait() noexcept
+        {
+        }
     };
     struct batching_handler
     {
@@ -74,7 +86,10 @@ int main()
             }
             return true;
         }
-        bool should_flush() const noexcept { return ready; }
+        bool should_flush() const noexcept
+        {
+            return ready;
+        }
         void flush() noexcept
         {
             ++flushes;
@@ -105,8 +120,7 @@ int main()
         int reads{};
         bool saw_previous_after_idle{};
         bool saw_null_after_idle{};
-        corehost::coreio::read_io_result read(CD_IO_COMPLETE *previous,
-                                               corehost::coreio::io_msg &) noexcept
+        corehost::coreio::read_io_result read(CD_IO_COMPLETE *previous, corehost::coreio::io_msg &) noexcept
         {
             ++reads;
             if (reads == 1)
@@ -121,7 +135,9 @@ int main()
             saw_null_after_idle = previous == nullptr;
             return corehost::coreio::read_io_result::disconnected;
         }
-        void wait() noexcept {}
+        void wait() noexcept
+        {
+        }
     };
     previous_transport previous_check;
     fake_handler previous_handler;

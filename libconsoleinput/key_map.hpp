@@ -21,25 +21,21 @@ namespace corehost::consoleinput
             event.control_state = (shift & 1) != 0 ? 0x0010 : 0;
             event.control_state |= (shift & 2) != 0 ? 0x0008 : 0;
             event.control_state |= (shift & 4) != 0 ? 0x0004 : 0;
-            event.scan_code = static_cast<std::uint16_t>(
-                ::MapVirtualKeyW(LOBYTE(scan), MAPVK_VK_TO_VSC));
+            event.scan_code = static_cast<std::uint16_t>(::MapVirtualKeyW(LOBYTE(scan), MAPVK_VK_TO_VSC));
         }
     }
     return event;
 }
 
-inline std::optional<key_event>
-key_from_message(vtparser::vt_message_id id, const vtparser::vt_message &message) noexcept
+inline std::optional<key_event> key_from_message(vtparser::vt_message_id id,
+                                                 const vtparser::vt_message &message) noexcept
 {
     if (id == vtparser::vt_message_id::win32_input_key)
     {
         return key_event{
-            message.payload.win32_key.uc,
-            static_cast<virtual_key>(message.payload.win32_key.vk),
-            message.payload.win32_key.sc,
-            message.payload.win32_key.control_state,
-            message.payload.win32_key.repeat_count,
-            message.payload.win32_key.key_down,
+            message.payload.win32_key.uc,           static_cast<virtual_key>(message.payload.win32_key.vk),
+            message.payload.win32_key.sc,           message.payload.win32_key.control_state,
+            message.payload.win32_key.repeat_count, message.payload.win32_key.key_down,
         };
     }
 
@@ -134,9 +130,9 @@ key_from_message(vtparser::vt_message_id id, const vtparser::vt_message &message
     return event;
 }
 
-[[nodiscard]] inline std::optional<mouse_event>
-mouse_from_message(vtparser::vt_message_id id, const vtparser::vt_message &message,
-                   std::uint32_t *current_buttons) noexcept
+[[nodiscard]] inline std::optional<mouse_event> mouse_from_message(vtparser::vt_message_id id,
+                                                                   const vtparser::vt_message &message,
+                                                                   std::uint32_t *current_buttons) noexcept
 {
     if (id != vtparser::vt_message_id::mouse_sgr)
     {

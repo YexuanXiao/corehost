@@ -176,14 +176,12 @@ std::map<std::string, std::string> read_json(const std::filesystem::path &path)
 void copy_asan_runtime(const std::filesystem::path &self_dir, const std::filesystem::path &dir)
 {
     std::error_code error;
-    for (const auto *name : {L"clang_rt.asan_dbg_dynamic-x86_64.dll",
-                             L"clang_rt.asan_dynamic-x86_64.dll"})
+    for (const auto *name : {L"clang_rt.asan_dbg_dynamic-x86_64.dll", L"clang_rt.asan_dynamic-x86_64.dll"})
     {
         const auto source = self_dir / name;
         if (std::filesystem::exists(source))
         {
-            std::filesystem::copy_file(source, dir / name,
-                                       std::filesystem::copy_options::overwrite_existing, error);
+            std::filesystem::copy_file(source, dir / name, std::filesystem::copy_options::overwrite_existing, error);
         }
     }
 }

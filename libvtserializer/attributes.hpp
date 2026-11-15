@@ -12,8 +12,7 @@ namespace corehost::vtserializer
 // buffer is filled and appended once; no per-cell strings or allocations.
 [[nodiscard]] constexpr unsigned legacy_color_index(unsigned bgri) noexcept
 {
-    return static_cast<unsigned>((bgri & 0x04 ? 1u : 0u) | (bgri & 0x02 ? 2u : 0u) |
-                                 (bgri & 0x01 ? 4u : 0u));
+    return static_cast<unsigned>((bgri & 0x04 ? 1u : 0u) | (bgri & 0x02 ? 2u : 0u) | (bgri & 0x01 ? 4u : 0u));
 }
 inline void append_sgr_legacy(byte_buffer &output, std::uint16_t attributes)
 {

@@ -80,12 +80,12 @@ struct input_event final
 
 // Converts parser keyboard messages to a portable key event. Non-keyboard
 // messages return std::nullopt.
-[[nodiscard]] std::optional<key_event>
-key_from_message(vtparser::vt_message_id id, const vtparser::vt_message &message) noexcept;
+[[nodiscard]] std::optional<key_event> key_from_message(vtparser::vt_message_id id,
+                                                        const vtparser::vt_message &message) noexcept;
 
-[[nodiscard]] std::optional<mouse_event>
-mouse_from_message(vtparser::vt_message_id id, const vtparser::vt_message &message,
-                   std::uint32_t *current_buttons = nullptr) noexcept;
+[[nodiscard]] std::optional<mouse_event> mouse_from_message(vtparser::vt_message_id id,
+                                                            const vtparser::vt_message &message,
+                                                            std::uint32_t *current_buttons = nullptr) noexcept;
 
 // Batch-oriented input queue. read() copies a whole span and never pops one
 // element at a time; consumed storage is compacted only when it dominates.

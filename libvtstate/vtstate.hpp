@@ -21,9 +21,8 @@ namespace corehost::vtstate
 class state_applier final
 {
   public:
-    explicit state_applier(screen::text_measurement measurement =
-                              screen::text_measurement::graphemes,
-                          bool ambiguous_is_wide = false) noexcept
+    explicit state_applier(screen::text_measurement measurement = screen::text_measurement::graphemes,
+                           bool ambiguous_is_wide = false) noexcept
         : measurement_{measurement}, ambiguous_is_wide_{ambiguous_is_wide}
     {
     }
@@ -36,11 +35,10 @@ class state_applier final
     [[nodiscard]] static char16_t line_drawing(char16_t value) noexcept
     {
         static constexpr char16_t table[] = {
-            u' ', u'\u25C6', u'\u2592', u'\u2409', u'\u240C', u'\u240D', u'\u240A',
-            u'\u00B0', u'\u00B1', u'\u2424', u'\u240B', u'\u2518', u'\u2510', u'\u250C',
-            u'\u2514', u'\u253C', u'\u23BA', u'\u23BB', u'\u2500', u'\u23BC', u'\u23BD',
-            u'\u251C', u'\u2524', u'\u2534', u'\u252C', u'\u2502', u'\u2264', u'\u2265',
-            u'\u03C0', u'\u2260', u'\u00A3', u'\u00B7'};
+            u' ',      u'\u25C6', u'\u2592', u'\u2409', u'\u240C', u'\u240D', u'\u240A', u'\u00B0',
+            u'\u00B1', u'\u2424', u'\u240B', u'\u2518', u'\u2510', u'\u250C', u'\u2514', u'\u253C',
+            u'\u23BA', u'\u23BB', u'\u2500', u'\u23BC', u'\u23BD', u'\u251C', u'\u2524', u'\u2534',
+            u'\u252C', u'\u2502', u'\u2264', u'\u2265', u'\u03C0', u'\u2260', u'\u00A3', u'\u00B7'};
         if (value >= 0x5F && value <= 0x7E)
         {
             return table[value - 0x5F];
@@ -52,16 +50,13 @@ class state_applier final
     {
         state.line_drawing_charset = line_drawing;
     }
-    bool apply_image(std::u16string_view raw_sequence,
-                     screen::screen_buffer &buffer,
-                     screen::console_state &state)
+    bool apply_image(std::u16string_view raw_sequence, screen::screen_buffer &buffer, screen::console_state &state)
     {
         screen::image_fragment fragment{};
         std::size_t columns = 1;
         std::size_t rows = 1;
 
-        if (const auto kitty = vtparser::parse_kitty_graphics(raw_sequence);
-            kitty.has_value() && kitty->image_id != 0)
+        if (const auto kitty = vtparser::parse_kitty_graphics(raw_sequence); kitty.has_value() && kitty->image_id != 0)
         {
             fragment.image_id = kitty->image_id;
             fragment.placement_id = kitty->placement_id != 0 ? kitty->placement_id : kitty->image_id;
@@ -91,16 +86,15 @@ class state_applier final
         {
             for (std::size_t column = 0; column < columns; ++column)
             {
-                (void)buffer.write_image(start_x + column, start_y + row, fragment_id,
-                                         state.default_style, screen::cell_width::narrow);
+                (void)buffer.write_image(start_x + column, start_y + row, fragment_id, state.default_style,
+                                         screen::cell_width::narrow);
             }
-        }        state.set_cursor(std::min<std::size_t>(start_x + columns, state.width() - 1),
+        }
+        state.set_cursor(std::min<std::size_t>(start_x + columns, state.width() - 1),
                          std::min<std::size_t>(start_y + rows - 1, state.height() - 1));
         return true;
     }
-    void apply_text(const vtparser::vt_message &message,
-                    screen::screen_buffer &buffer,
-                    screen::console_state &state)
+    void apply_text(const vtparser::vt_message &message, screen::screen_buffer &buffer, screen::console_state &state)
     {
         if (ambiguous_is_wide_)
         {
@@ -136,9 +130,8 @@ class state_applier final
 
   public:
     template <screen::text_measurement Mode, bool Ambiguous>
-    void apply_text_impl(const vtparser::vt_message &message,
-                    screen::screen_buffer &buffer,
-                    screen::console_state &state)
+    void apply_text_impl(const vtparser::vt_message &message, screen::screen_buffer &buffer,
+                         screen::console_state &state)
     {
         text_.clear();
         text_.assign(message.payload.text);
@@ -163,8 +156,7 @@ class state_applier final
             {
                 columns = 1;
             }
-            if (cursor.x >= 0 && static_cast<std::size_t>(cursor.x) + static_cast<std::size_t>(columns) >
-                                                     state.width())
+            if (cursor.x >= 0 && static_cast<std::size_t>(cursor.x) + static_cast<std::size_t>(columns) > state.width())
             {
                 buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
                 cursor.x = 0;
@@ -174,26 +166,23 @@ class state_applier final
             {
                 const auto top = state.scroll_top();
                 const auto bottom = state.scroll_bottom();
-                buffer.scroll_region_up(screen::rectangle{0, top, state.width(), bottom - top + 1},
-                                        1, state.default_style);
+                buffer.scroll_region_up(screen::rectangle{0, top, state.width(), bottom - top + 1}, 1,
+                                        state.default_style);
                 cursor.y = static_cast<std::int32_t>(bottom);
             }
-            if (!buffer.write_glyph(cursor,
-                                std::u16string_view{cluster.text.data(), cluster.text.size()},
-                                columns, state.default_style, state.default_hyperlink))
+            if (!buffer.write_glyph(cursor, std::u16string_view{cluster.text.data(), cluster.text.size()}, columns,
+                                    state.default_style, state.default_hyperlink))
             {
                 break;
             }
             cursor.x += columns;
             consumed += cluster.text.size();
         }
-        state.set_cursor(static_cast<std::size_t>(cursor.x),
-                         static_cast<std::size_t>(cursor.y));
+        state.set_cursor(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y));
         last_consumed_ = consumed;
     }
 
-    void apply_resize_window(const vtparser::vt_message &message,
-                             screen::screen_buffer &buffer,
+    void apply_resize_window(const vtparser::vt_message &message, screen::screen_buffer &buffer,
                              screen::console_state &state)
     {
         const auto rows = message.payload.resize.rows;
@@ -206,9 +195,7 @@ class state_applier final
         buffer.resize(static_cast<std::size_t>(cols), static_cast<std::size_t>(rows), state.default_style);
     }
 
-    void apply_alternate_buffer(bool enabled,
-                                screen::screen_buffer &buffer,
-                                screen::console_state &state)
+    void apply_alternate_buffer(bool enabled, screen::screen_buffer &buffer, screen::console_state &state)
     {
         if (enabled)
         {
@@ -222,31 +209,26 @@ class state_applier final
         }
     }
 
-    void apply_cpr(const vtparser::vt_message &message,
-                    screen::console_state &state) noexcept
+    void apply_cpr(const vtparser::vt_message &message, screen::console_state &state) noexcept
     {
-        state.set_cursor(
-            static_cast<std::size_t>(std::max<int>(message.payload.cpr.col - 1, 0)),
-            static_cast<std::size_t>(std::max<int>(message.payload.cpr.row - 1, 0)));
+        state.set_cursor(static_cast<std::size_t>(std::max<int>(message.payload.cpr.col - 1, 0)),
+                         static_cast<std::size_t>(std::max<int>(message.payload.cpr.row - 1, 0)));
     }
 
-    void apply_cursor_horizontal_absolute(const vtparser::vt_message &message,
-                                         screen::console_state &state) noexcept
+    void apply_cursor_horizontal_absolute(const vtparser::vt_message &message, screen::console_state &state) noexcept
     {
         state.set_cursor(static_cast<std::size_t>(std::max<int>(message.payload.position.col - 1, 0)),
                          state.cursor().y);
     }
 
-    void apply_cursor_vertical_absolute(const vtparser::vt_message &message,
-                                       screen::console_state &state) noexcept
+    void apply_cursor_vertical_absolute(const vtparser::vt_message &message, screen::console_state &state) noexcept
     {
         state.set_cursor(state.cursor().x,
                          static_cast<std::size_t>(std::max<int>(message.payload.position.row - 1, 0)));
     }
 
-    void apply_cursor_relative(const vtparser::vt_message &message,
-                             screen::console_state &state,
-                             std::ptrdiff_t dx, std::ptrdiff_t dy) noexcept
+    void apply_cursor_relative(const vtparser::vt_message &message, screen::console_state &state, std::ptrdiff_t dx,
+                               std::ptrdiff_t dy) noexcept
     {
         const auto count = std::max<int>(message.payload.count.value, 1);
         const auto x = static_cast<std::ptrdiff_t>(state.cursor().x) + dx * count;
@@ -271,15 +253,14 @@ class state_applier final
         }
     }
 
-    void apply_reverse_index(screen::screen_buffer &buffer,
-                             screen::console_state &state)
+    void apply_reverse_index(screen::screen_buffer &buffer, screen::console_state &state)
     {
         const auto top = state.scroll_top();
         const auto bottom = state.scroll_bottom();
         if (state.cursor().y == top)
         {
-            buffer.scroll_region_down(screen::rectangle{0, top, state.width(), bottom - top + 1},
-                                     1, state.default_style);
+            buffer.scroll_region_down(screen::rectangle{0, top, state.width(), bottom - top + 1}, 1,
+                                      state.default_style);
         }
         else
         {
@@ -287,9 +268,8 @@ class state_applier final
         }
     }
 
-    void apply_private_mode(const vtparser::vt_message &message,
-                             screen::screen_buffer &buffer,
-                             screen::console_state &state)
+    void apply_private_mode(const vtparser::vt_message &message, screen::screen_buffer &buffer,
+                            screen::console_state &state)
     {
         const auto mode = message.payload.private_mode.mode;
         const auto enabled = message.payload.private_mode.enabled;
@@ -318,25 +298,21 @@ class state_applier final
         }
     }
 
-    void apply_columns(const vtparser::vt_message &message,
-                       screen::screen_buffer &buffer,
-                       screen::console_state &state)
+    void apply_columns(const vtparser::vt_message &message, screen::screen_buffer &buffer, screen::console_state &state)
     {
         const auto width = static_cast<std::size_t>(std::max<int>(message.payload.window_width, 1));
         state.resize(width, state.height());
         buffer.resize(width, state.height(), state.default_style);
     }
 
-    void apply_window_title(const vtparser::vt_message &message,
-                            screen::console_state &state)
+    void apply_window_title(const vtparser::vt_message &message, screen::console_state &state)
     {
         state.title.clear();
         state.title.assign(message.payload.title);
         state.title_changed = true;
     }
 
-    void apply_cursor_shape(const vtparser::vt_message &message,
-                            screen::console_state &state) noexcept
+    void apply_cursor_shape(const vtparser::vt_message &message, screen::console_state &state) noexcept
     {
         switch (message.payload.cursor_shape)
         {
@@ -355,8 +331,7 @@ class state_applier final
         state.cursor_changed = true;
     }
 
-    void apply_cursor_visibility(bool visible,
-                                  screen::console_state &state) noexcept
+    void apply_cursor_visibility(bool visible, screen::console_state &state) noexcept
     {
         state.cursor().visible = visible;
         state.cursor_changed = true;
@@ -372,8 +347,7 @@ class state_applier final
         (void)state.restore_cursor();
     }
 
-    void apply_palette_color(const vtparser::vt_message &message,
-                               screen::console_state &state)
+    void apply_palette_color(const vtparser::vt_message &message, screen::console_state &state)
     {
         const auto index = message.payload.palette.index;
         if (index < 0 || index >= 16)
@@ -382,12 +356,10 @@ class state_applier final
         }
         state.color_table[static_cast<std::size_t>(index)] =
             (static_cast<std::uint32_t>(message.payload.palette.r) << 16) |
-            (static_cast<std::uint32_t>(message.payload.palette.g) << 8) |
-            message.payload.palette.b;
+            (static_cast<std::uint32_t>(message.payload.palette.g) << 8) | message.payload.palette.b;
     }
 
-    void apply_scroll_region(const vtparser::vt_message &message,
-                              screen::console_state &state)
+    void apply_scroll_region(const vtparser::vt_message &message, screen::console_state &state)
     {
         const auto top = static_cast<std::size_t>(std::max<int>(message.payload.scroll_region.top - 1, 0));
         const auto bottom = message.payload.scroll_region.bottom == 0
@@ -396,10 +368,8 @@ class state_applier final
         state.set_scroll_region(top, std::min(bottom, state.height() - 1));
     }
 
-    void apply_scroll(const vtparser::vt_message &message,
-                       screen::screen_buffer &buffer,
-                       screen::console_state &state,
-                       bool up)
+    void apply_scroll(const vtparser::vt_message &message, screen::screen_buffer &buffer, screen::console_state &state,
+                      bool up)
     {
         const auto count = static_cast<std::size_t>(std::max<int>(message.payload.count.value, 1));
         const auto top = state.scroll_top();
@@ -415,8 +385,7 @@ class state_applier final
         }
     }
 
-    void apply_erase_characters(const vtparser::vt_message &message,
-                                screen::screen_buffer &buffer,
+    void apply_erase_characters(const vtparser::vt_message &message, screen::screen_buffer &buffer,
                                 screen::console_state &state)
     {
         const auto count = static_cast<std::size_t>(std::max<int>(message.payload.count.value, 0));
@@ -425,13 +394,11 @@ class state_applier final
         {
             return;
         }
-        buffer.fill_rect(screen::rectangle{x, state.cursor().y,
-                                         std::min(count, state.width() - x), 1},
-                        screen::cell::blank(state.default_style, state.default_hyperlink));
+        buffer.fill_rect(screen::rectangle{x, state.cursor().y, std::min(count, state.width() - x), 1},
+                         screen::cell::blank(state.default_style, state.default_hyperlink));
     }
 
-    void apply_insert_lines(const vtparser::vt_message &message,
-                            screen::screen_buffer &buffer,
+    void apply_insert_lines(const vtparser::vt_message &message, screen::screen_buffer &buffer,
                             screen::console_state &state)
     {
         const auto count = static_cast<std::size_t>(std::max<int>(message.payload.count.value, 0));
@@ -441,12 +408,10 @@ class state_applier final
         {
             return;
         }
-        buffer.scroll_region_down(screen::rectangle{0, y, state.width(), bottom - y + 1}, count,
-                                 state.default_style);
+        buffer.scroll_region_down(screen::rectangle{0, y, state.width(), bottom - y + 1}, count, state.default_style);
     }
 
-    void apply_delete_lines(const vtparser::vt_message &message,
-                            screen::screen_buffer &buffer,
+    void apply_delete_lines(const vtparser::vt_message &message, screen::screen_buffer &buffer,
                             screen::console_state &state)
     {
         const auto count = static_cast<std::size_t>(std::max<int>(message.payload.count.value, 0));
@@ -456,13 +421,11 @@ class state_applier final
         {
             return;
         }
-        buffer.scroll_region_up(screen::rectangle{0, y, state.width(), bottom - y + 1}, count,
-                               state.default_style);
+        buffer.scroll_region_up(screen::rectangle{0, y, state.width(), bottom - y + 1}, count, state.default_style);
     }
 
-    void apply_insert_characters(const vtparser::vt_message &message,
-                                  screen::screen_buffer &buffer,
-                                  screen::console_state &state)
+    void apply_insert_characters(const vtparser::vt_message &message, screen::screen_buffer &buffer,
+                                 screen::console_state &state)
     {
         const auto count = static_cast<std::size_t>(std::max<int>(message.payload.count.value, 0));
         const auto x = state.cursor().x;
@@ -475,12 +438,11 @@ class state_applier final
         buffer.copy_rect(screen::rectangle{x, y, width - x, 1}, screen::rectangle{}, false,
                          screen::coord{static_cast<std::int32_t>(x + count), static_cast<std::int32_t>(y)});
         buffer.fill_rect(screen::rectangle{x, y, std::min(count, width - x), 1},
-                        screen::cell::blank(state.default_style, state.default_hyperlink));
+                         screen::cell::blank(state.default_style, state.default_hyperlink));
     }
 
-    void apply_delete_characters(const vtparser::vt_message &message,
-                                  screen::screen_buffer &buffer,
-                                  screen::console_state &state)
+    void apply_delete_characters(const vtparser::vt_message &message, screen::screen_buffer &buffer,
+                                 screen::console_state &state)
     {
         const auto count = static_cast<std::size_t>(std::max<int>(message.payload.count.value, 0));
         const auto x = state.cursor().x;
@@ -494,12 +456,10 @@ class state_applier final
         buffer.copy_rect(screen::rectangle{x + removed, y, width - x - removed, 1}, screen::rectangle{}, false,
                          screen::coord{static_cast<std::int32_t>(x), static_cast<std::int32_t>(y)});
         buffer.fill_rect(screen::rectangle{width - removed, y, removed, 1},
-                        screen::cell::blank(state.default_style, state.default_hyperlink));
+                         screen::cell::blank(state.default_style, state.default_hyperlink));
     }
 
-    void apply_sgr(const vtparser::vt_message &message,
-                    screen::screen_buffer &buffer,
-                    screen::console_state &state)
+    void apply_sgr(const vtparser::vt_message &message, screen::screen_buffer &buffer, screen::console_state &state)
     {
         const auto &payload = message.payload.sgr;
         auto style = buffer.styles().at(state.default_style);
@@ -534,14 +494,14 @@ class state_applier final
             else if (payload.fg.is_indexed())
             {
                 style.foreground = screen::color{screen::color_kind::indexed, payload.fg.value};
-                state.default_attributes = static_cast<std::uint16_t>((state.default_attributes & 0xFFF0) | ansi_to_bgri(payload.fg.value));
+                state.default_attributes =
+                    static_cast<std::uint16_t>((state.default_attributes & 0xFFF0) | ansi_to_bgri(payload.fg.value));
             }
             else
             {
                 style.foreground = screen::color{screen::color_kind::rgb,
                                                  (static_cast<std::uint32_t>(payload.fg.value) << 16) |
-                                                 (static_cast<std::uint32_t>(payload.fg.g) << 8) |
-                                                 payload.fg.b};
+                                                     (static_cast<std::uint32_t>(payload.fg.g) << 8) | payload.fg.b};
             }
         }
         if (payload.bg.kind != vtparser::vt_sgr_color_kind::none)
@@ -553,14 +513,14 @@ class state_applier final
             else if (payload.bg.is_indexed())
             {
                 style.background = screen::color{screen::color_kind::indexed, payload.bg.value};
-                state.default_attributes = static_cast<std::uint16_t>((state.default_attributes & 0xFF0F) | (ansi_to_bgri(payload.bg.value) << 4));
+                state.default_attributes = static_cast<std::uint16_t>((state.default_attributes & 0xFF0F) |
+                                                                      (ansi_to_bgri(payload.bg.value) << 4));
             }
             else
             {
                 style.background = screen::color{screen::color_kind::rgb,
                                                  (static_cast<std::uint32_t>(payload.bg.value) << 16) |
-                                                 (static_cast<std::uint32_t>(payload.bg.g) << 8) |
-                                                 payload.bg.b};
+                                                     (static_cast<std::uint32_t>(payload.bg.g) << 8) | payload.bg.b};
             }
         }
         style.legacy_attributes = state.default_attributes;
@@ -570,13 +530,12 @@ class state_applier final
     static std::uint16_t ansi_to_bgri(std::uint8_t index) noexcept
     {
         const auto low = static_cast<std::uint16_t>(index & 0x0F);
-        return static_cast<std::uint16_t>((low & 0x01 ? 0x04 : 0) | (low & 0x02 ? 0x02 : 0) |
-                                          (low & 0x04 ? 0x01 : 0) | (low & 0x08 ? 0x08 : 0));
+        return static_cast<std::uint16_t>((low & 0x01 ? 0x04 : 0) | (low & 0x02 ? 0x02 : 0) | (low & 0x04 ? 0x01 : 0) |
+                                          (low & 0x08 ? 0x08 : 0));
     }
 
-    void apply_semantic_prompt(const vtparser::vt_message &message,
-                              screen::screen_buffer &buffer,
-                              const screen::console_state &state)
+    void apply_semantic_prompt(const vtparser::vt_message &message, screen::screen_buffer &buffer,
+                               const screen::console_state &state)
     {
         const auto y = static_cast<std::size_t>(state.cursor().y);
         if (message.payload.semantic.kind == u'A')
@@ -602,8 +561,7 @@ class state_applier final
         buffer.set_command_exit_code(y, exit_code);
     }
 
-    void apply_erase_in_display(const vtparser::vt_message &message,
-                                screen::screen_buffer &buffer,
+    void apply_erase_in_display(const vtparser::vt_message &message, screen::screen_buffer &buffer,
                                 const screen::console_state &state)
     {
         const auto x = state.cursor().x;
@@ -636,8 +594,7 @@ class state_applier final
         }
     }
 
-    void apply_erase_in_line(const vtparser::vt_message &message,
-                             screen::screen_buffer &buffer,
+    void apply_erase_in_line(const vtparser::vt_message &message, screen::screen_buffer &buffer,
                              const screen::console_state &state)
     {
         const auto x = state.cursor().x;
@@ -663,8 +620,7 @@ class state_applier final
                          screen::cell::blank(state.default_style, state.default_hyperlink));
     }
 
-    void apply_hyperlink(const vtparser::vt_message &message,
-                         screen::screen_buffer &buffer,
+    void apply_hyperlink(const vtparser::vt_message &message, screen::screen_buffer &buffer,
                          screen::console_state &state)
     {
         if (message.payload.hyperlink.uri.empty())
@@ -680,8 +636,7 @@ class state_applier final
         state.default_hyperlink = buffer.hyperlinks().intern(uri_, id_);
     }
 
-    void apply_line_feed(screen::screen_buffer &buffer,
-                           screen::console_state &state)
+    void apply_line_feed(screen::screen_buffer &buffer, screen::console_state &state)
     {
         const auto y = state.cursor().y;
         if (y + 1 < state.height())
@@ -698,38 +653,33 @@ class state_applier final
         }
         else
         {
-            buffer.scroll_region_up(
-                screen::rectangle{0, top, state.width(), bottom - top + 1},
-                1, state.default_style);
+            buffer.scroll_region_up(screen::rectangle{0, top, state.width(), bottom - top + 1}, 1, state.default_style);
         }
         state.set_cursor(0, bottom);
     }
 
-    void apply_next_line(screen::screen_buffer &buffer,
-                           screen::console_state &state)
+    void apply_next_line(screen::screen_buffer &buffer, screen::console_state &state)
     {
         state.set_cursor(0, state.cursor().y);
         apply_line_feed(buffer, state);
     }
 
-    void apply_cursor_position(const vtparser::vt_message &message,
-                              screen::console_state &state)
+    void apply_cursor_position(const vtparser::vt_message &message, screen::console_state &state)
     {
         const auto row = static_cast<std::size_t>(std::max<int>(message.payload.position.row - 1, 0));
         const auto column = static_cast<std::size_t>(std::max<int>(message.payload.position.col - 1, 0));
         state.set_cursor(column, row);
     }
 
-    void apply_line_rendition(const vtparser::vt_message &message,
-                              screen::screen_buffer &buffer,
+    void apply_line_rendition(const vtparser::vt_message &message, screen::screen_buffer &buffer,
                               const screen::console_state &state)
     {
         const auto y = static_cast<std::size_t>(state.cursor().y);
         auto flags = buffer.flags(y);
-        constexpr auto rendition_mask = static_cast<screen::line_flags>(
-            screen::line_flag_ops::raw(screen::line_flag::double_width) |
-            screen::line_flag_ops::raw(screen::line_flag::double_height_top) |
-            screen::line_flag_ops::raw(screen::line_flag::double_height_bottom));
+        constexpr auto rendition_mask =
+            static_cast<screen::line_flags>(screen::line_flag_ops::raw(screen::line_flag::double_width) |
+                                            screen::line_flag_ops::raw(screen::line_flag::double_height_top) |
+                                            screen::line_flag_ops::raw(screen::line_flag::double_height_bottom));
         flags &= ~rendition_mask;
 
         switch (message.payload.line_rendition)
@@ -759,6 +709,7 @@ class state_applier final
     std::u16string text_;
     std::u16string uri_;
     std::u16string id_;
+
   private:
     std::size_t last_consumed_{};
     screen::text_measurement measurement_{screen::text_measurement::graphemes};
