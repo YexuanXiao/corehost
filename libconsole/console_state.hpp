@@ -338,6 +338,7 @@ inline console_state::console_state(std::size_t width, std::size_t height)
     scroll_bottom_ = height_ - 1;
     max_window_size = coord{static_cast<std::int32_t>(width_), static_cast<std::int32_t>(height_)};
     input_mode = 0x0001 | 0x0002 | 0x0004;
+    input_private_mode = 0x0020 | 0x0040 | 0x0100;
     output_mode = 0x0001 | 0x0002;
     reset_tab_stops();
 }
