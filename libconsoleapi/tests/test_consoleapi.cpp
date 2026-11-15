@@ -927,6 +927,22 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg font_size_message{};
+    font_size_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETFONTSIZE_MSG);
+    font_size_message.descriptor.OutputSize = sizeof(font_size_message.body);
+    auto *font_size_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(font_size_message.body);
+    font_size_header->ApiNumber = ConsolepGetFontSize;
+    auto *font_size_request = reinterpret_cast<CONSOLE_GETFONTSIZE_MSG *>(
+        font_size_message.body + sizeof(CONSOLE_MSG_HEADER));
+    font_size_request->FontIndex = 0;
+    if (!api.handle(font_size_message) || font_size_request->FontSize.X != 10 ||
+        font_size_request->FontSize.Y != 20)
+    {
+        std::fprintf(stderr, "get font size failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
