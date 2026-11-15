@@ -58,12 +58,12 @@ int main()
     }
 
     buffer.clear();
-    append_utf32(buffer, U"A\u4E2D\U0001F600");
+    append_utf16(buffer, u"A\u4E2D\U0001F600");
     constexpr std::u8string_view utf8 = u8"A\u4E2D\U0001F600";
     if (buffer.bytes().size() != utf8.size() ||
         !std::equal(buffer.bytes().begin(), buffer.bytes().end(), utf8.begin()))
     {
-        std::fprintf(stderr, "utf32 serialization failed\n");
+        std::fprintf(stderr, "utf16 serialization failed\n");
         return EXIT_FAILURE;
     }
 
