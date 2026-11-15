@@ -811,7 +811,25 @@ int main()
         return EXIT_FAILURE;
     }
 
->>>>>>> 6991b89 (feat(consoleapi): handle console history settings)
+    constexpr char16_t newline_text[]{u'A', u'\r', u'\n', u'B'};
+    corehost::coreio::io_msg newline_message{};
+    newline_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                            sizeof(CONSOLE_WRITECONSOLE_MSG) + sizeof(newline_text);
+    newline_message.descriptor.OutputSize = sizeof(newline_message.body);
+    auto *newline_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(newline_message.body);
+    newline_header->ApiNumber = ConsolepWriteConsole;
+    auto *newline_request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(
+        newline_message.body + sizeof(CONSOLE_MSG_HEADER));
+    newline_request->Unicode = TRUE;
+    std::memcpy(newline_message.body + sizeof(CONSOLE_MSG_HEADER) +
+                    sizeof(CONSOLE_WRITECONSOLE_MSG),
+                newline_text, sizeof(newline_text));
+    if (!write_api.handle(newline_message) || write_buffer.at(0, 1).primary() != u'B')
+    {
+        std::fprintf(stderr, "write console newline failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

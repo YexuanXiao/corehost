@@ -492,12 +492,54 @@ class console_api final
         {
             screen::coord cursor{static_cast<std::int32_t>(state_.cursor().x),
                                  static_cast<std::int32_t>(state_.cursor().y)};
-            const auto result = buffer_.write_text_row<screen::text_measurement::console>(
-                cursor, std::u16string_view{data, count}, {}, state_.default_style, true,
-                state_.default_hyperlink);
+            std::size_t offset = 0;
+            while (offset < count)
+            {
+                auto segment_end = offset;
+                while (segment_end < count && data[segment_end] != u'\r' &&
+                       data[segment_end] != u'\n')
+                {
+                    ++segment_end;
+                }
+
+                if (segment_end > offset)
+                {
+                    const auto result = buffer_.write_text_row<screen::text_measurement::console>(
+                        cursor, std::u16string_view{data + offset, segment_end - offset}, {},
+                        state_.default_style, true, state_.default_hyperlink);
+                    written += result.consumed;
+                    if (cursor.x >= static_cast<std::int32_t>(state_.width()))
+                    {
+                        cursor.x = 0;
+                        ++cursor.y;
+                    }
+                }
+
+                if (segment_end >= count)
+                {
+                    break;
+                }
+
+                cursor.x = 0;
+                if (data[segment_end] == u'\n')
+                {
+                    ++cursor.y;
+                }
+                ++segment_end;
+                ++written;
+
+                if (cursor.y >= static_cast<std::int32_t>(state_.height()))
+                {
+                    const auto top = state_.scroll_top();
+                    const auto bottom = state_.scroll_bottom();
+                    buffer_.scroll_region_up(screen::rectangle{0, top, state_.width(), bottom - top + 1},
+                                            1, state_.default_style);
+                    cursor.y = static_cast<std::int32_t>(bottom);
+                }
+                offset = segment_end;
+            }
             state_.set_cursor(static_cast<std::size_t>(cursor.x),
                               static_cast<std::size_t>(cursor.y));
-            written = result.consumed;
         }
         request->NumBytes = static_cast<ULONG>(written * (request->Unicode ? sizeof(char16_t) : 1));
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLE_MSG),
