@@ -48,7 +48,7 @@ inline void run_conpty_session(win32::handle_view server,
     const auto width = config.width > 0 ? static_cast<std::size_t>(config.width) : std::size_t{120};
     const auto height = config.height > 0 ? static_cast<std::size_t>(config.height) : std::size_t{30};
 
-    session state{width, height};
+    session state{width, height, config.text_measurement};
     conptyio::terminal_reader reader{vt_in};
     conptyio::terminal_writer writer{vt_out};
     conptyio::pseudo_window window;

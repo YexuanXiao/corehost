@@ -20,8 +20,9 @@ namespace corehost::corehost2
 class session final
 {
   public:
-    session(std::size_t width, std::size_t height)
-        : screen_{width, height}, state_{width, height}, parser_{raw_}
+    session(std::size_t width, std::size_t height,
+            screen::text_measurement measurement = screen::text_measurement::graphemes)
+        : screen_{width, height}, state_{width, height}, parser_{raw_}, applier_{measurement}
     {
     }
 

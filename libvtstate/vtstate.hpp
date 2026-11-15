@@ -19,7 +19,38 @@ namespace corehost::vtstate
 class state_applier final
 {
   public:
+    explicit state_applier(screen::text_measurement measurement =
+                              screen::text_measurement::graphemes) noexcept
+        : measurement_{measurement}
+    {
+    }
+
+    void set_measurement(screen::text_measurement measurement) noexcept
+    {
+        measurement_ = measurement;
+    }
+
     void apply_text(const vtparser::vt_message &message,
+                    screen::screen_buffer &buffer,
+                    screen::console_state &state)
+    {
+        switch (measurement_)
+        {
+        case screen::text_measurement::console:
+            apply_text_impl<screen::text_measurement::console>(message, buffer, state);
+            break;
+        case screen::text_measurement::wcswidth:
+            apply_text_impl<screen::text_measurement::wcswidth>(message, buffer, state);
+            break;
+        default:
+            apply_text_impl<screen::text_measurement::graphemes>(message, buffer, state);
+            break;
+        }
+    }
+
+  public:
+    template <screen::text_measurement Mode>
+    void apply_text_impl(const vtparser::vt_message &message,
                     screen::screen_buffer &buffer,
                     screen::console_state &state)
     {
@@ -32,7 +63,7 @@ class state_applier final
         };
 
         std::size_t consumed = 0;
-        for (const auto cluster : screen::grapheme_range<screen::text_measurement::graphemes>{text_})
+        for (const auto cluster : screen::grapheme_range<Mode>{text_})
         {
             auto columns = cluster.width;
             if (columns <= 0)
@@ -540,7 +571,9 @@ class state_applier final
     std::u16string text_;
     std::u16string uri_;
     std::u16string id_;
+  private:
     std::size_t last_consumed_{};
+    screen::text_measurement measurement_{screen::text_measurement::graphemes};
 };
 
 } // namespace corehost::vtstate

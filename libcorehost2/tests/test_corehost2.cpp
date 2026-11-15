@@ -133,6 +133,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::corehost2::session console_session{4, 2,
+                                                 corehost::screen::text_measurement::console};
+    console_session.feed(input);
+    if (console_session.screen().at(0, 0).primary() != u'A')
+    {
+        std::fprintf(stderr, "console measurement session failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
 }
