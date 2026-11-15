@@ -945,6 +945,31 @@ class console_api final
         return true;
     }
 
+    [[nodiscard]] static std::u16string alias_exe_from_message(const coreio::io_msg &message,
+                                                              std::size_t descriptor_size,
+                                                              bool unicode)
+    {
+        const auto offset = sizeof(CONSOLE_MSG_HEADER) + descriptor_size;
+        if (offset >= message.descriptor.InputSize)
+        {
+            return {};
+        }
+        const auto bytes = message.descriptor.InputSize - offset;
+        std::u16string exe;
+        if (unicode)
+        {
+            const auto *chars = reinterpret_cast<const char16_t *>(message.body + offset);
+            exe.assign(chars, bytes / sizeof(char16_t));
+        }
+        else
+        {
+            for (std::size_t i = 0; i < bytes; ++i)
+            {
+                exe.push_back(static_cast<unsigned char>(message.body[offset + i]));
+            }
+        }
+        return exe;
+    }
     [[nodiscard]] bool get_aliases_length(coreio::io_msg &message) noexcept
     {
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASESLENGTH_MSG))
@@ -954,9 +979,15 @@ class console_api final
         }
         auto *info = reinterpret_cast<CONSOLE_GETALIASESLENGTH_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
+        const auto exe = alias_exe_from_message(message, sizeof(CONSOLE_GETALIASESLENGTH_MSG),
+                                                info->Unicode != FALSE);
         std::size_t length = 0;
         for (const auto &alias : state_.aliases)
         {
+            if (!exe.empty() && alias.executable != exe)
+            {
+                continue;
+            }
             length += (alias.source.size() + alias.target.size() + 2) * unit;
         }
         info->AliasesLength = static_cast<ULONG>(length);
@@ -1001,9 +1032,15 @@ class console_api final
                                   ? message.descriptor.OutputSize - sizeof(CONSOLE_GETALIASES_MSG)
                                   : 0;
         const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
+        const auto exe = alias_exe_from_message(message, sizeof(CONSOLE_GETALIASES_MSG),
+                                                info->Unicode != FALSE);
         std::size_t written = 0;
         for (const auto &alias : state_.aliases)
         {
+            if (!exe.empty() && alias.executable != exe)
+            {
+                continue;
+            }
             const auto bytes = (alias.source.size() + alias.target.size() + 2) * unit;
             if (written + bytes > capacity)
             {

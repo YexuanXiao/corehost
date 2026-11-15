@@ -1288,6 +1288,41 @@ int main()
         return EXIT_FAILURE;
     }
 
+    add_alias_request->TargetLength = 1;
+    add_alias_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG) +
+                                              sizeof(alias_exe) + sizeof(alias_source) +
+                                              sizeof(alias_target);
+    std::memcpy(alias_data, alias_exe, sizeof(alias_exe));
+    std::memcpy(alias_data + 3, alias_source, sizeof(alias_source));
+    std::memcpy(alias_data + 4, alias_target, sizeof(alias_target));
+    if (!api.handle(add_alias_message))
+    {
+        std::fprintf(stderr, "restore alias failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::io_msg filtered_length_message{};
+    filtered_length_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASESLENGTH_MSG) + sizeof(alias_exe);
+    filtered_length_message.descriptor.OutputSize = sizeof(filtered_length_message.body);
+    auto *filtered_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(filtered_length_message.body);
+    filtered_header->ApiNumber = ConsolepGetAliasesLength;
+    auto *filtered_request = reinterpret_cast<CONSOLE_GETALIASESLENGTH_MSG *>(
+        filtered_length_message.body + sizeof(CONSOLE_MSG_HEADER));
+    filtered_request->Unicode = TRUE;
+    std::memcpy(filtered_request + 1, alias_exe, sizeof(alias_exe));
+    if (!api.handle(filtered_length_message) || filtered_request->AliasesLength != 8)
+    {
+        std::fprintf(stderr, "aliases length exe filter failed\n");
+        return EXIT_FAILURE;
+    }
+    *reinterpret_cast<char16_t *>(filtered_request + 1) = u'X';
+    if (!api.handle(filtered_length_message) || filtered_request->AliasesLength != 0)
+    {
+        std::fprintf(stderr, "aliases length unknown exe failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
