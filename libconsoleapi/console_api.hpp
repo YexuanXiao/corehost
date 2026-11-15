@@ -1107,6 +1107,19 @@ class console_api final
         auto entry = screen::console_state::alias_entry{
             read(exe_end, source_end - exe_end), read(source_end, target_end - source_end),
             read(0, exe_end)};
+        if (entry.source.empty())
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        if (entry.target.empty())
+        {
+            std::erase_if(state_.aliases, [&](const auto &alias) {
+                return alias.source == entry.source && alias.executable == entry.executable;
+            });
+            coreio::prepare_completion(message);
+            return true;
+        }
         const auto existing = std::ranges::find_if(
             state_.aliases, [&](const auto &alias) {
                 return alias.source == entry.source && alias.executable == entry.executable;

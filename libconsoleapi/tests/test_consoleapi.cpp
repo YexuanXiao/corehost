@@ -1224,6 +1224,17 @@ int main()
         return EXIT_FAILURE;
     }
 
+    add_alias_request->TargetLength = 0;
+    add_alias_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_ADDALIAS_MSG) +
+                                              sizeof(alias_exe) + sizeof(alias_source);
+    std::memcpy(alias_data, alias_exe, sizeof(alias_exe));
+    std::memcpy(alias_data + 3, alias_source, sizeof(alias_source));
+    if (!api.handle(add_alias_message) || !state.aliases.empty())
+    {
+        std::fprintf(stderr, "delete alias failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
