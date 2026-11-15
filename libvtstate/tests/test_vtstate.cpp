@@ -101,6 +101,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b[2K");
+    applier.apply_erase_in_line(result.message, buffer, state);
+    if (buffer.at(4, 2).primary() != u' ')
+    {
+        std::fprintf(stderr, "erase line failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::vtstate::state_applier line_applier;
     parser.reset();
     result = parser.parse(U"\n");

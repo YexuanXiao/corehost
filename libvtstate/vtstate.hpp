@@ -39,6 +39,33 @@ class state_applier final
         last_consumed_ = result.consumed;
     }
 
+    void apply_erase_in_line(const vtparser::vt_message &message,
+                             screen::screen_buffer &buffer,
+                             const screen::console_state &state)
+    {
+        const auto x = state.cursor().x;
+        const auto y = state.cursor().y;
+        const auto width = state.width();
+        std::size_t first = 0;
+        std::size_t count = width;
+        switch (message.payload.erase_mode)
+        {
+        case 0:
+            first = x;
+            count = width - x;
+            break;
+        case 1:
+            count = x + 1;
+            break;
+        case 2:
+            break;
+        default:
+            return;
+        }
+        buffer.fill_rect(screen::rectangle{first, y, count, 1},
+                         screen::cell::blank(state.default_style, state.default_hyperlink));
+    }
+
     void apply_hyperlink(const vtparser::vt_message &message,
                          screen::screen_buffer &buffer,
                          screen::console_state &state)
