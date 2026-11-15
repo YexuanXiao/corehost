@@ -29,6 +29,11 @@ class process_registry final
         std::erase(processes_, process);
     }
 
+    [[nodiscard]] bool contains(std::uintptr_t process) const noexcept
+    {
+        return std::ranges::find(processes_, process) != processes_.end();
+    }
+
     [[nodiscard]] std::size_t size() const noexcept
     {
         return processes_.size();

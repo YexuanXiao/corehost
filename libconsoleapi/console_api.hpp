@@ -233,6 +233,10 @@ class console_api final
         {
             return set_title(message);
         }
+        if (header->ApiNumber == ConsolepGenerateCtrlEvent)
+        {
+            return generate_ctrl_event(message);
+        }
         if (header->ApiNumber == ConsolepGetCP)
         {
             return get_code_page(message);
@@ -1586,6 +1590,30 @@ class console_api final
         info->LangId = state_.language_id;
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_LANGID_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_LANGID_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool generate_ctrl_event(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CTRLEVENT_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *request = reinterpret_cast<const CONSOLE_CTRLEVENT_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        if (request->CtrlEvent != 0 && request->CtrlEvent != 1)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        if (request->ProcessGroupId != 0 &&
+            (processes_ == nullptr || !processes_->contains(request->ProcessGroupId)))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        coreio::prepare_completion(message);
         return true;
     }
 

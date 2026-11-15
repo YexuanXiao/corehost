@@ -1351,6 +1351,28 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg ctrl_message{};
+    ctrl_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CTRLEVENT_MSG);
+    ctrl_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CTRLEVENT_MSG);
+    auto *ctrl_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(ctrl_message.body);
+    ctrl_header->ApiNumber = ConsolepGenerateCtrlEvent;
+    auto *ctrl_request = reinterpret_cast<CONSOLE_CTRLEVENT_MSG *>(
+        ctrl_message.body + sizeof(CONSOLE_MSG_HEADER));
+    ctrl_request->CtrlEvent = CTRL_C_EVENT;
+    if (!api.handle(ctrl_message) || ctrl_message.complete.IoStatus.Status != 0)
+    {
+        std::fprintf(stderr, "generate ctrl event failed\n");
+        return EXIT_FAILURE;
+    }
+    ctrl_request->CtrlEvent = 9;
+    if (!api.handle(ctrl_message) ||
+        ctrl_message.complete.IoStatus.Status != corehost::coreio::error::status_invalid_parameter)
+    {
+        std::fprintf(stderr, "invalid ctrl event accepted\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
