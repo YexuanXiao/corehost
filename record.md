@@ -1070,14 +1070,15 @@ feb6ca0 perf(libscreen): replace bgri ternaries with compact table
 c839ce5 Reapply "perf(consoleinput): track key events instead of scanning queue"
 ```
 
-同时去掉 `events_.erase(events_.begin(), ...)`：
+队列容器不再使用 `std::vector` + `head_` 偏移，改用 `bizwen::deque<input_event>`：
 
-- 全部消费时直接 `events_.clear()`；
-- 部分压缩使用 `std::shift_left` + `resize`；
-- `byte_buffer::append` 使用 `append_range` 替代 `insert(end, ...)`。
+- `push_back` / `push_front` 直接入队；
+- `read` 只 `pop_front()`，不再 `vector::erase(begin)`；
+- 没有 `head_` 和尾部压缩逻辑；
+- `byte_buffer::append` 使用 `append_range`。
 
 ```text
-bac5041 perf(consoleinput): clear consumed queue without erase(begin)
+5cefccc perf(consoleinput): use bizwen deque for input queue
 ```
 
 ### 已撤销的样式微优化
