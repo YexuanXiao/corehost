@@ -422,7 +422,8 @@ history_row:
 - `write_scalar`：写一个 BMP code unit；wide 时把 x+1 标记为 tail；
 - `write_cluster`：检查 store 容量、append 完整 cluster、写 type=2 cell；
 - `write_image`：写 image 类型 cell，fragment metadata 在 screen-wide image table；
-- `write_codepoint`：把 `char32_t` 转为 UTF-16 code unit 或 surrogate-pair cluster；
+- `write_codepoint`：通过 `libunicode::convert_to<char16_t>` 把 `char32_t` 转为 UTF-16
+  code unit 或 surrogate-pair cluster；UTF-16 解码使用 `unicode::decoder<char16_t>`；
 - `write_text_row`：支持 `console`/`graphemes`/`wcswidth` 三种
   `text_measurement`；`graphemes`/`wcswidth` 使用 `libunicode` 的
   `grapheme_cluster_width`/`width`；

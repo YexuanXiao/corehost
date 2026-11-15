@@ -641,7 +641,9 @@ corehost 的 `screen_buffer_row` 有 filled/uniform/measured-run 优化；libscr
   `console_screen_buffer_info`、`console_cursor_info`、`console_selection_info`、
   `console_font_info`/`console_font_infoex`；有大小/offset 静态断言；不包含 Windows 头文件。
 - **libunicode**：`libscreen` 通过 `unicode::unicode` 获得 wcwidth 等价的
-  `wcswidth` 和 grapheme cluster 宽度；没有使用 Windows 头文件。
+  `wcswidth` 和 grapheme cluster 宽度；UTF-16/UTF-32 转换使用
+  `unicode::convert_to`、`unicode::encoder<char16_t>`、`unicode::decoder<char16_t>`，
+  不再手写 surrogate 编码/解码；没有使用 Windows 头文件。
 - **Phase 0**：新增 `libscreen/bench/bench_libscreen.cpp` 与 `bench_libscreen` target；
   Debug/ASAN 基线可运行（数字仅作回归基线，不作为发布性能）。
 - **Phase 1**：`geometry.hpp` 提供 `coord`/`rect`/`viewport`；`screen_buffer` 增加
