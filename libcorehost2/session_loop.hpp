@@ -1,6 +1,10 @@
 #pragma once
 
 #include "session.hpp"
+#include "server_session.hpp"
+
+#include "server_loop.hpp"
+#include "win32_transport.hpp"
 
 #include "terminal_reader.hpp"
 #include "terminal_writer.hpp"
@@ -9,6 +13,9 @@
 #include "win32/handle.hpp"
 
 #include <cstddef>
+#include <mutex>
+#include <stop_token>
+#include <thread>
 #include <span>
 
 namespace corehost::corehost2
@@ -26,7 +33,9 @@ struct conpty_session_config final
 
 // Minimal vt_in -> parser -> libscreen -> vt_out loop. ConDrv server and signal
 // handling are added by later modules; this establishes the new session entry.
-inline void run_conpty_session(win32::handle_view vt_in,
+inline void run_conpty_session(win32::handle_view server,
+                               win32::handle_view event,
+                               win32::handle_view vt_in,
                                win32::handle_view vt_out,
                                const conpty_session_config &config)
 {
@@ -36,9 +45,31 @@ inline void run_conpty_session(win32::handle_view vt_in,
     session state{width, height};
     conptyio::terminal_reader reader{vt_in};
     conptyio::terminal_writer writer{vt_out};
+    std::mutex session_mutex;
+    std::jthread server_thread;
+
+    if (server.valid())
+    {
+        server_thread = std::jthread{[&](std::stop_token stop) {
+            try
+            {
+                coreio::win32_transport transport{server, event};
+                server_session console_session{state.screen(), state.state()};
+                auto handler = [&](coreio::io_msg &message) {
+                    const std::scoped_lock lock{session_mutex};
+                    console_session.handle(message);
+                };
+                coreio::run_server(transport, handler, stop);
+            }
+            catch (...)
+            {
+            }
+        }};
+    }
 
     while (reader.read_batch())
     {
+        const std::scoped_lock lock{session_mutex};
         state.feed(reader.codepoints());
 
         const auto cursor = screen::coord{
@@ -52,6 +83,13 @@ inline void run_conpty_session(win32::handle_view vt_in,
         {
             break;
         }
+    }
+
+    if (server_thread.joinable())
+    {
+        server_thread.request_stop();
+        ::CancelSynchronousIo(server_thread.native_handle());
+        server_thread.join();
     }
 }
 
