@@ -470,8 +470,10 @@ class console_api final
         screen::coord echo_cursor = echo_origin;
         std::size_t cursor = cooked_active_ ? std::min(cooked_cursor_, units) : units;
         std::size_t echo_length = cooked_active_ ? cooked_echo_length_ : 0;
-        std::size_t history_position =
-            cooked_active_ ? cooked_history_position_ : state_.command_history.size();
+        if (!cooked_active_)
+        {
+            state_.reset_history_browse();
+        }
         bool line_complete = false;
 
         std::array<consoleinput::input_event, 64> events{};
@@ -524,30 +526,22 @@ class console_api final
                 }
                 else if (events[i].key.key == consoleinput::virtual_key::up)
                 {
-                    if (history_position != 0)
+                    std::u16string selected;
+                    if (state_.browse_history_up(std::u16string_view{output, units}, selected))
                     {
-                        --history_position;
-                        const auto &command = state_.command_history[history_position];
-                        units = std::min<std::size_t>(command.size(), max_units);
-                        std::copy_n(command.data(), units, output);
+                        units = std::min<std::size_t>(selected.size(), max_units);
+                        std::copy_n(selected.data(), units, output);
                         cursor = units;
                     }
                 }
                 else if (events[i].key.key == consoleinput::virtual_key::down)
                 {
-                    if (history_position + 1 < state_.command_history.size())
+                    std::u16string selected;
+                    if (state_.browse_history_down(selected))
                     {
-                        ++history_position;
-                        const auto &command = state_.command_history[history_position];
-                        units = std::min<std::size_t>(command.size(), max_units);
-                        std::copy_n(command.data(), units, output);
+                        units = std::min<std::size_t>(selected.size(), max_units);
+                        std::copy_n(selected.data(), units, output);
                         cursor = units;
-                    }
-                    else
-                    {
-                        history_position = state_.command_history.size();
-                        units = 0;
-                        cursor = 0;
                     }
                 }
                 redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
@@ -612,12 +606,12 @@ class console_api final
                 {
                     erase_character(output, units, cursor, cursor - 1);
                     --cursor;
-                    history_position = state_.command_history.size();
+                    state_.break_history_browse();
                 }
                 redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
                 continue;
             }
-            history_position = state_.command_history.size();
+            state_.break_history_browse();
             if (units < max_units)
             {
                 if (cursor < units)
@@ -642,7 +636,6 @@ class console_api final
             cooked_cursor_ = cursor;
             cooked_origin_ = echo_origin;
             cooked_echo_length_ = echo_length;
-            cooked_history_position_ = history_position;
             cooked_active_ = true;
             pending_read_kind_ = pending_read_kind::console_read;
             if (echo)
@@ -2370,7 +2363,6 @@ class console_api final
     std::size_t cooked_cursor_{};
     screen::coord cooked_origin_{};
     std::size_t cooked_echo_length_{};
-    std::size_t cooked_history_position_{};
     bool cooked_active_{};
     pending_read_kind pending_read_kind_{};
     bool cancel_pending_{};

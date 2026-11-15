@@ -129,6 +129,8 @@ class console_state final
     };
     std::vector<alias_entry> aliases;
     std::vector<std::u16string> command_history;
+    std::size_t history_browse_index{no_history_selection};
+    std::u16string history_saved_input;
     std::size_t command_history_limit{50};
     std::uint32_t display_mode{};
     bool line_drawing_charset{};
@@ -233,7 +235,61 @@ class console_state final
         return std::move(private_mode_changes);
     }
 
+    static constexpr std::size_t no_history_selection = static_cast<std::size_t>(-1);
+
     void add_command(std::u16string_view command);
+    void reset_history_browse() noexcept
+    {
+        history_browse_index = no_history_selection;
+        history_saved_input.clear();
+    }
+
+    void break_history_browse() noexcept
+    {
+        if (history_browse_index != no_history_selection)
+        {
+            reset_history_browse();
+        }
+    }
+
+    [[nodiscard]] bool browse_history_up(std::u16string_view current_input,
+                                         std::u16string &selected)
+    {
+        if (command_history.empty())
+        {
+            return false;
+        }
+        if (history_browse_index == no_history_selection)
+        {
+            history_saved_input.assign(current_input);
+            history_browse_index = command_history.size() - 1;
+        }
+        else if (history_browse_index != 0)
+        {
+            --history_browse_index;
+        }
+        selected.assign(command_history[history_browse_index]);
+        return true;
+    }
+
+    [[nodiscard]] bool browse_history_down(std::u16string &selected)
+    {
+        if (history_browse_index == no_history_selection)
+        {
+            return false;
+        }
+        if (history_browse_index + 1 < command_history.size())
+        {
+            ++history_browse_index;
+            selected.assign(command_history[history_browse_index]);
+        }
+        else
+        {
+            selected.assign(history_saved_input);
+            reset_history_browse();
+        }
+        return true;
+    }
     void expunge_commands() noexcept
     {
         command_history.clear();
