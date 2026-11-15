@@ -265,6 +265,20 @@ add_custom_command(TARGET test_conpty_differential POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
         "$<TARGET_FILE_DIR:test_conpty_differential>/logs"
 )
+# MSVC Debug links AddressSanitizer dynamically. Copy the runtime next to the
+# test executable so CTest and the child-process scenarios can start it.
+get_filename_component(COREHOST_MSVC_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+foreach(_asan_dll
+        clang_rt.asan_dbg_dynamic-x86_64.dll
+        clang_rt.asan_dynamic-x86_64.dll)
+    if(EXISTS "${COREHOST_MSVC_BIN_DIR}/${_asan_dll}")
+        add_custom_command(TARGET test_conpty_differential POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${COREHOST_MSVC_BIN_DIR}/${_asan_dll}"
+                "$<TARGET_FILE_DIR:test_conpty_differential>/${_asan_dll}"
+        )
+    endif()
+endforeach()
 add_test(NAME ConPTY.Differential COMMAND test_conpty_differential)
 set_tests_properties(ConPTY.Differential PROPERTIES LABELS "conpty;differential" TIMEOUT 90)
 
