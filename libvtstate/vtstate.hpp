@@ -148,6 +148,8 @@ class state_applier final
             static_cast<std::int32_t>(state.cursor().x),
             static_cast<std::int32_t>(state.cursor().y),
         };
+        const auto width = state.width();
+        const auto height = state.height();
 
         std::size_t consumed = 0;
         for (const auto cluster : screen::grapheme_range<Mode, Ambiguous>{text})
@@ -157,13 +159,13 @@ class state_applier final
             {
                 columns = 1;
             }
-            if (cursor.x >= 0 && static_cast<std::size_t>(cursor.x) + static_cast<std::size_t>(columns) > state.width())
+            if (cursor.x >= 0 && static_cast<std::size_t>(cursor.x) + static_cast<std::size_t>(columns) > width)
             {
                 buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
                 cursor.x = 0;
                 ++cursor.y;
             }
-            if (cursor.y >= 0 && static_cast<std::size_t>(cursor.y) >= state.height())
+            if (cursor.y >= 0 && static_cast<std::size_t>(cursor.y) >= height)
             {
                 const auto top = state.scroll_top();
                 const auto bottom = state.scroll_bottom();
