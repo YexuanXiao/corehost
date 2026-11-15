@@ -1001,6 +1001,14 @@ fb4d3ef perf(libscreen): remove per-cell bounds checks in ascii run
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### Alias EXE 直接编码到输出
+
+`get_alias_exes` 的非 Unicode 分支先取长度，确认容量后直接把 `WideCharToMultiByte` 结果写入输出，不再为每个 executable 分配临时 `std::string`：
+
+```text
+557e7d1 perf(consoleapi): encode alias exes directly into output
+```
+
 ### Alias EXE 长度查询去掉临时字符串
 
 `get_alias_exes_length` 的非 Unicode 分支直接调用 `WideCharToMultiByte(..., nullptr, 0)` 取长度，不再构造 `std::string` 再取 `.size()`：
