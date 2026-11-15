@@ -58,7 +58,7 @@ inline void run_conpty_session(win32::handle_view server,
             try
             {
                 coreio::win32_transport transport{server, event};
-                server_session console_session{state.screen(), state.state()};
+                server_session console_session{state.screen(), state.state(), state.input()};
                 auto handler = [&](coreio::io_msg &message) {
                     const std::scoped_lock lock{session_mutex};
                     console_session.handle(message);

@@ -16,8 +16,9 @@ namespace corehost::corehost2
 class server_session final
 {
   public:
-    server_session(screen::screen_buffer &buffer, screen::console_state &state) noexcept
-        : api_{buffer, state, &input_}
+    server_session(screen::screen_buffer &buffer, screen::console_state &state,
+                   consoleinput::input_queue &input) noexcept
+        : input_{input}, api_{buffer, state, &input}
     {
     }
 
@@ -26,18 +27,13 @@ class server_session final
         handle(message);
     }
 
-    [[nodiscard]] consoleinput::input_queue &input() noexcept
-    {
-        return input_;
-    }
-
     void handle(coreio::io_msg &message) noexcept
     {
         (void)api_.handle(message);
     }
 
   private:
-    consoleinput::input_queue input_;
+    consoleinput::input_queue &input_;
     consoleapi::console_api api_;
 };
 

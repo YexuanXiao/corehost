@@ -57,7 +57,8 @@ int main()
 
     corehost::screen::screen_buffer server_buffer{8, 2};
     corehost::screen::console_state server_state{8, 2};
-    corehost::corehost2::server_session server{server_buffer, server_state};
+    corehost::consoleinput::input_queue server_input;
+    corehost::corehost2::server_session server{server_buffer, server_state, server_input};
     corehost::coreio::io_msg message{};
     message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG);
     message.descriptor.OutputSize = sizeof(message.body);
