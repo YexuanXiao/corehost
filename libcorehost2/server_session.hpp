@@ -20,6 +20,11 @@ class server_session final
     {
     }
 
+    void operator()(coreio::io_msg &message) noexcept
+    {
+        handle(message);
+    }
+
     void handle(coreio::io_msg &message) noexcept
     {
         (void)api_.handle(message);

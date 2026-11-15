@@ -1,5 +1,6 @@
 #include "conpty.hpp"
 #include "server_session.hpp"
+#include "server_loop.hpp"
 #include "session.hpp"
 
 #include <cstdio>
@@ -60,6 +61,28 @@ int main()
         std::fprintf(stderr, "server session failed\n");
         return EXIT_FAILURE;
     }
+
+    struct fake_transport
+    {
+        int reads{};
+        corehost::coreio::read_io_result read(CD_IO_COMPLETE *, corehost::coreio::io_msg &message) noexcept
+        {
+            if (++reads > 1)
+            {
+                return corehost::coreio::read_io_result::disconnected;
+            }
+            message.descriptor.InputSize =
+                sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCREENBUFFERINFO_MSG);
+            message.descriptor.OutputSize = sizeof(message.body);
+            auto *header = reinterpret_cast<CONSOLE_MSG_HEADER *>(message.body);
+            header->ApiNumber = ConsolepGetScreenBufferInfo;
+            return corehost::coreio::read_io_result::got_message;
+        }
+        void wait() noexcept {}
+    };
+
+    fake_transport transport;
+    corehost::coreio::run_server(transport, server);
 
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
