@@ -1215,7 +1215,8 @@ class console_api final
             {
                 break;
             }
-            append_alias_value(reinterpret_cast<char *>(output), written, alias.source, info->Unicode != FALSE);
+            append_alias_value(reinterpret_cast<char *>(output), written, capacity, alias.source,
+                               info->Unicode != FALSE);
             if (info->Unicode)
             {
                 *reinterpret_cast<char16_t *>(output + written - sizeof(char16_t)) = u'=';
@@ -1224,7 +1225,8 @@ class console_api final
             {
                 output[written - 1] = '=';
             }
-            append_alias_value(reinterpret_cast<char *>(output), written, alias.target, info->Unicode != FALSE);
+            append_alias_value(reinterpret_cast<char *>(output), written, capacity, alias.target,
+                               info->Unicode != FALSE);
         }
         info->AliasesBufferLength = static_cast<ULONG>(written);
         coreio::prepare_completion(message, 0, written, message.body + sizeof(CONSOLE_MSG_HEADER), written);
@@ -1268,10 +1270,14 @@ class console_api final
             }
             else
             {
-                for (const char16_t ch : alias.executable)
+                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+                const auto encoded = encode_console_text(alias.executable, code_page);
+                if (written + encoded.size() + 1 > capacity)
                 {
-                    output[written++] = static_cast<char>(ch < 0x80 ? ch : '?');
+                    break;
                 }
+                std::memcpy(output + written, encoded.data(), encoded.size());
+                written += encoded.size();
                 output[written++] = 0;
             }
         }
@@ -1300,8 +1306,8 @@ class console_api final
         }
 
         auto entry = screen::console_state::alias_entry{
-            decode_console_text(reinterpret_cast<const char *>(data), exe_end, source_end - exe_end, request->Unicode != FALSE), decode_console_text(reinterpret_cast<const char *>(data), source_end, target_end - source_end, request->Unicode != FALSE),
-            decode_console_text(reinterpret_cast<const char *>(data), 0, exe_end, request->Unicode != FALSE)};
+            decode_console_text(reinterpret_cast<const char *>(data), exe_end, source_end - exe_end, request->Unicode != FALSE, state_.input_code_page), decode_console_text(reinterpret_cast<const char *>(data), source_end, target_end - source_end, request->Unicode != FALSE, state_.input_code_page),
+            decode_console_text(reinterpret_cast<const char *>(data), 0, exe_end, request->Unicode != FALSE, state_.input_code_page)};
         if (entry.source.empty())
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
@@ -1360,26 +1366,48 @@ class console_api final
             return true;
         }
 
-        const auto executable = decode_console_text(reinterpret_cast<const char *>(data), 0, exe_bytes, request->Unicode != FALSE);
-        const auto source = decode_console_text(reinterpret_cast<const char *>(data), exe_bytes, source_bytes, request->Unicode != FALSE);
+        const auto executable = decode_console_text(reinterpret_cast<const char *>(data), 0, exe_bytes, request->Unicode != FALSE, state_.input_code_page);
+        const auto source = decode_console_text(reinterpret_cast<const char *>(data), exe_bytes, source_bytes, request->Unicode != FALSE, state_.input_code_page);
         for (const auto &alias : state_.aliases)
         {
             if (alias.source == source && alias.executable == executable)
             {
-                const auto bytes = (alias.target.size() + 1) * unit;
+                const auto available = message.descriptor.OutputSize > sizeof(CONSOLE_GETALIAS_MSG)
+                                           ? message.descriptor.OutputSize - sizeof(CONSOLE_GETALIAS_MSG)
+                                           : 0;
                 auto *output = reinterpret_cast<char *>(request + 1);
+                std::size_t bytes = 0;
                 if (request->Unicode)
                 {
+                    bytes = (alias.target.size() + 1) * sizeof(char16_t);
+                    if (bytes > available)
+                    {
+                        request->TargetLength = static_cast<USHORT>(available);
+                        coreio::prepare_completion(message, coreio::error::status_buffer_too_small,
+                                                   sizeof(CONSOLE_GETALIAS_MSG),
+                                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                                   sizeof(CONSOLE_GETALIAS_MSG));
+                        return true;
+                    }
                     std::memcpy(output, alias.target.data(), alias.target.size() * sizeof(char16_t));
                     *reinterpret_cast<char16_t *>(output + alias.target.size() * sizeof(char16_t)) = 0;
                 }
                 else
                 {
-                    for (std::size_t i = 0; i < alias.target.size(); ++i)
+                    const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+                    const auto encoded = encode_console_text(alias.target, code_page);
+                    if (encoded.size() + 1 > available)
                     {
-                        output[i] = static_cast<char>(alias.target[i] < 0x80 ? alias.target[i] : '?');
+                        request->TargetLength = static_cast<USHORT>(available);
+                        coreio::prepare_completion(message, coreio::error::status_buffer_too_small,
+                                                   sizeof(CONSOLE_GETALIAS_MSG),
+                                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                                   sizeof(CONSOLE_GETALIAS_MSG));
+                        return true;
                     }
-                    output[alias.target.size()] = 0;
+                    std::memcpy(output, encoded.data(), encoded.size());
+                    output[encoded.size()] = 0;
+                    bytes = encoded.size() + 1;
                 }
                 request->TargetLength = static_cast<USHORT>(bytes);
                 coreio::prepare_completion(message, 0, bytes, message.body + sizeof(CONSOLE_MSG_HEADER),
@@ -1462,10 +1490,14 @@ class console_api final
             }
             else
             {
-                for (const char16_t ch : command)
+                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+                const auto encoded = encode_console_text(command, code_page);
+                if (written + encoded.size() + 1 > capacity)
                 {
-                    output[written++] = static_cast<char>(ch < 0x80 ? ch : '?');
+                    break;
                 }
+                std::memcpy(output + written, encoded.data(), encoded.size());
+                written += encoded.size();
                 output[written++] = 0;
             }
         }
@@ -2376,8 +2408,24 @@ class console_api final
         buffer_.fill_attrs(segment, attributes);
     }
 
+    static std::string encode_console_text(std::u16string_view value, UINT code_page)
+    {
+        const auto units = ::WideCharToMultiByte(
+            code_page, 0, reinterpret_cast<const wchar_t *>(value.data()),
+            static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+        std::string encoded(static_cast<std::size_t>(std::max(units, 0)), '\0');
+        if (units > 0)
+        {
+            (void)::WideCharToMultiByte(
+                code_page, 0, reinterpret_cast<const wchar_t *>(value.data()),
+                static_cast<int>(value.size()), encoded.data(), units, nullptr, nullptr);
+        }
+        return encoded;
+    }
+
     static std::u16string decode_console_text(const char *data, std::size_t offset,
-                                              std::size_t bytes, bool unicode)
+                                              std::size_t bytes, bool unicode,
+                                              UINT code_page)
     {
         std::u16string value;
         if (unicode)
@@ -2387,29 +2435,40 @@ class console_api final
         }
         else
         {
-            for (std::size_t i = 0; i < bytes; ++i)
+            const auto units = ::MultiByteToWideChar(
+                code_page, 0, data + offset, static_cast<int>(bytes), nullptr, 0);
+            value.resize(static_cast<std::size_t>(std::max(units, 0)));
+            if (units > 0)
             {
-                value.push_back(static_cast<unsigned char>(data[offset + i]));
+                (void)::MultiByteToWideChar(code_page, 0, data + offset, static_cast<int>(bytes),
+                                            reinterpret_cast<LPWSTR>(value.data()), units);
             }
         }
         return value;
     }
 
-    static void append_alias_value(char *output, std::size_t &written, std::u16string_view value,
-                                   bool unicode)
+    void append_alias_value(char *output, std::size_t &written, std::size_t capacity,
+                            std::u16string_view value, bool unicode) const
     {
         if (unicode)
         {
-            std::memcpy(output + written, value.data(), value.size() * sizeof(char16_t));
-            written += value.size() * sizeof(char16_t);
+            const auto bytes = value.size() * sizeof(char16_t);
+            if (written + bytes + sizeof(char16_t) > capacity)
+            {
+                return;
+            }
+            std::memcpy(output + written, value.data(), bytes);
+            written += bytes;
             *reinterpret_cast<char16_t *>(output + written) = 0;
             written += sizeof(char16_t);
             return;
         }
-        for (const char16_t ch : value)
-        {
-            output[written++] = static_cast<char>(ch < 0x80 ? ch : '?');
-        }
+
+        const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+        const auto encoded = encode_console_text(value, code_page);
+        const auto bytes = std::min(encoded.size(), capacity - written - 1);
+        std::memcpy(output + written, encoded.data(), bytes);
+        written += bytes;
         output[written++] = 0;
     }
     screen::screen_buffer &buffer_;
