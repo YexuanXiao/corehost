@@ -932,7 +932,7 @@ class console_api final
                             byte_count = 2;
                             ++i;
                         }
-                        wchar_t wide[2]{};
+                        wchar_t wide[2];
                         const auto units = ::MultiByteToWideChar(code_page, 0, bytes, byte_count, wide, 2);
                         key.character = units > 0 ? static_cast<char16_t>(wide[0]) : 0;
                     }
