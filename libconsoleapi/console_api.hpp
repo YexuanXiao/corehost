@@ -325,7 +325,7 @@ class console_api final
         std::size_t count = 0;
         if (has_input())
         {
-            std::array<consoleinput::input_event, 64> events{};
+            auto &events = read_events_;
             const auto requested = std::min<std::size_t>(max_records, events.size());
             count = (request->Flags & CONSOLE_READ_NOREMOVE) != 0
                         ? input_->peek(std::span<consoleinput::input_event>{events.data(), requested})
@@ -2664,6 +2664,7 @@ class console_api final
     coreio::process_registry *processes_{};
     coreio::input_payload_reader *payload_{};
     std::u16string text_buffer_;
+    std::array<consoleinput::input_event, 64> read_events_;
     std::vector<char> ansi_buffer_;
     std::vector<char16_t> char_buffer_;
     std::vector<consoleinput::input_event> prepend_buffer_;
