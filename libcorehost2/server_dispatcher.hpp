@@ -84,6 +84,11 @@ class server_dispatcher final
         }
     }
 
+    void take_ctrl_events(std::vector<std::pair<DWORD, DWORD>> &output)
+    {
+        session_.take_ctrl_events(output);
+    }
+
   private:
     coreio::io_state state_;
     server_session &session_;

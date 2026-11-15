@@ -1013,6 +1013,11 @@ class console_api final
         return true;
     }
 
+    void take_ctrl_events(std::vector<std::pair<DWORD, DWORD>> &output)
+    {
+        output.swap(ctrl_events_);
+    }
+
     [[nodiscard]] bool take_cancel_pending() noexcept
     {
         return std::exchange(cancel_pending_, false);
@@ -1701,10 +1706,20 @@ class console_api final
             return true;
         }
         if (request->ProcessGroupId != 0 &&
-            (processes_ == nullptr || !processes_->contains(request->ProcessGroupId)))
+            (processes_ == nullptr || !processes_->contains_group(request->ProcessGroupId)))
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
+        }
+        if (processes_ != nullptr)
+        {
+            std::vector<std::uintptr_t> targets(processes_->size());
+            const auto count = processes_->copy_for_group(request->ProcessGroupId, targets);
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                ctrl_events_.push_back({static_cast<DWORD>(request->CtrlEvent),
+                                        static_cast<DWORD>(targets[i])});
+            }
         }
         coreio::prepare_completion(message);
         return true;
@@ -2318,6 +2333,7 @@ class console_api final
     bool cooked_active_{};
     pending_read_kind pending_read_kind_{};
     bool cancel_pending_{};
+    std::vector<std::pair<DWORD, DWORD>> ctrl_events_;
 };
 
 } // namespace corehost::consoleapi

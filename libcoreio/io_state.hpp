@@ -67,7 +67,16 @@ class io_state final
     void handle_connect(io_msg &message)
     {
         const auto pid = static_cast<DWORD>(message.descriptor.Process);
-        processes_.add(pid);
+        DWORD group = pid;
+        if (message.descriptor.InputSize >= sizeof(CONSOLE_SERVER_MSG))
+        {
+            const auto *info = reinterpret_cast<const CONSOLE_SERVER_MSG *>(message.body);
+            if (info->ProcessGroupId != 0)
+            {
+                group = info->ProcessGroupId;
+            }
+        }
+        processes_.add(pid, group);
 
         if (!connected() && fixed_input_.valid() && fixed_output_.valid())
         {

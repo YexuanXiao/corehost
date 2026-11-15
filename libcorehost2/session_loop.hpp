@@ -8,6 +8,7 @@
 #include "vt_input_thread.hpp"
 #include "signal_reader.hpp"
 
+#include "console_ctrl.hpp"
 #include "server_loop.hpp"
 #include "win32_transport.hpp"
 
@@ -44,6 +45,7 @@ struct server_worker_context final
     conptyio::terminal_writer *writer{};
     win32::srwlock *mutex{};
     const std::atomic_bool *stop{};
+    coreio::ctrl_delivery *delivery{};
 };
 
 inline DWORD WINAPI server_worker_entry(LPVOID raw)
@@ -51,23 +53,30 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
     auto &context = *static_cast<server_worker_context *>(raw);
     coreio::win32_transport transport{context.server, context.event, context.stop_event};
     auto handler = [&](coreio::io_msg &message) -> bool {
-        std::unique_lock guard{*context.mutex};
-        if (!context.dispatcher->handle(message))
+        std::vector<std::pair<DWORD, DWORD>> ctrl_events;
         {
-            return false;
+            std::unique_lock guard{*context.mutex};
+            if (!context.dispatcher->handle(message))
+            {
+                return false;
+            }
+            context.dispatcher->take_ctrl_events(ctrl_events);
+            if (context.state->screen().has_damage())
+            {
+                const auto cursor = screen::coord{
+                    static_cast<std::int32_t>(context.state->state().cursor().x),
+                    static_cast<std::int32_t>(context.state->state().cursor().y),
+                };
+                vtserializer::render_damage(context.writer->buffer(), context.state->screen(),
+                                            cursor, &context.state->state());
+                context.state->screen().clear_damage();
+                context.writer->flush();
+            }
         }
-        if (!context.state->screen().has_damage())
+        for (const auto [event, pid] : ctrl_events)
         {
-            return true;
+            context.delivery->deliver(pid, event);
         }
-        const auto cursor = screen::coord{
-            static_cast<std::int32_t>(context.state->state().cursor().x),
-            static_cast<std::int32_t>(context.state->state().cursor().y),
-        };
-        vtserializer::render_damage(context.writer->buffer(), context.state->screen(), cursor,
-                                    &context.state->state());
-        context.state->screen().clear_damage();
-        context.writer->flush();
         return true;
     };
     coreio::run_server(transport, handler, *context.stop);
@@ -205,8 +214,9 @@ inline void run_conpty_session(win32::handle_view server,
     server_dispatcher dispatcher{server, condrv_input, condrv_output, console_session};
 
     win32::event server_stop_event{win32::create_tag, true, false};
+    coreio::ctrl_delivery ctrl_delivery;
     server_worker_context server_context{server, event, server_stop_event.view(), &dispatcher, &state, &writer,
-                                         &session_mutex, &server_stop};
+                                         &session_mutex, &server_stop, &ctrl_delivery};
     if (server.valid())
     {
         server_thread = win32::basic_thread{&server_worker_entry, &server_context,

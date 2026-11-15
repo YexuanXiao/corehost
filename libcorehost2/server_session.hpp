@@ -130,6 +130,11 @@ class server_session final
     {
         raw_eof_ = false;
     }
+    void take_ctrl_events(std::vector<std::pair<DWORD, DWORD>> &output)
+    {
+        api_.take_ctrl_events(output);
+    }
+
     [[nodiscard]] coreio::process_registry &processes() noexcept
     {
         return processes_;

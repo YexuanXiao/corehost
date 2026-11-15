@@ -1,6 +1,8 @@
 #include "console_api.hpp"
 
 #include <cstdio>
+#include <utility>
+#include <vector>
 #include <cstdlib>
 
 int main()
@@ -1713,6 +1715,36 @@ int main()
         ansi_event.key.character != u'Z')
     {
         std::fprintf(stderr, "ansi write input data failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::process_registry ctrl_processes;
+    ctrl_processes.add(42, 7);
+    corehost::screen::screen_buffer ctrl_buffer{4, 2};
+    corehost::screen::console_state ctrl_state{4, 2};
+    corehost::consoleapi::console_api ctrl_api{ctrl_buffer, ctrl_state, nullptr, 0,
+                                               &ctrl_processes};
+    corehost::coreio::io_msg ctrl_group_message{};
+    ctrl_group_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CTRLEVENT_MSG);
+    auto *ctrl_group_header =
+        reinterpret_cast<CONSOLE_MSG_HEADER *>(ctrl_group_message.body);
+    ctrl_group_header->ApiNumber = ConsolepGenerateCtrlEvent;
+    auto *ctrl_group_request = reinterpret_cast<CONSOLE_CTRLEVENT_MSG *>(
+        ctrl_group_message.body + sizeof(CONSOLE_MSG_HEADER));
+    ctrl_group_request->CtrlEvent = CTRL_C_EVENT;
+    ctrl_group_request->ProcessGroupId = 7;
+    if (!ctrl_api.handle(ctrl_group_message))
+    {
+        std::fprintf(stderr, "group ctrl event failed\n");
+        return EXIT_FAILURE;
+    }
+    std::vector<std::pair<DWORD, DWORD>> ctrl_events;
+    ctrl_api.take_ctrl_events(ctrl_events);
+    if (ctrl_events.size() != 1 || ctrl_events[0].first != CTRL_C_EVENT ||
+        ctrl_events[0].second != 42)
+    {
+        std::fprintf(stderr, "ctrl target failed\n");
         return EXIT_FAILURE;
     }
 
