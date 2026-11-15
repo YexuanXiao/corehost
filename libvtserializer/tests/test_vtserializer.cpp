@@ -74,6 +74,16 @@ int main()
         return EXIT_FAILURE;
     }
 
+    buffer.clear();
+    append_cup(buffer, 0, 0);
+    constexpr std::u8string_view cup = u8"\x1b[1;1H";
+    if (buffer.bytes().size() != cup.size() ||
+        !std::equal(buffer.bytes().begin(), buffer.bytes().end(), cup.begin()))
+    {
+        std::fprintf(stderr, "cup serialization failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtserializer tests passed\n");
     return EXIT_SUCCESS;
 }

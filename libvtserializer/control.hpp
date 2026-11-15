@@ -2,6 +2,7 @@
 
 #include "buffer.hpp"
 
+#include <charconv>
 #include <cstdint>
 #include <string_view>
 
@@ -33,6 +34,22 @@ inline void append_line_rendition(byte_buffer &output, unsigned value)
         static_cast<char8_t>(u8'0' + value),
     };
     output.append(std::span<const char8_t>{sequence, 3});
+}
+
+inline void append_cup(byte_buffer &output, unsigned row, unsigned column)
+{
+    char sequence[32]{};
+    auto *first = sequence;
+    *first++ = static_cast<char>(0x1B);
+    *first++ = '[';
+    auto result = std::to_chars(first, sequence + sizeof(sequence), row + 1);
+    first = result.ptr;
+    *first++ = ';';
+    result = std::to_chars(first, sequence + sizeof(sequence), column + 1);
+    first = result.ptr;
+    *first++ = 'H';
+    output.append(std::span<const char8_t>{reinterpret_cast<const char8_t *>(sequence),
+                                           static_cast<std::size_t>(first - sequence)});
 }
 
 } // namespace corehost::vtserializer
