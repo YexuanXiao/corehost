@@ -75,6 +75,15 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::cursor_forward_tab:
         state.set_cursor(state.next_tab_stop(state.cursor().x), state.cursor().y);
         return true;
+    case vtparser::vt_message_id::horizontal_tab_set:
+        applier.apply_tab_stop(0, state);
+        return true;
+    case vtparser::vt_message_id::tab_clear_current:
+        applier.apply_tab_stop(1, state);
+        return true;
+    case vtparser::vt_message_id::tab_clear_all:
+        applier.apply_tab_stop(2, state);
+        return true;
     case vtparser::vt_message_id::reverse_index:
         applier.apply_reverse_index(buffer, state);
         return true;

@@ -162,6 +162,22 @@ class state_applier final
                          static_cast<std::size_t>(std::max<std::ptrdiff_t>(y, 0)));
     }
 
+    void apply_tab_stop(int operation, screen::console_state &state) noexcept
+    {
+        switch (operation)
+        {
+        case 0:
+            state.tabs().set(state.cursor().x, true);
+            break;
+        case 1:
+            state.tabs().set(state.cursor().x, false);
+            break;
+        default:
+            state.tabs().clear();
+            break;
+        }
+    }
+
     void apply_reverse_index(screen::screen_buffer &buffer,
                              screen::console_state &state)
     {
