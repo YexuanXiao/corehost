@@ -1035,23 +1035,18 @@ aeb8170 perf(vtserializer): reuse unicode codecs per text run
 1eb81a9 perf(vtserializer): remove optional branch for text codepoints
 ```
 
-### legacy 颜色索引
+### legacy 颜色索引（已撤销）
 
-`style_for_legacy` 的 BGRI 转索引原来用 4 个条件：
-
-```cpp
-(bgri & 4 ? 1 : 0) | (bgri & 2 ? 2 : 0) | (bgri & 1 ? 4 : 0) | (bgri & 8 ? 8 : 0)
-```
-
-改为 16 项常量表，正好移除 4 个分支，表元素数小于 256：
-
-```cpp
-static constexpr std::array<std::uint8_t, 16> legacy_color_index{
-    0, 4, 2, 6, 1, 5, 3, 7, 8, 12, 10, 14, 9, 13, 11, 15};
-```
+BGRI 转索引曾改为 16 项查找表以移除 4 个条件。微基准（`C:\1\bench_style.cpp`，2 亿次，Release `/O2`）：
 
 ```text
-feb6ca0 perf(libscreen): replace bgri ternaries with compact table
+old=1.7836-1.8130 ns  table=1.7703-1.7721 ns  ratio≈1.01-1.02x
+```
+
+编译器已经把原条件优化成近似无分支指令，查找表收益只有 1-2%，不值得增加代码量和静态表，因此撤销：
+
+```text
+73833d5 Revert "perf(libscreen): replace bgri ternaries with compact table"
 ```
 
 ### INPUT_RECORD
