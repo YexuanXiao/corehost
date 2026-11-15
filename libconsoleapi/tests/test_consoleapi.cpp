@@ -455,9 +455,18 @@ int main()
     }
     const auto *lang_info = reinterpret_cast<const CONSOLE_LANGID_MSG *>(
         lang_message.body + sizeof(CONSOLE_MSG_HEADER));
-    if (lang_info->LangId != state.language_id)
+    const auto acp = ::GetACP();
+    if (acp == 932 || acp == 936 || acp == 949 || acp == 950)
     {
-        std::fprintf(stderr, "get language id data failed\n");
+        if (lang_info->LangId == 0)
+        {
+            std::fprintf(stderr, "get language id data failed\n");
+            return EXIT_FAILURE;
+        }
+    }
+    else if (lang_message.complete.IoStatus.Status != corehost::coreio::error::status_not_supported)
+    {
+        std::fprintf(stderr, "get language id should be unsupported\n");
         return EXIT_FAILURE;
     }
 

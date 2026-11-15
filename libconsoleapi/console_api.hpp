@@ -1868,8 +1868,31 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
+        const auto acp = ::GetACP();
+        if (acp != 932 && acp != 936 && acp != 949 && acp != 950)
+        {
+            coreio::prepare_completion(message, coreio::error::status_not_supported);
+            return true;
+        }
         auto *info = reinterpret_cast<CONSOLE_LANGID_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
-        info->LangId = state_.language_id;
+        switch (state_.output_code_page)
+        {
+        case 932:
+            info->LangId = 0x0411;
+            break;
+        case 936:
+            info->LangId = 0x0804;
+            break;
+        case 949:
+            info->LangId = 0x0412;
+            break;
+        case 950:
+            info->LangId = 0x0404;
+            break;
+        default:
+            info->LangId = state_.language_id;
+            break;
+        }
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_LANGID_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_LANGID_MSG));
         return true;
