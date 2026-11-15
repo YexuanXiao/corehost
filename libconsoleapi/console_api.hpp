@@ -135,6 +135,14 @@ class console_api final
         {
             return set_current_font(message);
         }
+        if (header->ApiNumber == ConsolepGetHistory)
+        {
+            return get_history_info(message);
+        }
+        if (header->ApiNumber == ConsolepSetHistory)
+        {
+            return set_history_info(message);
+        }
         if (header->ApiNumber == ConsolepGetDisplayMode)
         {
             return get_display_mode(message);
@@ -698,7 +706,40 @@ class console_api final
         return true;
     }
 
-    [[nodiscard]] bool get_display_mode(coreio::io_msg &message) noexcept
+    [[nodiscard]] bool get_history_info(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_HISTORY_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->HistoryBufferSize = state_.history_buffer_size;
+        info->NumberOfHistoryBuffers = state_.history_buffers;
+        info->dwFlags = state_.history_flags;
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_HISTORY_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_HISTORY_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool set_history_info(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *info = reinterpret_cast<const CONSOLE_HISTORY_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        state_.history_buffer_size = info->HistoryBufferSize;
+        state_.history_buffers = info->NumberOfHistoryBuffers;
+        state_.history_flags = info->dwFlags;
+        coreio::prepare_completion(message);
+        return true;
+    }
+
+    (coreio::io_msg &message) noexcept
     {
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETDISPLAYMODE_MSG))
         {

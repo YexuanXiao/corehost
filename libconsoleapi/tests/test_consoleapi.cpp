@@ -777,6 +777,41 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg set_history_message{};
+    set_history_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG);
+    set_history_message.descriptor.OutputSize = sizeof(set_history_message.body);
+    auto *set_history_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(set_history_message.body);
+    set_history_header->ApiNumber = ConsolepSetHistory;
+    auto *set_history_request = reinterpret_cast<CONSOLE_HISTORY_MSG *>(
+        set_history_message.body + sizeof(CONSOLE_MSG_HEADER));
+    set_history_request->HistoryBufferSize = 100;
+    set_history_request->NumberOfHistoryBuffers = 8;
+    set_history_request->dwFlags = 1;
+    if (!api.handle(set_history_message) || state.history_buffer_size != 100)
+    {
+        std::fprintf(stderr, "set history failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::io_msg get_history_message{};
+    get_history_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_HISTORY_MSG);
+    get_history_message.descriptor.OutputSize = sizeof(get_history_message.body);
+    auto *get_history_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(get_history_message.body);
+    get_history_header->ApiNumber = ConsolepGetHistory;
+    if (!api.handle(get_history_message))
+    {
+        std::fprintf(stderr, "get history failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *history_info = reinterpret_cast<const CONSOLE_HISTORY_MSG *>(
+        get_history_message.body + sizeof(CONSOLE_MSG_HEADER));
+    if (history_info->HistoryBufferSize != 100 || history_info->NumberOfHistoryBuffers != 8)
+    {
+        std::fprintf(stderr, "get history data failed\n");
+        return EXIT_FAILURE;
+    }
+
+>>>>>>> 6991b89 (feat(consoleapi): handle console history settings)
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
