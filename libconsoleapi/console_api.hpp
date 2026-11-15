@@ -1384,13 +1384,16 @@ class console_api final
             return true;
         }
 
-        auto entry = screen::console_state::alias_entry{
-            decode_console_text(reinterpret_cast<const char *>(data), exe_end, source_end - exe_end,
-                                request->Unicode != FALSE, state_.input_code_page),
-            decode_console_text(reinterpret_cast<const char *>(data), source_end, target_end - source_end,
-                                request->Unicode != FALSE, state_.input_code_page),
-            decode_console_text(reinterpret_cast<const char *>(data), 0, exe_end, request->Unicode != FALSE,
-                                state_.input_code_page)};
+        auto &source = decoded_source_;
+        decode_console_text_into(source, reinterpret_cast<const char *>(data), exe_end, source_end - exe_end,
+                                 request->Unicode != FALSE, state_.input_code_page);
+        auto &target = decoded_executable_;
+        decode_console_text_into(target, reinterpret_cast<const char *>(data), source_end, target_end - source_end,
+                                 request->Unicode != FALSE, state_.input_code_page);
+        auto &executable = text_buffer_;
+        decode_console_text_into(executable, reinterpret_cast<const char *>(data), 0, exe_end,
+                                 request->Unicode != FALSE, state_.input_code_page);
+        auto entry = screen::console_state::alias_entry{std::move(source), std::move(target), std::move(executable)};
         if (entry.source.empty())
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
@@ -2644,14 +2647,6 @@ class console_api final
                                             reinterpret_cast<LPWSTR>(value.data()), units);
             }
         }
-    }
-
-    static std::u16string decode_console_text(const char *data, std::size_t offset, std::size_t bytes, bool unicode,
-                                              UINT code_page)
-    {
-        std::u16string value;
-        decode_console_text_into(value, data, offset, bytes, unicode, code_page);
-        return value;
     }
 
     void append_alias_value(char *output, std::size_t &written, std::size_t capacity, std::u16string_view value,
