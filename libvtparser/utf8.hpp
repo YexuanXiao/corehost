@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iterator>
 #include <span>
 #include <string>
@@ -21,9 +22,38 @@ class utf8_decoder final
     void decode(std::span<const char8_t> bytes, std::u16string &output)
     {
         output.clear();
-        for (const auto value : bytes)
+
+        constexpr std::uint64_t high_bits = 0x8080808080808080ull;
+        std::size_t index = 0;
+
+        while (index < bytes.size() && pending_size_ != 0)
         {
-            consume(static_cast<std::uint8_t>(value), output);
+            consume(static_cast<std::uint8_t>(bytes[index]), output);
+            ++index;
+        }
+
+        while (index + 8 <= bytes.size())
+        {
+            std::uint64_t word = 0;
+            std::memcpy(&word, bytes.data() + index, sizeof(word));
+            if ((word & high_bits) != 0)
+            {
+                break;
+            }
+
+            const auto offset = output.size();
+            output.resize(offset + 8);
+            for (std::size_t i = 0; i < 8; ++i)
+            {
+                output[offset + i] = static_cast<char16_t>(bytes[index + i]);
+            }
+            index += 8;
+        }
+
+        while (index < bytes.size())
+        {
+            consume(static_cast<std::uint8_t>(bytes[index]), output);
+            ++index;
         }
     }
 
