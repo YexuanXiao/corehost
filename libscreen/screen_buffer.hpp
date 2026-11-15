@@ -1160,8 +1160,11 @@ inline std::size_t screen_buffer::write_chars(coord start, std::u16string_view t
             break;
         }
 
-        const auto decoded = next_codepoint(text, count);
-        auto columns = console_width(decoded.value);
+        const auto first = text[count];
+        const bool ascii = first < 0x80;
+        const auto decoded = ascii ? codepoint_result{static_cast<char32_t>(first), 1}
+                                   : next_codepoint(text, count);
+        auto columns = ascii ? 1 : console_width(decoded.value);
         if (columns <= 0)
         {
             columns = 1;
