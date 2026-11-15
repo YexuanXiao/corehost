@@ -333,7 +333,6 @@ class console_api final
             for (std::size_t i = 0; i < count; ++i)
             {
                 auto &record = output[i];
-                record = INPUT_RECORD{};
                 if (events[i].type == consoleinput::input_event_type::mouse)
                 {
                     record.EventType = MOUSE_EVENT;
