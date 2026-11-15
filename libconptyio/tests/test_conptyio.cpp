@@ -1,4 +1,6 @@
 #include "signal.hpp"
+#include "signal_reader.hpp"
+#include "signal_reader.hpp"
 #include "terminal_reader.hpp"
 #include "terminal_writer.hpp"
 
@@ -69,6 +71,27 @@ int main()
         std::fprintf(stderr, "signal clear failed\n");
         return EXIT_FAILURE;
     }
+
+    HANDLE signal_read = nullptr;
+    HANDLE signal_write = nullptr;
+    if (!::CreatePipe(&signal_read, &signal_write, nullptr, 0))
+    {
+        std::fprintf(stderr, "create signal pipe failed\n");
+        return EXIT_FAILURE;
+    }
+    const std::uint16_t message[] = {2, 0};
+    DWORD message_written = 0;
+    ::WriteFile(signal_write, message, sizeof(message), &message_written, nullptr);
+    ::CloseHandle(signal_write);
+
+    corehost::conptyio::signal_reader signal_reader{win32::handle_view{signal_read}};
+    if (!signal_reader.read_one() || signal_reader.id() != 2 ||
+        signal_reader.payload().size() != 2)
+    {
+        std::fprintf(stderr, "signal reader failed\n");
+        return EXIT_FAILURE;
+    }
+    ::CloseHandle(signal_read);
 
     std::printf("libconptyio tests passed\n");
     return EXIT_SUCCESS;
