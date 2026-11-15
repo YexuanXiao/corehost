@@ -1111,41 +1111,36 @@ inline std::size_t screen_buffer::write_char_info_abi(
 
 inline std::size_t screen_buffer::read_chars(coord start, std::span<char16_t> out) const noexcept
 {
-    std::size_t count = 0;
-    auto x = start.x;
-    auto y = start.y;
-    while (count < out.size() && x >= 0 && y >= 0 &&
-           static_cast<std::size_t>(x) < width_ && static_cast<std::size_t>(y) < height_)
+    if (start.x < 0 || start.y < 0 || static_cast<std::size_t>(start.x) >= width_ ||
+        static_cast<std::size_t>(start.y) >= height_)
     {
-        const auto &value = at(static_cast<std::size_t>(x), static_cast<std::size_t>(y));
-        if (!value.is_continuation())
+        return 0;
+    }
+
+    std::size_t count = 0;
+    for (auto y = start.y; y < static_cast<std::int32_t>(height_) && count < out.size(); ++y)
+    {
+        auto x = y == start.y ? start.x : 0;
+        while (x < static_cast<std::int32_t>(width_) && count < out.size())
         {
-            if (value.has_cluster())
+            const auto &value = at(static_cast<std::size_t>(x), static_cast<std::size_t>(y));
+            if (value.is_continuation() || !value.has_cluster())
             {
-                const auto cluster = cluster_of(value);
-                for (const auto unit : cluster)
-                {
-                    if (count == out.size())
-                    {
-                        return count;
-                    }
-                    out[count++] = unit;
-                }
+                out[count++] = value.is_continuation() || value.has_image() ? u' ' : value.text_unit();
             }
             else
             {
-                out[count++] = value.has_image() ? u'\uFFFD' : value.text_unit();
+                const auto cluster = cluster_of(value);
+                out[count++] = cluster.empty() ||
+                                       (cluster[0] >= 0xD800 && cluster[0] <= 0xDBFF)
+                                   ? u'\uFFFD'
+                                   : cluster[0];
             }
-        }
-        if (++x >= static_cast<std::int32_t>(width_))
-        {
-            x = 0;
-            ++y;
+            ++x;
         }
     }
     return count;
 }
-
 inline std::size_t screen_buffer::read_attrs(coord start, std::span<std::uint16_t> out) const noexcept
 {
     std::size_t count = 0;
