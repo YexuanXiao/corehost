@@ -354,7 +354,9 @@ class console_api final
         {
             std::array<consoleinput::input_event, 64> events{};
             const auto requested = std::min<std::size_t>(max_records, events.size());
-            count = input_->read(std::span<consoleinput::input_event>{events.data(), requested});
+            count = (request->Flags & CONSOLE_READ_NOREMOVE) != 0
+                        ? input_->peek(std::span<consoleinput::input_event>{events.data(), requested})
+                        : input_->read(std::span<consoleinput::input_event>{events.data(), requested});
             for (std::size_t i = 0; i < count; ++i)
             {
                 auto &record = output[i];

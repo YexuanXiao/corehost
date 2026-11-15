@@ -120,6 +120,13 @@ class input_queue final
         return false;
     }
 
+    std::size_t peek(std::span<input_event> destination) const noexcept
+    {
+        const auto count = std::min(destination.size(), size());
+        std::copy_n(events_.begin() + static_cast<std::ptrdiff_t>(head_), count, destination.begin());
+        return count;
+    }
+
     std::size_t read(std::span<input_event> destination) noexcept
     {
         const auto count = std::min(destination.size(), size());

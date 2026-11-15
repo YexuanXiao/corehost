@@ -1433,6 +1433,29 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::input_queue peek_queue;
+    peek_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'A'}});
+    corehost::screen::screen_buffer peek_buffer{4, 2};
+    corehost::screen::console_state peek_state{4, 2};
+    corehost::consoleapi::console_api peek_api{peek_buffer, peek_state, &peek_queue};
+    corehost::coreio::io_msg peek_message{};
+    peek_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+    peek_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + sizeof(INPUT_RECORD);
+    auto *peek_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(peek_message.body);
+    peek_header->ApiNumber = ConsolepGetConsoleInput;
+    auto *peek_request = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(
+        peek_message.body + sizeof(CONSOLE_MSG_HEADER));
+    peek_request->Flags = CONSOLE_READ_NOREMOVE;
+    if (!peek_api.handle(peek_message) || peek_request->NumRecords != 1 ||
+        peek_queue.size() != 1)
+    {
+        std::fprintf(stderr, "GetConsoleInput NOREMOVE failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
