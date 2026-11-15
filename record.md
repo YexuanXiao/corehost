@@ -992,6 +992,14 @@ for (const char16_t ch : text)
 ace2785 perf(vtparser): use compact bitset for control lookup
 ```
 
+### 默认 legacy 样式缓存
+
+`screen_buffer` 首次调用 `styles_.intern(text_style{})` 后缓存默认样式 ID，`style_for_legacy(0x0007)` 直接返回，不再对每个默认属性单元格做一次 `flat_map` 查找。
+
+```text
+b520c69 perf(libscreen): cache default legacy style id
+```
+
 `vtserializer::append_utf16` 改为每次文本 run 只构造一次 `unicode::decoder<char16_t>`/`encoder<char>`，而不是每码点构造：
 
 ```text
