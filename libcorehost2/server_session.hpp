@@ -14,10 +14,60 @@
 
 #include "condrv_io.hpp"
 #include "input.hpp"
+
+#include <bit>
+#include <cstring>
 #include <memory>
+#include <string_view>
 
 namespace corehost::corehost2
 {
+
+template <bool ProcessedInput>
+[[nodiscard]] inline std::size_t find_raw_control(std::string_view text, std::size_t limit) noexcept
+{
+    constexpr std::uint64_t high = 0x8080808080808080ull;
+    constexpr std::uint64_t one = 0x0101010101010101ull;
+    constexpr std::uint64_t cr = 0x0D0D0D0D0D0D0D0Dull;
+    constexpr std::uint64_t lf = 0x0A0A0A0A0A0A0A0Aull;
+    constexpr std::uint64_t ctrl_c = 0x0303030303030303ull;
+    constexpr std::uint64_t ctrl_z = 0x1A1A1A1A1A1A1A1Aull;
+
+    const auto has_zero = [](std::uint64_t value) noexcept {
+        return (value - one) & ~value & high;
+    };
+
+    std::size_t offset = 0;
+    while (offset + sizeof(std::uint64_t) <= limit)
+    {
+        std::uint64_t word = 0;
+        std::memcpy(&word, text.data() + offset, sizeof(word));
+
+        auto matches = has_zero(word ^ cr) | has_zero(word ^ lf);
+        if constexpr (ProcessedInput)
+        {
+            matches |= has_zero(word ^ ctrl_c) | has_zero(word ^ ctrl_z);
+        }
+        if (matches != 0)
+        {
+            return offset + (std::countr_zero(matches) >> 3);
+        }
+        offset += sizeof(std::uint64_t);
+    }
+
+    while (offset < limit)
+    {
+        const auto value = static_cast<unsigned char>(text[offset]);
+        if (value == '\r' || value == '\n' ||
+            (ProcessedInput && (value == 3 || value == 26)))
+        {
+            return offset;
+        }
+        ++offset;
+    }
+    return limit;
+}
+
 
 // Assembly object for the ConDrv server side. It owns only the console-facing
 // handler; reading/completion batching stays in libcoreio.
@@ -201,9 +251,15 @@ class server_session final
         std::size_t consumed = 0;
         bool complete = false;
         bool eof = false;
-        while (consumed < limit)
+
+        const bool processed_input = (state_.input_mode & 0x0001) != 0;
+        const auto found = processed_input
+                               ? find_raw_control<true>(raw_in_, limit)
+                               : find_raw_control<false>(raw_in_, limit);
+        if (found != limit)
         {
-            const auto value = static_cast<unsigned char>(raw_in_[consumed]);
+            const auto value = static_cast<unsigned char>(raw_in_[found]);
+            consumed = found;
             if (value == '\r')
             {
                 ++consumed;
@@ -212,27 +268,22 @@ class server_session final
                     ++consumed;
                 }
                 complete = true;
-                break;
             }
-            if (value == '\n')
+            else if (value == '\n')
             {
                 ++consumed;
                 complete = true;
-                break;
             }
-            if (value == 3 && (state_.input_mode & 0x0001) != 0)
+            else if (value == 3)
             {
                 raw_alerted_ = true;
                 complete = true;
-                break;
             }
-            if (value == 26 && (state_.input_mode & 0x0001) != 0)
+            else if (value == 26)
             {
                 eof = true;
                 complete = true;
-                break;
             }
-            ++consumed;
         }
 
         if (!complete)
