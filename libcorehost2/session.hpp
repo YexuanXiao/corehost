@@ -27,6 +27,8 @@ class session final
         : screen_{width, height}, state_{width, height}, parser_{raw_},
           applier_{measurement, ambiguous_is_wide}
     {
+        window_width_ = static_cast<std::int16_t>(width);
+        window_height_ = static_cast<std::int16_t>(height);
     }
 
     template <std::size_t N>

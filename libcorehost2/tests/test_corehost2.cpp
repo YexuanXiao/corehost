@@ -140,6 +140,24 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::corehost2::session window_session{8, 4};
+    window_session.state().input_mode |= 0x0008;
+    window_session.queue_window_size(8, 4);
+    if (window_session.input().size() != 0)
+    {
+        std::fprintf(stderr, "initial window event queued\n");
+        return EXIT_FAILURE;
+    }
+    window_session.queue_window_size(10, 5);
+    corehost::consoleinput::input_event window_event{};
+    if (window_session.input().peek(std::span<corehost::consoleinput::input_event>{&window_event, 1}) != 1 ||
+        window_event.type != corehost::consoleinput::input_event_type::window ||
+        window_event.window.width != 10 || window_event.window.height != 5)
+    {
+        std::fprintf(stderr, "window event failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::corehost2::session console_session{4, 2,
                                                  corehost::screen::text_measurement::console};
     console_session.feed(input);
