@@ -618,9 +618,16 @@ class state_applier final
 
         const auto top = state.scroll_top();
         const auto bottom = state.scroll_bottom();
-        buffer.scroll_region_up(
-            screen::rectangle{0, top, state.width(), bottom - top + 1},
-            1, state.default_style);
+        if (top == 0 && bottom + 1 == state.height())
+        {
+            buffer.scroll_up(1, state.default_style);
+        }
+        else
+        {
+            buffer.scroll_region_up(
+                screen::rectangle{0, top, state.width(), bottom - top + 1},
+                1, state.default_style);
+        }
         state.set_cursor(x, bottom);
     }
 

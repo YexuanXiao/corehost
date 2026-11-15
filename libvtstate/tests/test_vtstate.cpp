@@ -546,6 +546,18 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer history_buffer{4, 2};
+    corehost::screen::console_state history_state{4, 2};
+    (void)history_buffer.write_scalar(0, 0, u'A', corehost::screen::cell_style{});
+    history_state.set_cursor(0, 1);
+    applier.apply_line_feed(history_buffer, history_state);
+    if (history_buffer.history_size() != 1 ||
+        history_buffer.history_line(0)[0].primary() != u'A')
+    {
+        std::fprintf(stderr, "line feed history failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }
