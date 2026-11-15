@@ -1001,6 +1001,14 @@ fb4d3ef perf(libscreen): remove per-cell bounds checks in ascii run
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### 命令展开缓冲复用
+
+`read_console` 回车处理不再每次构造局部 `std::u16string expanded`，复用成员 `expanded_line_`：
+
+```text
+a00a71f perf(consoleapi): reuse expanded command buffer
+```
+
 ### SetTitle 缓冲复用
 
 `set_title` 不再每次构造局部 `std::u16string title` 和 `std::wstring wide`，复用成员 `title_buffer_` / `wide_title_buffer_`：
