@@ -206,6 +206,34 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg read_string_message{};
+    read_string_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
+    read_string_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) +
+        2 * sizeof(char16_t);
+    auto *read_string_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(read_string_message.body);
+    read_string_header->ApiNumber = ConsolepReadConsoleOutputString;
+    auto *read_string_request = reinterpret_cast<CONSOLE_READCONSOLEOUTPUTSTRING_MSG *>(
+        read_string_message.body + sizeof(CONSOLE_MSG_HEADER));
+    read_string_request->ReadCoord = COORD{0, 0};
+    read_string_request->StringType = CONSOLE_REAL_UNICODE;
+    read_string_request->NumRecords = 2;
+    if (!api.handle(read_string_message) || read_string_request->NumRecords != 2 ||
+        read_string_message.complete.IoStatus.Information != 2 * sizeof(char16_t))
+    {
+        std::fprintf(stderr, "read console output string failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *read_string_data = reinterpret_cast<const char16_t *>(
+        read_string_message.body + sizeof(CONSOLE_MSG_HEADER) +
+        sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
+    if (read_string_data[0] != u'H' || read_string_data[1] != u'I')
+    {
+        std::fprintf(stderr, "read console output string data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
