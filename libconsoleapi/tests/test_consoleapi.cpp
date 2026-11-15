@@ -183,6 +183,29 @@ int main()
         return EXIT_FAILURE;
     }
 
+    constexpr char16_t string_data[]{u'H', u'I'};
+    corehost::coreio::io_msg string_message{};
+    string_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                          sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG) +
+                                          sizeof(string_data);
+    string_message.descriptor.OutputSize = sizeof(string_message.body);
+    auto *string_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(string_message.body);
+    string_header->ApiNumber = ConsolepWriteConsoleOutputString;
+    auto *string_request = reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG *>(
+        string_message.body + sizeof(CONSOLE_MSG_HEADER));
+    string_request->WriteCoord = COORD{0, 0};
+    string_request->StringType = CONSOLE_REAL_UNICODE;
+    string_request->NumRecords = 2;
+    std::memcpy(string_message.body + sizeof(CONSOLE_MSG_HEADER) +
+                    sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG),
+                string_data, sizeof(string_data));
+    if (!api.handle(string_message) || buffer.at(0, 0).primary() != u'H' ||
+        buffer.at(1, 0).primary() != u'I' || string_request->NumRecords != 2)
+    {
+        std::fprintf(stderr, "write console output string failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

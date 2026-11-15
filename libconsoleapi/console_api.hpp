@@ -73,6 +73,10 @@ class console_api final
         {
             return get_largest_window_size(message);
         }
+        if (header->ApiNumber == ConsolepWriteConsoleOutputString)
+        {
+            return write_console_output_string(message);
+        }
         if (header->ApiNumber == ConsolepFillConsoleOutput)
         {
             return fill_console_output(message);
@@ -112,6 +116,45 @@ class console_api final
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCURSORINFO_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETCURSORINFO_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool write_console_output_string(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *request = reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        if (request->WriteCoord.X < 0 || request->WriteCoord.Y < 0)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *data = reinterpret_cast<const std::byte *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
+        const auto data_size = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
+                               sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG);
+        const auto coordinate = screen::coord{request->WriteCoord.X, request->WriteCoord.Y};
+        std::size_t written = 0;
+        if (request->StringType == CONSOLE_ATTRIBUTE)
+        {
+            const auto count = std::min<std::size_t>(request->NumRecords, data_size / sizeof(std::uint16_t));
+            written = buffer_.write_attrs(coordinate,
+                std::span<const std::uint16_t>{reinterpret_cast<const std::uint16_t *>(data), count});
+        }
+        else if (request->StringType == CONSOLE_REAL_UNICODE)
+        {
+            const auto count = std::min<std::size_t>(request->NumRecords, data_size / sizeof(char16_t));
+            written = buffer_.write_chars(coordinate,
+                std::u16string_view{reinterpret_cast<const char16_t *>(data), count});
+        }
+        request->NumRecords = static_cast<ULONG>(written);
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG));
         return true;
     }
 
