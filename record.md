@@ -1012,6 +1012,25 @@ short-8              scalar=0.592-0.663  swar=0.328-0.393  ratio=1.5-2.0x
 db52434 perf(vtparser): scan four ground chars per branchless word
 ```
 
+### Raw input 控制字节扫描
+
+`server_session::read_raw` 原来逐字节判断 `\r`、`\n`、Ctrl-C、Ctrl-Z。改为 64 位字一次检查 8 字节，按是否启用 processed input 只编译出一种目标集合：
+
+```text
+no-control-64k   scalar=0.480-0.520 ns/byte  swar=0.078-0.117 ns/byte  ratio=4.4-6.4x
+lf-at-end-64k    scalar=0.479-0.539 ns/byte  swar=0.077-0.113 ns/byte  ratio=4.2-6.7x
+cr-at-mid-64k    scalar=0.242-0.266 ns/byte  swar=0.038-0.070 ns/byte  ratio=3.5-7.0x
+ctrl-c-end-64k   scalar=0.751-0.772 ns/byte  swar=0.120-0.148 ns/byte  ratio=5.1-6.4x
+short-16         scalar=0.492-0.734 ns/byte  swar=0.162-0.272 ns/byte  ratio=2.5-3.2x
+```
+
+数据来自 `C:\1\bench_raw.cpp`，Release `/O2`，QPC 计时，3 次运行。新增测试覆盖无控制字节、lane 中间控制字节、控制残留。
+
+```text
+707f509 perf(corehost2): scan raw input bytes in 64-bit words
+1fed644 test(corehost2): cover raw word scan boundaries
+```
+
 ### 默认 legacy 样式缓存
 
 `screen_buffer` 首次调用 `styles_.intern(text_style{})` 后缓存默认样式 ID，`style_for_legacy(0x0007)` 直接返回，不再对每个默认属性单元格做一次 `flat_map` 查找。
