@@ -39,7 +39,7 @@ class terminal_reader final
         return true;
     }
 
-    [[nodiscard]] std::span<const char32_t> codepoints() const noexcept
+    [[nodiscard]] std::span<const char16_t> codepoints() const noexcept
     {
         return codepoints_;
     }
@@ -53,7 +53,7 @@ class terminal_reader final
     win32::handle_view input_;
     std::vector<char> bytes_ = std::vector<char>(4096);
     std::string pending_;
-    std::u32string codepoints_;
+    std::u16string codepoints_;
     bool closed_{};
 };
 

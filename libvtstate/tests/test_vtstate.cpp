@@ -9,9 +9,9 @@ int main()
     namespace vtparser = corehost::vtparser;
     namespace screen = corehost::screen;
 
-    vtparser::raw_u32_buffer raw;
+    vtparser::raw_u16_buffer raw;
     vtparser::vt_parser parser{raw};
-    auto result = parser.parse(U"AB\u4E2D");
+    auto result = parser.parse(u"AB\u4E2D");
     if (result.id != vtparser::vt_message_id::continue_text)
     {
         std::fprintf(stderr, "unexpected parse result\n");
@@ -45,7 +45,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b#6");
+    result = parser.parse(u"\x1b#6");
     if (result.id != vtparser::vt_message_id::set_line_rendition)
     {
         std::fprintf(stderr, "rendition parse failed\n");
@@ -59,7 +59,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b#5");
+    result = parser.parse(u"\x1b#5");
     applier.apply_line_rendition(result.message, buffer, state);
     if (buffer.is_double_width(0))
     {
@@ -68,7 +68,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[3;5H");
+    result = parser.parse(u"\x1b[3;5H");
     applier.apply_cursor_position(result.message, state);
     if (state.cursor().x != 4 || state.cursor().y != 2)
     {
@@ -77,10 +77,10 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b]8;id=doc;https://example.test/\x07");
+    result = parser.parse(u"\x1b]8;id=doc;https://example.test/\x07");
     applier.apply_hyperlink(result.message, buffer, state);
     parser.reset();
-    result = parser.parse(U"L");
+    result = parser.parse(u"L");
     applier.apply_text(result.message, buffer, state);
     if (buffer.at(4, 2).hyperlink() == screen::no_cell_hyperlink)
     {
@@ -94,7 +94,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b]8;;\x07");
+    result = parser.parse(u"\x1b]8;;\x07");
     applier.apply_hyperlink(result.message, buffer, state);
     if (state.default_hyperlink != screen::no_cell_hyperlink)
     {
@@ -103,7 +103,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[2K");
+    result = parser.parse(u"\x1b[2K");
     applier.apply_erase_in_line(result.message, buffer, state);
     if (buffer.at(4, 2).primary() != u' ')
     {
@@ -112,7 +112,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[2J");
+    result = parser.parse(u"\x1b[2J");
     applier.apply_erase_in_display(result.message, buffer, state);
     if (buffer.at(0, 0).primary() != u' ' || buffer.at(4, 2).primary() != u' ')
     {
@@ -121,7 +121,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b]133;A\x07");
+    result = parser.parse(u"\x1b]133;A\x07");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (!buffer.has_flag(state.cursor().y, screen::line_flag::prompt_end))
     {
@@ -130,7 +130,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b]133;D;7\x07");
+    result = parser.parse(u"\x1b]133;D;7\x07");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (!buffer.has_flag(state.cursor().y, screen::line_flag::command_end) ||
         buffer.command_exit_code(state.cursor().y) != 7)
@@ -141,7 +141,7 @@ int main()
 
     corehost::vtstate::state_applier line_applier;
     parser.reset();
-    result = parser.parse(U"\n");
+    result = parser.parse(u"\n");
     if (result.id != vtparser::vt_message_id::line_feed)
     {
         std::fprintf(stderr, "line feed parse failed\n");
@@ -163,7 +163,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"Z");
+    result = parser.parse(u"Z");
     if (!corehost::vtstate::apply(result.id, result.message, buffer, state, applier))
     {
         std::fprintf(stderr, "dispatcher rejected text\n");
@@ -174,11 +174,11 @@ int main()
     corehost::screen::console_state alt_state{4, 2};
     corehost::vtstate::state_applier alt_applier;
     parser.reset();
-    result = parser.parse(U"M");
+    result = parser.parse(u"M");
     alt_applier.apply_text(result.message, alt_buffer, alt_state);
 
     parser.reset();
-    result = parser.parse(U"\x1b[?1049h");
+    result = parser.parse(u"\x1b[?1049h");
     (void)corehost::vtstate::apply(result.id, result.message, alt_buffer, alt_state, alt_applier);
     if (!alt_buffer.alternate_active() || alt_buffer.at(0, 0).primary() != u' ')
     {
@@ -187,11 +187,11 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"A");
+    result = parser.parse(u"A");
     alt_applier.apply_text(result.message, alt_buffer, alt_state);
 
     parser.reset();
-    result = parser.parse(U"\x1b[?1049l");
+    result = parser.parse(u"\x1b[?1049l");
     (void)corehost::vtstate::apply(result.id, result.message, alt_buffer, alt_state, alt_applier);
     if (alt_buffer.alternate_active() || alt_buffer.at(0, 0).primary() != u'M')
     {
@@ -200,7 +200,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[31m");
+    result = parser.parse(u"\x1b[31m");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if ((state.default_attributes & 0x0F) != 0x04)
     {
@@ -209,7 +209,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[1;44m");
+    result = parser.parse(u"\x1b[1;44m");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if ((state.default_attributes & 0x08) == 0 || ((state.default_attributes >> 4) & 0x0F) != 0x01)
     {
@@ -220,7 +220,7 @@ int main()
     corehost::screen::screen_buffer wrap_buffer{4, 2};
     corehost::screen::console_state wrap_state{4, 2};
     parser.reset();
-    result = parser.parse(U"ABCDE");
+    result = parser.parse(u"ABCDE");
     corehost::vtstate::state_applier wrap_applier;
     wrap_applier.apply_text(result.message, wrap_buffer, wrap_state);
     if (wrap_buffer.at(0, 0).primary() != u'A' || wrap_buffer.at(3, 0).primary() != u'D' ||
@@ -236,7 +236,7 @@ int main()
     corehost::screen::coord edit_cursor{0, 0};
     (void)edit_buffer.write_text_row(edit_cursor, u"ABCD", {}, corehost::screen::cell_style{}, false);
     parser.reset();
-    result = parser.parse(U"\x1b[2@");
+    result = parser.parse(u"\x1b[2@");
     (void)corehost::vtstate::apply(result.id, result.message, edit_buffer, edit_state, applier);
     if (edit_buffer.at(0, 0).primary() != u' ' || edit_buffer.at(2, 0).primary() != u'A' ||
         edit_buffer.at(3, 0).primary() != u'B')
@@ -246,7 +246,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[2P");
+    result = parser.parse(u"\x1b[2P");
     (void)corehost::vtstate::apply(result.id, result.message, edit_buffer, edit_state, applier);
     if (edit_buffer.at(0, 0).primary() != u'A' || edit_buffer.at(1, 0).primary() != u'B')
     {
@@ -255,7 +255,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b]4;1;rgb:ff/00/00\x07");
+    result = parser.parse(u"\x1b]4;1;rgb:ff/00/00\x07");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.color_table[1] != 0xFF0000)
     {
@@ -265,11 +265,11 @@ int main()
 
     state.set_cursor(2, 1);
     parser.reset();
-    result = parser.parse(U"\x1b" "7");
+    result = parser.parse(u"\x1b" "7");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     state.set_cursor(0, 0);
     parser.reset();
-    result = parser.parse(U"\x1b" "8");
+    result = parser.parse(u"\x1b" "8");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().x != 2 || state.cursor().y != 1)
     {
@@ -279,7 +279,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[?25l");
+    result = parser.parse(u"\x1b[?25l");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().visible)
     {
@@ -291,7 +291,7 @@ int main()
     corehost::screen::console_state line_state{4, 3};
     (void)line_buffer.write_scalar(0, 0, u'A', corehost::screen::cell_style{});
     parser.reset();
-    result = parser.parse(U"\x1b[L");
+    result = parser.parse(u"\x1b[L");
     (void)corehost::vtstate::apply(result.id, result.message, line_buffer, line_state, applier);
     if (line_buffer.at(0, 0).primary() != u' ' || line_buffer.at(0, 1).primary() != u'A')
     {
@@ -300,7 +300,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[M");
+    result = parser.parse(u"\x1b[M");
     (void)corehost::vtstate::apply(result.id, result.message, line_buffer, line_state, applier);
     if (line_buffer.at(0, 0).primary() != u'A')
     {
@@ -310,7 +310,7 @@ int main()
 
     state.set_cursor(2, 1);
     parser.reset();
-    result = parser.parse(U"\x1b[2A");
+    result = parser.parse(u"\x1b[2A");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().y != 0)
     {
@@ -319,7 +319,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[C");
+    result = parser.parse(u"\x1b[C");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().x != 3)
     {
@@ -328,7 +328,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[3G");
+    result = parser.parse(u"\x1b[3G");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().x != 2)
     {
@@ -337,7 +337,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[4d");
+    result = parser.parse(u"\x1b[4d");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().y != 3)
     {
@@ -351,7 +351,7 @@ int main()
     (void)erase_buffer.write_text_row(erase_cursor, u"ABCD", {}, corehost::screen::cell_style{}, false);
     erase_state.set_cursor(1, 0);
     parser.reset();
-    result = parser.parse(U"\x1b[2X");
+    result = parser.parse(u"\x1b[2X");
     (void)corehost::vtstate::apply(result.id, result.message, erase_buffer, erase_state, applier);
     if (erase_buffer.at(1, 0).primary() != u' ' || erase_buffer.at(2, 0).primary() != u' ' ||
         erase_buffer.at(3, 0).primary() != u'D')
@@ -361,7 +361,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[1;2r");
+    result = parser.parse(u"\x1b[1;2r");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.scroll_top() != 0 || state.scroll_bottom() != 1)
     {
@@ -370,7 +370,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[5;3R");
+    result = parser.parse(u"\x1b[5;3R");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().x != 2 || state.cursor().y != 4)
     {
@@ -381,7 +381,7 @@ int main()
     corehost::screen::screen_buffer resize_buffer{4, 2};
     corehost::screen::console_state resize_state{4, 2};
     parser.reset();
-    result = parser.parse(U"\x1b[8;3;5t");
+    result = parser.parse(u"\x1b[8;3;5t");
     (void)corehost::vtstate::apply(result.id, result.message, resize_buffer, resize_state, applier);
     if (resize_buffer.buffer_size() != corehost::screen::coord{5, 3} || resize_state.height() != 3)
     {
@@ -390,7 +390,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[4 q");
+    result = parser.parse(u"\x1b[4 q");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().style != corehost::screen::cursor_style::underline)
     {
@@ -399,7 +399,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b]0;Hello\x07");
+    result = parser.parse(u"\x1b]0;Hello\x07");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.title != u"Hello")
     {
@@ -408,7 +408,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[?3h");
+    result = parser.parse(u"\x1b[?3h");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.width() != 132)
     {
@@ -416,7 +416,7 @@ int main()
         return EXIT_FAILURE;
     }
     parser.reset();
-    result = parser.parse(U"\x1b[?3l");
+    result = parser.parse(u"\x1b[?3l");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.width() != 80)
     {
@@ -425,7 +425,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[?1000h");
+    result = parser.parse(u"\x1b[?1000h");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (!state.private_modes.test(1000))
     {
@@ -433,7 +433,7 @@ int main()
         return EXIT_FAILURE;
     }
     parser.reset();
-    result = parser.parse(U"\x1b[?1000l");
+    result = parser.parse(u"\x1b[?1000l");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.private_modes.test(1000))
     {
@@ -445,7 +445,7 @@ int main()
     corehost::screen::console_state reverse_state{4, 3};
     (void)reverse_buffer.write_scalar(0, 0, u'A', corehost::screen::cell_style{});
     parser.reset();
-    result = parser.parse(U"\x1bM");
+    result = parser.parse(u"\x1bM");
     (void)corehost::vtstate::apply(result.id, result.message, reverse_buffer, reverse_state, applier);
     if (reverse_buffer.at(0, 0).primary() != u' ' ||
         reverse_buffer.at(0, 1).primary() != u'A')
@@ -456,11 +456,11 @@ int main()
 
     state.set_cursor(4, 0);
     parser.reset();
-    result = parser.parse(U"\x1bH");
+    result = parser.parse(u"\x1bH");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     state.set_cursor(0, 0);
     parser.reset();
-    result = parser.parse(U"\x1b[I");
+    result = parser.parse(u"\x1b[I");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().x != 4)
     {
@@ -468,11 +468,11 @@ int main()
         return EXIT_FAILURE;
     }
     parser.reset();
-    result = parser.parse(U"\x1b[3g");
+    result = parser.parse(u"\x1b[3g");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     state.set_cursor(0, 0);
     parser.reset();
-    result = parser.parse(U"\x1b[I");
+    result = parser.parse(u"\x1b[I");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().x != 0)
     {
@@ -481,7 +481,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[?1h");
+    result = parser.parse(u"\x1b[?1h");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (!state.private_modes.test(1))
     {
@@ -492,10 +492,10 @@ int main()
     corehost::screen::screen_buffer charset_buffer{4, 2};
     corehost::screen::console_state charset_state{4, 2};
     parser.reset();
-    result = parser.parse(U"\x1b(0");
+    result = parser.parse(u"\x1b(0");
     (void)corehost::vtstate::apply(result.id, result.message, charset_buffer, charset_state, applier);
     parser.reset();
-    result = parser.parse(U"q");
+    result = parser.parse(u"q");
     (void)corehost::vtstate::apply(result.id, result.message, charset_buffer, charset_state, applier);
     if (charset_buffer.at(0, 0).primary() != u'\u2500')
     {
@@ -504,7 +504,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b=");
+    result = parser.parse(u"\x1b=");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (!state.keypad_application || !state.keypad_changed)
     {
@@ -514,7 +514,7 @@ int main()
 
     state.set_cursor(1, 0);
     parser.reset();
-    result = parser.parse(U"\b");
+    result = parser.parse(u"\b");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().x != 0)
     {
@@ -524,7 +524,7 @@ int main()
 
     state.set_cursor(1, 0);
     parser.reset();
-    result = parser.parse(U"\b");
+    result = parser.parse(u"\b");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().x != 0)
     {
@@ -534,11 +534,11 @@ int main()
 
     state.set_cursor(4, 0);
     parser.reset();
-    result = parser.parse(U"\x1bH");
+    result = parser.parse(u"\x1bH");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     state.set_cursor(5, 0);
     parser.reset();
-    result = parser.parse(U"\x1b[Z");
+    result = parser.parse(u"\x1b[Z");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().x != 4)
     {
@@ -560,7 +560,7 @@ int main()
 
     state.set_cursor(2, 0);
     parser.reset();
-    result = parser.parse(U"\x1b" "D");
+    result = parser.parse(u"\x1b" "D");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().x != 2 || state.cursor().y != 1)
     {
@@ -568,7 +568,7 @@ int main()
         return EXIT_FAILURE;
     }
     parser.reset();
-    result = parser.parse(U"\x1b" "E");
+    result = parser.parse(u"\x1b" "E");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
     if (state.cursor().x != 0 || state.cursor().y != 2)
     {

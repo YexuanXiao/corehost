@@ -8,9 +8,9 @@ int main()
     using namespace corehost::consoleinput;
     using namespace corehost::vtparser;
 
-    raw_u32_buffer raw;
+    raw_u16_buffer raw;
     vt_parser parser{raw};
-    auto result = parser.parse(U"\x1bOA");
+    auto result = parser.parse(u"\x1bOA");
     auto key = key_from_message(result.id, result.message);
     if (!key.has_value() || key->key != virtual_key::up)
     {
@@ -47,7 +47,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[1;5A");
+    result = parser.parse(u"\x1b[1;5A");
     key = key_from_message(result.id, result.message);
     if (!key.has_value() || key->key != virtual_key::up || key->control_state != 0x0008)
     {
@@ -56,7 +56,7 @@ int main()
     }
 
     parser.reset();
-    result = parser.parse(U"\x1b[<0;5;3M");
+    result = parser.parse(u"\x1b[<0;5;3M");
     const auto mouse = mouse_from_message(result.id, result.message);
     if (!mouse.has_value() || mouse->x != 4 || mouse->y != 2 || mouse->button_state != 1)
     {

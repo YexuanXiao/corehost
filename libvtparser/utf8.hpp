@@ -6,6 +6,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <iterator>
 
 namespace corehost::vtparser
 {
@@ -13,7 +14,7 @@ namespace corehost::vtparser
 // Incremental UTF-8 decode into a reusable UTF-32 buffer. Incomplete tails are
 // retained in pending; callers can feed pipe chunks without losing sequences.
 inline void decode_utf8(std::span<const char8_t> bytes,
-                        std::u32string &output,
+                        std::u16string &output,
                         std::string &pending)
 {
     output.clear();
@@ -27,7 +28,7 @@ inline void decode_utf8(std::span<const char8_t> bytes,
         const auto decoded = unicode::decoder<char>{}(iterator);
         if (decoded.has_value())
         {
-            output.push_back(decoded.value());
+            unicode::encoder<char16_t>{}(decoded.value(), std::back_inserter(output));
             offset = static_cast<std::size_t>(iterator - pending.begin());
             continue;
         }
@@ -48,10 +49,10 @@ inline void decode_utf8(std::span<const char8_t> bytes,
     pending.erase(0, offset);
 }
 
-inline void convert_to_utf16(std::span<const char32_t> input, std::u16string &output)
+inline void convert_to_utf16(std::span<const char16_t> input, std::u16string &output)
 {
     output.clear();
-    unicode::convert_to<char16_t>(std::u32string_view{input.data(), input.size()},
+    unicode::convert_to<char16_t>(std::u16string_view{input.data(), input.size()},
                                   std::back_inserter(output));
 }
 

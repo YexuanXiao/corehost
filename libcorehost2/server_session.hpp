@@ -41,9 +41,17 @@ class server_session final
             (void)::MultiByteToWideChar(code_page, 0, bytes.data(),
                                         static_cast<int>(bytes.size()), reinterpret_cast<LPWSTR>(text_.data()), units);
         }
-        vtparser::parse_utf16(parser_, std::u16string_view{text_}, [&](const vtparser::vt_parse_result &result) {
-            (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
-        });
+        auto input = std::u16string_view{text_};
+        while (!input.empty())
+        {
+            const auto result = parser_.parse(input);
+            input.remove_prefix(result.consumed);
+            if (result.id != vtparser::vt_message_id::continue_)
+            {
+                (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
+                parser_.reset();
+            }
+        }
     }
     std::size_t read_raw(std::span<char> output)
     {
@@ -159,7 +167,7 @@ class server_session final
     screen::screen_buffer &screen_;
     screen::console_state &state_;
     consoleinput::input_queue &input_;
-    vtparser::raw_u32_buffer raw_;
+    vtparser::raw_u16_buffer raw_;
     vtparser::vt_parser parser_;
     vtstate::state_applier applier_;
     std::u16string text_;

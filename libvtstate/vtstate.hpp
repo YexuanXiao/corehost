@@ -93,7 +93,7 @@ class state_applier final
                     screen::console_state &state)
     {
         text_.clear();
-        unicode::convert_to<char16_t>(message.payload.text, std::back_inserter(text_));
+        text_.assign(message.payload.text);
         if (state.line_drawing_charset)
         {
             for (auto &ch : text_)
@@ -259,7 +259,7 @@ class state_applier final
                             screen::console_state &state)
     {
         state.title.clear();
-        unicode::convert_to<char16_t>(message.payload.title, std::back_inserter(state.title));
+        state.title.assign(message.payload.title);
     }
 
     void apply_cursor_shape(const vtparser::vt_message &message,
@@ -516,13 +516,13 @@ class state_applier final
 
         buffer.add_flags(y, screen::line_flag::command_end);
         std::int32_t exit_code = 0;
-        for (const char32_t ch : message.payload.semantic.argument)
+        for (const char16_t ch : message.payload.semantic.argument)
         {
-            if (ch < U'0' || ch > U'9')
+            if (ch < u'0' || ch > u'9')
             {
                 break;
             }
-            exit_code = exit_code * 10 + static_cast<std::int32_t>(ch - U'0');
+            exit_code = exit_code * 10 + static_cast<std::int32_t>(ch - u'0');
         }
         buffer.set_command_exit_code(y, exit_code);
     }
@@ -600,8 +600,8 @@ class state_applier final
 
         uri_.clear();
         id_.clear();
-        unicode::convert_to<char16_t>(message.payload.hyperlink.uri, std::back_inserter(uri_));
-        unicode::convert_to<char16_t>(message.payload.hyperlink.id, std::back_inserter(id_));
+        uri_.assign(message.payload.hyperlink.uri);
+        id_.assign(message.payload.hyperlink.id);
         state.default_hyperlink = buffer.hyperlinks().intern(uri_, id_);
     }
 

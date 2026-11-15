@@ -1,11 +1,11 @@
 // ── conpty/vt_parser.hpp ──────────────────────────
-// Layer 2: VT/CSI/OSC 序列解析器 (char32_t 输入, 零分配视图)
+// Layer 2: VT/CSI/OSC 序列解析器 (char16_t 输入, 零分配视图)
 //
 // 设计目标：
-//   · 完全以 Unicode 码点 (char32_t) 作为输入，调用方负责 UTF-8 解码。
+//   · 完全以 Unicode 码点 (char16_t) 作为输入，调用方负责 UTF-8 解码。
 //   · 无法识别的序列以 unknown_sequence 返回，raw_sequence 指向完整原文；
 //     对 OSC 这类可以安全降级的序列，msg.payload.text 只指向可显示部分。
-//   · vt_message 中的 title/text 为 std::u32string_view。continue_text 指向
+//   · vt_message 中的 title/text 为 std::u16string_view。continue_text 指向
 //     本次 parse 输入范围；text/unknown_sequence/set_window_title 指向内部
 //     _raw，因为这些消息需要跨字符累计或保留完整控制序列原文。
 //   · parse(range) 返回 vt_parse_result，continue_ 表示没有可消费消息，
@@ -15,7 +15,7 @@
 //     raw 缓冲区，让下一次 parse(range) 从 ground 状态继续。
 //
 // 使用方式：
-//   raw_u32_buffer raw;
+//   raw_u16_buffer raw;
 //   vt_parser p{raw};
 //   while (!code_points.empty()) {
 //       vt_parse_result result = p.parse(code_points);
@@ -23,7 +23,7 @@
 //       if (result.id != vt_message_id::continue_) {
 //           switch (result.id) {
 //               case vt_message_id::text:
-//                   // 使用 result.message.payload.text (u32string_view)
+//                   // 使用 result.message.payload.text (u16string_view)
 //                   // p.reset();
 //                   break;
 //               case vt_message_id::unknown_sequence:
@@ -31,7 +31,7 @@
 //                   // p.reset();
 //                   break;
 //               case vt_message_id::set_window_title:
-//                   // 使用 result.message.payload.title (u32string_view)
+//                   // 使用 result.message.payload.title (u16string_view)
 //                   // p.reset();
 //                   break;
 //               ...
@@ -396,16 +396,16 @@ struct vt_private_mode_payload final
 struct vt_hyperlink_payload final
 {
     // OSC 8 params（例如 id=foo）、URI、从 params 提取的 id。
-    std::u32string_view params;
-    std::u32string_view uri;
-    std::u32string_view id;
+    std::u16string_view params;
+    std::u16string_view uri;
+    std::u16string_view id;
 };
 
 union vt_message_payload {
     // continue_text/text/unknown_sequence 的字符视图；continue_text 指向
     // 本次 parse 输入，其它文本消息指向 parser raw 缓冲。
-    std::u32string_view text; // OSC 0/2 标题视图，指向 parser raw 缓冲。
-    std::u32string_view title;
+    std::u16string_view text; // OSC 0/2 标题视图，指向 parser raw 缓冲。
+    std::u16string_view title;
     // 共用 count 参数，适用于 cursor/scroll/insert/delete 等消息。
     vt_count_payload count;
     // 共用 1-based row/col 参数，适用于 CUP/HVP/CHA/VPA/CPR。
@@ -430,7 +430,7 @@ union vt_message_payload {
     struct vt_semantic_payload final
     {
         char16_t kind{};
-        std::u32string_view argument;
+        std::u16string_view argument;
     };
     vt_semantic_payload semantic;
     // CPR 响应坐标，1-based。
@@ -467,7 +467,7 @@ struct vt_parse_result
     size_t consumed = 0;
     // 可透传的完整原始 ESC/CSI/OSC/SS3 序列。只有已完成的控制序列可能非空；
     // 普通 text/ground 控制字符为空。它和 message 中的 string_view 生命周期一致。
-    std::u32string_view raw_sequence;
+    std::u16string_view raw_sequence;
     // 当前 result 对应的结构化 payload。continue_ 时内容无效。调用方必须在
     // 下一次 parse/reset 前消费其中的 string_view。
     vt_message message;
@@ -501,11 +501,11 @@ class vt_parser
 
   public:
     // raw 由调用方持有，parser 把当前消息文本/标题 view 指向该缓冲。
-    explicit vt_parser(raw_u32_buffer &raw) noexcept : _raw(raw)
+    explicit vt_parser(raw_u16_buffer &raw) noexcept : _raw(raw)
     {
     }
 
-    [[nodiscard]] vt_parse_result parse(std::u32string_view input) noexcept
+    [[nodiscard]] vt_parse_result parse(std::u16string_view input) noexcept
     {
         if (input.empty())
             return {};
@@ -537,7 +537,7 @@ class vt_parser
   private:
     // 返回输入开头可直接作为 ground 文本消费的 codepoint 数。调用点已经
     // 确认 parser 处于 ground；函数只负责找到首个 C0/DEL 控制字符。
-    [[nodiscard]] size_t _direct_ground_text_run_length(std::u32string_view text) const noexcept
+    [[nodiscard]] size_t _direct_ground_text_run_length(std::u16string_view text) const noexcept
     {
         static constexpr std::array<bool, 0x80> control = [] {
             std::array<bool, 0x80> table{};
@@ -550,7 +550,7 @@ class vt_parser
         }();
 
         size_t count = 0;
-        for (const char32_t ch : text)
+        for (const char16_t ch : text)
         {
             if (ch < 0x80)
             {
@@ -569,9 +569,9 @@ class vt_parser
     }
 
     // 返回当前正在解析的 ESC 序列原文；不在 ESC 序列内时返回空 view。
-    [[nodiscard]] std::u32string_view _raw_sequence() const noexcept
+    [[nodiscard]] std::u16string_view _raw_sequence() const noexcept
     {
-        if (_seq_start >= _raw.size() || _raw[_seq_start] != U'\x1b')
+        if (_seq_start >= _raw.size() || _raw[_seq_start] != u'\x1b')
             return {};
         return {_raw.data() + _seq_start, _raw.size() - _seq_start};
     }
@@ -579,7 +579,7 @@ class vt_parser
     [[nodiscard]] vt_parse_result _make_result(vt_message_id id, size_t consumed) const noexcept
     {
         auto message = vt_message{};
-        auto raw_sequence = std::u32string_view{};
+        auto raw_sequence = std::u16string_view{};
         if (id != vt_message_id::continue_)
         {
             message = _msg;
@@ -618,13 +618,13 @@ class vt_parser
         invalid,
     };
 
-    [[nodiscard]] static constexpr bool _is_c0_or_del(char32_t ch) noexcept
+    [[nodiscard]] static constexpr bool _is_c0_or_del(char16_t ch) noexcept
     {
         return ch <= 0x1F || ch == 0x7F;
     }
 
     // Ground 状态只分类一次，结果同时服务 echo、文本累计和控制消息生成。
-    [[nodiscard]] static constexpr ground_char_kind _classify_ground_char(char32_t ch) noexcept
+    [[nodiscard]] static constexpr ground_char_kind _classify_ground_char(char16_t ch) noexcept
     {
         if (ch > 0x1F && ch != 0x7F)
             return ground_char_kind::printable;
@@ -634,13 +634,13 @@ class vt_parser
             return ground_char_kind::nul;
         case 0x08:
             return ground_char_kind::backspace;
-        case U'\t':
+        case u'\t':
             return ground_char_kind::tab;
-        case U'\n':
+        case u'\n':
             return ground_char_kind::line_feed;
-        case U'\r':
+        case u'\r':
             return ground_char_kind::carriage_return;
-        case U'\x1b':
+        case u'\x1b':
             return ground_char_kind::esc;
         case 0x1A:
             return ground_char_kind::sub;
@@ -676,13 +676,13 @@ class vt_parser
 
     // CSI 状态下的字符类别互斥。dispatch 只在 final 类别发生，参数收集只在
     // digit/semicolon/private/intermediate 类别发生。
-    [[nodiscard]] static constexpr csi_char_kind _classify_csi_char(char32_t ch) noexcept
+    [[nodiscard]] static constexpr csi_char_kind _classify_csi_char(char16_t ch) noexcept
     {
         if (_is_c0_or_del(ch))
             return csi_char_kind::control;
-        if (ch >= U'0' && ch <= U'9')
+        if (ch >= u'0' && ch <= u'9')
             return csi_char_kind::digit;
-        if (ch == U';')
+        if (ch == u';')
             return csi_char_kind::semicolon;
         // VT 语法里 0x3C..0x3F（< = > ?）是私有参数字节：SGR 鼠标用 '<'，
         // 私有模式用 '?'。
@@ -697,7 +697,7 @@ class vt_parser
 
     // 消费 ESC/CSI/OSC/SS3 序列中的一个 codepoint。_raw 只保存控制序列
     // 原文，ground 文本和 ground 控制字符不进入该缓冲。
-    [[nodiscard]] vt_message_id _parse_sequence_char(char32_t ch) noexcept
+    [[nodiscard]] vt_message_id _parse_sequence_char(char16_t ch) noexcept
     {
         // 合法序列用结构化字段返回；非法序列则用 _raw 切片作为 text
         // 透传，避免吞字节。
@@ -728,7 +728,7 @@ class vt_parser
         std::unreachable();
     }
 
-    [[nodiscard]] vt_message_id _parse_osc(char32_t ch) noexcept
+    [[nodiscard]] vt_message_id _parse_osc(char16_t ch) noexcept
     {
         const bool control = _is_c0_or_del(ch);
         if (control)
@@ -761,12 +761,12 @@ class vt_parser
         // 最终 dispatch 失败后作为 text 透传。
         if (!_osc_had_semi)
         {
-            if (ch >= U'0' && ch <= U'9')
+            if (ch >= u'0' && ch <= u'9')
             {
-                _osc_code = static_cast<short>(_osc_code * 10 + (ch - U'0'));
+                _osc_code = static_cast<short>(_osc_code * 10 + (ch - u'0'));
                 return vt_message_id::continue_;
             }
-            if (ch == U';')
+            if (ch == u';')
             {
                 _osc_had_semi = true;
                 return vt_message_id::continue_;
@@ -783,9 +783,9 @@ class vt_parser
 
     // ST 终止符检测 (ESC \) — 仅当 ESC 来自 OSC 终止时触发。若不是 ST，
     // 同一个字符立刻按普通 ESC final 处理，不回到 parse 主入口重复分派。
-    [[nodiscard]] vt_message_id _parse_osc_st(char32_t ch) noexcept
+    [[nodiscard]] vt_message_id _parse_osc_st(char16_t ch) noexcept
     {
-        if (ch == U'\\')
+        if (ch == u'\\')
         {
             auto id = _dispatch_osc();
             _mode = parser_mode::ground;
@@ -798,7 +798,7 @@ class vt_parser
     }
 
     // APC/DCS 字符串体：BEL 可直接结束 APC；ESC 进入 ST 等待。
-    [[nodiscard]] vt_message_id _parse_string(char32_t ch) noexcept
+    [[nodiscard]] vt_message_id _parse_string(char16_t ch) noexcept
     {
         if (ch == 0x07)
         {
@@ -813,9 +813,9 @@ class vt_parser
         return vt_message_id::continue_;
     }
 
-    [[nodiscard]] vt_message_id _parse_string_st(char32_t ch) noexcept
+    [[nodiscard]] vt_message_id _parse_string_st(char16_t ch) noexcept
     {
-        if (ch == U'\\')
+        if (ch == u'\\')
         {
             _mode = parser_mode::ground;
             return _end_string();
@@ -832,7 +832,7 @@ class vt_parser
         return _string_id;
     }
 
-    [[nodiscard]] vt_message_id _parse_csi(char32_t ch) noexcept
+    [[nodiscard]] vt_message_id _parse_csi(char16_t ch) noexcept
     {
         switch (_classify_csi_char(ch))
         {
@@ -844,7 +844,7 @@ class vt_parser
         case csi_char_kind::digit:
             // CSI 参数按 short 存储；异常大的数字会在 dispatch/default 逻辑中
             // 被截断或导致序列按文本处理。
-            _current_param = static_cast<short>(_current_param * 10 + (ch - U'0'));
+            _current_param = static_cast<short>(_current_param * 10 + (ch - u'0'));
             _has_param = true;
             return vt_message_id::continue_;
         case csi_char_kind::semicolon:
@@ -875,7 +875,7 @@ class vt_parser
         std::unreachable();
     }
 
-    [[nodiscard]] vt_message_id _parse_ss3(char32_t ch) noexcept
+    [[nodiscard]] vt_message_id _parse_ss3(char16_t ch) noexcept
     {
         if (_is_c0_or_del(ch))
         {
@@ -895,7 +895,7 @@ class vt_parser
         return vt_message_id::unknown_sequence;
     }
 
-    [[nodiscard]] vt_message_id _parse_esc(char32_t ch) noexcept
+    [[nodiscard]] vt_message_id _parse_esc(char16_t ch) noexcept
     {
         if (_is_c0_or_del(ch))
         {
@@ -906,34 +906,34 @@ class vt_parser
 
         switch (ch)
         {
-        case U'[':
+        case u'[':
             _mode = parser_mode::csi;
             _reset_params();
             return vt_message_id::continue_;
-        case U']':
+        case u']':
             _mode = parser_mode::osc;
             _osc_code = 0;
             _osc_len = 0;
             _osc_had_semi = false;
             return vt_message_id::continue_;
-        case U'O':
+        case u'O':
             _mode = parser_mode::ss3;
             return vt_message_id::continue_;
-        case U'(':
+        case u'(':
             _intermediate = '(';
             return vt_message_id::continue_; // 等待字符集终态
-        case U'#':
+        case u'#':
             _intermediate = '#';
             return vt_message_id::continue_; // 等待 line rendition final
-        case U'_':
+        case u'_':
             _string_id = vt_message_id::apc_sequence;
             _mode = parser_mode::apc;
             return vt_message_id::continue_;
-        case U'P':
+        case u'P':
             _string_id = vt_message_id::dcs_sequence;
             _mode = parser_mode::dcs;
             return vt_message_id::continue_;
-        case U'X':
+        case u'X':
             _string_id = vt_message_id::apc_sequence;
             _mode = parser_mode::apc;
             return vt_message_id::continue_;
@@ -963,7 +963,7 @@ class vt_parser
         }
     }
 
-    [[nodiscard]] vt_message_id _parse_ground_control(char32_t ch) noexcept
+    [[nodiscard]] vt_message_id _parse_ground_control(char16_t ch) noexcept
     {
         const auto kind = _classify_ground_char(ch);
         if (kind == ground_char_kind::printable)
@@ -1022,7 +1022,7 @@ class vt_parser
     // ── 中央缓冲区与视图位置 ──
     // _raw 保存当前跨字符累计的文本或控制序列；text-before-control、
     // unknown_sequence、OSC title 的 view 指向该缓冲。continue_text 不使用它。
-    raw_u32_buffer &_raw;
+    raw_u16_buffer &_raw;
 
     // 当前 ESC/CSI/OSC 序列在 _raw 中的起始偏移。vt_parse_result::raw_sequence
     // 和 unknown_sequence 都依赖它返回完整原文。
@@ -1034,7 +1034,7 @@ class vt_parser
     vt_message_id _string_id = vt_message_id::apc_sequence;
     // true 表示当前 CSI 使用 '?' private marker；只在 _mode==csi 时有意义。
     // CSI 私有标记字符（0 表示没有）：?\'?\' 或 \'<\'。
-    char32_t _private_marker = 0;
+    char16_t _private_marker = 0;
     // ── CSI 参数收集 ──
     // _params 保存已经被 ';' 结束的参数；_current_param 保存正在累积的参数。
     // _param_index 是已提交参数数量，范围 0..MAX_PARAMS。
@@ -1115,7 +1115,7 @@ class vt_parser
     // 标记一个已完整解析但 corehost 不支持的 OSC。raw_sequence 仍由
     // _raw_sequence() 提供完整控制序列；text 只保存该 OSC 能安全降级显示的
     // 内容。OSC 8 hyperlink 的控制序列本身不可见，所以这里为空。
-    void _set_unknown_osc_text(std::u32string_view text) noexcept
+    void _set_unknown_osc_text(std::u16string_view text) noexcept
     {
         _msg.payload.text = text;
     }
@@ -1137,25 +1137,25 @@ class vt_parser
     // ── 分发函数 ──
 
     // 分发普通 ESC 序列（ESC + 单个 final 字符）。
-    vt_message_id _dispatch_esc(char32_t code) noexcept
+    vt_message_id _dispatch_esc(char16_t code) noexcept
     {
         switch (code)
         {
-        case U'M':
+        case u'M':
             return vt_message_id::reverse_index;
-        case U'D':
+        case u'D':
             return vt_message_id::line_feed;
-        case U'E':
+        case u'E':
             return vt_message_id::next_line;
-        case U'7':
+        case u'7':
             return vt_message_id::save_cursor;
-        case U'8':
+        case u'8':
             return vt_message_id::restore_cursor;
-        case U'H':
+        case u'H':
             return vt_message_id::horizontal_tab_set;
-        case U'=':
+        case u'=':
             return vt_message_id::keypad_app_mode;
-        case U'>':
+        case u'>':
             return vt_message_id::keypad_numeric_mode;
         default:
             return vt_message_id::continue_;
@@ -1163,29 +1163,29 @@ class vt_parser
     }
 
     // 分发 SS3 键盘序列（ESC O + final）；这些输入应转换为结构化键消息。
-    vt_message_id _dispatch_ss3(char32_t code) noexcept
+    vt_message_id _dispatch_ss3(char16_t code) noexcept
     {
         switch (code)
         {
-        case U'A':
+        case u'A':
             return vt_message_id::key_up;
-        case U'B':
+        case u'B':
             return vt_message_id::key_down;
-        case U'C':
+        case u'C':
             return vt_message_id::key_right;
-        case U'D':
+        case u'D':
             return vt_message_id::key_left;
-        case U'H':
+        case u'H':
             return vt_message_id::key_home;
-        case U'F':
+        case u'F':
             return vt_message_id::key_end;
-        case U'P':
+        case u'P':
             return vt_message_id::key_f1;
-        case U'Q':
+        case u'Q':
             return vt_message_id::key_f2;
-        case U'R':
+        case u'R':
             return vt_message_id::key_f3;
-        case U'S':
+        case u'S':
             return vt_message_id::key_f4;
         default:
             return vt_message_id::continue_;
@@ -1193,46 +1193,46 @@ class vt_parser
     }
 
     // 分发 ESC # 3/4/5/6 line rendition。
-    vt_message_id _dispatch_line_rendition(char32_t final) noexcept
+    vt_message_id _dispatch_line_rendition(char16_t final) noexcept
     {
-        if (final < U'3' || final > U'6')
+        if (final < u'3' || final > u'6')
         {
             return vt_message_id::continue_;
         }
-        _msg.payload.line_rendition = static_cast<short>(final - U'0');
+        _msg.payload.line_rendition = static_cast<short>(final - u'0');
         return vt_message_id::set_line_rendition;
     }
 
     // 分发 G0 字符集选择；当前只建模 DEC line drawing 和 ASCII。
-    vt_message_id _dispatch_charset(char32_t final) noexcept
+    vt_message_id _dispatch_charset(char16_t final) noexcept
     {
-        if (final == U'0')
+        if (final == u'0')
             return vt_message_id::designate_charset_line_drawing;
-        if (final == U'B')
+        if (final == u'B')
             return vt_message_id::designate_charset_ascii;
         return vt_message_id::continue_;
     }
 
-    // ── OSC 载荷解析辅助函数（接受 u32string_view，无异常） ──
+    // ── OSC 载荷解析辅助函数（接受 u16string_view，无异常） ──
 
     // 从 OSC payload 的 pos 位置解析最多 5 位十进制数；pos 返回首个非数字位置。
-    short _parse_osc_decimal_8(std::u32string_view s, size_t &pos) const noexcept
+    short _parse_osc_decimal_8(std::u16string_view s, size_t &pos) const noexcept
     {
         // 跳过前导空格
-        auto first = std::ranges::find_if(s.begin() + pos, s.end(), [](char32_t ch) { return ch != U' '; });
+        auto first = std::ranges::find_if(s.begin() + pos, s.end(), [](char16_t ch) { return ch != u' '; });
         pos = static_cast<size_t>(first - s.begin());
         size_t start = pos;
         // 收集连续的数字字符，最多 5 个（保证不溢出 short）
         const auto digits_last = s.begin() + std::min(s.size(), start + size_t{5});
         auto digits_end =
-            std::ranges::find_if(s.begin() + start, digits_last, [](char32_t ch) { return ch < U'0' || ch > U'9'; });
+            std::ranges::find_if(s.begin() + start, digits_last, [](char16_t ch) { return ch < u'0' || ch > u'9'; });
         pos = static_cast<size_t>(digits_end - s.begin());
         if (pos == start)
             return 0; // 无数字
 
         // 转换为窄字符数组供 std::from_chars 使用
         char numbuf[6]{};
-        std::transform(s.begin() + start, digits_end, numbuf, [](char32_t ch) { return static_cast<char>(ch); });
+        std::transform(s.begin() + start, digits_end, numbuf, [](char16_t ch) { return static_cast<char>(ch); });
 
         short value = 0;
         auto res = std::from_chars(numbuf, numbuf + (pos - start), value, 10);
@@ -1242,13 +1242,13 @@ class vt_parser
     }
 
     // 从 OSC RGB payload 的 pos 位置解析最多 2 位十六进制分量，并跳过后续 '/'。
-    uint8_t _parse_osc_hex_8(std::u32string_view buf, size_t &pos) const noexcept
+    uint8_t _parse_osc_hex_8(std::u16string_view buf, size_t &pos) const noexcept
     {
         // 收集最多 2 个十六进制数字
         size_t start = pos;
         const auto digits_last = buf.begin() + std::min(buf.size(), start + size_t{2});
-        auto digits_end = std::ranges::find_if(buf.begin() + start, digits_last, [](char32_t ch) {
-            return !((ch >= U'0' && ch <= U'9') || (ch >= U'A' && ch <= U'F') || (ch >= U'a' && ch <= U'f'));
+        auto digits_end = std::ranges::find_if(buf.begin() + start, digits_last, [](char16_t ch) {
+            return !((ch >= u'0' && ch <= u'9') || (ch >= u'A' && ch <= u'F') || (ch >= u'a' && ch <= u'f'));
         });
         pos = static_cast<size_t>(digits_end - buf.begin());
         if (pos == start)
@@ -1256,10 +1256,10 @@ class vt_parser
 
         // 转换为窄字符数组
         char hexbuf[3]{};
-        std::transform(buf.begin() + start, digits_end, hexbuf, [](char32_t ch) { return static_cast<char>(ch); });
+        std::transform(buf.begin() + start, digits_end, hexbuf, [](char16_t ch) { return static_cast<char>(ch); });
 
         // 跳过可能存在的分隔符 '/'
-        auto slash_end = std::ranges::find_if(buf.begin() + pos, buf.end(), [](char32_t ch) { return ch != U'/'; });
+        auto slash_end = std::ranges::find_if(buf.begin() + pos, buf.end(), [](char16_t ch) { return ch != u'/'; });
         pos = static_cast<size_t>(slash_end - buf.begin());
 
         uint8_t value = 0;
@@ -1275,42 +1275,42 @@ class vt_parser
         auto &m = _msg;
         // seq 覆盖完整 OSC 序列，包括 ESC ] 和终止符；payload 在后面根据
         // 操作码后的分号与终止符位置切片出来。
-        std::u32string_view seq(_raw.data() + _seq_start, _raw.size() - _seq_start);
-        if (seq.size() < 3 || seq[0] != U'\x1B' || seq[1] != U']')
+        std::u16string_view seq(_raw.data() + _seq_start, _raw.size() - _seq_start);
+        if (seq.size() < 3 || seq[0] != u'\x1B' || seq[1] != u']')
             return vt_message_id::continue_;
 
         // 解析操作码（数字）
         size_t pos = 2;
         short code = 0;
-        while (pos < seq.size() && seq[pos] >= U'0' && seq[pos] <= U'9')
+        while (pos < seq.size() && seq[pos] >= u'0' && seq[pos] <= u'9')
         {
-            code = static_cast<short>(code * 10 + (seq[pos] - U'0'));
+            code = static_cast<short>(code * 10 + (seq[pos] - u'0'));
             ++pos;
         }
-        if (pos >= seq.size() || seq[pos] != U';')
+        if (pos >= seq.size() || seq[pos] != u';')
             return vt_message_id::continue_;
         ++pos; // 跳过分号
 
         // 查找终止符：BEL (0x07) 或 ST (ESC \)
         auto indices = std::views::iota(pos, seq.size());
         auto terminator = std::ranges::find_if(indices, [seq](size_t i) {
-            return seq[i] == 0x07 || (seq[i] == 0x1B && i + 1 < seq.size() && seq[i + 1] == U'\\');
+            return seq[i] == 0x07 || (seq[i] == 0x1B && i + 1 < seq.size() && seq[i + 1] == u'\\');
         });
-        const auto end_pos = terminator == indices.end() ? std::u32string_view::npos : *terminator;
-        if (end_pos == std::u32string_view::npos)
+        const auto end_pos = terminator == indices.end() ? std::u16string_view::npos : *terminator;
+        if (end_pos == std::u16string_view::npos)
             return vt_message_id::continue_;
 
         // payload 在 _raw 中的绝对位置和长度
         size_t payload_start = _seq_start + pos;
         size_t payload_len = end_pos - pos;
-        std::u32string_view payload(_raw.data() + payload_start, payload_len);
+        std::u16string_view payload(_raw.data() + payload_start, payload_len);
 
         switch (code)
         {
         case 8:
         {
-            const auto separator = payload.find(U';');
-            if (separator == std::u32string_view::npos)
+            const auto separator = payload.find(u';');
+            if (separator == std::u16string_view::npos)
             {
                 m.payload.hyperlink.params = payload;
                 m.payload.hyperlink.uri = {};
@@ -1321,12 +1321,12 @@ class vt_parser
             m.payload.hyperlink.params = payload.substr(0, separator);
             m.payload.hyperlink.uri = payload.substr(separator + 1);
 
-            const auto id_start = m.payload.hyperlink.params.find(U"id=");
-            if (id_start != std::u32string_view::npos)
+            const auto id_start = m.payload.hyperlink.params.find(u"id=");
+            if (id_start != std::u16string_view::npos)
             {
                 const auto value_start = id_start + 3;
-                auto id_end = m.payload.hyperlink.params.find(U':', value_start);
-                if (id_end == std::u32string_view::npos)
+                auto id_end = m.payload.hyperlink.params.find(u':', value_start);
+                if (id_end == std::u16string_view::npos)
                 {
                     id_end = m.payload.hyperlink.params.size();
                 }
@@ -1343,9 +1343,9 @@ class vt_parser
                 return vt_message_id::unknown_sequence;
             }
             m.payload.semantic.kind = static_cast<char16_t>(payload[0]);
-            m.payload.semantic.argument = payload.size() > 1 && payload[1] == U';'
+            m.payload.semantic.argument = payload.size() > 1 && payload[1] == u';'
                                               ? payload.substr(2)
-                                              : std::u32string_view{};
+                                              : std::u16string_view{};
             return vt_message_id::semantic_prompt_mark;
         }
         case 0:
@@ -1359,12 +1359,12 @@ class vt_parser
             size_t p = 0;
             m.payload.palette.index = _parse_osc_decimal_8(payload, p);
             // 跳过分号（如果存在）
-            if (p < payload.size() && payload[p] == U';')
+            if (p < payload.size() && payload[p] == u';')
                 ++p;
             // 期望 "rgb:" 前缀
-            if (p + 4 <= payload.size() && (payload[p] == U'r' || payload[p] == U'R') &&
-                (payload[p + 1] == U'g' || payload[p + 1] == U'G') &&
-                (payload[p + 2] == U'b' || payload[p + 2] == U'B') && payload[p + 3] == U':')
+            if (p + 4 <= payload.size() && (payload[p] == u'r' || payload[p] == u'R') &&
+                (payload[p + 1] == u'g' || payload[p + 1] == u'G') &&
+                (payload[p + 2] == u'b' || payload[p + 2] == u'B') && payload[p + 3] == u':')
             {
                 p += 4;
                 size_t p_before = p;
@@ -1390,23 +1390,23 @@ class vt_parser
 
     // 根据 CSI final 字符和已收集参数生成消息；不支持的组合返回 continue_，
     // 由 _finish_seq 转成 unknown_sequence 供调用方决定是否透传。
-    vt_message_id _dispatch_csi(char32_t terminator) noexcept
+    vt_message_id _dispatch_csi(char16_t terminator) noexcept
     {
         auto &m = _msg;
         if (_csi_overflow)
             return vt_message_id::continue_; // 参数溢出，序列非法
-        const bool priv = _private_marker == U'?';
+        const bool priv = _private_marker == u'?';
 
         // SGR 1006 鼠标：ESC [ < b ; x ; y M/m。坐标是 1-based，转入 payload
         // 时换算成 0-based；b 的位含义由 bridge 解释。
-        if (_private_marker == U'<' || _intermediate == '<')
+        if (_private_marker == u'<' || _intermediate == '<')
         {
-            if (terminator == U'M' || terminator == U'm')
+            if (terminator == u'M' || terminator == u'm')
             {
                 m.payload.mouse.encoding = static_cast<unsigned short>(_get_param(0, 0));
                 m.payload.mouse.x = static_cast<short>(_get_positive_param(1, 1) - 1);
                 m.payload.mouse.y = static_cast<short>(_get_positive_param(2, 1) - 1);
-                m.payload.mouse.release = terminator == U'm';
+                m.payload.mouse.release = terminator == u'm';
                 return vt_message_id::mouse_sgr;
             }
             return vt_message_id::continue_;
@@ -1420,73 +1420,73 @@ class vt_parser
         switch (terminator)
         {
         // 相对光标移动；dispatch 生成钳制后的 count payload。
-        case U'A':
+        case u'A':
             if (priv)
                 return vt_message_id::continue_;
             if (_param_index > 1 && _get_param(1, 1) == 5)
                 return vt_message_id::key_ctrl_up;
             m.payload.count.value = _clamp(n);
             return vt_message_id::cursor_up;
-        case U'B':
+        case u'B':
             if (priv)
                 return vt_message_id::continue_;
             if (_param_index > 1 && _get_param(1, 1) == 5)
                 return vt_message_id::key_ctrl_down;
             m.payload.count.value = _clamp(n);
             return vt_message_id::cursor_down;
-        case U'C':
+        case u'C':
             if (priv)
                 return vt_message_id::continue_;
             if (_param_index > 1 && _get_param(1, 1) == 5)
                 return vt_message_id::key_ctrl_right;
             m.payload.count.value = _clamp(n);
             return vt_message_id::cursor_forward;
-        case U'D':
+        case u'D':
             if (priv)
                 return vt_message_id::continue_;
             if (_param_index > 1 && _get_param(1, 1) == 5)
                 return vt_message_id::key_ctrl_left;
             m.payload.count.value = _clamp(n);
             return vt_message_id::cursor_backward;
-        case U'E':
+        case u'E':
             if (priv)
                 return vt_message_id::continue_;
             m.payload.count.value = _clamp(n);
             return vt_message_id::cursor_next_line;
-        case U'F':
+        case u'F':
             if (priv)
                 return vt_message_id::continue_;
             m.payload.count.value = _clamp(n);
             return vt_message_id::cursor_prev_line;
         // 绝对/坐标型光标定位；dispatch 生成钳制后的 position payload。
-        case U'G':
+        case u'G':
             if (priv)
                 return vt_message_id::continue_;
             m.payload.position.col = _get_positive_param(0, 1);
             return vt_message_id::cursor_horiz_absolute;
-        case U'd':
+        case u'd':
             if (priv)
                 return vt_message_id::continue_;
             m.payload.position.row = _get_positive_param(0, 1);
             return vt_message_id::cursor_vert_absolute;
-        case U'H':
-        case U'f':
+        case u'H':
+        case u'f':
             if (priv)
                 return vt_message_id::continue_;
             m.payload.position.row = _get_positive_param(0, 1);
             m.payload.position.col = _get_positive_param(1, 1);
             return vt_message_id::cursor_position;
-        case U's':
+        case u's':
             if (!priv)
                 return vt_message_id::ansi_save_cursor;
             return vt_message_id::continue_;
-        case U'u':
+        case u'u':
             if (!priv)
                 return vt_message_id::ansi_restore_cursor;
             return vt_message_id::continue_;
 
         // DEC private h/l
-        case U'h':
+        case u'h':
             if (!priv)
                 return vt_message_id::continue_;
             switch (_get_param(0))
@@ -1507,7 +1507,7 @@ class vt_parser
                 m.payload.private_mode.enabled = true;
                 return vt_message_id::set_private_mode;
             }
-        case U'l':
+        case u'l':
             if (!priv)
                 return vt_message_id::continue_;
             switch (_get_param(0))
@@ -1530,15 +1530,15 @@ class vt_parser
             }
 
         // 滚动
-        case U'S':
+        case u'S':
             m.payload.count.value = _clamp(n);
             return vt_message_id::scroll_up;
-        case U'T':
+        case u'T':
             m.payload.count.value = _clamp(n);
             return vt_message_id::scroll_down;
 
         // 窗口操作 (CSI … t)
-        case U't': {
+        case u't': {
             // CSI 8 ; height ; width t — resize text area (WT sends this on resize)
             auto p0 = _get_param(0);
             if (p0 == 8)
@@ -1553,30 +1553,30 @@ class vt_parser
         }
 
         // 文本修改
-        case U'@':
+        case u'@':
             m.payload.count.value = _clamp(n);
             return vt_message_id::insert_characters;
-        case U'P':
+        case u'P':
             m.payload.count.value = _clamp(n);
             return vt_message_id::delete_characters;
-        case U'X':
+        case u'X':
             m.payload.count.value = _clamp(n);
             return vt_message_id::erase_characters;
-        case U'L':
+        case u'L':
             m.payload.count.value = _clamp(n);
             return vt_message_id::insert_lines;
-        case U'M':
+        case u'M':
             m.payload.count.value = _clamp(n);
             return vt_message_id::delete_lines;
-        case U'J':
+        case u'J':
             m.payload.erase_mode = _clamp(_get_param(0));
             return vt_message_id::erase_in_display;
-        case U'K':
+        case u'K':
             m.payload.erase_mode = _clamp(_get_param(0));
             return vt_message_id::erase_in_line;
 
         // SGR
-        case U'm':
+        case u'm':
             m.payload.sgr = {};
             for (size_t i = 0; i != _param_index; ++i)
             {
@@ -1666,7 +1666,7 @@ class vt_parser
             return vt_message_id::sgr;
 
         // 光标形状
-        case U'q':
+        case u'q':
             if (_intermediate == ' ')
             {
                 m.payload.cursor_shape = _clamp(_get_param(0));
@@ -1675,13 +1675,13 @@ class vt_parser
             return vt_message_id::continue_;
 
         // 制表符
-        case U'I':
+        case u'I':
             m.payload.count.value = _clamp(n);
             return vt_message_id::cursor_forward_tab;
-        case U'Z':
+        case u'Z':
             m.payload.count.value = _clamp(n);
             return vt_message_id::cursor_backward_tab;
-        case U'g':
+        case u'g':
             switch (_get_param(0))
             {
             case 0:
@@ -1693,21 +1693,21 @@ class vt_parser
             }
 
         // 滚动边距
-        case U'r':
+        case u'r':
             m.payload.scroll_region.top = _clamp(_get_param(0, 1));
             m.payload.scroll_region.bottom = _clamp(_get_param(1, 0));
             return vt_message_id::set_scrolling_region;
 
         // 查询
-        case U'n':
+        case u'n':
             if (_get_param(0) == 6)
                 return vt_message_id::report_cursor_position;
             return vt_message_id::continue_;
-        case U'c':
+        case u'c':
             return vt_message_id::device_attributes;
 
         // CPR 应答: CSI Pl ; Pc R — 终端对 DSR CPR (\x1b[6n) 的应答
-        case U'R':
+        case u'R':
             if (!priv)
             {
                 m.payload.cpr.row = _clamp(_get_param(0, 1));
@@ -1718,13 +1718,13 @@ class vt_parser
             return vt_message_id::continue_;
 
         // 软复位
-        case U'p':
+        case u'p':
             if (_intermediate == '!')
                 return vt_message_id::soft_reset;
             return vt_message_id::continue_;
 
         // Win32 Input Mode 键盘事件: \x1b[Vk;Sc;Uc;Kd;Cs;Rc_
-        case U'_': {
+        case u'_': {
             // 参数格式: CSI params _  其中 params = Vk;Sc;Uc;Kd;Cs;Rc
             // 至少需要 Vk + KeyDown (2 个参数), 其余使用默认值
             m.payload.win32_key.vk = static_cast<unsigned short>(_clamp(_get_param(0, 0)));
@@ -1739,7 +1739,7 @@ class vt_parser
         }
 
         // 终端键盘功能键
-        case U'~':
+        case u'~':
             switch (_get_param(0))
             {
             case 2:
@@ -1774,24 +1774,5 @@ class vt_parser
         }
     }
 };
-
-template <typename Handler>
-void parse_utf16(vt_parser &parser, std::u16string_view input, Handler &&handler)
-{
-    std::u32string codepoints;
-    unicode::convert_to<char32_t>(input, std::back_inserter(codepoints));
-    auto view = std::u32string_view{codepoints};
-    while (!view.empty())
-    {
-        auto result = parser.parse(view);
-        view.remove_prefix(result.consumed);
-        if (result.id == vt_message_id::continue_)
-        {
-            continue;
-        }
-        handler(result);
-        parser.reset();
-    }
-}
 
 } // namespace corehost::vtparser

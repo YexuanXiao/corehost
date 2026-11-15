@@ -37,9 +37,13 @@ class session final
 
     void feed(std::u16string_view input)
     {
-        vtparser::parse_utf16(parser_, input, [&](const vtparser::vt_parse_result &result) {
+        while (!input.empty())
+        {
+            const auto result = parser_.parse(input);
+            input.remove_prefix(result.consumed);
             consume(result, false);
-        });
+            parser_.reset();
+        }
     }
 
     [[nodiscard]] screen::screen_buffer &screen() noexcept
@@ -55,9 +59,13 @@ class session final
 
     void feed_input(std::u16string_view input)
     {
-        vtparser::parse_utf16(parser_, input, [&](const vtparser::vt_parse_result &result) {
+        while (!input.empty())
+        {
+            const auto result = parser_.parse(input);
+            input.remove_prefix(result.consumed);
             consume(result, true);
-        });
+            parser_.reset();
+        }
     }
     [[nodiscard]] consoleinput::input_queue &input() noexcept
     {
@@ -113,7 +121,7 @@ class session final
 
     screen::screen_buffer screen_;
     screen::console_state state_;
-    vtparser::raw_u32_buffer raw_;
+    vtparser::raw_u16_buffer raw_;
     vtparser::vt_parser parser_;
     vtstate::state_applier applier_;
     consoleinput::input_queue input_;

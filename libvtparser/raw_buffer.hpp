@@ -78,6 +78,6 @@ using raw_byte_vector = std::vector<T, raw_byte_allocator<T>>;
 using raw_u8_buffer = raw_byte_vector<char8_t>;
 using raw_u16_buffer = raw_byte_vector<char16_t>;
 using raw_wide_buffer = raw_byte_vector<wchar_t>;
-using raw_u32_buffer = raw_byte_vector<char32_t>;
+using raw_u16_buffer = raw_byte_vector<char16_t>;
 
 } // namespace corehost::vtparser
