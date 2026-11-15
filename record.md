@@ -995,6 +995,12 @@ ASCII fast path 进入时只做一次 cursor 合法性检查，循环内只保�
 fb4d3ef perf(libscreen): remove per-cell bounds checks in ascii run
 ```
 
+`text.empty()` 检查移到 `write_text_row` 最外层，避免只在 ASCII 分支内重复判断：
+
+```text
+b5ebe2f refactor(libscreen): check empty text before mode dispatch
+```
+
 ### 单码点 scratch 去零初始化
 
 `append_utf16` 单码点路径的 4 字节栈缓冲不再零初始化；encoder 会写入实际使用的字节：
