@@ -17,7 +17,7 @@ int main()
         return EXIT_FAILURE;
     }
 
-    screen::screen_buffer buffer{10, 2};
+    screen::screen_buffer buffer{10, 5};
     screen::console_state state{10, 5};
     corehost::vtstate::state_applier applier;
     applier.apply_text(result.message, buffer, state);
@@ -72,6 +72,32 @@ int main()
     if (state.cursor().x != 4 || state.cursor().y != 2)
     {
         std::fprintf(stderr, "cursor position failed\n");
+        return EXIT_FAILURE;
+    }
+
+    parser.reset();
+    result = parser.parse(U"\x1b]8;id=doc;https://example.test/\x07");
+    applier.apply_hyperlink(result.message, buffer, state);
+    parser.reset();
+    result = parser.parse(U"L");
+    applier.apply_text(result.message, buffer, state);
+    if (buffer.at(4, 2).hyperlink() == screen::no_cell_hyperlink)
+    {
+        std::fprintf(stderr, "hyperlink cell missing\n");
+        return EXIT_FAILURE;
+    }
+    if (buffer.hyperlinks().at(buffer.at(4, 2).hyperlink()).uri != u"https://example.test/")
+    {
+        std::fprintf(stderr, "hyperlink uri wrong\n");
+        return EXIT_FAILURE;
+    }
+
+    parser.reset();
+    result = parser.parse(U"\x1b]8;;\x07");
+    applier.apply_hyperlink(result.message, buffer, state);
+    if (state.default_hyperlink != screen::no_cell_hyperlink)
+    {
+        std::fprintf(stderr, "hyperlink close failed\n");
         return EXIT_FAILURE;
     }
 

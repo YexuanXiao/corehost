@@ -366,8 +366,10 @@ class screen_buffer final
                                      std::u16string_view text,
                                      std::span<const std::uint8_t> widths,
                                      cell_style style,
-                                     bool wrap_at_eol = true) noexcept;
-    [[nodiscard]] bool write_glyph(coord position, std::u16string_view glyph, int columns, cell_style style) noexcept;
+                                     bool wrap_at_eol = true,
+                                     cell_hyperlink hyperlink = no_cell_hyperlink) noexcept;
+    [[nodiscard]] bool write_glyph(coord position, std::u16string_view glyph, int columns, cell_style style,
+                                   cell_hyperlink hyperlink = no_cell_hyperlink) noexcept;
 
     void copy_rect(rectangle source, rectangle clip, bool use_clip, coord destination) noexcept;
     void scroll_rect(rectangle source,
@@ -1238,7 +1240,8 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                                                                       std::u16string_view text,
                                                                       std::span<const std::uint8_t> widths,
                                                                       cell_style style,
-                                                                      bool wrap_at_eol) noexcept
+                                                                      bool wrap_at_eol,
+                                                                      cell_hyperlink hyperlink) noexcept
 {
     text_write_result result;
     if constexpr (Mode == text_measurement::graphemes)
@@ -1269,7 +1272,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
             }
 
             const std::u16string_view cluster_text{cluster.text.data(), cluster.text.size()};
-            if (!write_glyph(cursor, cluster_text, columns, style))
+            if (!write_glyph(cursor, cluster_text, columns, style, hyperlink))
             {
                 result.row_end = true;
                 break;
@@ -1313,7 +1316,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
         const auto width = columns >= 2 ? cell_width::wide : cell_width::narrow;
         if (!write_codepoint(static_cast<std::size_t>(cursor.x),
                                static_cast<std::size_t>(cursor.y),
-                               decoded.value, style, width))
+                               decoded.value, style, width, hyperlink))
         {
             result.row_end = true;
             break;
@@ -1331,7 +1334,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
 }
 
 inline bool screen_buffer::write_glyph(coord position, std::u16string_view glyph, int columns,
-                                       cell_style style) noexcept
+                                       cell_style style, cell_hyperlink hyperlink) noexcept
 {
     if (glyph.empty() || position.x < 0 || position.y < 0 ||
         static_cast<std::size_t>(position.x) >= width_ ||
@@ -1346,11 +1349,11 @@ inline bool screen_buffer::write_glyph(coord position, std::u16string_view glyph
     {
         return write_scalar(static_cast<std::size_t>(position.x),
                             static_cast<std::size_t>(position.y),
-                            glyph[0], style, width);
+                            glyph[0], style, width, hyperlink);
     }
     return write_cluster(static_cast<std::size_t>(position.x),
                          static_cast<std::size_t>(position.y),
-                         std::span<const char16_t>{glyph.data(), glyph.size()}, style, width);
+                         std::span<const char16_t>{glyph.data(), glyph.size()}, style, width, hyperlink);
 }
 
 inline void screen_buffer::copy_rect(rectangle source, rectangle clip, bool use_clip, coord destination) noexcept

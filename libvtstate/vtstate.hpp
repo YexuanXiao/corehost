@@ -32,11 +32,28 @@ class state_applier final
         };
 
         const auto result = buffer.write_text_row<screen::text_measurement::graphemes>(
-            cursor, text_, {}, state.default_style);
+            cursor, text_, {}, state.default_style, true, state.default_hyperlink);
 
         state.set_cursor(static_cast<std::size_t>(cursor.x),
                          static_cast<std::size_t>(cursor.y));
         last_consumed_ = result.consumed;
+    }
+
+    void apply_hyperlink(const vtparser::vt_message &message,
+                         screen::screen_buffer &buffer,
+                         screen::console_state &state)
+    {
+        if (message.payload.hyperlink.uri.empty())
+        {
+            state.default_hyperlink = screen::no_cell_hyperlink;
+            return;
+        }
+
+        uri_.clear();
+        id_.clear();
+        unicode::convert_to<char16_t>(message.payload.hyperlink.uri, std::back_inserter(uri_));
+        unicode::convert_to<char16_t>(message.payload.hyperlink.id, std::back_inserter(id_));
+        state.default_hyperlink = buffer.hyperlinks().intern(uri_, id_);
     }
 
     void apply_line_feed(screen::screen_buffer &buffer,
@@ -103,6 +120,8 @@ class state_applier final
 
   private:
     std::u16string text_;
+    std::u16string uri_;
+    std::u16string id_;
     std::size_t last_consumed_{};
 };
 
