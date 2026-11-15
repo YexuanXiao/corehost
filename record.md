@@ -1001,6 +1001,14 @@ fb4d3ef perf(libscreen): remove per-cell bounds checks in ascii run
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### Ctrl 事件目标缓冲复用
+
+`generate_ctrl_event` 不再每次构造 `std::vector<std::uintptr_t> targets`，复用成员 `ctrl_targets_`：
+
+```text
+ad49bd7 perf(consoleapi): reuse ctrl event target buffer
+```
+
 ### Alias EXE 去重缓冲复用
 
 `get_alias_exes_length` / `get_alias_exes` 的局部 `seen` 向量改为复用成员 `alias_exes_seen_`，每次查询只 `clear()` 保留容量：
