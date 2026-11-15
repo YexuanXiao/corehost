@@ -13,6 +13,7 @@
 #include "console_state.hpp"
 
 #include "condrv_io.hpp"
+#include "deque.hpp"
 #include "input.hpp"
 
 #include <bit>
@@ -617,7 +618,7 @@ class server_session final
         if (!queued_console_inputs_.empty())
         {
             pending_message_ = queued_console_inputs_.front();
-            queued_console_inputs_.erase(queued_console_inputs_.begin());
+            queued_console_inputs_.pop_front();
             pending_active_ = true;
             pending_kind_ = pending_kind::console_input;
             (void)complete_pending();
@@ -650,7 +651,7 @@ class server_session final
     coreio::input_payload_reader payload_;
     consoleapi::console_api api_;
     coreio::io_msg pending_message_{};
-    std::vector<coreio::io_msg> queued_console_inputs_;
+    bizwen::deque<coreio::io_msg> queued_console_inputs_;
     bool pending_active_{};
     pending_kind pending_kind_{};
     bool initial_repaint_sent_{};
