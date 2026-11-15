@@ -114,7 +114,11 @@ class server_session final
     {
         if (api_.handle(message))
         {
-            if (pending_active_)
+            if (api_.take_cancel_pending())
+            {
+                (void)cancel_pending();
+            }
+            else if (pending_active_)
             {
                 (void)complete_pending();
             }
@@ -126,6 +130,25 @@ class server_session final
         return false;
     }
 
+    bool cancel_pending()
+    {
+        if (!pending_active_ || !server_.valid())
+        {
+            return false;
+        }
+        if (pending_kind_ == pending_kind::raw_read)
+        {
+            coreio::prepare_completion(pending_message_, 0, 0, pending_message_.body, 0);
+        }
+        else if (!api_.resume_read(pending_message_))
+        {
+            return false;
+        }
+        coreio::complete_io(server_, pending_message_.complete);
+        pending_active_ = false;
+        pending_kind_ = pending_kind::none;
+        return true;
+    }
     bool suspend_raw(coreio::io_msg &message)
     {
         pending_message_ = message;

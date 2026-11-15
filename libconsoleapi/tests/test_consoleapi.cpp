@@ -1373,6 +1373,35 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::input_queue flush_queue;
+    corehost::screen::screen_buffer flush_buffer{4, 2};
+    corehost::screen::console_state flush_state{4, 2};
+    corehost::consoleapi::console_api flush_api{flush_buffer, flush_state, &flush_queue};
+    corehost::coreio::io_msg cancel_message{};
+    cancel_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    cancel_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + sizeof(char16_t);
+    auto *cancel_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(cancel_message.body);
+    cancel_header->ApiNumber = ConsolepReadConsole;
+    auto *cancel_read = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        cancel_message.body + sizeof(CONSOLE_MSG_HEADER));
+    cancel_read->Unicode = TRUE;
+    if (flush_api.handle(cancel_message))
+    {
+        std::fprintf(stderr, "flush pending read did not suspend\n");
+        return EXIT_FAILURE;
+    }
+    corehost::coreio::io_msg flush_request{};
+    flush_request.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER);
+    auto *flush_request_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(flush_request.body);
+    flush_request_header->ApiNumber = ConsolepFlushInputBuffer;
+    if (!flush_api.handle(flush_request) || !flush_api.take_cancel_pending())
+    {
+        std::fprintf(stderr, "flush did not cancel pending read\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

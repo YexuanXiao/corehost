@@ -884,8 +884,14 @@ class console_api final
         {
             input_->clear();
         }
+        cancel_pending_ = true;
         coreio::prepare_completion(message);
         return true;
+    }
+
+    [[nodiscard]] bool take_cancel_pending() noexcept
+    {
+        return std::exchange(cancel_pending_, false);
     }
 
     [[nodiscard]] bool get_process_list(coreio::io_msg &message) noexcept
@@ -2031,6 +2037,7 @@ class console_api final
     std::uintptr_t alternate_object_{};
     std::uintptr_t window_handle_{};
     coreio::process_registry *processes_{};
+    bool cancel_pending_{};
 };
 
 } // namespace corehost::consoleapi
