@@ -76,6 +76,11 @@ class console_api final
         input_object_ = object;
     }
 
+    void set_input_handle(std::uintptr_t handle) noexcept
+    {
+        input_handle_ = handle;
+    }
+
     void set_window_handle(std::uintptr_t window) noexcept
     {
         window_handle_ = window;
@@ -152,7 +157,8 @@ class console_api final
         }
         if (header->ApiNumber == ConsolepGetMode || header->ApiNumber == ConsolepSetMode)
         {
-            const bool input = input_object_ != 0 && message.descriptor.Object == input_object_;
+            const bool input = (input_object_ != 0 && message.descriptor.Object == input_object_) ||
+                               (input_handle_ != 0 && message.descriptor.Object == input_handle_);
             return header->ApiNumber == ConsolepGetMode ? get_mode(message, input) : set_mode(message, input);
         }
         if (header->ApiNumber == ConsolepSetActiveScreenBuffer)
@@ -2530,6 +2536,7 @@ class console_api final
     screen::console_state &state_;
     consoleinput::input_queue *input_{};
     std::uintptr_t input_object_{};
+    std::uintptr_t input_handle_{};
     std::uintptr_t alternate_object_{};
     std::uintptr_t window_handle_{};
     coreio::process_registry *processes_{};

@@ -194,6 +194,11 @@ class server_session final
         api_.set_input_object(object);
     }
 
+    void set_input_handle(std::uintptr_t handle) noexcept
+    {
+        api_.set_input_handle(handle);
+    }
+
     void set_alternate_object(std::uintptr_t object) noexcept
     {
         api_.set_alternate_object(object);
