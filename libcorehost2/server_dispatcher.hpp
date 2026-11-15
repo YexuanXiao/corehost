@@ -29,6 +29,7 @@ class server_dispatcher final
         case CONSOLE_IO_CREATE_OBJECT:
             return handle_create_object(message);
         case CONSOLE_IO_CLOSE_OBJECT:
+            return handle_close_object(message);
         case CONSOLE_IO_DISCONNECT:
         case CONSOLE_IO_RAW_FLUSH:
             coreio::prepare_completion(message);
@@ -56,6 +57,22 @@ class server_dispatcher final
 
         coreio::prepare_connection_completion(message, input_.view(), output_.view(),
                                              message.descriptor.Process);
+        return true;
+    }
+
+    bool handle_close_object(coreio::io_msg &message)
+    {
+        const auto id = static_cast<ULONG_PTR>(message.descriptor.Object);
+        if (id != 0 && id == input_id_)
+        {
+            input_id_ = 0;
+            session_.set_input_object(0);
+        }
+        if (id != 0 && id == output_id_)
+        {
+            output_id_ = 0;
+        }
+        coreio::prepare_completion(message);
         return true;
     }
 
