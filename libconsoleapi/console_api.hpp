@@ -1434,14 +1434,27 @@ class console_api final
         const auto capacity = std::min<std::size_t>(
             message.descriptor.OutputSize - sizeof(CONSOLE_GETTITLE_MSG), local);
         const auto &title = request->Original ? state_.original_title : state_.title;
-        const auto units = std::min<std::size_t>(title.size(), capacity / sizeof(char16_t));
-        auto *output = reinterpret_cast<char16_t *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG));
-        std::memcpy(output, title.data(), units * sizeof(char16_t));
-        request->TitleLength = static_cast<ULONG>(units);
-        coreio::prepare_completion(message, 0, units * sizeof(char16_t),
-                                   message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   units * sizeof(char16_t));
+        auto *output = message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG);
+        std::size_t written = 0;
+        if (request->Unicode)
+        {
+            const auto units = std::min<std::size_t>(title.size(), capacity / sizeof(char16_t));
+            std::memcpy(output, title.data(), units * sizeof(char16_t));
+            written = units * sizeof(char16_t);
+            request->TitleLength = static_cast<ULONG>(units);
+        }
+        else
+        {
+            const auto units = std::min<std::size_t>(title.size(), capacity);
+            for (std::size_t i = 0; i < units; ++i)
+            {
+                output[i] = static_cast<char>(title[i] < 0x80 ? title[i] : '?');
+            }
+            written = units;
+            request->TitleLength = static_cast<ULONG>(units);
+        }
+        coreio::prepare_completion(message, 0, written,
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), written);
         return true;
     }
 
@@ -1453,9 +1466,22 @@ class console_api final
             return true;
         }
         const auto bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_SETTITLE_MSG);
-        const auto *data = reinterpret_cast<const char16_t *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG));
-        state_.title.assign(data, bytes / sizeof(char16_t));
+        const auto *data = message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG);
+        const auto *request =
+            reinterpret_cast<const CONSOLE_SETTITLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        state_.title.clear();
+        if (request->Unicode)
+        {
+            const auto *chars = reinterpret_cast<const char16_t *>(data);
+            state_.title.assign(chars, bytes / sizeof(char16_t));
+        }
+        else
+        {
+            for (std::size_t i = 0; i < bytes; ++i)
+            {
+                state_.title.push_back(static_cast<unsigned char>(data[i]));
+            }
+        }
         coreio::prepare_completion(message);
         return true;
     }

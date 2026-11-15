@@ -1187,6 +1187,43 @@ int main()
         return EXIT_FAILURE;
     }
 
+    const char title_ascii[]{'H', 'i'};
+    corehost::coreio::io_msg set_title_message{};
+    set_title_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                              sizeof(CONSOLE_SETTITLE_MSG) + sizeof(title_ascii);
+    set_title_message.descriptor.OutputSize = sizeof(set_title_message.body);
+    auto *set_title_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(set_title_message.body);
+    set_title_header->ApiNumber = ConsolepSetTitle;
+    auto *set_title_request = reinterpret_cast<CONSOLE_SETTITLE_MSG *>(
+        set_title_message.body + sizeof(CONSOLE_MSG_HEADER));
+    set_title_request->Unicode = FALSE;
+    std::memcpy(set_title_request + 1, title_ascii, sizeof(title_ascii));
+    if (!api.handle(set_title_message) || state.title != u"Hi")
+    {
+        std::fprintf(stderr, "set ascii title failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::io_msg ascii_title_message{};
+    ascii_title_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG);
+    ascii_title_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETTITLE_MSG) + 2;
+    auto *ascii_title_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(ascii_title_message.body);
+    ascii_title_header->ApiNumber = ConsolepGetTitle;
+    auto *ascii_title_request = reinterpret_cast<CONSOLE_GETTITLE_MSG *>(
+        ascii_title_message.body + sizeof(CONSOLE_MSG_HEADER));
+    ascii_title_request->Unicode = FALSE;
+    if (!api.handle(ascii_title_message) || ascii_title_request->TitleLength != 2)
+    {
+        std::fprintf(stderr, "get ascii title failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *title_output = reinterpret_cast<const char *>(ascii_title_request + 1);
+    if (title_output[0] != 'H' || title_output[1] != 'i')
+    {
+        std::fprintf(stderr, "get ascii title data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
