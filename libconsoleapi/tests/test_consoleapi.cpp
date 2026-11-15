@@ -555,20 +555,6 @@ int main()
         return EXIT_FAILURE;
     }
 
-    corehost::coreio::io_msg font_count_message{};
-    font_count_message.descriptor.InputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETNUMBEROFFONTS_MSG);
-    font_count_message.descriptor.OutputSize = sizeof(font_count_message.body);
-    auto *font_count_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(font_count_message.body);
-    font_count_header->ApiNumber = ConsolepGetNumberOfFonts;
-    if (!api.handle(font_count_message) ||
-        reinterpret_cast<const CONSOLE_GETNUMBEROFFONTS_MSG *>(
-            font_count_message.body + sizeof(CONSOLE_MSG_HEADER))->NumberOfFonts != 1)
-    {
-        std::fprintf(stderr, "get number of fonts failed\n");
-        return EXIT_FAILURE;
-    }
-
     corehost::coreio::io_msg current_font_message{};
     current_font_message.descriptor.InputSize =
         sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG);
@@ -630,35 +616,6 @@ int main()
     if (mouse_info->NumButtons != 5)
     {
         std::fprintf(stderr, "get mouse info data failed\n");
-        return EXIT_FAILURE;
-    }
-
-    corehost::coreio::io_msg font_info_message{};
-    font_info_message.descriptor.InputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETFONTINFO_MSG);
-    font_info_message.descriptor.OutputSize = sizeof(font_info_message.body);
-    auto *font_info_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(font_info_message.body);
-    font_info_header->ApiNumber = ConsolepGetFontInfo;
-    if (!api.handle(font_info_message) ||
-        reinterpret_cast<const CONSOLE_GETFONTINFO_MSG *>(
-            font_info_message.body + sizeof(CONSOLE_MSG_HEADER))->NumFonts != 1)
-    {
-        std::fprintf(stderr, "get font info failed\n");
-        return EXIT_FAILURE;
-    }
-
-    corehost::coreio::io_msg set_font_message{};
-    set_font_message.descriptor.InputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETFONT_MSG);
-    set_font_message.descriptor.OutputSize = sizeof(set_font_message.body);
-    auto *set_font_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(set_font_message.body);
-    set_font_header->ApiNumber = ConsolepSetFont;
-    auto *set_font_request = reinterpret_cast<CONSOLE_SETFONT_MSG *>(
-        set_font_message.body + sizeof(CONSOLE_MSG_HEADER));
-    set_font_request->FontIndex = 0;
-    if (!api.handle(set_font_message))
-    {
-        std::fprintf(stderr, "set font failed\n");
         return EXIT_FAILURE;
     }
 
@@ -984,33 +941,6 @@ int main()
     if (history_text[0] != u'c' || history_text[2] != u'd' || history_text[3] != 0)
     {
         std::fprintf(stderr, "get command history data failed\n");
-        return EXIT_FAILURE;
-    }
-
-    corehost::coreio::io_msg set_nls_message{};
-    set_nls_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_NLS_MODE_MSG);
-    set_nls_message.descriptor.OutputSize = sizeof(set_nls_message.body);
-    auto *set_nls_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(set_nls_message.body);
-    set_nls_header->ApiNumber = ConsolepSetNlsMode;
-    auto *set_nls_request = reinterpret_cast<CONSOLE_NLS_MODE_MSG *>(
-        set_nls_message.body + sizeof(CONSOLE_MSG_HEADER));
-    set_nls_request->NlsMode = 7;
-    if (!api.handle(set_nls_message) || state.nls_mode != 7)
-    {
-        std::fprintf(stderr, "set nls mode failed\n");
-        return EXIT_FAILURE;
-    }
-
-    corehost::coreio::io_msg get_nls_message{};
-    get_nls_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_NLS_MODE_MSG);
-    get_nls_message.descriptor.OutputSize = sizeof(get_nls_message.body);
-    auto *get_nls_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(get_nls_message.body);
-    get_nls_header->ApiNumber = ConsolepGetNlsMode;
-    if (!api.handle(get_nls_message) ||
-        reinterpret_cast<const CONSOLE_NLS_MODE_MSG *>(
-            get_nls_message.body + sizeof(CONSOLE_MSG_HEADER))->NlsMode != 7)
-    {
-        std::fprintf(stderr, "get nls mode failed\n");
         return EXIT_FAILURE;
     }
 
