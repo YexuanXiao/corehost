@@ -1001,6 +1001,14 @@ fb4d3ef perf(libscreen): remove per-cell bounds checks in ascii run
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### Alias 值直接写入输出
+
+`get_aliases` 的长度计算使用 `console_text_length`；`append_alias_value` 在容量足够时直接调用 `WideCharToMultiByte` 写入输出，不再为 source/target 构造临时字符串：
+
+```text
+d88215c perf(consoleapi): append alias values without temp strings
+```
+
 ### Alias Target 直接编码到输出
 
 `get_alias` 的非 Unicode 分支直接写入输出，不再构造临时 `std::string`：
