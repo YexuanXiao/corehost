@@ -74,6 +74,9 @@ add_subdirectory(libvtparser)
 # ── libvtserializer (platform-neutral VT serializer) ─
 add_subdirectory(libvtserializer)
 
+# ── libconsoleinput (parser keys -> portable input events) ─
+add_subdirectory(libconsoleinput)
+
 # ── libscreen (16-byte cell 屏幕缓冲区参考实现) ────────
 add_subdirectory(libscreen)
 add_subdirectory(libscreen/bench)

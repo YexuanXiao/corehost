@@ -444,6 +444,9 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/libvtparser/tests ${CMAKE_CURRENT_BINARY_DI
 # ── libvtserializer 测试 ────────────────────────────
 add_subdirectory(${CMAKE_SOURCE_DIR}/libvtserializer/tests ${CMAKE_CURRENT_BINARY_DIR}/libvtserializer-tests)
 
+# ── libconsoleinput 测试 ────────────────────────────
+add_subdirectory(${CMAKE_SOURCE_DIR}/libconsoleinput/tests ${CMAKE_CURRENT_BINARY_DIR}/libconsoleinput-tests)
+
 # ── libvtstate 测试 ─────────────────────────────────
 add_subdirectory(${CMAKE_SOURCE_DIR}/libvtstate/tests ${CMAKE_CURRENT_BINARY_DIR}/libvtstate-tests)
 
