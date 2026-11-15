@@ -6,6 +6,7 @@
 #include "console_state.hpp"
 
 #include "condrv_io.hpp"
+#include "input.hpp"
 
 namespace corehost::corehost2
 {
@@ -16,7 +17,7 @@ class server_session final
 {
   public:
     server_session(screen::screen_buffer &buffer, screen::console_state &state) noexcept
-        : api_{buffer, state}
+        : api_{buffer, state, &input_}
     {
     }
 
@@ -25,12 +26,18 @@ class server_session final
         handle(message);
     }
 
+    [[nodiscard]] consoleinput::input_queue &input() noexcept
+    {
+        return input_;
+    }
+
     void handle(coreio::io_msg &message) noexcept
     {
         (void)api_.handle(message);
     }
 
   private:
+    consoleinput::input_queue input_;
     consoleapi::console_api api_;
 };
 

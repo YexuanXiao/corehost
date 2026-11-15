@@ -4,6 +4,7 @@
 #include "screen_buffer.hpp"
 
 #include "win32_types.hpp"
+#include "input.hpp"
 
 #include "condrv_io.hpp"
 #include "os/Console/conmsgl1.h"
@@ -22,8 +23,9 @@ namespace corehost::consoleapi
 class console_api final
 {
   public:
-    console_api(screen::screen_buffer &buffer, screen::console_state &state) noexcept
-        : buffer_{buffer}, state_{state}
+    console_api(screen::screen_buffer &buffer, screen::console_state &state,
+                consoleinput::input_queue *input = nullptr) noexcept
+        : buffer_{buffer}, state_{state}, input_{input}
     {
     }
 
@@ -72,6 +74,10 @@ class console_api final
         if (header->ApiNumber == ConsolepGetLargestWindowSize)
         {
             return get_largest_window_size(message);
+        }
+        if (header->ApiNumber == ConsolepGetNumberOfInputEvents)
+        {
+            return get_number_of_input_events(message);
         }
         if (header->ApiNumber == ConsolepSetScreenBufferSize)
         {
@@ -124,6 +130,22 @@ class console_api final
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCURSORINFO_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETCURSORINFO_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool get_number_of_input_events(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETNUMBEROFINPUTEVENTS_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->ReadyEvents = input_ != nullptr ? static_cast<ULONG>(input_->size()) : 0;
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG));
         return true;
     }
 
@@ -461,6 +483,7 @@ class console_api final
   private:
     screen::screen_buffer &buffer_;
     screen::console_state &state_;
+    consoleinput::input_queue *input_{};
 };
 
 } // namespace corehost::consoleapi

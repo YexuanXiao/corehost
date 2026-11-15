@@ -250,6 +250,28 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::input_queue input_queue;
+    input_queue.push(corehost::consoleinput::input_event{});
+    corehost::consoleapi::console_api input_api{buffer, state, &input_queue};
+    corehost::coreio::io_msg event_message{};
+    event_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG);
+    event_message.descriptor.OutputSize = sizeof(event_message.body);
+    auto *event_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(event_message.body);
+    event_header->ApiNumber = ConsolepGetNumberOfInputEvents;
+    if (!input_api.handle(event_message) || input_queue.size() != 1)
+    {
+        std::fprintf(stderr, "input event count failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *event_info = reinterpret_cast<const CONSOLE_GETNUMBEROFINPUTEVENTS_MSG *>(
+        event_message.body + sizeof(CONSOLE_MSG_HEADER));
+    if (event_info->ReadyEvents != 1)
+    {
+        std::fprintf(stderr, "input event count wrong\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
