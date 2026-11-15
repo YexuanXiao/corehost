@@ -31,6 +31,25 @@ class state_applier final
         measurement_ = measurement;
     }
 
+    [[nodiscard]] static char16_t line_drawing(char16_t value) noexcept
+    {
+        static constexpr char16_t table[] = {
+            u' ', u'\u25C6', u'\u2592', u'\u2409', u'\u240C', u'\u240D', u'\u240A',
+            u'\u00B0', u'\u00B1', u'\u2424', u'\u240B', u'\u2518', u'\u2510', u'\u250C',
+            u'\u2514', u'\u253C', u'\u23BA', u'\u23BB', u'\u2500', u'\u23BC', u'\u23BD',
+            u'\u251C', u'\u2524', u'\u2534', u'\u252C', u'\u2502', u'\u2264', u'\u2265',
+            u'\u03C0', u'\u2260', u'\u00A3', u'\u00B7'};
+        if (value >= 0x5F && value <= 0x7E)
+        {
+            return table[value - 0x5F];
+        }
+        return value;
+    }
+
+    void apply_charset(bool line_drawing, screen::console_state &state) noexcept
+    {
+        state.line_drawing_charset = line_drawing;
+    }
     void apply_text(const vtparser::vt_message &message,
                     screen::screen_buffer &buffer,
                     screen::console_state &state)
@@ -75,6 +94,13 @@ class state_applier final
     {
         text_.clear();
         unicode::convert_to<char16_t>(message.payload.text, std::back_inserter(text_));
+        if (state.line_drawing_charset)
+        {
+            for (auto &ch : text_)
+            {
+                ch = line_drawing(ch);
+            }
+        }
 
         auto cursor = screen::coord{
             static_cast<std::int32_t>(state.cursor().x),

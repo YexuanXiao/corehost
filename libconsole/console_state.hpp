@@ -131,6 +131,7 @@ class console_state final
     std::vector<std::u16string> command_history;
     std::size_t command_history_limit{50};
     std::uint32_t display_mode{};
+    bool line_drawing_charset{};
     std::bitset<2048> private_modes;
     std::vector<std::pair<std::uint16_t, bool>> private_mode_changes;
     std::uint32_t output_code_page{};

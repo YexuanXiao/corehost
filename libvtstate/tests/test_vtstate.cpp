@@ -489,6 +489,20 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer charset_buffer{4, 2};
+    corehost::screen::console_state charset_state{4, 2};
+    parser.reset();
+    result = parser.parse(U"\x1b(0");
+    (void)corehost::vtstate::apply(result.id, result.message, charset_buffer, charset_state, applier);
+    parser.reset();
+    result = parser.parse(U"q");
+    (void)corehost::vtstate::apply(result.id, result.message, charset_buffer, charset_state, applier);
+    if (charset_buffer.at(0, 0).primary() != u'\u2500')
+    {
+        std::fprintf(stderr, "line drawing charset failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }

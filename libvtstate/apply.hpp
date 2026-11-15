@@ -84,6 +84,12 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::tab_clear_all:
         applier.apply_tab_stop(2, state);
         return true;
+    case vtparser::vt_message_id::designate_charset_line_drawing:
+        applier.apply_charset(true, state);
+        return true;
+    case vtparser::vt_message_id::designate_charset_ascii:
+        applier.apply_charset(false, state);
+        return true;
     case vtparser::vt_message_id::reverse_index:
         applier.apply_reverse_index(buffer, state);
         return true;
