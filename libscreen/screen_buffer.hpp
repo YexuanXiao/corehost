@@ -1440,40 +1440,57 @@ inline void screen_buffer::copy_rect(rectangle source, rectangle clip, bool use_
         return;
     }
 
-    const auto source_width = copy_right - copy_left;
-    const auto source_height = copy_bottom - copy_top;
-    std::vector<cell> temp;
-    temp.reserve(static_cast<std::size_t>(source_width * source_height));
-    for (auto y = copy_top; y < copy_bottom; ++y)
-    {
-        for (auto x = copy_left; x < copy_right; ++x)
-        {
-            temp.push_back(at(static_cast<std::size_t>(x), static_cast<std::size_t>(y)));
-        }
-    }
-
+    const auto destination_x = destination.x + (copy_left - left);
+    const auto destination_y = destination.y + (copy_top - top);
     auto &target = active_page();
-    std::size_t index = 0;
-    for (auto y = 0; y < source_height; ++y)
-    {
-        for (auto x = 0; x < source_width; ++x)
+
+    const auto copy_rows = [&](bool descending) {
+        for (auto row = 0; row < (copy_bottom - copy_top); ++row)
         {
-            const auto dx = destination.x + (copy_left - left) + x;
-            const auto dy = destination.y + (copy_top - top) + y;
-            if (dx < 0 || dy < 0 || dx >= static_cast<std::int32_t>(width_) ||
-                dy >= static_cast<std::int32_t>(height_))
+            const auto source_y = descending ? copy_bottom - 1 - row : copy_top + row;
+            const auto dest_y = destination_y + (source_y - copy_top);
+            if (dest_y < 0 || dest_y >= static_cast<std::int32_t>(height_))
             {
-                ++index;
                 continue;
             }
-            target.at(static_cast<std::size_t>(dx), static_cast<std::size_t>(dy)) = temp[index++];
-            target.mark_dirty(static_cast<std::size_t>(dy),
-                              static_cast<std::size_t>(dx),
-                              static_cast<std::size_t>(dx + 1));
+
+            auto source_begin = std::max(copy_left, copy_left - destination_x);
+            auto source_end = std::min(copy_right, copy_left + static_cast<std::int32_t>(width_) - destination_x);
+            if (source_begin >= source_end)
+            {
+                continue;
+            }
+            const auto dest_x = destination_x + (source_begin - copy_left);
+            const auto count = static_cast<std::size_t>(source_end - source_begin);
+            auto source_row = row_cells(static_cast<std::size_t>(source_y));
+            auto dest_row = row_cells(static_cast<std::size_t>(dest_y));
+            const auto source_offset = static_cast<std::size_t>(source_begin);
+            const auto dest_offset = static_cast<std::size_t>(dest_x);
+
+            if (source_y == dest_y && dest_x > source_begin)
+            {
+                std::copy_backward(source_row.begin() + static_cast<std::ptrdiff_t>(source_offset),
+                                  source_row.begin() + static_cast<std::ptrdiff_t>(source_offset + count),
+                                  dest_row.begin() + static_cast<std::ptrdiff_t>(dest_offset + count));
+            }
+            else
+            {
+                std::copy_n(source_row.begin() + static_cast<std::ptrdiff_t>(source_offset), count,
+                            dest_row.begin() + static_cast<std::ptrdiff_t>(dest_offset));
+            }
+            target.mark_dirty(static_cast<std::size_t>(dest_y), dest_offset, dest_offset + count);
         }
+    };
+
+    if (destination_y > copy_top)
+    {
+        copy_rows(true);
+    }
+    else
+    {
+        copy_rows(false);
     }
 }
-
 inline void screen_buffer::scroll_rect(rectangle source, rectangle clip, bool use_clip, coord destination,
                                        char16_t fill_char, std::uint16_t fill_attr) noexcept
 {
@@ -1573,6 +1590,7 @@ inline void screen_buffer::scroll_up(std::size_t lines, cell_style fill_style)
     trim_history();
     target.mark_all_dirty();
 }
+
 
 inline void screen_buffer::scroll_region_up(rectangle area, std::size_t lines, cell_style fill_style)
 {
