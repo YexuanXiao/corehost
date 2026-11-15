@@ -722,16 +722,16 @@ inline cell_style screen_buffer::style_for_legacy(std::uint16_t attributes)
         return default_style_id_;
     }
 
-    static constexpr std::array<std::uint8_t, 16> legacy_color_index{
-        0, 4, 2, 6, 1, 5, 3, 7, 8, 12, 10, 14, 9, 13, 11, 15};
-
     auto value = text_style{};
     value.legacy_attributes = attributes;
-    value.foreground = color{color_kind::indexed, legacy_color_index[attributes & 0x0F]};
+    const auto to_indexed = [](std::uint16_t bgri) noexcept {
+        return static_cast<std::uint32_t>((bgri & 0x04 ? 1u : 0u) | (bgri & 0x02 ? 2u : 0u) |
+                                          (bgri & 0x01 ? 4u : 0u) | (bgri & 0x08 ? 8u : 0u));
+    };
+    value.foreground = color{color_kind::indexed, to_indexed(attributes & 0x0F)};
     value.background = ((attributes >> 4) & 0x0F) == 0
                            ? color{}
-                           : color{color_kind::indexed,
-                                   legacy_color_index[(attributes >> 4) & 0x0F]};
+                           : color{color_kind::indexed, to_indexed((attributes >> 4) & 0x0F)};
     return styles_.intern(value);
 }
 
