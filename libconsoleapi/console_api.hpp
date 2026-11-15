@@ -102,6 +102,14 @@ class console_api final
         {
             return write_console_input(message);
         }
+        if (header->ApiNumber == ConsolepGetNumberOfFonts)
+        {
+            return get_number_of_fonts(message);
+        }
+        if (header->ApiNumber == ConsolepGetCurrentFont)
+        {
+            return get_current_font(message);
+        }
         if (header->ApiNumber == ConsolepGetFontSize)
         {
             return get_font_size(message);
@@ -479,6 +487,43 @@ class console_api final
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLEINPUT_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool get_number_of_fonts(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETNUMBEROFFONTS_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETNUMBEROFFONTS_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->NumberOfFonts = 1;
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETNUMBEROFFONTS_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETNUMBEROFFONTS_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool get_current_font(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_CURRENTFONT_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->FontIndex = state_.font_index;
+        info->FontSize = COORD{static_cast<SHORT>(state_.font_size.x),
+                              static_cast<SHORT>(state_.font_size.y)};
+        info->FontFamily = state_.font_family;
+        info->FontWeight = state_.font_weight;
+        const auto units = std::min<std::size_t>(state_.face_name.size(), LF_FACESIZE - 1);
+        std::memcpy(info->FaceName, state_.face_name.data(), units * sizeof(char16_t));
+        info->FaceName[units] = 0;
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_CURRENTFONT_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_CURRENTFONT_MSG));
         return true;
     }
 

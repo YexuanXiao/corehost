@@ -555,6 +555,39 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg font_count_message{};
+    font_count_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETNUMBEROFFONTS_MSG);
+    font_count_message.descriptor.OutputSize = sizeof(font_count_message.body);
+    auto *font_count_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(font_count_message.body);
+    font_count_header->ApiNumber = ConsolepGetNumberOfFonts;
+    if (!api.handle(font_count_message) ||
+        reinterpret_cast<const CONSOLE_GETNUMBEROFFONTS_MSG *>(
+            font_count_message.body + sizeof(CONSOLE_MSG_HEADER))->NumberOfFonts != 1)
+    {
+        std::fprintf(stderr, "get number of fonts failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::io_msg current_font_message{};
+    current_font_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_CURRENTFONT_MSG);
+    current_font_message.descriptor.OutputSize = sizeof(current_font_message.body);
+    auto *current_font_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(current_font_message.body);
+    current_font_header->ApiNumber = ConsolepGetCurrentFont;
+    if (!api.handle(current_font_message))
+    {
+        std::fprintf(stderr, "get current font failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *current_font = reinterpret_cast<const CONSOLE_CURRENTFONT_MSG *>(
+        current_font_message.body + sizeof(CONSOLE_MSG_HEADER));
+    if (current_font->FontSize.X != 8 || current_font->FaceName[0] != u'C')
+    {
+        std::fprintf(stderr, "get current font data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
