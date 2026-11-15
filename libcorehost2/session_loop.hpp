@@ -189,8 +189,9 @@ class session_signal_sink final : public conptyio::signal_sink
 {
   public:
     session_signal_sink(session &state, conptyio::terminal_writer &writer,
-                        conptyio::pseudo_window &window, win32::srwlock &mutex)
-        : state_{state}, writer_{writer}, window_{window}, mutex_{mutex}
+                        conptyio::pseudo_window &window, win32::srwlock &mutex,
+                        server_session &console)
+        : state_{state}, writer_{writer}, window_{window}, mutex_{mutex}, console_{console}
     {
     }
 
@@ -200,6 +201,7 @@ class session_signal_sink final : public conptyio::signal_sink
         conptyio::apply_signal(id, payload, state_.screen(), state_.state(), &window_);
         state_.queue_window_size(static_cast<std::int16_t>(state_.state().width()),
                                  static_cast<std::int16_t>(state_.state().height()));
+        (void)console_.complete_pending();
         if (!state_.screen().has_damage())
         {
             return;
@@ -238,6 +240,7 @@ class session_signal_sink final : public conptyio::signal_sink
     conptyio::terminal_writer &writer_;
     conptyio::pseudo_window &window_;
     win32::srwlock &mutex_;
+    server_session &console_;
 };
 struct conpty_session_config final
 {
@@ -305,7 +308,7 @@ inline void run_conpty_session(win32::handle_view server,
         input_thread.start();
     }
 
-    session_signal_sink signal_sink{state, writer, window, session_mutex};
+    session_signal_sink signal_sink{state, writer, window, session_mutex, console_session};
     conptyio::pty_signal_thread pty_signal_thread{signal_pipe, signal_sink};
     if (signal_pipe.valid())
     {
