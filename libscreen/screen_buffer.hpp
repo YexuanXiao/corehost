@@ -1521,48 +1521,40 @@ inline void screen_buffer::scroll_rect(rectangle source, rectangle clip, bool us
         return;
     }
 
-    std::vector<cell> temp;
-    temp.reserve(static_cast<std::size_t>((copy_right - copy_left) * (copy_bottom - copy_top)));
-    for (auto y = copy_top; y < copy_bottom; ++y)
-    {
-        for (auto x = copy_left; x < copy_right; ++x)
-        {
-            temp.push_back(at(static_cast<std::size_t>(x), static_cast<std::size_t>(y)));
-        }
-    }
+    copy_rect(source, clip, use_clip, destination);
 
-    const auto style = style_for_legacy(fill_attr);
-    for (auto y = copy_top; y < copy_bottom; ++y)
-    {
-        for (auto x = copy_left; x < copy_right; ++x)
+    const auto vertical = copy_bottom - copy_top;
+    const auto horizontal = copy_right - copy_left;
+    const auto dest_left = destination.x + (copy_left - left);
+    const auto dest_top = destination.y + (copy_top - top);
+    const auto fill_segment = [&](std::int32_t x, std::int32_t y, std::int32_t width) {
+        if (width <= 0)
         {
-            (void)write_cell(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
-                             cell::scalar(fill_char, style));
+            return;
         }
-    }
+        const rect segment{x, y, x + width - 1, y};
+        fill_chars(segment, fill_char);
+        fill_attrs(segment, fill_attr);
+    };
 
-    auto &target = active_page();
-    std::size_t index = 0;
     for (auto y = copy_top; y < copy_bottom; ++y)
     {
-        for (auto x = copy_left; x < copy_right; ++x)
+        if (y < dest_top || y >= dest_top + vertical)
         {
-            const auto dx = destination.x + (copy_left - left) + (x - copy_left);
-            const auto dy = destination.y + (copy_top - top) + (y - copy_top);
-            if (dx < 0 || dy < 0 || dx >= static_cast<std::int32_t>(width_) ||
-                dy >= static_cast<std::int32_t>(height_))
-            {
-                ++index;
-                continue;
-            }
-            target.at(static_cast<std::size_t>(dx), static_cast<std::size_t>(dy)) = temp[index++];
-            target.mark_dirty(static_cast<std::size_t>(dy),
-                              static_cast<std::size_t>(dx),
-                              static_cast<std::size_t>(dx + 1));
+            fill_segment(copy_left, y, horizontal);
+            continue;
+        }
+        if (copy_left < dest_left)
+        {
+            fill_segment(copy_left, y, std::min(dest_left, copy_right) - copy_left);
+        }
+        const auto right_start = std::max(dest_left + horizontal, copy_left);
+        if (right_start < copy_right)
+        {
+            fill_segment(right_start, y, copy_right - right_start);
         }
     }
 }
-
 inline void screen_buffer::scroll_up(std::size_t lines, cell_style fill_style)
 {
     if (lines == 0 || height_ == 0)
