@@ -78,6 +78,10 @@ class console_api final
         {
             return get_largest_window_size(message);
         }
+        if (header->ApiNumber == ConsolepScrollScreenBuffer)
+        {
+            return scroll_console_buffer(message);
+        }
         if (header->ApiNumber == ConsolepWriteConsoleInput)
         {
             return write_console_input(message);
@@ -212,6 +216,72 @@ class console_api final
         coreio::prepare_completion(message, 0, count * sizeof(INPUT_RECORD),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    count * sizeof(INPUT_RECORD));
+        return true;
+    }
+
+    [[nodiscard]] bool scroll_console_buffer(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCROLLSCREENBUFFER_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *request = reinterpret_cast<const CONSOLE_SCROLLSCREENBUFFER_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto source = request->ScrollRectangle;
+        if (source.Left > source.Right || source.Top > source.Bottom)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const screen::rectangle source_rect{static_cast<std::size_t>(source.Left),
+                                           static_cast<std::size_t>(source.Top),
+                                           static_cast<std::size_t>(source.Right - source.Left + 1),
+                                           static_cast<std::size_t>(source.Bottom - source.Top + 1)};
+        const screen::rectangle clip_rect{static_cast<std::size_t>(request->ClipRectangle.Left),
+                                          static_cast<std::size_t>(request->ClipRectangle.Top),
+                                          static_cast<std::size_t>(request->ClipRectangle.Right - request->ClipRectangle.Left + 1),
+                                          static_cast<std::size_t>(request->ClipRectangle.Bottom - request->ClipRectangle.Top + 1)};
+        const screen::coord destination{request->DestinationOrigin.X, request->DestinationOrigin.Y};
+        buffer_.copy_rect(source_rect, clip_rect, request->Clip != FALSE, destination);
+
+        const auto fill_char = request->Unicode ? request->Fill.Char.UnicodeChar
+                                               : static_cast<char16_t>(request->Fill.Char.AsciiChar);
+        const auto fill_attributes = request->Fill.Attributes;
+        const auto fill_segment = [&](std::size_t x, std::size_t y, std::size_t width)
+        {
+            if (width == 0)
+            {
+                return;
+            }
+            const screen::rect segment{static_cast<std::int32_t>(x), static_cast<std::int32_t>(y),
+                                       static_cast<std::int32_t>(x + width - 1), static_cast<std::int32_t>(y)};
+            buffer_.fill_chars(segment, fill_char);
+            buffer_.fill_attrs(segment, fill_attributes);
+        };
+
+        const auto dest_left = static_cast<std::size_t>(std::max<std::int32_t>(destination.x, 0));
+        const auto dest_top = static_cast<std::size_t>(std::max<std::int32_t>(destination.y, 0));
+        const auto dest_right = dest_left + source_rect.width;
+        const auto dest_bottom = dest_top + source_rect.height;
+        for (std::size_t y = source_rect.y; y < source_rect.y + source_rect.height; ++y)
+        {
+            if (y < dest_top || y >= dest_bottom)
+            {
+                fill_segment(source_rect.x, y, source_rect.width);
+                continue;
+            }
+            if (source_rect.x < dest_left)
+            {
+                fill_segment(source_rect.x, y, std::min(dest_left, source_rect.x + source_rect.width) - source_rect.x);
+            }
+            const auto right_start = std::max(dest_right, source_rect.x);
+            if (right_start < source_rect.x + source_rect.width)
+            {
+                fill_segment(right_start, y, source_rect.x + source_rect.width - right_start);
+            }
+        }
+        coreio::prepare_completion(message);
         return true;
     }
 

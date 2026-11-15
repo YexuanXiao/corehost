@@ -414,6 +414,32 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer scroll_buffer{4, 2};
+    corehost::screen::console_state scroll_state{4, 2};
+    corehost::consoleapi::console_api scroll_api{scroll_buffer, scroll_state};
+    (void)scroll_buffer.write_scalar(0, 0, u'A', corehost::screen::cell_style{});
+    corehost::coreio::io_msg scroll_message{};
+    scroll_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SCROLLSCREENBUFFER_MSG);
+    scroll_message.descriptor.OutputSize = sizeof(scroll_message.body);
+    auto *scroll_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(scroll_message.body);
+    scroll_header->ApiNumber = ConsolepScrollScreenBuffer;
+    auto *scroll_request = reinterpret_cast<CONSOLE_SCROLLSCREENBUFFER_MSG *>(
+        scroll_message.body + sizeof(CONSOLE_MSG_HEADER));
+    scroll_request->ScrollRectangle = SMALL_RECT{0, 0, 0, 0};
+    scroll_request->ClipRectangle = SMALL_RECT{0, 0, 3, 1};
+    scroll_request->Clip = FALSE;
+    scroll_request->Unicode = TRUE;
+    scroll_request->DestinationOrigin = COORD{1, 0};
+    scroll_request->Fill.Char.UnicodeChar = u'X';
+    scroll_request->Fill.Attributes = 0x07;
+    if (!scroll_api.handle(scroll_message) || scroll_buffer.at(1, 0).primary() != u'A' ||
+        scroll_buffer.at(0, 0).primary() != u'X')
+    {
+        std::fprintf(stderr, "scroll console buffer failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
