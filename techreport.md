@@ -584,6 +584,58 @@ console 状态。
 - image intern 从线性扫描改为 flat_map 查找；
 - `grapheme_store::reserve` 允许调用者预分配。
 
+#### deque 方案
+
+`std::deque<cell>` 不能解决 history 复制：
+
+- deque 是分段连续，单行 cell 不保证能用一个 `std::span` 表示；
+- `pop_front()` 会销毁顶部 cell，不能把这一段直接交给 history；
+- history 仍要复制/移动 cell；
+- corehost 的按行 `CHAR_INFO` 投影需要连续行 span。
+
+可行的是“page = `std::deque<row_block>`”：
+
+```cpp
+struct row_block
+{
+    std::vector<cell> cells;
+    row_state state;
+};
+
+using page = std::deque<row_block>;
+using history = std::deque<row_block>;
+```
+
+滚动时：
+
+```cpp
+history.push_back(std::move(page.front())); // vector move，O(1)
+page.pop_front();
+page.push_back(acquire_blank_row());        // 从 pool 取
+```
+
+这样：
+
+- 退役行直接移动 `vector` 指针，不复制 16B cell；
+- `history_line()` 仍返回该行连续 `span<const cell>`；
+- `deque` 两端 push/pop 不移动其余行，也不使未删除元素的引用失效；
+- 16B cell 和 32 位 screen-wide ID 完全保留；
+- 单行滚动不再复制 cell。
+
+代价：
+
+- page 不再是单个连续 `vector<cell>`，整页扫描/clear 的局部性下降；
+- 每行独立分配，需要 row pool 或 `std::pmr` 才能避免每次 scroll 分配；
+- `deque` 随机访问常数高于 vector；
+- `scroll_region_up` 需要 rotate/move row block，移动的是 row 对象，不是 cell；
+- 需要保证 history trim 后 row block 可回收、span 生命周期规则清晰。
+
+所以：
+
+- `deque<cell>`：不行；
+- `deque<row_block>`：可行，能解决 history 行复制，但会把 dense page 变成 row-block page；
+- 纯 `deque<page>`：只能优化整页滚动，不能消除单行滚动复制。
+
 结论：
 
 - **复杂度同阶**：page/cell 访问、style/hyperlink 按 ID 查表、cluster append、scroll 都是
