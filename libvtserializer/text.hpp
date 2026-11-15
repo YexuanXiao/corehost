@@ -20,6 +20,12 @@ inline void append_utf16(byte_buffer &output, std::u16string_view text)
     auto iterator = text.begin();
     while (iterator != text.end())
     {
+        if (*iterator < 0x80)
+        {
+            *last++ = static_cast<char>(*iterator++);
+            continue;
+        }
+
         auto codepoint = unicode::decoder<char16_t>{}(iterator);
         if (!codepoint.has_value())
         {
