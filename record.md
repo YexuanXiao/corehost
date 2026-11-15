@@ -1062,16 +1062,31 @@ feb6ca0 perf(libscreen): replace bgri ternaries with compact table
 915c54b perf(consoleapi): avoid zeroing each INPUT_RECORD
 ```
 
-### 未保留的微优化
+### 输入队列 key 计数
 
-以下两个改动没有性能测试数据，按“代码量增加必须测试”的原则撤销：
+按用户要求保留 `input_queue` 的 key 计数优化：
+
+```text
+c839ce5 Reapply "perf(consoleinput): track key events instead of scanning queue"
+```
+
+同时去掉 `events_.erase(events_.begin(), ...)`：
+
+- 全部消费时直接 `events_.clear()`；
+- 部分压缩使用 `std::shift_left` + `resize`；
+- `byte_buffer::append` 使用 `append_range` 替代 `insert(end, ...)`。
+
+```text
+bac5041 perf(consoleinput): clear consumed queue without erase(begin)
+```
+
+### 已撤销的样式微优化
 
 ```text
 dbc2722 Revert "perf(libscreen): reuse style lookup across adjacent cells"
-ff1199a Revert "perf(consoleinput): track key events instead of scanning queue"
 ```
 
-`write_char_info` 的相邻样式缓存和 `input_queue` 的 `key_count_` 都会给热路径增加分支，未证明优于原实现，因此不保留。
+`write_char_info` 的相邻样式缓存没有性能测试数据，且给每个单元格增加分支，因此不保留。
 
 ### Console API 分派
 
