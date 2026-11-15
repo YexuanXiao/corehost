@@ -425,7 +425,12 @@ class console_api final
             message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
         const auto max_units = capacity / sizeof(char16_t);
         std::size_t units = 0;
-        if (request->Unicode && request->InitialNumBytes != 0)
+        if (cooked_active_)
+        {
+            units = std::min<std::size_t>(cooked_line_.size(), max_units);
+            std::copy_n(cooked_line_.data(), units, output);
+        }
+        else if (request->Unicode && request->InitialNumBytes != 0)
         {
             const auto payload_bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
                                        sizeof(CONSOLE_READCONSOLE_MSG);
@@ -445,12 +450,16 @@ class console_api final
         }
 
         const bool echo = (state_.input_mode & 0x0004) != 0;
-        const screen::coord echo_origin{static_cast<std::int32_t>(state_.cursor().x),
-                                        static_cast<std::int32_t>(state_.cursor().y)};
+        const screen::coord echo_origin = cooked_active_
+                                               ? cooked_origin_
+                                               : screen::coord{static_cast<std::int32_t>(state_.cursor().x),
+                                                               static_cast<std::int32_t>(state_.cursor().y)};
         screen::coord echo_cursor = echo_origin;
-        std::size_t cursor = units;
-        std::size_t echo_length = 0;
-        std::size_t history_position = state_.command_history.size();
+        std::size_t cursor = cooked_active_ ? std::min(cooked_cursor_, units) : units;
+        std::size_t echo_length = cooked_active_ ? cooked_echo_length_ : 0;
+        std::size_t history_position =
+            cooked_active_ ? cooked_history_position_ : state_.command_history.size();
+        bool line_complete = false;
 
         const auto redraw_echo = [&] {
             if (!echo)
@@ -583,6 +592,7 @@ class console_api final
             if (request->ProcessControlZ != FALSE && character == 26 &&
                 (state_.input_mode & 0x0001) != 0)
             {
+                line_complete = true;
                 break;
             }
             if (character >= 1 && character <= 26 &&
@@ -601,6 +611,7 @@ class console_api final
                     ++units;
                 }
                 redraw_echo();
+                line_complete = true;
                 break;
             }
             if (character == u'\u000D' || character == u'\u000A')
@@ -612,6 +623,7 @@ class console_api final
                     ++echo_cursor.y;
                 }
                 state_.add_command(std::u16string_view{output, units});
+                line_complete = true;
                 break;
             }
             if (character == u'\u0008')
@@ -642,6 +654,30 @@ class console_api final
         {
             input_->push_front(events[i - 1]);
         }
+        if (!line_complete)
+        {
+            cooked_line_.assign(output, units);
+            cooked_cursor_ = cursor;
+            cooked_origin_ = echo_origin;
+            cooked_echo_length_ = echo_length;
+            cooked_history_position_ = history_position;
+            cooked_active_ = true;
+            pending_read_kind_ = pending_read_kind::console_read;
+            if (echo)
+            {
+                state_.set_cursor(static_cast<std::size_t>(echo_cursor.x),
+                                  static_cast<std::size_t>(echo_cursor.y));
+            }
+            return false;
+        }
+        if (units + 2 <= max_units)
+        {
+            output[units++] = u'\r';
+            output[units++] = u'\n';
+        }
+        cooked_active_ = false;
+        cooked_line_.clear();
+
         if (echo)
         {
             state_.set_cursor(static_cast<std::size_t>(echo_cursor.x),
@@ -2168,6 +2204,12 @@ class console_api final
     std::uintptr_t alternate_object_{};
     std::uintptr_t window_handle_{};
     coreio::process_registry *processes_{};
+    std::u16string cooked_line_;
+    std::size_t cooked_cursor_{};
+    screen::coord cooked_origin_{};
+    std::size_t cooked_echo_length_{};
+    std::size_t cooked_history_position_{};
+    bool cooked_active_{};
     pending_read_kind pending_read_kind_{};
     bool cancel_pending_{};
 };

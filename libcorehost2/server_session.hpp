@@ -62,29 +62,74 @@ class server_session final
     }
     std::size_t read_raw(std::span<char> output)
     {
+        if (!raw_line_active_)
+        {
+            raw_line_.clear();
+            raw_line_active_ = true;
+            raw_eof_ = false;
+        }
+
         std::array<consoleinput::input_event, 32> events{};
         const auto count = input_.read(
             std::span<consoleinput::input_event>{events.data(), events.size()});
-        std::size_t written = 0;
-        for (std::size_t i = 0; i < count && written < output.size(); ++i)
+        bool complete = false;
+        for (std::size_t i = 0; i < count && !complete; ++i)
         {
             if (events[i].type != consoleinput::input_event_type::key || !events[i].key.key_down)
             {
                 continue;
             }
+
             const auto character = events[i].key.character;
-            if (character < 0x80)
+            if (character == u'\r' || character == u'\n')
             {
-                output[written++] = static_cast<char>(character);
+                raw_line_.push_back('\r');
+                raw_line_.push_back('\n');
+                complete = true;
+                break;
+            }
+            if (character == 26 && (state_.input_mode & 0x0001) != 0)
+            {
+                raw_eof_ = true;
+                complete = true;
+                break;
+            }
+            if (character == 0)
+            {
+                append_key_sequence(events[i].key.key, raw_line_);
             }
             else
             {
-                output[written++] = static_cast<char>('?');
+                append_encoded_character(character, raw_line_);
+            }
+
+            if (raw_line_.size() >= output.size())
+            {
+                complete = true;
             }
         }
+
+        if (!complete && raw_line_.size() < output.size())
+        {
+            return 0;
+        }
+
+        const auto written = std::min<std::size_t>(raw_line_.size(), output.size());
+        std::copy_n(raw_line_.begin(), written, output.begin());
+        raw_line_.clear();
+        raw_line_active_ = false;
         return written;
     }
 
+    [[nodiscard]] bool raw_eof() const noexcept
+    {
+        return raw_eof_;
+    }
+
+    void clear_raw_eof() noexcept
+    {
+        raw_eof_ = false;
+    }
     [[nodiscard]] coreio::process_registry &processes() noexcept
     {
         return processes_;
@@ -214,6 +259,63 @@ class server_session final
     }
 
   private:
+    static void append_encoded_character(char16_t character, std::string &output)
+    {
+        if (character < 0x80)
+        {
+            output.push_back(static_cast<char>(character));
+            return;
+        }
+        char bytes[4]{};
+        const auto written = ::WideCharToMultiByte(CP_UTF8, 0,
+                                                   reinterpret_cast<const wchar_t *>(&character), 1,
+                                                   bytes, static_cast<int>(sizeof(bytes)), nullptr,
+                                                   nullptr);
+        if (written > 0)
+        {
+            output.append(bytes, static_cast<std::size_t>(written));
+        }
+    }
+
+    static void append_key_sequence(consoleinput::virtual_key key, std::string &output)
+    {
+        switch (key)
+        {
+        case consoleinput::virtual_key::up:
+            output.append("\x1b[A");
+            break;
+        case consoleinput::virtual_key::down:
+            output.append("\x1b[B");
+            break;
+        case consoleinput::virtual_key::right:
+            output.append("\x1b[C");
+            break;
+        case consoleinput::virtual_key::left:
+            output.append("\x1b[D");
+            break;
+        case consoleinput::virtual_key::home:
+            output.append("\x1b[H");
+            break;
+        case consoleinput::virtual_key::end:
+            output.append("\x1b[F");
+            break;
+        case consoleinput::virtual_key::insert:
+            output.append("\x1b[2~");
+            break;
+        case consoleinput::virtual_key::del:
+            output.append("\x1b[3~");
+            break;
+        case consoleinput::virtual_key::page_up:
+            output.append("\x1b[5~");
+            break;
+        case consoleinput::virtual_key::page_down:
+            output.append("\x1b[6~");
+            break;
+        default:
+            break;
+        }
+    }
+
     enum class pending_kind : std::uint8_t
     {
         none,
@@ -230,6 +332,9 @@ class server_session final
     vtparser::vt_parser parser_;
     vtstate::state_applier applier_;
     std::u16string text_;
+    std::string raw_line_;
+    bool raw_line_active_{};
+    bool raw_eof_{};
     coreio::process_registry processes_;
     consoleapi::console_api api_;
     coreio::io_msg pending_message_{};

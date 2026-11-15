@@ -527,7 +527,9 @@ int main()
     auto *read_console_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
         read_console_message.body + sizeof(CONSOLE_MSG_HEADER));
     read_console_request->Unicode = TRUE;
-    if (!input_api.handle(read_console_message) || read_console_request->NumBytes != sizeof(char16_t))
+    input_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\r'}});
+    if (!input_api.handle(read_console_message) || read_console_request->NumBytes != 3 * sizeof(char16_t))
     {
         std::fprintf(stderr, "read console failed\n");
         return EXIT_FAILURE;
@@ -878,7 +880,7 @@ int main()
     auto *echo_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
         echo_message.body + sizeof(CONSOLE_MSG_HEADER));
     echo_request->Unicode = TRUE;
-    if (!echo_api.handle(echo_message) || echo_buffer.at(0, 0).primary() != u'E' ||
+    if (echo_api.handle(echo_message) || echo_buffer.at(0, 0).primary() != u'E' ||
         echo_state.cursor().x != 1)
     {
         std::fprintf(stderr, "read console echo failed\n");
@@ -1161,7 +1163,9 @@ int main()
     initial_request->Unicode = TRUE;
     initial_request->InitialNumBytes = sizeof(char16_t);
     *reinterpret_cast<char16_t *>(initial_request + 1) = u'Z';
-    if (!initial_api.handle(initial_message) || initial_request->NumBytes != 2 * sizeof(char16_t))
+    initial_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\r'}});
+    if (!initial_api.handle(initial_message) || initial_request->NumBytes != 4 * sizeof(char16_t))
     {
         std::fprintf(stderr, "read console initial data failed\n");
         return EXIT_FAILURE;
@@ -1190,7 +1194,7 @@ int main()
         wakeup_message.body + sizeof(CONSOLE_MSG_HEADER));
     wakeup_request->Unicode = TRUE;
     wakeup_request->CtrlWakeupMask = 1;
-    if (!wakeup_api.handle(wakeup_message) || wakeup_request->NumBytes != sizeof(char16_t))
+    if (!wakeup_api.handle(wakeup_message) || wakeup_request->NumBytes != 3 * sizeof(char16_t))
     {
         std::fprintf(stderr, "read console ctrl wakeup failed\n");
         return EXIT_FAILURE;
@@ -1344,8 +1348,10 @@ int main()
     }
     pending_queue.push(corehost::consoleinput::input_event{
         corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'A'}});
+    pending_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\r'}});
     if (!pending_api.resume_read(pending_message) ||
-        pending_request->NumBytes != sizeof(char16_t))
+        pending_request->NumBytes != 3 * sizeof(char16_t))
     {
         std::fprintf(stderr, "read console resume failed\n");
         return EXIT_FAILURE;
@@ -1490,7 +1496,7 @@ int main()
     }
     const auto *edit_output = reinterpret_cast<const char16_t *>(
         edit_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
-    if (edit_request->NumBytes != 3 * sizeof(char16_t) || edit_output[0] != u'A' ||
+    if (edit_request->NumBytes != 5 * sizeof(char16_t) || edit_output[0] != u'A' ||
         edit_output[1] != u'X' || edit_output[2] != u'B')
     {
         std::fprintf(stderr, "line editing failed\n");
@@ -1506,7 +1512,7 @@ int main()
         corehost::consoleinput::input_event_type::key, up_key});
     edit_queue.push(corehost::consoleinput::input_event{
         corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\r'}});
-    if (!edit_api.handle(edit_message) || edit_request->NumBytes != 3 * sizeof(char16_t) ||
+    if (!edit_api.handle(edit_message) || edit_request->NumBytes != 5 * sizeof(char16_t) ||
         edit_output[0] != u'A' || edit_output[1] != u'X' || edit_output[2] != u'B')
     {
         std::fprintf(stderr, "history recall failed\n");
@@ -1550,6 +1556,45 @@ int main()
         prepend_events[1].key.character != u'B' || prepend_events[2].key.character != u'C')
     {
         std::fprintf(stderr, "WriteConsoleInput prepend order failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::consoleinput::input_queue partial_queue;
+    corehost::screen::screen_buffer partial_buffer{8, 2};
+    corehost::screen::console_state partial_state{8, 2};
+    corehost::consoleapi::console_api partial_api{partial_buffer, partial_state, &partial_queue};
+    partial_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'A'}});
+    corehost::coreio::io_msg partial_message{};
+    partial_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    partial_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8 * sizeof(char16_t);
+    auto *partial_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(partial_message.body);
+    partial_header->ApiNumber = ConsolepReadConsole;
+    auto *partial_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        partial_message.body + sizeof(CONSOLE_MSG_HEADER));
+    partial_request->Unicode = TRUE;
+    if (partial_api.handle(partial_message) ||
+        partial_api.take_pending_read_kind() !=
+            corehost::consoleapi::console_api::pending_read_kind::console_read)
+    {
+        std::fprintf(stderr, "partial line did not suspend\n");
+        return EXIT_FAILURE;
+    }
+    partial_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\r'}});
+    if (!partial_api.resume_read(partial_message) ||
+        partial_request->NumBytes != 3 * sizeof(char16_t))
+    {
+        std::fprintf(stderr, "partial line resume failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *partial_data = reinterpret_cast<const char16_t *>(
+        partial_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+    if (partial_data[0] != u'A' || partial_data[1] != u'\r')
+    {
+        std::fprintf(stderr, "partial line data failed\n");
         return EXIT_FAILURE;
     }
 
