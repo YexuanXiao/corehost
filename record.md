@@ -246,3 +246,41 @@ WT 517/1034 bytes terminal response
 ```
 
 因此 edit 在 corehost2 中卡在 137 字节查询写之后的完成/读取握手，尚未进入绘制阶段。下一步应继续对比 RAW_WRITE completion 的提交时机和 NtWriteFile/NtReadFile 的 pending 状态。
+
+## 2026-11-15 颜色属性修复
+
+复现：
+
+```powershell
+Write-Host "COLOR-WHITE" -ForegroundColor Red -BackgroundColor White
+Write-Host "COLOR-DEFAULT"
+```
+
+修复前 corehost2 中 `COLOR-WHITE` 与默认颜色相同；原始 OpenConsole 为红色前景、白色背景。
+
+根因：
+
+```text
+screen_buffer::style_for_legacy
+```
+
+只写入 `text_style::legacy_attributes`，没有把 Win32 BGRI 属性投影到 `foreground`/`background`；而 `append_sgr_style` 只读取颜色字段，因此 legacy color 全部退化为终端默认色。
+
+修复：
+
+- 把 Win32 BGRI 映射为 SGR indexed 颜色；
+- 属性 `0x07` 保持默认前景/背景，避免默认白字黑底覆盖 WT 主题；
+- 新增 `LibScreen.Reference` 回归测试：
+  - `0x1C` -> fg 9 / bg 4；
+  - `0x07` -> default fg/bg。
+
+提交：
+
+```text
+a3fa08d fix(libscreen): project legacy attributes to terminal colors
+```
+
+真实 WT 验证：
+
+- `COLOR-WHITE` 显示红色前景；
+- `COLOR-DEFAULT` 和 prompt 恢复 WT 默认浅色背景。
