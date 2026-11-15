@@ -14,6 +14,7 @@
 #include "viewport.hpp"
 
 #include "win32/handle.hpp"
+#include "win32/thread.hpp"
 
 #include <cstddef>
 #include <mutex>
@@ -24,6 +25,85 @@
 namespace corehost::corehost2
 {
 
+struct server_worker_context final
+{
+    win32::handle_view server;
+    win32::handle_view event;
+    server_dispatcher *dispatcher{};
+    session *state{};
+    conptyio::terminal_writer *writer{};
+    std::mutex *mutex{};
+    std::stop_token stop;
+};
+
+inline DWORD WINAPI server_worker_entry(LPVOID raw)
+{
+    auto &context = *static_cast<server_worker_context *>(raw);
+    try
+    {
+        coreio::win32_transport transport{context.server, context.event};
+        auto handler = [&](coreio::io_msg &message) -> bool {
+            const std::scoped_lock lock{*context.mutex};
+            if (!context.dispatcher->handle(message))
+            {
+                return false;
+            }
+            if (!context.state->screen().has_damage())
+            {
+                return true;
+            }
+            const auto cursor = screen::coord{
+                static_cast<std::int32_t>(context.state->state().cursor().x),
+                static_cast<std::int32_t>(context.state->state().cursor().y),
+            };
+            vtserializer::render_damage(context.writer->buffer(), context.state->screen(), cursor,
+                                        &context.state->state());
+            context.state->screen().clear_damage();
+            (void)context.writer->flush();
+            return true;
+        };
+        coreio::run_server(transport, handler, context.stop);
+    }
+    catch (...)
+    {
+    }
+    return 0;
+}
+
+struct signal_worker_context final
+{
+    win32::handle_view signal_pipe;
+    session *state{};
+    conptyio::terminal_writer *writer{};
+    conptyio::pseudo_window *window{};
+    std::mutex *mutex{};
+    std::stop_token stop;
+};
+
+inline DWORD WINAPI signal_worker_entry(LPVOID raw)
+{
+    auto &context = *static_cast<signal_worker_context *>(raw);
+    conptyio::signal_reader signals{context.signal_pipe};
+    while (!context.stop.stop_requested() && signals.read_one())
+    {
+        const std::scoped_lock lock{*context.mutex};
+        conptyio::apply_signal(signals.id(), signals.payload(), context.state->screen(),
+                               context.state->state(), context.window);
+        if (!context.state->screen().has_damage())
+        {
+            continue;
+        }
+        const auto cursor = screen::coord{
+            static_cast<std::int32_t>(context.state->state().cursor().x),
+            static_cast<std::int32_t>(context.state->state().cursor().y),
+        };
+        vtserializer::render_damage(context.writer->buffer(), context.state->screen(), cursor,
+                                    &context.state->state());
+        context.state->screen().clear_damage();
+        (void)context.writer->flush();
+    }
+    return 0;
+}
 struct conpty_session_config final
 {
     short width{};
@@ -61,8 +141,10 @@ inline void run_conpty_session(win32::handle_view server,
     }
     (void)writer.flush();
     std::mutex session_mutex;
-    std::jthread server_thread;
-    std::jthread signal_thread;
+    win32::basic_thread server_thread;
+    win32::basic_thread signal_thread;
+    std::stop_source server_stop;
+    std::stop_source signal_stop;
 
     server_session console_session{state.screen(), state.state(), state.input(), 0, server};
     console_session.set_window_handle(reinterpret_cast<std::uintptr_t>(window.handle()));
@@ -72,61 +154,20 @@ inline void run_conpty_session(win32::handle_view server,
     }
     server_dispatcher dispatcher{server, condrv_input, condrv_output, console_session};
 
+    server_worker_context server_context{server, event, &dispatcher, &state, &writer,
+                                         &session_mutex, server_stop.get_token()};
     if (server.valid())
     {
-        server_thread = std::jthread{[&](std::stop_token stop) {
-            try
-            {
-                coreio::win32_transport transport{server, event};
-                auto handler = [&](coreio::io_msg &message) -> bool {
-                    const std::scoped_lock lock{session_mutex};
-                    if (!dispatcher.handle(message))
-                    {
-                        return false;
-                    }
-                    if (!state.screen().has_damage())
-                    {
-                        return true;
-                    }
-                    const auto cursor = screen::coord{
-                        static_cast<std::int32_t>(state.state().cursor().x),
-                        static_cast<std::int32_t>(state.state().cursor().y),
-                    };
-                    vtserializer::render_damage(writer.buffer(), state.screen(), cursor, &state.state());
-                    state.screen().clear_damage();
-                    (void)writer.flush();
-                    return true;
-                };
-                coreio::run_server(transport, handler, stop);
-            }
-            catch (...)
-            {
-            }
-        }};
+        server_thread = win32::basic_thread{&server_worker_entry, &server_context,
+                                            {.name = L"corehost2-server"}};
     }
 
+    signal_worker_context signal_context{signal_pipe, &state, &writer, &window, &session_mutex,
+                                         signal_stop.get_token()};
     if (signal_pipe.valid())
     {
-        signal_thread = std::jthread{[&](std::stop_token stop) {
-            conptyio::signal_reader signals{signal_pipe};
-            while (!stop.stop_requested() && signals.read_one())
-            {
-                const std::scoped_lock lock{session_mutex};
-                conptyio::apply_signal(signals.id(), signals.payload(), state.screen(), state.state(),
-                                       &window);
-                if (!state.screen().has_damage())
-                {
-                    continue;
-                }
-                const auto cursor = screen::coord{
-                    static_cast<std::int32_t>(state.state().cursor().x),
-                    static_cast<std::int32_t>(state.state().cursor().y),
-                };
-                vtserializer::render_damage(writer.buffer(), state.screen(), cursor, &state.state());
-                state.screen().clear_damage();
-                (void)writer.flush();
-            }
-        }};
+        signal_thread = win32::basic_thread{&signal_worker_entry, &signal_context,
+                                            {.name = L"corehost2-signal"}};
     }
 
     while (reader.read_batch())
@@ -156,17 +197,17 @@ inline void run_conpty_session(win32::handle_view server,
         }
     }
 
-    if (server_thread.joinable())
+    if (server_thread.valid())
     {
-        server_thread.request_stop();
-        ::CancelSynchronousIo(server_thread.native_handle());
+        server_stop.request_stop();
+        ::CancelSynchronousIo(server_thread.get());
         server_thread.join();
     }
 
-    if (signal_thread.joinable())
+    if (signal_thread.valid())
     {
-        signal_thread.request_stop();
-        ::CancelSynchronousIo(signal_thread.native_handle());
+        signal_stop.request_stop();
+        ::CancelSynchronousIo(signal_thread.get());
         signal_thread.join();
     }
 }
