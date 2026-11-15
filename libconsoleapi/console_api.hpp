@@ -82,6 +82,10 @@ class console_api final
         {
             return scroll_console_buffer(message);
         }
+        if (header->ApiNumber == ConsolepWriteConsole)
+        {
+            return write_console(message);
+        }
         if (header->ApiNumber == ConsolepWriteConsoleInput)
         {
             return write_console_input(message);
@@ -286,6 +290,38 @@ class console_api final
             }
         }
         coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool write_console(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
+                           sizeof(CONSOLE_WRITECONSOLE_MSG);
+        const auto count = request->Unicode ? bytes / sizeof(char16_t) : bytes;
+        const auto *data = reinterpret_cast<const char16_t *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG));
+        std::size_t written = 0;
+        if (request->Unicode)
+        {
+            screen::coord cursor{static_cast<std::int32_t>(state_.cursor().x),
+                                 static_cast<std::int32_t>(state_.cursor().y)};
+            const auto result = buffer_.write_text_row<screen::text_measurement::console>(
+                cursor, std::u16string_view{data, count}, {}, state_.default_style, true,
+                state_.default_hyperlink);
+            state_.set_cursor(static_cast<std::size_t>(cursor.x),
+                              static_cast<std::size_t>(cursor.y));
+            written = result.consumed;
+        }
+        request->NumBytes = static_cast<ULONG>(written * (request->Unicode ? sizeof(char16_t) : 1));
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLE_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_WRITECONSOLE_MSG));
         return true;
     }
 

@@ -458,6 +458,29 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer write_buffer{4, 2};
+    corehost::screen::console_state write_state{4, 2};
+    corehost::consoleapi::console_api write_api{write_buffer, write_state};
+    constexpr char16_t write_text[]{u'O', u'K'};
+    corehost::coreio::io_msg write_console_message{};
+    write_console_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) + sizeof(write_text);
+    write_console_message.descriptor.OutputSize = sizeof(write_console_message.body);
+    auto *write_console_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(write_console_message.body);
+    write_console_header->ApiNumber = ConsolepWriteConsole;
+    auto *write_console_request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(
+        write_console_message.body + sizeof(CONSOLE_MSG_HEADER));
+    write_console_request->Unicode = TRUE;
+    std::memcpy(write_console_message.body + sizeof(CONSOLE_MSG_HEADER) +
+                    sizeof(CONSOLE_WRITECONSOLE_MSG),
+                write_text, sizeof(write_text));
+    if (!write_api.handle(write_console_message) || write_buffer.at(0, 0).primary() != u'O' ||
+        write_buffer.at(1, 0).primary() != u'K' || write_state.cursor().x != 2)
+    {
+        std::fprintf(stderr, "write console failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
