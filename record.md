@@ -552,3 +552,44 @@ edit C:\Users\xyx\c2save.txt
 保存和打开文件的实际读写通过。
 
 仍有一个启动问题：首次启动 `edit <file>` 后窗口可能保持空白，需要一次 resize/鼠标点击后才显示 UI；该问题尚未修复。
+
+## 2026-11-16 IO 状态：提交后 completion 未清空
+
+对比 libcorehost `message_router`：无消息时会把 `prev_done` 置空，下一轮 READ_IO 不再重复提交已提交的 completion。
+
+libcorehost2 的 `coreio::run_server` 在 `no_message` 后保留 `previous`，下一轮会再次提交同一个 completion。
+
+修复：
+
+```text
+a32e877 fix(coreio): clear submitted server completion when idle
+```
+
+```cpp
+previous = nullptr;
+transport.wait();
+```
+
+新增 CoreIO 回归测试，确认 idle 后下一轮 READ_IO 的 previous 为 null。
+
+该修复没有解决 edit 首次启动空白。
+
+### edit 初始 IO 诊断
+
+日志：
+
+```text
+RAW_WRITE 4700 alt=1
+API4 read_console_input complete count=64 ... count=10
+API4 read_console_input pending flags=0x0000
+server_session pending kind=2
+```
+
+说明 edit 已写出初始 UI，随后读走终端应答并进入 pending 输入等待；UI 仍不可见。
+
+本轮尝试：
+
+- 在第一次 pending ConsoleInput 时合成一个 `WINDOW_BUFFER_SIZE_EVENT` 并立即完成，让 edit 重绘；
+- 结果仍空白，已撤销。
+
+因此首次空白不是单纯的 input pending 状态；需要继续对比 libcorehost 的初始渲染/IO 时序。
