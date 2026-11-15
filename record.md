@@ -1016,7 +1016,7 @@ b5ebe2f refactor(libscreen): check empty text before mode dispatch
 
 ### Alias 展开缓冲复用
 
-`expand_console_alias` 不再为每条命令构造局部 `std::u16string expanded`，复用成员 `alias_expanded_`：
+`expand_console_alias` 不再为每条命令构造局部 `std::u16string expanded`，复用 `decoded_source_`（GetAlias 与命令展开不会同时执行）：
 
 ```text
 d450f84 perf(consoleapi): reuse alias expansion buffer
@@ -1024,7 +1024,7 @@ d450f84 perf(consoleapi): reuse alias expansion buffer
 
 ### 命令展开缓冲复用
 
-`read_console` 回车处理不再每次构造局部 `std::u16string expanded`，复用成员 `expanded_line_`：
+`read_console` 回车处理不再每次构造局部 `std::u16string expanded`，复用 `history_selection_`（历史选择与回车展开不会同时执行）：
 
 ```text
 a00a71f perf(consoleapi): reuse expanded command buffer
@@ -1150,7 +1150,7 @@ ratio≈1190x
 
 ### 历史选择缓冲复用
 
-`read_console` 的上/下方向键历史选择不再每次构造局部 `std::u16string`，复用成员 `history_selection_`：
+`read_console` 的上/下方向键历史选择不再每次构造局部 `std::u16string`，复用 `history_selection_`；回车时的 alias 展开也复用同一缓冲：
 
 ```text
 cafc79f perf(consoleapi): reuse history selection buffer
