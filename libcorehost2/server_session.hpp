@@ -299,6 +299,14 @@ class server_session final
             consumed != 0 && raw_in_[consumed - 1] == '\n' && (consumed < 2 || raw_in_[consumed - 2] != '\r');
         const bool add_lf = consumed != 0 && raw_in_[consumed - 1] == '\r' && (eof || complete);
 
+        if (!add_cr && !add_lf)
+        {
+            std::memcpy(output.data(), raw_in_.data(), consumed);
+            raw_in_.erase(0, consumed);
+            raw_eof_ = eof;
+            return consumed;
+        }
+
         std::size_t written = 0;
         for (std::size_t index = 0; index < consumed; ++index)
         {
