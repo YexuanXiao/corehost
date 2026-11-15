@@ -1058,6 +1058,252 @@ semantic_prompt
 - 上述扩展大多不扩大 cell：line/selection/cursor 在 row/screen，唯一需要新 cell 类型的是
   image（以及未来的 scaled/soft-font），它们复用 `cell_type` + `cell_extent` 的 aux ID。
 
+### 9.8 用 libscreen 替换 libcorehost screen 的缺口
+
+`libcorehost::screen_buffer` 不是“cell 数组”这么简单，它同时承担：
+
+- Console API 的 buffer/viewport 模型；
+- 行级压缩存储和环形滚动；
+- `CHAR_INFO`/attribute 读写；
+- 文本写入的宽度测量、光标推进和换行；
+- VT 输出和 Console API 之间的同步。
+
+`libscreen` 目前更接近“cell/page 参考模型”，直接替换还缺以下层次。
+
+#### 1. buffer 与 viewport
+
+corehost：
+
+```cpp
+COORD size;
+console_viewport viewport;
+```
+
+`size` 是 screen buffer 尺寸，`viewport` 是窗口可见矩形；二者可以不同。
+API 还依赖：
+
+- `viewport.rect()/origin()/size()`；
+- `set_rect/set_size/set_origin/clamp_to_buffer/snap_to_cursor`；
+- `ReadConsoleOutput` 的 buffer 绝对坐标；
+- `SetConsoleWindowInfo`/`SetConsoleScreenBufferInfo` 的窗口/缓冲区分离；
+- resize 后保持 viewport 合法。
+
+libscreen 目前只有一个 page 几何，没有 viewport/origin。
+这是替换的第一阻塞项，需要新增 `screen_viewport` 或复用 `console_viewport`。
+
+#### 2. 行存储和滚动模型
+
+corehost 的 `screen_buffer_row` 有：
+
+- `u32string` 文本 + `_columns` 偏移；
+- `_filled`、`_attrs_uniform`、`_single_width_layout` 压缩状态；
+- `is_trailing`、`glyph_at`、`glyph_width`；
+- `copy_from`、`fill`、`clear_cell`；
+- `write_measured_run` 等批量路径；
+- `_row_origin` 环形行移动。
+
+libscreen 现在是 `bizwen::deque<row_block>`，每行完整 `vector<cell>`：
+
+- 行内 cell 连续，适合 span/CHAR_INFO；
+- 没有 filled/uniform 压缩，空白行也物化 width 个 16B cell；
+- 没有 `screen_buffer_row` 的批量 `copy_from` 和 measured run；
+- 滚动是 deque move，语义与 corehost 的 ring row 不完全相同。
+
+替换后可能先正确、后性能；需要 row fill/attribute 压缩和 measured-run 快路径，否则大窗口/大量空白行内存和写入会退化。
+
+#### 3. 文本写入、宽度和光标
+
+corehost 的 API：
+
+```cpp
+write_glyph(COORD, u32string_view, width_columns, WORD attr)
+set_u32(COORD, char32_t, WORD)
+try_write_single_width_run(...)
+write_text_row(COORD &cursor, u32string_view, WORD, text_measurement_mode, bool)
+```
+
+它们负责：
+
+- `char_width_for_mode` 的宽度策略；
+- ambiguous wide；
+- 单宽 fast path；
+- 行尾换行/滚动信号；
+- cursor 推进；
+- grapheme cluster 的完整写入。
+
+libscreen：
+
+- `write_scalar`/`write_cluster`/`write_codepoint` 都要求调用者给 width；
+- 没有 `text_measurement_mode`；
+- 没有 `write_text_row` 的 cursor/row_end；
+- console_state 有 cursor，但没有和写入路径绑定。
+
+需要新增：
+
+- `write_measured_glyph`/`write_measured_run`；
+- 文本宽度策略接口（或明确由 corehost 传入 widths）；
+- `write_text_row` 的 cursor/wrap 语义；
+- `char32_t`→`char16_t` 的 bulk 桥接。
+
+#### 4. CHAR_INFO 和 attribute API
+
+corehost 有一套完整的矩形/线性读写：
+
+```text
+row_to_ci / row_from_ci
+read_wchars / read_wchars_linear
+read_attrs / read_attrs_linear
+write_char32 / write_char32_linear
+write_attr_seq / write_attr_seq_linear
+fill_char / fill_attr / fill_attrs / set_attr / attr_at
+```
+
+libscreen 目前只有：
+
+- `legacy_at`；
+- `write_legacy_scalar`；
+- `fill_rect`/`clear`。
+
+缺少：
+
+- `CHAR_INFO` 的 leading/trailing DBCS 属性投影；
+- attribute-only 写入（不改字符）；
+- character-only 写入（保留 attribute）；
+- 矩形短读/短写、limit、越界裁剪；
+- `ReadConsoleOutputCharacter/Attribute` 的连续 buffer 语义；
+- `WriteConsoleOutput` 的 DBCS/宽字符重建。
+
+另外，libscreen 的 cell 只有 style ID，legacy `WORD` 通过 style table 投影；需要保证任意 Console API 属性写入不会让 style table 失控，并在 `legacy_at` 正确补 DBCS/leading/trailing 位。
+
+#### 5. 2D scroll / copy
+
+corehost：
+
+```cpp
+scroll(SMALL_RECT source, SMALL_RECT clip, bool use_clip,
+       COORD destination, char32_t fill_char, WORD fill_attr)
+```
+
+支持：
+
+- 任意矩形 source/clip；
+- 目标 origin 可横/纵移动；
+- 源/目标重叠；
+- 超出部分填 fill_char/fill_attr；
+- `ScrollConsoleScreenBuffer` 的 clip 语义。
+
+libscreen 只有：
+
+- 全页 `scroll_up`；
+- 纵向 `scroll_region_up`；
+- 没有 2D copy、目标 origin、fill char/attr 组合。
+
+这是 Console API 兼容的第二个阻塞项。
+
+#### 6. console_state 的缺口
+
+libscreen `console_state` 目前有：
+
+- cursor position/visible/style；
+- wrap/insert/origin；
+- default style/hyperlink；
+- tab stops；
+- scroll region；
+- block selection；
+- search matches。
+
+corehost `console_state` 还包含：
+
+- input/output mode 位掩码；
+- code pages；
+- title/original title；
+- font/face/weight/size；
+- 16 色 color table；
+- window handle、display mode、mouse buttons；
+- max window size；
+- alt saved cursor、DECSC saved cursor；
+- default/popup attributes；
+- selection info（`CONSOLE_SELECTION_INFO`）；
+- history 设置、DOSKEY aliases；
+- text measurement mode / ambiguous wide；
+- DEC line drawing；
+- VT alt buffer active 状态。
+
+如果替换 screen 但保留 corehost `console_state`，需要 adapter 同步 cursor/scroll region/attrs；如果连 console_state 一起替换，则需要补齐这些字段和 Console API 行为。
+
+#### 7. selection / search / clipboard
+
+libscreen 只有 block selection 和 search match 查询：
+
+- 没有 line selection；
+- 没有 `CONSOLE_SELECTION_INFO` 模式/锚点映射；
+- 没有选择到剪贴板的复制；
+- 没有鼠标选择和 QuickEdit 状态；
+- 没有 search + selection 的交互。
+
+corehost 的 selection 由 `console_state.selection_info` 驱动，替换时需要把这些语义接到 screen buffer。
+
+#### 8. alternate / history / VT 同步
+
+libscreen 有 main/alternate/history，corehost screen_buffer 没有 alt/history，alt 由 `console_state.vt_alt_buffer_active` 和终端同步处理。
+替换时必须明确：
+
+- 哪些 VT 序列改 main；
+- 哪些只透传终端；
+- alt 进入/退出时 cursor、viewport、selection 如何保存；
+- history 是否暴露给 Console API；
+- scrollback 与 `ReadConsoleOutput` 的边界。
+
+#### 9. 错误/越界语义
+
+corehost API 是 `noexcept` 且宽容：
+
+- 无效坐标读字符返回空格；
+- 无效属性返回 0x07；
+- 短矩形截断；
+- 写越界按实际写入长度返回。
+
+libscreen 大量使用 `assert` 表示程序 BUG，直接调用会在 API 越界时终止。
+adapter 必须先在 API 边界做 clamp/validate，或为 libscreen 增加 `try_at`/clamped read API。
+
+#### 10. 性能和行压缩
+
+corehost 的 row 是高度优化的：
+
+- `u32string` 连续文本；
+- 单宽 layout 快路径；
+- filled/uniform attribute 压缩；
+- `copy_from` 批量；
+- ring row 滚动。
+
+libscreen 的 row_block 当前是“每行完整 16B cell vector”：
+
+- 正确性/行 span 好；
+- 但空白行也占 width×16B；
+- 没有属性 uniform 压缩；
+- 没有 measured-run 批量写入；
+- 行 block 独立分配。
+
+替换后应先 benchmark，再决定是否加：
+
+- row lazy fill/uniform attrs；
+- measured-run fast path；
+- ring/buffer viewport；
+- row pool / PMR。
+
+#### 建议的替换顺序
+
+1. **adapter 层**：`COORD`/`SMALL_RECT`/`CHAR_INFO`/`WORD` 到 libscreen 类型；
+2. **buffer + viewport**；
+3. **rect read/write/fill + attribute-only/character-only**；
+4. **2D scroll/copy**；
+5. **width + write_text_row + cursor**；
+6. **console_state 同步**；
+7. **selection/alt/history**；
+8. **row 压缩和性能**。
+
+其中 1–5 是 Console API 兼容的 P0；6–7 是行为兼容；8 是性能回归修复。
+
 ## 10. 结论
 
 16 字节 cell 是 corehost 面向 Windows 的一个明确取舍：
