@@ -1006,6 +1006,12 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+`read_char_info` 的非 ABI 版本也做同样预裁剪：
+
+```text
+7ea3000 perf(libscreen): clip read char info area once
+```
+
 ### ReadConsoleOutput ABI 区域预裁剪
 
 `read_char_info_abi` 先裁剪 `area` 到页面范围，再遍历有效矩形；删除每个单元格的四次 bounds 判断：
