@@ -1214,7 +1214,7 @@ class console_api final
         auto *info = reinterpret_cast<CONSOLE_GETCOMMANDHISTORYLENGTH_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto units = state_.command_history_length();
-        info->CommandHistoryLength = static_cast<ULONG>(info->Unicode ? units : units);
+        info->CommandHistoryLength = static_cast<ULONG>(info->Unicode ? units * sizeof(char16_t) : units);
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG));

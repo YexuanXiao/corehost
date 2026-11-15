@@ -915,7 +915,7 @@ int main()
     auto *history_length_request = reinterpret_cast<CONSOLE_GETCOMMANDHISTORYLENGTH_MSG *>(
         history_length_message.body + sizeof(CONSOLE_MSG_HEADER));
     history_length_request->Unicode = TRUE;
-    if (!history_api.handle(history_length_message) || history_length_request->CommandHistoryLength != 4)
+    if (!history_api.handle(history_length_message) || history_length_request->CommandHistoryLength != 8)
     {
         std::fprintf(stderr, "command history length failed\n");
         return EXIT_FAILURE;
