@@ -1274,9 +1274,10 @@ class console_api final
             {
                 continue;
             }
-            const auto bytes = info->Unicode ? (alias.source.size() + alias.target.size() + 2) * sizeof(char16_t)
-                                             : encode_console_text(alias.source, state_.input_code_page).size() +
-                                                   encode_console_text(alias.target, state_.input_code_page).size() + 2;
+            const auto bytes = info->Unicode
+                                   ? (alias.source.size() + alias.target.size() + 2) * sizeof(char16_t)
+                                   : console_text_length(alias.source, state_.input_code_page) +
+                                         console_text_length(alias.target, state_.input_code_page) + 2;
             if (written + bytes > capacity)
             {
                 break;
@@ -2668,8 +2669,23 @@ class console_api final
         }
 
         const auto code_page = state_.input_code_page;
+        const auto units = console_text_length(value, code_page);
+        const auto available = capacity - written - 1;
+        if (units <= available)
+        {
+            if (units != 0)
+            {
+                (void)::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(value.data()),
+                                            static_cast<int>(value.size()), output + written,
+                                            static_cast<int>(units), nullptr, nullptr);
+                written += units;
+            }
+            output[written++] = 0;
+            return;
+        }
+
         const auto encoded = encode_console_text(value, code_page);
-        const auto bytes = std::min(encoded.size(), capacity - written - 1);
+        const auto bytes = std::min(encoded.size(), available);
         std::memcpy(output + written, encoded.data(), bytes);
         written += bytes;
         output[written++] = 0;
