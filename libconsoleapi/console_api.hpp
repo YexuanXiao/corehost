@@ -78,6 +78,10 @@ class console_api final
         {
             return get_largest_window_size(message);
         }
+        if (header->ApiNumber == ConsolepReadConsole)
+        {
+            return read_console(message);
+        }
         if (header->ApiNumber == ConsolepSetTextAttribute)
         {
             return set_text_attribute(message);
@@ -232,6 +236,64 @@ class console_api final
         coreio::prepare_completion(message, 0, count * sizeof(INPUT_RECORD),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    count * sizeof(INPUT_RECORD));
+        return true;
+    }
+
+    [[nodiscard]] bool read_console(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto local = sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLE_MSG);
+        if (message.descriptor.OutputSize <= sizeof(CONSOLE_READCONSOLE_MSG) || input_ == nullptr)
+        {
+            request->NumBytes = 0;
+            coreio::prepare_completion(message, 0, sizeof(CONSOLE_READCONSOLE_MSG),
+                                       message.body + sizeof(CONSOLE_MSG_HEADER),
+                                       sizeof(CONSOLE_READCONSOLE_MSG));
+            return true;
+        }
+        const auto capacity = std::min<std::size_t>(
+            message.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLE_MSG), local);
+        auto *output = reinterpret_cast<char16_t *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+        const auto max_units = capacity / sizeof(char16_t);
+        std::size_t units = 0;
+
+        std::array<consoleinput::input_event, 64> events{};
+        const auto parsed = input_->read(std::span<consoleinput::input_event>{events.data(), events.size()});
+        for (std::size_t i = 0; i < parsed; ++i)
+        {
+            if (events[i].type != consoleinput::input_event_type::key || !events[i].key.key_down)
+            {
+                continue;
+            }
+            const auto character = events[i].key.character;
+            if (character == u'\u000D' || character == u'\u000A')
+            {
+                break;
+            }
+            if (character == u'\u0008')
+            {
+                if (units != 0)
+                {
+                    --units;
+                }
+                continue;
+            }
+            if (character != 0 && units < max_units)
+            {
+                output[units++] = character;
+            }
+        }
+
+        request->NumBytes = static_cast<ULONG>(units * sizeof(char16_t));
+        coreio::prepare_completion(message, 0, units * sizeof(char16_t),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   units * sizeof(char16_t));
         return true;
     }
 

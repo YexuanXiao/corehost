@@ -516,6 +516,29 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg read_console_message{};
+    read_console_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    read_console_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + sizeof(char16_t);
+    auto *read_console_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(read_console_message.body);
+    read_console_header->ApiNumber = ConsolepReadConsole;
+    auto *read_console_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        read_console_message.body + sizeof(CONSOLE_MSG_HEADER));
+    read_console_request->Unicode = TRUE;
+    if (!input_api.handle(read_console_message) || read_console_request->NumBytes != sizeof(char16_t))
+    {
+        std::fprintf(stderr, "read console failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *read_console_data = reinterpret_cast<const char16_t *>(
+        read_console_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+    if (read_console_data[0] != u'A')
+    {
+        std::fprintf(stderr, "read console data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
