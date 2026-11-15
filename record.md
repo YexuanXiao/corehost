@@ -1374,6 +1374,21 @@ cjk   old=0.9885-1.3247 ns/byte new=0.9811-1.0390 ns/byte ratio=1.00-1.28x
 
 收益不稳定，部分场景反而变慢，代码复杂度增加，因此不保留，恢复原实现。
 
+### UTF-8 解码 ASCII 块
+
+`utf8_decoder::decode` 先处理未完成序列；pending 为空后，以 64 位字一次检查 8 个 ASCII 字节，整块写入 `u16string`，不再逐字节走 `consume`。
+
+`C:\1\bench_utf8.cpp`，64 KiB，2 万次，Release `/O2`：
+
+```text
+ascii old=1.9375-1.9927 ns/byte new=0.4857-0.4987 ns/byte ratio=3.9-4.0x
+mixed old=1.9513-2.0340 ns/byte new=1.2541-1.3859 ns/byte ratio=1.5-1.6x
+```
+
+```text
+6c4e2ff perf(vtparser): decode ascii blocks without per-byte branches
+```
+
 ### 单码点文本序列化
 
 `append_utf16` 对 `text.size() == 1` 使用 4 字节栈缓冲，编码后 `append`，避免为一个码点 resize 3 倍再缩小：
