@@ -9,6 +9,7 @@
 #include "condrv_io.hpp"
 #include "os/Console/conmsgl1.h"
 #include "os/Console/conmsgl2.h"
+#include "os/Console/conmsgl3.h"
 
 #include <algorithm>
 #include <array>
@@ -76,6 +77,10 @@ class console_api final
         if (header->ApiNumber == ConsolepGetLargestWindowSize)
         {
             return get_largest_window_size(message);
+        }
+        if (header->ApiNumber == ConsolepGetSelectionInfo)
+        {
+            return get_selection_info(message);
         }
         if (header->ApiNumber == ConsolepGetTitle)
         {
@@ -203,6 +208,34 @@ class console_api final
         coreio::prepare_completion(message, 0, count * sizeof(INPUT_RECORD),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    count * sizeof(INPUT_RECORD));
+        return true;
+    }
+
+    [[nodiscard]] bool get_selection_info(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETSELECTIONINFO_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETSELECTIONINFO_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->SelectionInfo = CONSOLE_SELECTION_INFO{};
+        const auto &selection = state_.selection();
+        if (selection.active)
+        {
+            info->SelectionInfo.dwFlags = CONSOLE_SELECTION_IN_PROGRESS | CONSOLE_SELECTION_NOT_EMPTY;
+            info->SelectionInfo.dwSelectionAnchor = COORD{static_cast<SHORT>(selection.anchor_x),
+                                                          static_cast<SHORT>(selection.anchor_y)};
+            const auto left = std::min(selection.anchor_x, selection.caret_x);
+            const auto top = std::min(selection.anchor_y, selection.caret_y);
+            const auto right = std::max(selection.anchor_x, selection.caret_x);
+            const auto bottom = std::max(selection.anchor_y, selection.caret_y);
+            info->SelectionInfo.srSelection = SMALL_RECT{static_cast<SHORT>(left), static_cast<SHORT>(top),
+                                                         static_cast<SHORT>(right), static_cast<SHORT>(bottom)};
+        }
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETSELECTIONINFO_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETSELECTIONINFO_MSG));
         return true;
     }
 

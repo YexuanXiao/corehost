@@ -367,6 +367,25 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg selection_message{};
+    selection_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETSELECTIONINFO_MSG);
+    selection_message.descriptor.OutputSize = sizeof(selection_message.body);
+    auto *selection_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(selection_message.body);
+    selection_header->ApiNumber = ConsolepGetSelectionInfo;
+    if (!api.handle(selection_message))
+    {
+        std::fprintf(stderr, "get selection info failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *selection_info = reinterpret_cast<const CONSOLE_GETSELECTIONINFO_MSG *>(
+        selection_message.body + sizeof(CONSOLE_MSG_HEADER));
+    if (selection_info->SelectionInfo.dwFlags != 0)
+    {
+        std::fprintf(stderr, "selection flags unexpected\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
