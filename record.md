@@ -1006,6 +1006,14 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### WriteConsole 边界外提
+
+`write_chars` 入口检查起始坐标一次；循环内只检查 `y < height_`。`x` 到达行尾后回绕，宽度检查由 `x + columns > width_` 保证：
+
+```text
+c81e08b perf(libscreen): check write chars bounds once
+```
+
 ### WriteConsoleOutputAttribute 边界外提
 
 `write_attrs` 同样只在入口检查起始坐标，循环内仅检查 `y < height_`：
