@@ -1,4 +1,5 @@
 #include "conpty.hpp"
+#include "server_dispatcher.hpp"
 #include "server_session.hpp"
 #include "server_loop.hpp"
 #include "session.hpp"
@@ -100,6 +101,15 @@ int main()
         input_session.screen().at(0, 0).primary() != u' ')
     {
         std::fprintf(stderr, "session feed_input failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::corehost2::server_dispatcher dispatcher{win32::handle_view{}, server};
+    corehost::coreio::io_msg close_message{};
+    close_message.descriptor.Function = CONSOLE_IO_CLOSE_OBJECT;
+    if (!dispatcher.handle(close_message) || close_message.complete.IoStatus.Status != 0)
+    {
+        std::fprintf(stderr, "server dispatcher close failed\n");
         return EXIT_FAILURE;
     }
 

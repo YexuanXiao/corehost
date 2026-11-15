@@ -58,6 +58,11 @@ class console_api final
         buffer_.copy_rect(source, clip, use_clip, destination);
     }
 
+    void set_input_object(std::uintptr_t object) noexcept
+    {
+        input_object_ = object;
+    }
+
     [[nodiscard]] bool handle(coreio::io_msg &message) noexcept
     {
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER))

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "session.hpp"
+#include "server_dispatcher.hpp"
 #include "server_session.hpp"
 #include "signal.hpp"
 #include "signal_reader.hpp"
@@ -59,9 +60,10 @@ inline void run_conpty_session(win32::handle_view server,
             {
                 coreio::win32_transport transport{server, event};
                 server_session console_session{state.screen(), state.state(), state.input()};
+                server_dispatcher dispatcher{server, console_session};
                 auto handler = [&](coreio::io_msg &message) {
                     const std::scoped_lock lock{session_mutex};
-                    console_session.handle(message);
+                    dispatcher.handle(message);
                     if (!state.screen().has_damage())
                     {
                         return;

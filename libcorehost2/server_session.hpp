@@ -23,6 +23,11 @@ class server_session final
     {
     }
 
+    void set_input_object(std::uintptr_t object) noexcept
+    {
+        api_.set_input_object(object);
+    }
+
     void operator()(coreio::io_msg &message) noexcept
     {
         handle(message);
