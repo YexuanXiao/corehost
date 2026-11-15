@@ -1389,6 +1389,19 @@ mixed old=1.9513-2.0340 ns/byte new=1.2541-1.3859 ns/byte ratio=1.5-1.6x
 6c4e2ff perf(vtparser): decode ascii blocks without per-byte branches
 ```
 
+遇到非 ASCII 后继续逐字节推进，pending 清空后重新尝试 ASCII 块，不再放弃后续 ASCII：
+
+```text
+190c147 perf(vtparser): resume ascii blocks after non-ascii bytes
+```
+
+`C:\1\bench_utf8_resume.cpp`，64 KiB，2 万次：
+
+```text
+ascii        block=0.4501-0.4976 ns/byte resume=0.4052-0.4842 ns/byte ratio=1.03-1.11x
+mixed-resume block=1.9465-2.0347 ns/byte resume=0.4388-0.6326 ns/byte ratio=3.2-4.5x
+```
+
 ### 单码点文本序列化
 
 `append_utf16` 对 `text.size() == 1` 使用 4 字节栈缓冲，编码后 `append`，避免为一个码点 resize 3 倍再缩小：
