@@ -379,6 +379,14 @@ struct vt_mouse_payload
     bool release = false;
 };
 
+struct vt_hyperlink_payload final
+{
+    // OSC 8 params（例如 id=foo）、URI、从 params 提取的 id。
+    std::u32string_view params;
+    std::u32string_view uri;
+    std::u32string_view id;
+};
+
 union vt_message_payload {
     // continue_text/text/unknown_sequence 的字符视图；continue_text 指向
     // 本次 parse 输入，其它文本消息指向 parser raw 缓冲。
@@ -400,6 +408,8 @@ union vt_message_payload {
     vt_resize_payload resize;
     // OSC 4 调色板参数。
     vt_palette_payload palette;
+    // OSC 8 hyperlink 参数。
+    vt_hyperlink_payload hyperlink;
     // CPR 响应坐标，1-based。
     vt_position_payload cpr;
     // SGR 图形属性修改。
@@ -1166,8 +1176,33 @@ class vt_parser
         switch (code)
         {
         case 8:
-            _set_unknown_osc_text({});
+        {
+            const auto separator = payload.find(U';');
+            if (separator == std::u32string_view::npos)
+            {
+                m.payload.hyperlink.params = payload;
+                m.payload.hyperlink.uri = {};
+                m.payload.hyperlink.id = {};
+                return vt_message_id::osc8_hyperlink;
+            }
+
+            m.payload.hyperlink.params = payload.substr(0, separator);
+            m.payload.hyperlink.uri = payload.substr(separator + 1);
+
+            const auto id_start = m.payload.hyperlink.params.find(U"id=");
+            if (id_start != std::u32string_view::npos)
+            {
+                const auto value_start = id_start + 3;
+                auto id_end = m.payload.hyperlink.params.find(U':', value_start);
+                if (id_end == std::u32string_view::npos)
+                {
+                    id_end = m.payload.hyperlink.params.size();
+                }
+                m.payload.hyperlink.id =
+                    m.payload.hyperlink.params.substr(value_start, id_end - value_start);
+            }
             return vt_message_id::osc8_hyperlink;
+        }
 
         case 0:
         case 2:

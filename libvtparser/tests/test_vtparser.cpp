@@ -44,6 +44,17 @@ int main()
     result = parser.parse(U"\x1b[?1049h");
     check(result.id == vt_message_id::use_alternate_buffer, "alternate buffer id");
 
+    parser.reset();
+    result = parser.parse(U"\x1b]8;id=link1:group;https://example.test/\x07");
+    check(result.id == vt_message_id::osc8_hyperlink, "hyperlink id");
+    check(result.message.payload.hyperlink.id == U"link1", "hyperlink params id");
+    check(result.message.payload.hyperlink.uri == U"https://example.test/", "hyperlink uri");
+
+    parser.reset();
+    result = parser.parse(U"\x1b]8;;\x07");
+    check(result.id == vt_message_id::osc8_hyperlink, "hyperlink close id");
+    check(result.message.payload.hyperlink.uri.empty(), "hyperlink close uri");
+
     if (failures != 0)
     {
         std::fprintf(stderr, "%d failures\n", failures);
