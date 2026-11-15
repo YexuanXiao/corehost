@@ -1,3 +1,4 @@
+#include "apply.hpp"
 #include "vtstate.hpp"
 
 #include <cstdio>
@@ -139,6 +140,14 @@ int main()
     if (state.cursor().y != 4)
     {
         std::fprintf(stderr, "line feed scroll failed\n");
+        return EXIT_FAILURE;
+    }
+
+    parser.reset();
+    result = parser.parse(U"Z");
+    if (!corehost::vtstate::apply(result.id, result.message, buffer, state, applier))
+    {
+        std::fprintf(stderr, "dispatcher rejected text\n");
         return EXIT_FAILURE;
     }
 
