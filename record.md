@@ -839,3 +839,53 @@ CoreIO.Reference     Passed
 CoreHost2.Reference  Passed
 LibScreen.Reference  Passed
 ```
+
+## 2026-11-16 基础设施整改
+
+提交：
+
+```text
+8aa7e7f refactor: tighten pty signal io, utf8 decoding, and console defaults
+```
+
+- `pty_signal_thread` 按 id 读取局部 `uint16_t/uint32_t/uint64_t`，不再保留 8 字节 payload 成员；截断/未知 id 记录日志后 `std::abort()`。
+- 删除仅测试使用的 `libconptyio/signal_reader.hpp`。
+- 新增 `vtparser::utf8_decoder`，pending 固定为 `std::array<char8_t,4>`；`terminal_reader` 使用 `std::vector<char8_t>`，删除 `std::string pending_`。
+- `read_raw` 不再创建临时 `std::string line`，直接在输出缓冲中完成 CR/LF 归一化。
+- `console_state` 按 libcorehost 规则初始化输入/输出代码页；删除 console API 中 `code_page != 0` fallback。
+- `conpty_entry` 断言 `vt_in`/`vt_out` 有效；输入线程无条件启动。
+- 删除启动时无条件发送的 `?1002;1006;2004h` 和本地 private mode 强制启用。
+- 增加 `server_session::should_forward_to_terminal(set_private_mode)` 测试。
+
+关键回归修复：删除启动鼠标模式后，edit 的鼠标点击最初退化成 X10 文本；根因是 `set_private_mode` 只更新本地状态，没有转发给 WT。加入该转发后：
+
+```text
+real ConDrv RAW_WRITE
+?1049h ?1002;1006;2004h
+```
+
+WT 收到应用自己的鼠标模式，edit 鼠标菜单正常，且不再需要全局强制启用。
+
+验证：
+
+```text
+edit 首次启动直接显示 UI
+edit 鼠标 File 菜单正常
+edit F10 菜单正常
+edit Ctrl+S/Ctrl+Q 返回 PowerShell
+PowerShell 100 行 PageUp 后提示符无 5~
+RGB/256/legacy 颜色正常
+mode con Code page 65001
+```
+
+测试：
+
+```text
+ConptyIO.Reference   Passed
+VtParser.Reference   Passed
+CoreHost2.Reference  Passed
+ConsoleAPI.Reference Passed
+CoreIO.Reference     Passed
+LibScreen.Reference  Passed
+ConsoleState         Passed
+```
