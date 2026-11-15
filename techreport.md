@@ -372,17 +372,25 @@ bits 24..31 : actual cluster length (1..255)
 
 ```text
 page:
-  Cell[width * height]      // dense, no per-cell allocation
-  row_state[height]         // used_columns, line flags, exit code, dirty range
+  bizwen::deque<row_block>  // one contiguous cell vector per row
 
-row_state:
-  used_columns
+row_block:
+  vector<cell> cells        // width cells, contiguous
+  row_state state
+
+row_state:                  // active-page metadata
+  uint32 used_columns
   line_flags flags
-  optional<int32_t> command_exit_code
-  dirty_begin / dirty_end
+  int32 command_exit_code   // sentinel = no command
+  uint32 dirty_begin / dirty_end
+
+history_row:
+  vector<cell> cells
+  history_state              // compact: flags + exit code only
 ```
 
-- page 是 dense 的 16B cell 数组；
+- page 是 `bizwen::deque<row_block>`，不是单个 dense cell 数组；
+- 每行 cell 仍连续，可返回 `span<const cell>`；
 - row 不拥有 cluster 文本或 style；
 - `used_columns` 记录实际使用列；
 - `line_flags` 记录 wrappable/wrapped/marked/output-start/command-end/prompt-end/
@@ -398,11 +406,14 @@ row_state:
 - `screen_buffer` 拥有 main page；
 - `set_alternate(true)` 创建/切换到 alternate page；
 - alternate page 不记录 scrollback；
-- main page 满屏 `scroll_up` 时，把顶部行的 cell + line flags + command exit code
-  复制到 `std::deque<history_entry>`；
+- main page 满屏 `scroll_up` 时，把顶部 `row_block` 的 cell vector 移入
+  `bizwen::deque<history_row>`，不复制 16B cell；
+- 进入 history 的 `row_state` 简化为 `history_state`：只保留 line flags 和 command exit
+  code，不保存 active page 的 used-column/damage；
 - history 上限由构造函数 `history_limit` 控制；
-- history line 保存 cell 和 row metadata，保证 wrapped/marked/command 边界在 scrollback
-  中仍可查询；
+- history line 保存 cell 和紧凑 row metadata，保证 wrapped/marked/command 边界在
+  scrollback 中仍可查询；
+- 当前不复用空白 row vector：`push_blank` 每行分配新的 `vector<cell>`；
 - resize 清空 history，避免宽高变化后旧行宽度不一致；
 - style/hyperlink/grapheme/image store 是 screen-wide 的，main/alternate/history 共享。
 
@@ -417,7 +428,8 @@ row_state:
 - `legacy_at`/`write_legacy_scalar`：与 `CHAR_INFO`/`WORD` 属性边界对应；
 - `write_cell`：低层写，负责清理旧的 wide head/tail 邻域；
 - `fill_rect`、`clear`：直接填 cell；
-- `scroll_up`、`scroll_region_up`：移动行/cell，更新 damage、used_columns、line flags 和
+- `scroll_up`：move 顶部 row vector 到 history，pop_front，push 空白 row_block；
+- `scroll_region_up`：区域内移动/复制 cell，更新 damage、used_columns、line flags 和
   command exit code；
 - 宽字符/继续列由 `width` 表达，渲染器跳过 tail；
 - 覆盖 wide head 会清理 tail；覆盖 tail 会清理 head。
@@ -549,7 +561,7 @@ console 状态。
 
 ### 7.2 热路径
 
-- page 是连续 `std::vector<cell>`，按行/列直接索引；
+- page 是 `bizwen::deque<row_block>`；行内 cell 连续，按行/列直接索引；
 - 普通 BMP 写入不分配 cluster；
 - complex 写入一次 store append；
 - style/hyperlink 是 O(1) ID 查表；
@@ -563,13 +575,13 @@ console 状态。
 | 维度 | libscreen | Ghostty | 复杂度/差距 |
 | --- | --- | --- | --- |
 | cell | 16B，字段内联 | 8B packed cell | 顺序扫描带宽约 2× |
-| page | `vector<cell>` + `vector<row_state>` | 连续 page + packed Row | 都是 O(1) 索引；libscreen row metadata 更大 |
-| row metadata | used/flags/exit/damage，约 40B/row | 8B packed Row | 小网格影响小，大网格/多 page 有差距 |
+| page | `bizwen::deque<row_block>`，每行独立 vector | 连续 page + packed Row | 行内 O(1)；跨行多一次 deque/指针跳转 |
+| row metadata | active `row_state` 约 20B；history 8B | 8B packed Row | 小网格影响小，大网格/多 page 有差距 |
 | style | 32 位 screen-wide ID，flat_map 写 | page-local u16 style set | 写 O(log n) vs 近似 O(1)；渲染按 ID O(1) |
 | hyperlink | 32 位 screen-wide ID，u16 flat_map | page-local offset map | 写 O(log n)，查 ID O(1) |
 | grapheme | 连续 `vector<char16_t>`，append_range | 固定 chunk bitmap allocator + map | libscreen 有 vector 扩容/搬迁；Ghostty 更可预测 |
 | image | flat_map fragment→ID | 独立 graphics/image 存储 | 写 O(log n)；图像不进入 8B cell |
-| scroll | 复制 16B cell + row metadata | 移动/复用 page，8B cell | libscreen 拷贝量约 2× |
+| scroll | move row vector 到 history；空白行重新分配并填充 | 移动/复用 page，8B cell | 退役行 O(1)；空白填充仍是 O(width) |
 | damage | 每行 `[begin,end)` | row dirty 位 + 批量扫描 | libscreen 更精确，Ghostty 扫描更省元数据 |
 | selection/search | O(1) block selection；search O(matches) | 专用 selection/search | 小匹配集足够；大量匹配需索引 |
 
@@ -593,7 +605,7 @@ console 状态。
 - history 仍要复制/移动 cell；
 - corehost 的按行 `CHAR_INFO` 投影需要连续行 span。
 
-可行的是“page = `std::deque<row_block>`”：
+可行的是“page = `bizwen::deque<row_block>`”：
 
 ```cpp
 struct row_block
@@ -602,16 +614,20 @@ struct row_block
     row_state state;
 };
 
-using page = std::deque<row_block>;
-using history = std::deque<row_block>;
+using page = bizwen::deque<row_block>;
+using history = bizwen::deque<history_row>;
 ```
 
 滚动时：
 
 ```cpp
-history.push_back(std::move(page.front())); // vector move，O(1)
+auto &front = page.front();
+history.push_back(history_row{
+    std::move(front.cells),                       // vector move，O(1)
+    history_state{front.state.flags, front.state.command_exit_code},
+});
 page.pop_front();
-page.push_back(acquire_blank_row());        // 从 pool 取
+page.push_back(row_block{std::vector<cell>(width, blank), row_state{}}); // 当前不复用
 ```
 
 这样：
@@ -652,7 +668,56 @@ page.push_back(acquire_blank_row());        // 从 pool 取
 - 因此 page/row 复用是下一项可做的存储优化；当前目标是先保持同一复杂度，并把可避免
   的 cell 复制和线性查找去掉。
 
-### 7.4 为什么不是 8B
+### 7.4 空白行复用收益分析（未改代码）
+
+当前实现不复用空白 row vector：
+
+```text
+scroll_up:
+  move 顶部 row vector -> history       O(1)
+  pop_front
+  push_blank:
+    vector<cell>(width)                 allocation
+    fill width cells with blank         O(width)
+
+history trim:
+  pop_front
+    destroy vector                       deallocation
+```
+
+
+每次滚入一行，至少一次 row vector 分配；history 超限时再释放一行。
+空白行复用可以缓存被 trim/history 淘汰的 row vector：
+
+```text
+trim -> clear row, put in pool
+push_blank -> take row from pool, fill width cells
+```
+
+收益：
+
+- 去掉每行滚动一次的 vector 分配/释放；warmup 后分配次数从 O(scrolled lines)
+  降为 O(concurrent rows)；
+- 减少 allocator 元数据/锁竞争/内存碎片；
+- 对高滚动速率、小宽度、默认分配器更明显；
+- **不减少** blank fill 的 O(width) 写带宽，也不减少 history row 的 O(1) move。
+
+成本/风险：
+
+- pool 会保留内存；上限约 `pool_rows * width * 16B`，必须 cap；
+- resize 后旧宽度 row 不能直接复用，需要清空 pool；
+- 需要定义 history trim 后 row 的归属和 span 生命周期；
+- 默认分配器仍用于新 row；若改用 PMR 可进一步降低 allocator 成本。
+
+粗略判断：
+
+- cell 填充是 O(width)，一次 120 列填充约 1.9KB 写入；
+- 一次 vector 分配通常远小于 1.9KB 填充，但在高滚动频率下会形成可观察的
+  allocator 开销；
+- 预期收益主要在 **5%–15%** 的 scroll 路径，宽度越小、滚动越频繁收益越高；
+- 不应期待它带来数量级提升；更大的收益仍来自行 move、减少 cell 拷贝和保持行 span。
+
+### 7.5 为什么不是 8B
 
 8B cell 无法同时容纳：
 

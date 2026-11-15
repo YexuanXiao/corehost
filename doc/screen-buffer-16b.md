@@ -43,8 +43,11 @@ The complete cluster (including its real primary) lives in the screen-wide
 
 - `screen_buffer` owns main page, optional alternate page, history, styles, hyperlinks,
   image table and the grapheme store.
-- `page` owns dense cells and row metadata.
-- `row_state` owns used-column count, line flags, command exit code and damage range.
+- `page` is `bizwen::deque<row_block>`; each row block owns a contiguous cell vector.
+- active `row_state` owns used-column count, line flags, command exit code and damage range.
+- `history_row` stores cells plus compact `history_state` (flags + exit code only).
+- history uses `bizwen::deque<history_row>` and moves row vectors; blank rows are newly
+  allocated (no reuse pool).
 - `console_state` owns cursor, tabs, scroll region, selection and search overlays.
 - `grapheme_store` is append-only between rebuilds; callers check `can_append()`.
 - `rebuild_graphemes()` rewrites live clusters and updates every cell extent.
@@ -55,7 +58,7 @@ The complete cluster (including its real primary) lives in the screen-wide
 - `glyph_at`, `codepoint_at`, `line_text`, `glyph_width`, `is_trailing`, `used_columns`
 - `legacy_at`, `write_legacy_scalar`
 - `fill_rect`, `clear`
-- `scroll_up`, `scroll_region_up`
+- `scroll_up` (row move to history), `scroll_region_up`
 - `resize`, `set_alternate`
 - `clear_damage`, `damage_begin/end`
 - `rebuild_graphemes`

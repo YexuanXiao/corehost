@@ -9,8 +9,9 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
-#include <deque>
+#include "deque.hpp"
 #include <flat_map>
+#include <limits>
 #include <utility>
 #include <optional>
 #include <span>
@@ -70,19 +71,45 @@ struct legacy_cell final
     std::uint16_t attributes{0x07};
 };
 
+inline constexpr std::int32_t no_command_exit_code = std::numeric_limits<std::int32_t>::min();
+
 struct row_state final
 {
-    std::size_t used_columns{};
+    std::uint32_t used_columns{};
     line_flags flags{};
-    std::optional<std::int32_t> command_exit_code{};
-    std::size_t dirty_begin{};
-    std::size_t dirty_end{};
+    std::int32_t command_exit_code{no_command_exit_code};
+    std::uint32_t dirty_begin{};
+    std::uint32_t dirty_end{};
 
     [[nodiscard]] bool is_dirty() const noexcept
     {
         return dirty_begin < dirty_end;
     }
 };
+
+// History rows only need line flags and command status; used-column and damage
+// metadata are active-page concerns and would inflate scrollback.
+struct history_state final
+{
+    line_flags flags{};
+    std::int32_t command_exit_code{no_command_exit_code};
+};
+
+struct row_block final
+{
+    std::vector<cell> cells;
+    row_state state;
+};
+
+struct history_row final
+{
+    std::vector<cell> cells;
+    history_state state;
+};
+
+static_assert(sizeof(row_state) <= 24);
+static_assert(sizeof(history_state) <= 8);
+static_assert(sizeof(history_row) < sizeof(row_block));
 
 struct rectangle final
 {
@@ -92,8 +119,9 @@ struct rectangle final
     std::size_t height{};
 };
 
-// One dense screen page: rows * columns cells plus per-row metadata. A page
-// does not own cluster text or styles; those are screen-wide resources.
+// Page rows are independently owned row blocks in a bizwen::deque. This keeps
+// a row contiguous for span/CHAR_INFO projection while allowing O(1) row moves
+// into history without copying 16B cells.
 class page final
 {
   public:
@@ -112,37 +140,61 @@ class page final
     [[nodiscard]] cell &at(std::size_t x, std::size_t y) noexcept
     {
         assert(x < width_ && y < height_);
-        return cells_[y * width_ + x];
+        return rows_[y].cells[x];
     }
 
     [[nodiscard]] const cell &at(std::size_t x, std::size_t y) const noexcept
     {
         assert(x < width_ && y < height_);
-        return cells_[y * width_ + x];
+        return rows_[y].cells[x];
     }
 
     [[nodiscard]] std::span<cell> row_cells(std::size_t y) noexcept
     {
         assert(y < height_);
-        return std::span<cell>{cells_}.subspan(y * width_, width_);
+        return std::span<cell>{rows_[y].cells};
     }
 
     [[nodiscard]] std::span<const cell> row_cells(std::size_t y) const noexcept
     {
         assert(y < height_);
-        return std::span<const cell>{cells_}.subspan(y * width_, width_);
+        return std::span<const cell>{rows_[y].cells};
     }
 
     [[nodiscard]] row_state &row(std::size_t y) noexcept
     {
         assert(y < height_);
-        return rows_[y];
+        return rows_[y].state;
     }
 
     [[nodiscard]] const row_state &row(std::size_t y) const noexcept
     {
         assert(y < height_);
+        return rows_[y].state;
+    }
+
+    [[nodiscard]] row_block &block(std::size_t y) noexcept
+    {
+        assert(y < height_);
         return rows_[y];
+    }
+
+    [[nodiscard]] const row_block &block(std::size_t y) const noexcept
+    {
+        assert(y < height_);
+        return rows_[y];
+    }
+
+    void erase_front() noexcept
+    {
+        assert(rows_.size() == height_);
+        rows_.pop_front();
+    }
+
+    void push_blank(cell_style fill_style)
+    {
+        assert(rows_.size() + 1 == height_);
+        rows_.push_back(row_block{std::vector<cell>(width_, cell::blank(fill_style)), row_state{}});
     }
 
     void mark_dirty(std::size_t y, std::size_t begin, std::size_t end) noexcept;
@@ -153,10 +205,8 @@ class page final
   private:
     std::size_t width_{};
     std::size_t height_{};
-    std::vector<cell> cells_;
-    std::vector<row_state> rows_;
+    bizwen::deque<row_block> rows_;
 };
-
 class screen_buffer final
 {
   public:
@@ -326,18 +376,11 @@ class screen_buffer final
 
     std::size_t width_{};
     std::size_t height_{};
-    struct history_entry
-    {
-        line cells;
-        line_flags flags{};
-        std::optional<std::int32_t> command_exit_code{};
-    };
-
     std::size_t history_limit_{};
     page main_;
     std::optional<page> alternate_;
     bool alternate_active_{};
-    std::deque<history_entry> history_;
+    bizwen::deque<history_row> history_;
     style_table styles_;
     hyperlink_table hyperlinks_;
     image_table images_;
@@ -404,8 +447,13 @@ bool remap_line(std::vector<cell> &line, const grapheme_store &source, grapheme_
 } // namespace
 
 inline page::page(std::size_t width, std::size_t height, cell_style fill_style)
-    : width_{width}, height_{height}, cells_(width * height, cell::blank(fill_style)), rows_(height)
+    : width_{width}, height_{height}
 {
+    assert(width != 0 && height != 0);
+    for (std::size_t y = 0; y < height_; ++y)
+    {
+        rows_.push_back(row_block{std::vector<cell>(width_, cell::blank(fill_style)), row_state{}});
+    }
     mark_all_dirty();
 }
 
@@ -424,39 +472,39 @@ inline void page::mark_dirty(std::size_t y, std::size_t begin, std::size_t end) 
         return;
     }
 
-    auto &state = rows_[y];
+    auto &state = rows_[y].state;
     if (!state.is_dirty())
     {
-        state.dirty_begin = begin;
-        state.dirty_end = end;
+        state.dirty_begin = static_cast<std::uint32_t>(begin);
+        state.dirty_end = static_cast<std::uint32_t>(end);
         return;
     }
 
-    state.dirty_begin = std::min(state.dirty_begin, begin);
-    state.dirty_end = std::max(state.dirty_end, end);
+    state.dirty_begin = std::min(state.dirty_begin, static_cast<std::uint32_t>(begin));
+    state.dirty_end = std::max(state.dirty_end, static_cast<std::uint32_t>(end));
 }
 
 inline void page::mark_used(std::size_t y, std::size_t end) noexcept
 {
     assert(y < rows_.size());
-    rows_[y].used_columns = std::max(rows_[y].used_columns, std::min(end, width_));
+    rows_[y].state.used_columns = std::max(rows_[y].state.used_columns, static_cast<std::uint32_t>(std::min(end, width_)));
 }
 
 inline void page::clear_damage() noexcept
 {
-    for (auto &state : rows_)
+    for (auto &row : rows_)
     {
-        state.dirty_begin = 0;
-        state.dirty_end = 0;
+        row.state.dirty_begin = 0;
+        row.state.dirty_end = 0;
     }
 }
 
 inline void page::mark_all_dirty() noexcept
 {
-    for (auto &state : rows_)
+    for (auto &row : rows_)
     {
-        state.dirty_begin = 0;
-        state.dirty_end = width_;
+        row.state.dirty_begin = 0;
+        row.state.dirty_end = static_cast<std::uint32_t>(width_);
     }
 }
 
@@ -540,12 +588,13 @@ inline void screen_buffer::set_command_exit_code(std::size_t y, std::int32_t cod
 
 inline void screen_buffer::clear_command_exit_code(std::size_t y) noexcept
 {
-    active_page().row(y).command_exit_code.reset();
+    active_page().row(y).command_exit_code = no_command_exit_code;
 }
 
 inline std::optional<std::int32_t> screen_buffer::command_exit_code(std::size_t y) const noexcept
 {
-    return active_page().row(y).command_exit_code;
+    const auto code = active_page().row(y).command_exit_code;
+    return code == no_command_exit_code ? std::nullopt : std::optional<std::int32_t>{code};
 }
 
 inline void screen_buffer::clear_wide_neighborhood(page &target, std::size_t x, std::size_t y)
@@ -814,38 +863,21 @@ inline void screen_buffer::scroll_up(std::size_t lines, cell_style fill_style)
     auto &target = active_page();
     lines = std::min(lines, height_);
 
-    if (!alternate_active_ && history_limit_ != 0)
+    for (std::size_t y = 0; y < lines; ++y)
     {
-        for (std::size_t y = 0; y < lines; ++y)
+        auto &front = target.block(0);
+        if (!alternate_active_ && history_limit_ != 0)
         {
-            history_.push_back(history_entry{
-                line{target.row_cells(y).begin(), target.row_cells(y).end()},
-                target.row(y).flags,
-                target.row(y).command_exit_code,
+            history_.push_back(history_row{
+                std::move(front.cells),
+                history_state{front.state.flags, front.state.command_exit_code},
             });
         }
-        trim_history();
+        target.erase_front();
+        target.push_blank(fill_style);
     }
 
-    for (std::size_t y = 0; y + lines < height_; ++y)
-    {
-        std::copy(target.row_cells(y + lines).begin(), target.row_cells(y + lines).end(), target.row_cells(y).begin());
-        target.row(y).used_columns = target.row(y + lines).used_columns;
-        target.row(y).flags = target.row(y + lines).flags;
-        target.row(y).command_exit_code = target.row(y + lines).command_exit_code;
-    }
-
-    for (std::size_t y = height_ - lines; y < height_; ++y)
-    {
-        for (auto &value : target.row_cells(y))
-        {
-            value = cell::blank(fill_style);
-        }
-        target.row(y).used_columns = 0;
-        target.row(y).flags = 0;
-        target.row(y).command_exit_code.reset();
-    }
-
+    trim_history();
     target.mark_all_dirty();
 }
 
@@ -894,7 +926,7 @@ inline void screen_buffer::resize(std::size_t width, std::size_t height, cell_st
     for (std::size_t y = 0; y < copy_height; ++y)
     {
         std::copy_n(main_.row_cells(y).begin(), copy_width, resized_main.row_cells(y).begin());
-        resized_main.row(y).used_columns = std::min(main_.row(y).used_columns, width);
+        resized_main.row(y).used_columns = static_cast<std::uint32_t>(std::min<std::size_t>(main_.row(y).used_columns, width));
         resized_main.row(y).flags = main_.row(y).flags;
         resized_main.row(y).command_exit_code = main_.row(y).command_exit_code;
     }
@@ -905,7 +937,7 @@ inline void screen_buffer::resize(std::size_t width, std::size_t height, cell_st
         for (std::size_t y = 0; y < copy_height; ++y)
         {
             std::copy_n(alternate_->row_cells(y).begin(), copy_width, resized_alt.row_cells(y).begin());
-            resized_alt.row(y).used_columns = std::min(alternate_->row(y).used_columns, width);
+            resized_alt.row(y).used_columns = static_cast<std::uint32_t>(std::min<std::size_t>(alternate_->row(y).used_columns, width));
             resized_alt.row(y).flags = alternate_->row(y).flags;
             resized_alt.row(y).command_exit_code = alternate_->row(y).command_exit_code;
         }
@@ -947,7 +979,7 @@ inline line_flags screen_buffer::history_flags(std::size_t index) const noexcept
     {
         return 0;
     }
-    return history_[index].flags;
+    return history_[index].state.flags;
 }
 
 inline std::optional<std::int32_t> screen_buffer::history_command_exit_code(std::size_t index) const noexcept
@@ -956,7 +988,9 @@ inline std::optional<std::int32_t> screen_buffer::history_command_exit_code(std:
     {
         return std::nullopt;
     }
-    return history_[index].command_exit_code;
+    return history_[index].state.command_exit_code == no_command_exit_code
+               ? std::nullopt
+               : std::optional<std::int32_t>{history_[index].state.command_exit_code};
 }
 
 inline void screen_buffer::trim_history()

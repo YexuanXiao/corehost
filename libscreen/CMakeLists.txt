@@ -3,6 +3,7 @@ add_library(libscreen INTERFACE)
 
 target_include_directories(libscreen INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/third_parties/deque
 )
 
 target_compile_features(libscreen INTERFACE cxx_std_23)
