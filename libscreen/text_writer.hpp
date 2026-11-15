@@ -1,5 +1,6 @@
 #pragma once
 
+#include <libunicode/convert.h>
 #include <libunicode/codepoint_properties.h>
 #include <libunicode/grapheme_segmenter.h>
 #include <libunicode/width.h>
@@ -108,7 +109,7 @@ struct codepoint_result final
     std::size_t units{};
 };
 
-[[nodiscard]] constexpr codepoint_result next_codepoint(std::u16string_view text, std::size_t offset) noexcept
+[[nodiscard]] inline codepoint_result next_codepoint(std::u16string_view text, std::size_t offset) noexcept
 {
     if (offset >= text.size())
     {
@@ -116,32 +117,28 @@ struct codepoint_result final
     }
 
     const auto first = static_cast<std::uint32_t>(text[offset]);
-    if (first >= 0xD800 && first <= 0xDBFF && offset + 1 < text.size())
+    if (first >= 0xD800 && first <= 0xDBFF && offset + 1 >= text.size())
     {
-        const auto second = static_cast<std::uint32_t>(text[offset + 1]);
-        if (second >= 0xDC00 && second <= 0xDFFF)
-        {
-            return codepoint_result{
-                static_cast<char32_t>(0x10000u + ((first - 0xD800u) << 10) + (second - 0xDC00u)),
-                2,
-            };
-        }
+        return codepoint_result{U'\uFFFD', 1};
     }
-    return codepoint_result{static_cast<char32_t>(first), 1};
+
+    auto iterator = text.begin() + static_cast<std::ptrdiff_t>(offset);
+    const auto decoded = unicode::decoder<char16_t>{}(iterator);
+    if (!decoded.has_value())
+    {
+        return codepoint_result{U'\uFFFD', 1};
+    }
+    return codepoint_result{decoded.value(), static_cast<std::size_t>(iterator - text.begin()) - offset};
+}
+
+[[nodiscard]] inline std::u16string to_u16(char32_t codepoint)
+{
+    return unicode::convert_to<char16_t>(codepoint);
 }
 
 [[nodiscard]] inline std::u32string to_u32(std::u16string_view text)
 {
-    std::u32string result;
-    result.reserve(text.size());
-    std::size_t offset = 0;
-    while (offset < text.size())
-    {
-        const auto decoded = next_codepoint(text, offset);
-        result.push_back(decoded.value);
-        offset += decoded.units;
-    }
-    return result;
+    return unicode::convert_to<char32_t>(text);
 }
 
 [[nodiscard]] inline int cluster_width(std::u32string_view cluster, width_options options) noexcept;

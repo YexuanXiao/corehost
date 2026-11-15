@@ -797,12 +797,9 @@ inline bool screen_buffer::write_codepoint(std::size_t x, std::size_t y, char32_
         return write_scalar(x, y, static_cast<char16_t>(codepoint), style, width, hyperlink, flags);
     }
 
-    const auto value = codepoint - 0x10000u;
-    const char16_t cluster[2]{
-        static_cast<char16_t>(0xD800u | (value >> 10)),
-        static_cast<char16_t>(0xDC00u | (value & 0x3FFu)),
-    };
-    return write_cluster(x, y, std::span<const char16_t>{cluster, 2}, style, width, hyperlink, flags);
+    const auto cluster = to_u16(codepoint);
+    return write_cluster(x, y, std::span<const char16_t>{cluster.data(), cluster.size()},
+                        style, width, hyperlink, flags);
 }
 
 inline std::u16string screen_buffer::glyph_at(std::size_t x, std::size_t y) const
@@ -838,14 +835,7 @@ inline char32_t screen_buffer::codepoint_at(std::size_t x, std::size_t y) const
     {
         return U' ';
     }
-    if (text.size() >= 2 && text[0] >= 0xD800 && text[0] <= 0xDBFF &&
-        text[1] >= 0xDC00 && text[1] <= 0xDFFF)
-    {
-        return static_cast<char32_t>(0x10000u +
-                                     ((static_cast<std::uint32_t>(text[0]) - 0xD800u) << 10) +
-                                     (static_cast<std::uint32_t>(text[1]) - 0xDC00u));
-    }
-    return text[0];
+    return next_codepoint(text, 0).value;
 }
 
 inline int screen_buffer::glyph_width(std::size_t x, std::size_t y) const
