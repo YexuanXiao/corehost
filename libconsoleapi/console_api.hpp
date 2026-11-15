@@ -102,6 +102,10 @@ class console_api final
         {
             return write_console_input(message);
         }
+        if (header->ApiNumber == ConsolepGetFontSize)
+        {
+            return get_font_size(message);
+        }
         if (header->ApiNumber == ConsolepGetSelectionInfo)
         {
             return get_selection_info(message);
@@ -475,6 +479,27 @@ class console_api final
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLEINPUT_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool get_font_size(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETFONTSIZE_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETFONTSIZE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        if (info->FontIndex != 0)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        info->FontSize = COORD{static_cast<SHORT>(state_.font_size.x),
+                              static_cast<SHORT>(state_.font_size.y)};
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETFONTSIZE_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETFONTSIZE_MSG));
         return true;
     }
 
