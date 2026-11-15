@@ -941,6 +941,24 @@ ConsoleAPI.Reference Passed
 
 真实 WT：edit 初始 UI、鼠标菜单正常；PowerShell/cmd/pwsh 无回归。
 
+### 0x80 分支优化撤销
+
+按要求撤销了三个基于逐字节/逐字符 `0x80` 判断的 ASCII fast path：
+
+```text
+03a651b Revert "perf(vtparser): decode ascii runs without per-byte decoder calls"
+91da3ad Revert "perf(vtserializer): serialize ascii text without decoder calls"
+1b4155f Revert "perf(libscreen): fast-path ascii in write_chars"
+```
+
+后续优化不使用逐字节 `0x80` 判断。
+
+`vtserializer::append_utf16` 改为每次文本 run 只构造一次 `unicode::decoder<char16_t>`/`encoder<char>`，而不是每码点构造：
+
+```text
+aeb8170 perf(vtserializer): reuse unicode codecs per text run
+```
+
 ### Console API 分派
 
 `console_api::handle` 不再使用长串 `if (header->ApiNumber == ...)`。先取 `layer = ApiNumber >> 24`，再按 L1/L2/L3 分别 switch，和 libcorehost 的分派结构一致。未知 layer/API 仍返回 `status_not_implemented`。
