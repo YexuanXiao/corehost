@@ -45,14 +45,22 @@ class server_dispatcher final
         {
             const auto capacity = std::min<std::size_t>(message.descriptor.OutputSize,
                                                          sizeof(message.body));
+            if (capacity == 0)
+            {
+                coreio::prepare_completion(message, 0, 0, message.body, 0);
+                return true;
+            }
             const auto written = session_.read_raw(
                 std::span<char>{reinterpret_cast<char *>(message.body), capacity});
+            if (written == 0)
+            {
+                return session_.suspend_raw(message);
+            }
             coreio::prepare_completion(message, 0, written, message.body, written);
             return true;
         }
         case CONSOLE_IO_USER_DEFINED:
-            session_.handle(message);
-            return true;
+            return session_.handle(message);
         default:
             coreio::prepare_completion(message, coreio::error::status_illegal_function);
             return true;

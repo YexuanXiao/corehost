@@ -107,23 +107,45 @@ class server_session final
         {
             return true;
         }
-        pending_ = std::make_unique<coreio::io_msg>(message);
+        pending_message_ = message;
+        pending_active_ = true;
+        pending_kind_ = pending_kind::console_read;
+        return false;
+    }
+
+    bool suspend_raw(coreio::io_msg &message)
+    {
+        pending_message_ = message;
+        pending_active_ = true;
+        pending_kind_ = pending_kind::raw_read;
         return false;
     }
 
     bool complete_pending()
     {
-        if (!pending_ || !input_.has_key() || !server_.valid())
+        if (!pending_active_ || !input_.has_key() || !server_.valid())
         {
             return false;
         }
-        auto message = std::move(pending_);
-        if (!api_.resume_read(*message))
+        if (pending_kind_ == pending_kind::raw_read)
         {
-            pending_ = std::move(message);
+            const auto capacity = std::min<std::size_t>(pending_message_.descriptor.OutputSize,
+                                                         sizeof(pending_message_.body));
+            const auto written = read_raw(std::span<char>{
+                reinterpret_cast<char *>(pending_message_.body), capacity});
+            if (written == 0)
+            {
+                return false;
+            }
+            coreio::prepare_completion(pending_message_, 0, written, pending_message_.body, written);
+        }
+        else if (!api_.resume_read(pending_message_))
+        {
             return false;
         }
-        coreio::complete_io(server_, message->complete);
+        coreio::complete_io(server_, pending_message_.complete);
+        pending_active_ = false;
+        pending_kind_ = pending_kind::none;
         return true;
     }
 
@@ -146,7 +168,8 @@ class server_session final
     std::string error_;
     coreio::process_registry processes_;
     consoleapi::console_api api_;
-    std::unique_ptr<coreio::io_msg> pending_;
+    coreio::io_msg pending_message_{};
+    bool pending_active_{};
     pending_kind pending_kind_{};
 };
 
