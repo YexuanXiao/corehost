@@ -72,6 +72,14 @@ class console_api final
         {
             return get_largest_window_size(message);
         }
+        if (header->ApiNumber == ConsolepSetCursorInfo)
+        {
+            return set_cursor_info(message);
+        }
+        if (header->ApiNumber == ConsolepSetCursorPosition)
+        {
+            return set_cursor_position(message);
+        }
 
         coreio::prepare_completion(message, coreio::error::status_not_implemented);
         return true;
@@ -91,6 +99,40 @@ class console_api final
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCURSORINFO_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETCURSORINFO_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool set_cursor_info(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORINFO_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *info = reinterpret_cast<const CONSOLE_SETCURSORINFO_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        state_.cursor().visible = info->Visible != FALSE;
+        coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool set_cursor_position(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORPOSITION_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *position = reinterpret_cast<const CONSOLE_SETCURSORPOSITION_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        if (position->CursorPosition.X < 0 || position->CursorPosition.Y < 0)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        state_.set_cursor(static_cast<std::size_t>(position->CursorPosition.X),
+                          static_cast<std::size_t>(position->CursorPosition.Y));
+        coreio::prepare_completion(message);
         return true;
     }
 

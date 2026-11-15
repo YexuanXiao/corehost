@@ -86,6 +86,36 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg position_message{};
+    position_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORPOSITION_MSG);
+    position_message.descriptor.OutputSize = sizeof(position_message.body);
+    auto *position_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(position_message.body);
+    position_header->ApiNumber = ConsolepSetCursorPosition;
+    auto *position = reinterpret_cast<CONSOLE_SETCURSORPOSITION_MSG *>(
+        position_message.body + sizeof(CONSOLE_MSG_HEADER));
+    position->CursorPosition = COORD{3, 1};
+    if (!api.handle(position_message) || state.cursor().x != 3 || state.cursor().y != 1)
+    {
+        std::fprintf(stderr, "set cursor position failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::io_msg cursor_info_message{};
+    cursor_info_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCURSORINFO_MSG);
+    cursor_info_message.descriptor.OutputSize = sizeof(cursor_info_message.body);
+    auto *cursor_info_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(cursor_info_message.body);
+    cursor_info_header->ApiNumber = ConsolepSetCursorInfo;
+    auto *cursor_set = reinterpret_cast<CONSOLE_SETCURSORINFO_MSG *>(
+        cursor_info_message.body + sizeof(CONSOLE_MSG_HEADER));
+    cursor_set->Visible = FALSE;
+    if (!api.handle(cursor_info_message) || state.cursor().visible)
+    {
+        std::fprintf(stderr, "set cursor info failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
