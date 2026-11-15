@@ -593,3 +593,41 @@ server_session pending kind=2
 - 结果仍空白，已撤销。
 
 因此首次空白不是单纯的 input pending 状态；需要继续对比 libcorehost 的初始渲染/IO 时序。
+
+## 2026-11-16 首次启动空白修复
+
+根因：edit 的初始 alternate-screen UI 帧在 WT 完成初始 viewport 调整前写出；WT 清空 alternate screen 后，帧丢失。edit 随后进入 `GetConsoleInput` pending 等待，直到 resize/点击才重绘。
+
+修复：
+
+- `server_session::write_raw` 在 alternate screen 下累计原始输出帧；
+- 当 `GetConsoleInput` 第一次进入 pending 且尚未重放时，把累计的 alternate 帧重新写入终端并 flush；
+- 每个 session 只重放一次。
+
+提交：
+
+```text
+e27f416 fix(corehost2): replay initial alternate frame before blocking input
+```
+
+真实 WT 验证：
+
+```text
+edit C:\Users\xyx\c2save.txt
+```
+
+不再需要 resize/点击，直接显示：
+
+```text
+标题 c2save.txt - edit
+File Edit View Help
+1 HELLO-SAVE
+状态栏 [CRLF] [UTF-8] [Spaces:4] 1:1
+```
+
+此前 `mode con` 代码页修复和 CoreIO `previous=nullptr` 修复也保留：
+
+```text
+aa891b9 fix(corehost2): initialize conpty code pages to UTF-8
+a32e877 fix(coreio): clear submitted server completion when idle
+```
