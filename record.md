@@ -294,3 +294,74 @@ cmd /c "color 4F & echo CMD-COLOR-4F"
 ```
 
 corehost2 与原始 OpenConsole 都显示红底，文字与背景关系一致；legacy `color` 命令的屏幕属性切换通过。
+
+## 2026-11-16 edit 输入事件与标题修复
+
+edit 的 `read_stdin` 使用：
+
+```rust
+WaitForSingleObject(STATE.stdin, timeout)
+ReadConsoleInputExW(...)
+```
+
+corehost2 之前没有把 console input event 设置为有信号，导致 edit 阻塞在启动读取。
+
+修复：
+
+- `server_session` 保存 COM handoff 的 input event；
+- 输入入队/raw 入队时 `SetEvent`；
+- API 读取后输入队列为空时 `ResetEvent`。
+
+提交：
+
+```text
+3c97860 fix(corehost2): signal console input event for reader waits
+```
+
+效果：
+
+- edit 可以进入编辑页面；
+- 出现菜单、行号、编辑区和状态栏；
+- `Ctrl+O` 打开文件对话框正常。
+
+标题问题：
+
+edit 通过 OSC 0 设置标题，但 `vtstate::apply_window_title` 只更新 `state.title`，没有设置 `title_changed`，导致 corehost2 不发送窗口标题。
+
+修复：
+
+```cpp
+state.title_changed = true;
+```
+
+提交：
+
+```text
+d127fc5 fix(vtstate): mark window title changes for terminal updates
+```
+
+效果：
+
+```text
+WT tab title: Untitled-1.txt - edit
+```
+
+与原始 OpenConsole 一致。
+
+### 当前 edit 对比结果
+
+- 菜单栏、行号、编辑区、状态栏与原始 OpenConsole 基本一致；
+- 打开文件对话框布局和颜色一致；
+- 标题已一致；
+- 输入 `HELLO`、回车、状态栏 `2:1 *` 正常；
+- 仍有一个差异：F10 未打开 File 下拉菜单，而原始 OpenConsole 会打开。
+- `Ctrl+O` 对话框正常，`COLOR-WHITE` 和 cmd `color 4F` 已对比通过。
+
+### 测试
+
+```text
+CoreHost2.Reference  Passed
+LibScreen.Reference  Passed
+```
+
+`VtState.Reference` 当前在测试程序中报告 `index failed`，该失败与本轮标题修复无关的怀疑尚未排除；需要在后续单独确认其基线状态。
