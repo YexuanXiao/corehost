@@ -6,6 +6,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <iterator>
 
 int main()
 {
@@ -543,9 +544,11 @@ int main()
 
     corehost::corehost2::session alternate_mouse_session{8, 2};
     constexpr char16_t alternate_mode[]{u'\x1b', u'[', u'?', u'1', u'0', u'4', u'9', u'h'};
-    alternate_mouse_session.feed_input(alternate_mode, true);
-    alternate_mouse_session.feed_input(mouse_mode, true);
-    alternate_mouse_session.feed_input(mouse_sequence, true);
+    alternate_mouse_session.feed_input(
+        std::u16string_view{alternate_mode, std::size(alternate_mode)}, true);
+    alternate_mouse_session.feed_input(std::u16string_view{mouse_mode, std::size(mouse_mode)}, true);
+    alternate_mouse_session.feed_input(
+        std::u16string_view{mouse_sequence, std::size(mouse_sequence)}, true);
     corehost::consoleinput::input_event alternate_mouse_event{};
     if (alternate_mouse_session.input().peek(
             std::span<corehost::consoleinput::input_event>{&alternate_mouse_event, 1}) == 0 ||
