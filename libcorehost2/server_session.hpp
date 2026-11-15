@@ -113,7 +113,7 @@ class server_session final
 
     bool complete_pending()
     {
-        if (!pending_ || input_.empty() || !server_.valid())
+        if (!pending_ || !input_.has_key() || !server_.valid())
         {
             return false;
         }

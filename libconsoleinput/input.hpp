@@ -108,6 +108,18 @@ class input_queue final
         return size() == 0;
     }
 
+    [[nodiscard]] bool has_key() const noexcept
+    {
+        for (std::size_t i = head_; i < events_.size(); ++i)
+        {
+            if (events_[i].type == input_event_type::key && events_[i].key.key_down)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     std::size_t read(std::span<input_event> destination) noexcept
     {
         const auto count = std::min(destination.size(), size());
