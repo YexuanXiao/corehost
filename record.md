@@ -1006,6 +1006,14 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### WriteConsoleInput 转换事件去零初始化
+
+`write_console_input` 的 `consoleinput::input_event converted{}` 改为 `converted`；每个事件类型都会写满其实际读取的字段，不再为每个输入记录整块清零：
+
+```text
+71bb8b3 perf(consoleapi): avoid zeroing converted input events
+```
+
 ### SetTitle 窗口句柄分支隔离
 
 生产路径 `session_loop` 创建 pseudo window 后必定设置 `window_handle_`；只有单元测试可能不设置。`set_title` 的：
