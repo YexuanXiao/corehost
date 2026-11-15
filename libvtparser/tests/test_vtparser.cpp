@@ -66,6 +66,16 @@ int main()
     check(result.message.payload.semantic.kind == u'D', "semantic prompt kind");
     check(result.message.payload.semantic.argument == U"0", "semantic prompt argument");
 
+    parser.reset();
+    result = parser.parse(U"\x1b_Gi=1;AAAA\x1b\\");
+    check(result.id == vt_message_id::apc_sequence, "apc id");
+    check(result.message.payload.text.starts_with(U"\x1b_G"), "apc payload");
+
+    parser.reset();
+    result = parser.parse(U"\x1bPqabc\x1b\\");
+    check(result.id == vt_message_id::dcs_sequence, "dcs id");
+    check(result.message.payload.text.starts_with(U"\x1bP"), "dcs payload");
+
     if (failures != 0)
     {
         std::fprintf(stderr, "%d failures\n", failures);

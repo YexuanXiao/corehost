@@ -70,6 +70,8 @@ enum class vt_message_id
     set_window_title,
     osc8_hyperlink,
     semantic_prompt_mark,
+    apc_sequence,
+    dcs_sequence,
 
     // C0/ESC 基础控制。输入方向用于行编辑和 RAW_READ 行终止判断；输出方向会
     // 更新本地 cursor/screen 并序列化为对应 VT。
@@ -479,6 +481,10 @@ class vt_parser
         ss3,
         // OSC 中读到 ESC，等待 '\' 确认 ST。
         osc_st,
+        // APC/DCS 字符串，等待 ST。
+        apc,
+        dcs,
+        string_st,
     };
 
   public:
@@ -675,6 +681,11 @@ class vt_parser
             return _parse_osc_st(ch);
         case parser_mode::ss3:
             return _parse_ss3(ch);
+        case parser_mode::apc:
+        case parser_mode::dcs:
+            return _parse_string(ch);
+        case parser_mode::string_st:
+            return _parse_string_st(ch);
         }
         std::unreachable();
     }
@@ -746,6 +757,41 @@ class vt_parser
         // 不是 \：ESC 退化为普通序列（如 OSC 被非 ST 字符打断）。
         _mode = parser_mode::esc;
         return _parse_esc(ch);
+    }
+
+    // APC/DCS 字符串体：BEL 可直接结束 APC；ESC 进入 ST 等待。
+    [[nodiscard]] vt_message_id _parse_string(char32_t ch) noexcept
+    {
+        if (ch == 0x07)
+        {
+            _mode = parser_mode::ground;
+            return _end_string();
+        }
+        if (ch == 0x1B)
+        {
+            _mode = parser_mode::string_st;
+            return vt_message_id::continue_;
+        }
+        return vt_message_id::continue_;
+    }
+
+    [[nodiscard]] vt_message_id _parse_string_st(char32_t ch) noexcept
+    {
+        if (ch == U'\\')
+        {
+            _mode = parser_mode::ground;
+            return _end_string();
+        }
+
+        _set_unknown_sequence(_seq_start);
+        _mode = parser_mode::ground;
+        return vt_message_id::unknown_sequence;
+    }
+
+    [[nodiscard]] vt_message_id _end_string() noexcept
+    {
+        _msg.payload.text = {_raw.data() + _seq_start, _raw.size() - _seq_start};
+        return _string_id;
     }
 
     [[nodiscard]] vt_message_id _parse_csi(char32_t ch) noexcept
@@ -841,6 +887,18 @@ class vt_parser
         case U'#':
             _intermediate = '#';
             return vt_message_id::continue_; // 等待 line rendition final
+        case U'_':
+            _string_id = vt_message_id::apc_sequence;
+            _mode = parser_mode::apc;
+            return vt_message_id::continue_;
+        case U'P':
+            _string_id = vt_message_id::dcs_sequence;
+            _mode = parser_mode::dcs;
+            return vt_message_id::continue_;
+        case U'X':
+            _string_id = vt_message_id::apc_sequence;
+            _mode = parser_mode::apc;
+            return vt_message_id::continue_;
         default:
             _mode = parser_mode::ground;
             if (_intermediate == '(')
@@ -935,6 +993,7 @@ class vt_parser
     // ── 解析状态 ──
     // 当前 VT 状态机模式。ground 表示可接收普通文本。
     parser_mode _mode = parser_mode::ground;
+    vt_message_id _string_id = vt_message_id::apc_sequence;
     // true 表示当前 CSI 使用 '?' private marker；只在 _mode==csi 时有意义。
     // CSI 私有标记字符（0 表示没有）：?\'?\' 或 \'<\'。
     char32_t _private_marker = 0;
