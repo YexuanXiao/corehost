@@ -1286,11 +1286,20 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
     {
         if (widths.empty() && all_printable_ascii(text))
         {
+            if (text.empty())
+            {
+                return result;
+            }
+            if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.x) >= width_ ||
+                static_cast<std::size_t>(cursor.y) >= height_)
+            {
+                result.row_end = true;
+                return result;
+            }
+
             for (std::size_t index = 0; index < text.size(); ++index)
             {
-                if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.x) >= width_ ||
-                    static_cast<std::size_t>(cursor.y) >= height_ ||
-                    cursor.x + 1 > static_cast<std::int32_t>(width_))
+                if (cursor.x >= static_cast<std::int32_t>(width_))
                 {
                     result.row_end = true;
                     break;
@@ -1303,11 +1312,10 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                 }
                 ++cursor.x;
                 ++result.consumed;
-                if (cursor.x >= static_cast<std::int32_t>(width_))
-                {
-                    result.row_end = true;
-                    break;
-                }
+            }
+            if (cursor.x >= static_cast<std::int32_t>(width_))
+            {
+                result.row_end = true;
             }
             return result;
         }
