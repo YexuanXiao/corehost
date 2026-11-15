@@ -1006,6 +1006,14 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### GetConsoleInput 优先判断键盘事件
+
+`get_console_input` 同样把键盘事件放到第一个分支，键盘输入只需一次比较：
+
+```text
+34085b8 perf(consoleapi): test key records first in get input
+```
+
 ### GetConsoleInput 单次绑定事件
 
 `get_console_input` 转换循环中多次访问 `events[i]`；改为每轮绑定：
@@ -1028,9 +1036,9 @@ const auto &event = events[i];
 a6a9ed0 perf(consoleapi): test key records first
 ```
 
-### DBCS 转换 scratch 去零初始化
+### DBCS 转换 scratch 去零初始化（非性能优化）
 
-`write_console_input` 的 `wchar_t wide[2]{}` 改为 `wchar_t wide[2]`；只在 `MultiByteToWideChar` 返回 `units > 0` 时读取 `wide[0]`，无需预先清零：
+`write_console_input` 的 `wchar_t wide[2]{}` 改为 `wchar_t wide[2]`；只在 `MultiByteToWideChar` 返回 `units > 0` 时读取 `wide[0]`。这是代码清理，不计为性能优化：
 
 ```text
 93a3ab6 perf(consoleapi): avoid zeroing dbcs scratch
@@ -1229,9 +1237,9 @@ ratio≈1190x
 cafc79f perf(consoleapi): reuse history selection buffer
 ```
 
-### 单码点 scratch 去零初始化
+### 单码点 scratch 去零初始化（非性能优化）
 
-`append_utf16` 单码点路径的 4 字节栈缓冲不再零初始化；encoder 会写入实际使用的字节：
+`append_utf16` 单码点路径的 4 字节栈缓冲不再零初始化；encoder 会写入实际使用的字节。这是代码清理，不计为性能优化：
 
 ```text
 751fa27 perf(vtserializer): avoid zeroing single-unit scratch
