@@ -1006,6 +1006,20 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### GetConsoleInput 单次绑定事件
+
+`get_console_input` 转换循环中多次访问 `events[i]`；改为每轮绑定：
+
+```cpp
+const auto &event = events[i];
+```
+
+鼠标、窗口、键盘字段都从同一引用读取：
+
+```text
+0939f65 perf(consoleapi): bind input event once per record
+```
+
 ### WriteConsoleInput 优先判断键盘事件
 
 `write_console_input` 的转换分支由 `MOUSE -> WINDOW -> KEY` 改为 `KEY -> MOUSE -> WINDOW`；键盘事件是最常见输入，减少两次比较：
