@@ -1007,6 +1007,14 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### Alias 展开缓冲复用
+
+`expand_console_alias` 不再为每条命令构造局部 `std::u16string expanded`，复用成员 `alias_expanded_`：
+
+```text
+d450f84 perf(consoleapi): reuse alias expansion buffer
+```
+
 ### 命令展开缓冲复用
 
 `read_console` 回车处理不再每次构造局部 `std::u16string expanded`，复用成员 `expanded_line_`：
