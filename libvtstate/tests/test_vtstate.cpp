@@ -345,6 +345,21 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer erase_buffer{4, 1};
+    corehost::screen::console_state erase_state{4, 1};
+    corehost::screen::coord erase_cursor{0, 0};
+    (void)erase_buffer.write_text_row(erase_cursor, u"ABCD", {}, corehost::screen::cell_style{}, false);
+    erase_state.set_cursor(1, 0);
+    parser.reset();
+    result = parser.parse(U"\x1b[2X");
+    (void)corehost::vtstate::apply(result.id, result.message, erase_buffer, erase_state, applier);
+    if (erase_buffer.at(1, 0).primary() != u' ' || erase_buffer.at(2, 0).primary() != u' ' ||
+        erase_buffer.at(3, 0).primary() != u'D')
+    {
+        std::fprintf(stderr, "erase characters failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }

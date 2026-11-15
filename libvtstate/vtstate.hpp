@@ -139,6 +139,21 @@ class state_applier final
             message.payload.palette.b;
     }
 
+    void apply_erase_characters(const vtparser::vt_message &message,
+                                screen::screen_buffer &buffer,
+                                screen::console_state &state)
+    {
+        const auto count = static_cast<std::size_t>(std::max<int>(message.payload.count.value, 0));
+        const auto x = state.cursor().x;
+        if (count == 0 || x >= state.width())
+        {
+            return;
+        }
+        buffer.fill_rect(screen::rectangle{x, state.cursor().y,
+                                         std::min(count, state.width() - x), 1},
+                        screen::cell::blank(state.default_style, state.default_hyperlink));
+    }
+
     void apply_insert_lines(const vtparser::vt_message &message,
                             screen::screen_buffer &buffer,
                             screen::console_state &state)
