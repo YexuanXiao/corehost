@@ -423,6 +423,9 @@ history_row:
 - `write_cluster`：检查 store 容量、append 完整 cluster、写 type=2 cell；
 - `write_image`：写 image 类型 cell，fragment metadata 在 screen-wide image table；
 - `write_codepoint`：把 `char32_t` 转为 UTF-16 code unit 或 surrogate-pair cluster；
+- `write_text_row`：支持 `console`/`graphemes`/`wcswidth` 三种
+  `text_measurement`；`graphemes`/`wcswidth` 使用 `libunicode` 的
+  `grapheme_cluster_width`/`width`；
 - `glyph_at`/`codepoint_at`/`line_text`：UTF-16 读取完整 glyph/整行，`char16_t` 原生；
 - `glyph_width`/`is_trailing`/`used_columns`：corehost 行布局需要的列信息；
 - `legacy_at`/`write_legacy_scalar`：与 `CHAR_INFO`/`WORD` 属性边界对应；

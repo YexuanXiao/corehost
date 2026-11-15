@@ -1,17 +1,28 @@
 #pragma once
 
+#include <libunicode/codepoint_properties.h>
+#include <libunicode/grapheme_segmenter.h>
+#include <libunicode/width.h>
+
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace corehost::screen
 {
 
+// Matches corehost::conpty::text_measurement_mode.
 enum class text_measurement
 {
-    console,
-    unicode,
+    console = 0,
+    graphemes,
+    wcswidth,
 };
+
+using text_measurement_mode = text_measurement;
 
 struct width_options final
 {
@@ -25,40 +36,70 @@ struct width_options final
            (value >= 0x1AB0 && value <= 0x1AFF) ||
            (value >= 0x1DC0 && value <= 0x1DFF) ||
            (value >= 0x20D0 && value <= 0x20FF) ||
-           (value >= 0xFE20 && value <= 0xFE2F);
+           (value >= 0xFE00 && value <= 0xFE0F) ||
+           (value >= 0xFE20 && value <= 0xFE2F) ||
+           (value >= 0xE0100 && value <= 0xE01EF);
 }
 
-[[nodiscard]] constexpr bool is_wide(char32_t value, width_options options) noexcept
+[[nodiscard]] constexpr int console_width(char32_t value) noexcept
 {
-    if ((value >= 0x1100 && value <= 0x115F) ||
-        (value >= 0x2E80 && value <= 0xA4CF) ||
-        (value >= 0xAC00 && value <= 0xD7A3) ||
-        (value >= 0xF900 && value <= 0xFAFF) ||
-        (value >= 0xFE10 && value <= 0xFE19) ||
-        (value >= 0xFE30 && value <= 0xFE6F) ||
-        (value >= 0xFF00 && value <= 0xFF60) ||
-        (value >= 0xFFE0 && value <= 0xFFE6) ||
-        (value >= 0x1F300 && value <= 0x1FAFF) ||
-        (value >= 0x20000 && value <= 0x3FFFD))
+    if (value < 0x20 || value == 0x7F || value == 0x00AD)
     {
-        return true;
+        return 0;
     }
-
-    if (options.mode == text_measurement::unicode)
+    if (value == 0x200B || value == 0x200C || value == 0x200D || value == 0xFEFF)
     {
-        // East Asian Ambiguous characters are opt-in.
-        return options.ambiguous_is_wide && (value >= 0x00A1 && value <= 0x00FF);
+        return 0;
     }
-    return false;
-}
-
-[[nodiscard]] constexpr int codepoint_width(char32_t value, width_options options) noexcept
-{
     if (is_combining(value))
     {
         return 0;
     }
-    return is_wide(value, options) ? 2 : 1;
+    if ((value >= 0x1100 && value <= 0x115F) ||
+        (value >= 0x2E80 && value <= 0xA4CF) ||
+        (value >= 0xAC00 && value <= 0xD7A3) ||
+        (value >= 0xF900 && value <= 0xFAFF) ||
+        (value >= 0xFE30 && value <= 0xFE6F) ||
+        (value >= 0xFF00 && value <= 0xFF60) ||
+        (value >= 0xFFE0 && value <= 0xFFE6) ||
+        (value >= 0x1F000 && value <= 0x1FFFF) ||
+        (value >= 0x20000 && value <= 0x3FFFD) ||
+        (value >= 0x2600 && value <= 0x27BF && value != 0x263A && value != 0x263B))
+    {
+        return 2;
+    }
+    return 1;
+}
+
+[[nodiscard]] inline int unicode_width(char32_t value, bool ambiguous_is_wide) noexcept
+{
+    if (value < 0x20 || value == 0x7F)
+    {
+        return 0;
+    }
+    if (ambiguous_is_wide)
+    {
+        const auto properties = unicode::codepoint_properties::get(value);
+        if (properties.east_asian_width == unicode::East_Asian_Width::Ambiguous)
+        {
+            return 2;
+        }
+    }
+    return static_cast<int>(unicode::width(value));
+}
+
+[[nodiscard]] inline int codepoint_width(char32_t value, width_options options) noexcept
+{
+    switch (options.mode)
+    {
+    case text_measurement::console:
+        return console_width(value);
+    case text_measurement::wcswidth:
+        return unicode_width(value, options.ambiguous_is_wide);
+    case text_measurement::graphemes:
+        return unicode_width(value, options.ambiguous_is_wide);
+    }
+    return 1;
 }
 
 struct codepoint_result final
@@ -89,11 +130,33 @@ struct codepoint_result final
     return codepoint_result{static_cast<char32_t>(first), 1};
 }
 
+[[nodiscard]] inline std::u32string to_u32(std::u16string_view text)
+{
+    std::u32string result;
+    result.reserve(text.size());
+    std::size_t offset = 0;
+    while (offset < text.size())
+    {
+        const auto decoded = next_codepoint(text, offset);
+        result.push_back(decoded.value);
+        offset += decoded.units;
+    }
+    return result;
+}
+
+[[nodiscard]] inline int cluster_width(std::u32string_view cluster, width_options options) noexcept;
+
 [[nodiscard]] inline int glyph_width(std::u16string_view glyph, width_options options) noexcept
 {
     if (glyph.empty())
     {
         return 0;
+    }
+
+    if (options.mode == text_measurement::graphemes)
+    {
+        const auto text = to_u32(glyph);
+        return cluster_width(std::u32string_view{text}, options);
     }
 
     auto result = next_codepoint(glyph, 0);
@@ -102,14 +165,104 @@ struct codepoint_result final
     while (offset < glyph.size())
     {
         result = next_codepoint(glyph, offset);
-        const auto next = codepoint_width(result.value, options);
-        if (next > width)
-        {
-            width = next;
-        }
+        width += codepoint_width(result.value, options);
         offset += result.units;
     }
     return width;
+}
+
+struct grapheme_span final
+{
+    std::size_t offset{};
+    std::size_t units{};
+    int width{};
+};
+
+[[nodiscard]] inline int cluster_width(std::u32string_view cluster, width_options options) noexcept
+{
+    if (!options.ambiguous_is_wide)
+    {
+        const auto width = static_cast<int>(unicode::grapheme_cluster_width(cluster));
+        return width > 2 ? 2 : width;
+    }
+
+    int total = 0;
+    for (const auto codepoint : cluster)
+    {
+        total += codepoint == 0xFE0F ? 2 : unicode_width(codepoint, true);
+    }
+    return total > 2 ? 2 : total;
+}
+
+[[nodiscard]] inline std::vector<grapheme_span> grapheme_spans(std::u16string_view text,
+                                                               width_options options) noexcept
+{
+    std::vector<grapheme_span> result;
+    if (text.empty())
+    {
+        return result;
+    }
+
+    std::u32string codepoints;
+    std::vector<std::size_t> offsets;
+    std::vector<std::size_t> units;
+    codepoints.reserve(text.size());
+    offsets.reserve(text.size());
+    units.reserve(text.size());
+
+    std::size_t offset = 0;
+    while (offset < text.size())
+    {
+        const auto decoded = next_codepoint(text, offset);
+        codepoints.push_back(decoded.value);
+        offsets.push_back(offset);
+        units.push_back(decoded.units);
+        offset += decoded.units;
+    }
+
+    auto segment = unicode::grapheme_segmenter{codepoints};
+    for (;;)
+    {
+        const auto cluster = *segment;
+        const auto start = static_cast<std::size_t>(cluster.data() - codepoints.data());
+        const auto count = cluster.size();
+        const auto end = start + count;
+        const auto width = cluster_width(cluster, options);
+        result.push_back(grapheme_span{offsets[start], offsets[end - 1] + units[end - 1] - offsets[start], width});
+        if (!segment.codepointsAvailable())
+        {
+            break;
+        }
+        ++segment;
+    }
+    return result;
+}
+
+[[nodiscard]] inline int text_width(std::u16string_view text, width_options options) noexcept
+{
+    if (text.empty())
+    {
+        return 0;
+    }
+    if (options.mode == text_measurement::graphemes)
+    {
+        int total = 0;
+        for (const auto &span : grapheme_spans(text, options))
+        {
+            total += span.width;
+        }
+        return total;
+    }
+
+    std::size_t offset = 0;
+    int total = 0;
+    while (offset < text.size())
+    {
+        const auto decoded = next_codepoint(text, offset);
+        total += codepoint_width(decoded.value, options);
+        offset += decoded.units;
+    }
+    return total;
 }
 
 } // namespace corehost::screen

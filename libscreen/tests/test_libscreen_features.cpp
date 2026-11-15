@@ -126,6 +126,8 @@ void test_char_info_and_attrs()
     (void)buffer.write_scalar(0, 2, u'Q', style0, cell_width::narrow);
     check(buffer.write_chars(coord{0, 2}, u"RS") == 2, "write chars");
     check(buffer.at(0, 2).primary() == u'R' && buffer.at(1, 2).primary() == u'S', "write chars data");
+    check(buffer.write_chars(coord{2, 2}, u"\U0001F600") == 2, "write surrogate chars");
+    check(buffer.at(2, 2).is_wide() && buffer.at(3, 2).is_continuation(), "write surrogate cells");
 
     const std::vector<char_info> wide{
         char_info{u'\u4E2D', corehost::interop::win32::lvb_leading_byte},
@@ -138,6 +140,17 @@ void test_char_info_and_attrs()
     std::vector<char16_t> chars(4);
     check(buffer.read_chars(coord{0, 2}, chars) >= 2, "read chars");
     check(chars[0] == u'R' && chars[1] == u'S', "read chars data");
+
+    std::vector<corehost::interop::win32::char_info> abi_in(2);
+    abi_in[0].char_data.unicode_char = u'K';
+    abi_in[0].attributes = 0x3B;
+    abi_in[1].char_data.unicode_char = u'L';
+    abi_in[1].attributes = 0x3C;
+    check(buffer.write_char_info_abi(rect{6, 1, 7, 1}, abi_in) == 2, "write ABI char_info");
+    std::vector<corehost::interop::win32::char_info> abi_out(2);
+    check(buffer.read_char_info_abi(rect{6, 1, 7, 1}, abi_out) == 2, "read ABI char_info");
+    check(abi_out[0].char_data.unicode_char == u'K' && abi_out[1].attributes == 0x3C,
+          "ABI char_info data");
 }
 
 void test_text_writer()
@@ -162,9 +175,28 @@ void test_text_writer()
     check(buffer.glyph_at(0, 2) == u"e\u0301", "glyph cluster data");
     check(glyph_width(u"e\u0301", width_options{}) == 1, "cluster width");
 
+    screen_buffer grapheme_buffer(10, 2);
+    coord grapheme_cursor{0, 0};
+    const auto grapheme_result = grapheme_buffer.write_text_row(
+        grapheme_cursor, u"e\u0301", {}, style1, true,
+        width_options{text_measurement::graphemes, false});
+    check(grapheme_result.consumed == 2, "grapheme writer consumed");
+    check(grapheme_cursor.x == 1, "grapheme writer cursor");
+    check(grapheme_buffer.glyph_at(0, 0) == u"e\u0301", "grapheme writer cluster");
+
     check(codepoint_width(U'\u0301', width_options{}) == 0, "combining width");
     check(codepoint_width(U'\u4E2D', width_options{}) == 2, "wide width");
     check(codepoint_width(U'A', width_options{}) == 1, "ascii width");
+
+    static_assert(static_cast<int>(text_measurement::console) == 0);
+    static_assert(static_cast<int>(text_measurement::graphemes) == 1);
+    static_assert(static_cast<int>(text_measurement::wcswidth) == 2);
+    check(codepoint_width(U'\u4E2D', width_options{text_measurement::wcswidth, false}) == 2,
+          "wcswidth wide");
+    check(text_width(u"A\u0301", width_options{text_measurement::graphemes, false}) == 1,
+          "grapheme combining width");
+    check(text_width(u"\u2764\uFE0F", width_options{text_measurement::graphemes, false}) == 2,
+          "grapheme emoji width");
 }
 
 void test_copy_scroll()

@@ -640,6 +640,8 @@ corehost 的 `screen_buffer_row` 有 filled/uniform/measured-run 优化；libscr
 - **libinterop**：新增 ABI 兼容的 `coord`、`small_rect`、`char_info`、
   `console_screen_buffer_info`、`console_cursor_info`、`console_selection_info`、
   `console_font_info`/`console_font_infoex`；有大小/offset 静态断言；不包含 Windows 头文件。
+- **libunicode**：`libscreen` 通过 `unicode::unicode` 获得 wcwidth 等价的
+  `wcswidth` 和 grapheme cluster 宽度；没有使用 Windows 头文件。
 - **Phase 0**：新增 `libscreen/bench/bench_libscreen.cpp` 与 `bench_libscreen` target；
   Debug/ASAN 基线可运行（数字仅作回归基线，不作为发布性能）。
 - **Phase 1**：`geometry.hpp` 提供 `coord`/`rect`/`viewport`；`screen_buffer` 增加
@@ -647,8 +649,9 @@ corehost 的 `screen_buffer_row` 有 filled/uniform/measured-run 优化；libscr
 - **Phase 2**：`legacy_projection.hpp` + `screen_buffer` 增加 `try_at`、
   `char_info_at`、`read/write_char_info`、`read/write_chars`、`read/write_attrs`、
   `fill_chars/fill_attrs`、`set_attr/attr_at`；支持 DBCS leading/trailing。
-- **Phase 3**：`text_writer.hpp` 提供宽度策略、codepoint 解码；`screen_buffer` 增加
-  `write_text_row`、`write_glyph`。
+- **Phase 3**：`text_writer.hpp` 提供 `console`/`graphemes`/`wcswidth` 三种
+  `text_measurement`，使用 `libunicode` 的 `width`、`grapheme_segmenter`、
+  `grapheme_cluster_width`；`screen_buffer` 增加 `write_text_row`、`write_glyph`。
 - **Phase 4**：`copy_rect`、`scroll_rect`，支持 clip、重叠、fill char/attr。
 - **Phase 5**：`console_state` 增加 modes/code pages/title/font/colors/max window/
   default attributes/saved cursor/alt cursor/DEC line drawing/text measurement；
@@ -660,8 +663,8 @@ corehost 的 `screen_buffer_row` 有 filled/uniform/measured-run 优化；libscr
 
 - `selection` 没有单独 `selection.hpp`，目前放在 `console_state.hpp`；API 已覆盖 block/line
   selection 和 copy。
-- `write_text_row` 目前按 codepoint 写入，尚未实现 corehost 的完整 grapheme
-  segmentation/measured-run 快路径。
+- `write_text_row` 的 `graphemes` 模式已使用 libunicode 的 grapheme segmenter；
+  `console`/`wcswidth` 模式按 codepoint 写入；仍缺 corehost 的 measured-run 快路径。
 - `copy_rect`/`scroll_rect` 为正确性优先实现，仍有临时 cell 缓冲；Phase 8 再优化。
 - Phase 8（row fill/uniform attrs/PMR/pool）未做。
 - Phase 9（corehost 兼容 adapter）未做；目前只完成测试侧类型/ABI 基础。

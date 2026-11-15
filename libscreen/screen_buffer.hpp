@@ -342,6 +342,10 @@ class screen_buffer final
     // number of cells actually processed; internal accessors still assert.
     [[nodiscard]] std::size_t read_char_info(rect area, std::span<char_info> out) const noexcept;
     [[nodiscard]] std::size_t write_char_info(rect area, std::span<const char_info> values) noexcept;
+    [[nodiscard]] std::size_t read_char_info_abi(rect area,
+                                               std::span<interop::win32::char_info> out) const noexcept;
+    [[nodiscard]] std::size_t write_char_info_abi(rect area,
+                                                std::span<const interop::win32::char_info> values) noexcept;
     [[nodiscard]] std::size_t read_chars(coord start, std::span<char16_t> out) const noexcept;
     [[nodiscard]] std::size_t read_attrs(coord start, std::span<std::uint16_t> out) const noexcept;
     [[nodiscard]] std::size_t write_chars(coord start, std::u16string_view text) noexcept;
@@ -361,7 +365,8 @@ class screen_buffer final
                                      std::u16string_view text,
                                      std::span<const std::uint8_t> widths,
                                      cell_style style,
-                                     bool wrap_at_eol = true) noexcept;
+                                     bool wrap_at_eol = true,
+                                     width_options options = {}) noexcept;
     [[nodiscard]] bool write_glyph(coord position, std::u16string_view glyph, int columns, cell_style style) noexcept;
 
     void copy_rect(rectangle source, rectangle clip, bool use_clip, coord destination) noexcept;
@@ -893,8 +898,8 @@ inline std::u16string screen_buffer::line_text(std::size_t y) const
 
 inline legacy_cell screen_buffer::legacy_at(std::size_t x, std::size_t y) const
 {
-    const auto &value = at(x, y);
-    return legacy_cell{value.text_unit(), styles_.at(value.style()).legacy_attributes};
+    const auto value = project_cell(at(x, y), styles_);
+    return legacy_cell{value.character, value.attributes};
 }
 
 inline bool screen_buffer::write_legacy_scalar(std::size_t x, std::size_t y, char16_t primary,
@@ -1008,14 +1013,48 @@ inline std::size_t screen_buffer::write_char_info(rect area, std::span<const cha
             (void)write_cell(static_cast<std::size_t>(x),
                              static_cast<std::size_t>(y),
                              cell::scalar(value.character, style, wide ? cell_width::wide : cell_width::narrow));
-            if (wide && next_is_tail && index < values.size())
+            if (wide)
             {
-                ++index;
+                if (index < values.size())
+                {
+                    ++index;
+                }
                 ++x;
             }
         }
     }
     return index;
+}
+
+inline std::size_t screen_buffer::read_char_info_abi(rect area,
+                                                     std::span<interop::win32::char_info> out) const noexcept
+{
+    std::size_t count = 0;
+    for (auto y = area.top; y <= area.bottom && count < out.size(); ++y)
+    {
+        for (auto x = area.left; x <= area.right && count < out.size(); ++x)
+        {
+            if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ ||
+                static_cast<std::size_t>(y) >= height_)
+            {
+                continue;
+            }
+            out[count++] = to_win32(char_info_at(coord{x, y}));
+        }
+    }
+    return count;
+}
+
+inline std::size_t screen_buffer::write_char_info_abi(
+    rect area, std::span<const interop::win32::char_info> values) noexcept
+{
+    std::vector<char_info> converted;
+    converted.reserve(values.size());
+    for (const auto &value : values)
+    {
+        converted.push_back(from_win32(value));
+    }
+    return write_char_info(area, converted);
 }
 
 inline std::size_t screen_buffer::read_chars(coord start, std::span<char16_t> out) const noexcept
@@ -1078,18 +1117,34 @@ inline std::size_t screen_buffer::write_chars(coord start, std::u16string_view t
     std::size_t count = 0;
     auto x = start.x;
     auto y = start.y;
-    for (const auto unit : text)
+    while (count < text.size())
     {
         if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ ||
             static_cast<std::size_t>(y) >= height_)
         {
             break;
         }
+
+        const auto decoded = next_codepoint(text, count);
+        auto columns = console_width(decoded.value);
+        if (columns <= 0)
+        {
+            columns = 1;
+        }
+        if (x + columns > static_cast<std::int32_t>(width_))
+        {
+            break;
+        }
+
         const auto &old = at(static_cast<std::size_t>(x), static_cast<std::size_t>(y));
-        (void)write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y), unit,
-                           old.style(), cell_width::narrow, old.hyperlink(), old.flags());
-        ++count;
-        if (++x >= static_cast<std::int32_t>(width_))
+        (void)write_codepoint(static_cast<std::size_t>(x),
+                              static_cast<std::size_t>(y),
+                              decoded.value, old.style(),
+                              columns >= 2 ? cell_width::wide : cell_width::narrow,
+                              old.hyperlink(), old.flags());
+        count += decoded.units;
+        x += columns;
+        if (x >= static_cast<std::int32_t>(width_))
         {
             x = 0;
             ++y;
@@ -1187,9 +1242,51 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                                                                       std::u16string_view text,
                                                                       std::span<const std::uint8_t> widths,
                                                                       cell_style style,
-                                                                      bool wrap_at_eol) noexcept
+                                                                      bool wrap_at_eol,
+                                                                      width_options options) noexcept
 {
     text_write_result result;
+    if (options.mode == text_measurement::graphemes)
+    {
+        const auto spans = grapheme_spans(text, options);
+        for (const auto &span : spans)
+        {
+            if (cursor.x < 0 || cursor.y < 0 ||
+                static_cast<std::size_t>(cursor.x) >= width_ ||
+                static_cast<std::size_t>(cursor.y) >= height_)
+            {
+                result.row_end = true;
+                break;
+            }
+
+            auto columns = span.width;
+            if (!widths.empty() && span.offset < widths.size())
+            {
+                columns = static_cast<int>(widths[span.offset]);
+            }
+            if (columns <= 0)
+            {
+                columns = 1;
+            }
+            if (cursor.x + columns > static_cast<std::int32_t>(width_))
+            {
+                result.row_end = true;
+                if (!wrap_at_eol)
+                {
+                    break;
+                }
+                cursor.x = 0;
+                ++cursor.y;
+                continue;
+            }
+
+            (void)write_glyph(cursor, text.substr(span.offset, span.units), columns, style);
+            cursor.x += columns;
+            result.consumed = span.offset + span.units;
+        }
+        return result;
+    }
+
     std::size_t offset = 0;
     while (offset < text.size())
     {
@@ -1202,7 +1299,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
         }
 
         const auto decoded = next_codepoint(text, offset);
-        auto columns = widths.empty() ? codepoint_width(decoded.value, width_options{})
+        auto columns = widths.empty() ? codepoint_width(decoded.value, options)
                                       : (offset < widths.size() ? static_cast<int>(widths[offset]) : 1);
         if (columns <= 0)
         {
@@ -1361,9 +1458,9 @@ inline void screen_buffer::scroll_rect(rectangle source, rectangle clip, bool us
     }
 
     const auto style = style_for_legacy(fill_attr);
-    for (auto y = top; y < bottom; ++y)
+    for (auto y = copy_top; y < copy_bottom; ++y)
     {
-        for (auto x = left; x < right; ++x)
+        for (auto x = copy_left; x < copy_right; ++x)
         {
             (void)write_cell(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
                              cell::scalar(fill_char, style));

@@ -252,6 +252,7 @@ inline console_state::console_state(std::size_t width, std::size_t height)
     assert(width != 0 && height != 0);
 
     scroll_bottom_ = height_ - 1;
+    max_window_size = coord{static_cast<std::int32_t>(width_), static_cast<std::int32_t>(height_)};
     reset_tab_stops();
 }
 
@@ -264,6 +265,7 @@ inline void console_state::resize(std::size_t width, std::size_t height)
     cursor_.x = std::min(cursor_.x, width_ - 1);
     cursor_.y = std::min(cursor_.y, height_ - 1);
     tabs_.resize(width_, false);
+    max_window_size = coord{static_cast<std::int32_t>(width_), static_cast<std::int32_t>(height_)};
     reset_scroll_region();
     clear_selection();
     clear_search_matches();

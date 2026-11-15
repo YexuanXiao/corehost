@@ -29,7 +29,9 @@ add_executable(test_libscreen_features
 target_link_libraries(test_libscreen_features PRIVATE libscreen)
 target_compile_features(test_libscreen_features PRIVATE cxx_std_23)
 add_test(NAME LibScreen.Features COMMAND test_libscreen_features)
-set_tests_properties(LibScreen.Features PROPERTIES LABELS "libscreen;features" TIMEOUT 30)foreach(_target test_libscreen test_libscreen_features)
+set_tests_properties(LibScreen.Features PROPERTIES LABELS "libscreen;features" TIMEOUT 30)
+
+foreach(_target test_libscreen test_libscreen_features)
     foreach(_asan_dll
             clang_rt.asan_dbg_dynamic-x86_64.dll
             clang_rt.asan_dynamic-x86_64.dll)
