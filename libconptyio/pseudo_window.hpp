@@ -137,6 +137,7 @@ class pseudo_window final
         window_class.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
         if (::RegisterClassExW(&window_class) == 0)
         {
+            ready_.set();
             win32::throw_last_error();
         }
 
@@ -146,6 +147,7 @@ class pseudo_window final
                               nullptr, this);
         if (created == nullptr)
         {
+            ready_.set();
             win32::throw_last_error();
         }
 
