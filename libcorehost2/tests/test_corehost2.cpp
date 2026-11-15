@@ -362,6 +362,38 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer tab_buffer{8, 2};
+    corehost::screen::console_state tab_state{8, 2};
+    corehost::consoleinput::input_queue tab_input;
+    corehost::corehost2::session tab_session{8, 2};
+    constexpr char16_t tab_text[]{u'A', u'\t', u'B', u'\r'};
+    tab_session.feed_input(tab_text);
+    tab_input = std::move(tab_session.input());
+    corehost::consoleapi::console_api tab_api{tab_buffer, tab_state, &tab_input};
+    corehost::coreio::io_msg tab_message{};
+    tab_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    tab_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    auto *tab_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(tab_message.body);
+    tab_header->ApiNumber = ConsolepReadConsole;
+    auto *tab_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        tab_message.body + sizeof(CONSOLE_MSG_HEADER));
+    tab_request->Unicode = TRUE;
+    if (!tab_api.handle(tab_message) || tab_request->NumBytes != 5 * sizeof(char16_t))
+    {
+        std::fprintf(stderr, "real ReadConsole tab failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *tab_output = reinterpret_cast<const char16_t *>(
+        tab_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+    if (tab_output[0] != u'A' || tab_output[1] != u'\t' || tab_output[2] != u'B' ||
+        tab_output[3] != u'\r' || tab_output[4] != u'\n')
+    {
+        std::fprintf(stderr, "real ReadConsole tab data failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::screen::screen_buffer input_buffer{8, 2};
     corehost::screen::console_state input_state{8, 2};
     corehost::consoleinput::input_queue input_queue;
