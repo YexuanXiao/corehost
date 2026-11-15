@@ -481,49 +481,50 @@ class console_api final
         for (std::size_t i = 0; i < parsed; ++i)
         {
             consumed_events = i + 1;
-            if (events[i].type != consoleinput::input_event_type::key || !events[i].key.key_down)
+            const auto &event = events[i];
+            if (event.type != consoleinput::input_event_type::key || !event.key.key_down)
             {
                 continue;
             }
-            const auto character = events[i].key.character;
-            if (events[i].key.repeat_count > 1)
+            const auto character = event.key.character;
+            if (event.key.repeat_count > 1)
             {
-                auto remaining = events[i];
+                auto remaining = event;
                 --remaining.key.repeat_count;
                 input_->push_front(remaining);
             }
             if (character == 0)
             {
-                if (events[i].key.key == consoleinput::virtual_key::left)
+                if (event.key.key == consoleinput::virtual_key::left)
                 {
                     if (cursor != 0)
                     {
                         --cursor;
                     }
                 }
-                else if (events[i].key.key == consoleinput::virtual_key::right)
+                else if (event.key.key == consoleinput::virtual_key::right)
                 {
                     if (cursor < units)
                     {
                         ++cursor;
                     }
                 }
-                else if (events[i].key.key == consoleinput::virtual_key::home)
+                else if (event.key.key == consoleinput::virtual_key::home)
                 {
                     cursor = 0;
                 }
-                else if (events[i].key.key == consoleinput::virtual_key::end)
+                else if (event.key.key == consoleinput::virtual_key::end)
                 {
                     cursor = units;
                 }
-                else if (events[i].key.key == consoleinput::virtual_key::del)
+                else if (event.key.key == consoleinput::virtual_key::del)
                 {
                     if (cursor < units)
                     {
                         erase_character(output, units, cursor, cursor);
                     }
                 }
-                else if (events[i].key.key == consoleinput::virtual_key::up)
+                else if (event.key.key == consoleinput::virtual_key::up)
                 {
                     auto &selected = history_selection_;
                     if (state_.browse_history_up(std::u16string_view{output, units}, selected))
@@ -533,7 +534,7 @@ class console_api final
                         cursor = units;
                     }
                 }
-                else if (events[i].key.key == consoleinput::virtual_key::down)
+                else if (event.key.key == consoleinput::virtual_key::down)
                 {
                     auto &selected = history_selection_;
                     if (state_.browse_history_down(selected))
