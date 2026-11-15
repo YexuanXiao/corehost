@@ -68,6 +68,24 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg cursor_message{};
+    cursor_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCURSORINFO_MSG);
+    cursor_message.descriptor.OutputSize = sizeof(cursor_message.body);
+    auto *cursor_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(cursor_message.body);
+    cursor_header->ApiNumber = ConsolepGetCursorInfo;
+    if (!api.handle(cursor_message) || cursor_message.complete.IoStatus.Status != 0)
+    {
+        std::fprintf(stderr, "cursor info failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *cursor_info = reinterpret_cast<const CONSOLE_GETCURSORINFO_MSG *>(
+        cursor_message.body + sizeof(CONSOLE_MSG_HEADER));
+    if (!cursor_info->Visible || cursor_info->CursorSize == 0)
+    {
+        std::fprintf(stderr, "cursor info payload failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

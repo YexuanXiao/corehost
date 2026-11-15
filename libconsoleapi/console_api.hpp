@@ -64,8 +64,50 @@ class console_api final
         {
             return get_screen_buffer_info(message);
         }
+        if (header->ApiNumber == ConsolepGetCursorInfo)
+        {
+            return get_cursor_info(message);
+        }
+        if (header->ApiNumber == ConsolepGetLargestWindowSize)
+        {
+            return get_largest_window_size(message);
+        }
 
         coreio::prepare_completion(message, coreio::error::status_not_implemented);
+        return true;
+    }
+
+    [[nodiscard]] bool get_cursor_info(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCURSORINFO_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETCURSORINFO_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->CursorSize = 25;
+        info->Visible = state_.cursor().visible ? TRUE : FALSE;
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCURSORINFO_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETCURSORINFO_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool get_largest_window_size(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETLARGESTWINDOWSIZE_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETLARGESTWINDOWSIZE_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->Size = COORD{static_cast<SHORT>(state_.max_window_size.x),
+                           static_cast<SHORT>(state_.max_window_size.y)};
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETLARGESTWINDOWSIZE_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_GETLARGESTWINDOWSIZE_MSG));
         return true;
     }
 
