@@ -1006,6 +1006,14 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### WriteConsoleInput 优先判断键盘事件
+
+`write_console_input` 的转换分支由 `MOUSE -> WINDOW -> KEY` 改为 `KEY -> MOUSE -> WINDOW`；键盘事件是最常见输入，减少两次比较：
+
+```text
+a6a9ed0 perf(consoleapi): test key records first
+```
+
 ### DBCS 转换 scratch 去零初始化
 
 `write_console_input` 的 `wchar_t wide[2]{}` 改为 `wchar_t wide[2]`；只在 `MultiByteToWideChar` 返回 `units > 0` 时读取 `wide[0]`，无需预先清零：
