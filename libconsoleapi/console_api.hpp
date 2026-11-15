@@ -73,6 +73,10 @@ class console_api final
         {
             return get_largest_window_size(message);
         }
+        if (header->ApiNumber == ConsolepSetScreenBufferSize)
+        {
+            return set_screen_buffer_size(message);
+        }
         if (header->ApiNumber == ConsolepReadConsoleOutputString)
         {
             return read_console_output_string(message);
@@ -120,6 +124,28 @@ class console_api final
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCURSORINFO_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETCURSORINFO_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool set_screen_buffer_size(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETSCREENBUFFERSIZE_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *request = reinterpret_cast<const CONSOLE_SETSCREENBUFFERSIZE_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        if (request->Size.X <= 0 || request->Size.Y <= 0)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        state_.resize(static_cast<std::size_t>(request->Size.X),
+                      static_cast<std::size_t>(request->Size.Y));
+        buffer_.resize(static_cast<std::size_t>(request->Size.X),
+                       static_cast<std::size_t>(request->Size.Y), state_.default_style);
+        coreio::prepare_completion(message);
         return true;
     }
 

@@ -234,6 +234,22 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg resize_message{};
+    resize_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETSCREENBUFFERSIZE_MSG);
+    resize_message.descriptor.OutputSize = sizeof(resize_message.body);
+    auto *resize_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(resize_message.body);
+    resize_header->ApiNumber = ConsolepSetScreenBufferSize;
+    auto *resize_request = reinterpret_cast<CONSOLE_SETSCREENBUFFERSIZE_MSG *>(
+        resize_message.body + sizeof(CONSOLE_MSG_HEADER));
+    resize_request->Size = COORD{6, 3};
+    if (!api.handle(resize_message) || buffer.buffer_size() != corehost::screen::coord{6, 3} ||
+        state.width() != 6 || state.height() != 3)
+    {
+        std::fprintf(stderr, "set screen buffer size failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
