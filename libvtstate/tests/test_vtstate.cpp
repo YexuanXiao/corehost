@@ -43,6 +43,29 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b#6");
+    if (result.id != vtparser::vt_message_id::set_line_rendition)
+    {
+        std::fprintf(stderr, "rendition parse failed\n");
+        return EXIT_FAILURE;
+    }
+    applier.apply_line_rendition(result.message, buffer, state);
+    if (!buffer.is_double_width(0))
+    {
+        std::fprintf(stderr, "double width flag missing\n");
+        return EXIT_FAILURE;
+    }
+
+    parser.reset();
+    result = parser.parse(U"\x1b#5");
+    applier.apply_line_rendition(result.message, buffer, state);
+    if (buffer.is_double_width(0))
+    {
+        std::fprintf(stderr, "double width flag not cleared\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }
