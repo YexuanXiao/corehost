@@ -40,6 +40,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    (void)buffer.write_scalar(0, 1, u'A', corehost::screen::cell_style{});
+    api.scroll_cells(corehost::screen::rectangle{0, 1, 1, 1},
+                     corehost::screen::rectangle{}, false, corehost::screen::coord{1, 1});
+    if (buffer.at(1, 1).primary() != u'A')
+    {
+        std::fprintf(stderr, "scroll_cells failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

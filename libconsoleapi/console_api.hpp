@@ -40,6 +40,12 @@ class console_api final
         buffer_.fill_attrs(area, attributes);
     }
 
+    void scroll_cells(screen::rectangle source, screen::rectangle clip, bool use_clip,
+                      screen::coord destination) noexcept
+    {
+        buffer_.copy_rect(source, clip, use_clip, destination);
+    }
+
     [[nodiscard]] std::size_t read_cells(screen::rect area,
                                          std::span<interop::win32::char_info> output) noexcept
     {
