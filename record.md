@@ -175,3 +175,26 @@ b94a3f3 fix(corehost2): correct GetConsoleInput completion layout
 ```
 
 edit 仍空白，未受此修复影响。
+
+## 2026-11-15 修复后 shell / resize 矩阵
+
+同一 corehost2 会话（真实 WT，PowerShell 5.1 默认）：
+
+```text
+PS C:\Users\xyx> echo PS5-A-\
+PS5-A-\
+PS C:\Users\xyx> cmd /c echo CMD-X-1
+CMD-X-1
+PS C:\Users\xyx> pwsh -NoLogo -Command "Write-Output PWSH-OK"
+PWSH-OK
+```
+
+- PowerShell 5.1：大小写、连字符、反斜杠正确；
+- cmd：大小写、连字符正确；
+- pwsh：独立进程启动和输出正确；
+- WT 窗口从 1129x635 调整到 820x500；
+- `mode con` 返回 `Lines: 22`、`Columns: 85`，与调整后窗口匹配。
+
+截图：`C:\1\c2_matrix.png`、`C:\1\c2_resize.png`（测试后清理）。
+
+edit 仍停留在 alternate screen，菜单/编辑区不绘制；尚未找到最小修复。
