@@ -631,3 +631,42 @@ File Edit View Help
 aa891b9 fix(corehost2): initialize conpty code pages to UTF-8
 a32e877 fix(coreio): clear submitted server completion when idle
 ```
+
+### 后续修正：不重放原始帧，改为重绘 screen buffer
+
+`e27f416` 的原始 alternate 帧重放不是 libcorehost 的模型，只是临时 workaround。
+
+libcorehost 的模型是：
+
+```text
+RAW_WRITE 更新 screen_buffer
+-> render_visible_viewport() 从 screen_buffer 重绘
+```
+
+corehost2 正确做法也应是重绘本地 screen buffer，而不是重放旧原始字节。
+
+已替换为：
+
+```cpp
+vtserializer::render_viewport(writer_->buffer(), screen_, cursor, &state_);
+if (!state_.title.empty())
+    vtserializer::append_window_title(writer_->buffer(), state_.title);
+```
+
+提交：
+
+```text
+3e6b3df fix(corehost2): repaint initial alternate viewport from screen buffer
+```
+
+验证：
+
+```text
+edit C:\Users\xyx\c2save.txt
+```
+
+首次启动直接显示 UI 和标题，无需 resize/点击；日志：
+
+```text
+render initial alternate viewport
+```
