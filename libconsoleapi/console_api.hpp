@@ -1145,6 +1145,30 @@ class console_api final
             written = buffer_.write_chars(coordinate,
                 std::u16string_view{reinterpret_cast<const char16_t *>(data), count});
         }
+        else if (request->StringType == CONSOLE_ASCII)
+        {
+            const auto count = std::min<std::size_t>(request->NumRecords, data_size);
+            auto x = static_cast<std::size_t>(coordinate.x);
+            auto y = static_cast<std::size_t>(coordinate.y);
+            const auto *chars = reinterpret_cast<const char *>(data);
+            for (std::size_t i = 0; i < count && y < buffer_.height(); ++i)
+            {
+                if (x >= buffer_.width())
+                {
+                    x = 0;
+                    ++y;
+                    if (y >= buffer_.height())
+                    {
+                        break;
+                    }
+                }
+                (void)buffer_.write_codepoint(x, y, static_cast<unsigned char>(chars[i]),
+                                             state_.default_style, screen::cell_width::narrow,
+                                             state_.default_hyperlink);
+                ++x;
+                ++written;
+            }
+        }
         request->NumRecords = static_cast<ULONG>(written);
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),

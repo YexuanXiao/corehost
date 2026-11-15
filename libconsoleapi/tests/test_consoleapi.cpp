@@ -830,6 +830,29 @@ int main()
         return EXIT_FAILURE;
     }
 
+    const char ascii_data[]{'P', 'Q'};
+    corehost::coreio::io_msg ascii_message{};
+    ascii_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                          sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG) +
+                                          sizeof(ascii_data);
+    ascii_message.descriptor.OutputSize = sizeof(ascii_message.body);
+    auto *ascii_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(ascii_message.body);
+    ascii_header->ApiNumber = ConsolepWriteConsoleOutputString;
+    auto *ascii_request = reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG *>(
+        ascii_message.body + sizeof(CONSOLE_MSG_HEADER));
+    ascii_request->WriteCoord = COORD{0, 1};
+    ascii_request->StringType = CONSOLE_ASCII;
+    ascii_request->NumRecords = 2;
+    std::memcpy(ascii_message.body + sizeof(CONSOLE_MSG_HEADER) +
+                    sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG),
+                ascii_data, sizeof(ascii_data));
+    if (!api.handle(ascii_message) || buffer.at(0, 1).primary() != u'P' ||
+        buffer.at(1, 1).primary() != u'Q')
+    {
+        std::fprintf(stderr, "ascii output string failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
