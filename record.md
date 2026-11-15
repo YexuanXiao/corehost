@@ -953,6 +953,16 @@ ConsoleAPI.Reference Passed
 
 后续优化不使用逐字节 `0x80` 判断。
 
+本轮继续优化的两个函数：
+
+- `byte_buffer::append_number`：去掉 16 字节 scratch buffer 的零初始化，直接让 `std::to_chars` 写入；
+- `append_utf16`：使用 `value_or(0xFFFD)` 去掉逐码点的 optional 分支。
+
+```text
+35e8c09 perf(vtserializer): avoid zeroing number scratch buffer
+1eb81a9 perf(vtserializer): remove optional branch for text codepoints
+```
+
 `vtserializer::append_utf16` 改为每次文本 run 只构造一次 `unicode::decoder<char16_t>`/`encoder<char>`，而不是每码点构造：
 
 ```text
