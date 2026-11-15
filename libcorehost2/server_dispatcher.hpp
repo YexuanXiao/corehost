@@ -3,6 +3,7 @@
 #include "server_session.hpp"
 
 #include "condrv_io.hpp"
+#include "input_payload.hpp"
 #include "io_state.hpp"
 #include "ntapi/condrv.hpp"
 
@@ -19,7 +20,8 @@ class server_dispatcher final
   public:
     server_dispatcher(win32::handle_view server, win32::handle_view condrv_input,
                       win32::handle_view condrv_output, server_session &session) noexcept
-        : state_{server, condrv_input, condrv_output, session.processes()}, session_{session}
+        : state_{server, condrv_input, condrv_output, session.processes()}, session_{session},
+          payload_{server}
     {
     }
 
@@ -51,10 +53,13 @@ class server_dispatcher final
             state_.handle_raw_flush(message);
             return true;
         case CONSOLE_IO_RAW_WRITE:
-            session_.write_raw(std::span<const char>{reinterpret_cast<const char *>(message.body),
-                                                     static_cast<std::size_t>(message.descriptor.InputSize)});
-            coreio::prepare_completion(message, 0, message.descriptor.InputSize);
+        {
+            const auto payload = payload_.read(message, 0);
+            session_.write_raw(std::span<const char>{
+                reinterpret_cast<const char *>(payload.data()), payload.size()});
+            coreio::prepare_completion(message, 0, payload.size());
             return true;
+        }
         case CONSOLE_IO_RAW_READ:
         {
             const auto capacity = std::min<std::size_t>(message.descriptor.OutputSize,
@@ -101,6 +106,7 @@ class server_dispatcher final
   private:
     coreio::io_state state_;
     server_session &session_;
+    coreio::input_payload_reader payload_;
 };
 
 } // namespace corehost::corehost2
