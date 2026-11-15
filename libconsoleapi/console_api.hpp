@@ -77,6 +77,14 @@ class console_api final
         {
             return get_largest_window_size(message);
         }
+        if (header->ApiNumber == ConsolepGetCP)
+        {
+            return get_code_page(message);
+        }
+        if (header->ApiNumber == ConsolepSetCP)
+        {
+            return set_code_page(message);
+        }
         if (header->ApiNumber == ConsolepGetConsoleInput)
         {
             return read_console_input(message);
@@ -187,6 +195,40 @@ class console_api final
         coreio::prepare_completion(message, 0, count * sizeof(INPUT_RECORD),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    count * sizeof(INPUT_RECORD));
+        return true;
+    }
+
+    [[nodiscard]] bool get_code_page(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCP_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETCP_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->CodePage = info->Output ? state_.output_code_page : state_.input_code_page;
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCP_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_GETCP_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool set_code_page(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCP_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *info = reinterpret_cast<const CONSOLE_SETCP_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        if (info->Output)
+        {
+            state_.output_code_page = info->CodePage;
+        }
+        else
+        {
+            state_.input_code_page = info->CodePage;
+        }
+        coreio::prepare_completion(message);
         return true;
     }
 

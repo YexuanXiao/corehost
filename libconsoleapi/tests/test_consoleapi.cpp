@@ -296,6 +296,36 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg code_page_message{};
+    code_page_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETCP_MSG);
+    code_page_message.descriptor.OutputSize = sizeof(code_page_message.body);
+    auto *code_page_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(code_page_message.body);
+    code_page_header->ApiNumber = ConsolepSetCP;
+    auto *code_page_request = reinterpret_cast<CONSOLE_SETCP_MSG *>(
+        code_page_message.body + sizeof(CONSOLE_MSG_HEADER));
+    code_page_request->CodePage = 1252;
+    code_page_request->Output = FALSE;
+    if (!api.handle(code_page_message) || state.input_code_page != 1252)
+    {
+        std::fprintf(stderr, "set code page failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::coreio::io_msg get_code_page_message{};
+    get_code_page_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCP_MSG);
+    get_code_page_message.descriptor.OutputSize = sizeof(get_code_page_message.body);
+    auto *get_code_page_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(get_code_page_message.body);
+    get_code_page_header->ApiNumber = ConsolepGetCP;
+    auto *get_code_page_request = reinterpret_cast<CONSOLE_GETCP_MSG *>(
+        get_code_page_message.body + sizeof(CONSOLE_MSG_HEADER));
+    get_code_page_request->Output = FALSE;
+    if (!api.handle(get_code_page_message) || get_code_page_request->CodePage != 1252)
+    {
+        std::fprintf(stderr, "get code page failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
