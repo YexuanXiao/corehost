@@ -139,6 +139,35 @@ class state_applier final
             message.payload.palette.b;
     }
 
+    void apply_scroll_region(const vtparser::vt_message &message,
+                              screen::console_state &state)
+    {
+        const auto top = static_cast<std::size_t>(std::max<int>(message.payload.scroll_region.top - 1, 0));
+        const auto bottom = message.payload.scroll_region.bottom == 0
+                                ? state.height() - 1
+                                : static_cast<std::size_t>(std::max<int>(message.payload.scroll_region.bottom - 1, 0));
+        state.set_scroll_region(top, std::min(bottom, state.height() - 1));
+    }
+
+    void apply_scroll(const vtparser::vt_message &message,
+                       screen::screen_buffer &buffer,
+                       screen::console_state &state,
+                       bool up)
+    {
+        const auto count = static_cast<std::size_t>(std::max<int>(message.payload.count.value, 1));
+        const auto top = state.scroll_top();
+        const auto bottom = state.scroll_bottom();
+        const screen::rectangle area{0, top, state.width(), bottom - top + 1};
+        if (up)
+        {
+            buffer.scroll_region_up(area, count, state.default_style);
+        }
+        else
+        {
+            buffer.scroll_region_down(area, count, state.default_style);
+        }
+    }
+
     void apply_erase_characters(const vtparser::vt_message &message,
                                 screen::screen_buffer &buffer,
                                 screen::console_state &state)

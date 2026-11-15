@@ -360,6 +360,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(U"\x1b[1;2r");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.scroll_top() != 0 || state.scroll_bottom() != 1)
+    {
+        std::fprintf(stderr, "scroll region failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }

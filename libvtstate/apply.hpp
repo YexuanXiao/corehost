@@ -86,6 +86,15 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::set_palette_color:
         applier.apply_palette_color(message, state);
         return true;
+    case vtparser::vt_message_id::set_scrolling_region:
+        applier.apply_scroll_region(message, state);
+        return true;
+    case vtparser::vt_message_id::scroll_up:
+        applier.apply_scroll(message, buffer, state, true);
+        return true;
+    case vtparser::vt_message_id::scroll_down:
+        applier.apply_scroll(message, buffer, state, false);
+        return true;
     case vtparser::vt_message_id::erase_characters:
         applier.apply_erase_characters(message, buffer, state);
         return true;
