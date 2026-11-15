@@ -384,6 +384,8 @@ inline void run_conpty_session(win32::handle_view server,
     std::array<HANDLE, 4> waits{};
     DWORD wait_count = 0;
     waits[wait_count++] = input_thread.view().get();
+#ifdef COREHOST2_TESTING
+    // The entry-point unit test intentionally supplies no server or signal pipe.
     if (server_thread.valid())
     {
         waits[wait_count++] = server_thread.get();
@@ -392,6 +394,10 @@ inline void run_conpty_session(win32::handle_view server,
     {
         waits[wait_count++] = pty_signal_thread.view().get();
     }
+#else
+    waits[wait_count++] = server_thread.get();
+    waits[wait_count++] = pty_signal_thread.view().get();
+#endif
     waits[wait_count++] = window.close_requested().get();
     const auto wait = ::WaitForMultipleObjects(wait_count, waits.data(), FALSE, INFINITE);
     if (wait == WAIT_FAILED)

@@ -857,6 +857,7 @@ LibScreen.Reference  Passed
 - `WriteConsole`/`WriteConsoleOutputString` 的非 Unicode 路径不再分配临时 `std::u16string`，改为复用已有缓冲。
 - `conpty_entry` 断言 `vt_in`/`vt_out` 有效；输入线程无条件启动。
 - 删除等待数组的 `wait_count == 0` abort，以及输入/窗口句柄的显式合法性检查，交给 `WaitForMultipleObjects` 报错。
+- 生产构建始终把 server/signal 线程句柄加入等待；只有 `test_corehost2` 定义 `COREHOST2_TESTING`，测试构建才跳过未启动的可选线程。
 - 删除启动时无条件发送的 `?1002;1006;2004h` 和本地 private mode 强制启用。
 - 增加 `server_session::should_forward_to_terminal(set_private_mode)` 测试。
 
