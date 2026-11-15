@@ -65,6 +65,11 @@ class console_api final
         input_object_ = object;
     }
 
+    void set_window_handle(std::uintptr_t window) noexcept
+    {
+        window_handle_ = window;
+    }
+
     void set_alternate_object(std::uintptr_t object) noexcept
     {
         alternate_object_ = object;
@@ -1229,7 +1234,7 @@ class console_api final
         }
         auto *info = reinterpret_cast<CONSOLE_GETCONSOLEWINDOW_MSG64 *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
-        info->hwnd = 0;
+        info->hwnd = reinterpret_cast<HWND>(window_handle_);
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCONSOLEWINDOW_MSG64),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETCONSOLEWINDOW_MSG64));
@@ -1860,6 +1865,7 @@ class console_api final
     consoleinput::input_queue *input_{};
     std::uintptr_t input_object_{};
     std::uintptr_t alternate_object_{};
+    std::uintptr_t window_handle_{};
     coreio::process_registry *processes_{};
 };
 

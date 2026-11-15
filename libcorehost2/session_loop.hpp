@@ -71,6 +71,7 @@ inline void run_conpty_session(win32::handle_view server,
             {
                 coreio::win32_transport transport{server, event};
                 server_session console_session{state.screen(), state.state(), state.input()};
+                console_session.set_window_handle(reinterpret_cast<std::uintptr_t>(window.handle()));
                 if (config.attached_process_id != 0)
                 {
                     console_session.processes().add(config.attached_process_id);

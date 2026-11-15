@@ -89,6 +89,11 @@ class server_session final
         api_.set_alternate_object(object);
     }
 
+    void set_window_handle(std::uintptr_t window) noexcept
+    {
+        api_.set_window_handle(window);
+    }
+
     void operator()(coreio::io_msg &message) noexcept
     {
         handle(message);

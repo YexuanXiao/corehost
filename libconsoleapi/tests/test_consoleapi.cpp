@@ -1133,6 +1133,18 @@ int main()
         std::fprintf(stderr, "get console window failed\n");
         return EXIT_FAILURE;
     }
+
+    corehost::consoleapi::console_api window_handle_api{buffer, state};
+    window_handle_api.set_window_handle(0x55);
+    if (!window_handle_api.handle(console_window_message) ||
+        reinterpret_cast<const CONSOLE_GETCONSOLEWINDOW_MSG64 *>(
+            console_window_message.body + sizeof(CONSOLE_MSG_HEADER))->hwnd !=
+            reinterpret_cast<HWND>(0x55))
+    {
+        std::fprintf(stderr, "get console window handle failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
