@@ -10,6 +10,19 @@
 int main()
 {
     corehost::corehost2::session session{8, 2};
+    if (session.state().input_code_page == 0 ||
+        session.state().input_code_page != session.state().output_code_page)
+    {
+        std::fprintf(stderr, "console code pages not initialized\n");
+        return EXIT_FAILURE;
+    }
+#ifdef COREHOST_DEFAULT_UTF8
+    if (session.state().input_code_page != CP_UTF8)
+    {
+        std::fprintf(stderr, "default console code page is not UTF-8\n");
+        return EXIT_FAILURE;
+    }
+#endif
     constexpr char16_t input[]{u'A', u'B'};
     session.feed(input);
 
@@ -176,6 +189,15 @@ int main()
         raw_read_data[1] != '\r' || raw_read_data[2] != '\n')
     {
         std::fprintf(stderr, "raw read failed\n");
+        return EXIT_FAILURE;
+    }
+
+    const char raw_lf[]{"Y\n"};
+    server.push_raw(std::span<const char>{raw_lf, 2});
+    if (server.read_raw(std::span<char>{raw_read_data}) != 3 || raw_read_data[0] != 'Y' ||
+        raw_read_data[1] != '\r' || raw_read_data[2] != '\n')
+    {
+        std::fprintf(stderr, "raw LF normalization failed\n");
         return EXIT_FAILURE;
     }
 
@@ -475,6 +497,13 @@ int main()
     if (console_session.screen().at(0, 0).primary() != u'A')
     {
         std::fprintf(stderr, "console measurement session failed\n");
+        return EXIT_FAILURE;
+    }
+
+    if (!corehost::corehost2::server_session::should_forward_to_terminal(
+            corehost::vtparser::vt_message_id::set_private_mode))
+    {
+        std::fprintf(stderr, "private modes are not forwarded to the terminal\n");
         return EXIT_FAILURE;
     }
 

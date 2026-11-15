@@ -4,6 +4,8 @@
 
 #include "win32/handle.hpp"
 
+#include <cassert>
+
 namespace corehost::corehost2
 {
 
@@ -21,11 +23,8 @@ void conpty_entry(win32::handle_view server,
                   screen::text_measurement text_measurement,
                   bool ambiguous_is_wide = false)
 {
-    (void)server;
-    (void)event;
-    (void)condrv_input;
-    (void)condrv_output;
-    (void)signal_pipe;
+    assert(vt_in.valid());
+    assert(vt_out.valid());
 
     conpty_session_config config;
     config.width = width;

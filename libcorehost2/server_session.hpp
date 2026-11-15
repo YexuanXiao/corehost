@@ -43,6 +43,7 @@ class server_session final
         case vtparser::vt_message_id::device_attributes:
         case vtparser::vt_message_id::report_cursor_position:
         case vtparser::vt_message_id::set_palette_color:
+        case vtparser::vt_message_id::set_private_mode:
         case vtparser::vt_message_id::unknown_sequence:
             return true;
         default:
@@ -52,7 +53,7 @@ class server_session final
 
     void write_raw(std::span<const char> bytes)
     {
-        const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+        const auto code_page = state_.output_code_page;
         const auto units = ::MultiByteToWideChar(code_page, 0, bytes.data(),
                                                static_cast<int>(bytes.size()), nullptr, 0);
         text_.resize(static_cast<std::size_t>(std::max(units, 0)));
@@ -237,22 +238,32 @@ class server_session final
             consumed = limit;
         }
 
-        std::string line = raw_in_.substr(0, consumed);
+        const bool add_cr = consumed != 0 && raw_in_[consumed - 1] == '\n' &&
+                            (consumed < 2 || raw_in_[consumed - 2] != '\r');
+        const bool add_lf = consumed != 0 && raw_in_[consumed - 1] == '\r' && (eof || complete);
+
+        std::size_t written = 0;
+        const auto emit = [&](char value) {
+            if (written < output.size())
+            {
+                output[written++] = value;
+            }
+        };
+        for (std::size_t index = 0; index < consumed; ++index)
+        {
+            if (add_cr && index + 1 == consumed)
+            {
+                emit('\r');
+            }
+            emit(raw_in_[index]);
+        }
+        if (add_lf)
+        {
+            emit('\n');
+        }
+
         raw_in_.erase(0, consumed);
         raw_eof_ = eof;
-
-        if (!line.empty() && line.back() == '\n' &&
-            (line.size() < 2 || line[line.size() - 2] != '\r'))
-        {
-            line.insert(line.size() - 1, 1, '\r');
-        }
-        else if (!line.empty() && line.back() == '\r' && (eof || complete))
-        {
-            line.push_back('\n');
-        }
-
-        const auto written = std::min<std::size_t>(line.size(), output.size());
-        std::copy_n(line.begin(), written, output.begin());
         return written;
     }
     [[nodiscard]] bool raw_eof() const noexcept
@@ -330,7 +341,7 @@ class server_session final
         }
         else
         {
-            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_OEMCP;
+            const auto code_page = state_.output_code_page;
             const auto *bytes_data = reinterpret_cast<const char *>(payload.data());
             const auto units = ::MultiByteToWideChar(code_page, 0, bytes_data,
                                                      static_cast<int>(payload.size()), nullptr, 0);

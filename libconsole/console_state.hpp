@@ -3,19 +3,62 @@
 #include "cell.hpp"
 #include "screen_buffer.hpp"
 
+#include <Windows.h>
+
 #include <algorithm>
 #include <array>
-#include <string>
+#include <charconv>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <stdexcept>
+#include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 #include <bitset>
 
 namespace corehost::screen
 {
+
+// Mirrors libcorehost's console_state constructor: the default console code
+// page is UTF-8 when the build opts into it, otherwise the system OEM code page.
+[[nodiscard]] inline std::uint32_t initial_console_code_page()
+{
+#ifdef COREHOST_DEFAULT_UTF8
+    constexpr UINT code_page = CP_UTF8;
+#elif defined(COREHOST_RUN_AS_UTF8)
+    wchar_t buffer[6]{};
+    DWORD size = sizeof(buffer);
+    const auto result = ::RegGetValueW(HKEY_LOCAL_MACHINE,
+                                       L"SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage",
+                                       L"OEMCP", RRF_RT_REG_SZ, nullptr, buffer, &size);
+    if (result != ERROR_SUCCESS || size < 2 || size > sizeof(buffer))
+    {
+        throw std::system_error(static_cast<int>(result), std::system_category());
+    }
+    char narrow[6]{};
+    const auto length = size / sizeof(wchar_t) - 1;
+    for (std::size_t index = 0; index < length; ++index)
+    {
+        if (buffer[index] > 0xFF)
+        {
+            throw std::system_error(ERROR_INVALID_DATA, std::system_category());
+        }
+        narrow[index] = static_cast<char>(buffer[index]);
+    }
+    UINT code_page = 0;
+    const auto parsed = std::from_chars(narrow, narrow + length, code_page);
+    if (parsed.ec != std::errc{})
+    {
+        throw std::system_error(static_cast<int>(parsed.ec), std::system_category());
+    }
+#else
+    const auto code_page = ::GetOEMCP();
+#endif
+    return code_page;
+}
 
 enum class cursor_style : std::uint8_t
 {
@@ -445,6 +488,8 @@ inline console_state::console_state(std::size_t width, std::size_t height)
 {
     assert(width != 0 && height != 0);
 
+    input_code_page = initial_console_code_page();
+    output_code_page = input_code_page;
     scroll_bottom_ = height_ - 1;
     max_window_size = coord{static_cast<std::int32_t>(width_), static_cast<std::int32_t>(height_)};
     input_mode = 0x0001 | 0x0002 | 0x0004 | 0x0010;

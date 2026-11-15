@@ -7,7 +7,6 @@
 
 #include <span>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace corehost::conptyio
@@ -22,7 +21,7 @@ class terminal_reader final
 
     [[nodiscard]] bool read_batch()
     {
-        const auto result = win32::read_some(input_, std::span<char>{bytes_});
+        const auto result = win32::read_some(input_, std::span<char8_t>{bytes_});
         if (result.closed())
         {
             closed_ = true;
@@ -38,9 +37,8 @@ class terminal_reader final
             return false;
         }
 
-        vtparser::decode_utf8(
-            std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes_.data()), result.bytes},
-            codepoints_, pending_);
+        decoder_.decode(
+            std::span<const char8_t>{bytes_.data(), result.bytes}, codepoints_);
         return true;
     }
 
@@ -56,8 +54,8 @@ class terminal_reader final
 
   private:
     win32::handle_view input_;
-    std::vector<char> bytes_ = std::vector<char>(4096);
-    std::string pending_;
+    std::vector<char8_t> bytes_ = std::vector<char8_t>(4096);
+    vtparser::utf8_decoder decoder_;
     std::u16string codepoints_;
     bool closed_{};
 };

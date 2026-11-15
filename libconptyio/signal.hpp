@@ -4,11 +4,11 @@
 #include "pseudo_window.hpp"
 #include "screen_buffer.hpp"
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <span>
-#include <stdexcept>
 
 namespace corehost::conptyio
 {
@@ -45,10 +45,7 @@ inline void apply_signal(std::uint16_t id,
                          screen::console_state &state,
                          pseudo_window &window)
 {
-    if (payload.size() != payload_size_for(id))
-    {
-        return;
-    }
+    assert(payload.size() == payload_size_for(id));
 
     switch (static_cast<pty_signal>(id))
     {

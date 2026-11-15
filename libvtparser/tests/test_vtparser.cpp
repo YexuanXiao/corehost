@@ -5,6 +5,19 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <iterator>
+#include <span>
+
+static_assert(sizeof(corehost::vtparser::vt_count_payload) == 2);
+static_assert(sizeof(corehost::vtparser::vt_position_payload) == 4);
+static_assert(sizeof(corehost::vtparser::vt_scroll_region_payload) == 4);
+static_assert(sizeof(corehost::vtparser::vt_resize_payload) == 4);
+static_assert(sizeof(corehost::vtparser::vt_palette_payload) == 6);
+static_assert(sizeof(corehost::vtparser::vt_sgr_color_payload) == 4);
+static_assert(sizeof(corehost::vtparser::vt_sgr_payload) == 12);
+static_assert(sizeof(corehost::vtparser::vt_mouse_payload) == 8);
+static_assert(sizeof(corehost::vtparser::vt_private_mode_payload) == 4);
+static_assert(sizeof(corehost::vtparser::vt_win32_key_payload) == 16);
 
 namespace
 {
@@ -98,11 +111,26 @@ int main()
     }
 
     std::u16string decoded;
-    std::string pending;
+    utf8_decoder decoder;
     constexpr char8_t utf8_text[]{0x41, 0xE4, 0xB8, 0xAD};
-    decode_utf8(utf8_text, decoded, pending);
+    decoder.decode(utf8_text, decoded);
     check(decoded == u"A\u4E2D", "utf8 decode");
-    check(pending.empty(), "utf8 pending empty");
+    check(decoder.pending_size() == 0, "utf8 pending empty");
+
+    decoder.decode(std::span<const char8_t>{utf8_text + 1, 1}, decoded);
+    decoder.decode(std::span<const char8_t>{utf8_text + 2, 2}, decoded);
+    check(decoded == u"\u4E2D", "utf8 split decode");
+
+    constexpr char8_t emoji[]{0xF0, 0x9F, 0x98, 0x80};
+    for (std::size_t i = 0; i < std::size(emoji); ++i)
+    {
+        decoder.decode(std::span<const char8_t>{emoji + i, 1}, decoded);
+    }
+    check(decoded == u"\U0001F600", "utf8 four-byte split decode");
+
+    constexpr char8_t invalid[]{0x80};
+    decoder.decode(invalid, decoded);
+    check(decoded == u"\uFFFD", "utf8 invalid replacement");
 
     if (failures != 0)
     {

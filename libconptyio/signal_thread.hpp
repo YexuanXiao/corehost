@@ -2,15 +2,17 @@
 
 #include "signal.hpp"
 
+#include "utility/log.hpp"
 #include "win32/cancellable_read.hpp"
 #include "win32/handle.hpp"
 #include "win32/thread.hpp"
 
-#include <array>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <span>
-#include <stdexcept>
+#include <type_traits>
 
 namespace corehost::conptyio
 {
@@ -62,8 +64,22 @@ class pty_signal_thread final
   private:
     static DWORD WINAPI thread_entry(LPVOID self)
     {
-        static_cast<pty_signal_thread *>(self)->run();
+        try
+        {
+            static_cast<pty_signal_thread *>(self)->run();
+        }
+        catch (...)
+        {
+            LOG("pty_signal_thread: unrecoverable error");
+            std::abort();
+        }
         return 0;
+    }
+
+    static void unrecoverable(const char *reason) noexcept
+    {
+        LOG("pty_signal_thread: %s", reason);
+        std::abort();
     }
 
     void run()
@@ -71,58 +87,92 @@ class pty_signal_thread final
         for (;;)
         {
             std::uint16_t id = 0;
+            DWORD id_bytes = 0;
             const auto id_status = read_exact(
-                std::span<std::byte>{reinterpret_cast<std::byte *>(&id), sizeof(id)});
+                std::span<std::byte>{reinterpret_cast<std::byte *>(&id), sizeof(id)}, id_bytes);
             if (id_status == win32::cancellable_read::status::cancelled)
             {
                 return;
             }
             if (id_status == win32::cancellable_read::status::closed)
             {
+                if (id_bytes != 0)
+                {
+                    unrecoverable("truncated PtySignal id");
+                }
                 consumer_.on_signal_eof();
                 return;
             }
+            assert(id_status == win32::cancellable_read::status::data);
+            assert(id_bytes == sizeof(id));
 
-            const auto size = payload_size_for(id);
-            if (size == 0 || size > payload_.size())
+            switch (static_cast<pty_signal>(id))
             {
-                throw std::runtime_error{"invalid PtySignal id"};
-            }
-
-            const auto payload_status =
-                read_exact(std::span<std::byte>{payload_.data(), size});
-            if (payload_status == win32::cancellable_read::status::cancelled)
+            case pty_signal::show_hide_window:
+            case pty_signal::clear_buffer:
             {
-                return;
+                std::uint16_t payload = 0;
+                if (!read_payload(payload))
+                {
+                    return;
+                }
+                consumer_.on_signal(id, std::as_bytes(std::span{&payload, 1}));
+                break;
             }
-            if (payload_status == win32::cancellable_read::status::closed)
+            case pty_signal::resize_window:
             {
-                throw std::runtime_error{"truncated PtySignal payload"};
+                std::uint32_t payload = 0;
+                if (!read_payload(payload))
+                {
+                    return;
+                }
+                consumer_.on_signal(id, std::as_bytes(std::span{&payload, 1}));
+                break;
             }
-
-            consumer_.on_signal(id, std::span<const std::byte>{payload_.data(), size});
+            case pty_signal::set_parent:
+            {
+                std::uint64_t payload = 0;
+                if (!read_payload(payload))
+                {
+                    return;
+                }
+                consumer_.on_signal(id, std::as_bytes(std::span{&payload, 1}));
+                break;
+            }
+            default:
+                unrecoverable("invalid PtySignal id");
+            }
         }
     }
 
-    [[nodiscard]] win32::cancellable_read::status read_exact(std::span<std::byte> destination)
+    template <typename T>
+    [[nodiscard]] bool read_payload(T &payload)
     {
+        static_assert(std::is_trivially_copyable_v<T>);
         DWORD bytes = 0;
-        const auto status = reader_.read_exact(destination, bytes);
-        if (status == win32::cancellable_read::status::data && bytes != destination.size())
+        const auto status =
+            read_exact(std::span<std::byte>{reinterpret_cast<std::byte *>(&payload), sizeof(payload)}, bytes);
+        if (status == win32::cancellable_read::status::cancelled)
         {
-            throw std::runtime_error{"truncated PtySignal read"};
+            return false;
         }
-        if (status == win32::cancellable_read::status::closed && bytes != 0)
+        if (status != win32::cancellable_read::status::data)
         {
-            throw std::runtime_error{"truncated PtySignal message"};
+            unrecoverable("truncated PtySignal payload");
         }
-        return status;
+        assert(bytes == sizeof(payload));
+        return true;
+    }
+
+    [[nodiscard]] win32::cancellable_read::status read_exact(std::span<std::byte> destination,
+                                                             DWORD &bytes)
+    {
+        return reader_.read_exact(destination, bytes);
     }
 
     Consumer &consumer_;
     win32::cancellable_read reader_;
     win32::basic_thread thread_;
-    std::array<std::byte, sizeof(std::uint64_t)> payload_{};
 };
 
 } // namespace corehost::conptyio

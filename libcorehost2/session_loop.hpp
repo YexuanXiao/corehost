@@ -22,6 +22,7 @@
 #include "win32/srwlock.hpp"
 #include "win32/thread.hpp"
 
+#include <cassert>
 #include <cstddef>
 #include <mutex>
 #include <atomic>
@@ -171,9 +172,9 @@ class session_input_sink final
             state_.screen().alternate_active() ? 1 : 0, console_.raw_pending() ? 1 : 0,
             console_.console_read_pending() ? 1 : 0);
         LOG_HEX("input", bytes.data(), bytes.size() < 256 ? bytes.size() : 256);
-        vtparser::decode_utf8(
+        decoder_.decode(
             std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()},
-            text_, pending_);
+            text_);
         if (console_.raw_pending())
         {
             console_.push_raw(std::span<const char>{reinterpret_cast<const char *>(bytes.data()),
@@ -238,7 +239,7 @@ class session_input_sink final
     conptyio::terminal_writer &writer_;
     win32::srwlock &mutex_;
     server_session &console_;
-    std::string pending_;
+    vtparser::utf8_decoder decoder_;
     std::u16string text_;
 };
 
@@ -335,8 +336,6 @@ inline void run_conpty_session(win32::handle_view server,
     const auto height = config.height > 0 ? static_cast<std::size_t>(config.height) : std::size_t{30};
 
     session state{width, height, config.text_measurement, config.ambiguous_is_wide};
-    state.state().input_code_page = 65001;
-    state.state().output_code_page = 65001;
     state.state().output_mode = 0x0001 | 0x0002 | 0x0004;
     conptyio::terminal_writer writer{vt_out};
     conptyio::pseudo_window window{server};
@@ -344,10 +343,6 @@ inline void run_conpty_session(win32::handle_view server,
     vtserializer::append_clear_screen(writer.buffer());
     vtserializer::append_cup(writer.buffer(), 0, 0);
     writer.buffer().append_text(u8"\x1b[?9001h");
-    writer.buffer().append_text(u8"\x1b[?1002;1006;2004h");
-    state.state().set_private_mode(1002, true);
-    state.state().set_private_mode(1006, true);
-    state.state().set_private_mode(2004, true);
     if (config.inherit_cursor)
     {
         vtserializer::append_request_cursor_position(writer.buffer());
@@ -379,10 +374,7 @@ inline void run_conpty_session(win32::handle_view server,
 
     session_input_sink input_sink{state, writer, session_mutex, console_session};
     conptyio::vt_input_thread input_thread{vt_in, input_sink};
-    if (vt_in.valid())
-    {
-        input_thread.start();
-    }
+    input_thread.start();
 
     session_signal_sink signal_sink{state, writer, window, session_mutex, console_session};
     conptyio::pty_signal_thread pty_signal_thread{signal_pipe, signal_sink};
@@ -393,10 +385,8 @@ inline void run_conpty_session(win32::handle_view server,
 
     std::array<HANDLE, 4> waits{};
     DWORD wait_count = 0;
-    if (input_thread.view().valid())
-    {
-        waits[wait_count++] = input_thread.view().get();
-    }
+    assert(input_thread.view().valid());
+    waits[wait_count++] = input_thread.view().get();
     if (server_thread.valid())
     {
         waits[wait_count++] = server_thread.get();
