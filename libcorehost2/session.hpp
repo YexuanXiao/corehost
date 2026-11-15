@@ -117,9 +117,12 @@ class session final
         {
             for (const auto ch : result.message.payload.text)
             {
-                consoleinput::key_event key;
-                key.character = ch <= 0xFFFF ? static_cast<char16_t>(ch) : u'\uFFFD';
-                input_.push(consoleinput::input_event{consoleinput::input_event_type::key, key});
+                input_.push(consoleinput::input_event{
+                    consoleinput::input_event_type::key,
+                    consoleinput::key_from_character(static_cast<char16_t>(ch), true)});
+                input_.push(consoleinput::input_event{
+                    consoleinput::input_event_type::key,
+                    consoleinput::key_from_character(static_cast<char16_t>(ch), false)});
             }
             return;
         }
