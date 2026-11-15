@@ -15,8 +15,6 @@ namespace corehost::vtserializer
 class byte_buffer final
 {
   public:
-    using value_type = char8_t;
-
     void reserve(std::size_t capacity)
     {
         bytes_.reserve(capacity);
