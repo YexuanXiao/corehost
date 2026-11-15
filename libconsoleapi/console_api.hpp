@@ -1157,7 +1157,16 @@ class console_api final
             {
                 continue;
             }
-            length += (alias.source.size() + alias.target.size() + 2) * unit;
+            if (info->Unicode)
+            {
+                length += (alias.source.size() + alias.target.size() + 2) * sizeof(char16_t);
+            }
+            else
+            {
+                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+                length += encode_console_text(alias.source, code_page).size() +
+                          encode_console_text(alias.target, code_page).size() + 2;
+            }
         }
         info->AliasesLength = static_cast<ULONG>(length);
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETALIASESLENGTH_MSG),
@@ -1177,9 +1186,23 @@ class console_api final
             message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
         std::size_t length = 0;
+        std::vector<std::u16string_view> seen;
         for (const auto &alias : state_.aliases)
         {
-            length += (alias.executable.size() + 1) * unit;
+            if (std::ranges::find(seen, alias.executable) != seen.end())
+            {
+                continue;
+            }
+            seen.push_back(alias.executable);
+            if (info->Unicode)
+            {
+                length += (alias.executable.size() + 1) * sizeof(char16_t);
+            }
+            else
+            {
+                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+                length += encode_console_text(alias.executable, code_page).size() + 1;
+            }
         }
         info->AliasExesLength = static_cast<ULONG>(length);
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETALIASEXESLENGTH_MSG),
@@ -1453,8 +1476,20 @@ class console_api final
         }
         auto *info = reinterpret_cast<CONSOLE_GETCOMMANDHISTORYLENGTH_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
-        const auto units = state_.command_history_length();
-        info->CommandHistoryLength = static_cast<ULONG>(info->Unicode ? units * sizeof(char16_t) : units);
+        std::size_t length = 0;
+        for (const auto &command : state_.command_history)
+        {
+            if (info->Unicode)
+            {
+                length += (command.size() + 1) * sizeof(char16_t);
+            }
+            else
+            {
+                const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_ACP;
+                length += encode_console_text(command, code_page).size() + 1;
+            }
+        }
+        info->CommandHistoryLength = static_cast<ULONG>(length);
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETCOMMANDHISTORYLENGTH_MSG));
