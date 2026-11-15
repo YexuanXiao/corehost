@@ -122,6 +122,8 @@ class server_dispatcher final
             break;
         case CD_IO_OBJECT_TYPE_NEW_OUTPUT:
             created = condrv::create_client_handle(server_, L"\\Output");
+            alternate_id_ = reinterpret_cast<ULONG_PTR>(created.get());
+            session_.set_alternate_object(alternate_id_);
             break;
         default:
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
@@ -138,6 +140,7 @@ class server_dispatcher final
     win32::handle output_;
     ULONG_PTR input_id_{};
     ULONG_PTR output_id_{};
+    ULONG_PTR alternate_id_{};
 };
 
 } // namespace corehost::corehost2

@@ -65,6 +65,11 @@ class console_api final
         input_object_ = object;
     }
 
+    void set_alternate_object(std::uintptr_t object) noexcept
+    {
+        alternate_object_ = object;
+    }
+
     [[nodiscard]] bool handle(coreio::io_msg &message) noexcept
     {
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER))
@@ -118,6 +123,10 @@ class console_api final
         {
             const bool input = input_object_ != 0 && message.descriptor.Object == input_object_;
             return header->ApiNumber == ConsolepGetMode ? get_mode(message, input) : set_mode(message, input);
+        }
+        if (header->ApiNumber == ConsolepSetActiveScreenBuffer)
+        {
+            return set_active_screen_buffer(message);
         }
         if (header->ApiNumber == ConsolepFlushInputBuffer)
         {
@@ -665,6 +674,15 @@ class console_api final
         {
             state_.output_mode = info->Mode;
         }
+        coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool set_active_screen_buffer(coreio::io_msg &message) noexcept
+    {
+        const bool alternate = alternate_object_ != 0 &&
+                               message.descriptor.Object == alternate_object_;
+        buffer_.set_alternate(alternate);
         coreio::prepare_completion(message);
         return true;
     }
@@ -1404,6 +1422,7 @@ class console_api final
     screen::console_state &state_;
     consoleinput::input_queue *input_{};
     std::uintptr_t input_object_{};
+    std::uintptr_t alternate_object_{};
     coreio::process_registry *processes_{};
 };
 

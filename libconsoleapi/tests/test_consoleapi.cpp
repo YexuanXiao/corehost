@@ -853,6 +853,26 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleapi::console_api active_api{buffer, state};
+    active_api.set_alternate_object(0x77);
+    corehost::coreio::io_msg active_message{};
+    active_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER);
+    active_message.descriptor.OutputSize = sizeof(active_message.body);
+    active_message.descriptor.Object = 0x77;
+    auto *active_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(active_message.body);
+    active_header->ApiNumber = ConsolepSetActiveScreenBuffer;
+    if (!active_api.handle(active_message) || !buffer.alternate_active())
+    {
+        std::fprintf(stderr, "set active screen buffer failed\n");
+        return EXIT_FAILURE;
+    }
+    active_message.descriptor.Object = 0;
+    if (!active_api.handle(active_message) || buffer.alternate_active())
+    {
+        std::fprintf(stderr, "reset active screen buffer failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
