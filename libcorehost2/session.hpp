@@ -62,6 +62,11 @@ class session final
         return state_.take_title_changed();
     }
 
+    [[nodiscard]] bool take_echo_line_feed() noexcept
+    {
+        return state_.take_echo_line_feed();
+    }
+
     [[nodiscard]] bool take_win32_input_change(bool &enabled) noexcept
     {
         return state_.take_win32_input_change(enabled);

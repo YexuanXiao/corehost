@@ -86,6 +86,11 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
                     context.state->screen().clear_damage();
                     rendered = true;
                 }
+                if (context.state->take_echo_line_feed())
+                {
+                    context.writer->buffer().append_text(u8"\r\n");
+                    rendered = true;
+                }
                 if (context.state->take_title_changed())
                 {
                     vtserializer::append_window_title(context.writer->buffer(),
@@ -164,6 +169,10 @@ class session_input_sink final : public conptyio::vt_input_sink
             vtserializer::render_damage(writer_.buffer(), state_.screen(), cursor, &state_.state());
         }
         state_.screen().clear_damage();
+        if (state_.take_echo_line_feed())
+        {
+            writer_.buffer().append_text(u8"\r\n");
+        }
         if (state_.take_title_changed())
         {
             vtserializer::append_window_title(writer_.buffer(), state_.state().title);
@@ -230,6 +239,10 @@ class session_signal_sink final : public conptyio::signal_sink
             vtserializer::render_damage(writer_.buffer(), state_.screen(), cursor, &state_.state());
         }
         state_.screen().clear_damage();
+        if (state_.take_echo_line_feed())
+        {
+            writer_.buffer().append_text(u8"\r\n");
+        }
         if (state_.take_title_changed())
         {
             vtserializer::append_window_title(writer_.buffer(), state_.state().title);

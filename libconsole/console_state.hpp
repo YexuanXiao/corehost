@@ -143,6 +143,7 @@ class console_state final
     bool viewport_changed{};
     bool win32_input_mode{true};
     bool win32_input_changed{};
+    bool echo_line_feed{};
     std::bitset<2048> private_modes;
     std::vector<std::pair<std::uint16_t, bool>> private_mode_changes;
     std::uint32_t output_code_page{};
@@ -248,6 +249,13 @@ class console_state final
     {
         const auto changed = cursor_changed;
         cursor_changed = false;
+        return changed;
+    }
+
+    [[nodiscard]] bool take_echo_line_feed() noexcept
+    {
+        const auto changed = echo_line_feed;
+        echo_line_feed = false;
         return changed;
     }
 

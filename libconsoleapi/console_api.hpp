@@ -687,6 +687,7 @@ class console_api final
                 {
                     echo_cursor.x = 0;
                     ++echo_cursor.y;
+                    state_.echo_line_feed = true;
                 }
                 std::u16string expanded{output, units};
                 expand_console_alias(expanded);
