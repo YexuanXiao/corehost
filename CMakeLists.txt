@@ -96,6 +96,9 @@ add_subdirectory(libvtstate)
 # ── libconsoleapi (Console API-facing screen operations) ─
 add_subdirectory(libconsoleapi)
 
+# ── libcorehost2 (new modular host assembly) ──────────
+add_subdirectory(libcorehost2)
+
 # ── libcorehost (ConPTY 核心静态库) ──────────────────
 add_subdirectory(libcorehost)
 
