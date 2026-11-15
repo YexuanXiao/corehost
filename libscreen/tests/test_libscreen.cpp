@@ -235,6 +235,11 @@ void test_screen_buffer()
     check(default_style.foreground.kind == color_kind::default_color &&
               default_style.background.kind == color_kind::default_color,
           "legacy default attributes use terminal defaults");
+    const auto red_foreground_style = screen.styles().at(screen.style_for_attributes(0x0C));
+    check(red_foreground_style.foreground.kind == color_kind::indexed &&
+              red_foreground_style.foreground.value == 9 &&
+              red_foreground_style.background.kind == color_kind::default_color,
+          "legacy red foreground keeps default background");
     check(screen.damage_begin(0) <= 0 && screen.damage_end(0) >= 1, "scalar damage");
     screen.clear_damage();
     check(screen.damage_begin(0) == screen.damage_end(0), "damage cleared");

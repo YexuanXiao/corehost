@@ -733,7 +733,9 @@ inline cell_style screen_buffer::style_for_legacy(std::uint16_t attributes)
                                               (bgri & 0x01 ? 4u : 0u) | (bgri & 0x08 ? 8u : 0u));
         };
         value.foreground = color{color_kind::indexed, to_indexed(attributes & 0x0F)};
-        value.background = color{color_kind::indexed, to_indexed((attributes >> 4) & 0x0F)};
+        value.background = ((attributes >> 4) & 0x0F) == 0
+                               ? color{}
+                               : color{color_kind::indexed, to_indexed((attributes >> 4) & 0x0F)};
     }
     return styles_.intern(value);
 }
