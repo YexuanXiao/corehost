@@ -40,6 +40,16 @@ int main()
         return EXIT_FAILURE;
     }
 
+    std::stop_source stop_source;
+    stop_source.request_stop();
+    fake_handler stopped_handler;
+    corehost::coreio::run_server(transport, stopped_handler, stop_source.get_token());
+    if (stopped_handler.handled != 0)
+    {
+        std::fprintf(stderr, "server stop failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libcoreio tests passed\n");
     return EXIT_SUCCESS;
 }

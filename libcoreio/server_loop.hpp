@@ -3,6 +3,7 @@
 #include "condrv_io.hpp"
 
 #include <concepts>
+#include <stop_token>
 
 namespace corehost::coreio
 {
@@ -16,13 +17,17 @@ concept server_transport = requires(Transport &transport, CD_IO_COMPLETE *previo
 // Drives the ConDrv server loop. The previous completion is retained in the
 // same io_msg and submitted on the next read, keeping one IOCTL per message.
 template <server_transport Transport, typename Handler>
-void run_server(Transport &transport, Handler &handler)
+void run_server(Transport &transport, Handler &handler, std::stop_token stop = {})
 {
     io_msg message{};
     CD_IO_COMPLETE *previous = nullptr;
 
     for (;;)
     {
+        if (stop.stop_requested())
+        {
+            return;
+        }
         const auto result = transport.read(previous, message);
         if (result == read_io_result::got_message)
         {
