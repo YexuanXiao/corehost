@@ -217,6 +217,20 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer wrap_buffer{4, 2};
+    corehost::screen::console_state wrap_state{4, 2};
+    parser.reset();
+    result = parser.parse(U"ABCDE");
+    corehost::vtstate::state_applier wrap_applier;
+    wrap_applier.apply_text(result.message, wrap_buffer, wrap_state);
+    if (wrap_buffer.at(0, 0).primary() != u'A' || wrap_buffer.at(3, 0).primary() != u'D' ||
+        wrap_buffer.at(0, 1).primary() != u'E' ||
+        !wrap_buffer.has_flag(0, screen::line_flag::wrapped))
+    {
+        std::fprintf(stderr, "text wrap failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }

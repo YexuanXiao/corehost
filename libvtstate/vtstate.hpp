@@ -31,12 +31,41 @@ class state_applier final
             static_cast<std::int32_t>(state.cursor().y),
         };
 
-        const auto result = buffer.write_text_row<screen::text_measurement::graphemes>(
-            cursor, text_, {}, state.default_style, true, state.default_hyperlink);
-
+        std::size_t consumed = 0;
+        for (const auto cluster : screen::grapheme_range<screen::text_measurement::graphemes>{text_})
+        {
+            auto columns = cluster.width;
+            if (columns <= 0)
+            {
+                columns = 1;
+            }
+            if (cursor.x >= 0 && static_cast<std::size_t>(cursor.x) + static_cast<std::size_t>(columns) >
+                                                     state.width())
+            {
+                buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
+                cursor.x = 0;
+                ++cursor.y;
+            }
+            if (cursor.y >= 0 && static_cast<std::size_t>(cursor.y) >= state.height())
+            {
+                const auto top = state.scroll_top();
+                const auto bottom = state.scroll_bottom();
+                buffer.scroll_region_up(screen::rectangle{0, top, state.width(), bottom - top + 1},
+                                        1, state.default_style);
+                cursor.y = static_cast<std::int32_t>(bottom);
+            }
+            if (!buffer.write_glyph(cursor,
+                                std::u16string_view{cluster.text.data(), cluster.text.size()},
+                                columns, state.default_style, state.default_hyperlink))
+            {
+                break;
+            }
+            cursor.x += columns;
+            consumed += cluster.text.size();
+        }
         state.set_cursor(static_cast<std::size_t>(cursor.x),
                          static_cast<std::size_t>(cursor.y));
-        last_consumed_ = result.consumed;
+        last_consumed_ = consumed;
     }
 
     void apply_alternate_buffer(bool enabled,
