@@ -45,7 +45,7 @@ inline char *append_color(char *first, char *last, const screen::color &value, u
 
 inline void append_sgr_style(byte_buffer &output, const screen::text_style &style)
 {
-    char sequence[96]{};
+    char sequence[96];
     auto *first = sequence;
     *first++ = static_cast<char>(0x1B);
     *first++ = '[';
