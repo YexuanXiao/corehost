@@ -7,6 +7,7 @@
 
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
+#include "utility/log.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -173,6 +174,7 @@ class session final
 
         if (input_direction && !raw_passthrough && is_terminal_response(result.id))
         {
+            LOG("terminal response id=%d chars=%zu", static_cast<int>(result.id), result.raw_sequence.size());
             for (const auto ch : result.raw_sequence)
             {
                 input_.push(consoleinput::input_event{

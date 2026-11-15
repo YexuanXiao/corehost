@@ -165,6 +165,7 @@ class session_input_sink final
         LOG("input bytes=%zu alt=%d raw_pending=%d console_read=%d", bytes.size(),
             state_.screen().alternate_active() ? 1 : 0, console_.raw_pending() ? 1 : 0,
             console_.console_read_pending() ? 1 : 0);
+        LOG_HEX("input", bytes.data(), bytes.size() < 256 ? bytes.size() : 256);
         vtparser::decode_utf8(
             std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()},
             text_, pending_);
