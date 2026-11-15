@@ -1098,6 +1098,27 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg exes_message{};
+    exes_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG);
+    exes_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG) + 8;
+    auto *exes_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(exes_message.body);
+    exes_header->ApiNumber = ConsolepGetAliasExes;
+    auto *exes_request = reinterpret_cast<CONSOLE_GETALIASEXES_MSG *>(
+        exes_message.body + sizeof(CONSOLE_MSG_HEADER));
+    exes_request->Unicode = TRUE;
+    if (!api.handle(exes_message) || exes_request->AliasExesBufferLength != 8)
+    {
+        std::fprintf(stderr, "get alias exes failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *exes_text = reinterpret_cast<const char16_t *>(
+        exes_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG));
+    if (exes_text[0] != u'c' || exes_text[1] != u'm' || exes_text[2] != u'd' || exes_text[3] != 0)
+    {
+        std::fprintf(stderr, "get alias exes data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

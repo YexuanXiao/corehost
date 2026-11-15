@@ -152,6 +152,10 @@ class console_api final
         {
             return get_alias_exes_length(message);
         }
+        if (header->ApiNumber == ConsolepGetAliasExes)
+        {
+            return get_alias_exes(message);
+        }
         if (header->ApiNumber == ConsolepGetAliases)
         {
             return get_aliases(message);
@@ -944,6 +948,49 @@ class console_api final
             write(alias.target);
         }
         info->AliasesBufferLength = static_cast<ULONG>(written);
+        coreio::prepare_completion(message, 0, written, message.body + sizeof(CONSOLE_MSG_HEADER), written);
+        return true;
+    }
+
+    [[nodiscard]] bool get_alias_exes(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_GETALIASEXES_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        auto *output = message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETALIASEXES_MSG);
+        const auto capacity = message.descriptor.OutputSize > sizeof(CONSOLE_GETALIASEXES_MSG)
+                                  ? message.descriptor.OutputSize - sizeof(CONSOLE_GETALIASEXES_MSG)
+                                  : 0;
+        const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
+        std::size_t written = 0;
+        for (const auto &alias : state_.aliases)
+        {
+            const auto bytes = (alias.executable.size() + 1) * unit;
+            if (written + bytes > capacity)
+            {
+                break;
+            }
+            if (info->Unicode)
+            {
+                std::memcpy(output + written, alias.executable.data(),
+                            alias.executable.size() * sizeof(char16_t));
+                written += alias.executable.size() * sizeof(char16_t);
+                output[written] = 0;
+                written += sizeof(char16_t);
+            }
+            else
+            {
+                for (const char16_t ch : alias.executable)
+                {
+                    output[written++] = static_cast<char>(ch < 0x80 ? ch : '?');
+                }
+                output[written++] = 0;
+            }
+        }
+        info->AliasExesBufferLength = static_cast<ULONG>(written);
         coreio::prepare_completion(message, 0, written, message.body + sizeof(CONSOLE_MSG_HEADER), written);
         return true;
     }
