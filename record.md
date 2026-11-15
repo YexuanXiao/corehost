@@ -121,3 +121,13 @@ libcorehost: raw write 137 -> GetConsoleInput 560 -> raw write 4351
   - 在 `raw_passthrough` 前优先处理 `win32_input_key`，避免把 Win32Input CSI 原文重新编码成 KEY_EVENT。
   - 新增 `test_corehost2` 回归：raw_passthrough 下保留 VK/Uc/ControlKeyState。
   - 该修复通过单元测试，但尚未解决 PS5.1 大写/连字符问题。
+
+## 2026-11-15 PS5.1 输入模式排查
+
+- PowerShell 5.1 的 `SetConsoleMode` 请求为 `0x000001E4`，corehost2 存储为 `0x00000004`，没有设置 `ENABLE_VIRTUAL_TERMINAL_INPUT (0x0200)`。
+- 因此 PS5.1 输入走的是 Win32Input/KEY_EVENT 路径，不是 raw_passthrough。
+- 同一物理输入下：
+  - libcorehost 原始 Win32Input 的 `ControlKeyState=32`；
+  - corehost2 原始 Win32Input 的 `ControlKeyState=0`。
+- 该差异发生在 WT 发送输入字节之前，继续从 corehost2 的终端模式/初始化输出与 libcorehost 对比。
+- edit 的 RAW_WRITE 137 已 inline 完成，WT 返回 517/1034 字节应答；corehost2 将应答消费为 terminal response，但 edit 不再发新的 GetConsoleInput，仍未定位到最小修复。
