@@ -47,6 +47,11 @@ class vt_input_thread final
                                       {.name = L"corehost2-vt-input"}};
     }
 
+    [[nodiscard]] win32::handle_view view() const noexcept
+    {
+        return thread_.view();
+    }
+
     void join()
     {
         if (thread_.valid())

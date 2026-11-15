@@ -4,6 +4,8 @@
 #include "server_dispatcher.hpp"
 #include "server_session.hpp"
 #include "signal.hpp"
+#include "signal_thread.hpp"
+#include "vt_input_thread.hpp"
 #include "signal_reader.hpp"
 
 #include "server_loop.hpp"
@@ -13,6 +15,7 @@
 #include "terminal_writer.hpp"
 #include "viewport.hpp"
 
+#include "utf8.hpp"
 #include "win32/event.hpp"
 #include "win32/handle.hpp"
 #include "win32/srwlock.hpp"
@@ -21,6 +24,7 @@
 #include <cstddef>
 #include <mutex>
 #include <atomic>
+#include <stdexcept>
 #include <cstdlib>
 #include <string>
 #include <iterator>
@@ -74,43 +78,95 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
     return 0;
 }
 
-struct signal_worker_context final
+class session_input_sink final : public conptyio::vt_input_sink
 {
-    win32::handle_view signal_pipe;
-    session *state{};
-    conptyio::terminal_writer *writer{};
-    conptyio::pseudo_window *window{};
-    win32::srwlock *mutex{};
-    const std::atomic_bool *stop{};
-};
-
-inline DWORD WINAPI signal_worker_entry(LPVOID raw)
-{
-    auto &context = *static_cast<signal_worker_context *>(raw);
-    conptyio::signal_reader signals{context.signal_pipe};
-    while (!context.stop->load(std::memory_order_relaxed) && signals.read_one())
+  public:
+    session_input_sink(session &state, conptyio::terminal_writer &writer,
+                       win32::srwlock &mutex, server_session &console)
+        : state_{state}, writer_{writer}, mutex_{mutex}, console_{console}
     {
-        std::unique_lock guard{*context.mutex};
-        conptyio::apply_signal(signals.id(), signals.payload(), context.state->screen(),
-                               context.state->state(), context.window);
-        if (!context.state->screen().has_damage())
+    }
+
+    void on_input_bytes(std::span<const std::byte> bytes) override
+    {
+        std::unique_lock guard{mutex_};
+        vtparser::decode_utf8(
+            std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()},
+            text_, pending_);
+        state_.feed_input(text_);
+        (void)console_.complete_pending();
+        for (const auto [mode, enabled] : state_.state().take_private_modes())
         {
-            continue;
+            vtserializer::append_private_mode(writer_.buffer(), mode, enabled);
+        }
+        if (state_.state().take_keypad_changed())
+        {
+            writer_.buffer().append_text(state_.state().keypad_application ? u8"\x1b=" : u8"\x1b>");
         }
         const auto cursor = screen::coord{
-            static_cast<std::int32_t>(context.state->state().cursor().x),
-            static_cast<std::int32_t>(context.state->state().cursor().y),
+            static_cast<std::int32_t>(state_.state().cursor().x),
+            static_cast<std::int32_t>(state_.state().cursor().y),
         };
-        vtserializer::render_damage(context.writer->buffer(), context.state->screen(), cursor,
-                                    &context.state->state());
-        context.state->screen().clear_damage();
-        if (!context.writer->flush())
+        vtserializer::render_damage(writer_.buffer(), state_.screen(), cursor, &state_.state());
+        state_.screen().clear_damage();
+        if (!writer_.flush())
         {
-            break;
+            throw std::runtime_error{"terminal input flush failed"};
         }
     }
-    return 0;
-}
+
+    void on_input_eof() override
+    {
+    }
+
+  private:
+    session &state_;
+    conptyio::terminal_writer &writer_;
+    win32::srwlock &mutex_;
+    server_session &console_;
+    std::string pending_;
+    std::u16string text_;
+};
+
+class session_signal_sink final : public conptyio::signal_sink
+{
+  public:
+    session_signal_sink(session &state, conptyio::terminal_writer &writer,
+                        conptyio::pseudo_window &window, win32::srwlock &mutex)
+        : state_{state}, writer_{writer}, window_{window}, mutex_{mutex}
+    {
+    }
+
+    void on_signal(std::uint16_t id, std::span<const std::byte> payload) override
+    {
+        std::unique_lock guard{mutex_};
+        conptyio::apply_signal(id, payload, state_.screen(), state_.state(), &window_);
+        if (!state_.screen().has_damage())
+        {
+            return;
+        }
+        const auto cursor = screen::coord{
+            static_cast<std::int32_t>(state_.state().cursor().x),
+            static_cast<std::int32_t>(state_.state().cursor().y),
+        };
+        vtserializer::render_damage(writer_.buffer(), state_.screen(), cursor, &state_.state());
+        state_.screen().clear_damage();
+        if (!writer_.flush())
+        {
+            throw std::runtime_error{"terminal signal flush failed"};
+        }
+    }
+
+    void on_signal_eof() override
+    {
+    }
+
+  private:
+    session &state_;
+    conptyio::terminal_writer &writer_;
+    conptyio::pseudo_window &window_;
+    win32::srwlock &mutex_;
+};
 struct conpty_session_config final
 {
     short width{};
@@ -136,7 +192,6 @@ inline void run_conpty_session(win32::handle_view server,
     const auto height = config.height > 0 ? static_cast<std::size_t>(config.height) : std::size_t{30};
 
     session state{width, height, config.text_measurement, config.ambiguous_is_wide};
-    conptyio::terminal_reader reader{vt_in};
     conptyio::terminal_writer writer{vt_out};
     conptyio::pseudo_window window{server};
     window.start();
@@ -152,9 +207,7 @@ inline void run_conpty_session(win32::handle_view server,
     }
     win32::srwlock session_mutex;
     win32::basic_thread server_thread;
-    win32::basic_thread signal_thread;
     std::atomic_bool server_stop{};
-    std::atomic_bool signal_stop{};
 
     server_session console_session{state.screen(), state.state(), state.input(), 0, server};
     console_session.set_window_handle(reinterpret_cast<std::uintptr_t>(window.handle()));
@@ -163,7 +216,6 @@ inline void run_conpty_session(win32::handle_view server,
         console_session.processes().add(config.attached_process_id);
     }
     server_dispatcher dispatcher{server, condrv_input, condrv_output, console_session};
-    std::u16string input_text_;
 
     struct worker_join_guard final
     {
@@ -193,44 +245,50 @@ inline void run_conpty_session(win32::handle_view server,
     }
     worker_join_guard server_join{server_thread, server_stop, server_stop_event.view()};
 
-    signal_worker_context signal_context{signal_pipe, &state, &writer, &window, &session_mutex,
-                                         &signal_stop};
+    session_input_sink input_sink{state, writer, session_mutex, console_session};
+    conptyio::vt_input_thread input_thread{vt_in, input_sink};
+    if (vt_in.valid())
+    {
+        input_thread.start();
+    }
+
+    session_signal_sink signal_sink{state, writer, window, session_mutex};
+    conptyio::pty_signal_thread pty_signal_thread{signal_pipe, signal_sink};
     if (signal_pipe.valid())
     {
-        signal_thread = win32::basic_thread{&signal_worker_entry, &signal_context,
-                                            {.name = L"corehost2-signal"}};
+        pty_signal_thread.start();
     }
-    worker_join_guard signal_join{signal_thread, signal_stop};
 
-    while (reader.read_batch())
+    std::array<HANDLE, 4> waits{};
+    DWORD wait_count = 0;
+    if (input_thread.view().valid())
     {
-        std::unique_lock guard{session_mutex};
-        vtparser::convert_to_utf16(reader.codepoints(), input_text_);
-        state.feed_input(input_text_);
-        (void)console_session.complete_pending();
-        for (const auto [mode, enabled] : state.state().take_private_modes())
-        {
-            vtserializer::append_private_mode(writer.buffer(), mode, enabled);
-        }
-        if (state.state().take_keypad_changed())
-        {
-            writer.buffer().append_text(state.state().keypad_application ? u8"\x1b=" : u8"\x1b>");
-        }
-
-        const auto cursor = screen::coord{
-            static_cast<std::int32_t>(state.state().cursor().x),
-            static_cast<std::int32_t>(state.state().cursor().y),
-        };
-        vtserializer::render_damage(writer.buffer(), state.screen(), cursor, &state.state());
-        state.screen().clear_damage();
-
-        if (!writer.flush())
-        {
-            break;
-        }
+        waits[wait_count++] = input_thread.view().get();
+    }
+    if (server_thread.valid())
+    {
+        waits[wait_count++] = server_thread.get();
+    }
+    if (pty_signal_thread.view().valid())
+    {
+        waits[wait_count++] = pty_signal_thread.view().get();
+    }
+    if (window.close_requested().valid())
+    {
+        waits[wait_count++] = window.close_requested().get();
+    }
+    if (wait_count == 0)
+    {
+        std::abort();
+    }
+    const auto wait = ::WaitForMultipleObjects(wait_count, waits.data(), FALSE, INFINITE);
+    if (wait == WAIT_FAILED)
+    {
+        win32::throw_last_error();
     }
 
-
+    input_thread.stop_and_join();
+    pty_signal_thread.stop_and_join();
 }
 
 } // namespace corehost::corehost2
