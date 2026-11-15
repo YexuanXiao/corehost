@@ -1006,6 +1006,14 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### VT 序列化样式哨兵
+
+`render_damage` / `render_viewport` 不再维护 `bool has_style`，而是把 `current_style` 初始化为无效哨兵 `-1`；首个单元格直接命中样式变化，后续每单元格只比较 `style != current_style`：
+
+```text
+e82b077 perf(vtserializer): use sentinel style instead of flag
+```
+
 ### ReadConsole 单次绑定事件
 
 `read_console` 的事件循环也改为每轮绑定 `const auto &event = events[i];`，避免重复数组索引：
