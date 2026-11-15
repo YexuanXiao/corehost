@@ -126,7 +126,10 @@ class server_session final
         }
         pending_message_ = message;
         pending_active_ = true;
-        pending_kind_ = pending_kind::console_read;
+        pending_kind_ =
+            api_.take_pending_read_kind() == consoleapi::console_api::pending_read_kind::console_input
+                ? pending_kind::console_input
+                : pending_kind::console_read;
         return false;
     }
 
@@ -139,6 +142,13 @@ class server_session final
         if (pending_kind_ == pending_kind::raw_read)
         {
             coreio::prepare_completion(pending_message_, 0, 0, pending_message_.body, 0);
+        }
+        else if (pending_kind_ == pending_kind::console_input)
+        {
+            if (!api_.resume_console_input(pending_message_))
+            {
+                return false;
+            }
         }
         else if (!api_.resume_read(pending_message_))
         {
@@ -159,7 +169,18 @@ class server_session final
 
     bool complete_pending()
     {
-        if (!pending_active_ || !input_.has_key() || !server_.valid())
+        if (!pending_active_ || !server_.valid())
+        {
+            return false;
+        }
+        if (pending_kind_ == pending_kind::console_input)
+        {
+            if (input_.empty())
+            {
+                return false;
+            }
+        }
+        else if (!input_.has_key())
         {
             return false;
         }
@@ -174,6 +195,13 @@ class server_session final
                 return false;
             }
             coreio::prepare_completion(pending_message_, 0, written, pending_message_.body, written);
+        }
+        else if (pending_kind_ == pending_kind::console_input)
+        {
+            if (!api_.resume_console_input(pending_message_))
+            {
+                return false;
+            }
         }
         else if (!api_.resume_read(pending_message_))
         {
@@ -190,6 +218,7 @@ class server_session final
     {
         none,
         console_read,
+        console_input,
         raw_read,
     };
 

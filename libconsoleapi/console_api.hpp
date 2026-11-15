@@ -9,6 +9,7 @@
 
 #include "condrv_io.hpp"
 #include "os/Console/conmsgl1.h"
+#include "os/Console/ntcon.h"
 #include "os/Console/conmsgl2.h"
 #include "os/Console/conmsgl3.h"
 
@@ -27,6 +28,12 @@ namespace corehost::consoleapi
 class console_api final
 {
   public:
+    enum class pending_read_kind : std::uint8_t
+    {
+        none,
+        console_read,
+        console_input,
+    };
     console_api(screen::screen_buffer &buffer, screen::console_state &state,
                 consoleinput::input_queue *input = nullptr,
                 std::uintptr_t input_object = 0,
@@ -307,7 +314,17 @@ class console_api final
         return true;
     }
 
-    [[nodiscard]] bool read_console_input(coreio::io_msg &message) noexcept
+    [[nodiscard]] bool resume_console_input(coreio::io_msg &message) noexcept
+    {
+        return read_console_input(message, false);
+    }
+
+    [[nodiscard]] pending_read_kind take_pending_read_kind() noexcept
+    {
+        return std::exchange(pending_read_kind_, pending_read_kind::none);
+    }
+
+    [[nodiscard]] bool read_console_input(coreio::io_msg &message, bool pending_allowed = true) noexcept
     {
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG))
         {
@@ -364,6 +381,12 @@ class console_api final
                 }
             }
         }
+        if (count == 0 && pending_allowed && (request->Flags & CONSOLE_READ_NOWAIT) == 0)
+        {
+            pending_read_kind_ = pending_read_kind::console_input;
+            return false;
+        }
+        pending_read_kind_ = pending_read_kind::none;
         request->NumRecords = static_cast<ULONG>(count);
         coreio::prepare_completion(message, 0, count * sizeof(INPUT_RECORD),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
@@ -2037,6 +2060,7 @@ class console_api final
     std::uintptr_t alternate_object_{};
     std::uintptr_t window_handle_{};
     coreio::process_registry *processes_{};
+    pending_read_kind pending_read_kind_{};
     bool cancel_pending_{};
 };
 

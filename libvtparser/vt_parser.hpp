@@ -401,6 +401,13 @@ struct vt_hyperlink_payload final
     std::u16string_view id;
 };
 
+
+struct vt_semantic_payload final
+{
+    char16_t kind{};
+    std::u16string_view argument;
+};
+
 union vt_message_payload {
     // continue_text/text/unknown_sequence 的字符视图；continue_text 指向
     // 本次 parse 输入，其它文本消息指向 parser raw 缓冲。
@@ -427,11 +434,6 @@ union vt_message_payload {
     // OSC 8 hyperlink 参数。
     vt_hyperlink_payload hyperlink;
     // OSC 133 semantic prompt: kind (A/B/C/D) + argument。
-    struct vt_semantic_payload final
-    {
-        char16_t kind{};
-        std::u16string_view argument;
-    };
     vt_semantic_payload semantic;
     // CPR 响应坐标，1-based。
     vt_position_payload cpr;

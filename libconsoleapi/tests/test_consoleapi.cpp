@@ -1402,6 +1402,37 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::input_queue input_wait_queue;
+    corehost::screen::screen_buffer input_wait_buffer{4, 2};
+    corehost::screen::console_state input_wait_state{4, 2};
+    corehost::consoleapi::console_api input_wait_api{input_wait_buffer, input_wait_state,
+                                                      &input_wait_queue};
+    corehost::coreio::io_msg input_wait_message{};
+    input_wait_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+    input_wait_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + sizeof(INPUT_RECORD);
+    auto *input_wait_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(input_wait_message.body);
+    input_wait_header->ApiNumber = ConsolepGetConsoleInput;
+    auto *input_wait_request = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(
+        input_wait_message.body + sizeof(CONSOLE_MSG_HEADER));
+    input_wait_request->Flags = 0;
+    if (input_wait_api.handle(input_wait_message) ||
+        input_wait_api.take_pending_read_kind() !=
+            corehost::consoleapi::console_api::pending_read_kind::console_input)
+    {
+        std::fprintf(stderr, "GetConsoleInput did not suspend\n");
+        return EXIT_FAILURE;
+    }
+    input_wait_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'A'}});
+    if (!input_wait_api.resume_console_input(input_wait_message) ||
+        input_wait_request->NumRecords != 1)
+    {
+        std::fprintf(stderr, "GetConsoleInput resume failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }
