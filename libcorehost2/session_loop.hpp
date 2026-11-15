@@ -92,7 +92,7 @@ inline void run_conpty_session(win32::handle_view server,
             static_cast<std::int32_t>(state.state().cursor().x),
             static_cast<std::int32_t>(state.state().cursor().y),
         };
-        vtserializer::render_damage(writer.buffer(), state.screen(), cursor);
+        vtserializer::render_damage(writer.buffer(), state.screen(), cursor, &state.state());
         state.screen().clear_damage();
 
         if (!writer.flush())

@@ -6,6 +6,7 @@
 #include "text.hpp"
 
 #include "screen_buffer.hpp"
+#include "console_state.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -18,7 +19,8 @@ namespace corehost::vtserializer
 // into the shared serializer buffer.
 inline void render_damage(byte_buffer &output,
                           const screen::screen_buffer &buffer,
-                          screen::coord cursor)
+                          screen::coord cursor,
+                          const screen::console_state *state = nullptr)
 {
     const auto origin = buffer.viewport_origin();
     const auto size = buffer.viewport_size();
@@ -114,6 +116,11 @@ inline void render_damage(byte_buffer &output,
 
     append_cup(output, static_cast<unsigned>(cursor.y - origin.y),
                static_cast<unsigned>(cursor.x - origin.x));
+    if (state != nullptr)
+    {
+        append_cursor_visibility(output, state->cursor().visible);
+        append_cursor_shape(output, static_cast<unsigned>(state->cursor().style), false);
+    }
 }
 
 } // namespace corehost::vtserializer

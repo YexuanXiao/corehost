@@ -166,6 +166,19 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::console_state cursor_state{10, 2};
+    cursor_state.cursor().visible = false;
+    cursor_state.cursor().style = corehost::screen::cursor_style::bar;
+    buffer.clear();
+    render_damage(buffer, screen, corehost::screen::coord{2, 0}, &cursor_state);
+    const std::u8string cursor_state_output{buffer.bytes().begin(), buffer.bytes().end()};
+    if (cursor_state_output.find(u8"\x1b[?25l") == std::u8string::npos ||
+        cursor_state_output.find(u8"\x1b[6 q") == std::u8string::npos)
+    {
+        std::fprintf(stderr, "cursor state render missing\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtserializer tests passed\n");
     return EXIT_SUCCESS;
 }
