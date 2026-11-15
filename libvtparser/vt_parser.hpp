@@ -41,6 +41,7 @@
 //
 #pragma once
 #include <algorithm>
+#include <bitset>
 #include <ranges>
 #include <cstdint>
 #include <charconv>
@@ -536,14 +537,14 @@ class vt_parser
     }
 
   private:
-    [[nodiscard]] static constexpr std::array<std::uint8_t, 0x10000> _control_table() noexcept
+    [[nodiscard]] static constexpr std::bitset<0x10000> _control_table() noexcept
     {
-        std::array<std::uint8_t, 0x10000> table{};
+        std::bitset<0x10000> table;
         for (size_t i = 0; i < 0x20; ++i)
         {
-            table[i] = 1;
+            table.set(i);
         }
-        table[0x7F] = 1;
+        table.set(0x7F);
         return table;
     }
     // 返回输入开头可直接作为 ground 文本消费的 codepoint 数。调用点已经
