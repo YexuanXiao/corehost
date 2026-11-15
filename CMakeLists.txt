@@ -68,6 +68,9 @@ add_subdirectory(common)
 # ── libinterop (ABI-compatible Win32 console types) ───
 add_subdirectory(libinterop)
 
+# ── libcoreio (ConDrv IO primitives) ──────────────────
+add_subdirectory(libcoreio)
+
 # ── libvtparser (platform-neutral VT parser) ─────────
 add_subdirectory(libvtparser)
 
