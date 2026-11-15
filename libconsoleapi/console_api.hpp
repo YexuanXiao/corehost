@@ -1893,11 +1893,12 @@ class console_api final
         }
         if (has_processes())
         {
-            std::vector<std::uintptr_t> targets(processes_->size());
-            const auto count = processes_->copy_for_group(request->ProcessGroupId, targets);
+            ctrl_targets_.resize(processes_->size());
+            const auto count = processes_->copy_for_group(request->ProcessGroupId, ctrl_targets_);
             for (std::size_t i = 0; i < count; ++i)
             {
-                ctrl_events_.push_back({static_cast<DWORD>(request->CtrlEvent), static_cast<DWORD>(targets[i])});
+                ctrl_events_.push_back(
+                    {static_cast<DWORD>(request->CtrlEvent), static_cast<DWORD>(ctrl_targets_[i])});
             }
         }
         coreio::prepare_completion(message);
@@ -2668,6 +2669,7 @@ class console_api final
     std::u16string text_buffer_;
     std::u16string history_selection_;
     std::vector<std::u16string_view> alias_exes_seen_;
+    std::vector<std::uintptr_t> ctrl_targets_;
     std::array<consoleinput::input_event, 64> read_events_;
     std::vector<char> ansi_buffer_;
     std::vector<char16_t> char_buffer_;
