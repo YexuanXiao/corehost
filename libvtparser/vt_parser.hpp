@@ -527,8 +527,33 @@ class vt_parser
     // 确认 parser 处于 ground；函数只负责找到首个 C0/DEL 控制字符。
     [[nodiscard]] size_t _direct_ground_text_run_length(std::u32string_view text) const noexcept
     {
-        const auto it = std::ranges::find_if(text, [](char32_t ch) { return ch <= 0x1F || ch == 0x7F; });
-        return static_cast<size_t>(it - text.begin());
+        static constexpr std::array<bool, 0x80> control = [] {
+            std::array<bool, 0x80> table{};
+            for (size_t i = 0; i < 0x20; ++i)
+            {
+                table[i] = true;
+            }
+            table[0x7F] = true;
+            return table;
+        }();
+
+        size_t count = 0;
+        for (const char32_t ch : text)
+        {
+            if (ch < 0x80)
+            {
+                if (control[static_cast<size_t>(ch)])
+                {
+                    break;
+                }
+            }
+            else if (ch == 0x7F)
+            {
+                break;
+            }
+            ++count;
+        }
+        return count;
     }
 
     // 返回当前正在解析的 ESC 序列原文；不在 ESC 序列内时返回空 view。
