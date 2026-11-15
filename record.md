@@ -1006,6 +1006,20 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### SetTitle 窗口句柄分支隔离
+
+生产路径 `session_loop` 创建 pseudo window 后必定设置 `window_handle_`；只有单元测试可能不设置。`set_title` 的：
+
+```cpp
+if (window_handle_ != 0)
+```
+
+只在 `COREHOST2_TESTING` 下保留，生产路径直接调用 `SetWindowTextW`，并用断言保证句柄非零：
+
+```text
+570cf7a perf(consoleapi): gate optional window update to tests
+```
+
 ### AddAlias 解码缓冲复用
 
 `add_alias` 不再构造三个临时 `std::u16string`，分别复用 `decoded_source_`、`decoded_executable_`、`text_buffer_`，解码后移动进 `alias_entry`；`decode_console_text` 临时包装已删除。
