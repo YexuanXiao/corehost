@@ -771,3 +771,35 @@ value.background = ((attributes >> 4) & 0x0F) == 0
 ```
 
 真实 WT 验证：RGB-RED / IDX-RED / HOST-RED 均为红字、默认背景，与原始 OpenConsole 一致。
+
+补充：`Write-Host "BLACK-BG" -ForegroundColor White -BackgroundColor Black` 在原始 OpenConsole 和 corehost2 中都显示为白字默认背景，行为一致。
+
+## 2026-11-16 console API probe 对比
+
+脚本：
+
+```text
+sbi
+settitle API-TITLE
+gettitle
+write API-WRITE
+sbi
+exit
+```
+
+corehost2 与原始 OpenConsole 输出一致：
+
+```text
+[script] sbi size=120x30 cursor=0,4 attr=0x0007
+[script] settitle ok
+[script] gettitle "API-TITLE"
+API-WRITE[script] write ok
+[script] sbi size=120x30 cursor=0,8 attr=0x0007
+```
+
+说明：
+
+- `GetConsoleScreenBufferInfo` 尺寸/光标/属性正确；
+- `SetConsoleTitleW` / `GetConsoleTitleW` 正确；
+- `WriteConsole` 不换行、光标推进正确；
+- 属性保持 0x0007。
