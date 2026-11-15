@@ -61,15 +61,14 @@ int main()
         std::string bytes;
         bool eof{};
 
-        static void on_input_bytes(void *context, std::span<const std::byte> value)
+        void on_input_bytes(std::span<const std::byte> value)
         {
-            auto &self = *static_cast<recording_sink *>(context);
-            self.bytes.append(reinterpret_cast<const char *>(value.data()), value.size());
+            bytes.append(reinterpret_cast<const char *>(value.data()), value.size());
         }
 
-        static void on_input_eof(void *context)
+        void on_input_eof()
         {
-            static_cast<recording_sink *>(context)->eof = true;
+            eof = true;
         }
     };
 
@@ -82,9 +81,7 @@ int main()
     }
 
     recording_sink input_sink;
-    corehost::conptyio::vt_input_thread input_thread{
-        win32::handle_view{input_read}, &input_sink, &recording_sink::on_input_bytes,
-        &recording_sink::on_input_eof};
+    corehost::conptyio::vt_input_thread input_thread{win32::handle_view{input_read}, input_sink};
     input_thread.start();
     DWORD input_written = 0;
     ::WriteFile(input_write, "abc", 3, &input_written, nullptr);
@@ -105,9 +102,7 @@ int main()
         return EXIT_FAILURE;
     }
     recording_sink stop_sink;
-    corehost::conptyio::vt_input_thread stop_thread{
-        win32::handle_view{stop_read}, &stop_sink, &recording_sink::on_input_bytes,
-        &recording_sink::on_input_eof};
+    corehost::conptyio::vt_input_thread stop_thread{win32::handle_view{stop_read}, stop_sink};
     stop_thread.start();
     stop_thread.stop_and_join();
     ::CloseHandle(stop_write);
@@ -118,17 +113,15 @@ int main()
         std::vector<std::byte> payload;
         bool eof{};
 
-        static void on_signal(void *context, std::uint16_t value,
-                              std::span<const std::byte> bytes)
+        void on_signal(std::uint16_t value, std::span<const std::byte> bytes)
         {
-            auto &self = *static_cast<recording_signal_sink *>(context);
-            self.id = value;
-            self.payload.assign(bytes.begin(), bytes.end());
+            id = value;
+            payload.assign(bytes.begin(), bytes.end());
         }
 
-        static void on_signal_eof(void *context)
+        void on_signal_eof()
         {
-            static_cast<recording_signal_sink *>(context)->eof = true;
+            eof = true;
         }
     };
 
@@ -141,8 +134,7 @@ int main()
     }
     recording_signal_sink signal_sink;
     corehost::conptyio::pty_signal_thread signal_thread{
-        win32::handle_view{signal_thread_read}, &signal_sink,
-        &recording_signal_sink::on_signal, &recording_signal_sink::on_signal_eof};
+        win32::handle_view{signal_thread_read}, signal_sink};
     signal_thread.start();
     const std::uint16_t signal_id = 8;
     const std::uint32_t signal_resize = (4u << 16) | 12u;
@@ -167,8 +159,7 @@ int main()
     }
     recording_signal_sink signal_stop_sink;
     corehost::conptyio::pty_signal_thread signal_stop_thread{
-        win32::handle_view{signal_stop_read}, &signal_stop_sink,
-        &recording_signal_sink::on_signal, &recording_signal_sink::on_signal_eof};
+        win32::handle_view{signal_stop_read}, signal_stop_sink};
     signal_stop_thread.start();
     signal_stop_thread.stop_and_join();
     ::CloseHandle(signal_stop_write);

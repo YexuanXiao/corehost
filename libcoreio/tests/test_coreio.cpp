@@ -28,7 +28,7 @@ int main()
     struct fake_handler
     {
         int handled{};
-        bool operator()(corehost::coreio::io_msg &) noexcept { ++handled; return true; }
+        bool handle(corehost::coreio::io_msg &) noexcept { ++handled; return true; }
     };
 
     fake_transport transport;

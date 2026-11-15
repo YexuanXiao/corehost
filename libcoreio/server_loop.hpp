@@ -32,7 +32,7 @@ void run_server(Transport &transport, Handler &handler, std::stop_token stop = {
         const auto result = transport.read(previous, message);
         if (result == read_io_result::got_message)
         {
-            if (handler(message))
+            if (handler.handle(message))
             {
                 previous = &message.complete;
             }
@@ -69,7 +69,7 @@ void run_server(Transport &transport, Handler &handler, const std::atomic_bool &
         const auto result = transport.read(previous, message);
         if (result == read_io_result::got_message)
         {
-            if (handler(message))
+            if (handler.handle(message))
             {
                 previous = &message.complete;
             }

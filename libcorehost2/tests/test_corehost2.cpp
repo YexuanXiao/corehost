@@ -56,6 +56,30 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer write_server_buffer{8, 2};
+    corehost::screen::console_state write_server_state{8, 2};
+    corehost::consoleinput::input_queue write_server_input;
+    corehost::corehost2::server_session write_server{write_server_buffer, write_server_state,
+                                                    write_server_input};
+    constexpr char16_t write_vt_text[]{u'A', u'\x1b', u'[', u'3', u'1', u'm', u'B'};
+    corehost::coreio::io_msg write_vt_message{};
+    write_vt_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG) + sizeof(write_vt_text);
+    auto *write_vt_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(write_vt_message.body);
+    write_vt_header->ApiNumber = ConsolepWriteConsole;
+    auto *write_vt_request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(
+        write_vt_message.body + sizeof(CONSOLE_MSG_HEADER));
+    write_vt_request->Unicode = TRUE;
+    std::memcpy(write_vt_request + 1, write_vt_text, sizeof(write_vt_text));
+    if (!write_server.handle(write_vt_message) ||
+        write_vt_request->NumBytes != sizeof(write_vt_text) ||
+        write_server_buffer.at(0, 0).primary() != u'A' ||
+        write_server_buffer.at(1, 0).primary() != u'B')
+    {
+        std::fprintf(stderr, "server WriteConsole VT failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::screen::screen_buffer server_buffer{8, 2};
     corehost::screen::console_state server_state{8, 2};
     corehost::consoleinput::input_queue server_input;

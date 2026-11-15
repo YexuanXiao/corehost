@@ -40,11 +40,9 @@ class console_api final
                 consoleinput::input_queue *input = nullptr,
                 std::uintptr_t input_object = 0,
                 coreio::process_registry *processes = nullptr,
-                coreio::input_payload_reader *payload = nullptr,
-                void *writer_context = nullptr,
-                std::size_t (*writer)(void *, std::u16string_view) = nullptr) noexcept
+                coreio::input_payload_reader *payload = nullptr) noexcept
         : buffer_{buffer}, state_{state}, input_{input}, input_object_{input_object}, processes_{processes},
-          payload_{payload}, writer_context_{writer_context}, writer_{writer}
+          payload_{payload}
     {
         last_window_width_ = buffer_.width();
         last_window_height_ = buffer_.height();
@@ -2583,10 +2581,6 @@ class console_api final
 
     std::size_t write_console_text(std::u16string_view text) noexcept
     {
-        if (writer_ != nullptr)
-        {
-            return writer_(writer_context_, text);
-        }
         screen::coord cursor{static_cast<std::int32_t>(state_.cursor().x),
                              static_cast<std::int32_t>(state_.cursor().y)};
         std::size_t written = 0;
@@ -2825,8 +2819,6 @@ class console_api final
     std::uintptr_t window_handle_{};
     coreio::process_registry *processes_{};
     coreio::input_payload_reader *payload_{};
-    void *writer_context_{};
-    std::size_t (*writer_)(void *, std::u16string_view){};
     std::u16string cooked_line_;
     std::size_t cooked_cursor_{};
     screen::coord cooked_origin_{};

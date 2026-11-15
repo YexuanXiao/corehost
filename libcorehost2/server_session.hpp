@@ -26,7 +26,7 @@ class server_session final
                    std::uintptr_t input_object = 0,
                    win32::handle_view server = {}) noexcept
         : server_{server}, screen_{buffer}, state_{state}, input_{input}, parser_{raw_}, applier_{},
-          payload_{server}, api_{buffer, state, &input, input_object, &processes_, &payload_, this, &server_session::write_text_callback}
+          payload_{server}, api_{buffer, state, &input, input_object, &processes_, &payload_}
     {
     }
 
@@ -60,11 +60,6 @@ class server_session final
             }
         }
     }
-    static std::size_t write_text_callback(void *context, std::u16string_view text)
-    {
-        return static_cast<server_session *>(context)->write_text(text);
-    }
-
     std::size_t write_text(std::u16string_view input)
     {
         std::size_t consumed = 0;
@@ -258,13 +253,59 @@ class server_session final
         api_.set_window_handle(window);
     }
 
-    bool operator()(coreio::io_msg &message)
+    bool write_console(coreio::io_msg &message)
     {
-        return handle(message);
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto payload = payload_.read(message, sizeof(CONSOLE_MSG_HEADER) +
+                                                         sizeof(CONSOLE_WRITECONSOLE_MSG));
+        std::size_t written = 0;
+        if (request->Unicode)
+        {
+            const auto *data = reinterpret_cast<const char16_t *>(payload.data());
+            const auto count = payload.size() / sizeof(char16_t);
+            written = write_text(std::u16string_view{data, count});
+            request->NumBytes = static_cast<ULONG>(written * sizeof(char16_t));
+        }
+        else
+        {
+            const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_OEMCP;
+            const auto *bytes_data = reinterpret_cast<const char *>(payload.data());
+            const auto units = ::MultiByteToWideChar(code_page, 0, bytes_data,
+                                                     static_cast<int>(payload.size()), nullptr, 0);
+            std::u16string text(static_cast<std::size_t>(std::max(units, 0)), u'\0');
+            if (units > 0)
+            {
+                (void)::MultiByteToWideChar(code_page, 0, bytes_data,
+                                            static_cast<int>(payload.size()),
+                                            reinterpret_cast<LPWSTR>(text.data()), units);
+            }
+            written = write_text(text);
+            const auto encoded = ::WideCharToMultiByte(
+                code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                static_cast<int>(written), nullptr, 0, nullptr, nullptr);
+            request->NumBytes = static_cast<ULONG>(std::max(encoded, 0));
+        }
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLE_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_WRITECONSOLE_MSG));
+        return true;
     }
-
     bool handle(coreio::io_msg &message)
     {
+        if (message.descriptor.InputSize >= sizeof(CONSOLE_MSG_HEADER))
+        {
+            const auto *header = reinterpret_cast<const CONSOLE_MSG_HEADER *>(message.body);
+            if (header->ApiNumber == ConsolepWriteConsole)
+            {
+                return write_console(message);
+            }
+        }
         if (api_.handle(message))
         {
             if (api_.take_cancel_pending())
