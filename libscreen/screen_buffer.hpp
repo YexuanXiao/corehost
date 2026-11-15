@@ -474,6 +474,7 @@ class screen_buffer final
     bool alternate_active_{};
     bizwen::deque<history_row> history_;
     style_table styles_;
+    cell_style default_style_id_{};
     hyperlink_table hyperlinks_;
     image_table images_;
     grapheme_store graphemes_;
@@ -608,6 +609,7 @@ inline screen_buffer::screen_buffer(std::size_t width, std::size_t height, std::
       view_(coord{static_cast<std::int32_t>(width), static_cast<std::int32_t>(height)})
 {
     assert(width != 0 && height != 0);
+    default_style_id_ = styles_.intern(text_style{});
 }
 
 inline const cell &screen_buffer::at(std::size_t x, std::size_t y) const noexcept
@@ -715,19 +717,21 @@ inline std::optional<std::int32_t> screen_buffer::command_exit_code(std::size_t 
 
 inline cell_style screen_buffer::style_for_legacy(std::uint16_t attributes)
 {
+    if (attributes == 0x0007)
+    {
+        return default_style_id_;
+    }
+
     auto value = text_style{};
     value.legacy_attributes = attributes;
-    if (attributes != 0x0007)
-    {
-        const auto to_indexed = [](std::uint16_t bgri) noexcept {
-            return static_cast<std::uint32_t>((bgri & 0x04 ? 1u : 0u) | (bgri & 0x02 ? 2u : 0u) |
-                                              (bgri & 0x01 ? 4u : 0u) | (bgri & 0x08 ? 8u : 0u));
-        };
-        value.foreground = color{color_kind::indexed, to_indexed(attributes & 0x0F)};
-        value.background = ((attributes >> 4) & 0x0F) == 0
-                               ? color{}
-                               : color{color_kind::indexed, to_indexed((attributes >> 4) & 0x0F)};
-    }
+    const auto to_indexed = [](std::uint16_t bgri) noexcept {
+        return static_cast<std::uint32_t>((bgri & 0x04 ? 1u : 0u) | (bgri & 0x02 ? 2u : 0u) |
+                                          (bgri & 0x01 ? 4u : 0u) | (bgri & 0x08 ? 8u : 0u));
+    };
+    value.foreground = color{color_kind::indexed, to_indexed(attributes & 0x0F)};
+    value.background = ((attributes >> 4) & 0x0F) == 0
+                           ? color{}
+                           : color{color_kind::indexed, to_indexed((attributes >> 4) & 0x0F)};
     return styles_.intern(value);
 }
 
