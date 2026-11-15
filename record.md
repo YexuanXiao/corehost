@@ -103,3 +103,21 @@ libcorehost: raw write 137 -> GetConsoleInput 560 -> raw write 4351
 - 自动化输入使用 SendKeys/SendInput；PowerShell 的 PSReadLine 会重绘输入行，截图中可能出现淡色重复文本。
 - 左侧边缘的竖排字符来自 WT 透明边框后的桌面内容，不属于控制台输出。
 - `openconsole.exe` 当前仍是 corehost2；恢复原始宿主请复制 `OpenConsole.exe.orig`。
+
+## 2026-11-15 追加对比
+
+- 真实 WT + PowerShell 5.1：
+  - libcorehost：输入 `echo HELLO-123`，命令行和输出均保留大写与连字符。
+  - corehost2：同一 SendKeys 输入显示为 `echo hello123`，大写和连字符丢失。
+  - corehost2 原始 Win32Input 日志中 `Uc=104`、`ControlKeyState=0`；libcorehost 同场景为 `Uc=104`、`ControlKeyState=32`，说明 corehost2 的输入模式/修饰键路径仍与 libcorehost 不同。
+- edit：
+  - corehost2 仍只进入 alternate screen，菜单/编辑区不绘制。
+  - 日志显示 edit 的 RAW_WRITE 137 字节完成，WT 返回 517/1034 字节终端应答；corehost2 将应答解析为 terminal response，但 `complete_pending` 时 `pending_active=0`，之后没有新的 `GetConsoleInput` 请求。
+  - 尝试改为 piggyback completion 后 edit 仍空白，已撤销该无效修复。
+
+## 修复记录
+
+- `a6f1f8e fix(corehost2): preserve Win32Input key metadata in VT input mode`
+  - 在 `raw_passthrough` 前优先处理 `win32_input_key`，避免把 Win32Input CSI 原文重新编码成 KEY_EVENT。
+  - 新增 `test_corehost2` 回归：raw_passthrough 下保留 VK/Uc/ControlKeyState。
+  - 该修复通过单元测试，但尚未解决 PS5.1 大写/连字符问题。
