@@ -60,6 +60,12 @@ int main()
     check(result.id == vt_message_id::set_line_rendition, "line rendition id");
     check(result.message.payload.line_rendition == 3, "line rendition payload");
 
+    parser.reset();
+    result = parser.parse(U"\x1b]133;D;0\x07");
+    check(result.id == vt_message_id::semantic_prompt_mark, "semantic prompt id");
+    check(result.message.payload.semantic.kind == u'D', "semantic prompt kind");
+    check(result.message.payload.semantic.argument == U"0", "semantic prompt argument");
+
     if (failures != 0)
     {
         std::fprintf(stderr, "%d failures\n", failures);

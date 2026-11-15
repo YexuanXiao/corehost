@@ -69,6 +69,7 @@ enum class vt_message_id
     // 宿主终端，corehost 不建模 hyperlink 属性。
     set_window_title,
     osc8_hyperlink,
+    semantic_prompt_mark,
 
     // C0/ESC 基础控制。输入方向用于行编辑和 RAW_READ 行终止判断；输出方向会
     // 更新本地 cursor/screen 并序列化为对应 VT。
@@ -413,6 +414,13 @@ union vt_message_payload {
     vt_palette_payload palette;
     // OSC 8 hyperlink 参数。
     vt_hyperlink_payload hyperlink;
+    // OSC 133 semantic prompt: kind (A/B/C/D) + argument。
+    struct vt_semantic_payload final
+    {
+        char16_t kind{};
+        std::u32string_view argument;
+    };
+    vt_semantic_payload semantic;
     // CPR 响应坐标，1-based。
     vt_position_payload cpr;
     // SGR 图形属性修改。
@@ -1227,6 +1235,18 @@ class vt_parser
             return vt_message_id::osc8_hyperlink;
         }
 
+        case 133:
+        {
+            if (payload.empty())
+            {
+                return vt_message_id::unknown_sequence;
+            }
+            m.payload.semantic.kind = static_cast<char16_t>(payload[0]);
+            m.payload.semantic.argument = payload.size() > 1 && payload[1] == U';'
+                                              ? payload.substr(2)
+                                              : std::u32string_view{};
+            return vt_message_id::semantic_prompt_mark;
+        }
         case 0:
         case 2:
             // OSC 0 和 OSC 2 都作为窗口标题处理；icon title 不单独建模。
