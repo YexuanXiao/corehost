@@ -1001,6 +1001,14 @@ fb4d3ef perf(libscreen): remove per-cell bounds checks in ascii run
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### Alias EXE 去重缓冲复用
+
+`get_alias_exes_length` / `get_alias_exes` 的局部 `seen` 向量改为复用成员 `alias_exes_seen_`，每次查询只 `clear()` 保留容量：
+
+```text
+3c78768 perf(consoleapi): reuse alias exe seen buffer
+```
+
 ### 命令历史队列
 
 `console_state::command_history` 从 `std::vector<std::u16string>` 改为 `bizwen::deque<std::u16string>`：
