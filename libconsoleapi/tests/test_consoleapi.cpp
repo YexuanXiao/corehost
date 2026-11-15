@@ -501,6 +501,21 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg attribute_message{};
+    attribute_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTEXTATTRIBUTE_MSG);
+    attribute_message.descriptor.OutputSize = sizeof(attribute_message.body);
+    auto *attribute_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(attribute_message.body);
+    attribute_header->ApiNumber = ConsolepSetTextAttribute;
+    auto *attribute_request = reinterpret_cast<CONSOLE_SETTEXTATTRIBUTE_MSG *>(
+        attribute_message.body + sizeof(CONSOLE_MSG_HEADER));
+    attribute_request->Attributes = 0x1F;
+    if (!api.handle(attribute_message) || state.default_attributes != 0x1F)
+    {
+        std::fprintf(stderr, "set text attribute failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

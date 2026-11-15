@@ -78,6 +78,10 @@ class console_api final
         {
             return get_largest_window_size(message);
         }
+        if (header->ApiNumber == ConsolepSetTextAttribute)
+        {
+            return set_text_attribute(message);
+        }
         if (header->ApiNumber == ConsolepScrollScreenBuffer)
         {
             return scroll_console_buffer(message);
@@ -228,6 +232,21 @@ class console_api final
         coreio::prepare_completion(message, 0, count * sizeof(INPUT_RECORD),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    count * sizeof(INPUT_RECORD));
+        return true;
+    }
+
+    [[nodiscard]] bool set_text_attribute(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTEXTATTRIBUTE_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *request = reinterpret_cast<const CONSOLE_SETTEXTATTRIBUTE_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        state_.default_attributes = request->Attributes;
+        state_.default_style = buffer_.style_for_attributes(request->Attributes);
+        coreio::prepare_completion(message);
         return true;
     }
 

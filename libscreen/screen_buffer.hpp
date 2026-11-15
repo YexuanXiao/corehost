@@ -359,6 +359,7 @@ class screen_buffer final
     void fill_chars(rect area, char16_t character) noexcept;
     void fill_attrs(rect area, std::uint16_t attributes) noexcept;
     [[nodiscard]] bool set_attr(coord position, std::uint16_t attributes) noexcept;
+    [[nodiscard]] cell_style style_for_attributes(std::uint16_t attributes);
     [[nodiscard]] std::uint16_t attr_at(coord position) const noexcept;
 
     struct text_write_result final
@@ -1263,6 +1264,11 @@ inline void screen_buffer::fill_attrs(rect area, std::uint16_t attributes) noexc
                               static_cast<std::size_t>(x + 1));
         }
     }
+}
+
+inline cell_style screen_buffer::style_for_attributes(std::uint16_t attributes)
+{
+    return style_for_legacy(attributes);
 }
 
 inline bool screen_buffer::set_attr(coord position, std::uint16_t attributes) noexcept
