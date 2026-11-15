@@ -989,6 +989,14 @@ mixed  old=26.4318 ns/unit new=26.0547 ns/unit ratio≈1.01x
 b33bbde perf(libscreen): skip grapheme segmentation for printable ascii
 ```
 
+### 单码点 scratch 去零初始化
+
+`append_utf16` 单码点路径的 4 字节栈缓冲不再零初始化；encoder 会写入实际使用的字节：
+
+```text
+751fa27 perf(vtserializer): avoid zeroing single-unit scratch
+```
+
 ### 未保留：resize_and_overwrite 转换
 
 尝试将 `write_raw` 的：
