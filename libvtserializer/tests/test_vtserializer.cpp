@@ -120,6 +120,17 @@ int main()
         return EXIT_FAILURE;
     }
 
+    screen.set_flags(0, corehost::screen::line_flag_ops::raw(corehost::screen::line_flag::double_width));
+    buffer.clear();
+    render_damage(buffer, screen, corehost::screen::coord{2, 0});
+    const std::u8string rendition_output{buffer.bytes().begin(), buffer.bytes().end()};
+    if (rendition_output.find(u8"\x1b#6") == std::u8string::npos)
+    {
+        std::fprintf(stderr, "line rendition output missing\n");
+        return EXIT_FAILURE;
+    }
+    screen.set_flags(0, 0);
+
     const auto link = screen.hyperlinks().intern(u"https://e", u"id");
     (void)screen.write_glyph(corehost::screen::coord{0, 1}, u"L", 1,
                              corehost::screen::cell_style{}, link);

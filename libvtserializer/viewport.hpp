@@ -43,6 +43,21 @@ inline void render_damage(byte_buffer &output,
             continue;
         }
 
+        unsigned rendition = 5;
+        if (buffer.is_double_height_top(y))
+        {
+            rendition = 3;
+        }
+        else if (buffer.is_double_height_bottom(y))
+        {
+            rendition = 4;
+        }
+        else if (buffer.is_double_width(y))
+        {
+            rendition = 6;
+        }
+        append_line_rendition(output, rendition);
+
         append_cup(output, static_cast<unsigned>(row),
                    static_cast<unsigned>(begin - static_cast<std::size_t>(origin.x)));
 
