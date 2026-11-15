@@ -479,3 +479,38 @@ f25c1d5 fix(corehost2): translate Win32Input function keys to VT sequences
 - 选择 `Don't Save` 后 edit 退出并回到 PowerShell prompt。
 
 edit 快捷退出流程通过。
+
+## 2026-11-16 alternate screen 鼠标输入
+
+原始 OpenConsole 中鼠标点击 `File` 菜单会打开下拉菜单；corehost2 之前虽然已经收到 SGR 鼠标事件，但 edit 使用 VT 字符流解析鼠标，`MOUSE_EVENT` 被 read_stdin 忽略。
+
+修复：
+
+```text
+89e2899 fix(corehost2): pass alternate-screen mouse input as VT sequences
+```
+
+- alternate screen 下把 SGR 鼠标序列作为 VT 字符放入输入队列；
+- 普通屏幕仍生成 MOUSE_EVENT；
+- 新增 alternate screen 鼠标回归测试。
+
+真实 WT 验证：
+
+- 鼠标点击 `File` 菜单成功打开；
+- 菜单颜色、布局与原始 OpenConsole 一致；
+- F10 菜单也正常；
+- 编辑区点击不再插入 `@.#`；
+- 状态栏不再重复。
+
+### 当前 edit 已验证
+
+```text
+页面/菜单/行号/编辑区/状态栏
+标题 Untitled-1.txt - edit
+输入 HELLO + 回车
+Ctrl+O 文件对话框
+F10 File 菜单
+鼠标点击 File 菜单
+Ctrl+Q Unsaved Changes
+Don't Save 退出
+```
