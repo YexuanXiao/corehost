@@ -140,6 +140,18 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::corehost2::session enter_session{8, 2};
+    constexpr char16_t enter_input[]{u'A', u'\r'};
+    enter_session.feed_input(enter_input);
+    std::array<corehost::consoleinput::input_event, 8> enter_events{};
+    const auto enter_count =
+        enter_session.input().peek(std::span<corehost::consoleinput::input_event>{enter_events});
+    if (enter_count != 4 || enter_events[2].key.character != u'\r')
+    {
+        std::fprintf(stderr, "enter input key failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::corehost2::session window_session{8, 4};
     window_session.state().input_mode |= 0x0008;
     window_session.queue_window_size(8, 4);

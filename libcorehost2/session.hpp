@@ -169,6 +169,54 @@ class session final
             }
         }
 
+        if (input_direction)
+        {
+            char16_t control = 0;
+            bool has_control = false;
+            switch (result.id)
+            {
+            case vtparser::vt_message_id::char_control:
+            case vtparser::vt_message_id::char_sub:
+            case vtparser::vt_message_id::char_nul:
+                control = static_cast<char16_t>(result.message.payload.count.value);
+                has_control = true;
+                break;
+            case vtparser::vt_message_id::char_esc:
+                control = 0x1B;
+                has_control = true;
+                break;
+            case vtparser::vt_message_id::carriage_return:
+            case vtparser::vt_message_id::line_feed:
+                control = 0x0D;
+                has_control = true;
+                break;
+            case vtparser::vt_message_id::cursor_forward_tab:
+                control = 0x09;
+                has_control = true;
+                break;
+            case vtparser::vt_message_id::char_backspace:
+                control = 0x08;
+                has_control = true;
+                break;
+            case vtparser::vt_message_id::char_del:
+                control = 0x7F;
+                has_control = true;
+                break;
+            default:
+                break;
+            }
+            if (has_control)
+            {
+                input_.push(consoleinput::input_event{
+                    consoleinput::input_event_type::key,
+                    consoleinput::key_from_character(control, true)});
+                input_.push(consoleinput::input_event{
+                    consoleinput::input_event_type::key,
+                    consoleinput::key_from_character(control, false)});
+                return;
+            }
+        }
+
         if (input_direction &&
             (result.id == vtparser::vt_message_id::continue_text ||
              result.id == vtparser::vt_message_id::text))
