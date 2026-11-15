@@ -867,11 +867,22 @@ class console_api final
         }
         auto *request = reinterpret_cast<CONSOLE_WRITECONSOLEINPUT_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
-        const auto bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
-                           sizeof(CONSOLE_WRITECONSOLEINPUT_MSG);
-        const auto records = std::min<std::size_t>(request->NumRecords, bytes / sizeof(INPUT_RECORD));
-        const auto *input = reinterpret_cast<const INPUT_RECORD *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
+        std::span<const std::byte> payload;
+        if (payload_ != nullptr)
+        {
+            payload = payload_->read(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
+        }
+        else
+        {
+            const auto bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
+                               sizeof(CONSOLE_WRITECONSOLEINPUT_MSG);
+            payload = std::span<const std::byte>{
+                reinterpret_cast<const std::byte *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                        sizeof(CONSOLE_WRITECONSOLEINPUT_MSG)),
+                bytes};
+        }
+        const auto records = std::min<std::size_t>(request->NumRecords, payload.size() / sizeof(INPUT_RECORD));
+        const auto *input = reinterpret_cast<const INPUT_RECORD *>(payload.data());
         std::size_t written = 0;
         std::vector<consoleinput::input_event> prepend;
         if (input_ != nullptr)
