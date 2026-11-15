@@ -14,6 +14,7 @@
 #include "viewport.hpp"
 
 #include "win32/handle.hpp"
+#include "win32/srwlock.hpp"
 #include "win32/thread.hpp"
 
 #include <cstddef>
@@ -32,7 +33,7 @@ struct server_worker_context final
     server_dispatcher *dispatcher{};
     session *state{};
     conptyio::terminal_writer *writer{};
-    std::mutex *mutex{};
+    win32::srwlock *mutex{};
     const std::atomic_bool *stop{};
 };
 
@@ -43,7 +44,7 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
     {
         coreio::win32_transport transport{context.server, context.event};
         auto handler = [&](coreio::io_msg &message) -> bool {
-            const std::scoped_lock lock{*context.mutex};
+            std::unique_lock guard{*context.mutex};
             if (!context.dispatcher->handle(message))
             {
                 return false;
@@ -76,7 +77,7 @@ struct signal_worker_context final
     session *state{};
     conptyio::terminal_writer *writer{};
     conptyio::pseudo_window *window{};
-    std::mutex *mutex{};
+    win32::srwlock *mutex{};
     const std::atomic_bool *stop{};
 };
 
@@ -86,7 +87,7 @@ inline DWORD WINAPI signal_worker_entry(LPVOID raw)
     conptyio::signal_reader signals{context.signal_pipe};
     while (!context.stop->load(std::memory_order_relaxed) && signals.read_one())
     {
-        const std::scoped_lock lock{*context.mutex};
+        std::unique_lock guard{*context.mutex};
         conptyio::apply_signal(signals.id(), signals.payload(), context.state->screen(),
                                context.state->state(), context.window);
         if (!context.state->screen().has_damage())
@@ -140,7 +141,7 @@ inline void run_conpty_session(win32::handle_view server,
         vtserializer::append_request_cursor_position(writer.buffer());
     }
     (void)writer.flush();
-    std::mutex session_mutex;
+    win32::srwlock session_mutex;
     win32::basic_thread server_thread;
     win32::basic_thread signal_thread;
     std::atomic_bool server_stop{};
@@ -172,7 +173,7 @@ inline void run_conpty_session(win32::handle_view server,
 
     while (reader.read_batch())
     {
-        const std::scoped_lock lock{session_mutex};
+        std::unique_lock guard{session_mutex};
         state.feed_input(reader.codepoints());
         (void)console_session.complete_pending();
         for (const auto [mode, enabled] : state.state().take_private_modes())
