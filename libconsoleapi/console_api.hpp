@@ -408,6 +408,12 @@ class console_api final
                     record.Event.MouseEvent.dwControlKeyState = events[i].mouse.control_state;
                     record.Event.MouseEvent.dwEventFlags = events[i].mouse.event_flags;
                 }
+                else if (events[i].type == consoleinput::input_event_type::window)
+                {
+                    record.EventType = WINDOW_BUFFER_SIZE_EVENT;
+                    record.Event.WindowBufferSizeEvent.dwSize = COORD{events[i].window.width,
+                                                                      events[i].window.height};
+                }
                 else
                 {
                     record.EventType = KEY_EVENT;
@@ -970,6 +976,12 @@ class console_api final
                     converted.mouse.button_state = input[i].Event.MouseEvent.dwButtonState;
                     converted.mouse.control_state = input[i].Event.MouseEvent.dwControlKeyState;
                     converted.mouse.event_flags = input[i].Event.MouseEvent.dwEventFlags;
+                }
+                else if (input[i].EventType == WINDOW_BUFFER_SIZE_EVENT)
+                {
+                    converted.type = consoleinput::input_event_type::window;
+                    converted.window.width = input[i].Event.WindowBufferSizeEvent.dwSize.X;
+                    converted.window.height = input[i].Event.WindowBufferSizeEvent.dwSize.Y;
                 }
                 else if (input[i].EventType == KEY_EVENT)
                 {
