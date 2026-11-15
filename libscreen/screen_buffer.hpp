@@ -758,14 +758,15 @@ inline bool screen_buffer::write_cell(std::size_t x, std::size_t y, cell value)
         return false;
     }
 
-    if (value.is_wide() && x + 1 >= width_)
+    const bool wide = value.is_wide();
+    if (wide && x + 1 >= width_)
     {
         return false;
     }
 
     auto &target = active_page();
     clear_wide_neighborhood(target, x, y);
-    if (value.is_wide())
+    if (wide)
     {
         clear_wide_neighborhood(target, x + 1, y);
     }
@@ -774,7 +775,7 @@ inline bool screen_buffer::write_cell(std::size_t x, std::size_t y, cell value)
     target.mark_dirty(y, x, x + 1);
     target.mark_used(y, x + 1);
 
-    if (value.is_wide())
+    if (wide)
     {
         target.at(x + 1, y) = cell::tail(value.style(), value.hyperlink());
         target.mark_dirty(y, x + 1, x + 2);
