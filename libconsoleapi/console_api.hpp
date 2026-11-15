@@ -95,6 +95,21 @@ class console_api final
         }
 
         const auto *header = reinterpret_cast<const CONSOLE_MSG_HEADER *>(message.body);
+        if (header->ApiDescriptorSize != 0 &&
+            (header->ApiDescriptorSize < sizeof(CONSOLE_MSG_HEADER) ||
+             header->ApiDescriptorSize > sizeof(message.body) ||
+             header->ApiDescriptorSize >
+                 message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER)))
+        {
+            coreio::prepare_completion(message, coreio::error::status_illegal_function);
+            return true;
+        }
+        const auto layer = header->ApiNumber >> 24;
+        if (layer < 1 || layer > 3)
+        {
+            coreio::prepare_completion(message, coreio::error::status_illegal_function);
+            return true;
+        }
         if (header->ApiNumber == ConsolepGetScreenBufferInfo)
         {
             return get_screen_buffer_info(message);
