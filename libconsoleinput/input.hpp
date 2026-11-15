@@ -149,9 +149,15 @@ class input_queue final
             }
         }
         head_ += count;
-        if (head_ != 0 && head_ * 2 >= events_.size())
+        if (head_ == events_.size())
         {
-            events_.erase(events_.begin(), events_.begin() + static_cast<std::ptrdiff_t>(head_));
+            events_.clear();
+            head_ = 0;
+        }
+        else if (head_ != 0 && head_ * 2 >= events_.size())
+        {
+            std::shift_left(events_.begin(), events_.end(), static_cast<std::ptrdiff_t>(head_));
+            events_.resize(events_.size() - head_);
             head_ = 0;
         }
         return count;

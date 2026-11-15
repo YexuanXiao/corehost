@@ -57,7 +57,7 @@ class byte_buffer final
 
     void append(std::span<const char8_t> value)
     {
-        bytes_.insert(bytes_.end(), value.begin(), value.end());
+        bytes_.append_range(value);
     }
 
     void append_text(std::u8string_view value)
