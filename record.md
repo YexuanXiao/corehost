@@ -1006,6 +1006,14 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### AddAlias 解码缓冲复用
+
+`add_alias` 不再构造三个临时 `std::u16string`，分别复用 `decoded_source_`、`decoded_executable_`、`text_buffer_`，解码后移动进 `alias_entry`；`decode_console_text` 临时包装已删除。
+
+```text
+5a233dd perf(consoleapi): decode add alias into shared buffers
+```
+
 ### GetAlias 解码缓冲复用
 
 `get_alias` 不再为每次查询构造局部 `executable` / `source`，复用 `decoded_executable_` / `decoded_source_`；新增 `decode_console_text_into` 复用已有容量：
