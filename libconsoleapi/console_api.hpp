@@ -336,21 +336,7 @@ class console_api final
             {
                 auto &record = output[i];
                 const auto &event = events[i];
-                if (event.type == consoleinput::input_event_type::mouse)
-                {
-                    record.EventType = MOUSE_EVENT;
-                    record.Event.MouseEvent.dwMousePosition =
-                        COORD{static_cast<SHORT>(event.mouse.x), static_cast<SHORT>(event.mouse.y)};
-                    record.Event.MouseEvent.dwButtonState = event.mouse.button_state;
-                    record.Event.MouseEvent.dwControlKeyState = event.mouse.control_state;
-                    record.Event.MouseEvent.dwEventFlags = event.mouse.event_flags;
-                }
-                else if (event.type == consoleinput::input_event_type::window)
-                {
-                    record.EventType = WINDOW_BUFFER_SIZE_EVENT;
-                    record.Event.WindowBufferSizeEvent.dwSize = COORD{event.window.width, event.window.height};
-                }
-                else
+                if (event.type == consoleinput::input_event_type::key)
                 {
                     record.EventType = KEY_EVENT;
                     record.Event.KeyEvent.bKeyDown = event.key.key_down ? TRUE : FALSE;
@@ -371,6 +357,20 @@ class console_api final
                         record.Event.KeyEvent.uChar.AsciiChar = narrow;
                     }
                     record.Event.KeyEvent.dwControlKeyState = event.key.control_state;
+                }
+                else if (event.type == consoleinput::input_event_type::mouse)
+                {
+                    record.EventType = MOUSE_EVENT;
+                    record.Event.MouseEvent.dwMousePosition =
+                        COORD{static_cast<SHORT>(event.mouse.x), static_cast<SHORT>(event.mouse.y)};
+                    record.Event.MouseEvent.dwButtonState = event.mouse.button_state;
+                    record.Event.MouseEvent.dwControlKeyState = event.mouse.control_state;
+                    record.Event.MouseEvent.dwEventFlags = event.mouse.event_flags;
+                }
+                else
+                {
+                    record.EventType = WINDOW_BUFFER_SIZE_EVENT;
+                    record.Event.WindowBufferSizeEvent.dwSize = COORD{event.window.width, event.window.height};
                 }
             }
         }
