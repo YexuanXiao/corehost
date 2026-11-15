@@ -1456,6 +1456,63 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::input_queue edit_queue;
+    corehost::screen::screen_buffer edit_buffer{20, 4};
+    corehost::screen::console_state edit_state{20, 4};
+    corehost::consoleapi::console_api edit_api{edit_buffer, edit_state, &edit_queue};
+    edit_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'A'}});
+    edit_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'B'}});
+    corehost::consoleinput::key_event left_key;
+    left_key.character = 0;
+    left_key.key = corehost::consoleinput::virtual_key::left;
+    edit_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, left_key});
+    edit_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'X'}});
+    edit_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\r'}});
+    corehost::coreio::io_msg edit_message{};
+    edit_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    edit_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 16 * sizeof(char16_t);
+    auto *edit_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(edit_message.body);
+    edit_header->ApiNumber = ConsolepReadConsole;
+    auto *edit_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        edit_message.body + sizeof(CONSOLE_MSG_HEADER));
+    edit_request->Unicode = TRUE;
+    if (!edit_api.handle(edit_message))
+    {
+        std::fprintf(stderr, "line edit read failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *edit_output = reinterpret_cast<const char16_t *>(
+        edit_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+    if (edit_request->NumBytes != 3 * sizeof(char16_t) || edit_output[0] != u'A' ||
+        edit_output[1] != u'X' || edit_output[2] != u'B')
+    {
+        std::fprintf(stderr, "line editing failed\n");
+        return EXIT_FAILURE;
+    }
+
+    edit_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, left_key});
+    corehost::consoleinput::key_event up_key;
+    up_key.character = 0;
+    up_key.key = corehost::consoleinput::virtual_key::up;
+    edit_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, up_key});
+    edit_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\r'}});
+    if (!edit_api.handle(edit_message) || edit_request->NumBytes != 3 * sizeof(char16_t) ||
+        edit_output[0] != u'A' || edit_output[1] != u'X' || edit_output[2] != u'B')
+    {
+        std::fprintf(stderr, "history recall failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

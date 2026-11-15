@@ -444,15 +444,69 @@ class console_api final
         }
 
         const bool echo = (state_.input_mode & 0x0004) != 0;
-        screen::coord echo_cursor{static_cast<std::int32_t>(state_.cursor().x),
-                                  static_cast<std::int32_t>(state_.cursor().y)};
+        const screen::coord echo_origin{static_cast<std::int32_t>(state_.cursor().x),
+                                        static_cast<std::int32_t>(state_.cursor().y)};
+        screen::coord echo_cursor = echo_origin;
+        std::size_t cursor = units;
+        std::size_t echo_length = 0;
+        std::size_t history_position = state_.command_history.size();
+
+        const auto redraw_echo = [&] {
+            if (!echo)
+            {
+                return;
+            }
+            const auto width = static_cast<std::int32_t>(state_.width());
+            const auto limit = std::max(width - echo_origin.x, 0);
+            const auto visible = std::min<std::size_t>(units, static_cast<std::size_t>(limit));
+            for (std::size_t i = 0; i < visible; ++i)
+            {
+                (void)buffer_.write_scalar(static_cast<std::size_t>(echo_origin.x + i),
+                                           static_cast<std::size_t>(echo_origin.y), output[i],
+                                           state_.default_style, screen::cell_width::narrow,
+                                           state_.default_hyperlink);
+            }
+            for (std::size_t i = visible; i < echo_length; ++i)
+            {
+                (void)buffer_.write_scalar(static_cast<std::size_t>(echo_origin.x + i),
+                                           static_cast<std::size_t>(echo_origin.y), u' ',
+                                           state_.default_style, screen::cell_width::narrow,
+                                           state_.default_hyperlink);
+            }
+            echo_length = visible;
+            echo_cursor = screen::coord{
+                echo_origin.x + static_cast<std::int32_t>(std::min(cursor, static_cast<std::size_t>(limit))),
+                echo_origin.y};
+        };
+
+        const auto erase_at = [&](std::size_t position) {
+            for (std::size_t i = position; i + 1 < units; ++i)
+            {
+                output[i] = output[i + 1];
+            }
+            if (units != 0)
+            {
+                --units;
+            }
+            if (cursor > units)
+            {
+                cursor = units;
+            }
+        };
+
+        if (echo)
+        {
+            redraw_echo();
+        }
 
         std::array<consoleinput::input_event, 64> events{};
         const auto parsed = input_->read(std::span<consoleinput::input_event>{events.data(), events.size()});
         if (parsed == 0 && pending_allowed)
         {
+            pending_read_kind_ = pending_read_kind::console_read;
             return false;
         }
+        pending_read_kind_ = pending_read_kind::none;
         std::size_t consumed_events = 0;
         for (std::size_t i = 0; i < parsed; ++i)
         {
@@ -462,46 +516,67 @@ class console_api final
                 continue;
             }
             const auto character = events[i].key.character;
-            if (echo)
+            if (character == 0)
             {
-                if (character == u'\u000D' || character == u'\u000A')
+                if (events[i].key.key == consoleinput::virtual_key::left)
                 {
-                    echo_cursor.x = 0;
-                    ++echo_cursor.y;
-                }
-                else if (character == u'\u0008')
-                {
-                    if (echo_cursor.x > 0)
+                    if (cursor != 0)
                     {
-                        --echo_cursor.x;
-                        (void)buffer_.write_scalar(static_cast<std::size_t>(echo_cursor.x),
-                                                   static_cast<std::size_t>(echo_cursor.y), u' ',
-                                                   state_.default_style, screen::cell_width::narrow,
-                                                   state_.default_hyperlink);
+                        --cursor;
                     }
                 }
-                else if (character != 0)
+                else if (events[i].key.key == consoleinput::virtual_key::right)
                 {
-                    (void)buffer_.write_scalar(static_cast<std::size_t>(echo_cursor.x),
-                                               static_cast<std::size_t>(echo_cursor.y), character,
-                                               state_.default_style, screen::cell_width::narrow,
-                                               state_.default_hyperlink);
-                    ++echo_cursor.x;
+                    if (cursor < units)
+                    {
+                        ++cursor;
+                    }
                 }
-
-                if (echo_cursor.y >= static_cast<std::int32_t>(state_.height()))
+                else if (events[i].key.key == consoleinput::virtual_key::home)
                 {
-                    const auto top = state_.scroll_top();
-                    const auto bottom = state_.scroll_bottom();
-                    buffer_.scroll_region_up(screen::rectangle{0, top, state_.width(), bottom - top + 1},
-                                            1, state_.default_style);
-                    echo_cursor.y = static_cast<std::int32_t>(bottom);
+                    cursor = 0;
                 }
-                if (echo_cursor.x >= static_cast<std::int32_t>(state_.width()))
+                else if (events[i].key.key == consoleinput::virtual_key::end)
                 {
-                    echo_cursor.x = 0;
-                    ++echo_cursor.y;
+                    cursor = units;
                 }
+                else if (events[i].key.key == consoleinput::virtual_key::del)
+                {
+                    if (cursor < units)
+                    {
+                        erase_at(cursor);
+                    }
+                }
+                else if (events[i].key.key == consoleinput::virtual_key::up)
+                {
+                    if (history_position != 0)
+                    {
+                        --history_position;
+                        const auto &command = state_.command_history[history_position];
+                        units = std::min<std::size_t>(command.size(), max_units);
+                        std::copy_n(command.data(), units, output);
+                        cursor = units;
+                    }
+                }
+                else if (events[i].key.key == consoleinput::virtual_key::down)
+                {
+                    if (history_position + 1 < state_.command_history.size())
+                    {
+                        ++history_position;
+                        const auto &command = state_.command_history[history_position];
+                        units = std::min<std::size_t>(command.size(), max_units);
+                        std::copy_n(command.data(), units, output);
+                        cursor = units;
+                    }
+                    else
+                    {
+                        history_position = state_.command_history.size();
+                        units = 0;
+                        cursor = 0;
+                    }
+                }
+                redraw_echo();
+                continue;
             }
 
             if (request->ProcessControlZ != FALSE && character == 26 &&
@@ -514,29 +589,54 @@ class console_api final
             {
                 if (units < max_units)
                 {
-                    output[units++] = character;
+                    if (cursor < units)
+                    {
+                        for (std::size_t j = units; j > cursor; --j)
+                        {
+                            output[j] = output[j - 1];
+                        }
+                    }
+                    output[cursor++] = character;
+                    ++units;
                 }
+                redraw_echo();
                 break;
             }
             if (character == u'\u000D' || character == u'\u000A')
             {
+                redraw_echo();
+                if (echo)
+                {
+                    echo_cursor.x = 0;
+                    ++echo_cursor.y;
+                }
                 state_.add_command(std::u16string_view{output, units});
                 break;
             }
             if (character == u'\u0008')
             {
-                if (units != 0)
+                if (cursor != 0)
                 {
-                    --units;
+                    erase_at(cursor - 1);
+                    --cursor;
                 }
+                redraw_echo();
                 continue;
             }
-            if (character != 0 && units < max_units)
+            if (units < max_units)
             {
-                output[units++] = character;
+                if (cursor < units)
+                {
+                    for (std::size_t j = units; j > cursor; --j)
+                    {
+                        output[j] = output[j - 1];
+                    }
+                }
+                output[cursor++] = character;
+                ++units;
             }
+            redraw_echo();
         }
-
         for (std::size_t i = parsed; i > consumed_events; --i)
         {
             input_->push_front(events[i - 1]);
