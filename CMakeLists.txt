@@ -93,6 +93,9 @@ add_subdirectory(libconsole)
 # ── libvtstate (parser messages -> libscreen state) ──
 add_subdirectory(libvtstate)
 
+# ── libconsoleapi (Console API-facing screen operations) ─
+add_subdirectory(libconsoleapi)
+
 # ── libcorehost (ConPTY 核心静态库) ──────────────────
 add_subdirectory(libcorehost)
 

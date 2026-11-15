@@ -456,6 +456,9 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/libconptyio/tests ${CMAKE_CURRENT_BINARY_DI
 # ── libvtstate 测试 ─────────────────────────────────
 add_subdirectory(${CMAKE_SOURCE_DIR}/libvtstate/tests ${CMAKE_CURRENT_BINARY_DIR}/libvtstate-tests)
 
+# ── libconsoleapi 测试 ──────────────────────────────
+add_subdirectory(${CMAKE_SOURCE_DIR}/libconsoleapi/tests ${CMAKE_CURRENT_BINARY_DIR}/libconsoleapi-tests)
+
 # ── libscreen 参考实现测试 ───────────────────────────
 add_subdirectory(${CMAKE_SOURCE_DIR}/libscreen/tests ${CMAKE_CURRENT_BINARY_DIR}/libscreen-tests)
 
