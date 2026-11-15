@@ -9,6 +9,7 @@
 #include "os/Console/conmsgl1.h"
 #include "os/Console/conmsgl2.h"
 
+#include <algorithm>
 #include <cstring>
 #include <span>
 #include <string_view>
@@ -72,6 +73,10 @@ class console_api final
         {
             return get_largest_window_size(message);
         }
+        if (header->ApiNumber == ConsolepReadConsoleOutput)
+        {
+            return read_console_output(message);
+        }
         if (header->ApiNumber == ConsolepWriteConsoleOutput)
         {
             return write_console_output(message);
@@ -103,6 +108,64 @@ class console_api final
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCURSORINFO_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETCURSORINFO_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool read_console_output(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *request = reinterpret_cast<const CONSOLE_READCONSOLEOUTPUT_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto &region = request->CharRegion;
+        if (region.Left > region.Right || region.Top > region.Bottom)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+
+        const auto local = sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) -
+                           sizeof(CONSOLE_READCONSOLEOUTPUT_MSG);
+        if (message.descriptor.OutputSize <= sizeof(CONSOLE_READCONSOLEOUTPUT_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto capacity = std::min<std::size_t>(
+            message.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLEOUTPUT_MSG), local);
+        const auto width = static_cast<std::size_t>(region.Right - region.Left + 1);
+        const auto height = static_cast<std::size_t>(region.Bottom - region.Top + 1);
+        const auto required = width * height * sizeof(interop::win32::char_info);
+        if (required > capacity)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+
+        auto *out = reinterpret_cast<interop::win32::char_info *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
+        std::memset(out, 0, required);
+
+        const auto left = std::max<std::int32_t>(region.Left, 0);
+        const auto top = std::max<std::int32_t>(region.Top, 0);
+        const auto right = std::min<std::int32_t>(region.Right, static_cast<std::int32_t>(buffer_.width()) - 1);
+        const auto bottom = std::min<std::int32_t>(region.Bottom, static_cast<std::int32_t>(buffer_.height()) - 1);
+        if (left <= right && top <= bottom)
+        {
+            for (auto y = top; y <= bottom; ++y)
+            {
+                auto *row = out + static_cast<std::size_t>(y - region.Top) * width +
+                            static_cast<std::size_t>(left - region.Left);
+                (void)buffer_.read_char_info_abi(
+                    screen::rect{left, y, right, y},
+                    std::span<interop::win32::char_info>{row, static_cast<std::size_t>(right - left + 1)});
+            }
+        }
+        coreio::prepare_completion(message, 0, required,
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), required);
         return true;
     }
 
