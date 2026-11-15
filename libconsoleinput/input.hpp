@@ -94,11 +94,19 @@ class input_queue final
   public:
     void push(const input_event &event)
     {
+        if (event.type == input_event_type::key && event.key.key_down)
+        {
+            ++key_count_;
+        }
         events_.push_back(event);
     }
 
     void push_front(const input_event &event)
     {
+        if (event.type == input_event_type::key && event.key.key_down)
+        {
+            ++key_count_;
+        }
         if (head_ != 0)
         {
             events_[--head_] = event;
@@ -119,14 +127,7 @@ class input_queue final
 
     [[nodiscard]] bool has_key() const noexcept
     {
-        for (std::size_t i = head_; i < events_.size(); ++i)
-        {
-            if (events_[i].type == input_event_type::key && events_[i].key.key_down)
-            {
-                return true;
-            }
-        }
-        return false;
+        return key_count_ != 0;
     }
 
     std::size_t peek(std::span<input_event> destination) const noexcept
@@ -140,6 +141,13 @@ class input_queue final
     {
         const auto count = std::min(destination.size(), size());
         std::copy_n(events_.begin() + static_cast<std::ptrdiff_t>(head_), count, destination.begin());
+        for (std::size_t i = head_; i < head_ + count; ++i)
+        {
+            if (events_[i].type == input_event_type::key && events_[i].key.key_down)
+            {
+                --key_count_;
+            }
+        }
         head_ += count;
         if (head_ != 0 && head_ * 2 >= events_.size())
         {
@@ -153,11 +161,13 @@ class input_queue final
     {
         events_.clear();
         head_ = 0;
+        key_count_ = 0;
     }
 
   private:
     std::vector<input_event> events_;
     std::size_t head_{};
+    std::size_t key_count_{};
 };
 
 } // namespace corehost::consoleinput
