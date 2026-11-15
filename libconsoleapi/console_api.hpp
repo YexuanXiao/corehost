@@ -2142,12 +2142,13 @@ class console_api final
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto *request = reinterpret_cast<const CONSOLE_READCONSOLEOUTPUT_MSG *>(
+        auto *request = reinterpret_cast<CONSOLE_READCONSOLEOUTPUT_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto &region = request->CharRegion;
         if (region.Left > region.Right || region.Top > region.Bottom)
         {
-            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            request->CharRegion = SMALL_RECT{0, 0, 0, 0};
+            coreio::prepare_completion(message, 0, 0, message.body + sizeof(CONSOLE_MSG_HEADER), 0);
             return true;
         }
 
@@ -2160,11 +2161,13 @@ class console_api final
         }
         const auto capacity = std::min<std::size_t>(
             message.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLEOUTPUT_MSG), local);
-        const auto width = static_cast<std::size_t>(region.Right - region.Left + 1);
-        const auto height = static_cast<std::size_t>(region.Bottom - region.Top + 1);
-        const auto required = width * height * sizeof(interop::win32::char_info);
-        if (required > capacity)
+        const auto width = static_cast<int>(region.Right) - static_cast<int>(region.Left) + 1;
+        const auto height = static_cast<int>(region.Bottom) - static_cast<int>(region.Top) + 1;
+        const auto required = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) *
+                              sizeof(interop::win32::char_info);
+        if (width <= 0 || height <= 0 || required > capacity)
         {
+            request->CharRegion = SMALL_RECT{0, 0, 0, 0};
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
@@ -2173,23 +2176,56 @@ class console_api final
             message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUT_MSG));
         std::memset(out, 0, required);
 
-        const auto left = std::max<std::int32_t>(region.Left, 0);
-        const auto top = std::max<std::int32_t>(region.Top, 0);
-        const auto right = std::min<std::int32_t>(region.Right, static_cast<std::int32_t>(buffer_.width()) - 1);
-        const auto bottom = std::min<std::int32_t>(region.Bottom, static_cast<std::int32_t>(buffer_.height()) - 1);
-        if (left <= right && top <= bottom)
+        auto clipped = region;
+        if (clipped.Left < 0)
         {
-            for (auto y = top; y <= bottom; ++y)
+            clipped.Left = 0;
+        }
+        if (clipped.Top < 0)
+        {
+            clipped.Top = 0;
+        }
+        if (clipped.Right >= static_cast<SHORT>(buffer_.width()))
+        {
+            clipped.Right = static_cast<SHORT>(buffer_.width() - 1);
+        }
+        if (clipped.Bottom >= static_cast<SHORT>(buffer_.height()))
+        {
+            clipped.Bottom = static_cast<SHORT>(buffer_.height() - 1);
+        }
+        if (clipped.Left > clipped.Right || clipped.Top > clipped.Bottom)
+        {
+            request->CharRegion = SMALL_RECT{0, 0, 0, 0};
+            coreio::prepare_completion(message, 0, required, message.body + sizeof(CONSOLE_MSG_HEADER),
+                                       required);
+            return true;
+        }
+
+        const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+        for (auto y = clipped.Top; y <= clipped.Bottom; ++y)
+        {
+            auto *row = out + static_cast<std::size_t>(y - region.Top) * static_cast<std::size_t>(width) +
+                        static_cast<std::size_t>(clipped.Left - region.Left);
+            (void)buffer_.read_char_info_abi(
+                screen::rect{clipped.Left, y, clipped.Right, y},
+                std::span<interop::win32::char_info>{row,
+                                                     static_cast<std::size_t>(clipped.Right - clipped.Left + 1)});
+            if (!request->Unicode)
             {
-                auto *row = out + static_cast<std::size_t>(y - region.Top) * width +
-                            static_cast<std::size_t>(left - region.Left);
-                (void)buffer_.read_char_info_abi(
-                    screen::rect{left, y, right, y},
-                    std::span<interop::win32::char_info>{row, static_cast<std::size_t>(right - left + 1)});
+                for (auto x = clipped.Left; x <= clipped.Right; ++x)
+                {
+                    auto &target = row[x - clipped.Left];
+                    char mb = ' ';
+                    (void)::WideCharToMultiByte(code_page, 0,
+                                                reinterpret_cast<const wchar_t *>(&target.char_data.unicode_char),
+                                                1, &mb, 1, nullptr, nullptr);
+                    target.char_data.ascii_char = mb;
+                }
             }
         }
-        coreio::prepare_completion(message, 0, required,
-                                   message.body + sizeof(CONSOLE_MSG_HEADER), required);
+
+        request->CharRegion = clipped;
+        coreio::prepare_completion(message, 0, required, message.body + sizeof(CONSOLE_MSG_HEADER), required);
         return true;
     }
 
