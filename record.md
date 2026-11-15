@@ -1006,6 +1006,14 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### WriteConsoleOutput ABI 直接检查下一属性
+
+`write_char_info_abi` 判断下一单元格是否 trailing byte 时，不再调用 `from_win32(values[index])` 完整转换，只读取 `values[index].attributes`：
+
+```text
+2f6ad15 perf(libscreen): inspect next abi attributes directly
+```
+
 ### ReadConsole 所有控制字符进入范围块
 
 回车、换行、退格和可忽略控制字符也移入 `character < u' '` 块；普通可打印字符直接跳到插入逻辑，不再检查 CR、LF、退格和不可打印字符：
