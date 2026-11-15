@@ -32,9 +32,15 @@ class server_session final
 
     void write_raw(std::span<const char> bytes)
     {
-        vtparser::decode_utf8(std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()),
-                                                         bytes.size()},
-                             text_, utf8_pending_);
+        const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
+        const auto units = ::MultiByteToWideChar(code_page, 0, bytes.data(),
+                                               static_cast<int>(bytes.size()), nullptr, 0);
+        text_.resize(static_cast<std::size_t>(std::max(units, 0)));
+        if (units > 0)
+        {
+            (void)::MultiByteToWideChar(code_page, 0, bytes.data(),
+                                        static_cast<int>(bytes.size()), reinterpret_cast<LPWSTR>(text_.data()), units);
+        }
         vtparser::parse_utf16(parser_, std::u16string_view{text_}, [&](const vtparser::vt_parse_result &result) {
             (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
         });
@@ -153,7 +159,6 @@ class server_session final
     vtparser::vt_parser parser_;
     vtstate::state_applier applier_;
     std::u16string text_;
-    std::string utf8_pending_;
     coreio::process_registry processes_;
     consoleapi::console_api api_;
     coreio::io_msg pending_message_{};

@@ -113,6 +113,7 @@ int main()
         return EXIT_FAILURE;
     }
 
+    server_state.output_code_page = 65001;
     const char raw_text[]{"Hi"};
     server.write_raw(std::span<const char>{raw_text, 2});
     if (server_buffer.at(0, 0).primary() != u'H' ||
