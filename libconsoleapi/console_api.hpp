@@ -174,6 +174,7 @@ class console_api final
             message.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG), local);
         auto *data = reinterpret_cast<std::byte *>(
             message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
+        std::memset(data, 0, capacity);
         std::size_t written = 0;
         const auto coordinate = screen::coord{request->ReadCoord.X, request->ReadCoord.Y};
         if (request->StringType == CONSOLE_ATTRIBUTE)
