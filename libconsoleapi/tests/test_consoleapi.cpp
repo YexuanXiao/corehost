@@ -272,6 +272,30 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg read_input_message{};
+    read_input_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+    read_input_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + sizeof(INPUT_RECORD);
+    auto *read_input_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(read_input_message.body);
+    read_input_header->ApiNumber = ConsolepGetConsoleInput;
+    auto *read_input_request = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(
+        read_input_message.body + sizeof(CONSOLE_MSG_HEADER));
+    read_input_request->Flags = 0;
+    read_input_request->Unicode = TRUE;
+    if (!input_api.handle(read_input_message) || read_input_request->NumRecords != 1)
+    {
+        std::fprintf(stderr, "read console input failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *read_input_record = reinterpret_cast<const INPUT_RECORD *>(
+        read_input_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+    if (read_input_record->EventType != KEY_EVENT)
+    {
+        std::fprintf(stderr, "read console input type failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

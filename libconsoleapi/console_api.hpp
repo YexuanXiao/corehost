@@ -11,8 +11,10 @@
 #include "os/Console/conmsgl2.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <span>
+#include <utility>
 #include <string_view>
 
 namespace corehost::consoleapi
@@ -75,6 +77,10 @@ class console_api final
         {
             return get_largest_window_size(message);
         }
+        if (header->ApiNumber == ConsolepGetConsoleInput)
+        {
+            return read_console_input(message);
+        }
         if (header->ApiNumber == ConsolepGetNumberOfInputEvents)
         {
             return get_number_of_input_events(message);
@@ -130,6 +136,57 @@ class console_api final
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCURSORINFO_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETCURSORINFO_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool read_console_input(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *request = reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto local = sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) -
+                           sizeof(CONSOLE_GETCONSOLEINPUT_MSG);
+        if (message.descriptor.OutputSize <= sizeof(CONSOLE_GETCONSOLEINPUT_MSG))
+        {
+            request->NumRecords = 0;
+            coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCONSOLEINPUT_MSG),
+                                       message.body + sizeof(CONSOLE_MSG_HEADER),
+                                       sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+            return true;
+        }
+        const auto capacity = std::min<std::size_t>(
+            message.descriptor.OutputSize - sizeof(CONSOLE_GETCONSOLEINPUT_MSG), local);
+        const auto max_records = capacity / sizeof(INPUT_RECORD);
+        auto *output = reinterpret_cast<INPUT_RECORD *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG));
+
+        std::size_t count = 0;
+        if (input_ != nullptr)
+        {
+            std::array<consoleinput::input_event, 64> events{};
+            const auto requested = std::min<std::size_t>(max_records, events.size());
+            count = input_->read(std::span<consoleinput::input_event>{events.data(), requested});
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                auto &record = output[i];
+                record = INPUT_RECORD{};
+                record.EventType = KEY_EVENT;
+                record.Event.KeyEvent.bKeyDown = events[i].key.key_down ? TRUE : FALSE;
+                record.Event.KeyEvent.wRepeatCount = events[i].key.repeat_count;
+                record.Event.KeyEvent.wVirtualKeyCode = static_cast<WORD>(std::to_underlying(events[i].key.key));
+                record.Event.KeyEvent.wVirtualScanCode = events[i].key.scan_code;
+                record.Event.KeyEvent.uChar.UnicodeChar = events[i].key.character;
+                record.Event.KeyEvent.dwControlKeyState = events[i].key.control_state;
+            }
+        }
+        request->NumRecords = static_cast<ULONG>(count);
+        coreio::prepare_completion(message, 0, count * sizeof(INPUT_RECORD),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   count * sizeof(INPUT_RECORD));
         return true;
     }
 
