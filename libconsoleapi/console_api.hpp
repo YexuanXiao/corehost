@@ -1545,8 +1545,7 @@ class console_api final
             }
             else
             {
-                const auto code_page = state_.input_code_page;
-                length += encode_console_text(command, code_page).size() + 1;
+                length += console_text_length(command, state_.input_code_page) + 1;
             }
         }
         info->CommandHistoryLength = static_cast<ULONG>(length);
@@ -1571,8 +1570,10 @@ class console_api final
         std::size_t written = 0;
         for (const auto &command : state_.command_history)
         {
-            const auto unit_size = info->Unicode ? sizeof(char16_t) : sizeof(char);
-            if (written + (command.size() + 1) * unit_size > capacity)
+            const auto code_page = state_.input_code_page;
+            const auto bytes = info->Unicode ? (command.size() + 1) * sizeof(char16_t)
+                                             : console_text_length(command, code_page) + 1;
+            if (written + bytes > capacity)
             {
                 break;
             }
@@ -1585,14 +1586,15 @@ class console_api final
             }
             else
             {
-                const auto code_page = state_.input_code_page;
-                const auto encoded = encode_console_text(command, code_page);
-                if (written + encoded.size() + 1 > capacity)
+                const auto units = bytes - 1;
+                if (units != 0)
                 {
-                    break;
+                    (void)::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(command.data()),
+                                                static_cast<int>(command.size()),
+                                                reinterpret_cast<char *>(output + written),
+                                                static_cast<int>(units), nullptr, nullptr);
+                    written += units;
                 }
-                std::memcpy(output + written, encoded.data(), encoded.size());
-                written += encoded.size();
                 output[written++] = 0;
             }
         }
