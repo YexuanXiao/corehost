@@ -72,6 +72,10 @@ class console_api final
         {
             return get_largest_window_size(message);
         }
+        if (header->ApiNumber == ConsolepWriteConsoleOutput)
+        {
+            return write_console_output(message);
+        }
         if (header->ApiNumber == ConsolepSetCursorInfo)
         {
             return set_cursor_info(message);
@@ -99,6 +103,37 @@ class console_api final
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETCURSORINFO_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETCURSORINFO_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool write_console_output(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *request = reinterpret_cast<const CONSOLE_WRITECONSOLEOUTPUT_MSG *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER));
+        const auto width = static_cast<std::size_t>(request->CharRegion.Right - request->CharRegion.Left + 1);
+        const auto height = static_cast<std::size_t>(request->CharRegion.Bottom - request->CharRegion.Top + 1);
+        const auto count = width * height;
+        const auto required = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG) +
+                              count * sizeof(interop::win32::char_info);
+        if (message.descriptor.InputSize < required || request->CharRegion.Left < 0 ||
+            request->CharRegion.Top < 0 || request->CharRegion.Right < request->CharRegion.Left ||
+            request->CharRegion.Bottom < request->CharRegion.Top)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+
+        const auto *cells = reinterpret_cast<const interop::win32::char_info *>(
+            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG));
+        const screen::rect area{request->CharRegion.Left, request->CharRegion.Top,
+                                request->CharRegion.Right, request->CharRegion.Bottom};
+        const auto written = buffer_.write_char_info_abi(area, std::span<const interop::win32::char_info>{cells, count});
+        coreio::prepare_completion(message, 0, written);
         return true;
     }
 
