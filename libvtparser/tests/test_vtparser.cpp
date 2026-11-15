@@ -1,5 +1,7 @@
 #include "kitty.hpp"
+#include "sixel.hpp"
 #include "kitty.hpp"
+#include "sixel.hpp"
 #include "vt_parser.hpp"
 
 #include <cstdio>
@@ -86,6 +88,14 @@ int main()
         check(image->image_id == 7, "kitty id");
         check(image->width == 2 && image->height == 3, "kitty dimensions");
         check(image->payload == U"AAAA", "kitty payload");
+    }
+
+    const auto sixel = parse_sixel(U"\x1bP0;1qabc\x1b\\");
+    check(sixel.has_value(), "sixel parsed");
+    if (sixel.has_value())
+    {
+        check(sixel->parameters == U"0;1", "sixel parameters");
+        check(sixel->data == U"abc", "sixel data");
     }
 
     if (failures != 0)
