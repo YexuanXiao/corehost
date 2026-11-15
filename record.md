@@ -131,3 +131,47 @@ libcorehost: raw write 137 -> GetConsoleInput 560 -> raw write 4351
   - corehost2 原始 Win32Input 的 `ControlKeyState=0`。
 - 该差异发生在 WT 发送输入字节之前，继续从 corehost2 的终端模式/初始化输出与 libcorehost 对比。
 - edit 的 RAW_WRITE 137 已 inline 完成，WT 返回 517/1034 字节应答；corehost2 将应答消费为 terminal response，但 edit 不再发新的 GetConsoleInput，仍未定位到最小修复。
+
+## 2026-11-15 GetConsoleInput 修复
+
+根因：
+
+`read_console_input` 的 completion 只把 `INPUT_RECORD` 数据当作 `Write.Size`，但客户端回复区实际是：
+
+```text
+CONSOLE_GETCONSOLEINPUT_MSG + INPUT_RECORD[]
+```
+
+导致 PowerShell 5.1 从错误偏移读取记录，表现为：
+
+```text
+输入: echo A-\
+显示: echo a
+```
+
+大小写、连字符、反斜杠全部丢失。
+
+修复：
+
+- `Information` 仍为 record 数据字节数；
+- `Write.Size` 改为 `sizeof(CONSOLE_GETCONSOLEINPUT_MSG) + record_data`；
+- `Write.Data` 指向 body + header。
+
+真实 WT + PowerShell 5.1 验证：
+
+```text
+echo A-\
+A-\
+```
+
+已恢复。
+
+新增单元回归：`test_corehost2` 检查 `Write.Size`、`Information`、`Write.Data` 和 `NumRecords`。
+
+提交：
+
+```text
+b94a3f3 fix(corehost2): correct GetConsoleInput completion layout
+```
+
+edit 仍空白，未受此修复影响。
