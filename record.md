@@ -803,3 +803,39 @@ API-WRITE[script] write ok
 - `SetConsoleTitleW` / `GetConsoleTitleW` 正确；
 - `WriteConsole` 不换行、光标推进正确；
 - 属性保持 0x0007。
+
+## 2026-11-16 cmd cls / title
+
+```cmd
+cmd /k "title CMD-TITLE & cls & echo AFTER-CLS"
+```
+
+corehost2 与原始 OpenConsole 都：
+
+- 标题变为 `CMD-TITLE`；
+- 清屏后只显示 `AFTER-CLS`；
+- 提示符 `C:\Users\xyx>` 正常。
+
+## 验证汇总
+
+已验证的主要组合：
+
+```text
+PowerShell 5.1 输入/输出
+cmd 输入/输出/color/cls/title
+pwsh 命令输出
+edit 启动/输入/编辑/resize/保存/打开/退出
+edit F10 菜单/鼠标菜单
+PageUp 正常屏幕与 edit alternate screen
+RGB/256/16 色与 legacy 背景
+GetConsoleScreenBufferInfo/SetConsoleTitle/GetConsoleTitle/WriteConsole
+窗口 resize 与 mode con
+```
+
+测试：
+
+```text
+CoreIO.Reference     Passed
+CoreHost2.Reference  Passed
+LibScreen.Reference  Passed
+```
