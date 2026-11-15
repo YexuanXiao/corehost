@@ -1,5 +1,6 @@
 #include "condrv_io.hpp"
 #include "server_loop.hpp"
+#include "win32_transport.hpp"
 
 #include <cstdio>
 #include <cstdlib>
