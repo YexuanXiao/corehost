@@ -2,11 +2,14 @@
 #include "signal_reader.hpp"
 #include "signal_reader.hpp"
 #include "terminal_reader.hpp"
+#include "vt_input_thread.hpp"
 #include "pseudo_window.hpp"
 #include "terminal_writer.hpp"
 
 #include <windows.h>
 
+#include <string>
+#include <vector>
 #include <cstdio>
 #include <cstdlib>
 
@@ -51,6 +54,57 @@ int main()
     ::CloseHandle(pipe_write);
     ::CloseHandle(pipe_read);
 
+    struct recording_sink final : corehost::conptyio::vt_input_sink
+    {
+        std::string bytes;
+        bool eof{};
+
+        void on_input_bytes(std::span<const std::byte> value) override
+        {
+            bytes.append(reinterpret_cast<const char *>(value.data()), value.size());
+        }
+
+        void on_input_eof() override
+        {
+            eof = true;
+        }
+    };
+
+    HANDLE input_read = nullptr;
+    HANDLE input_write = nullptr;
+    if (!::CreatePipe(&input_read, &input_write, nullptr, 0))
+    {
+        std::fprintf(stderr, "create input pipe failed\n");
+        return EXIT_FAILURE;
+    }
+
+    recording_sink input_sink;
+    corehost::conptyio::vt_input_thread input_thread{win32::handle_view{input_read}, input_sink};
+    input_thread.start();
+    DWORD input_written = 0;
+    ::WriteFile(input_write, "abc", 3, &input_written, nullptr);
+    ::CloseHandle(input_write);
+    input_thread.join();
+    if (input_sink.bytes != "abc" || !input_sink.eof)
+    {
+        std::fprintf(stderr, "input thread EOF failed\n");
+        return EXIT_FAILURE;
+    }
+    ::CloseHandle(input_read);
+
+    HANDLE stop_read = nullptr;
+    HANDLE stop_write = nullptr;
+    if (!::CreatePipe(&stop_read, &stop_write, nullptr, 0))
+    {
+        std::fprintf(stderr, "create stop pipe failed\n");
+        return EXIT_FAILURE;
+    }
+    recording_sink stop_sink;
+    corehost::conptyio::vt_input_thread stop_thread{win32::handle_view{stop_read}, stop_sink};
+    stop_thread.start();
+    stop_thread.stop_and_join();
+    ::CloseHandle(stop_write);
+    ::CloseHandle(stop_read);
     corehost::screen::screen_buffer signal_buffer{8, 2};
     corehost::screen::console_state signal_state{8, 2};
     std::uint32_t resize = (3u << 16) | 10u;
