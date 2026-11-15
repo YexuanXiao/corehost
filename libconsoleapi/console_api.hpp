@@ -2177,14 +2177,19 @@ class console_api final
         }
         const auto *request = reinterpret_cast<const CONSOLE_WRITECONSOLEOUTPUT_MSG *>(
             message.body + sizeof(CONSOLE_MSG_HEADER));
+        if (request->CharRegion.Left < 0 || request->CharRegion.Top < 0 ||
+            request->CharRegion.Right < request->CharRegion.Left ||
+            request->CharRegion.Bottom < request->CharRegion.Top)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
         const auto width = static_cast<std::size_t>(request->CharRegion.Right - request->CharRegion.Left + 1);
         const auto height = static_cast<std::size_t>(request->CharRegion.Bottom - request->CharRegion.Top + 1);
         const auto count = width * height;
         const auto required = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUT_MSG) +
                               count * sizeof(interop::win32::char_info);
-        if (message.descriptor.InputSize < required || request->CharRegion.Left < 0 ||
-            request->CharRegion.Top < 0 || request->CharRegion.Right < request->CharRegion.Left ||
-            request->CharRegion.Bottom < request->CharRegion.Top)
+        if (message.descriptor.InputSize < required)
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
