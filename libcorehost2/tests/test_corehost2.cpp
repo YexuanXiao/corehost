@@ -197,6 +197,29 @@ int main()
         return EXIT_FAILURE;
     }
 
+    std::array<char, 32> long_raw{};
+    long_raw.fill('A');
+    server.push_raw(std::span<const char>{long_raw});
+    if (server.read_raw(std::span<char>{long_raw}) != long_raw.size())
+    {
+        std::fprintf(stderr, "raw word scan false positive\n");
+        return EXIT_FAILURE;
+    }
+    long_raw.fill('B');
+    long_raw[9] = 3;
+    server.push_raw(std::span<const char>{long_raw});
+    if (server.read_raw(std::span<char>{long_raw}) != 9 || !server.raw_alerted())
+    {
+        std::fprintf(stderr, "raw word scan missed control byte\n");
+        return EXIT_FAILURE;
+    }
+    server.clear_raw_alerted();
+    if (server.read_raw(std::span<char>{long_raw}) != 0)
+    {
+        std::fprintf(stderr, "raw control residue was not consumed correctly\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::corehost2::session enter_session{8, 2};
     constexpr char16_t enter_input[]{u'A', u'\r'};
     enter_session.feed_input(enter_input);
