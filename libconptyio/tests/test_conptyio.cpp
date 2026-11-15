@@ -139,8 +139,14 @@ int main()
     const std::uint16_t signal_id = 8;
     const std::uint32_t signal_resize = (4u << 16) | 12u;
     DWORD signal_written = 0;
-    ::WriteFile(signal_thread_write, &signal_id, sizeof(signal_id), &signal_written, nullptr);
-    ::WriteFile(signal_thread_write, &signal_resize, sizeof(signal_resize), &signal_written, nullptr);
+    const auto *id_bytes = reinterpret_cast<const char *>(&signal_id);
+    ::WriteFile(signal_thread_write, id_bytes, 1, &signal_written, nullptr);
+    ::Sleep(1);
+    ::WriteFile(signal_thread_write, id_bytes + 1, 1, &signal_written, nullptr);
+    const auto *payload_bytes = reinterpret_cast<const char *>(&signal_resize);
+    ::WriteFile(signal_thread_write, payload_bytes, 2, &signal_written, nullptr);
+    ::Sleep(1);
+    ::WriteFile(signal_thread_write, payload_bytes + 2, 2, &signal_written, nullptr);
     ::CloseHandle(signal_thread_write);
     signal_thread.join();
     if (signal_sink.id != 8 || signal_sink.payload.size() != sizeof(signal_resize) || !signal_sink.eof)
