@@ -1001,6 +1001,14 @@ fb4d3ef perf(libscreen): remove per-cell bounds checks in ascii run
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### SetTitle 缓冲复用
+
+`set_title` 不再每次构造局部 `std::u16string title` 和 `std::wstring wide`，复用成员 `title_buffer_` / `wide_title_buffer_`：
+
+```text
+346aeed perf(consoleapi): reuse set title buffers
+```
+
 ### 移除 Alias 编码回退
 
 `get_aliases` 已在调用 `append_alias_value` 前精确检查容量，因此移除容量不足时的临时字符串回退和 `encode_console_text`；容量不变量改为 `assert(units <= available)`。
