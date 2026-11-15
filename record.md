@@ -57,6 +57,33 @@ Copy-Item build\Release\corehost2.exe 'C:\1\terminal-1.24.12741.0\OpenConsole.ex
 Start-Process 'C:\1\terminal-1.24.12741.0\WindowsTerminal.exe'
 ```
 
+## 当前诊断日志
+
+corehost2 保留以下日志：
+
+- `dispatch func/object/input/output`
+- `dispatch api/desc`
+- `connect input/output/alternate`
+- `raw write bytes/alt`
+- `raw output` hex
+- `raw write prepared/completed inline`
+- `forward id/chars`
+- `parser write_raw id`
+- `input bytes/alt/raw_pending/console_read`
+- `input` hex
+- `input parsed text/queue/read_pending/completed`
+- `terminal response id/chars`
+- `handler flush begin/end`
+
+最近一次 edit 对比：
+
+```text
+corehost2: raw write 137 -> input 517 -> queue 1034 -> 无 GetConsoleInput
+libcorehost: raw write 137 -> GetConsoleInput 560 -> raw write 4351
+```
+
+说明查询已经送到 WT，WT 也已应答，但 edit 仍未进入 `GetConsoleInput`。
+
 ## 与 libcorehost 的直接对比
 
 | 场景 | libcorehost | corehost2 |
