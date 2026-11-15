@@ -440,6 +440,24 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::coreio::io_msg lang_message{};
+    lang_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_LANGID_MSG);
+    lang_message.descriptor.OutputSize = sizeof(lang_message.body);
+    auto *lang_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(lang_message.body);
+    lang_header->ApiNumber = ConsolepGetLangId;
+    if (!api.handle(lang_message))
+    {
+        std::fprintf(stderr, "get language id failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *lang_info = reinterpret_cast<const CONSOLE_LANGID_MSG *>(
+        lang_message.body + sizeof(CONSOLE_MSG_HEADER));
+    if (lang_info->LangId != state.language_id)
+    {
+        std::fprintf(stderr, "get language id data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

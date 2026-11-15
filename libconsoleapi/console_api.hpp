@@ -90,6 +90,10 @@ class console_api final
         {
             return get_selection_info(message);
         }
+        if (header->ApiNumber == ConsolepGetLangId)
+        {
+            return get_language_id(message);
+        }
         if (header->ApiNumber == ConsolepGetTitle)
         {
             return get_title(message);
@@ -397,6 +401,20 @@ class console_api final
             message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG));
         state_.title.assign(data, bytes / sizeof(char16_t));
         coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool get_language_id(coreio::io_msg &message) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_LANGID_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_LANGID_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->LangId = state_.language_id;
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_LANGID_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_LANGID_MSG));
         return true;
     }
 
