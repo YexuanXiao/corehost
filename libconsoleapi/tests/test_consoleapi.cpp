@@ -1157,6 +1157,35 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::input_queue wakeup_queue;
+    wakeup_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\x01'}});
+    corehost::screen::screen_buffer wakeup_buffer{4, 2};
+    corehost::screen::console_state wakeup_state{4, 2};
+    corehost::consoleapi::console_api wakeup_api{wakeup_buffer, wakeup_state, &wakeup_queue};
+    corehost::coreio::io_msg wakeup_message{};
+    wakeup_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    wakeup_message.descriptor.OutputSize = sizeof(CONSOLE_MSG_HEADER) +
+                                           sizeof(CONSOLE_READCONSOLE_MSG) + sizeof(char16_t);
+    auto *wakeup_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(wakeup_message.body);
+    wakeup_header->ApiNumber = ConsolepReadConsole;
+    auto *wakeup_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        wakeup_message.body + sizeof(CONSOLE_MSG_HEADER));
+    wakeup_request->Unicode = TRUE;
+    wakeup_request->CtrlWakeupMask = 1;
+    if (!wakeup_api.handle(wakeup_message) || wakeup_request->NumBytes != sizeof(char16_t))
+    {
+        std::fprintf(stderr, "read console ctrl wakeup failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *wakeup_output = reinterpret_cast<const char16_t *>(wakeup_request + 1);
+    if (wakeup_output[0] != u'\x01')
+    {
+        std::fprintf(stderr, "read console ctrl wakeup data failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

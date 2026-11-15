@@ -466,6 +466,20 @@ class console_api final
                 }
             }
 
+            if (request->ProcessControlZ != FALSE && character == 26 &&
+                (state_.input_mode & 0x0001) != 0)
+            {
+                break;
+            }
+            if (character >= 1 && character <= 26 &&
+                (request->CtrlWakeupMask & (1u << (character - 1))) != 0)
+            {
+                if (units < max_units)
+                {
+                    output[units++] = character;
+                }
+                break;
+            }
             if (character == u'\u000D' || character == u'\u000A')
             {
                 state_.add_command(std::u16string_view{output, units});
