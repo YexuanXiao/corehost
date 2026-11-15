@@ -327,12 +327,14 @@ class state_applier final
             state.cursor().style = screen::cursor_style::block;
             break;
         }
+        state.cursor_changed = true;
     }
 
     void apply_cursor_visibility(bool visible,
                                   screen::console_state &state) noexcept
     {
         state.cursor().visible = visible;
+        state.cursor_changed = true;
     }
 
     void apply_save_cursor(screen::console_state &state) noexcept

@@ -441,24 +441,42 @@ inline void console_state::resize(std::size_t width, std::size_t height)
 
 inline void console_state::set_cursor(std::size_t x, std::size_t y) noexcept
 {
-    cursor_.x = std::min(x, width_ - 1);
-    cursor_.y = std::min(y, height_ - 1);
+    const auto next_x = std::min(x, width_ - 1);
+    const auto next_y = std::min(y, height_ - 1);
+    if (next_x != cursor_.x || next_y != cursor_.y)
+    {
+        cursor_changed = true;
+    }
+    cursor_.x = next_x;
+    cursor_.y = next_y;
 }
 
 inline void console_state::move_cursor(std::ptrdiff_t dx, std::ptrdiff_t dy) noexcept
 {
     const auto next_x = static_cast<std::ptrdiff_t>(cursor_.x) + dx;
     const auto next_y = static_cast<std::ptrdiff_t>(cursor_.y) + dy;
-    cursor_.x = std::min<std::size_t>(width_ - 1,
-                                      static_cast<std::size_t>(std::max<std::ptrdiff_t>(0, next_x)));
-    cursor_.y = std::min<std::size_t>(height_ - 1,
-                                      static_cast<std::size_t>(std::max<std::ptrdiff_t>(0, next_y)));
+    const auto clamped_x = std::min<std::size_t>(
+        width_ - 1, static_cast<std::size_t>(std::max<std::ptrdiff_t>(0, next_x)));
+    const auto clamped_y = std::min<std::size_t>(
+        height_ - 1, static_cast<std::size_t>(std::max<std::ptrdiff_t>(0, next_y)));
+    if (clamped_x != cursor_.x || clamped_y != cursor_.y)
+    {
+        cursor_changed = true;
+    }
+    cursor_.x = clamped_x;
+    cursor_.y = clamped_y;
 }
 
 inline void console_state::clamp_cursor() noexcept
 {
-    cursor_.x = std::min(cursor_.x, width_ - 1);
-    cursor_.y = std::min(cursor_.y, height_ - 1);
+    const auto next_x = std::min(cursor_.x, width_ - 1);
+    const auto next_y = std::min(cursor_.y, height_ - 1);
+    if (next_x != cursor_.x || next_y != cursor_.y)
+    {
+        cursor_changed = true;
+    }
+    cursor_.x = next_x;
+    cursor_.y = next_y;
 }
 
 inline void console_state::save_cursor() noexcept
