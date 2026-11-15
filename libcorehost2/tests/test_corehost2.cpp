@@ -170,6 +170,38 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer read_buffer{8, 2};
+    corehost::screen::console_state read_state{8, 2};
+    corehost::consoleinput::input_queue read_input;
+    corehost::consoleapi::console_api read_api{read_buffer, read_state, &read_input};
+    corehost::corehost2::session read_session{8, 2};
+    constexpr char16_t read_text[]{u'A', u'B', u'\r'};
+    read_session.feed_input(read_text);
+    read_input = std::move(read_session.input());
+    corehost::coreio::io_msg read_message{};
+    read_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    read_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    auto *read_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(read_message.body);
+    read_header->ApiNumber = ConsolepReadConsole;
+    auto *read_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        read_message.body + sizeof(CONSOLE_MSG_HEADER));
+    read_request->Unicode = TRUE;
+    if (!read_api.handle(read_message) || read_request->NumBytes != 4 * sizeof(char16_t))
+    {
+        std::fprintf(stderr, "real ReadConsole path failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *read_output = reinterpret_cast<const char16_t *>(
+        read_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+    if (read_output[0] != u'A' || read_output[1] != u'B' || read_output[2] != u'\r' ||
+        read_output[3] != u'\n')
+    {
+        std::fprintf(stderr, "real ReadConsole data failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::corehost2::session console_session{4, 2,
                                                  corehost::screen::text_measurement::console};
     console_session.feed(input);
