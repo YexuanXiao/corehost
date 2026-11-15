@@ -3,6 +3,7 @@
 #include "signal_reader.hpp"
 #include "terminal_reader.hpp"
 #include "vt_input_thread.hpp"
+#include "signal_thread.hpp"
 #include "pseudo_window.hpp"
 #include "terminal_writer.hpp"
 
@@ -105,6 +106,63 @@ int main()
     stop_thread.stop_and_join();
     ::CloseHandle(stop_write);
     ::CloseHandle(stop_read);
+    struct recording_signal_sink final : corehost::conptyio::signal_sink
+    {
+        std::uint16_t id{};
+        std::vector<std::byte> payload;
+        bool eof{};
+
+        void on_signal(std::uint16_t value, std::span<const std::byte> bytes) override
+        {
+            id = value;
+            payload.assign(bytes.begin(), bytes.end());
+        }
+
+        void on_signal_eof() override
+        {
+            eof = true;
+        }
+    };
+
+    HANDLE signal_thread_read = nullptr;
+    HANDLE signal_thread_write = nullptr;
+    if (!::CreatePipe(&signal_thread_read, &signal_thread_write, nullptr, 0))
+    {
+        std::fprintf(stderr, "create signal thread pipe failed\n");
+        return EXIT_FAILURE;
+    }
+    recording_signal_sink signal_sink;
+    corehost::conptyio::pty_signal_thread signal_thread{win32::handle_view{signal_thread_read},
+                                                        signal_sink};
+    signal_thread.start();
+    const std::uint16_t signal_id = 8;
+    const std::uint32_t signal_resize = (4u << 16) | 12u;
+    DWORD signal_written = 0;
+    ::WriteFile(signal_thread_write, &signal_id, sizeof(signal_id), &signal_written, nullptr);
+    ::WriteFile(signal_thread_write, &signal_resize, sizeof(signal_resize), &signal_written, nullptr);
+    ::CloseHandle(signal_thread_write);
+    signal_thread.join();
+    if (signal_sink.id != 8 || signal_sink.payload.size() != sizeof(signal_resize) || !signal_sink.eof)
+    {
+        std::fprintf(stderr, "signal thread read failed\n");
+        return EXIT_FAILURE;
+    }
+    ::CloseHandle(signal_thread_read);
+
+    HANDLE signal_stop_read = nullptr;
+    HANDLE signal_stop_write = nullptr;
+    if (!::CreatePipe(&signal_stop_read, &signal_stop_write, nullptr, 0))
+    {
+        std::fprintf(stderr, "create signal stop pipe failed\n");
+        return EXIT_FAILURE;
+    }
+    recording_signal_sink signal_stop_sink;
+    corehost::conptyio::pty_signal_thread signal_stop_thread{
+        win32::handle_view{signal_stop_read}, signal_stop_sink};
+    signal_stop_thread.start();
+    signal_stop_thread.stop_and_join();
+    ::CloseHandle(signal_stop_write);
+    ::CloseHandle(signal_stop_read);
     corehost::screen::screen_buffer signal_buffer{8, 2};
     corehost::screen::console_state signal_state{8, 2};
     std::uint32_t resize = (3u << 16) | 10u;

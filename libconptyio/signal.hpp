@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstring>
 #include <span>
+#include <stdexcept>
 
 namespace corehost::conptyio
 {
