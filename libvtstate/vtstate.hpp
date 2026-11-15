@@ -151,6 +151,38 @@ class state_applier final
         const auto width = state.width();
         const auto height = state.height();
 
+        if (screen::all_printable_ascii(text))
+        {
+            std::size_t consumed = 0;
+            for (const auto ch : text)
+            {
+                if (cursor.x >= 0 && static_cast<std::size_t>(cursor.x) + 1 > width)
+                {
+                    buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
+                    cursor.x = 0;
+                    ++cursor.y;
+                }
+                if (cursor.y >= 0 && static_cast<std::size_t>(cursor.y) >= height)
+                {
+                    const auto top = state.scroll_top();
+                    const auto bottom = state.scroll_bottom();
+                    buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1,
+                                            state.default_style);
+                    cursor.y = static_cast<std::int32_t>(bottom);
+                }
+                if (!buffer.write_glyph(cursor, std::u16string_view{&ch, 1}, 1, state.default_style,
+                                        state.default_hyperlink))
+                {
+                    break;
+                }
+                ++cursor.x;
+                ++consumed;
+            }
+            state.set_cursor(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y));
+            last_consumed_ = consumed;
+            return;
+        }
+
         std::size_t consumed = 0;
         for (const auto cluster : screen::grapheme_range<Mode, Ambiguous>{text})
         {
