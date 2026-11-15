@@ -170,8 +170,8 @@ class state_applier final
                                             state.default_style);
                     cursor.y = static_cast<std::int32_t>(bottom);
                 }
-                if (!buffer.write_glyph(cursor, std::u16string_view{&ch, 1}, 1, state.default_style,
-                                        state.default_hyperlink))
+                if (!buffer.write_scalar(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y), ch,
+                                         state.default_style, screen::cell_width::narrow, state.default_hyperlink))
                 {
                     break;
                 }
