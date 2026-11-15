@@ -37,6 +37,20 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::use_main_buffer:
         applier.apply_alternate_buffer(false, buffer, state);
         return true;
+    case vtparser::vt_message_id::cursor_show:
+        applier.apply_cursor_visibility(true, state);
+        return true;
+    case vtparser::vt_message_id::cursor_hide:
+        applier.apply_cursor_visibility(false, state);
+        return true;
+    case vtparser::vt_message_id::save_cursor:
+    case vtparser::vt_message_id::ansi_save_cursor:
+        applier.apply_save_cursor(state);
+        return true;
+    case vtparser::vt_message_id::restore_cursor:
+    case vtparser::vt_message_id::ansi_restore_cursor:
+        applier.apply_restore_cursor(state);
+        return true;
     case vtparser::vt_message_id::set_palette_color:
         applier.apply_palette_color(message, state);
         return true;

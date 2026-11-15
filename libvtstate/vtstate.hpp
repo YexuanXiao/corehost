@@ -84,6 +84,22 @@ class state_applier final
         }
     }
 
+    void apply_cursor_visibility(bool visible,
+                                  screen::console_state &state) noexcept
+    {
+        state.cursor().visible = visible;
+    }
+
+    void apply_save_cursor(screen::console_state &state) noexcept
+    {
+        state.save_cursor();
+    }
+
+    void apply_restore_cursor(screen::console_state &state) noexcept
+    {
+        (void)state.restore_cursor();
+    }
+
     void apply_palette_color(const vtparser::vt_message &message,
                                screen::console_state &state)
     {

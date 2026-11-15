@@ -263,6 +263,30 @@ int main()
         return EXIT_FAILURE;
     }
 
+    state.set_cursor(2, 1);
+    parser.reset();
+    result = parser.parse(U"\x1b" "7");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    state.set_cursor(0, 0);
+    parser.reset();
+    result = parser.parse(U"\x1b" "8");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.cursor().x != 2 || state.cursor().y != 1)
+    {
+        std::fprintf(stderr, "save/restore cursor failed x=%zu y=%zu valid=%d\n",
+                     state.cursor().x, state.cursor().y, state.saved_cursor.valid);
+        return EXIT_FAILURE;
+    }
+
+    parser.reset();
+    result = parser.parse(U"\x1b[?25l");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (state.cursor().visible)
+    {
+        std::fprintf(stderr, "cursor hide failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtstate tests passed\n");
     return EXIT_SUCCESS;
 }
