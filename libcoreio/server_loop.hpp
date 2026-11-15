@@ -40,6 +40,7 @@ void run_server(Transport &transport, Handler &handler, std::stop_token stop = {
             {
                 previous = nullptr;
             }
+            handler.flush();
             continue;
         }
         if (result == read_io_result::disconnected)
@@ -77,6 +78,7 @@ void run_server(Transport &transport, Handler &handler, const std::atomic_bool &
             {
                 previous = nullptr;
             }
+            handler.flush();
             continue;
         }
         if (result == read_io_result::disconnected)

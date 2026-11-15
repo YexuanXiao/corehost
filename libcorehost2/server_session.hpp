@@ -1,6 +1,8 @@
 #pragma once
 
 #include "console_api.hpp"
+#include "terminal_writer.hpp"
+#include "utility/log.hpp"
 #include "apply.hpp"
 #include "utf8.hpp"
 #include "vt_parser.hpp"
@@ -24,10 +26,27 @@ class server_session final
     server_session(screen::screen_buffer &buffer, screen::console_state &state,
                    consoleinput::input_queue &input,
                    std::uintptr_t input_object = 0,
-                   win32::handle_view server = {}) noexcept
+                   win32::handle_view server = {},
+                   conptyio::terminal_writer *writer = nullptr) noexcept
         : server_{server}, screen_{buffer}, state_{state}, input_{input}, parser_{raw_}, applier_{},
-          payload_{server}, api_{buffer, state, &input, input_object, &processes_, &payload_}
+          payload_{server}, writer_{writer}, api_{buffer, state, &input, input_object, &processes_, &payload_}
     {
+    }
+
+    [[nodiscard]] static bool should_forward_to_terminal(vtparser::vt_message_id id) noexcept
+    {
+        switch (id)
+        {
+        case vtparser::vt_message_id::use_alternate_buffer:
+        case vtparser::vt_message_id::use_main_buffer:
+        case vtparser::vt_message_id::device_attributes:
+        case vtparser::vt_message_id::report_cursor_position:
+        case vtparser::vt_message_id::set_palette_color:
+        case vtparser::vt_message_id::unknown_sequence:
+            return true;
+        default:
+            return false;
+        }
     }
 
     void write_raw(std::span<const char> bytes)
@@ -56,6 +75,15 @@ class server_session final
                     continue;
                 }
                 (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
+                if (writer_ != nullptr && should_forward_to_terminal(result.id))
+                {
+                    LOG("forward id=%d chars=%zu", static_cast<int>(result.id), result.raw_sequence.size());
+                    for (const auto ch : result.raw_sequence)
+                    {
+                        const char8_t byte = static_cast<char8_t>(ch & 0x7F);
+                        writer_->buffer().append(std::span<const char8_t>{&byte, 1});
+                    }
+                }
                 parser_.reset();
             }
         }
@@ -301,6 +329,12 @@ class server_session final
                                    sizeof(CONSOLE_WRITECONSOLE_MSG));
         return true;
     }
+    [[nodiscard]] screen::screen_buffer &screen() noexcept { return screen_; }
+
+    void flush() noexcept {}
+
+    conptyio::terminal_writer *writer_{};
+
     bool handle(coreio::io_msg &message)
     {
         if (message.descriptor.InputSize >= sizeof(CONSOLE_MSG_HEADER))

@@ -29,6 +29,7 @@ int main()
     {
         int handled{};
         bool handle(corehost::coreio::io_msg &) noexcept { ++handled; return true; }
+        void flush() noexcept {}
     };
 
     fake_transport transport;

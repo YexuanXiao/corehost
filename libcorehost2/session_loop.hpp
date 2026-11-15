@@ -18,6 +18,7 @@
 #include "utf8.hpp"
 #include "win32/event.hpp"
 #include "win32/handle.hpp"
+#include "utility/log.hpp"
 #include "win32/srwlock.hpp"
 #include "win32/thread.hpp"
 
@@ -55,14 +56,38 @@ inline DWORD WINAPI server_worker_entry(LPVOID raw)
     {
         server_worker_context &context;
 
+        void flush() const
+        {
+            LOG("handler flush begin");
+            context.writer->flush();
+            LOG("handler flush end");
+        }
+
         bool handle(coreio::io_msg &message) const
         {
             std::vector<std::pair<DWORD, DWORD>> ctrl_events;
             {
                 std::unique_lock guard{*context.mutex};
+                const bool alternate_before = context.state->screen().alternate_active();
+                std::span<const std::byte> raw_output;
+                coreio::input_payload_reader raw_reader{context.server};
+                if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE)
+                {
+                    raw_output = raw_reader.read(message, 0);
+                }
                 if (!context.dispatcher->handle(message))
                 {
                     return false;
+                }
+                if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE &&
+                    (alternate_before || context.state->screen().alternate_active()))
+                {
+                    context.writer->buffer().append(std::span<const char8_t>{
+                        reinterpret_cast<const char8_t *>(raw_output.data()), raw_output.size()});
+                    context.state->screen().clear_damage();
+                    (void)context.state->take_alternate_changed();
+                    (void)context.state->take_viewport_changed();
+                    return true;
                 }
                 context.dispatcher->take_ctrl_events(ctrl_events);
                 const auto cursor = screen::coord{
@@ -137,6 +162,9 @@ class session_input_sink final
     void on_input_bytes(std::span<const std::byte> bytes)
     {
         std::unique_lock guard{mutex_};
+        LOG("input bytes=%zu alt=%d raw_pending=%d console_read=%d", bytes.size(),
+            state_.screen().alternate_active() ? 1 : 0, console_.raw_pending() ? 1 : 0,
+            console_.console_read_pending() ? 1 : 0);
         vtparser::decode_utf8(
             std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()},
             text_, pending_);
@@ -147,7 +175,9 @@ class session_input_sink final
         }
         state_.feed_input(text_, (state_.state().input_mode & 0x0200) != 0 &&
                                   !console_.raw_pending() && !console_.console_read_pending());
-        (void)console_.complete_pending();
+        const bool completed = console_.complete_pending();
+        LOG("input parsed text=%zu queue=%zu read_pending=%d completed=%d", text_.size(),
+            state_.input().size(), console_.console_read_pending() ? 1 : 0, completed ? 1 : 0);
         for (const auto [mode, enabled] : state_.state().take_private_modes())
         {
             vtserializer::append_private_mode(writer_.buffer(), mode, enabled);
@@ -314,7 +344,7 @@ inline void run_conpty_session(win32::handle_view server,
     win32::basic_thread server_thread;
     std::atomic_bool server_stop{};
 
-    server_session console_session{state.screen(), state.state(), state.input(), 0, server};
+    server_session console_session{state.screen(), state.state(), state.input(), 0, server, &writer};
     console_session.set_window_handle(reinterpret_cast<std::uintptr_t>(window.handle()));
     if (config.attached_process_id != 0)
     {
