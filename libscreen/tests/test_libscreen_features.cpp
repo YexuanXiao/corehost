@@ -101,6 +101,9 @@ void test_char_info_and_attrs()
     };
     check(buffer.write_char_info(rect{0, 0, 2, 0}, input) == 3, "write char_info count");
     check(buffer.at(0, 0).primary() == u'A', "write char_info char");
+    check(buffer.has_damage(), "write marks damage");
+    buffer.clear_damage();
+    check(!buffer.has_damage(), "clear damage flag");
     check(buffer.attr_at(coord{0, 0}) == 0x1F, "attr_at");
     check(buffer.char_info_at(coord{1, 0}).character == u'B', "char_info_at");
 

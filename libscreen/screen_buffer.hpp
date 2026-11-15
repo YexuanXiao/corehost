@@ -176,6 +176,11 @@ class page final
         return rows_[y].state;
     }
 
+    [[nodiscard]] bool has_damage() const noexcept
+    {
+        return damage_active_;
+    }
+
     [[nodiscard]] row_block &block(std::size_t y) noexcept
     {
         assert(y < height_);
@@ -208,6 +213,7 @@ class page final
   private:
     std::size_t width_{};
     std::size_t height_{};
+    bool damage_active_{};
     bizwen::deque<row_block> rows_;
 };
 class screen_buffer final
@@ -448,6 +454,10 @@ class screen_buffer final
     [[nodiscard]] std::size_t damage_begin(std::size_t y) const noexcept;
     [[nodiscard]] std::size_t damage_end(std::size_t y) const noexcept;
     void clear_damage() noexcept;
+    [[nodiscard]] bool has_damage() const noexcept
+    {
+        return active_page().has_damage();
+    }
 
   private:
     [[nodiscard]] page &active_page() noexcept;
@@ -560,11 +570,13 @@ inline void page::mark_dirty(std::size_t y, std::size_t begin, std::size_t end) 
     {
         state.dirty_begin = static_cast<std::uint32_t>(begin);
         state.dirty_end = static_cast<std::uint32_t>(end);
+        damage_active_ = true;
         return;
     }
 
     state.dirty_begin = std::min(state.dirty_begin, static_cast<std::uint32_t>(begin));
     state.dirty_end = std::max(state.dirty_end, static_cast<std::uint32_t>(end));
+    damage_active_ = true;
 }
 
 inline void page::mark_used(std::size_t y, std::size_t end) noexcept
@@ -580,6 +592,7 @@ inline void page::clear_damage() noexcept
         row.state.dirty_begin = 0;
         row.state.dirty_end = 0;
     }
+    damage_active_ = false;
 }
 
 inline void page::mark_all_dirty() noexcept
@@ -589,6 +602,7 @@ inline void page::mark_all_dirty() noexcept
         row.state.dirty_begin = 0;
         row.state.dirty_end = static_cast<std::uint32_t>(width_);
     }
+    damage_active_ = true;
 }
 
 inline screen_buffer::screen_buffer(std::size_t width, std::size_t height, std::size_t history_limit)
