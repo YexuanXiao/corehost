@@ -78,6 +78,9 @@ add_subdirectory(libvtserializer)
 add_subdirectory(libscreen)
 add_subdirectory(libscreen/bench)
 
+# ── libvtstate (parser messages -> libscreen state) ──
+add_subdirectory(libvtstate)
+
 # ── libcorehost (ConPTY 核心静态库) ──────────────────
 add_subdirectory(libcorehost)
 
