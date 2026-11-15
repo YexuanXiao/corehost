@@ -1727,7 +1727,13 @@ class console_api final
             return true;
         }
         auto *info = reinterpret_cast<CONSOLE_SETDISPLAYMODE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
-        state_.display_mode = info->dwFlags;
+        if ((info->dwFlags & (CONSOLE_FULLSCREEN_MODE | CONSOLE_WINDOWED_MODE)) == 0)
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        state_.display_mode =
+            (info->dwFlags & CONSOLE_FULLSCREEN_MODE) != 0 ? CONSOLE_FULLSCREEN_MODE : 0;
         info->ScreenBufferDimensions = COORD{static_cast<SHORT>(buffer_.width()),
                                              static_cast<SHORT>(buffer_.height())};
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_SETDISPLAYMODE_MSG),
