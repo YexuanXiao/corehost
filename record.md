@@ -909,9 +909,8 @@ ConsoleState         Passed
 - 删除 `terminal_reader::closed_` 和未调用的 `closed()`。
 - `message_handler` 复用 ctrl 事件 vector。
 - `console_api` 复用：
-  - `text_buffer_`
+  - `text_buffer_`（WriteConsole、SetTitle、ReadConsoleOutputString ANSI）
   - `ansi_buffer_`
-  - `char_buffer_`
   - `prepend_buffer_`
 - `take_ctrl_events` 使用 `append_range` 并保留容量。
 - 新增/更新 `CoreIO.Reference` 的 flush 测试。
@@ -1031,12 +1030,14 @@ d450f84 perf(consoleapi): reuse alias expansion buffer
 a00a71f perf(consoleapi): reuse expanded command buffer
 ```
 
-### SetTitle 缓冲复用
+### SetTitle / ReadConsoleOutputString 共用文本缓冲
 
-`set_title` 不再每次构造局部 `std::u16string title` 和 `std::wstring wide`，复用成员 `title_buffer_` / `wide_title_buffer_`：
+`set_title` 不再使用独立的 `title_buffer_` / `wide_title_buffer_`，直接复用 `text_buffer_`；`ReadConsoleOutputString` 的 ANSI 分支也不再使用 `char_buffer_`，共用 `text_buffer_`。三个入口在同一 handler 中串行执行，不会同时占用该缓冲。
+
+`SetWindowTextW` 直接使用 `std::u16string::c_str()`，不再复制到 `std::wstring`：
 
 ```text
-346aeed perf(consoleapi): reuse set title buffers
+fce89c9 refactor(consoleapi): share text buffer across title and read paths
 ```
 
 ### 移除 Alias 编码回退
