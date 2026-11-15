@@ -18,7 +18,7 @@ int main()
     }
 
     screen::screen_buffer buffer{10, 2};
-    screen::console_state state{10, 2};
+    screen::console_state state{10, 5};
     corehost::vtstate::state_applier applier;
     applier.apply_text(result.message, buffer, state);
 
@@ -63,6 +63,15 @@ int main()
     if (buffer.is_double_width(0))
     {
         std::fprintf(stderr, "double width flag not cleared\n");
+        return EXIT_FAILURE;
+    }
+
+    parser.reset();
+    result = parser.parse(U"\x1b[3;5H");
+    applier.apply_cursor_position(result.message, state);
+    if (state.cursor().x != 4 || state.cursor().y != 2)
+    {
+        std::fprintf(stderr, "cursor position failed\n");
         return EXIT_FAILURE;
     }
 

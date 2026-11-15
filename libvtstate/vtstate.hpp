@@ -7,6 +7,7 @@
 
 #include <libunicode/convert.h>
 
+#include <algorithm>
 #include <iterator>
 #include <string>
 
@@ -36,6 +37,14 @@ class state_applier final
         state.set_cursor(static_cast<std::size_t>(cursor.x),
                          static_cast<std::size_t>(cursor.y));
         last_consumed_ = result.consumed;
+    }
+
+    void apply_cursor_position(const vtparser::vt_message &message,
+                              screen::console_state &state)
+    {
+        const auto row = static_cast<std::size_t>(std::max<int>(message.payload.position.row - 1, 0));
+        const auto column = static_cast<std::size_t>(std::max<int>(message.payload.position.col - 1, 0));
+        state.set_cursor(column, row);
     }
 
     void apply_line_rendition(const vtparser::vt_message &message,
