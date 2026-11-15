@@ -196,6 +196,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::corehost2::session image_session{8, 2};
+    image_session.feed(std::u16string_view{u"\x1b_Ga=T,i=7,s=4,v=4,c=2,r=1;AAAA\x1b\\"});
+    if (image_session.screen().images().size() != 2 ||
+        !image_session.screen().at(0, 0).has_image())
+    {
+        std::fprintf(stderr, "image placement failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libcorehost2 tests passed\n");
     return EXIT_SUCCESS;
 }

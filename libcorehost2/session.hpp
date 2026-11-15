@@ -124,6 +124,13 @@ class session final
             return;
         }
 
+        if ((result.id == vtparser::vt_message_id::apc_sequence ||
+             result.id == vtparser::vt_message_id::dcs_sequence) &&
+            applier_.apply_image(result.raw_sequence, screen_, state_))
+        {
+            return;
+        }
+
         (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
     }
 

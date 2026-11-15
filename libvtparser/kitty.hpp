@@ -14,6 +14,9 @@ struct kitty_graphics final
     std::uint32_t format{};
     std::uint32_t width{};
     std::uint32_t height{};
+    std::uint32_t columns{};
+    std::uint32_t rows{};
+    std::uint32_t placement_id{};
     std::u16string_view control;
     std::u16string_view payload;
 };
@@ -116,6 +119,18 @@ parse_kitty_graphics(std::u16string_view apc) noexcept
     if (const auto height = detail::field_value(control, u'v'))
     {
         result.height = *height;
+    }
+    if (const auto columns = detail::field_value(control, u'c'))
+    {
+        result.columns = *columns;
+    }
+    if (const auto rows = detail::field_value(control, u'r'))
+    {
+        result.rows = *rows;
+    }
+    if (const auto placement = detail::field_value(control, u'p'))
+    {
+        result.placement_id = *placement;
     }
     return result;
 }

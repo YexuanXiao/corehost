@@ -48,6 +48,13 @@ class server_session final
             input.remove_prefix(result.consumed);
             if (result.id != vtparser::vt_message_id::continue_)
             {
+                if ((result.id == vtparser::vt_message_id::apc_sequence ||
+                     result.id == vtparser::vt_message_id::dcs_sequence) &&
+                    applier_.apply_image(result.raw_sequence, screen_, state_))
+                {
+                    parser_.reset();
+                    continue;
+                }
                 (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
                 parser_.reset();
             }

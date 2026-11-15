@@ -1,6 +1,8 @@
 #pragma once
 
 #include "vt_parser.hpp"
+#include "kitty.hpp"
+#include "sixel.hpp"
 
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
@@ -49,6 +51,39 @@ class state_applier final
     void apply_charset(bool line_drawing, screen::console_state &state) noexcept
     {
         state.line_drawing_charset = line_drawing;
+    }
+    bool apply_image(std::u16string_view raw_sequence,
+                     screen::screen_buffer &buffer,
+                     screen::console_state &state)
+    {
+        const auto kitty = vtparser::parse_kitty_graphics(raw_sequence);
+        if (!kitty.has_value() || kitty->image_id == 0)
+        {
+            return false;
+        }
+
+        screen::image_fragment fragment{};
+        fragment.image_id = kitty->image_id;
+        fragment.placement_id = kitty->placement_id != 0 ? kitty->placement_id : kitty->image_id;
+        fragment.source_width = kitty->width != 0 ? kitty->width : kitty->columns;
+        fragment.source_height = kitty->height != 0 ? kitty->height : kitty->rows;
+        const auto fragment_id = buffer.images().intern(fragment);
+
+        const auto columns = std::max<std::size_t>(kitty->columns, 1);
+        const auto rows = std::max<std::size_t>(kitty->rows, 1);
+        const auto start_x = state.cursor().x;
+        const auto start_y = state.cursor().y;
+        for (std::size_t row = 0; row < rows; ++row)
+        {
+            for (std::size_t column = 0; column < columns; ++column)
+            {
+                (void)buffer.write_image(start_x + column, start_y + row, fragment_id,
+                                         state.default_style, screen::cell_width::narrow);
+            }
+        }
+        state.set_cursor(std::min<std::size_t>(start_x + columns, state.width() - 1),
+                         std::min<std::size_t>(start_y + rows - 1, state.height() - 1));
+        return true;
     }
     void apply_text(const vtparser::vt_message &message,
                     screen::screen_buffer &buffer,
