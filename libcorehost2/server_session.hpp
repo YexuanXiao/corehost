@@ -60,67 +60,100 @@ class server_session final
             }
         }
     }
+    void push_raw(std::span<const char> bytes)
+    {
+        raw_in_.append(bytes.data(), bytes.size());
+    }
+
+    [[nodiscard]] bool raw_pending() const noexcept
+    {
+        return pending_active_ && pending_kind_ == pending_kind::raw_read;
+    }
+
+    void on_input_eof()
+    {
+        raw_eof_ = true;
+        if (pending_active_ && pending_kind_ == pending_kind::raw_read && server_.valid())
+        {
+            const auto capacity = std::min<std::size_t>(pending_message_.descriptor.OutputSize,
+                                                         sizeof(pending_message_.body));
+            const auto written = std::min<std::size_t>(raw_in_.size(), capacity);
+            std::copy_n(raw_in_.begin(), written, pending_message_.body);
+            raw_in_.clear();
+            coreio::prepare_completion(pending_message_, 0, written, pending_message_.body,
+                                       written);
+            coreio::complete_io(server_, pending_message_.complete);
+            pending_active_ = false;
+            pending_kind_ = pending_kind::none;
+        }
+    }
+
     std::size_t read_raw(std::span<char> output)
     {
-        if (!raw_line_active_)
-        {
-            raw_line_.clear();
-            raw_line_active_ = true;
-            raw_eof_ = false;
-        }
-
-        std::array<consoleinput::input_event, 32> events{};
-        const auto count = input_.read(
-            std::span<consoleinput::input_event>{events.data(), events.size()});
-        bool complete = false;
-        for (std::size_t i = 0; i < count && !complete; ++i)
-        {
-            if (events[i].type != consoleinput::input_event_type::key || !events[i].key.key_down)
-            {
-                continue;
-            }
-
-            const auto character = events[i].key.character;
-            if (character == u'\r' || character == u'\n')
-            {
-                raw_line_.push_back('\r');
-                raw_line_.push_back('\n');
-                complete = true;
-                break;
-            }
-            if (character == 26 && (state_.input_mode & 0x0001) != 0)
-            {
-                raw_eof_ = true;
-                complete = true;
-                break;
-            }
-            if (character == 0)
-            {
-                append_key_sequence(events[i].key.key, raw_line_);
-            }
-            else
-            {
-                append_encoded_character(character, raw_line_);
-            }
-
-            if (raw_line_.size() >= output.size())
-            {
-                complete = true;
-            }
-        }
-
-        if (!complete && raw_line_.size() < output.size())
+        if (output.empty() || raw_in_.empty())
         {
             return 0;
         }
 
-        const auto written = std::min<std::size_t>(raw_line_.size(), output.size());
-        std::copy_n(raw_line_.begin(), written, output.begin());
-        raw_line_.clear();
-        raw_line_active_ = false;
+        const auto limit = std::min<std::size_t>(output.size(), raw_in_.size());
+        std::size_t consumed = 0;
+        bool complete = false;
+        bool eof = false;
+        while (consumed < limit)
+        {
+            const auto value = static_cast<unsigned char>(raw_in_[consumed]);
+            if (value == '\r')
+            {
+                ++consumed;
+                if (consumed < raw_in_.size() && raw_in_[consumed] == '\n')
+                {
+                    ++consumed;
+                }
+                complete = true;
+                break;
+            }
+            if (value == '\n')
+            {
+                ++consumed;
+                complete = true;
+                break;
+            }
+            if (value == 26 && (state_.input_mode & 0x0001) != 0)
+            {
+                eof = true;
+                complete = true;
+                break;
+            }
+            ++consumed;
+        }
+
+        if (!complete)
+        {
+            if (raw_in_.size() < output.size())
+            {
+                return 0;
+            }
+            consumed = limit;
+        }
+
+        std::string line = raw_in_.substr(0, consumed);
+        raw_in_.erase(0, consumed);
+        raw_eof_ = eof;
+
+        if (!line.empty() && line.back() == '\n' &&
+            (line.size() < 2 || line[line.size() - 2] != '\r'))
+        {
+            line.insert(line.size() - 1, 1, '\r');
+        }
+        else if (!line.empty() && line.back() == '\r' && (eof || complete))
+        {
+            line.push_back('\n');
+        }
+
+        const auto written = std::min<std::size_t>(line.size(), output.size());
+        std::copy_n(line.begin(), written, output.begin());
         return written;
     }
-
     [[nodiscard]] bool raw_eof() const noexcept
     {
         return raw_eof_;
@@ -191,8 +224,7 @@ class server_session final
         }
         if (pending_kind_ == pending_kind::raw_read)
         {
-            raw_line_.clear();
-            raw_line_active_ = false;
+            raw_in_.clear();
             raw_eof_ = false;
             coreio::prepare_completion(pending_message_, 0, 0, pending_message_.body, 0);
         }
@@ -226,7 +258,14 @@ class server_session final
         {
             return false;
         }
-        if (pending_kind_ == pending_kind::console_input)
+        if (pending_kind_ == pending_kind::raw_read)
+        {
+            if (raw_in_.empty())
+            {
+                return false;
+            }
+        }
+        else if (pending_kind_ == pending_kind::console_input)
         {
             if (input_.empty())
             {
@@ -271,63 +310,6 @@ class server_session final
     }
 
   private:
-    static void append_encoded_character(char16_t character, std::string &output)
-    {
-        if (character < 0x80)
-        {
-            output.push_back(static_cast<char>(character));
-            return;
-        }
-        char bytes[4]{};
-        const auto written = ::WideCharToMultiByte(CP_UTF8, 0,
-                                                   reinterpret_cast<const wchar_t *>(&character), 1,
-                                                   bytes, static_cast<int>(sizeof(bytes)), nullptr,
-                                                   nullptr);
-        if (written > 0)
-        {
-            output.append(bytes, static_cast<std::size_t>(written));
-        }
-    }
-
-    static void append_key_sequence(consoleinput::virtual_key key, std::string &output)
-    {
-        switch (key)
-        {
-        case consoleinput::virtual_key::up:
-            output.append("\x1b[A");
-            break;
-        case consoleinput::virtual_key::down:
-            output.append("\x1b[B");
-            break;
-        case consoleinput::virtual_key::right:
-            output.append("\x1b[C");
-            break;
-        case consoleinput::virtual_key::left:
-            output.append("\x1b[D");
-            break;
-        case consoleinput::virtual_key::home:
-            output.append("\x1b[H");
-            break;
-        case consoleinput::virtual_key::end:
-            output.append("\x1b[F");
-            break;
-        case consoleinput::virtual_key::insert:
-            output.append("\x1b[2~");
-            break;
-        case consoleinput::virtual_key::del:
-            output.append("\x1b[3~");
-            break;
-        case consoleinput::virtual_key::page_up:
-            output.append("\x1b[5~");
-            break;
-        case consoleinput::virtual_key::page_down:
-            output.append("\x1b[6~");
-            break;
-        default:
-            break;
-        }
-    }
-
     enum class pending_kind : std::uint8_t
     {
         none,
@@ -344,8 +326,7 @@ class server_session final
     vtparser::vt_parser parser_;
     vtstate::state_applier applier_;
     std::u16string text_;
-    std::string raw_line_;
-    bool raw_line_active_{};
+    std::string raw_in_;
     bool raw_eof_{};
     coreio::process_registry processes_;
     consoleapi::console_api api_;

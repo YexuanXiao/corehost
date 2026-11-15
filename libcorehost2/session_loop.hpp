@@ -98,6 +98,11 @@ class session_input_sink final : public conptyio::vt_input_sink
         vtparser::decode_utf8(
             std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()},
             text_, pending_);
+        if (console_.raw_pending())
+        {
+            console_.push_raw(std::span<const char>{reinterpret_cast<const char *>(bytes.data()),
+                                                   bytes.size()});
+        }
         state_.feed_input(text_);
         (void)console_.complete_pending();
         for (const auto [mode, enabled] : state_.state().take_private_modes())
@@ -119,6 +124,8 @@ class session_input_sink final : public conptyio::vt_input_sink
 
     void on_input_eof() override
     {
+        std::unique_lock guard{mutex_};
+        console_.on_input_eof();
     }
 
   private:

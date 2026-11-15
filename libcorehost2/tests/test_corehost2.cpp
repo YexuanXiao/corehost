@@ -123,12 +123,18 @@ int main()
         return EXIT_FAILURE;
     }
 
-    corehost::consoleinput::key_event raw_read_key;
-    raw_read_key.character = u'X';
-    server_input.push(
-        corehost::consoleinput::input_event{corehost::consoleinput::input_event_type::key, raw_read_key});
-    char raw_read_data[1]{};
-    if (server.read_raw(std::span<char>{raw_read_data, 1}) != 1 || raw_read_data[0] != 'X')
+    const char raw_x[]{"X"};
+    server.push_raw(std::span<const char>{raw_x, 1});
+    char raw_read_data[8]{};
+    if (server.read_raw(std::span<char>{raw_read_data}) != 0)
+    {
+        std::fprintf(stderr, "raw read completed early\n");
+        return EXIT_FAILURE;
+    }
+    const char raw_cr[]{"\r"};
+    server.push_raw(std::span<const char>{raw_cr, 1});
+    if (server.read_raw(std::span<char>{raw_read_data}) != 3 || raw_read_data[0] != 'X' ||
+        raw_read_data[1] != '\r' || raw_read_data[2] != '\n')
     {
         std::fprintf(stderr, "raw read failed\n");
         return EXIT_FAILURE;
