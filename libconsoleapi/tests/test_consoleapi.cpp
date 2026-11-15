@@ -32,6 +32,14 @@ int main()
         return EXIT_FAILURE;
     }
 
+    api.fill_cells(corehost::screen::rect{2, 0, 4, 0}, u'X', 0x1F);
+    if (buffer.at(2, 0).primary() != u'X' ||
+        buffer.attr_at(corehost::screen::coord{4, 0}) != 0x1F)
+    {
+        std::fprintf(stderr, "fill_cells failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libconsoleapi tests passed\n");
     return EXIT_SUCCESS;
 }

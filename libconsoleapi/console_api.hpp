@@ -34,6 +34,12 @@ class console_api final
         return result.consumed == text.size();
     }
 
+    void fill_cells(screen::rect area, char16_t character, std::uint16_t attributes) noexcept
+    {
+        buffer_.fill_chars(area, character);
+        buffer_.fill_attrs(area, attributes);
+    }
+
     [[nodiscard]] std::size_t read_cells(screen::rect area,
                                          std::span<interop::win32::char_info> output) noexcept
     {
