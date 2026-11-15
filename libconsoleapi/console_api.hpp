@@ -1229,7 +1229,8 @@ class console_api final
         auto *info = reinterpret_cast<CONSOLE_GETALIASEXESLENGTH_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
         std::size_t length = 0;
-        std::vector<std::u16string_view> seen;
+        auto &seen = alias_exes_seen_;
+        seen.clear();
         for (const auto &alias : state_.aliases)
         {
             if (std::ranges::find(seen, alias.executable) != seen.end())
@@ -1313,7 +1314,8 @@ class console_api final
                                   : 0;
         const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
         std::size_t written = 0;
-        std::vector<std::u16string_view> seen;
+        auto &seen = alias_exes_seen_;
+        seen.clear();
         for (const auto &alias : state_.aliases)
         {
             if (std::ranges::find(seen, alias.executable) != seen.end())
@@ -2665,6 +2667,7 @@ class console_api final
     coreio::input_payload_reader *payload_{};
     std::u16string text_buffer_;
     std::u16string history_selection_;
+    std::vector<std::u16string_view> alias_exes_seen_;
     std::array<consoleinput::input_event, 64> read_events_;
     std::vector<char> ansi_buffer_;
     std::vector<char16_t> char_buffer_;
