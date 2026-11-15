@@ -4,8 +4,8 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
-#include <stdexcept>
 #include <vector>
 
 namespace corehost::screen
@@ -44,10 +44,7 @@ class image_table final
             return static_cast<std::uint32_t>(std::distance(fragments_.begin(), found));
         }
 
-        if (fragments_.size() > std::numeric_limits<std::uint32_t>::max())
-        {
-            throw std::length_error("image table exhausted its 32-bit ID space");
-        }
+        assert(fragments_.size() <= std::numeric_limits<std::uint32_t>::max());
 
         const auto id = static_cast<std::uint32_t>(fragments_.size());
         fragments_.push_back(fragment);

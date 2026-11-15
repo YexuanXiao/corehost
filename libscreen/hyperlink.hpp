@@ -7,9 +7,10 @@
 #include <cstdint>
 #include <flat_map>
 #include <limits>
-#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace corehost::screen
@@ -17,20 +18,20 @@ namespace corehost::screen
 
 struct hyperlink final
 {
-    std::wstring uri;
-    std::wstring id;
+    std::u16string uri;
+    std::u16string id;
 };
 
 class hyperlink_table final
 {
   public:
-    [[nodiscard]] cell_hyperlink intern(std::wstring_view uri, std::wstring_view id = {})
+    [[nodiscard]] cell_hyperlink intern(std::u16string_view uri, std::u16string_view id = {})
     {
         // A separator that cannot occur in a URI keeps the lookup key stable.
-        std::wstring key;
+        std::u16string key;
         key.reserve(uri.size() + id.size() + 1);
         key.append(uri);
-        key.push_back(L'\n');
+        key.push_back(u'\n');
         key.append(id);
 
         const auto found = ids_.find(key);
@@ -40,13 +41,10 @@ class hyperlink_table final
         }
 
         const auto max_id = static_cast<std::size_t>(std::numeric_limits<std::underlying_type_t<cell_hyperlink>>::max());
-        if (links_.size() > max_id)
-        {
-            throw std::length_error("hyperlink table exhausted its 32-bit ID space");
-        }
+        assert(links_.size() <= max_id);
 
         const auto value = static_cast<cell_hyperlink>(links_.size());
-        links_.push_back(hyperlink{std::wstring{uri}, std::wstring{id}});
+        links_.push_back(hyperlink{std::u16string{uri}, std::u16string{id}});
         ids_.emplace(std::move(key), value);
         return value;
     }
@@ -65,7 +63,7 @@ class hyperlink_table final
 
   private:
     std::vector<hyperlink> links_{{}};
-    std::flat_map<std::wstring, cell_hyperlink> ids_;
+    std::flat_map<std::u16string, cell_hyperlink> ids_;
 };
 
 } // namespace corehost::screen

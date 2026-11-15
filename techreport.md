@@ -344,7 +344,7 @@ bits 24..31 : actual cluster length (1..255)
 - `style=0` 是默认样式；
 - `hyperlink=0` 表示无链接；
 - style table 是 screen-wide 的，保存 foreground/background/underline/attributes/legacy；
-- hyperlink table 保存 URI 和 id；
+- hyperlink table 保存 UTF-16 `std::u16string` URI/id，不使用 `wstring`/`wchar_t`；
 - cell 只保存 32 位 ID；
 - Console API 只读取 legacy 投影，不读取 RGB 表；
 - DWrite/窗口渲染读取完整 style 表。
@@ -356,6 +356,7 @@ bits 24..31 : actual cluster length (1..255)
 - `blank`、`background`、`tail`、`spacer_head`；
 - `scalar`（BMP code unit，孤立 surrogate 规范为 `U+FFFD`）；
 - `complex`/`surrogate`/`grapheme`（offset/length）；
+- `image`（image fragment ID，primary 为 `U+FFFD`）；
 - `primary()`、`text_unit()`、`style()`、`hyperlink()`、`type()`、`width()`、
   `offset()`、`length()`、`flags()`；`cell_extent` 通过 `make_cell_extent()`/
   `extent_offset()`/`extent_length()` 编码；
@@ -388,7 +389,9 @@ row_state:
   user-mark 和 line rendition；
 - `command_exit_code` 保存 shell integration 的退出状态；
 - damage 是每行的半开区间 `[dirty_begin, dirty_end)`；
-- 初始 page 全部行标记为 dirty，保证首次渲染完整。
+- 初始 page 全部行标记为 dirty，保证首次渲染完整；
+- 非零尺寸、32 位 style/hyperlink/image ID 未耗尽等内部不变量使用 `assert`，
+  不作为可恢复异常处理。
 
 ### 5.2 Main、Alternate 与 History
 
@@ -408,6 +411,10 @@ row_state:
 - `write_scalar`：写一个 BMP code unit；wide 时把 x+1 标记为 tail；
 - `write_cluster`：检查 store 容量、append 完整 cluster、写 type=2 cell；
 - `write_image`：写 image 类型 cell，fragment metadata 在 screen-wide image table；
+- `write_codepoint`：把 `char32_t` 转为 UTF-16 code unit 或 surrogate-pair cluster；
+- `glyph_at`/`codepoint_at`/`line_text`：UTF-16 读取完整 glyph/整行，`char16_t` 原生；
+- `glyph_width`/`is_trailing`/`used_columns`：corehost 行布局需要的列信息；
+- `legacy_at`/`write_legacy_scalar`：与 `CHAR_INFO`/`WORD` 属性边界对应；
 - `write_cell`：低层写，负责清理旧的 wide head/tail 邻域；
 - `fill_rect`、`clear`：直接填 cell；
 - `scroll_up`、`scroll_region_up`：移动行/cell，更新 damage、used_columns、line flags 和

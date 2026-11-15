@@ -33,7 +33,8 @@ struct cell
   `is_*`/`has` predicates; bitfields are accessed through these ops, not raw
   bitfield layout.
 - `style_`: 32-bit screen-wide style ID.
-- `hyperlink_`: 32-bit screen-wide hyperlink ID.
+- `hyperlink_`: 32-bit screen-wide hyperlink ID; hyperlink text uses
+  `std::u16string`/`char16_t`, never `wstring`/`wchar_t`.
 
 The complete cluster (including its real primary) lives in the screen-wide
 `std::vector<char16_t>`. `cell` is trivially copyable and exactly 16 bytes.
@@ -50,7 +51,9 @@ The complete cluster (including its real primary) lives in the screen-wide
 
 ## Operations
 
-- `write_scalar`, `write_cluster`, `write_image`, `write_cell`
+- `write_scalar`, `write_cluster`, `write_codepoint`, `write_image`, `write_cell`
+- `glyph_at`, `codepoint_at`, `line_text`, `glyph_width`, `is_trailing`, `used_columns`
+- `legacy_at`, `write_legacy_scalar`
 - `fill_rect`, `clear`
 - `scroll_up`, `scroll_region_up`
 - `resize`, `set_alternate`
@@ -67,5 +70,6 @@ The complete cluster (including its real primary) lives in the screen-wide
 - cluster length is 1..255 and includes the real primary.
 - wide heads are followed by a tail in the same row.
 - styles/hyperlinks are screen-wide IDs; 0 means default/none.
+- zero dimensions and exhausted 32-bit ID spaces are internal asserts, not exceptions.
 - history is cleared on resize.
 - alternate page never records history.

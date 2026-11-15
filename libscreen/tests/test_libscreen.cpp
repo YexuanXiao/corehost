@@ -127,9 +127,9 @@ void test_styles_and_hyperlinks()
 
     hyperlink_table links;
     check(links.size() == 1, "default hyperlink exists");
-    const auto link = links.intern(L"https://example.test/", L"id-1");
-    check(link == links.intern(L"https://example.test/", L"id-1"), "hyperlink interning");
-    check(links.at(link).id == L"id-1", "hyperlink id");
+    const auto link = links.intern(u"https://example.test/", u"id-1");
+    check(link == links.intern(u"https://example.test/", u"id-1"), "hyperlink interning");
+    check(links.at(link).id == u"id-1", "hyperlink id");
     check(links.size() == 2, "hyperlink table size");
 }
 
@@ -218,6 +218,12 @@ void test_screen_buffer()
     (void)screen.write_scalar(0, 0, u'A', style0);
     check(screen.at(0, 0).primary() == u'A', "scalar write");
     check(screen.at(0, 0).style() == style0, "scalar style");
+    check(screen.write_codepoint(2, 0, U'\U0001F600', style1), "codepoint write");
+    check(screen.glyph_at(2, 0) == u"\xD83D\xDE00", "codepoint glyph");
+    check(screen.codepoint_at(2, 0) == U'\U0001F600', "codepoint decode");
+    check(screen.line_text(0).find(u"\xD83D\xDE00") != std::u16string::npos, "line text codepoint");
+    check(screen.write_legacy_scalar(0, 2, u'Q', 0x1F), "legacy scalar");
+    check(screen.legacy_at(0, 2).attributes == 0x1F, "legacy attributes");
     check(screen.damage_begin(0) <= 0 && screen.damage_end(0) >= 1, "scalar damage");
     screen.clear_damage();
     check(screen.damage_begin(0) == screen.damage_end(0), "damage cleared");

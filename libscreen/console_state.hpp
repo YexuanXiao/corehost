@@ -8,7 +8,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -199,10 +198,7 @@ inline console_state::console_state(std::size_t width, std::size_t height)
     : width_{width},
       height_{height}
 {
-    if (width == 0 || height == 0)
-    {
-        throw std::invalid_argument("console_state dimensions must be non-zero");
-    }
+    assert(width != 0 && height != 0);
 
     scroll_bottom_ = height_ - 1;
     reset_tab_stops();
@@ -210,10 +206,7 @@ inline console_state::console_state(std::size_t width, std::size_t height)
 
 inline void console_state::resize(std::size_t width, std::size_t height)
 {
-    if (width == 0 || height == 0)
-    {
-        throw std::invalid_argument("console_state dimensions must be non-zero");
-    }
+    assert(width != 0 && height != 0);
 
     width_ = width;
     height_ = height;
@@ -249,10 +242,7 @@ inline void console_state::clamp_cursor() noexcept
 
 inline void console_state::set_scroll_region(std::size_t top, std::size_t bottom)
 {
-    if (top >= height_ || bottom >= height_ || top > bottom)
-    {
-        throw std::invalid_argument("invalid scroll region");
-    }
+    assert(top < height_ && bottom < height_ && top <= bottom);
 
     scroll_top_ = top;
     scroll_bottom_ = bottom;

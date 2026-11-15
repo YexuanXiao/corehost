@@ -11,10 +11,10 @@
 #include <cstddef>
 #include <deque>
 #include <flat_map>
-#include <stdexcept>
 #include <utility>
 #include <optional>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace corehost::screen
@@ -61,6 +61,14 @@ constexpr line_flags without(line_flags value, line_flag flag) noexcept
     return static_cast<line_flags>(value & ~raw(flag));
 }
 } // namespace line_flag_ops
+
+// Platform-neutral CHAR_INFO analogue: UTF-16 character plus legacy Win32
+// attributes. The conversion to/from CHAR_INFO belongs at the API boundary.
+struct legacy_cell final
+{
+    char16_t character{u' '};
+    std::uint16_t attributes{0x07};
+};
 
 struct row_state final
 {
@@ -196,6 +204,36 @@ class screen_buffer final
     [[nodiscard]] bool write_cluster(std::size_t x, std::size_t y, std::span<const char16_t> cluster,
                                      cell_style style = default_cell_style, cell_width width = cell_width::narrow,
                                      cell_hyperlink hyperlink = no_cell_hyperlink, cell_flags flags = cell_flags::none);
+
+    // Converts a Unicode scalar to one UTF-16 unit or a surrogate-pair cluster.
+    // Invalid scalars are normalized to U+FFFD. The caller owns column width.
+    [[nodiscard]] bool write_codepoint(std::size_t x, std::size_t y, char32_t codepoint,
+                                       cell_style style = default_cell_style, cell_width width = cell_width::narrow,
+                                       cell_hyperlink hyperlink = no_cell_hyperlink,
+                                       cell_flags flags = cell_flags::none);
+
+    // Returns the complete glyph at x as UTF-16. A trailing cell resolves to its
+    // leading cell. Blank/background cells return one space.
+    [[nodiscard]] std::u16string glyph_at(std::size_t x, std::size_t y) const;
+
+    // First Unicode scalar of the glyph at x. Surrogate pairs are decoded.
+    [[nodiscard]] char32_t codepoint_at(std::size_t x, std::size_t y) const;
+
+    // Column width of the glyph at x: 0 for a trailing half, 2 for a wide head.
+    [[nodiscard]] int glyph_width(std::size_t x, std::size_t y) const;
+
+    [[nodiscard]] bool is_trailing(std::size_t x, std::size_t y) const;
+
+    [[nodiscard]] std::size_t used_columns(std::size_t y) const;
+
+    // Returns the visible row text, skipping trailing wide-cell columns.
+    [[nodiscard]] std::u16string line_text(std::size_t y) const;
+
+    [[nodiscard]] legacy_cell legacy_at(std::size_t x, std::size_t y) const;
+
+    // Convenience path for Console API writes that only carry a legacy WORD.
+    [[nodiscard]] bool write_legacy_scalar(std::size_t x, std::size_t y, char16_t primary,
+                                           std::uint16_t attributes, cell_width width = cell_width::narrow);
 
     // Writes an image-fragment cell. The fragment metadata lives in images();
     // rasterization/decoding is a renderer responsibility.
@@ -425,10 +463,7 @@ inline void page::mark_all_dirty() noexcept
 inline screen_buffer::screen_buffer(std::size_t width, std::size_t height, std::size_t history_limit)
     : width_{width}, height_{height}, history_limit_{history_limit}, main_(width, height)
 {
-    if (width == 0 || height == 0)
-    {
-        throw std::invalid_argument("screen_buffer dimensions must be non-zero");
-    }
+    assert(width != 0 && height != 0);
 }
 
 inline cell screen_buffer::at(std::size_t x, std::size_t y) const noexcept
@@ -590,6 +625,120 @@ inline bool screen_buffer::write_cluster(std::size_t x, std::size_t y, std::span
     return write_cell(x, y, cell::complex(ref.offset, ref.length, style, width, hyperlink, flags));
 }
 
+inline bool screen_buffer::write_codepoint(std::size_t x, std::size_t y, char32_t codepoint,
+                                           cell_style style, cell_width width, cell_hyperlink hyperlink,
+                                           cell_flags flags)
+{
+    if (codepoint > 0x10FFFFu || (codepoint >= 0xD800u && codepoint <= 0xDFFFu))
+    {
+        codepoint = U'\xFFFD';
+    }
+
+    if (codepoint <= 0xFFFFu)
+    {
+        return write_scalar(x, y, static_cast<char16_t>(codepoint), style, width, hyperlink, flags);
+    }
+
+    const auto value = codepoint - 0x10000u;
+    const char16_t cluster[2]{
+        static_cast<char16_t>(0xD800u | (value >> 10)),
+        static_cast<char16_t>(0xDC00u | (value & 0x3FFu)),
+    };
+    return write_cluster(x, y, std::span<const char16_t>{cluster, 2}, style, width, hyperlink, flags);
+}
+
+inline std::u16string screen_buffer::glyph_at(std::size_t x, std::size_t y) const
+{
+    auto value = at(x, y);
+    if (value.is_continuation())
+    {
+        if (x == 0)
+        {
+            return {};
+        }
+        value = at(x - 1, y);
+    }
+
+    if (value.has_cluster())
+    {
+        const auto cluster = cluster_of(value);
+        return std::u16string{cluster.begin(), cluster.end()};
+    }
+
+    if (value.is_blank())
+    {
+        return std::u16string(1, u' ');
+    }
+
+    return std::u16string(1, value.primary());
+}
+
+inline char32_t screen_buffer::codepoint_at(std::size_t x, std::size_t y) const
+{
+    const auto text = glyph_at(x, y);
+    if (text.empty())
+    {
+        return U' ';
+    }
+    if (text.size() >= 2 && text[0] >= 0xD800 && text[0] <= 0xDBFF &&
+        text[1] >= 0xDC00 && text[1] <= 0xDFFF)
+    {
+        return static_cast<char32_t>(0x10000u +
+                                     ((static_cast<std::uint32_t>(text[0]) - 0xD800u) << 10) +
+                                     (static_cast<std::uint32_t>(text[1]) - 0xDC00u));
+    }
+    return text[0];
+}
+
+inline int screen_buffer::glyph_width(std::size_t x, std::size_t y) const
+{
+    const auto value = at(x, y);
+    if (value.is_continuation())
+    {
+        return 0;
+    }
+    return value.is_wide() ? 2 : 1;
+}
+
+inline bool screen_buffer::is_trailing(std::size_t x, std::size_t y) const
+{
+    return at(x, y).is_continuation();
+}
+
+inline std::size_t screen_buffer::used_columns(std::size_t y) const
+{
+    return active_page().row(y).used_columns;
+}
+
+inline std::u16string screen_buffer::line_text(std::size_t y) const
+{
+    std::u16string result;
+    result.reserve(width_);
+    for (std::size_t x = 0; x < width_; ++x)
+    {
+        if (at(x, y).is_continuation())
+        {
+            continue;
+        }
+        result.append(glyph_at(x, y));
+    }
+    return result;
+}
+
+inline legacy_cell screen_buffer::legacy_at(std::size_t x, std::size_t y) const
+{
+    const auto value = at(x, y);
+    return legacy_cell{value.text_unit(), styles_.at(value.style()).legacy_attributes};
+}
+
+inline bool screen_buffer::write_legacy_scalar(std::size_t x, std::size_t y, char16_t primary,
+                                               std::uint16_t attributes, cell_width width)
+{
+    auto value = text_style{};
+    value.legacy_attributes = attributes;
+    return write_scalar(x, y, primary, styles_.intern(value), width);
+}
+
 inline bool screen_buffer::write_image(std::size_t x, std::size_t y, std::uint32_t fragment, cell_style style,
                                 cell_width width, cell_hyperlink hyperlink, cell_flags flags)
 {
@@ -724,10 +873,7 @@ inline void screen_buffer::scroll_region_up(rectangle area, std::size_t lines, c
 
 inline void screen_buffer::resize(std::size_t width, std::size_t height, cell_style fill_style)
 {
-    if (width == 0 || height == 0)
-    {
-        throw std::invalid_argument("screen_buffer dimensions must be non-zero");
-    }
+    assert(width != 0 && height != 0);
 
     page resized_main(width, height, fill_style);
     const auto copy_width = std::min(width, width_);

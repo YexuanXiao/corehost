@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <flat_map>
 #include <limits>
-#include <stdexcept>
+#include <type_traits>
 #include <vector>
 
 namespace corehost::screen
@@ -54,10 +54,7 @@ class style_table final
         }
 
         const auto max_id = static_cast<std::size_t>(std::numeric_limits<std::underlying_type_t<cell_style>>::max());
-        if (styles_.size() > max_id)
-        {
-            throw std::length_error("style table exhausted its 32-bit ID space");
-        }
+        assert(styles_.size() <= max_id);
 
         const auto id = static_cast<cell_style>(styles_.size());
         styles_.push_back(style);
