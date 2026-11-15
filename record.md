@@ -1006,6 +1006,14 @@ ASCII run 循环先计算本行剩余宽度，循环次数直接取 `min(text.si
 b5ebe2f refactor(libscreen): check empty text before mode dispatch
 ```
 
+### ReadConsoleOutput ABI 区域预裁剪
+
+`read_char_info_abi` 先裁剪 `area` 到页面范围，再遍历有效矩形；删除每个单元格的四次 bounds 判断：
+
+```text
+e6314f8 perf(libscreen): clip read char info area once
+```
+
 ### WriteConsoleOutput ABI 直接检查下一属性
 
 `write_char_info_abi` 判断下一单元格是否 trailing byte 时，不再调用 `from_win32(values[index])` 完整转换，只读取 `values[index].attributes`：
