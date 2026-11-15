@@ -880,7 +880,8 @@ class console_api final
             message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEPROCESSLIST_MSG));
         for (std::size_t i = 0; i < count; ++i)
         {
-            output[i] = static_cast<std::uint32_t>(processes_->processes()[i]);
+            output[i] = static_cast<std::uint32_t>(
+                processes_->processes()[processes_->size() - 1 - i]);
         }
         coreio::prepare_completion(message, 0, count * sizeof(std::uint32_t),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
