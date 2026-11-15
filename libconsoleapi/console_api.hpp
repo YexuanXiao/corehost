@@ -1449,10 +1449,12 @@ class console_api final
             return true;
         }
 
-        const auto executable = decode_console_text(reinterpret_cast<const char *>(data), 0, exe_bytes,
-                                                    request->Unicode != FALSE, state_.input_code_page);
-        const auto source = decode_console_text(reinterpret_cast<const char *>(data), exe_bytes, source_bytes,
-                                                request->Unicode != FALSE, state_.input_code_page);
+        auto &executable = decoded_executable_;
+        decode_console_text_into(executable, reinterpret_cast<const char *>(data), 0, exe_bytes,
+                                 request->Unicode != FALSE, state_.input_code_page);
+        auto &source = decoded_source_;
+        decode_console_text_into(source, reinterpret_cast<const char *>(data), exe_bytes, source_bytes,
+                                 request->Unicode != FALSE, state_.input_code_page);
         for (const auto &alias : state_.aliases)
         {
             if (alias.source == source && alias.executable == executable)
@@ -2622,10 +2624,10 @@ class console_api final
         return static_cast<std::size_t>(std::max(units, 0));
     }
 
-    static std::u16string decode_console_text(const char *data, std::size_t offset, std::size_t bytes, bool unicode,
-                                              UINT code_page)
+    static void decode_console_text_into(std::u16string &value, const char *data, std::size_t offset,
+                                         std::size_t bytes, bool unicode, UINT code_page)
     {
-        std::u16string value;
+        value.clear();
         if (unicode)
         {
             const auto *chars = reinterpret_cast<const char16_t *>(data + offset);
@@ -2641,6 +2643,13 @@ class console_api final
                                             reinterpret_cast<LPWSTR>(value.data()), units);
             }
         }
+    }
+
+    static std::u16string decode_console_text(const char *data, std::size_t offset, std::size_t bytes, bool unicode,
+                                              UINT code_page)
+    {
+        std::u16string value;
+        decode_console_text_into(value, data, offset, bytes, unicode, code_page);
         return value;
     }
 
@@ -2699,6 +2708,8 @@ class console_api final
     std::u16string cooked_line_;
     std::u16string expanded_line_;
     std::u16string alias_expanded_;
+    std::u16string decoded_executable_;
+    std::u16string decoded_source_;
     std::size_t cooked_cursor_{};
     screen::coord cooked_origin_{};
     std::size_t cooked_echo_length_{};
