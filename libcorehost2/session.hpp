@@ -50,6 +50,11 @@ class session final
         }
     }
 
+    [[nodiscard]] bool take_scrollback_cleared() noexcept
+    {
+        return state_.take_scrollback_cleared();
+    }
+
     [[nodiscard]] bool take_title_changed() noexcept
     {
         return state_.take_title_changed();

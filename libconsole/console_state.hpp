@@ -138,6 +138,7 @@ class console_state final
     bool keypad_changed{};
     bool alternate_changed{};
     bool title_changed{};
+    bool scrollback_cleared{};
     std::bitset<2048> private_modes;
     std::vector<std::pair<std::uint16_t, bool>> private_mode_changes;
     std::uint32_t output_code_page{};
@@ -238,6 +239,13 @@ class console_state final
     }
 
     static constexpr std::size_t no_history_selection = static_cast<std::size_t>(-1);
+
+    [[nodiscard]] bool take_scrollback_cleared() noexcept
+    {
+        const auto cleared = scrollback_cleared;
+        scrollback_cleared = false;
+        return cleared;
+    }
 
     [[nodiscard]] bool take_title_changed() noexcept
     {
