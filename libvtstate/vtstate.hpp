@@ -332,6 +332,7 @@ class state_applier final
     {
         state.title.clear();
         state.title.assign(message.payload.title);
+        state.title_changed = true;
     }
 
     void apply_cursor_shape(const vtparser::vt_message &message,

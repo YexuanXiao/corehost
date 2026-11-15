@@ -401,11 +401,12 @@ int main()
     parser.reset();
     result = parser.parse(u"\x1b]0;Hello\x07");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
-    if (state.title != u"Hello")
+    if (state.title != u"Hello" || !state.title_changed)
     {
         std::fprintf(stderr, "window title failed\n");
         return EXIT_FAILURE;
     }
+    state.title_changed = false;
 
     parser.reset();
     result = parser.parse(u"\x1b[?3h");
