@@ -27,8 +27,9 @@ class console_api final
 {
   public:
     console_api(screen::screen_buffer &buffer, screen::console_state &state,
-                consoleinput::input_queue *input = nullptr) noexcept
-        : buffer_{buffer}, state_{state}, input_{input}
+                consoleinput::input_queue *input = nullptr,
+                std::uintptr_t input_object = 0) noexcept
+        : buffer_{buffer}, state_{state}, input_{input}, input_object_{input_object}
     {
     }
 
@@ -105,6 +106,11 @@ class console_api final
         if (header->ApiNumber == ConsolepSetScreenBufferInfo)
         {
             return set_screen_buffer_info(message);
+        }
+        if (header->ApiNumber == ConsolepGetMode || header->ApiNumber == ConsolepSetMode)
+        {
+            const bool input = input_object_ != 0 && message.descriptor.Object == input_object_;
+            return header->ApiNumber == ConsolepGetMode ? get_mode(message, input) : set_mode(message, input);
         }
         if (header->ApiNumber == ConsolepGetMouseInfo)
         {
@@ -552,6 +558,40 @@ class console_api final
         buffer_.set_viewport(screen::rect{request->ScrollPosition.X, request->ScrollPosition.Y,
                                           request->ScrollPosition.X + window_width - 1,
                                           request->ScrollPosition.Y + window_height - 1});
+        coreio::prepare_completion(message);
+        return true;
+    }
+
+    [[nodiscard]] bool get_mode(coreio::io_msg &message, bool input) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_MODE_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        auto *info = reinterpret_cast<CONSOLE_MODE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        info->Mode = input ? state_.input_mode : state_.output_mode;
+        coreio::prepare_completion(message, 0, sizeof(CONSOLE_MODE_MSG),
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_MODE_MSG));
+        return true;
+    }
+
+    [[nodiscard]] bool set_mode(coreio::io_msg &message, bool input) noexcept
+    {
+        if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_MODE_MSG))
+        {
+            coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+            return true;
+        }
+        const auto *info = reinterpret_cast<const CONSOLE_MODE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        if (input)
+        {
+            state_.input_mode = info->Mode;
+        }
+        else
+        {
+            state_.output_mode = info->Mode;
+        }
         coreio::prepare_completion(message);
         return true;
     }
@@ -1163,6 +1203,7 @@ class console_api final
     screen::screen_buffer &buffer_;
     screen::console_state &state_;
     consoleinput::input_queue *input_{};
+    std::uintptr_t input_object_{};
 };
 
 } // namespace corehost::consoleapi

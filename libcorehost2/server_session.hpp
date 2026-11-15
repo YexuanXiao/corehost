@@ -17,8 +17,9 @@ class server_session final
 {
   public:
     server_session(screen::screen_buffer &buffer, screen::console_state &state,
-                   consoleinput::input_queue &input) noexcept
-        : input_{input}, api_{buffer, state, &input}
+                   consoleinput::input_queue &input,
+                   std::uintptr_t input_object = 0) noexcept
+        : input_{input}, api_{buffer, state, &input, input_object}
     {
     }
 
