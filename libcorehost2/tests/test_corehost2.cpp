@@ -202,6 +202,33 @@ int main()
         return EXIT_FAILURE;
     }
 
+    constexpr char16_t history_text[]{u'\x1b', u'[', u'A', u'\r'};
+    read_session.feed_input(history_text);
+    read_input = std::move(read_session.input());
+    corehost::coreio::io_msg history_message{};
+    history_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    history_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    auto *history_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(history_message.body);
+    history_header->ApiNumber = ConsolepReadConsole;
+    auto *history_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        history_message.body + sizeof(CONSOLE_MSG_HEADER));
+    history_request->Unicode = TRUE;
+    if (!read_api.handle(history_message) || history_request->NumBytes != 4 * sizeof(char16_t))
+    {
+        std::fprintf(stderr, "real ReadConsole history failed bytes=%lu\n", history_request->NumBytes);
+        return EXIT_FAILURE;
+    }
+    const auto *history_output = reinterpret_cast<const char16_t *>(
+        history_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+    if (history_output[0] != u'A' || history_output[1] != u'B' ||
+        history_output[2] != u'\r' || history_output[3] != u'\n')
+    {
+        std::fprintf(stderr, "real ReadConsole history data failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::screen::screen_buffer edit_buffer{8, 2};
     corehost::screen::console_state edit_state{8, 2};
     corehost::consoleinput::input_queue edit_input;
@@ -267,6 +294,38 @@ int main()
         std::fprintf(stderr, "real ReadConsole arrow data failed %04x %04x %04x %04x %04x\\n",
                      arrow_output[0], arrow_output[1], arrow_output[2], arrow_output[3],
                      arrow_output[4]);
+        return EXIT_FAILURE;
+    }
+
+    corehost::screen::screen_buffer delete_buffer{8, 2};
+    corehost::screen::console_state delete_state{8, 2};
+    corehost::consoleinput::input_queue delete_input;
+    corehost::corehost2::session delete_session{8, 2};
+    constexpr char16_t delete_text[]{u'A', u'B', u'\x1b', u'[', u'D',
+                                     u'\x1b', u'[', u'3', u'~', u'\r'};
+    delete_session.feed_input(delete_text);
+    delete_input = std::move(delete_session.input());
+    corehost::consoleapi::console_api delete_api{delete_buffer, delete_state, &delete_input};
+    corehost::coreio::io_msg delete_message{};
+    delete_message.descriptor.InputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    delete_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8;
+    auto *delete_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(delete_message.body);
+    delete_header->ApiNumber = ConsolepReadConsole;
+    auto *delete_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(
+        delete_message.body + sizeof(CONSOLE_MSG_HEADER));
+    delete_request->Unicode = TRUE;
+    if (!delete_api.handle(delete_message) || delete_request->NumBytes != 3 * sizeof(char16_t))
+    {
+        std::fprintf(stderr, "real ReadConsole delete failed\n");
+        return EXIT_FAILURE;
+    }
+    const auto *delete_output = reinterpret_cast<const char16_t *>(
+        delete_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
+    if (delete_output[0] != u'A' || delete_output[1] != u'\r' || delete_output[2] != u'\n')
+    {
+        std::fprintf(stderr, "real ReadConsole delete data failed\n");
         return EXIT_FAILURE;
     }
 
