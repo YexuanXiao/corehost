@@ -51,6 +51,39 @@ int main()
         return EXIT_FAILURE;
     }
 
+    struct previous_transport
+    {
+        int reads{};
+        bool saw_previous_after_idle{};
+        bool saw_null_after_idle{};
+        corehost::coreio::read_io_result read(CD_IO_COMPLETE *previous,
+                                               corehost::coreio::io_msg &) noexcept
+        {
+            ++reads;
+            if (reads == 1)
+            {
+                return corehost::coreio::read_io_result::got_message;
+            }
+            if (reads == 2)
+            {
+                saw_previous_after_idle = previous != nullptr;
+                return corehost::coreio::read_io_result::no_message;
+            }
+            saw_null_after_idle = previous == nullptr;
+            return corehost::coreio::read_io_result::disconnected;
+        }
+        void wait() noexcept {}
+    };
+    previous_transport previous_check;
+    fake_handler previous_handler;
+    std::atomic_bool previous_stop{};
+    corehost::coreio::run_server(previous_check, previous_handler, previous_stop);
+    if (!previous_check.saw_previous_after_idle || !previous_check.saw_null_after_idle)
+    {
+        std::fprintf(stderr, "server loop retained a submitted completion\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libcoreio tests passed\n");
     return EXIT_SUCCESS;
 }

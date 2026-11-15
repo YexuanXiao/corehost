@@ -89,6 +89,7 @@ void run_server(Transport &transport, Handler &handler, const std::atomic_bool &
         {
             return;
         }
+        previous = nullptr;
         transport.wait();
     }
 }
