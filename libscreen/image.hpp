@@ -1,6 +1,8 @@
 #pragma once
 
 #include <algorithm>
+#include <compare>
+#include <flat_map>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -31,6 +33,7 @@ struct image_fragment final
     image_layer layer{image_layer::replace};
 
     friend constexpr bool operator==(const image_fragment &, const image_fragment &) noexcept = default;
+    friend constexpr auto operator<=>(const image_fragment &, const image_fragment &) noexcept = default;
 };
 
 class image_table final
@@ -38,16 +41,17 @@ class image_table final
   public:
     [[nodiscard]] std::uint32_t intern(const image_fragment &fragment)
     {
-        const auto found = std::find(fragments_.begin(), fragments_.end(), fragment);
-        if (found != fragments_.end())
+        const auto found = ids_.find(fragment);
+        if (found != ids_.end())
         {
-            return static_cast<std::uint32_t>(std::distance(fragments_.begin(), found));
+            return found->second;
         }
 
         assert(fragments_.size() <= std::numeric_limits<std::uint32_t>::max());
 
         const auto id = static_cast<std::uint32_t>(fragments_.size());
         fragments_.push_back(fragment);
+        ids_.emplace(fragment, id);
         return id;
     }
 
@@ -64,6 +68,7 @@ class image_table final
 
   private:
     std::vector<image_fragment> fragments_{{}};
+    std::flat_map<image_fragment, std::uint32_t> ids_;
 };
 
 } // namespace corehost::screen

@@ -174,7 +174,7 @@ class screen_buffer final
         return height_;
     }
 
-    [[nodiscard]] cell at(std::size_t x, std::size_t y) const noexcept;
+    [[nodiscard]] const cell &at(std::size_t x, std::size_t y) const noexcept;
     [[nodiscard]] std::span<cell> row_cells(std::size_t y) noexcept;
     [[nodiscard]] std::span<const cell> row_cells(std::size_t y) const noexcept;
     [[nodiscard]] row_state &row(std::size_t y) noexcept;
@@ -466,7 +466,7 @@ inline screen_buffer::screen_buffer(std::size_t width, std::size_t height, std::
     assert(width != 0 && height != 0);
 }
 
-inline cell screen_buffer::at(std::size_t x, std::size_t y) const noexcept
+inline const cell &screen_buffer::at(std::size_t x, std::size_t y) const noexcept
 {
     return active_page().at(x, y);
 }
@@ -649,14 +649,14 @@ inline bool screen_buffer::write_codepoint(std::size_t x, std::size_t y, char32_
 
 inline std::u16string screen_buffer::glyph_at(std::size_t x, std::size_t y) const
 {
-    auto value = at(x, y);
+    const auto &value = at(x, y);
     if (value.is_continuation())
     {
         if (x == 0)
         {
             return {};
         }
-        value = at(x - 1, y);
+        return glyph_at(x - 1, y);
     }
 
     if (value.has_cluster())
@@ -692,7 +692,7 @@ inline char32_t screen_buffer::codepoint_at(std::size_t x, std::size_t y) const
 
 inline int screen_buffer::glyph_width(std::size_t x, std::size_t y) const
 {
-    const auto value = at(x, y);
+    const auto &value = at(x, y);
     if (value.is_continuation())
     {
         return 0;
@@ -716,18 +716,31 @@ inline std::u16string screen_buffer::line_text(std::size_t y) const
     result.reserve(width_);
     for (std::size_t x = 0; x < width_; ++x)
     {
-        if (at(x, y).is_continuation())
+        const auto &value = at(x, y);
+        if (value.is_continuation())
         {
             continue;
         }
-        result.append(glyph_at(x, y));
+        if (value.has_cluster())
+        {
+            const auto cluster = cluster_of(value);
+            result.append(cluster.begin(), cluster.end());
+        }
+        else if (value.is_blank())
+        {
+            result.push_back(u' ');
+        }
+        else
+        {
+            result.push_back(value.primary());
+        }
     }
     return result;
 }
 
 inline legacy_cell screen_buffer::legacy_at(std::size_t x, std::size_t y) const
 {
-    const auto value = at(x, y);
+    const auto &value = at(x, y);
     return legacy_cell{value.text_unit(), styles_.at(value.style()).legacy_attributes};
 }
 

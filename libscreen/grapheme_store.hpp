@@ -28,6 +28,11 @@ class grapheme_store final
         std::uint8_t length{};
     };
 
+    void reserve(std::size_t units)
+    {
+        units_.reserve(units);
+    }
+
     [[nodiscard]] bool can_append(std::size_t units) const noexcept
     {
         return units > 0 && units <= max_cluster_length && units <= static_cast<std::size_t>(max_units - units_.size());

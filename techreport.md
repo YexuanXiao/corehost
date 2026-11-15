@@ -558,7 +558,42 @@ console 状态。
 - damage 让渲染器只扫描脏区间；
 - 24 位 offset 让 16M UTF-16 unit 不需要频繁重建；重建只在极端容量或显式调用时发生。
 
-### 7.3 为什么不是 8B
+### 7.3 与 Ghostty 的复杂度/性能对照
+
+| 维度 | libscreen | Ghostty | 复杂度/差距 |
+| --- | --- | --- | --- |
+| cell | 16B，字段内联 | 8B packed cell | 顺序扫描带宽约 2× |
+| page | `vector<cell>` + `vector<row_state>` | 连续 page + packed Row | 都是 O(1) 索引；libscreen row metadata 更大 |
+| row metadata | used/flags/exit/damage，约 40B/row | 8B packed Row | 小网格影响小，大网格/多 page 有差距 |
+| style | 32 位 screen-wide ID，flat_map 写 | page-local u16 style set | 写 O(log n) vs 近似 O(1)；渲染按 ID O(1) |
+| hyperlink | 32 位 screen-wide ID，u16 flat_map | page-local offset map | 写 O(log n)，查 ID O(1) |
+| grapheme | 连续 `vector<char16_t>`，append_range | 固定 chunk bitmap allocator + map | libscreen 有 vector 扩容/搬迁；Ghostty 更可预测 |
+| image | flat_map fragment→ID | 独立 graphics/image 存储 | 写 O(log n)；图像不进入 8B cell |
+| scroll | 复制 16B cell + row metadata | 移动/复用 page，8B cell | libscreen 拷贝量约 2× |
+| damage | 每行 `[begin,end)` | row dirty 位 + 批量扫描 | libscreen 更精确，Ghostty 扫描更省元数据 |
+| selection/search | O(1) block selection；search O(matches) | 专用 selection/search | 小匹配集足够；大量匹配需索引 |
+
+已做的常量优化（C++23）：
+
+- `at()` 返回 `const cell &`，避免每次读取复制 16B；
+- `glyph_at`/`glyph_width`/`legacy_at` 使用引用，`line_text` 直接扫描 row span；
+- `std::span` 访问 row/cell；
+- `std::flat_map` 用于 style/hyperlink/image/cluster remap；
+- `append_range` 追加 cluster；
+- `std::u16string` 存 hyperlink，避免 `wchar_t`；
+- image intern 从线性扫描改为 flat_map 查找；
+- `grapheme_store::reserve` 允许调用者预分配。
+
+结论：
+
+- **复杂度同阶**：page/cell 访问、style/hyperlink 按 ID 查表、cluster append、scroll 都是
+  O(1) 或 O(n) 的线性路径；
+- **常数不同**：libscreen 16B cell、32B ID、较重的 row metadata 和 history copy 使其
+  顺序扫描/滚动约比 Ghostty 慢 1.5–2×，但不会改变渐近复杂度；
+- **不可能完全追平**：除非放弃 corehost 需要的 32 位 screen-wide ID 和 16B cell；
+  当前目标是保持同一复杂度，并把可避免的复制和线性查找去掉。
+
+### 7.4 为什么不是 8B
 
 8B cell 无法同时容纳：
 
