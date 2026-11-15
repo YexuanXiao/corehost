@@ -49,6 +49,9 @@ inline void run_conpty_session(win32::handle_view server,
     session state{width, height};
     conptyio::terminal_reader reader{vt_in};
     conptyio::terminal_writer writer{vt_out};
+    vtserializer::append_clear_screen(writer.buffer());
+    vtserializer::append_cup(writer.buffer(), 0, 0);
+    (void)writer.flush();
     std::mutex session_mutex;
     std::jthread server_thread;
     std::jthread signal_thread;

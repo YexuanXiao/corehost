@@ -179,6 +179,14 @@ int main()
         return EXIT_FAILURE;
     }
 
+    buffer.clear();
+    append_clear_screen(buffer);
+    if (buffer.bytes().size() != 4 || buffer.bytes()[0] != 0x1B || buffer.bytes()[1] != u'[')
+    {
+        std::fprintf(stderr, "clear screen failed\n");
+        return EXIT_FAILURE;
+    }
+
     std::printf("libvtserializer tests passed\n");
     return EXIT_SUCCESS;
 }

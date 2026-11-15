@@ -84,4 +84,9 @@ inline void append_cursor_shape(byte_buffer &output, unsigned style, bool blinki
                                            static_cast<std::size_t>(first - sequence)});
 }
 
+inline void append_clear_screen(byte_buffer &output)
+{
+    output.append_text(u8"\x1b[2J");
+}
+
 } // namespace corehost::vtserializer
