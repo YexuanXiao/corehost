@@ -875,37 +875,53 @@ class console_api final
             return true;
         }
         auto *request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
-        const auto bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
-                           sizeof(CONSOLE_WRITECONSOLE_MSG);
-        const auto count = request->Unicode ? bytes / sizeof(char16_t) : bytes;
-        const auto *data = reinterpret_cast<const char16_t *>(
-            message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG));
+        std::span<const std::byte> payload;
+        if (payload_ != nullptr)
+        {
+            payload = payload_->read(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG));
+        }
+        else
+        {
+            const auto bytes = message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) -
+                               sizeof(CONSOLE_WRITECONSOLE_MSG);
+            payload = std::span<const std::byte>{
+                reinterpret_cast<const std::byte *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                    sizeof(CONSOLE_WRITECONSOLE_MSG)),
+                bytes};
+        }
+
         std::size_t written = 0;
+        std::u16string text;
         if (request->Unicode)
         {
+            const auto *data = reinterpret_cast<const char16_t *>(payload.data());
+            const auto count = payload.size() / sizeof(char16_t);
             written = write_console_text(std::u16string_view{data, count});
+            request->NumBytes = static_cast<ULONG>(written * sizeof(char16_t));
         }
         else
         {
             const auto code_page = state_.output_code_page != 0 ? state_.output_code_page : CP_ACP;
-            const auto *bytes_data = reinterpret_cast<const char *>(data);
-            const auto units = ::MultiByteToWideChar(code_page, 0, bytes_data, static_cast<int>(bytes),
-                                                     nullptr, 0);
-            std::u16string text(static_cast<std::size_t>(std::max(units, 0)), u'\0');
+            const auto *bytes_data = reinterpret_cast<const char *>(payload.data());
+            const auto units = ::MultiByteToWideChar(code_page, 0, bytes_data,
+                                                     static_cast<int>(payload.size()), nullptr, 0);
+            text.resize(static_cast<std::size_t>(std::max(units, 0)), u'\0');
             if (units > 0)
             {
-                (void)::MultiByteToWideChar(code_page, 0, bytes_data, static_cast<int>(bytes),
+                (void)::MultiByteToWideChar(code_page, 0, bytes_data, static_cast<int>(payload.size()),
                                             reinterpret_cast<LPWSTR>(text.data()), units);
             }
             written = write_console_text(text);
+            const auto encoded = ::WideCharToMultiByte(
+                code_page, 0, reinterpret_cast<const wchar_t *>(text.data()), static_cast<int>(written),
+                nullptr, 0, nullptr, nullptr);
+            request->NumBytes = static_cast<ULONG>(std::max(encoded, 0));
         }
-        request->NumBytes = static_cast<ULONG>(written * (request->Unicode ? sizeof(char16_t) : 1));
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLE_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_WRITECONSOLE_MSG));
         return true;
     }
-
     [[nodiscard]] bool write_console_input(coreio::io_msg &message) noexcept
     {
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEINPUT_MSG))
