@@ -28,7 +28,7 @@ namespace corehost::screen
 [[nodiscard]] inline std::uint32_t initial_console_code_page()
 {
 #ifdef COREHOST_DEFAULT_UTF8
-    constexpr UINT code_page = CP_UTF8;
+    return CP_UTF8;
 #elif defined(COREHOST_RUN_AS_UTF8)
     wchar_t buffer[6]{};
     DWORD size = sizeof(buffer);
@@ -36,7 +36,7 @@ namespace corehost::screen
                                        L"OEMCP", RRF_RT_REG_SZ, nullptr, buffer, &size);
     if (result != ERROR_SUCCESS || size < 2 || size > sizeof(buffer))
     {
-        throw std::system_error(static_cast<int>(result), std::system_category());
+        return CP_UTF8;
     }
     char narrow[6]{};
     const auto length = size / sizeof(wchar_t) - 1;
@@ -44,7 +44,7 @@ namespace corehost::screen
     {
         if (buffer[index] > 0xFF)
         {
-            throw std::system_error(ERROR_INVALID_DATA, std::system_category());
+            return CP_UTF8;
         }
         narrow[index] = static_cast<char>(buffer[index]);
     }
@@ -52,12 +52,12 @@ namespace corehost::screen
     const auto parsed = std::from_chars(narrow, narrow + length, code_page);
     if (parsed.ec != std::errc{})
     {
-        code_page = CP_UTF8;
+        return CP_UTF8;
     }
-#else
-    const auto code_page = ::GetOEMCP();
-#endif
     return code_page;
+#else
+    return ::GetOEMCP();
+#endif
 }
 
 enum class cursor_style : std::uint8_t
