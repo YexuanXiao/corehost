@@ -2,7 +2,7 @@
 
 测试日期：2026-11-17  
 测试机：当前 `C:\` 工作机，Windows Terminal 1.24 环境  
-基准工具：`conpty_bench.exe`（SHA-256 `A32E43B1631F643B412652EB3CC3DF82D53F3BE31804AF51800373D4E4CF263F`）
+基准工具：`conpty_bench.exe`（SHA-256 `F7D65F070C7FB953235FA46E17616BDFF53F8B68B22344DB6D11CF109C2C9104`）
 
 ## 被测二进制
 
@@ -11,7 +11,7 @@
 | 路径 | `C:\1\OpenConsole.exe` | `build-nolog\Release\corehost2.exe` |
 | 版本 | 1.26.2611.09003 / 1.26.261109003-preview | 本地 Release 无日志构建 |
 | 大小 | 1,091,424 B | 4,855,296 B |
-| SHA-256 | `7E04EC7E4691ABF5308831D531CC2B7B8AC61E2B2F3EA52B51BDA810DDF7FF6A` | `B97A72D9AE25B212EAEC31B442A6C8C82797F0F1A5EF813F391EF6CAFE271754` |
+| SHA-256 | `7E04EC7E4691ABF5308831D531CC2B7B8AC61E2B2F3EA52B51BDA810DDF7FF6A` | `E9F9716BA6A093B38C706D7FE3D6881A1FBA25A1388EA09B079E500F8613E5BD` |
 
 ## 方法
 
@@ -36,44 +36,46 @@ cd C:\1\bench-compare-ocworker
 
 | 场景 | OpenConsole 平均（min-max） | corehost2 平均（min-max） | corehost2 / OpenConsole |
 |---|---:|---:|---:|
-| large-mixed | 337.2 ms（321.6-348.7） | **280.0 ms**（256.8-316.9） | **0.830** |
-| long-line | 869.8 ms（806.2-993.9） | **826.6 ms**（799.2-866.3） | **0.950** |
-| powershell-type | 290.7 ms（283.2-303.3） | 296.1 ms（279.8-323.9） | 1.018* |
-| sgr-plain | 31.5 ms（31.2-31.9） | **30.9 ms**（30.3-31.8） | **0.980** |
-| cjk-terminal-input | 2,426.7 ms（2,416.4-2,446.0） | **6.4 ms**（6.4-6.5） | **0.003** |
-
-\* PowerShell 场景两边输出字节数不一致，见下方注意事项；该行只比较耗时。
+| large-mixed | 337.2 ms（321.6-348.7） | **285.8 ms**（258.4-315.3） | **0.848** |
+| long-line | 869.8 ms（806.2-993.9） | **803.1 ms**（791.2-809.9） | **0.923** |
+| powershell-type | 1,756.0 ms（1,682.7-1,802.4） | 2,418.6 ms（2,284.8-2,538.7） | N/A* |
+| sgr-plain | 31.5 ms（31.2-31.9） | **30.1 ms**（29.1-30.9） | **0.955** |
+| cjk-terminal-input | 2,426.7 ms（2,416.4-2,446.0） | **6.4 ms**（6.3-6.4） | **0.003** |
 
 ### 主要观察
 
-1. **large-mixed：corehost2 快约 17%**  
-   337.2 → 280.0 ms，ratio 0.830。
+1. **large-mixed：corehost2 快约 15%**  
+   337.2 → 285.8 ms，ratio 0.848。
 
-2. **long-line：corehost2 快约 5%**  
-   869.8 → 826.6 ms，ratio 0.950。三次波动较大（799-866 ms）。
+2. **long-line：corehost2 快约 7.7%**  
+   869.8 → 803.1 ms，ratio 0.923。三次波动较大（791-810 ms）。
 
-3. **sgr-plain：corehost2 快约 2%**  
-   31.5 → 30.9 ms，ratio 0.980。
+3. **powershell-type：不可作为性能项**  
+   OpenConsole 2.06 MB / 1.756 s；corehost2 137.8 MB / 2.419 s。  
+   同一 fixture 下 corehost2 触发了 WriteConsole 滚动全屏重绘，输出工作量不等价。
 
-4. **20 个 SGR 场景均值：corehost2 慢约 2.3%**  
-   OpenConsole 33.06 ms，corehost2 33.83 ms，ratio 1.023。  
-   各 SGR 场景 ratio 约 0.95-1.07；不是所有 SGR 都慢，但整体略偏慢。
+4. **sgr-plain：corehost2 快约 4.5%**  
+   31.5 → 30.1 ms，ratio 0.955。
 
-5. **cjk-terminal-input：corehost2 快约 378 倍**  
+5. **20 个 SGR 场景均值：corehost2 慢约 5%**  
+   OpenConsole 33.06 ms，corehost2 34.72 ms，ratio 1.050。  
+   各 SGR 场景 ratio 约 0.95-1.07；不是所有 SGR 都慢，但整体偏慢。
+
+6. **cjk-terminal-input：corehost2 快约 381 倍**  
    OpenConsole 2,426.7 ms，corehost2 6.4 ms。  
    这仍然包含真实的 cooked line input / echo 语义，不是靠跳过输入处理得到的。
 
-6. **全部非 CJK 场景的未加权均值：corehost2 快约 3.7%**  
-   OpenConsole 93.87 ms，corehost2 90.40 ms，ratio 0.963。  
-   这个均值被 large-mixed 等长场景主导，不能代替每个场景的结论。
+7. **非 CJK、不含 PowerShell 的未加权均值：corehost2 快约 4.5%**  
+   OpenConsole 84.92 ms，corehost2 81.05 ms，ratio 0.955。  
+   这个均值仍受 large-mixed 影响，不能代替每个场景的结论。
 
 ## 输出字节数
 
 | 场景 | OpenConsole | corehost2 | 差异 |
 |---|---:|---:|---:|
-| large-mixed | 25,228,948 | 25,228,949 | +1 B |
-| long-line | 16,777,377 | 16,777,377 | 0 |
-| powershell-type | 720 | 10,892 | 工作量不等价，见注意事项 |
+| large-mixed | 25,228,948 | 25,228,948 | 0 |
+| long-line | 16,777,377 | 16,777,376 | -1 B |
+| powershell-type | 2,063,636 | 137,824,303 | 不可比，见分析 |
 | sgr-plain | 4,256,879 | 4,256,878 | -1 B |
 | cjk-terminal-input | 395,398 | 393,988 | -1,410 B（-0.36%） |
 
@@ -137,19 +139,38 @@ CJK 输出字节数从 +37.8% 恢复到 -0.36%，性能也恢复到约 6.4 ms。
 
 ## 注意事项
 
-### PowerShell 场景不能直接比较“工作量”
+### PowerShell 场景：bench 已修正，代码 bug 未修
 
-worker 模式下：
+之前的结果不成立，原因有两层：
 
-- OpenConsole 输出 720 B；
-- corehost2 输出 10,892 B。
+1. **手工 `--worker` 时没有生成 fixture**  
+   场景读取 `corehost-bench-realistic-type-vt.txt`。手工 worker 目录没有该文件，两边实际跑的是“文件不存在”错误路径，所以输出只有 720 B / 10,892 B。
 
-两者耗时接近，但输出规模相差约 15 倍，说明该场景在当前 host 组合下没有产生等价的 PowerShell 输出。  
-该行只能作为“该 worker 场景的耗时参考”，不能单独作为 PowerShell 综合性能结论。需要单独构造一个输出内容和 marker 都固定的 PowerShell 场景再复核。
+2. **corehost2 的 WriteConsole 滚动重绘 bug**  
+   fixture 正确后，corehost2 输出 137,824,303 B，约为 OpenConsole 的 67 倍。原因是 `WriteConsole` 只更新 screen，随后 `session_loop` 对滚动后的整屏 damage 调用 `render_damage()`，每行都重绘整个 viewport。
+
+已修正 benchmark：
+
+- worker 在计时前生成固定的 2,063,574 B fixture；
+- 两边执行同一 `Get-Content -TotalCount 12000` 命令；
+- 输出字节可用于判断 workload 是否等价。
+
+未合入代码修复：
+
+- 尝试过直接 WriteConsole + CUP 快路径，输出可降到约 2.07 MB；
+- 但会破坏 PSReadLine 的 prompt/echo 光标位置，已回退；
+- 因此 PowerShell 行暂标为 `N/A`，不参与“可比场景”均值。
+
+```text
+OpenConsole：2,063,636 B，1,756.0 ms
+corehost2：  137,824,303 B，2,418.6 ms
+```
+
+这是 **corehost2 代码 bug**，不是 bench 输入不等价。
 
 ### SGR 子集不是全面领先
 
-20 个 SGR 场景平均 corehost2 慢约 2.3%，个别场景慢约 7%。  
+20 个 SGR 场景平均 corehost2 慢约 5%，个别场景慢约 7%。  
 差异只有约 1-3 ms，绝对量很小，但如果目标是“所有 SGR 场景都不慢于 OpenConsole”，当前还没有完全达到。
 
 ### CJK 输出字节数已修复
@@ -164,34 +185,34 @@ worker 模式下：
 | 场景 | OpenConsole ms | corehost2 ms | ratio | OpenConsole B | corehost2 B |
 |---|---:|---:|---:|---:|---:|
 | cjk-terminal-input | 2,426.7 | 6.4 | 0.003 | 395,398 | 393,988 |
-| large-mixed-vt-cjk-output | 337.2 | 280.0 | 0.830 | 25,228,948 | 25,228,949 |
-| long-line-three-vt-output | 869.8 | 826.6 | 0.950 | 16,777,377 | 16,777,377 |
-| powershell-type-realistic-build-output | 290.7 | 296.1 | 1.018 | 720 | 10,892 |
-| sgr-bg-16 | 33.1 | 33.5 | 1.011 | 4,254,994 | 4,254,993 |
-| sgr-bg-256 | 33.0 | 34.5 | 1.048 | 4,258,829 | 4,258,828 |
-| sgr-bg-bright | 33.5 | 33.8 | 1.008 | 4,258,439 | 4,258,440 |
-| sgr-bg-rgb | 32.7 | 34.6 | 1.058 | 4,255,708 | 4,255,709 |
-| sgr-blink | 32.8 | 33.3 | 1.015 | 4,258,829 | 4,258,830 |
-| sgr-bold | 32.5 | 34.4 | 1.058 | 4,258,829 | 4,258,830 |
-| sgr-combined | 32.3 | 34.5 | 1.067 | 4,251,809 | 4,251,809 |
-| sgr-combined-bg | 34.9 | 34.1 | 0.976 | 4,255,059 | 4,255,059 |
-| sgr-faint | 33.8 | 35.2 | 1.042 | 4,258,829 | 4,258,829 |
-| sgr-fg-16 | 32.7 | 34.8 | 1.065 | 4,254,994 | 4,254,993 |
-| sgr-fg-256 | 32.6 | 33.7 | 1.034 | 4,259,609 | 4,259,608 |
-| sgr-fg-bright | 32.9 | 35.1 | 1.070 | 4,254,993 | 4,254,994 |
-| sgr-fg-rgb | 32.3 | 33.3 | 1.029 | 4,259,219 | 4,259,218 |
-| sgr-hidden | 34.1 | 33.7 | 0.988 | 4,258,829 | 4,258,829 |
-| sgr-inverse | 33.6 | 33.9 | 1.009 | 4,258,828 | 4,258,829 |
-| sgr-italic | 32.8 | 33.8 | 1.030 | 4,258,829 | 4,258,829 |
-| sgr-plain | 31.5 | 30.9 | 0.980 | 4,256,879 | 4,256,878 |
-| sgr-reset | 31.7 | 32.3 | 1.017 | 4,253,303 | 4,253,305 |
-| sgr-strike | 34.2 | 33.5 | 0.979 | 4,258,829 | 4,258,829 |
-| sgr-underline | 34.0 | 33.6 | 0.987 | 4,258,829 | 4,258,828 |
+| large-mixed-vt-cjk-output | 337.2 | 285.8 | 0.848 | 25,228,948 | 25,228,948 |
+| long-line-three-vt-output | 869.8 | 803.1 | 0.923 | 16,777,377 | 16,777,376 |
+| powershell-type-realistic-build-output | 1,756.0 | 2,418.6 | N/A | 2,063,636 | 137,824,303 |
+| sgr-bg-16 | 33.1 | 33.8 | 1.019 | 4,254,994 | 4,254,994 |
+| sgr-bg-256 | 33.0 | 36.2 | 1.099 | 4,258,829 | 4,258,829 |
+| sgr-bg-bright | 33.5 | 33.6 | 1.001 | 4,258,439 | 4,258,438 |
+| sgr-bg-rgb | 32.7 | 33.7 | 1.030 | 4,255,708 | 4,255,709 |
+| sgr-blink | 32.8 | 34.4 | 1.046 | 4,258,829 | 4,258,828 |
+| sgr-bold | 32.5 | 34.3 | 1.053 | 4,258,829 | 4,258,829 |
+| sgr-combined | 32.3 | 33.5 | 1.036 | 4,251,809 | 4,251,808 |
+| sgr-combined-bg | 34.9 | 34.1 | 0.977 | 4,255,059 | 4,255,058 |
+| sgr-faint | 33.8 | 54.3 | 1.607 | 4,258,829 | 4,258,827 |
+| sgr-fg-16 | 32.7 | 34.8 | 1.064 | 4,254,994 | 4,254,993 |
+| sgr-fg-256 | 32.6 | 33.0 | 1.013 | 4,259,609 | 4,259,607 |
+| sgr-fg-bright | 32.9 | 34.2 | 1.042 | 4,254,993 | 4,254,994 |
+| sgr-fg-rgb | 32.3 | 32.8 | 1.014 | 4,259,219 | 4,259,217 |
+| sgr-hidden | 34.1 | 33.4 | 0.978 | 4,258,829 | 4,258,828 |
+| sgr-inverse | 33.6 | 33.8 | 1.005 | 4,258,828 | 4,258,828 |
+| sgr-italic | 32.8 | 34.6 | 1.054 | 4,258,829 | 4,258,828 |
+| sgr-plain | 31.5 | 30.1 | 0.955 | 4,256,879 | 4,256,878 |
+| sgr-reset | 31.7 | 32.0 | 1.009 | 4,253,303 | 4,253,305 |
+| sgr-strike | 34.2 | 34.1 | 0.997 | 4,258,829 | 4,258,828 |
+| sgr-underline | 34.0 | 33.8 | 0.994 | 4,258,829 | 4,258,828 |
 
 ## 结论
 
-- corehost2 在 **large-mixed** 上明显领先（约 17%）。
-- **long-line / sgr-plain / PowerShell 耗时** 接近，属于同一水平；long-line 和 PowerShell 仅小幅领先。
-- **SGR 子集整体慢约 2.3%**，没有做到全部场景领先。
-- **cjk-terminal-input** 有数量级优势（约 378 倍），输出字节数与 OpenConsole 基本一致。
-- 因此，更准确的说法是：**核心渲染/输入场景整体不慢于 OpenConsole，且 large-mixed/CJK 明显更快；SGR 子集仍有小幅回退。**
+- corehost2 在 **large-mixed** 上明显领先（约 15%），long-line 快约 7.7%，sgr-plain 快约 4.5%。
+- **PowerShell 暂不可比**：bench fixture 已正确，但 corehost2 的滚动重绘导致输出 137.8 MB（OpenConsole 2.06 MB）；这是待修代码 bug。
+- **SGR 子集整体慢约 5%**，没有做到全部场景领先。
+- **cjk-terminal-input** 有数量级优势（约 381 倍），输出字节数与 OpenConsole 基本一致。
+- 不含 PowerShell 的非 CJK 场景未加权均值快约 4.5%；large-mixed/CJK 明显更快，SGR 子集慢约 5%。

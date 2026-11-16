@@ -72,7 +72,11 @@ with OUT_CSV.open("w", newline="", encoding="utf-8-sig") as handle:
 
 by_name = {r["scenario"]: r for r in summary}
 sgr = [r for r in summary if r["scenario"].startswith("sgr-")]
-non_cjk = [r for r in summary if r["scenario"] != "cjk-terminal-input"]
+non_cjk = [
+    r
+    for r in summary
+    if r["scenario"] not in ("cjk-terminal-input", "powershell-type-realistic-build-output")
+]
 sgr_oc = statistics.mean(r["oc_avg_ms"] for r in sgr)
 sgr_ch = statistics.mean(r["ch_avg_ms"] for r in sgr)
 all_oc = statistics.mean(r["oc_avg_ms"] for r in non_cjk)
@@ -143,10 +147,10 @@ draw.rounded_rectangle((1320, 56, 1340, 76), radius=4, fill=ch_color)
 text(1350, 54, "corehost2", font_label, fg)
 
 main_items = []
-for scenario, label in SCENARIOS[:4]:
+for scenario, label in (SCENARIOS[0], SCENARIOS[1], SCENARIOS[3]):
     r = by_name[scenario]
     main_items.append((label, r["oc_avg_ms"], r["ch_avg_ms"]))
-bar_panel(60, 150, 720, 390, "主场景（ms，越低越好）", main_items, 1000)
+bar_panel(60, 150, 720, 390, "可比主场景（ms，越低越好）", main_items, 1000)
 
 cjk = by_name["cjk-terminal-input"]
 bar_panel(
@@ -176,9 +180,9 @@ bar_panel(
     580,
     710,
     250,
-    "全部非 CJK 场景均值（ms）",
+    "非 CJK、不含 PowerShell 均值（ms）",
     [("scenario mean", all_oc, all_ch)],
-    110,
+    120,
     f"{all_oc:.1f} ms vs {all_ch:.1f} ms  (ratio {all_ch / all_oc:.3f})",
 )
 
@@ -193,7 +197,7 @@ text(
 text(
     60,
     968,
-    "OpenConsole 版本 1.26.2611.09003；corehost2 Release 无日志构建。powershell 场景两边的输出字节数不一致，表中只比较耗时，工作量等价性需单独复核。",
+    "OpenConsole 版本 1.26.2611.09003；corehost2 Release 无日志构建。PowerShell 已使用同一 fixture，但 corehost2 WriteConsole 滚动重绘导致输出 137.8 MB，暂不作为可比性能项。",
     font_small,
     muted,
 )

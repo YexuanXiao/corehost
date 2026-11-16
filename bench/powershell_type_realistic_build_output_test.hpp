@@ -5,6 +5,9 @@
 // Get-Content so this scenario exercises the shell's line/object output path.
 
 #include "conpty_session.hpp"
+#include "powershell_type_input.hpp"
+
+#include <filesystem>
 
 namespace bench
 {
@@ -14,6 +17,7 @@ inline constexpr std::string_view powershell_type_marker = "__COREHOST_BENCH_POW
 [[nodiscard]] inline scenario_result run_powershell_type_realistic_build_output(std::string host, std::string name,
                                                                                 std::chrono::seconds timeout)
 {
+    write_powershell_type_input_file(std::filesystem::current_path() / powershell_type_input_file_name);
     const auto command =
         L"powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "
         L"\"$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8; "

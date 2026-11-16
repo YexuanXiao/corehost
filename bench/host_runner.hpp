@@ -9,6 +9,7 @@
 #include "large_mixed_vt_cjk_output_worker.hpp"
 #include "long_line_three_vt_output_worker.hpp"
 #include "sgr_sequence_matrix_worker.hpp"
+#include "powershell_type_input.hpp"
 #include "win32/wait.hpp"
 
 #include <array>
@@ -146,40 +147,6 @@ inline void copy_host_tree(const std::filesystem::path &host_path, const std::fi
     }
 }
 
-inline constexpr wchar_t powershell_type_input_file_name[] = L"corehost-bench-realistic-type-vt.txt";
-
-inline void generate_powershell_type_input_file(const std::filesystem::path &worker_dir)
-{
-    const auto path = worker_dir / powershell_type_input_file_name;
-    FILE *file = nullptr;
-    if (_wfopen_s(&file, path.c_str(), L"wb") != 0 || !file)
-        print_and_abort("create PowerShell type input file failed\n");
-
-    constexpr size_t line_count = 12000;
-    for (size_t i = 0; i < line_count; ++i)
-    {
-        const char *prefix = "\x1b[32m[build]\x1b[0m ";
-        if (i % 17 == 0)
-            prefix = "\x1b[33mwarning\x1b[0m ";
-        else if (i % 53 == 0)
-            prefix = "\x1b[31merror\x1b[0m ";
-        else if (i % 7 == 0)
-            prefix = "\x1b[36mcompile\x1b[0m ";
-
-        if (std::fprintf(file,
-                         "%sproject\\module\\target_%05zu.cpp : ASCII abcdefghijklmnopqrstuvwxyz 0123456789 "
-                         "\x1b[1m喜欢你 核心终端性能测试\x1b[22m payload payload payload payload\r\n",
-                         prefix, i) < 0)
-        {
-            std::fclose(file);
-            print_and_abort("write PowerShell type input file failed\n");
-        }
-    }
-
-    if (std::fclose(file) != 0)
-        print_and_abort("close PowerShell type input file failed\n");
-}
-
 // Launches the worker process and mirrors its stdout/stderr to this process.
 // The returned string is parsed after the worker exits.
 [[nodiscard]] inline std::string run_worker_process(const std::filesystem::path &worker_exe,
@@ -262,7 +229,7 @@ inline void generate_powershell_type_input_file(const std::filesystem::path &wor
 
     std::filesystem::copy_file(current_exe_path(), worker_exe, std::filesystem::copy_options::overwrite_existing);
     copy_host_tree(host_path, worker_dir);
-    generate_powershell_type_input_file(worker_dir);
+    write_powershell_type_input_file(worker_dir / powershell_type_input_file_name);
 
     auto output = run_worker_process(worker_exe, worker_dir, label, scenario_filter);
     auto scenarios = parse_worker_results(output);
