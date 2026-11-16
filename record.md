@@ -2284,3 +2284,40 @@ PowerShell 交互启动、edit.exe、Vim 均验证正常。
 Release: 100% tests passed, 0 tests failed out of 11
 Debug:   100% tests passed, 0 tests failed out of 4
 ```
+
+### 交互输入回归修复
+
+为保留 corehost2 性能，fast path 曾跳过 raw 输出解析；这会让 PowerShell/PSReadLine 的 cursor/screen 状态陈旧，输入命令只回显不执行。
+
+修复：
+
+- 一旦检测到 `ReadConsole`/`GetConsoleInput`，关闭 RAW fast path，走 dispatcher 更新 screen/cursor；
+- 重新进入 console input 时清除 raw-only 模式；
+- 大 payload 的 input_payload_reader 生命周期保持到 append 完成；
+- 带 cursor/erase/scroll 的 raw write 仍走 dispatcher。
+
+提交：
+
+```text
+ec4eb24 fix(corehost2): preserve interactive input and screen state after raw output
+```
+
+交互验证：
+
+- cmd：输出、输入、CJK、cls、dir、resize 正常；
+- Windows PowerShell 5.1：输出、输入、CJK 正常；
+- pwsh 7.7：输出、输入正常；
+- edit.exe：文件 UI 正常；
+- vim.exe：打开、插入、`:wq` 保存正常。
+
+最终性能（无日志 Release）：
+
+```text
+large-mixed:   corehost2 66.5 ms
+long-line:     corehost2 698.3 ms
+powershell:    corehost2 290.1 ms
+sgr-plain:     corehost2  10.5 ms
+cjk:           corehost2   5.1 ms
+```
+
+均不慢于 corehost。
