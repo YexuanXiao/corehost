@@ -2898,3 +2898,36 @@ powershell:  293.3 ms
 sgr-plain:    29.7 ms
 cjk:           7.0 ms
 ```
+
+### 清理冗余输入/echo 状态
+
+- 删除 `raw_echo_done_`：line editor 的 echo 在 completed-line 时已经完成，read 完成路径不再重复调用 echo；
+- `resume_read` 对 line editor 读取不再走 `echo_raw`；
+- 删除 `line_editor::insert_mode()` 和未使用的 `enter()/change::complete`；
+- 把 input_queue 的 key_count 增减集中到 `account()/unaccount()`，避免四个 push 重载和 read_raw 各自维护；
+- 删除 `echo_live` 中已不可达的 BS/DEL/ESC 编辑分支和 `line_edited_` CR 跳过逻辑。
+
+提交：
+
+```text
+8950046 refactor(input): remove redundant line echo and editor state
+6343f95 refactor(input): centralize input queue accounting
+3dcfe81 refactor(input): drop dead live-echo edit branches
+```
+
+验证：
+
+```text
+Release 11/11
+Debug 4/4
+```
+
+benchmark：
+
+```text
+large-mixed: 270.1 ms
+long-line:   808.2 ms
+powershell:  293.2 ms
+sgr-plain:    29.2 ms
+cjk:           6.6 ms
+```
