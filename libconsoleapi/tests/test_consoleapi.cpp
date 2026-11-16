@@ -189,7 +189,7 @@ int main()
         reinterpret_cast<CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG *>(string_message.body + sizeof(CONSOLE_MSG_HEADER));
     string_request->WriteCoord = COORD{0, 0};
     string_request->StringType = CONSOLE_REAL_UNICODE;
-    string_request->NumRecords = 2;
+    string_request->NumRecords = 0;
     std::memcpy(string_message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG),
                 string_data, sizeof(string_data));
     if (!api.handle(string_message) || buffer.at(0, 0).primary() != u'H' || buffer.at(1, 0).primary() != u'I' ||
@@ -209,7 +209,7 @@ int main()
         reinterpret_cast<CONSOLE_READCONSOLEOUTPUTSTRING_MSG *>(read_string_message.body + sizeof(CONSOLE_MSG_HEADER));
     read_string_request->ReadCoord = COORD{0, 0};
     read_string_request->StringType = CONSOLE_REAL_UNICODE;
-    read_string_request->NumRecords = 2;
+    read_string_request->NumRecords = 0;
     if (!api.handle(read_string_message) || read_string_request->NumRecords != 2 ||
         read_string_message.complete.IoStatus.Information != 2 * sizeof(char16_t))
     {

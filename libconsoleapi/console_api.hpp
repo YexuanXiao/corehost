@@ -2034,8 +2034,6 @@ class console_api final
         }
         auto *request =
             reinterpret_cast<CONSOLE_READCONSOLEOUTPUTSTRING_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
-        const auto requested = static_cast<std::size_t>(request->NumRecords);
-        request->NumRecords = 0;
         if (request->StringType != CONSOLE_ASCII && request->StringType != CONSOLE_REAL_UNICODE &&
             request->StringType != CONSOLE_FALSE_UNICODE && request->StringType != CONSOLE_ATTRIBUTE)
         {
@@ -2044,32 +2042,41 @@ class console_api final
         }
         const auto local =
             sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
-        if (message.descriptor.OutputSize <= sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG))
+        if (message.descriptor.OutputSize <
+            sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG))
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto capacity =
-            std::min<std::size_t>(message.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG), local);
+        const auto capacity = std::min<std::size_t>(
+            message.descriptor.OutputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG),
+            local);
         auto *data = reinterpret_cast<std::byte *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
                                                    sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
         std::memset(data, 0, capacity);
+        const auto unit = request->StringType == CONSOLE_ATTRIBUTE ? sizeof(std::uint16_t)
+                          : request->StringType == CONSOLE_ASCII   ? sizeof(char)
+                                                                   : sizeof(char16_t);
+        const auto requested = request->NumRecords != 0
+                                   ? std::min<std::size_t>(request->NumRecords, capacity / unit)
+                                   : capacity / unit;
+        request->NumRecords = 0;
         std::size_t written = 0;
         const auto coordinate = screen::coord{request->ReadCoord.X, request->ReadCoord.Y};
         if (request->StringType == CONSOLE_ATTRIBUTE)
         {
-            const auto count = std::min<std::size_t>(requested, capacity / sizeof(std::uint16_t));
+            const auto count = requested;
             written = buffer_.read_attrs(coordinate,
                                          std::span<std::uint16_t>{reinterpret_cast<std::uint16_t *>(data), count});
         }
         else if (request->StringType == CONSOLE_REAL_UNICODE || request->StringType == CONSOLE_FALSE_UNICODE)
         {
-            const auto count = std::min<std::size_t>(requested, capacity / sizeof(char16_t));
+            const auto count = requested;
             written = buffer_.read_chars(coordinate, std::span<char16_t>{reinterpret_cast<char16_t *>(data), count});
         }
         else if (request->StringType == CONSOLE_ASCII)
         {
-            const auto count = std::min<std::size_t>(requested, capacity);
+            const auto count = requested;
             text_buffer_.resize(count);
             const auto read = buffer_.read_chars(coordinate, std::span<char16_t>{text_buffer_});
             const auto code_page = state_.output_code_page;
@@ -2079,11 +2086,8 @@ class console_api final
             written = static_cast<std::size_t>(std::max(converted, 0));
         }
         request->NumRecords = static_cast<ULONG>(written);
-        const auto unit = request->StringType == CONSOLE_ATTRIBUTE ? sizeof(std::uint16_t)
-                          : request->StringType == CONSOLE_ASCII   ? sizeof(char)
-                                                                   : sizeof(char16_t);
         coreio::prepare_completion(message, 0, written * unit, message.body + sizeof(CONSOLE_MSG_HEADER),
-                                   written * unit);
+                                   sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + written * unit);
         return true;
     }
 
@@ -2110,19 +2114,19 @@ class console_api final
         std::size_t written = 0;
         if (request->StringType == CONSOLE_ATTRIBUTE)
         {
-            const auto count = std::min<std::size_t>(request->NumRecords, data_size / sizeof(std::uint16_t));
+            const auto count = data_size / sizeof(std::uint16_t);
             written = buffer_.write_attrs(
                 coordinate, std::span<const std::uint16_t>{reinterpret_cast<const std::uint16_t *>(data), count});
         }
         else if (request->StringType == CONSOLE_REAL_UNICODE || request->StringType == CONSOLE_FALSE_UNICODE)
         {
-            const auto count = std::min<std::size_t>(request->NumRecords, data_size / sizeof(char16_t));
+            const auto count = data_size / sizeof(char16_t);
             written =
                 buffer_.write_chars(coordinate, std::u16string_view{reinterpret_cast<const char16_t *>(data), count});
         }
         else if (request->StringType == CONSOLE_ASCII)
         {
-            const auto count = std::min<std::size_t>(request->NumRecords, data_size);
+            const auto count = data_size;
             const auto *chars = reinterpret_cast<const char *>(data);
             const auto code_page = state_.output_code_page;
             const auto units = ::MultiByteToWideChar(code_page, 0, chars, static_cast<int>(count), nullptr, 0);
