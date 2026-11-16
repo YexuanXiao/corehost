@@ -1059,6 +1059,22 @@ class console_api final
             }
             state_.win32_input_mode = (state_.input_mode & 0x0200) == 0;
             state_.win32_input_changed = true;
+            if ((state_.input_mode & 0x0010) != 0)
+            {
+                if (!state_.mouse_tracking())
+                {
+                    state_.set_private_mode(1000, true);
+                }
+                state_.set_private_mode(1006, true);
+            }
+            else
+            {
+                state_.set_private_mode(1000, false);
+                state_.set_private_mode(1002, false);
+                state_.set_private_mode(1003, false);
+                state_.set_private_mode(1006, false);
+            }
+            state_.set_private_mode(1004, (state_.input_mode & 0x0008) != 0);
         }
         else
         {

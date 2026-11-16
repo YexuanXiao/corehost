@@ -63,6 +63,7 @@ struct message_handler final
     bool handle(coreio::io_msg &message)
     {
         ctrl_events.clear();
+        bool dispatched = false;
         {
             std::unique_lock guard{*context.mutex};
             const bool alternate_before = context.state->screen().alternate_active();
@@ -72,9 +73,15 @@ struct message_handler final
             {
                 raw_output = raw_reader.read(message, 0);
             }
-            if (!context.dispatcher->handle(message))
+            dispatched = context.dispatcher->handle(message);
+            for (const auto [mode, enabled] : context.state->state().take_private_modes())
             {
-                return false;
+                vtserializer::append_private_mode(context.writer->buffer(), mode, enabled);
+            }
+            if (context.state->state().take_keypad_changed())
+            {
+                context.writer->buffer().append_text(context.state->state().keypad_application ? u8"\x1b="
+                                                                                             : u8"\x1b>");
             }
             if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE &&
                 (alternate_before || context.state->screen().alternate_active()))
@@ -88,7 +95,7 @@ struct message_handler final
                 {
                     vtserializer::append_window_title(context.writer->buffer(), context.state->state().title);
                 }
-                return true;
+                return dispatched;
             }
             context.dispatcher->take_ctrl_events(ctrl_events);
             const auto cursor = screen::coord{
@@ -131,7 +138,7 @@ struct message_handler final
             context.delivery->deliver(pid, event);
         }
         ctrl_events.clear();
-        return true;
+        return dispatched;
     }
     std::vector<std::pair<DWORD, DWORD>> ctrl_events;
 };
