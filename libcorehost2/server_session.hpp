@@ -612,30 +612,12 @@ class server_session final
         {
             return;
         }
-        for (const auto value : bytes)
-        {
-            const auto byte = static_cast<unsigned char>(value);
-            if (byte == '\b' || byte == 0x7F || byte == 0x1B)
-            {
-                line_edited_ = true;
-                return;
-            }
-        }
         if (!line_start_valid_)
         {
             const auto cursor = state_.cursor();
             line_start_x_ = cursor.x;
             line_start_y_ = cursor.y;
             line_start_valid_ = true;
-        }
-        if (line_edited_)
-        {
-            for (const auto value : bytes)
-            {
-                const auto byte = static_cast<unsigned char>(value);
-                if (byte == '\r' || byte == '\n')
-                    return;
-            }
         }
         echo_bytes_.clear();
         for (std::size_t i = 0; i < bytes.size(); ++i)
@@ -666,10 +648,8 @@ class server_session final
         writer_->buffer().append(
             std::span<const char8_t>{reinterpret_cast<const char8_t *>(echo_bytes_.data()), echo_bytes_.size()});
         live_echoed_ = true;
-        if (!line_edited_ && echo_bytes_.find("\r\n") != std::string::npos)
-        {
+        if (echo_bytes_.find("\r\n") != std::string::npos)
             line_start_valid_ = false;
-        }
     }
 
     void echo_raw(std::span<const char> bytes)
