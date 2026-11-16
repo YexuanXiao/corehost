@@ -860,6 +860,7 @@ class server_session final
                 return 0;
             }
             apply_line_edits(raw_in_);
+            raw_line_offset_ = 0;
             if (raw_in_.empty())
             {
                 raw_line_complete_ = false;
@@ -878,11 +879,15 @@ class server_session final
         if (line_input && raw_line_remaining_ != 0)
         {
             const auto written = std::min(output.size(), raw_line_remaining_);
-            std::memcpy(output.data(), raw_in_.data(), written);
-            raw_in_.erase(0, written);
+            std::memcpy(output.data(), raw_in_.data() + raw_line_offset_, written);
+            raw_line_offset_ += written;
             raw_line_remaining_ -= written;
             if (raw_line_remaining_ == 0)
+            {
+                raw_in_.erase(0, raw_line_offset_);
+                raw_line_offset_ = 0;
                 raw_line_complete_ = false;
+            }
             return written;
         }
 
@@ -939,7 +944,7 @@ class server_session final
         {
             const auto written = output.size();
             std::memcpy(output.data(), raw_in_.data(), written);
-            raw_in_.erase(0, written);
+            raw_line_offset_ = written;
             raw_line_remaining_ = consumed - written;
             return written;
         }
@@ -1314,6 +1319,7 @@ class server_session final
     bool live_echoed_{};
     bool raw_echo_done_{};
     bool raw_line_complete_{};
+    std::size_t raw_line_offset_{};
     bool line_edited_{};
     bool line_start_valid_{};
     int line_start_x_{};
