@@ -62,6 +62,16 @@ int main()
           "ground text non-ascii run");
 
     parser.reset();
+    result = parser.parse(u"ABCD");
+    check(result.id == vt_message_id::continue_text && result.message.text_is_ascii,
+          "ground text ascii flag");
+
+    parser.reset();
+    result = parser.parse(u"AB\u4E2D");
+    check(result.id == vt_message_id::continue_text && !result.message.text_is_ascii,
+          "ground text non-ascii flag");
+
+    parser.reset();
     result = parser.parse(u"\x1b]2;corehost\x07");
     check(result.id == vt_message_id::set_window_title, "title id");
     check(result.message.payload.title == u"corehost", "title payload");
