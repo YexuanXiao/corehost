@@ -2247,3 +2247,40 @@ cjk:         OpenConsole 395398 B / corehost 385083 / corehost2 394111
 ```
 
 edit/Vim 仍正常，核心测试通过。
+
+### corehost2 性能优化
+
+目标：至少达到 corehost 性能。
+
+实现：
+
+1. 普通屏幕 RAW_WRITE 直接透传，不再逐字符解析并重绘 screen buffer；alternate screen 仍走 dispatcher，保持 edit/Vim 行为。
+2. RAW_READ 模式下跳过 console input parser，避免把 393 KiB 输入解析成数十万个 KEY_EVENT。
+3. 修复 fast path 的 payload 生命周期：input_payload_reader 必须活到 append 完成，否则大 payload 会悬空并在 sgr-bold/长写入时超时。
+
+提交：
+
+```text
+42ca5a7 perf(corehost2): bypass screen parse for raw writes and skip raw input parsing
+```
+
+结果（无日志 Release）：
+
+```text
+large-mixed:   corehost 194.0 ms -> corehost2 53.6 ms
+long-line:     corehost 890.1 ms -> corehost2 709.3 ms
+powershell:    corehost 301.2 ms -> corehost2 297.9 ms
+sgr-plain:     corehost  21.0 ms -> corehost2   7.5 ms
+cjk:           corehost  13.8 ms -> corehost2   4.0 ms
+```
+
+三者的 large-mixed、long-line、SGR 输出字节数一致；cjk 只剩约 4 KiB/1 KiB 的回显边界差异。
+
+PowerShell 交互启动、edit.exe、Vim 均验证正常。
+
+测试：
+
+```text
+Release: 100% tests passed, 0 tests failed out of 11
+Debug:   100% tests passed, 0 tests failed out of 4
+```
