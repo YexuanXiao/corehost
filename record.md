@@ -3038,3 +3038,35 @@ cjk:           6.8 ms
 ```
 
 PowerShell、edit 正常。
+
+### 删除 input_queue::size 的二义计数
+
+`input_queue::size()` 返回 batch event 数，和 API 需要的 INPUT_RECORD 数不是同一语义。现在：
+
+- 删除 `input_queue::size()`；
+- 日志改用 `record_count()` 并明确标记 `records=`；
+- 所有测试改用 `record_count()` 或 `empty()`；
+- text batch 的 down/up 展开计数只有一个来源。
+
+提交：
+
+```text
+cd1c7ec refactor(input): remove ambiguous raw event count
+```
+
+验证：
+
+```text
+Release 11/11
+Debug 4/4
+```
+
+benchmark：
+
+```text
+large-mixed: 277.4 ms
+long-line:   774.0 ms
+powershell:  ~285 ms
+sgr-plain:    28.8 ms
+cjk:           6.9 ms
+```
