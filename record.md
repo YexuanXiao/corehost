@@ -1939,3 +1939,14 @@ write=1 written=12 read=1 read_count=12 text=[HELLO-STRING]
 ### focus reporting 对照
 
 `?1004` 已随 `ENABLE_WINDOW_INPUT` 转发。用 `OpenConsole.exe.orig` 做同样 Alt+Tab/Notepad 焦点切换，同样没有观察到 FOCUS 事件，因此当前不归为 corehost 回归，保留待确认。
+
+### E9 Python WindowsConsoleIO 兼容性
+
+`python.exe`（3.14/3.15）在 corehost2 下运行脚本会失败：
+
+```text
+Fatal Python error: init_sys_streams: can't initialize sys standard streams
+ValueError: Cannot open console input buffer for writing
+```
+
+同一版本在 `OpenConsole.exe.orig` 下正常；设置 `PYTHONLEGACYWINDOWSSTDIO=1` 后 corehost2 下也正常。说明问题限定在 CPython 的 `_WindowsConsoleIO` 路径，而不是 raw write 或普通 Console API。待继续定位。
