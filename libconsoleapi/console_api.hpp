@@ -2624,7 +2624,7 @@ class console_api final
         {
         case screen::text_measurement::console:
             for (const auto cluster : screen::grapheme_range<screen::text_measurement::console>{text})
-                draw_cluster(cluster.text, cluster.width);
+                draw_cluster(cluster.text, screen::console_glyph_width(std::u16string_view{cluster.text.data(), cluster.text.size()}));
             break;
         case screen::text_measurement::graphemes:
             if (state_.ambiguous_is_wide)
@@ -2645,13 +2645,15 @@ class console_api final
             {
                 for (const auto cluster :
                      screen::grapheme_range<screen::text_measurement::wcswidth, true>{text})
-                    draw_cluster(cluster.text, cluster.width);
+                    draw_cluster(cluster.text,
+                                 screen::wcswidth_glyph_width(std::u16string_view{cluster.text.data(), cluster.text.size()}, state_.ambiguous_is_wide));
             }
             else
             {
                 for (const auto cluster :
                      screen::grapheme_range<screen::text_measurement::wcswidth, false>{text})
-                    draw_cluster(cluster.text, cluster.width);
+                    draw_cluster(cluster.text,
+                                 screen::wcswidth_glyph_width(std::u16string_view{cluster.text.data(), cluster.text.size()}, state_.ambiguous_is_wide));
             }
             break;
         }
