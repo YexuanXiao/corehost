@@ -86,6 +86,33 @@ inline void append_cursor_visibility_change(screen::console_state &state, vtseri
         vtserializer::append_cursor_visibility(output, state.cursor().visible);
 }
 
+template <typename SessionState>
+inline void render_pending(screen::screen_buffer &screen, screen::console_state &console, SessionState &session,
+                           vtserializer::byte_buffer &output)
+{
+    const auto cursor = screen::coord{static_cast<std::int32_t>(console.cursor().x),
+                                      static_cast<std::int32_t>(console.cursor().y)};
+    const auto scroll_lines = screen.take_scroll_up();
+    if (session.take_alternate_changed() || session.take_viewport_changed())
+    {
+        vtserializer::render_viewport(output, screen, cursor, &console, false);
+        screen.clear_damage();
+        note_terminal_cursor(console, screen, cursor);
+    }
+    else if (scroll_lines != 0 || screen.has_damage() || console.take_cursor_changed() ||
+             console.cursor_visibility_changed)
+    {
+        vtserializer::append_scroll_up(output, static_cast<unsigned>(scroll_lines));
+        vtserializer::render_damage(output, screen, cursor, &console, trim_row_for_scroll(screen, scroll_lines),
+                                    false);
+        screen.clear_damage();
+        note_terminal_cursor(console, screen, cursor);
+    }
+    (void)console.take_cursor_changed();
+    append_cursor_visibility_change(console, output);
+    append_cursor_shape_change(console, output);
+}
+
 struct message_handler final
 {
     server_worker_context &context;
@@ -154,31 +181,8 @@ struct message_handler final
                 return dispatched;
             }
             context.dispatcher->take_ctrl_events(ctrl_events);
-            const auto cursor = screen::coord{
-                static_cast<std::int32_t>(context.state->state().cursor().x),
-                static_cast<std::int32_t>(context.state->state().cursor().y),
-            };
-            const auto scroll_lines = context.state->screen().take_scroll_up();
-            if (context.state->take_alternate_changed() || context.state->take_viewport_changed())
-            {
-                vtserializer::render_viewport(context.writer->buffer(), context.state->screen(), cursor,
-                                              &context.state->state(), false);
-                context.state->screen().clear_damage();
-                note_terminal_cursor(context.state->state(), context.state->screen(), cursor);
-            }
-            else if (scroll_lines != 0 || context.state->screen().has_damage() ||
-                     context.state->state().take_cursor_changed() ||
-                     context.state->state().cursor_visibility_changed)
-            {
-                vtserializer::append_scroll_up(context.writer->buffer(), static_cast<unsigned>(scroll_lines));
-                vtserializer::render_damage(context.writer->buffer(), context.state->screen(), cursor,
-                                            &context.state->state(),
-                                            trim_row_for_scroll(context.state->screen(), scroll_lines), false);
-                context.state->screen().clear_damage();
-                note_terminal_cursor(context.state->state(), context.state->screen(), cursor);
-            }
-            append_cursor_visibility_change(context.state->state(), context.writer->buffer());
-            append_cursor_shape_change(context.state->state(), context.writer->buffer());
+            render_pending(context.state->screen(), context.state->state(), *context.state,
+                           context.writer->buffer());
             if (context.state->take_echo_line_feed())
             {
                 context.writer->buffer().append_text(u8"\r\n");
@@ -249,25 +253,7 @@ class session_input_sink final
         {
             writer_.buffer().append_text(state_.state().keypad_application ? u8"\x1b=" : u8"\x1b>");
         }
-        const auto cursor = screen::coord{
-            static_cast<std::int32_t>(state_.state().cursor().x),
-            static_cast<std::int32_t>(state_.state().cursor().y),
-        };
-        const auto scroll_lines = state_.screen().take_scroll_up();
-        if (state_.take_alternate_changed() || state_.take_viewport_changed())
-        {
-            vtserializer::render_viewport(writer_.buffer(), state_.screen(), cursor, &state_.state(), false);
-        }
-        else
-        {
-            vtserializer::append_scroll_up(writer_.buffer(), static_cast<unsigned>(scroll_lines));
-            vtserializer::render_damage(writer_.buffer(), state_.screen(), cursor, &state_.state(),
-                                        trim_row_for_scroll(state_.screen(), scroll_lines), false);
-        }
-        state_.screen().clear_damage();
-        note_terminal_cursor(state_.state(), state_.screen(), cursor);
-        append_cursor_visibility_change(state_.state(), writer_.buffer());
-        append_cursor_shape_change(state_.state(), writer_.buffer());
+        render_pending(state_.screen(), state_.state(), state_, writer_.buffer());
         if (state_.take_echo_line_feed())
         {
             writer_.buffer().append_text(u8"\r\n");
@@ -322,29 +308,12 @@ class session_signal_sink final
                                  static_cast<std::int16_t>(state_.state().height()));
         (void)console_.complete_pending();
         if (!state_.screen().has_damage() && !state_.screen().has_pending_scroll() &&
-            !state_.state().cursor_visibility_changed)
+            !state_.state().cursor_visibility_changed && !state_.state().cursor_changed &&
+            !state_.state().cursor_shape_changed)
         {
             return;
         }
-        const auto cursor = screen::coord{
-            static_cast<std::int32_t>(state_.state().cursor().x),
-            static_cast<std::int32_t>(state_.state().cursor().y),
-        };
-        const auto scroll_lines = state_.screen().take_scroll_up();
-        if (state_.take_alternate_changed() || state_.take_viewport_changed())
-        {
-            vtserializer::render_viewport(writer_.buffer(), state_.screen(), cursor, &state_.state(), false);
-        }
-        else
-        {
-            vtserializer::append_scroll_up(writer_.buffer(), static_cast<unsigned>(scroll_lines));
-            vtserializer::render_damage(writer_.buffer(), state_.screen(), cursor, &state_.state(),
-                                        trim_row_for_scroll(state_.screen(), scroll_lines), false);
-        }
-        state_.screen().clear_damage();
-        note_terminal_cursor(state_.state(), state_.screen(), cursor);
-        append_cursor_visibility_change(state_.state(), writer_.buffer());
-        append_cursor_shape_change(state_.state(), writer_.buffer());
+        render_pending(state_.screen(), state_.state(), state_, writer_.buffer());
         if (state_.take_echo_line_feed())
         {
             writer_.buffer().append_text(u8"\r\n");
