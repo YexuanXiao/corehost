@@ -511,6 +511,49 @@ class server_session final
         }
     }
 
+    [[nodiscard]] static std::string encode_mouse_event(const consoleinput::mouse_event &mouse)
+    {
+        unsigned button = 3;
+        if ((mouse.button_state & FROM_LEFT_1ST_BUTTON_PRESSED) != 0)
+            button = 0;
+        else if ((mouse.button_state & FROM_LEFT_2ND_BUTTON_PRESSED) != 0)
+            button = 1;
+        else if ((mouse.button_state & RIGHTMOST_BUTTON_PRESSED) != 0)
+            button = 2;
+
+        unsigned code = button;
+        char final = 'M';
+        if ((mouse.event_flags & MOUSE_WHEELED) != 0)
+        {
+            const auto delta = static_cast<std::int16_t>((mouse.button_state >> 16) & 0xFFFF);
+            code = 64 + (delta < 0 ? 1 : 0);
+        }
+        else if ((mouse.event_flags & MOUSE_HWHEELED) != 0)
+        {
+            const auto delta = static_cast<std::int16_t>((mouse.button_state >> 16) & 0xFFFF);
+            code = 128 + (delta < 0 ? 1 : 0);
+        }
+        else if ((mouse.event_flags & MOUSE_MOVED) != 0)
+        {
+            code += 32;
+        }
+        else if (mouse.button_state == 0)
+        {
+            final = 'm';
+        }
+
+        std::string result;
+        result.reserve(24);
+        result.append("\x1b[<");
+        result.append(std::to_string(code));
+        result.push_back(';');
+        result.append(std::to_string(mouse.x + 1));
+        result.push_back(';');
+        result.append(std::to_string(mouse.y + 1));
+        result.push_back(final);
+        return result;
+    }
+
     void consume_raw_text(std::u16string_view text)
     {
         if (!raw_mode_ || text.empty())
@@ -555,6 +598,15 @@ class server_session final
             for (std::size_t i = 0; i < count; ++i)
             {
                 const auto &event = events[i];
+                if (event.type == consoleinput::input_event_type::mouse)
+                {
+                    if (!line_input && state_.mouse_tracking())
+                    {
+                        flush_text();
+                        bytes.append(encode_mouse_event(event.mouse));
+                    }
+                    continue;
+                }
                 if (event.type != consoleinput::input_event_type::key || !event.key.key_down)
                     continue;
 
