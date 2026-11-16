@@ -78,7 +78,7 @@
 - [-] E6 sshd.exe -d 调试服务器：`get_passwd lookup_sid failed 1332`、host key 加载失败
 - [x] E7 PowerShell / cmd 嵌套 shell
 - [x] E8 长输出程序（100 行输出；CRT raw write 也已修复）
-- [!] E9 python.exe：corehost2 下 `init_sys_streams` 失败；libcorehost 正常，`PYTHONLEGACYWINDOWSSTDIO=1` 可绕过，待查 WindowsConsoleIO/corehost2 句柄路径
+- [x] E9 python.exe：修复 output handle 识别后正常输出（libcorehost 对照也通过）
 
 ## F. 压力与回归
 

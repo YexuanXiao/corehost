@@ -1968,3 +1968,29 @@ ValueError: Cannot open console input buffer for writing
 ```
 
 因此确认这是 **corehost2 的回归**，不是 Python 或 WT 的通用行为。对照范围已缩小到 libconsoleapi 与 libcorehost 的 Console API 句柄/模式路径；原版 conhost 的 `IoDispatchers::ConsoleCreateObject` 访问位规则与 corehost2 一致，不是 CREATE 映射问题。
+
+### 修复 9：corehost2 output handle 未被识别
+
+对照 libcorehost 后发现，`kind_from_object` 除了比较 output object id，还会比较 **condrv output 原始句柄值**；corehost2 的 `is_output_object` 只比较 object id，缺少这个 fallback。
+
+Python 的 `_WindowsConsoleIO` 在输出句柄上用 `GetConsoleMode` / `GetNumberOfConsoleInputEvents` 判断类型时，部分请求的 `descriptor.Object` 是原始 handle 值，于是被当成 input，导致：
+
+```text
+ValueError: Cannot open console input buffer for writing
+```
+
+修复：
+
+- `console_api::set_output_handle` 保存 condrv output handle 值；
+- `is_output_object` 同时识别 output object id 和 output handle；
+- connect/create 后由 `server_dispatcher` 同步该值。
+
+验证：
+
+```text
+python.exe C:\1\python_test.py
+PYTHON-RAW-OK
+中文-😀
+```
+
+libcorehost 与 corehost2 现在都正常。
