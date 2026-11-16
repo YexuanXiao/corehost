@@ -25,6 +25,7 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
     const auto buffer_width = static_cast<std::size_t>(buffer.buffer_size().x);
 
     auto current_hyperlink = screen::no_cell_hyperlink;
+    screen::cell_style current_style = static_cast<screen::cell_style>(-1);
 
     for (std::int32_t row = 0; row < size.y; ++row)
     {
@@ -63,7 +64,6 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
                    static_cast<unsigned>(begin - static_cast<std::size_t>(origin.x)));
 
         const auto cells = buffer.row_cells(y);
-        screen::cell_style current_style = static_cast<screen::cell_style>(-1);
         for (auto x = begin; x < end; ++x)
         {
             const auto &value = cells[x];
