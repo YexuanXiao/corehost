@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent
-RAW = Path(r"C:\1\bench-results\compare-workers-3x.txt")
+RAW = Path(r"C:\1\bench-results\compare-workers-3x-final.txt")
 OUT_CSV = ROOT / "benchmark_openconsole_vs_corehost2.csv"
 OUT_PNG = ROOT / "benchmark_openconsole_vs_corehost2.png"
 
@@ -58,8 +58,8 @@ for scenario, hosts in by_scenario.items():
             "ch_min_ms": min(ch_ms),
             "ch_max_ms": max(ch_ms),
             "ratio_ch_over_oc": statistics.mean(ch_ms) / statistics.mean(oc_ms),
-            "oc_bytes": oc[0]["bytes"],
-            "ch_bytes": ch[0]["bytes"],
+            "oc_bytes": round(statistics.mean(r["bytes"] for r in oc)),
+            "ch_bytes": round(statistics.mean(r["bytes"] for r in ch)),
         }
     )
 
@@ -186,7 +186,7 @@ text(60, 900, "说明", font_panel)
 text(
     60,
     938,
-    "耗时越低越好；ratio = corehost2 / OpenConsole。CJK 的 corehost2 输出字节数更高，是因为 line echo 统一走 renderer 后增加了 CUP 序列。",
+    "耗时越低越好；ratio = corehost2 / OpenConsole。CJK 的 echo 已改为 append 增量直写，输出字节数与 OpenConsole 基本一致。",
     font_small,
     muted,
 )

@@ -1,5 +1,8 @@
 # conpty_bench 结果（3 次平均，无 fastpath / 无 replay 特例）
 
+> 最新完整对比见 [benchmark_openconsole_vs_corehost2.md](benchmark_openconsole_vs_corehost2.md)。  
+> 本文保留的是更早一轮的结果，cjk 输出字节与当前实现不同。
+
 | Scenario | OpenConsole | corehost2 | ratio |
 |---|---:|---:|---:|
 | large-mixed-vt-cjk-output | 355.1 | 267.5 | 0.75 |

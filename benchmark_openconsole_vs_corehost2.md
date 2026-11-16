@@ -26,7 +26,7 @@ cd C:\1\bench-compare-ocworker
 .\conpty_bench.exe --worker OpenConsole <scenario>
 ```
 
-- 原始 144 条结果：`C:\1\bench-results\compare-workers-3x.txt`
+- 原始 144 条结果：`C:\1\bench-results\compare-workers-3x-final.txt`
 - 机器可读汇总：[benchmark_openconsole_vs_corehost2.csv](benchmark_openconsole_vs_corehost2.csv)
 - 绘图脚本：[benchmark_compare.py](benchmark_compare.py)
 
@@ -40,7 +40,7 @@ cd C:\1\bench-compare-ocworker
 | long-line | 869.8 ms（806.2-993.9） | **855.8 ms**（833.6-875.2） | **0.984** |
 | powershell-type | 290.7 ms（283.2-303.3） | **285.5 ms**（283.1-287.0） | **0.982*** |
 | sgr-plain | 31.5 ms（31.2-31.9） | **31.4 ms**（30.6-31.9） | **0.996** |
-| cjk-terminal-input | 2,453.8 ms（2,443.4-2,460.5） | **8.6 ms**（8.4-9.1） | **0.004** |
+| cjk-terminal-input | 2,426.7 ms（2,416.4-2,446.0） | **6.9 ms**（6.4-7.2） | **0.003** |
 
 \* PowerShell 场景两边输出字节数不一致，见下方注意事项；该行只比较耗时。
 
@@ -59,8 +59,8 @@ cd C:\1\bench-compare-ocworker
    OpenConsole 33.06 ms，corehost2 34.06 ms，ratio 1.030。  
    各 SGR 场景 ratio 约 0.95-1.08；不是所有 SGR 都慢，但整体略偏慢。
 
-5. **cjk-terminal-input：corehost2 快约 285 倍**  
-   OpenConsole 2,453.8 ms，corehost2 8.6 ms。  
+5. **cjk-terminal-input：corehost2 快约 353 倍**  
+   OpenConsole 2,426.7 ms，corehost2 6.9 ms。  
    这仍然包含真实的 cooked line input / echo 语义，不是靠跳过输入处理得到的。
 
 6. **全部非 CJK 场景的未加权均值：corehost2 快约 3.1%**  
@@ -75,10 +75,65 @@ cd C:\1\bench-compare-ocworker
 | long-line | 16,777,377 | 16,777,377 | 0 |
 | powershell-type | 720 | 10,883 | 工作量不等价，见注意事项 |
 | sgr-plain | 4,256,879 | 4,256,877 | -2 B |
-| cjk-terminal-input | 395,398 | 544,841 | +149,443 B（+37.8%） |
+| cjk-terminal-input | 395,398 | 393,988 | -1,410 B（-0.36%） |
 
-CJK 的输出增加来自 line echo 统一走 `vtserializer::render_damage()` 后产生的 CUP 序列；数据 marker 和读取结果正常。  
-这意味着 corehost2 的 CJK 速度优势不是零成本：实际终端带宽消耗更高。
+CJK 的输出字节数现在与 OpenConsole 基本一致，数据 marker 和读取结果正常。
+
+## 输出字节变化分析
+
+### 原理
+
+CJK 场景的输入约 393,275 B。旧实现的 corehost2 输出 544,841 B，比 OpenConsole 多 149,443 B。
+
+用 `COREHOST2_ECHO_STATS` 对一次 CJK 运行做了计数（51 次实时 echo）：
+
+```text
+live calls=51  units=324,615  bytes=544,130
+```
+
+典型一次 echo：
+
+```text
+units=6,760
+期望新增 UTF-8 文本=8,190 B
+实际 render_damage 输出=10,803 B
+其中 ESC 序列仅 43 个（约 293 B）
+```
+
+### 根因
+
+append-only 的实时 echo 也走通用 `vtserializer::render_damage()`。  
+这个函数按 screen damaged cells 重绘整行，包含：
+
+- 行首 CUP；
+- 行尾空白 padding；
+- CJK 宽字符经过 screen cell 布局后的空格填充；
+- 最终 cursor CUP。
+
+这些空白对“在行尾追加新字符”不是必要输出：终端本来就在行尾，新增文本直写即可。  
+因此 +37.8% 不是有效显示内容，而是 renderer 重绘带来的冗余 padding，**不合理**。
+
+### 修复
+
+`echo_live` 的 append-only 路径改为：
+
+```text
+write_text -> 更新 screen
+clear_damage
+append 规范化后的新增 UTF-8 文本
+```
+
+编辑/覆盖/Backspace/方向键仍走 `redraw_line_echo()` + `render_damage()`，因为这时必须重绘已有 cells。
+
+结果：
+
+```text
+旧：544,841 B，8.6 ms
+新：393,988 B，6.9 ms
+OpenConsole：395,398 B，2,426.7 ms
+```
+
+CJK 输出字节数从 +37.8% 恢复到 -0.36%，性能也恢复到约 6.9 ms。
 
 ## 注意事项
 
@@ -97,16 +152,18 @@ worker 模式下：
 20 个 SGR 场景平均 corehost2 慢约 3%，个别场景慢 5-8%。  
 差异只有约 1-3 ms，绝对量很小，但如果目标是“所有 SGR 场景都不慢于 OpenConsole”，当前还没有完全达到。
 
-### CJK 的输出字节数不同
+### CJK 输出字节数已修复
 
-corehost2 的 CUP 序列更多，导致输出字节数增加约 38%。  
-时间更快，但如果真实终端链路是带宽受限而不是 host 处理受限，这个优势可能会缩小。
+此前 corehost2 的 CJK 输出为 544,841 B，比 OpenConsole 多 149,443 B（+37.8%）。  
+根因是 append-only 的实时 echo 也走通用 `render_damage()`，把整行 damaged cells 的空格 padding 一并输出。
+
+修复后 append echo 只写新增文本；编辑/重绘仍走 renderer。当前输出 393,988 B，与 OpenConsole 的 395,398 B 相差 -0.36%。
 
 ## 全部 24 个场景
 
 | 场景 | OpenConsole ms | corehost2 ms | ratio | OpenConsole B | corehost2 B |
 |---|---:|---:|---:|---:|---:|
-| cjk-terminal-input | 2,453.8 | 8.6 | 0.004 | 395,398 | 544,841 |
+| cjk-terminal-input | 2,426.7 | 6.9 | 0.003 | 395,398 | 393,988 |
 | large-mixed-vt-cjk-output | 337.2 | 269.1 | 0.798 | 25,228,947 | 25,228,949 |
 | long-line-three-vt-output | 869.8 | 855.8 | 0.984 | 16,777,377 | 16,777,377 |
 | powershell-type-realistic-build-output | 290.7 | 285.5 | 0.982 | 720 | 10,883 |
@@ -136,5 +193,5 @@ corehost2 的 CUP 序列更多，导致输出字节数增加约 38%。
 - corehost2 在 **large-mixed** 上明显领先（约 20%）。
 - **long-line / sgr-plain / PowerShell 耗时** 接近，属于同一水平；long-line 和 PowerShell 仅小幅领先。
 - **SGR 子集整体略慢约 3%**，没有做到全部场景领先。
-- **cjk-terminal-input** 有数量级优势（约 285 倍），但输出字节数增加约 38%，需要结合真实终端带宽一起看。
+- **cjk-terminal-input** 有数量级优势（约 353 倍），输出字节数与 OpenConsole 基本一致。
 - 因此，更准确的说法是：**核心渲染/输入场景整体不慢于 OpenConsole，且 large-mixed/CJK 明显更快；SGR 子集仍有小幅回退。**
