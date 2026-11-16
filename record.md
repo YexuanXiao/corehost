@@ -2143,3 +2143,38 @@ vim.exe 正常显示 tildes/状态栏
 
 - `C:\1\wt_shots\E3_edit_fixed_final.png`
 - `C:\1\wt_shots\E4_vim_clean_final.png`
+
+### corehost2 cjk-terminal-input benchmark 失败修复
+
+现象：
+
+```text
+wait for direct input marker timed out: scenario=cjk-terminal-input bytes_read=10830
+```
+
+定位：
+
+- benchmark 的 `--consume-input` 使用 `ReadFile`，走 ConDrv `RAW_READ`；
+- corehost2 只在 `raw_pending()` 为真时把收到的字节加入 raw 缓冲；
+- 两次 RAW_READ 之间到达的输入被丢弃，最终 marker 无法到达。
+
+修复：
+
+```cpp
+console_.push_raw(...); // 始终缓冲，等待下一次 RAW_READ
+```
+
+提交：
+
+```text
+6a9a97a fix(corehost2): buffer raw input between read requests
+```
+
+修复后：
+
+```text
+RESULT	corehost2	cjk-terminal-input	393275	914	394.8
+```
+
+完整 benchmark 24 个场景全部完成，耗时约 6 秒。
+结果见 `benchmark_results.md`。
