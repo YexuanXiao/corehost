@@ -97,6 +97,11 @@ class console_api final
         output_object_ = object;
     }
 
+    void set_output_handle(std::uintptr_t handle) noexcept
+    {
+        output_handle_ = handle;
+    }
+
     [[nodiscard]] bool handle(coreio::io_msg &message) noexcept
     {
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER))
@@ -410,6 +415,7 @@ class console_api final
     [[nodiscard]] bool is_output_object(std::uintptr_t object) const noexcept
     {
         return (output_object_ != 0 && object == output_object_) ||
+               (output_handle_ != 0 && object == output_handle_) ||
                (alternate_object_ != 0 && object == alternate_object_);
     }
     [[nodiscard]] bool read_console(coreio::io_msg &message, bool pending_allowed = true) noexcept
@@ -2718,6 +2724,7 @@ class console_api final
     std::size_t last_window_width_{};
     std::size_t last_window_height_{};
     std::uintptr_t input_handle_{};
+    std::uintptr_t output_handle_{};
     std::uintptr_t alternate_object_{};
     std::uintptr_t output_object_{};
     std::uintptr_t window_handle_{};

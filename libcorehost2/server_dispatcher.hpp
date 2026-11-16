@@ -45,6 +45,7 @@ class server_dispatcher final
             session_.set_input_object(state_.input_id());
             session_.set_input_handle(reinterpret_cast<std::uintptr_t>(state_.input().get()));
             session_.set_output_object(state_.output_id());
+            session_.set_output_handle(reinterpret_cast<std::uintptr_t>(state_.output().get()));
             session_.set_alternate_object(state_.alternate_output_id());
             LOG("connect input=%llu output=%llu alternate=%llu handle=%p",
                 static_cast<unsigned long long>(state_.input_id()), static_cast<unsigned long long>(state_.output_id()),
@@ -55,6 +56,7 @@ class server_dispatcher final
             session_.set_input_object(state_.input_id());
             session_.set_input_handle(reinterpret_cast<std::uintptr_t>(state_.input().get()));
             session_.set_output_object(state_.output_id());
+            session_.set_output_handle(reinterpret_cast<std::uintptr_t>(state_.output().get()));
             session_.set_alternate_object(state_.alternate_output_id());
             return true;
         case CONSOLE_IO_CLOSE_OBJECT:

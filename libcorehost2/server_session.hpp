@@ -404,6 +404,11 @@ class server_session final
         api_.set_output_object(object);
     }
 
+    void set_output_handle(std::uintptr_t handle) noexcept
+    {
+        api_.set_output_handle(handle);
+    }
+
     void set_window_handle(std::uintptr_t window) noexcept
     {
         api_.set_window_handle(window);
