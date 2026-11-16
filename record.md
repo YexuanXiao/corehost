@@ -3070,3 +3070,40 @@ powershell:  ~285 ms
 sgr-plain:    28.8 ms
 cjk:           6.9 ms
 ```
+
+### line echo 统一经 vtserializer damage
+
+line-mode echo 不再直接 append 原始终端字节：
+
+- `echo_live` 先更新 screen，再用 `vtserializer::render_damage()` 输出 damage；
+- 最终 line 重绘也走 `render_damage()`；
+- 移除 echo 中手写 `\r`、`ESC[K`、直接 UTF-8 append；
+- screen damage 与 terminal 输出由同一 renderer 产生；
+- non-line raw echo 仍保留原始字节路径。
+
+提交：
+
+```text
+bd24b75 refactor(echo): render line echo through vtserializer damage
+```
+
+验证：
+
+```text
+Release 11/11
+Debug 4/4
+ABC / Insert AC / EF
+CP936
+```
+
+benchmark：
+
+```text
+large-mixed: 275.2 ms
+long-line:   783.2 ms
+powershell:  ~285-314 ms
+sgr-plain:    29.8 ms
+cjk:           8.4 ms
+```
+
+cjk 输出增加 CUP 序列，耗时从约 6.9 ms 到 8.4 ms，仍远低于原始 400 ms。
