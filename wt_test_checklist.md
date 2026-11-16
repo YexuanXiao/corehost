@@ -36,7 +36,7 @@
 - [x] B16 alternate screen 1049 进入/退出
 - [x] B17 OSC 0/2 窗口标题
 - [x] B18 OSC 8 hyperlink（序列被接受；点击行为未自动验证）
-- [!] B19 bracketed paste：多行粘贴被拆成两条独立输入，第二条留在提示符
+- [-] B19 bracketed paste：原版 conhost 对照同样拆分，非 corehost 回归；PowerShell/WT 行为待确认
 - [-] B20 focus in/out 报告：需要可显示原始输入事件的应用，未自动验证
 - [-] B21 mouse tracking 模式：自动注入未可靠触发回滚/鼠标事件
 - [x] B22 窗口 resize 后重绘
@@ -50,15 +50,15 @@
 - [x] C5 Tab / Shift+Tab
 - [x] C6 Ctrl+C
 - [x] C7 Ctrl+Z（报告为 KEY=Z CHAR=26 MOD=Control）
-- [x] C8 多行粘贴（与 B19 同现象）
+- [-] C8 多行粘贴（与 B19 同现象；原版 conhost 对照同样拆分）
 - [-] C9 鼠标点击/拖动/滚轮：自动注入未可靠触发
-- [!] C10 滚轮回滚/回到底部：WT 滚动条无可用 scrollback
-- [x] C11 控制台窗口大小变化事件
+- [-] C10 滚轮回滚/回到底部：原版 conhost 对照同样无 scrollback，非 corehost 回归
+- [x] C11 控制台窗口大小变化事件（WINDOW EVENT 79x20 / 120x30）
 - [x] C12 ReadConsole 行编辑：方向键、Home/End、历史输入
 
 ## D. 控制台行为
 
-- [!] D1 滚上/滚下与 scrollback：WT 端没有可滚动历史，Shift+PageUp/滚轮无效
+- [-] D1 滚上/滚下与 scrollback：原版 conhost 对照同样无历史，非 corehost 回归
 - [x] D2 cls/clear 后内容与光标
 - [x] D3 resize 保留内容、重新换行（已修复底端锚定）
 - [x] D4 自动换行与行尾标志（200 字符长行）

@@ -1899,8 +1899,12 @@ SGR 的 bold/faint/italic/underline/blink/negative/conceal/strikethrough 没有�
 
 `CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG::NumRecords` 是 OUT 字段，旧代码当输入 count，导致 `WriteConsoleOutputCharacter` / `WriteConsoleOutputAttribute` 只写 1 个字符，Vim 全屏空白。现在按输入载荷长度写；`ReadConsoleOutputString` 按 OutputSize 计算容量，完成 Write 载荷包含结构头和读取数据。修复后 `write_attr_test2.exe` 正常显示文本，Vim 正常显示 `~` 和状态栏。
 
+### 修复 5：resize 时补发 WINDOW_BUFFER_SIZE_EVENT
+
+conpty resize 现在通过 `server_session::queue_window_size_event()` 向启用 `ENABLE_WINDOW_INPUT` 的应用补发窗口尺寸事件；`resize_event_test.exe` 观察到底部 79x20、恢复 120x30 的 `WINDOW_BUFFER_SIZE_EVENT`。
+
 ### 仍存在/未覆盖
 
-- WT scrollback 未建立：100 行输出后滚轮/Shift+PageUp 无历史可滚。属于 conhost 到 WT 的 scrollback 转发缺口。
-- 多行粘贴在 PowerShell 5.1/7 都被拆成两次输入；疑似 bracketed paste 未完整转发，需继续确认。
+- WT scrollback 未建立：100 行输出后滚轮/Shift+PageUp 无历史可滚；用 `OpenConsole.exe.orig` 对照同样无历史，因此不是 corehost 回归，属于当前 WT/PowerShell 组合行为。
+- 多行粘贴在 PowerShell 5.1/7 都被拆成两次输入；用 `OpenConsole.exe.orig` 对照同样拆分，非 corehost 回归，后续再判断是否需要 WT 配置/PSReadLine 组合处理。
 - 鼠标 tracking、focus reporting、真实 ssh/sshd 因自动注入和本机 sshd 账户/主机密钥环境限制未完成。
