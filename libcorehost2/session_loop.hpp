@@ -47,56 +47,6 @@ struct server_worker_context final
     coreio::ctrl_delivery *delivery{};
 };
 
-inline bool raw_write_requires_screen_state(std::span<const std::byte> bytes) noexcept
-{
-    for (std::size_t i = 0; i + 2 < bytes.size(); ++i)
-    {
-        if (bytes[i] != std::byte{0x1B} || bytes[i + 1] != std::byte{'['})
-            continue;
-        std::size_t j = i + 2;
-        while (j < bytes.size())
-        {
-            const auto c = std::to_integer<unsigned char>(bytes[j]);
-            if ((c >= '0' && c <= '9') || c == ';' || c == '?')
-            {
-                ++j;
-                continue;
-            }
-            break;
-        }
-        if (j >= bytes.size())
-            return false;
-        const auto final = static_cast<char>(std::to_integer<unsigned char>(bytes[j]));
-        if (final == 'H' || final == 'f' || final == 'G' || final == 'd' || final == 'A' || final == 'B' ||
-            final == 'C' || final == 'D' || final == 'J' || final == 'K' || final == 'S' || final == 'T' ||
-            final == 'L' || final == 'M' || final == 'P' || final == '@' || final == 'X')
-        {
-            return true;
-        }
-        i = j;
-    }
-    return false;
-}
-
-inline bool raw_write_switches_alternate(std::span<const std::byte> bytes) noexcept
-{
-    for (std::size_t i = 0; i + 3 < bytes.size(); ++i)
-    {
-        if (bytes[i] != std::byte{0x1B} || bytes[i + 1] != std::byte{'['} || bytes[i + 2] != std::byte{'?'})
-            continue;
-        std::size_t j = i + 3;
-        int value = 0;
-        while (j < bytes.size() && bytes[j] >= std::byte{'0'} && bytes[j] <= std::byte{'9'})
-        {
-            value = value * 10 + (std::to_integer<int>(bytes[j]) - '0');
-            ++j;
-        }
-        if (value == 47 || value == 1047 || value == 1049)
-            return true;
-    }
-    return false;
-}
-
 struct message_handler final
 {
     server_worker_context &context;
@@ -122,18 +72,6 @@ struct message_handler final
             if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE)
             {
                 raw_output = raw_reader.read(message, 0);
-            }
-            if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE && !alternate_before &&
-                !raw_write_switches_alternate(raw_output) && !raw_write_requires_screen_state(raw_output) &&
-                !context.dispatcher->session_interactive_input_seen())
-            {
-                // 普通屏幕的 RAW_WRITE 只需要透传给终端；不需要先解析并重绘
-                // 整个 screen buffer。alternate screen 仍走 dispatcher。
-                context.writer->buffer().append(
-                    std::span<const char8_t>{reinterpret_cast<const char8_t *>(raw_output.data()), raw_output.size()});
-                coreio::prepare_completion(message, 0, raw_output.size());
-                coreio::complete_io(context.server, message.complete);
-                return false;
             }
             dispatched = context.dispatcher->handle(message);
             for (const auto [mode, enabled] : context.state->state().take_private_modes())
@@ -246,8 +184,7 @@ class session_input_sink final
         // while no read request is outstanding; otherwise pasted input that
         // arrives between reads is lost.
         console_.push_raw(std::span<const char>{reinterpret_cast<const char *>(bytes.data()), bytes.size()});
-        const bool raw_input = raw_pending || console_.raw_input_mode();
-        if (!raw_input)
+        if (!raw_pending && !console_.raw_input_mode())
         {
             state_.feed_input(text_, (state_.state().input_mode & 0x0200) != 0 &&
                                          !console_.console_read_pending());
