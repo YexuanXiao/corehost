@@ -490,7 +490,6 @@ class server_session final
 
     void complete_line_editor()
     {
-        raw_editor_used_ = true;
         auto line = encode_console_text(raw_line_editor_.text());
         line.append("\r\n", 2);
         raw_completed_lines_.push_back(std::move(line));
@@ -517,7 +516,6 @@ class server_session final
 
     void feed_line_text(std::u16string_view text)
     {
-        raw_editor_used_ = true;
         std::u16string batch;
         batch.reserve(text.size());
         const auto flush = [&] {
@@ -553,7 +551,6 @@ class server_session final
 
     void feed_line_key(const consoleinput::key_event &key)
     {
-        raw_editor_used_ = true;
         if (key.character != 0)
         {
             const auto unit = key.character;
@@ -771,7 +768,7 @@ class server_session final
         process_raw_input_events();
         if (output.empty())
             return 0;
-        if ((state_.input_mode & ENABLE_LINE_INPUT) != 0 && raw_editor_used_)
+        if ((state_.input_mode & ENABLE_LINE_INPUT) != 0)
         {
             if (raw_completed_lines_.empty())
                 return 0;
@@ -1109,7 +1106,7 @@ class server_session final
         }
         if (pending_kind_ == pending_kind::raw_read)
         {
-            const bool editor_ready = (state_.input_mode & ENABLE_LINE_INPUT) != 0 && raw_editor_used_ &&
+            const bool editor_ready = (state_.input_mode & ENABLE_LINE_INPUT) != 0 &&
                                       !raw_completed_lines_.empty();
             if (raw_in_.empty() && !editor_ready)
             {
@@ -1149,7 +1146,7 @@ class server_session final
                     clear_raw_eof();
                 }
             }
-            if (written != 0 && !((state_.input_mode & ENABLE_LINE_INPUT) != 0 && raw_editor_used_))
+            if (written != 0 && (state_.input_mode & ENABLE_LINE_INPUT) == 0)
             {
                 echo_raw(std::span<const char>{reinterpret_cast<const char *>(pending_message_.body), written});
             }
@@ -1205,7 +1202,6 @@ class server_session final
     consoleinput::line_editor raw_line_editor_;
     std::deque<std::string> raw_completed_lines_;
     std::size_t raw_completed_offset_{};
-    bool raw_editor_used_{};
     bool raw_mode_{};
     bool live_echoed_{};
     bool line_edited_{};
