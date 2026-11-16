@@ -557,6 +557,22 @@ class server_session final
         if (key.character != 0)
         {
             const auto unit = key.character;
+            if ((state_.input_mode & ENABLE_PROCESSED_INPUT) != 0 && unit == u'\x03')
+            {
+                raw_line_editor_.reset();
+                line_edited_ = false;
+                line_start_valid_ = false;
+                raw_alerted_ = true;
+                return;
+            }
+            if ((state_.input_mode & ENABLE_PROCESSED_INPUT) != 0 && unit == u'\x1A')
+            {
+                raw_line_editor_.reset();
+                line_edited_ = false;
+                line_start_valid_ = false;
+                raw_eof_ = true;
+                return;
+            }
             if (unit == u'\r' || unit == u'\n')
             {
                 complete_line_editor();

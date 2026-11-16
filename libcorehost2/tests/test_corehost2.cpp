@@ -260,6 +260,22 @@ int main()
         return EXIT_FAILURE;
     }
 
+    push_char(0x03);
+    if (server.read_raw(std::span<char>{raw_read_data}) != 0 || !server.raw_alerted())
+    {
+        std::fprintf(stderr, "line input Ctrl+C alert failed\n");
+        return EXIT_FAILURE;
+    }
+    server.clear_raw_alerted();
+
+    push_char(0x1A);
+    if (server.read_raw(std::span<char>{raw_read_data}) != 0 || !server.raw_eof())
+    {
+        std::fprintf(stderr, "line input Ctrl+Z EOF failed\n");
+        return EXIT_FAILURE;
+    }
+    server.clear_raw_eof();
+
     server_state.input_mode &= ~ENABLE_LINE_INPUT;
     std::array<char, 32> long_raw{};
     long_raw.fill('A');
