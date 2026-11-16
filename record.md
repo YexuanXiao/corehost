@@ -1417,6 +1417,20 @@ control old=0.0839-0.0892 ns/unit new=0.0815-0.0859 ns/unit ratio=1.02-1.09x
 a7f356b perf(libscreen): compute cell wide flag once
 ```
 
+### VT ASCII run 整行写入
+
+新增 `screen_buffer::write_ascii`：一次选择 active page，整行写入可打印 ASCII，只在行尾停止；`apply_text_impl` 按行调用它，减少每字符的页面选择、越界检查和 wrap 判断。
+
+`C:\1\bench_ascii_run.cpp`，200x10、20 万次：
+
+```text
+scalar=11.2847-11.3661 ns/cell ascii_run=4.6733-4.7439 ns/cell ratio=2.38-2.43x
+```
+
+```text
+3896fe3 perf(libscreen): write ascii runs with one page selection
+```
+
 ### VT ASCII cell 直接写 scalar
 
 ASCII 快速路径不再构造 `u16string_view` 调用 `write_glyph`，而是直接调用 `write_scalar`，跳过 glyph 空串和边界检查：
