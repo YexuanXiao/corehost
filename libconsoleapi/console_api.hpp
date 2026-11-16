@@ -2591,6 +2591,8 @@ class console_api final
         const auto width = static_cast<std::int32_t>(state_.width());
         const auto height = static_cast<std::int32_t>(state_.height());
         const auto text = std::u16string_view{output, units};
+        const auto echo_columns = static_cast<std::size_t>(std::max(
+            screen::text_width_for(state_.measurement, text, state_.ambiguous_is_wide), 0));
 
         std::size_t column = 0;
         for (const auto cluster : screen::grapheme_range<screen::text_measurement::console>{text})
@@ -2617,7 +2619,8 @@ class console_api final
             }
             column += static_cast<std::size_t>(std::max(cluster.width, 1));
         }
-        for (std::size_t i = column; i < echo_length; ++i)
+        const auto clear_from = std::max(column, echo_columns);
+        for (std::size_t i = clear_from; i < echo_length; ++i)
         {
             std::int32_t x = 0;
             std::int32_t y = 0;
@@ -2629,17 +2632,11 @@ class console_api final
                                            state_.default_hyperlink);
             }
         }
-        echo_length = column;
+        echo_length = std::max(column, echo_columns);
 
-        std::size_t cursor_column = 0;
-        std::size_t consumed = 0;
-        for (const auto cluster : screen::grapheme_range<screen::text_measurement::console>{text})
-        {
-            if (consumed >= cursor)
-                break;
-            consumed += cluster.text.size();
-            cursor_column += static_cast<std::size_t>(std::max(cluster.width, 1));
-        }
+        const auto cursor_units = std::min(cursor, text.size());
+        const auto cursor_column = static_cast<std::size_t>(std::max(
+            screen::text_width_for(state_.measurement, text.substr(0, cursor_units), state_.ambiguous_is_wide), 0));
         std::int32_t cursor_x = origin.x;
         std::int32_t cursor_y = origin.y;
         echo_position(origin, width, cursor_column, cursor_x, cursor_y);

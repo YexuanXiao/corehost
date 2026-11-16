@@ -223,6 +223,27 @@ void test_text_writer()
 
     check(text_width<text_measurement::graphemes>(u"A\u0301") == 1, "grapheme combining width");
     check(text_width<text_measurement::graphemes>(u"\u2764\uFE0F") == 2, "grapheme emoji width");
+
+    check(console_text_width(u"\u4E2D"
+                             "A") == 3,
+          "console concrete width");
+    check(grapheme_text_width(u"e\u0301"
+                              "A",
+                              false) == 2,
+          "grapheme concrete width");
+    check(wcswidth_text_width(u"e\u0301"
+                              "A",
+                              false) == 2,
+          "wcswidth concrete width");
+    check(console_glyph_width(u"e\u0301") == 1, "console concrete glyph");
+    check(grapheme_glyph_width(u"e\u0301", false) == 1, "grapheme concrete glyph");
+    check(wcswidth_glyph_width(u"e\u0301", false) == 1, "wcswidth concrete glyph");
+    check(text_width_for(text_measurement::graphemes, u"e\u0301", false) == 1,
+          "runtime grapheme measurement");
+    check(text_width_for(text_measurement::wcswidth, u"\u4E2D", false) == 2,
+          "runtime wcswidth measurement");
+    check(codepoint_width_for(text_measurement::console, U'\u0301') == 0,
+          "runtime console codepoint width");
 }
 
 void test_copy_scroll()
