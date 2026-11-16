@@ -2058,15 +2058,13 @@ class console_api final
         }
         const auto local =
             sizeof(message.body) - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
-        if (message.descriptor.OutputSize <
-            sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG))
+        if (message.descriptor.OutputSize <= sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG))
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
             return true;
         }
-        const auto capacity = std::min<std::size_t>(
-            message.descriptor.OutputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG),
-            local);
+        const auto capacity =
+            std::min<std::size_t>(message.descriptor.OutputSize - sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG), local);
         auto *data = reinterpret_cast<std::byte *>(message.body + sizeof(CONSOLE_MSG_HEADER) +
                                                    sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG));
         std::memset(data, 0, capacity);
@@ -2288,7 +2286,8 @@ class console_api final
         if (clipped.Left > clipped.Right || clipped.Top > clipped.Bottom)
         {
             request->CharRegion = SMALL_RECT{0, 0, 0, 0};
-            coreio::prepare_completion(message, 0, required, message.body + sizeof(CONSOLE_MSG_HEADER), required);
+            coreio::prepare_completion(message, 0, required, message.body + sizeof(CONSOLE_MSG_HEADER),
+                                       sizeof(CONSOLE_READCONSOLEOUTPUT_MSG) + required);
             return true;
         }
 
@@ -2315,7 +2314,8 @@ class console_api final
         }
 
         request->CharRegion = clipped;
-        coreio::prepare_completion(message, 0, required, message.body + sizeof(CONSOLE_MSG_HEADER), required);
+        coreio::prepare_completion(message, 0, required, message.body + sizeof(CONSOLE_MSG_HEADER),
+                                   sizeof(CONSOLE_READCONSOLEOUTPUT_MSG) + required);
         return true;
     }
 

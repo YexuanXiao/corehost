@@ -147,7 +147,9 @@ int main()
     read_request->CharRegion = SMALL_RECT{0, 0, 0, 0};
     read_request->Unicode = TRUE;
     if (!api.handle(read_message) ||
-        read_message.complete.IoStatus.Information != sizeof(corehost::interop::win32::char_info))
+        read_message.complete.IoStatus.Information != sizeof(corehost::interop::win32::char_info) ||
+        read_message.complete.Write.Size !=
+            sizeof(CONSOLE_READCONSOLEOUTPUT_MSG) + sizeof(corehost::interop::win32::char_info))
     {
         std::fprintf(stderr, "read console output failed\n");
         return EXIT_FAILURE;
@@ -202,7 +204,7 @@ int main()
     corehost::coreio::io_msg read_string_message{};
     read_string_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
     read_string_message.descriptor.OutputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + 2 * sizeof(char16_t);
+        sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + 2 * sizeof(char16_t);
     auto *read_string_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(read_string_message.body);
     read_string_header->ApiNumber = ConsolepReadConsoleOutputString;
     auto *read_string_request =
@@ -211,7 +213,9 @@ int main()
     read_string_request->StringType = CONSOLE_REAL_UNICODE;
     read_string_request->NumRecords = 0;
     if (!api.handle(read_string_message) || read_string_request->NumRecords != 2 ||
-        read_string_message.complete.IoStatus.Information != 2 * sizeof(char16_t))
+        read_string_message.complete.IoStatus.Information != 2 * sizeof(char16_t) ||
+        read_string_message.complete.Write.Size !=
+            sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + 2 * sizeof(char16_t))
     {
         std::fprintf(stderr, "read console output string failed\n");
         return EXIT_FAILURE;
@@ -1581,8 +1585,7 @@ int main()
     (void)ansi_write_buffer.write_scalar(1, 1, u'B', corehost::screen::cell_style{});
     corehost::coreio::io_msg ansi_read_message{};
     ansi_read_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
-    ansi_read_message.descriptor.OutputSize =
-        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + 4;
+    ansi_read_message.descriptor.OutputSize = sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + 4;
     auto *ansi_read_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(ansi_read_message.body);
     ansi_read_header->ApiNumber = ConsolepReadConsoleOutputString;
     auto *ansi_read_request =
