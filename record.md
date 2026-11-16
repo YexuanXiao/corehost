@@ -2689,3 +2689,39 @@ cjk:           9.6 ms
 ```
 
 cjk 恢复到约 10 ms，同时没有 input-sink 提前拦截。
+
+### 光标形状/闪烁修复
+
+WT 中 corehost2 默认显示粗光标且不闪烁，原版是细光标闪烁。
+
+根因：
+
+- `render_viewport` / `render_damage` 每次渲染都无条件发送：
+
+```text
+ESC[<style*2+2> q
+```
+
+- `append_cursor_shape(..., false)` 固定为 **steady**；
+- `cursor_state` 没有保存 blinking；
+- VT `DECSCUSR` 的奇偶只映射了 style，没有映射 blink，并且每次 render 都覆盖 WT 的 profile cursor。
+
+修复：
+
+- 默认不再发送 DECSCUSR，让 WT profile 决定光标（细光标 + 闪烁）；
+- 只有应用通过 `DECSCUSR` 明确改变光标时才发送；
+- `cursor_state.blinking` 记录 blink；
+- `apply_cursor_shape` 区分奇偶：1/3/5 blinking，2/4/6 steady；
+- `take_cursor_shape_changed` 在 session loop 中转发一次，而不是每帧覆盖。
+
+提交：
+
+```text
+0e1b12d fix(render): stop overriding terminal cursor shape; forward DECSCUSR changes
+```
+
+验证：
+
+- 默认 WT profile cursor 恢复细光标；
+- 两张相隔 700 ms 的截图 hash 不同，确认闪烁；
+- 所有测试通过。
