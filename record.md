@@ -1950,3 +1950,21 @@ ValueError: Cannot open console input buffer for writing
 ```
 
 同一版本在 `OpenConsole.exe.orig` 下正常；设置 `PYTHONLEGACYWINDOWSSTDIO=1` 后 corehost2 下也正常。说明问题限定在 CPython 的 `_WindowsConsoleIO` 路径，而不是 raw write 或普通 Console API。待继续定位。
+
+### Python 与 libcorehost 对照
+
+使用 `build\Release\corehost.exe`（libcorehost）替换 `OpenConsole.exe` 后，同一 `python.exe C:\1\python_test.py` 正常输出：
+
+```text
+PYTHON-RAW-OK
+中文-😀
+```
+
+同一命令在 corehost2 下仍失败：
+
+```text
+Fatal Python error: init_sys_streams
+ValueError: Cannot open console input buffer for writing
+```
+
+因此确认这是 **corehost2 的回归**，不是 Python 或 WT 的通用行为。对照范围已缩小到 libconsoleapi 与 libcorehost 的 Console API 句柄/模式路径；原版 conhost 的 `IoDispatchers::ConsoleCreateObject` 访问位规则与 corehost2 一致，不是 CREATE 映射问题。
