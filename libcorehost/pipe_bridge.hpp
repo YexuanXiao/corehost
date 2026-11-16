@@ -125,6 +125,17 @@ struct pipe_bridge
     // 把线程读到的字节追加到读缓冲，按既有管线解析并完成 pending 请求。
     void on_input_bytes(std::span<const std::byte> bytes)
     {
+        // 没有挂起读取时，输入属于后续 ReadFile/ReadConsole。先排队，不能
+        // 让 _readbuf 填满后因为“无 pending”而抛错；否则批量粘贴会在两次
+        // 读取之间丢掉输入并中断会话。
+        if (!_pending.has_pending())
+        {
+            _queued_vt_input.append_range(
+                std::span{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()});
+            vt_flush();
+            return;
+        }
+
         // 上一批未消费的尾部必须先处理，否则新数据会插到旧字节前面。
         while (!_queued_vt_input.empty())
         {
@@ -132,7 +143,7 @@ struct pipe_bridge
             if (_read_total >= limit)
             {
                 if (!_pending.has_pending())
-                    win32::throw_last_error(win32::error::invalid_state);
+                    break;
                 complete_pending();
                 continue;
             }
@@ -149,9 +160,15 @@ struct pipe_bridge
             const auto limit = static_cast<DWORD>(input_read_limit());
             if (_read_total >= limit)
             {
-                // 缓冲已满：先完成当前请求。
+                // 缓冲已满：先完成当前请求；若当前已没有读取请求，把剩余
+                // 字节留在队列中，等下一次 ReadFile/ReadConsole。
                 if (!_pending.has_pending())
-                    win32::throw_last_error(win32::error::invalid_state);
+                {
+                    _queued_vt_input.append_range(std::span{
+                        reinterpret_cast<const char8_t *>(bytes.data() + offset), bytes.size() - offset});
+                    vt_flush();
+                    return;
+                }
                 complete_pending();
                 continue;
             }
