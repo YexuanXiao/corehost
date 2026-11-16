@@ -2394,3 +2394,42 @@ cjk:           corehost2   4.9 ms (corehost  13.8)
 ```
 
 PowerShell/cmd 输入、edit、Vim 均验证正常。
+
+### 撤销 fastpath 后的通用优化进度
+
+已移除：
+
+- cursor-only / replay_utf8_to_terminal 条件路径；
+- apply_text_cursor_only / apply_text_cursor_only_impl；
+- SGR 过滤；
+- 所有跳过 dispatcher 的 RAW_WRITE 分支。
+
+保留的通用优化：
+
+- `write_raw` 一次 `MultiByteToWideChar` 转换；
+- RAW_READ 模式跳过 console input parser；
+- vtstate 文本 mixed path：ASCII run 用 `write_ascii` 批量写，CJK cluster 用 `write_glyph`；
+- 保持完整 screen cell/state 更新。
+
+当前 benchmark（无特殊 replay）：
+
+```text
+large-mixed:   corehost2 285.0 ms  / OpenConsole 330.9  （已达标）
+long-line:     corehost2 985.4 ms  / OpenConsole 835.4  （仍慢 18%）
+powershell:    corehost2 284.1 ms  / OpenConsole 307.2  （已达标）
+sgr-plain:     corehost2 约 45 ms  / OpenConsole 30.5   （仍慢约 50%）
+cjk:           corehost2 约 4 ms   / OpenConsole 2464.6（已达标）
+```
+
+尝试并回退：
+
+- `scroll_region_up` 全宽 memmove / 行交换：无稳定收益，且有 row_state 语义风险；
+- damage tracking 关闭：无收益；
+- write_ascii 全行 narrow 快速路径：SGR 仍有 wide cell，收益不稳定。
+
+剩余热点：
+
+- long-line：文本 cell 写入 + wrap/scroll；
+- SGR：parser + SGR state 应用 + cell 写入。
+
+目标尚未完全达成：long-line 和 SGR 仍慢于 OpenConsole。

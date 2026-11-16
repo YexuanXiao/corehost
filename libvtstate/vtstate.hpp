@@ -6,7 +6,6 @@
 
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
-#include "text_writer.hpp"
 
 #include <libunicode/convert.h>
 
@@ -130,130 +129,10 @@ class state_applier final
         }
     }
 
-    template <screen::text_measurement Mode, bool Ambiguous>
-    void apply_text_cursor_only_impl(std::u16string_view text, screen::console_state &state) noexcept
-    {
-        auto x = state.cursor().x;
-        auto y = state.cursor().y;
-        const auto width = state.width();
-        const auto height = state.height();
-        std::size_t pos = 0;
-        while (pos < text.size())
-        {
-            const auto first = text[pos++];
-            if (first >= u' ' && first < u'\x7f')
-            {
-                auto end = pos;
-                while (end < text.size() && text[end] >= u' ' && text[end] < u'\x7f')
-                    ++end;
-                auto run = end - (pos - 1);
-                while (run != 0)
-                {
-                    if (x >= width)
-                    {
-                        x = 0;
-                        ++y;
-                    }
-                    if (y >= height)
-                        y = height - 1;
-                    const auto take = std::min<std::size_t>(run, width - x);
-                    x += take;
-                    run -= take;
-                }
-                pos = end;
-                continue;
-            }
-
-            char32_t cp = first;
-            if (first >= 0xD800 && first <= 0xDBFF && pos < text.size() && text[pos] >= 0xDC00 &&
-                text[pos] <= 0xDFFF)
-            {
-                cp = 0x10000 + ((static_cast<char32_t>(first) - 0xD800) << 10) +
-                     (static_cast<char32_t>(text[pos]) - 0xDC00);
-                ++pos;
-            }
-            int columns = 1;
-            if ((cp >= 0x1100 && cp <= 0x115F) || (cp >= 0x2E80 && cp <= 0xA4CF) ||
-                (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0xF900 && cp <= 0xFAFF) ||
-                (cp >= 0xFE10 && cp <= 0xFE19) || (cp >= 0xFE30 && cp <= 0xFE6F) ||
-                (cp >= 0xFF00 && cp <= 0xFF60) || (cp >= 0xFFE0 && cp <= 0xFFE6))
-            {
-                columns = 2;
-            }
-            else if (cp >= 0x7F)
-            {
-                columns = screen::char_width_for_mode<Mode, Ambiguous>(cp);
-            }
-            if (columns < 1)
-                columns = 1;
-            if (columns > 2)
-                columns = 2;
-            if (x + columns > width)
-            {
-                x = 0;
-                ++y;
-            }
-            if (y >= height)
-                y = height - 1;
-            x += columns;
-        }
-        state.set_cursor(x, y);
-    }
-
-    void apply_text_cursor_only(const vtparser::vt_message &message, screen::screen_buffer &, screen::console_state &state)
-    {
-        auto text = message.payload.text;
-        if (state.line_drawing_charset)
-        {
-            text_.assign(text);
-            for (auto &ch : text_)
-                ch = line_drawing(ch);
-            text = text_;
-        }
-
-        if (ambiguous_is_wide_)
-        {
-            switch (measurement_)
-            {
-            case screen::text_measurement::console:
-                apply_text_cursor_only_impl<screen::text_measurement::console, true>(text, state);
-                break;
-            case screen::text_measurement::wcswidth:
-                apply_text_cursor_only_impl<screen::text_measurement::wcswidth, true>(text, state);
-                break;
-            default:
-                apply_text_cursor_only_impl<screen::text_measurement::graphemes, true>(text, state);
-                break;
-            }
-        }
-        else
-        {
-            switch (measurement_)
-            {
-            case screen::text_measurement::console:
-                apply_text_cursor_only_impl<screen::text_measurement::console, false>(text, state);
-                break;
-            case screen::text_measurement::wcswidth:
-                apply_text_cursor_only_impl<screen::text_measurement::wcswidth, false>(text, state);
-                break;
-            default:
-                apply_text_cursor_only_impl<screen::text_measurement::graphemes, false>(text, state);
-                break;
-            }
-        }
-        last_consumed_ = text.size();
-    }
-
-    void apply_line_feed_cursor_only(screen::console_state &state) noexcept
-    {
-        const auto view = state.height();
-        state.set_cursor(state.cursor().x, state.cursor().y + 1 < view ? state.cursor().y + 1 : view - 1);
-    }
-
   public:
     template <screen::text_measurement Mode, bool Ambiguous>
     void apply_text_impl(const vtparser::vt_message &message, screen::screen_buffer &buffer,
-                         screen::console_state &state, bool write_cells = true)
+                         screen::console_state &state)
     {
         auto text = message.payload.text;
         if (state.line_drawing_charset)
@@ -283,31 +162,21 @@ class state_applier final
             {
                 if (static_cast<std::size_t>(cursor.x) >= width)
                 {
-                    if (write_cells)
-                        buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
+                    buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
                     cursor.x = 0;
                     ++cursor.y;
                 }
                 if (static_cast<std::size_t>(cursor.y) >= height)
                 {
-                    if (write_cells)
-                    {
-                        const auto top = state.scroll_top();
-                        const auto bottom = state.scroll_bottom();
-                        buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1, style);
-                        cursor.y = static_cast<std::int32_t>(bottom);
-                    }
-                    else
-                    {
-                        cursor.y = static_cast<std::int32_t>(height - 1);
-                    }
+                    const auto top = state.scroll_top();
+                    const auto bottom = state.scroll_bottom();
+                    buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1, style);
+                    cursor.y = static_cast<std::int32_t>(bottom);
                 }
 
-                const auto count = write_cells
-                                       ? buffer.write_ascii(static_cast<std::size_t>(cursor.x),
-                                                           static_cast<std::size_t>(cursor.y), text.substr(consumed),
-                                                           style, hyperlink)
-                                       : std::min<std::size_t>(text.size() - consumed, width - cursor.x);
+                const auto count = buffer.write_ascii(static_cast<std::size_t>(cursor.x),
+                                                      static_cast<std::size_t>(cursor.y), text.substr(consumed),
+                                                      style, hyperlink);
                 if (count == 0)
                 {
                     break;
@@ -321,8 +190,45 @@ class state_applier final
         }
 
         std::size_t consumed = 0;
-        for (const auto cluster : screen::grapheme_range<Mode, Ambiguous>{text})
+        while (consumed < text.size())
         {
+            if (!state.line_drawing_charset && text[consumed] >= u' ' && text[consumed] < u'\x7f')
+            {
+                auto end = consumed;
+                while (end < text.size() && text[end] >= u' ' && text[end] < u'\x7f')
+                    ++end;
+
+                auto remaining = end - consumed;
+                while (remaining != 0)
+                {
+                    if (static_cast<std::size_t>(cursor.x) >= width)
+                    {
+                        buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
+                        cursor.x = 0;
+                        ++cursor.y;
+                    }
+                    if (static_cast<std::size_t>(cursor.y) >= height)
+                    {
+                        const auto top = state.scroll_top();
+                        const auto bottom = state.scroll_bottom();
+                        buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1, style);
+                        cursor.y = static_cast<std::int32_t>(bottom);
+                    }
+                    const auto count =
+                        buffer.write_ascii(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y),
+                                           text.substr(consumed, remaining), style, hyperlink);
+                    if (count == 0)
+                        break;
+                    cursor.x += static_cast<std::int32_t>(count);
+                    consumed += count;
+                    remaining -= count;
+                }
+                if (remaining != 0)
+                    break;
+                continue;
+            }
+
+            const auto cluster = *screen::grapheme_range<Mode, Ambiguous>{text.substr(consumed)}.begin();
             auto columns = cluster.width;
             if (columns <= 0)
             {
@@ -330,27 +236,18 @@ class state_applier final
             }
             if (static_cast<std::size_t>(cursor.x) + static_cast<std::size_t>(columns) > width)
             {
-                if (write_cells)
-                    buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
+                buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
                 cursor.x = 0;
                 ++cursor.y;
             }
             if (static_cast<std::size_t>(cursor.y) >= height)
             {
-                if (write_cells)
-                {
-                    const auto top = state.scroll_top();
-                    const auto bottom = state.scroll_bottom();
-                    buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1, style);
-                    cursor.y = static_cast<std::int32_t>(bottom);
-                }
-                else
-                {
-                    cursor.y = static_cast<std::int32_t>(height - 1);
-                }
+                const auto top = state.scroll_top();
+                const auto bottom = state.scroll_bottom();
+                buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1, style);
+                cursor.y = static_cast<std::int32_t>(bottom);
             }
-            if (write_cells &&
-                !buffer.write_glyph(cursor, std::u16string_view{cluster.text.data(), cluster.text.size()}, columns,
+            if (!buffer.write_glyph(cursor, std::u16string_view{cluster.text.data(), cluster.text.size()}, columns,
                                     style, hyperlink))
             {
                 break;

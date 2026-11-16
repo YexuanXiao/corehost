@@ -102,12 +102,6 @@ class server_session final
 
     void write_raw(std::span<const char> bytes)
     {
-        // UTF-8 + VT processing 的 RAW_WRITE 已经是终端字节透传：本地只
-        // 维护 cursor/state，不重复写 screen cell。与 corehost 的
-        // replay_utf8_to_terminal 语义一致。
-        const bool replay_utf8_to_terminal =
-            state_.output_code_page == CP_UTF8 &&
-            (state_.output_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0 && !screen_.alternate_active();
         const auto code_page = state_.output_code_page;
         text_.resize(bytes.size());
         const auto units = ::MultiByteToWideChar(code_page, 0, bytes.data(), static_cast<int>(bytes.size()),
@@ -115,29 +109,6 @@ class server_session final
                                                  static_cast<int>(text_.size()));
         text_.resize(static_cast<std::size_t>(std::max(units, 0)));
         auto input = std::u16string_view{text_};
-        if (replay_utf8_to_terminal)
-        {
-            // SGR 只影响本地 style；replay 路径已经不写 screen cell，
-            // 直接从 parser 输入中剔除完整的 SGR，减少纯文本线的解析量。
-            filtered_.clear();
-            filtered_.reserve(text_.size());
-            for (std::size_t i = 0; i < text_.size();)
-            {
-                if (text_[i] == u'\x1b' && i + 1 < text_.size() && text_[i + 1] == u'[')
-                {
-                    std::size_t j = i + 2;
-                    while (j < text_.size() && !(text_[j] >= 0x40 && text_[j] <= 0x7e))
-                        ++j;
-                    if (j < text_.size() && text_[j] == u'm')
-                    {
-                        i = j + 1;
-                        continue;
-                    }
-                }
-                filtered_.push_back(text_[i++]);
-            }
-            input = filtered_;
-        }
         while (!input.empty())
         {
             const auto result = parser_.parse(input);
@@ -151,21 +122,7 @@ class server_session final
                     parser_.reset();
                     continue;
                 }
-                if (replay_utf8_to_terminal &&
-                    (result.id == vtparser::vt_message_id::text ||
-                     result.id == vtparser::vt_message_id::continue_text))
-                {
-                    applier_.apply_text_cursor_only(result.message, screen_, state_);
-                }
-                else if (replay_utf8_to_terminal && result.id == vtparser::vt_message_id::line_feed)
-                {
-                    applier_.apply_line_feed_cursor_only(state_);
-                    state_.set_cursor(0, state_.cursor().y);
-                }
-                else
-                {
-                    (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
-                }
+                (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
                 if (result.id == vtparser::vt_message_id::resize_window)
                 {
                     queue_window_size_event();
@@ -728,7 +685,6 @@ class server_session final
     vtparser::vt_parser parser_;
     vtstate::state_applier applier_;
     std::u16string text_;
-    std::u16string filtered_;
     std::string raw_in_;
     bool raw_mode_{};
     bool raw_eof_{};
