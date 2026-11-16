@@ -17,6 +17,7 @@
 #include "deque.hpp"
 #include "input.hpp"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstring>
@@ -482,6 +483,70 @@ class server_session final
         echo_live(std::span<const char>{utf8.data(), utf8.size()});
     }
 
+    [[nodiscard]] static screen::coord echo_position(screen::coord origin, std::int32_t width,
+                                                    std::size_t index) noexcept
+    {
+        const auto first = static_cast<std::size_t>(std::max(width - origin.x, 1));
+        if (index < first)
+            return screen::coord{origin.x + static_cast<std::int32_t>(index), origin.y};
+        const auto rest = index - first;
+        return screen::coord{static_cast<std::int32_t>(rest % static_cast<std::size_t>(width)),
+                             origin.y + 1 + static_cast<std::int32_t>(rest / static_cast<std::size_t>(width))};
+    }
+
+    void redraw_line_echo()
+    {
+        if (!writer_ || (state_.input_mode & ENABLE_ECHO_INPUT) == 0)
+            return;
+        if (!line_start_valid_)
+        {
+            const auto cursor = state_.cursor();
+            line_start_x_ = cursor.x;
+            line_start_y_ = cursor.y;
+            line_start_valid_ = true;
+        }
+        if (line_start_x_ < 0 || line_start_y_ < 0 ||
+            static_cast<std::size_t>(line_start_x_) >= screen_.width() ||
+            static_cast<std::size_t>(line_start_y_) >= screen_.height())
+        {
+            return;
+        }
+
+        const auto text = raw_line_editor_.text();
+        const auto origin = screen::coord{line_start_x_, line_start_y_};
+        const auto old_length = std::max(line_echo_length_, text.size());
+        for (std::size_t i = 0; i < old_length; ++i)
+        {
+            const auto position = echo_position(origin, static_cast<std::int32_t>(screen_.width()), i);
+            if (position.x < 0 || position.y < 0 ||
+                static_cast<std::size_t>(position.x) >= screen_.width() ||
+                static_cast<std::size_t>(position.y) >= screen_.height())
+            {
+                continue;
+            }
+            (void)screen_.write_ascii(static_cast<std::size_t>(position.x),
+                                      static_cast<std::size_t>(position.y), u" ", state_.default_style,
+                                      screen::no_cell_hyperlink);
+        }
+
+        state_.set_cursor(static_cast<std::size_t>(line_start_x_), static_cast<std::size_t>(line_start_y_));
+        (void)write_text(text);
+        line_echo_length_ = text.size();
+        const auto cursor = echo_position(origin, static_cast<std::int32_t>(screen_.width()),
+                                          std::min(raw_line_editor_.cursor(), text.size()));
+        state_.set_cursor(static_cast<std::size_t>(std::max(cursor.x, 0)),
+                          static_cast<std::size_t>(std::max(cursor.y, 0)));
+        const auto terminal_cursor = screen::coord{static_cast<std::int32_t>(state_.cursor().x),
+                                                   static_cast<std::int32_t>(state_.cursor().y)};
+        vtserializer::render_damage(writer_->buffer(), screen_, terminal_cursor, &state_);
+        screen_.clear_damage();
+        (void)state_.take_cursor_changed();
+        (void)state_.take_echo_line_feed();
+        writer_->flush();
+        line_edited_ = true;
+        live_echoed_ = true;
+    }
+
     void complete_line_editor()
     {
         auto line = encode_console_text(raw_line_editor_.text());
@@ -519,7 +584,7 @@ class server_session final
             if (change == consoleinput::line_editor::change::append)
                 echo_editor_append(batch);
             else if (change == consoleinput::line_editor::change::redraw)
-                line_edited_ = true;
+                redraw_line_echo();
             batch.clear();
         };
         for (const auto unit : text)
@@ -533,7 +598,7 @@ class server_session final
             {
                 flush();
                 if (raw_line_editor_.backspace() != consoleinput::line_editor::change::none)
-                    line_edited_ = true;
+                    redraw_line_echo();
             }
             else
             {
@@ -571,7 +636,7 @@ class server_session final
             else if (unit == u'\b' || unit == u'\x7F')
             {
                 if (raw_line_editor_.backspace() != consoleinput::line_editor::change::none)
-                    line_edited_ = true;
+                    redraw_line_echo();
             }
             else
             {
@@ -579,7 +644,7 @@ class server_session final
                 if (change == consoleinput::line_editor::change::append)
                     echo_editor_append(std::u16string_view{&unit, 1});
                 else
-                    line_edited_ = true;
+                    redraw_line_echo();
             }
             return;
         }
@@ -609,7 +674,7 @@ class server_session final
             break;
         }
         if (change != consoleinput::line_editor::change::none)
-            line_edited_ = true;
+            redraw_line_echo();
     }
 
     void echo_live(std::span<const char> bytes)
@@ -657,7 +722,14 @@ class server_session final
         (void)state_.take_echo_line_feed();
         live_echoed_ = true;
         if (echo_bytes_.find("\r\n") != std::string::npos)
+        {
             line_start_valid_ = false;
+            line_echo_length_ = 0;
+        }
+        else
+        {
+            line_echo_length_ = raw_line_editor_.text().size();
+        }
     }
 
     void echo_raw(std::span<const char> bytes)
@@ -740,6 +812,7 @@ class server_session final
             live_echoed_ = false;
             line_edited_ = false;
             line_start_valid_ = false;
+            line_echo_length_ = 0;
         }
         // The client is completed immediately after this call. Flush the echo
         // first so client output cannot be interleaved before the echoed line.
@@ -1191,6 +1264,7 @@ class server_session final
     bool live_echoed_{};
     bool line_edited_{};
     bool line_start_valid_{};
+    std::size_t line_echo_length_{};
     int line_start_x_{};
     int line_start_y_{};
     bool raw_eof_{};
