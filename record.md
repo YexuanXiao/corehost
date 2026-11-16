@@ -1109,6 +1109,20 @@ eebdc63 perf(consoleapi): dispatch virtual keys with switch
 7fdebb5 perf(vtserializer): avoid zeroing sgr scratch
 ```
 
+### Parser 携带 ASCII 标志
+
+`_direct_ground_text_run_length` 在 4 字符 SWAR 扫描控制字符时，同时用 `word & 0xFF80...` 判断是否含非 ASCII，并通过 `vt_message::text_is_ascii` 传给 `apply_text_impl`。ASCII 文本不再在渲染前重新扫描一遍：
+
+```text
+c7a2266 perf(vt): carry ascii flag from parser to text renderer
+```
+
+`C:\1\bench_ascii_flag.cpp`，200 字符、50 万次：
+
+```text
+scan=1.1912-1.2829 ns/unit flag=0.9600-0.9996 ns/unit ratio=1.20-1.34x
+```
+
 ### VT 单字节标量直接 push_back
 
 `append_utf16_unit` 在编码结果只有 1 字节时（普通 ASCII）直接 `push_back`，避免构造 span 和 `append`：
