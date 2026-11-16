@@ -576,7 +576,14 @@ class vt_parser
 
         if (count < text.size())
         {
-            ascii = false;
+            std::array<char16_t, 4> tail{u' ', u' ', u' ', u' '};
+            std::copy(text.begin() + static_cast<std::ptrdiff_t>(count), text.end(), tail.begin());
+            std::uint64_t word = 0;
+            std::memcpy(&word, tail.data(), sizeof(word));
+            if ((word & non_ascii) != 0)
+            {
+                ascii = false;
+            }
         }
         while (count < text.size())
         {
