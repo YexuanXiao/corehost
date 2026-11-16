@@ -193,7 +193,7 @@ text(
 text(
     60,
     968,
-    "OpenConsole 版本 1.26.2611.09003；corehost2 Release 无日志构建。PowerShell 使用同一 2,063,574 B fixture；corehost2 的 scroll renderer 增加约 44% 输出字节。",
+    "OpenConsole 版本 1.26.2611.09003；corehost2 Release 无日志构建。PowerShell 使用同一 2,063,574 B fixture；输出字节相差 0.48%。",
     font_small,
     muted,
 )
