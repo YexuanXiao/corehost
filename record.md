@@ -2612,3 +2612,51 @@ powershell:  302.8 ms
 sgr-plain:    30.4 ms
 cjk:           7.3 ms
 ```
+
+### 继续修复：UTF-16 行编辑、代码页、跨 chunk 与 mouse
+
+本轮发现并修复：
+
+1. 行编辑仍在字节层处理，CP936/多字节字符中间的 Insert/overwrite 会破坏字符。
+   - `apply_line_edits` 改为先把输入代码页解码为 UTF-16，在 UTF-16 上做 cursor/Insert/Delete/箭头编辑，再编码回输入代码页。
+   - 多字节字符测试：`你A` + Left + Insert + `好` -> `你好`（E4BDA0 E5A5BD），不再残留 A。
+
+2. 行完全到达后仍按 `output.size()` 扫描 control，导致行大于 ReadFile buffer 时不返回。
+   - 行完整时扫描完整 logical line，再按 buffer 分块。
+   - 100/200 字符行 + Home/Insert/Backspace 返回正确。
+
+3. 编辑行 ECHO 在分块完成时只回显首块，且 CR 只回显为 `\r`。
+   - 行完成、首次返回前一次性 echo 整个 logical line；
+   - 行输入 echo 的 CR/LF 统一为 CRLF；
+   - flush 在完成客户端读之前，避免 app 输出插到 echo 中间。
+
+4. 非 UTF-8 输入代码页：
+   - ReadFile 返回 CP936 字节（`C4E3BAC3`），echo 以 UTF-8 正确显示 `你好`。
+
+5. raw 输入不再丢弃 mouse 事件：
+   - `process_raw_input_events` 转发 SGR mouse sequence。
+
+测试：
+
+```text
+CP936 + 你好      -> data C4E3BAC30D0A，可见 你好
+100/200 字符行    -> 分块读取、编辑、换行正确
+多字节 Insert     -> 你好
+```
+
+提交：
+
+```text
+dd8cb5a fix(corehost2): edit raw lines in UTF-16 and preserve code-page echo
+d37dc9f fix(corehost2): forward mouse events on raw input
+```
+
+最终 benchmark：
+
+```text
+large-mixed: 262.0 ms
+long-line:   761.8 ms
+powershell:  294.1 ms
+sgr-plain:    31.4 ms
+cjk:          10.3 ms
+```
