@@ -26,6 +26,7 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
 
     auto current_hyperlink = screen::no_cell_hyperlink;
     screen::cell_style current_style = static_cast<screen::cell_style>(-1);
+    unsigned current_rendition = 0;
 
     for (std::int32_t row = 0; row < size.y; ++row)
     {
@@ -58,7 +59,11 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
         {
             rendition = 6;
         }
-        append_line_rendition(output, rendition);
+        if (rendition != 5 || current_rendition != 5)
+        {
+            append_line_rendition(output, rendition);
+            current_rendition = rendition;
+        }
 
         append_cup(output, static_cast<unsigned>(row),
                    static_cast<unsigned>(begin - static_cast<std::size_t>(origin.x)));
@@ -131,6 +136,7 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
 
     auto current_hyperlink = screen::no_cell_hyperlink;
     screen::cell_style current_style = static_cast<screen::cell_style>(-1);
+    unsigned current_rendition = 0;
 
     for (std::int32_t row = 0; row < size.y; ++row)
     {
@@ -153,7 +159,11 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
         {
             rendition = 6;
         }
-        append_line_rendition(output, rendition);
+        if (rendition != 5 || current_rendition != 5)
+        {
+            append_line_rendition(output, rendition);
+            current_rendition = rendition;
+        }
         append_cup(output, static_cast<unsigned>(row), 0);
 
         const auto cells = buffer.row_cells(y);
