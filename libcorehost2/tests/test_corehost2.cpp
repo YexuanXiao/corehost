@@ -62,7 +62,7 @@ int main()
 
     constexpr char16_t key_input[]{u'\x1b', u'O', u'A'};
     session.feed(key_input);
-    if (session.input().size() != 1)
+    if (session.input().record_count() != 1)
     {
         std::fprintf(stderr, "session key queue failed\n");
         return EXIT_FAILURE;
@@ -146,7 +146,7 @@ int main()
     corehost::corehost2::session input_session{4, 2};
     constexpr char16_t text_input[]{u'A'};
     input_session.feed_input(text_input);
-    if (input_session.input().size() != 1 || input_session.screen().at(0, 0).primary() != u' ')
+    if (input_session.input().record_count() != 2 || input_session.screen().at(0, 0).primary() != u' ')
     {
         std::fprintf(stderr, "session feed_input failed\n");
         return EXIT_FAILURE;
@@ -322,7 +322,7 @@ int main()
     corehost::corehost2::session window_session{8, 4};
     window_session.state().input_mode |= 0x0008;
     window_session.queue_window_size(8, 4);
-    if (window_session.input().size() != 0)
+    if (window_session.input().record_count() != 0)
     {
         std::fprintf(stderr, "initial window event queued\n");
         return EXIT_FAILURE;
@@ -603,7 +603,7 @@ int main()
     }
     mouse_session.feed_input(mouse_mode);
     mouse_session.feed_input(mouse_sequence);
-    if (mouse_session.input().size() != 1)
+    if (mouse_session.input().record_count() != 1)
     {
         std::fprintf(stderr, "mouse rejected with tracking mode\n");
         return EXIT_FAILURE;
@@ -680,7 +680,7 @@ int main()
     // individual 'E', '[', '6', ... key events.
     corehost::corehost2::session win32_input_session{8, 2};
     win32_input_session.feed_input(std::u16string_view{u"\x1b[65;30;65;1;16;1_\x1b[65;30;65;0;16;1_"}, true);
-    if (win32_input_session.input().size() != 2)
+    if (win32_input_session.input().record_count() != 2)
     {
         std::fprintf(stderr, "Win32Input raw_passthrough produced wrong event count\n");
         return EXIT_FAILURE;

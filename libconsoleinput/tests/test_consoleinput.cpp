@@ -35,7 +35,7 @@ int main()
     input_queue queue;
     queue.push(input_event{input_event_type::key, *key});
     queue.push(input_event{input_event_type::key, key_event{}});
-    if (queue.size() != 2)
+    if (queue.record_count() != 2)
     {
         std::fprintf(stderr, "queue size failed\n");
         return EXIT_FAILURE;

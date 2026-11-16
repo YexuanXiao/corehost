@@ -159,11 +159,6 @@ class input_queue final
         return count;
     }
 
-    [[nodiscard]] std::size_t size() const noexcept
-    {
-        return events_.size();
-    }
-
     [[nodiscard]] bool empty() const noexcept
     {
         return events_.empty();

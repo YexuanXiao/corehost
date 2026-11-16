@@ -251,7 +251,7 @@ int main()
     event_message.descriptor.OutputSize = sizeof(event_message.body);
     auto *event_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(event_message.body);
     event_header->ApiNumber = ConsolepGetNumberOfInputEvents;
-    if (!input_api.handle(event_message) || input_queue.size() != 1)
+    if (!input_api.handle(event_message) || input_queue.record_count() != 1)
     {
         std::fprintf(stderr, "input event count failed\n");
         return EXIT_FAILURE;
@@ -393,7 +393,7 @@ int main()
     auto *write_input_record = reinterpret_cast<INPUT_RECORD *>(write_input_message.body + sizeof(CONSOLE_MSG_HEADER) +
                                                                 sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
     *write_input_record = input_record;
-    if (!input_api.handle(write_input_message) || write_input_request->NumRecords != 1 || input_queue.size() != 1)
+    if (!input_api.handle(write_input_message) || write_input_request->NumRecords != 1 || input_queue.record_count() != 1)
     {
         std::fprintf(stderr, "write console input failed\n");
         return EXIT_FAILURE;
@@ -825,7 +825,7 @@ int main()
     line_header->ApiNumber = ConsolepReadConsole;
     auto *line_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(line_message.body + sizeof(CONSOLE_MSG_HEADER));
     line_request->Unicode = TRUE;
-    if (!line_api.handle(line_message) || line_queue.size() != 1)
+    if (!line_api.handle(line_message) || line_queue.record_count() != 1)
     {
         std::fprintf(stderr, "read console unread restore failed\n");
         return EXIT_FAILURE;
@@ -1270,7 +1270,7 @@ int main()
     write_mouse_record->EventType = MOUSE_EVENT;
     write_mouse_record->Event.MouseEvent.dwMousePosition = COORD{4, 2};
     write_mouse_record->Event.MouseEvent.dwButtonState = 1;
-    if (!write_mouse_api.handle(write_mouse_message) || write_mouse_queue.size() != 1)
+    if (!write_mouse_api.handle(write_mouse_message) || write_mouse_queue.record_count() != 1)
     {
         std::fprintf(stderr, "write mouse input failed\n");
         return EXIT_FAILURE;
@@ -1434,7 +1434,7 @@ int main()
     auto *peek_request =
         reinterpret_cast<CONSOLE_GETCONSOLEINPUT_MSG *>(peek_message.body + sizeof(CONSOLE_MSG_HEADER));
     peek_request->Flags = CONSOLE_READ_NOREMOVE;
-    if (!peek_api.handle(peek_message) || peek_request->NumRecords != 1 || peek_queue.size() != 1)
+    if (!peek_api.handle(peek_message) || peek_request->NumRecords != 1 || peek_queue.record_count() != 1)
     {
         std::fprintf(stderr, "GetConsoleInput NOREMOVE failed\n");
         return EXIT_FAILURE;

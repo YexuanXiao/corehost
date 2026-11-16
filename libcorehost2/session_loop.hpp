@@ -193,7 +193,8 @@ class session_input_sink final
         console_.process_raw_input_events();
         console_.signal_input_event();
         const bool completed = console_.complete_pending();
-        LOG("input parsed text=%zu queue=%zu read_pending=%d completed=%d", text_.size(), state_.input().size(),
+        LOG("input parsed text=%zu records=%zu read_pending=%d completed=%d", text_.size(),
+            state_.input().record_count(),
             console_.console_read_pending() ? 1 : 0, completed ? 1 : 0);
         for (const auto [mode, enabled] : state_.state().take_private_modes())
         {
