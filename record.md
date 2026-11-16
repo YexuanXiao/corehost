@@ -2964,3 +2964,35 @@ powershell:  296.7 ms
 sgr-plain:    29.1 ms
 cjk:           7.1 ms
 ```
+
+### 移除测试专用 raw 注入入口
+
+`push_raw` 只剩单测使用，生产所有 raw 输入都已经通过 parser/input queue。现在：
+
+- 删除 `server_session::push_raw`；
+- 单测改为 push text batch 事件；
+- raw 输入只保留一条生产入口；
+- 同时验证 non-line raw 的 control 扫描仍正常。
+
+提交：
+
+```text
+38529e9 refactor(corehost2): drop test-only raw injection method
+```
+
+验证：
+
+```text
+Release 11/11
+Debug 4/4
+```
+
+benchmark：
+
+```text
+large-mixed: 268.3 ms
+long-line:   792.1 ms
+powershell:  293.3 ms
+sgr-plain:    28.6 ms
+cjk:           6.9 ms
+```
