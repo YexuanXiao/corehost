@@ -1117,6 +1117,20 @@ eebdc63 perf(consoleapi): dispatch virtual keys with switch
 55b5f24 perf(vtserializer): append scalar units without view
 ```
 
+### VT viewport 列数一次确定
+
+`render_viewport` 先算出本行有效列数：
+
+```cpp
+const auto columns = std::min(size.x, buffer_width - origin_x);
+```
+
+列循环不再每列检查 `x >= buffer_width`：
+
+```text
+561beca perf(vtserializer): bound viewport columns once
+```
+
 ### VT 序列化缓存 viewport 尺寸
 
 `render_damage` / `render_viewport` 缓存 `buffer.width()` / `buffer.height()`，行循环和列循环不再重复调用：
