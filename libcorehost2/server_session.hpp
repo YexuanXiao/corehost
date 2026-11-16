@@ -584,12 +584,14 @@ class server_session final
                 const auto &event = events[i];
                 if (event.type == consoleinput::input_event_type::text)
                 {
-                    const auto bytes = encode_console_text(event.text);
+                    if (!event.text || event.text->empty())
+                        continue;
+                    const auto bytes = encode_console_text(*event.text);
                     raw_in_.append(bytes);
                     note_raw_bytes(std::span<const char>{bytes.data(), bytes.size()});
                     if (line_input)
                     {
-                        const auto echo = encode_utf8(event.text);
+                        const auto echo = encode_utf8(*event.text);
                         echo_live(std::span<const char>{echo.data(), echo.size()});
                     }
                     continue;

@@ -57,7 +57,7 @@ int main()
     queue.clear();
     input_event text_event{};
     text_event.type = input_event_type::text;
-    text_event.text = u"ABC";
+    text_event.text = std::make_shared<const std::u16string>(u"ABC");
     queue.push(std::move(text_event));
     if (queue.record_count() != 6 || !queue.has_key())
     {
@@ -75,6 +75,27 @@ int main()
     if (queue.read(expanded) != 6 || !queue.empty() || queue.has_key())
     {
         std::fprintf(stderr, "text batch read failed\n");
+        return EXIT_FAILURE;
+    }
+
+    queue.clear();
+    text_event.text = std::make_shared<const std::u16string>(u"AB");
+    queue.push(std::move(text_event));
+    input_event one[1]{};
+    if (queue.read(one) != 1 || !one[0].key.key_down || one[0].key.character != u'A')
+    {
+        std::fprintf(stderr, "single slot read failed\n");
+        return EXIT_FAILURE;
+    }
+    if (queue.record_count() != 3)
+    {
+        std::fprintf(stderr, "pending up accounting failed\n");
+        return EXIT_FAILURE;
+    }
+    input_event pending[4]{};
+    if (queue.peek(pending) != 3 || pending[0].key.key_down || pending[0].key.character != u'A')
+    {
+        std::fprintf(stderr, "pending up peek failed\n");
         return EXIT_FAILURE;
     }
 

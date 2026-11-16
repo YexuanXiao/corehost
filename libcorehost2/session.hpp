@@ -383,7 +383,8 @@ class session final
         {
             consoleinput::input_event event{};
             event.type = consoleinput::input_event_type::text;
-            event.text.assign(result.message.payload.text.begin(), result.message.payload.text.end());
+            event.text = std::make_shared<const std::u16string>(
+                result.message.payload.text.begin(), result.message.payload.text.end());
             input_.push(std::move(event));
             return;
         }
