@@ -67,12 +67,6 @@ struct message_handler final
         {
             std::unique_lock guard{*context.mutex};
             const bool alternate_before = context.state->screen().alternate_active();
-            std::span<const std::byte> raw_output;
-            coreio::input_payload_reader raw_reader{context.server};
-            if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE)
-            {
-                raw_output = raw_reader.read(message, 0);
-            }
             dispatched = context.dispatcher->handle(message);
             for (const auto [mode, enabled] : context.state->state().take_private_modes())
             {
@@ -86,8 +80,6 @@ struct message_handler final
             if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE &&
                 (alternate_before || context.state->screen().alternate_active()))
             {
-                context.writer->buffer().append(
-                    std::span<const char8_t>{reinterpret_cast<const char8_t *>(raw_output.data()), raw_output.size()});
                 context.state->screen().clear_damage();
                 (void)context.state->take_alternate_changed();
                 (void)context.state->take_viewport_changed();
