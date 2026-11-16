@@ -121,7 +121,6 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
     if (state != nullptr)
     {
         append_cursor_visibility(output, state->cursor().visible);
-        append_cursor_shape(output, static_cast<unsigned>(state->cursor().style), false);
     }
 }
 
@@ -223,7 +222,6 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
     if (state != nullptr)
     {
         append_cursor_visibility(output, state->cursor().visible);
-        append_cursor_shape(output, static_cast<unsigned>(state->cursor().style), false);
     }
 }
 } // namespace corehost::vtserializer

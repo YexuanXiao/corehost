@@ -168,9 +168,9 @@ int main()
     render_damage(buffer, screen, corehost::screen::coord{2, 0}, &cursor_state);
     const std::u8string cursor_state_output{buffer.bytes().begin(), buffer.bytes().end()};
     if (cursor_state_output.find(u8"\x1b[?25l") == std::u8string::npos ||
-        cursor_state_output.find(u8"\x1b[6 q") == std::u8string::npos)
+        cursor_state_output.find(u8" q") != std::u8string::npos)
     {
-        std::fprintf(stderr, "cursor state render missing\n");
+        std::fprintf(stderr, "cursor state render changed terminal profile shape\n");
         return EXIT_FAILURE;
     }
 

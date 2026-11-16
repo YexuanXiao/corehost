@@ -47,6 +47,14 @@ struct server_worker_context final
     coreio::ctrl_delivery *delivery{};
 };
 
+inline void append_cursor_shape_change(screen::console_state &state, vtserializer::byte_buffer &output)
+{
+    if (!state.take_cursor_shape_changed())
+        return;
+    const auto &cursor = state.cursor();
+    vtserializer::append_cursor_shape(output, static_cast<unsigned>(cursor.style), cursor.blinking);
+}
+
 struct message_handler final
 {
     server_worker_context &context;
@@ -125,6 +133,7 @@ struct message_handler final
                                             &context.state->state());
                 context.state->screen().clear_damage();
             }
+            append_cursor_shape_change(context.state->state(), context.writer->buffer());
             if (context.state->take_echo_line_feed())
             {
                 context.writer->buffer().append_text(u8"\r\n");
@@ -207,6 +216,7 @@ class session_input_sink final
             vtserializer::render_damage(writer_.buffer(), state_.screen(), cursor, &state_.state());
         }
         state_.screen().clear_damage();
+        append_cursor_shape_change(state_.state(), writer_.buffer());
         if (state_.take_echo_line_feed())
         {
             writer_.buffer().append_text(u8"\r\n");
@@ -277,6 +287,7 @@ class session_signal_sink final
             vtserializer::render_damage(writer_.buffer(), state_.screen(), cursor, &state_.state());
         }
         state_.screen().clear_damage();
+        append_cursor_shape_change(state_.state(), writer_.buffer());
         if (state_.take_echo_line_feed())
         {
             writer_.buffer().append_text(u8"\r\n");

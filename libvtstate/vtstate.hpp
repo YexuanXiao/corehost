@@ -478,7 +478,8 @@ class state_applier final
 
     void apply_cursor_shape(const vtparser::vt_message &message, screen::console_state &state) noexcept
     {
-        switch (message.payload.cursor_shape)
+        const auto shape = message.payload.cursor_shape;
+        switch (shape)
         {
         case 3:
         case 4:
@@ -492,6 +493,9 @@ class state_applier final
             state.cursor().style = screen::cursor_style::block;
             break;
         }
+        // DECSCUSR: odd values blink; 0/1 use the default blinking block.
+        state.cursor().blinking = shape == 0 || shape == 1 || shape == 3 || shape == 5;
+        state.cursor_shape_changed = true;
         state.cursor_changed = true;
     }
 

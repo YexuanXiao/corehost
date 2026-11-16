@@ -72,6 +72,7 @@ struct cursor_state final
     std::size_t x{};
     std::size_t y{};
     bool visible{true};
+    bool blinking{true};
     std::uint32_t size{25};
     cursor_style style{cursor_style::block};
 };
@@ -183,6 +184,7 @@ class console_state final
     bool title_changed{};
     bool scrollback_cleared{};
     bool cursor_changed{};
+    bool cursor_shape_changed{};
     bool viewport_changed{};
     bool win32_input_mode{true};
     bool win32_input_changed{};
@@ -292,6 +294,13 @@ class console_state final
     {
         const auto changed = cursor_changed;
         cursor_changed = false;
+        return changed;
+    }
+
+    [[nodiscard]] bool take_cursor_shape_changed() noexcept
+    {
+        const auto changed = cursor_shape_changed;
+        cursor_shape_changed = false;
         return changed;
     }
 
