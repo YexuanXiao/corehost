@@ -1465,6 +1465,16 @@ ascii_run=1.4151-1.4476 ns/cell
 a01dea8 perf(libscreen): inline wide neighborhood checks in ascii runs
 ```
 
+再增加一个窄单元格快速判断：`old.width_ != narrow` 时才检查 continuation/wide；普通覆盖路径只做一次宽度比较：
+
+```text
+ascii_run=1.2683-1.3638 ns/cell
+```
+
+```text
+77a7a3d perf(libscreen): skip neighborhood work for narrow cells
+```
+
 ### VT ASCII cell 直接写 scalar
 
 ASCII 快速路径不再构造 `u16string_view` 调用 `write_glyph`，而是直接调用 `write_scalar`，跳过 glyph 空串和边界检查：
