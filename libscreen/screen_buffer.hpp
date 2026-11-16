@@ -815,16 +815,19 @@ inline std::size_t screen_buffer::write_ascii(std::size_t x, std::size_t y, std:
     for (std::size_t i = 0; i < count; ++i)
     {
         const auto old = cells[x];
-        if (old.is_continuation() && x > 0)
+        if (old.width_ != cell_width::narrow)
         {
-            const auto &head = cells[x - 1];
-            cells[x - 1] = cell::blank(head.style(), head.hyperlink());
-            target.mark_dirty(y, x - 1, x);
-        }
-        else if (old.is_wide() && x + 1 < width_ && cells[x + 1].is_continuation())
-        {
-            cells[x + 1] = cell::blank(old.style(), old.hyperlink());
-            target.mark_dirty(y, x + 1, x + 2);
+            if (old.is_continuation() && x > 0)
+            {
+                const auto &head = cells[x - 1];
+                cells[x - 1] = cell::blank(head.style(), head.hyperlink());
+                target.mark_dirty(y, x - 1, x);
+            }
+            else if (old.is_wide() && x + 1 < width_ && cells[x + 1].is_continuation())
+            {
+                cells[x + 1] = cell::blank(old.style(), old.hyperlink());
+                target.mark_dirty(y, x + 1, x + 2);
+            }
         }
         cells[x] = cell::scalar(text[i], style, cell_width::narrow, hyperlink);
         ++x;
