@@ -1440,6 +1440,12 @@ ascii  old=26.7911 ns/unit new=0.2198 ns/unit ratio≈121.9x
 mixed  old=26.4318 ns/unit new=26.0547 ns/unit ratio≈1.01x
 ```
 
+`state.default_style` / `state.default_hyperlink` 也在循环外缓存，ASCII 和 grapheme 路径都不再每字符读取成员：
+
+```text
+566fc69 perf(vtstate): hoist default style and hyperlink
+```
+
 ### VT 文本循环外提尺寸
 
 `apply_text_impl` 在进入 grapheme/cluster 循环前缓存 `state.width()` / `state.height()`，循环内不再每 cluster 调用：
