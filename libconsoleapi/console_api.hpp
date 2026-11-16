@@ -55,8 +55,9 @@ class console_api final
             static_cast<std::int32_t>(state_.cursor().x),
             static_cast<std::int32_t>(state_.cursor().y),
         };
-        const auto result = buffer_.write_text_row_for(state_.measurement, state_.ambiguous_is_wide, cursor, text, {},
-                                                       state_.default_style, true, state_.default_hyperlink);
+        const auto result = buffer_.write_text_row_for(
+            state_.measurement, state_.ambiguous_is_wide, cursor, text, {}, state_.default_style,
+            (state_.output_mode & 0x0001) != 0, state_.default_hyperlink);
         state_.set_cursor(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y));
         return result.consumed == text.size();
     }
@@ -2473,9 +2474,10 @@ class console_api final
             }
             if (segment_end > offset)
             {
-                const auto result = buffer_.write_text_row_for(state_.measurement, state_.ambiguous_is_wide, cursor,
-                                                               text.substr(offset, segment_end - offset), {},
-                                                               state_.default_style, true, state_.default_hyperlink);
+                const auto result = buffer_.write_text_row_for(
+                    state_.measurement, state_.ambiguous_is_wide, cursor,
+                    text.substr(offset, segment_end - offset), {}, state_.default_style,
+                    (state_.output_mode & 0x0001) != 0, state_.default_hyperlink);
                 written += result.consumed;
                 if (cursor.x >= static_cast<std::int32_t>(state_.width()))
                 {
