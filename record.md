@@ -2070,3 +2070,38 @@ WT 返回 1034 字节终端应答，corehost2 将其当作输入队列（queue=9
 - 丢弃或改成 down-only 的 response 投递都不能修复。
 
 下一步需要在 libcorehost / corehost2 的 API 调用序列上继续 diff，重点看 edit 初始化阶段的 `ReadConsoleOutput`/`ReadConsoleInput`/输出缓冲区。
+
+### edit 崩溃二分结果
+
+按提交顺序测试 edit.exe 进程是否存活：
+
+```text
+8f11d54  EDIT_ALIVE
+da2888a  EDIT_ALIVE
+4dea0cd  EDIT_CRASH
+```
+
+首个崩溃提交：
+
+```text
+4dea0cd fix(console): flush raw writes and forward mouse modes
+```
+
+该提交包含两部分：
+
+1. RAW_WRITE 不再提前 return，继续 render/flush；
+2. Console mouse/window mode 写入 private_modes 并由 message_handler 转发。
+
+在 `4dea0cd` 上继续拆分测试：
+
+```text
+仅保留 RAW_WRITE 改动，删除 mouse 模式行：EDIT_ALIVE
+保留 mouse 模式行，删除 message_handler private mode 转发：EDIT_CRASH
+只设置 1006：EDIT_CRASH
+只设置 1000：EDIT_CRASH
+全部 terminal response 丢弃：EDIT_CRASH
+```
+
+结论：崩溃与 mouse/private mode 状态写入存在相关性，但仅删除转发、改成 down-only 或丢弃 response 都不能修复。RAW_WRITE 改动可能只是让 edit 从“空白挂起”变成真正运行并暴露后续问题。
+
+后续应继续在 `4dea0cd` 的两部分改动上做更细粒度对比，并确认父提交下 edit 的真实 UI 是否已经可用，而不是仅进程存活。
