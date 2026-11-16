@@ -161,10 +161,10 @@ class session_input_sink final
             state_.screen().alternate_active() ? 1 : 0, raw_pending ? 1 : 0, console_.console_read_pending() ? 1 : 0);
         LOG_HEX("input", bytes.data(), bytes.size() < 256 ? bytes.size() : 256);
         decoder_.decode(std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()}, text_);
-        if (raw_pending)
-        {
-            console_.push_raw(std::span<const char>{reinterpret_cast<const char *>(bytes.data()), bytes.size()});
-        }
+        // Console ReadFile uses the RAW_READ path. Keep bytes buffered even
+        // while no read request is outstanding; otherwise pasted input that
+        // arrives between reads is lost.
+        console_.push_raw(std::span<const char>{reinterpret_cast<const char *>(bytes.data()), bytes.size()});
         state_.feed_input(text_, (state_.state().input_mode & 0x0200) != 0 && !raw_pending &&
                                      !console_.console_read_pending());
         console_.signal_input_event();
