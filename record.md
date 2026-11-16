@@ -1109,6 +1109,14 @@ eebdc63 perf(consoleapi): dispatch virtual keys with switch
 7fdebb5 perf(vtserializer): avoid zeroing sgr scratch
 ```
 
+### VT 标量单元格直接编码
+
+新增 `append_utf16_unit`，`render_damage` / `render_viewport` 的普通单元格不再构造 `u16string_view` 再走 `append_utf16` 的 `size()==1` 判断：
+
+```text
+55b5f24 perf(vtserializer): append scalar units without view
+```
+
 ### VT 序列化缓存 viewport 尺寸
 
 `render_damage` / `render_viewport` 缓存 `buffer.width()` / `buffer.height()`，行循环和列循环不再重复调用：
