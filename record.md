@@ -1446,6 +1446,12 @@ mixed  old=26.4318 ns/unit new=26.0547 ns/unit ratio≈1.01x
 566fc69 perf(vtstate): hoist default style and hyperlink
 ```
 
+`apply_text_impl` 的 cursor 由 `size_t` 转换且只会置 0 或递增，不可能为负。入口改为断言，循环内删除两处 `cursor.x >= 0` / `cursor.y >= 0` 分支：
+
+```text
+88e527d perf(vtstate): drop impossible negative cursor checks
+```
+
 ### VT 文本循环外提尺寸
 
 `apply_text_impl` 在进入 grapheme/cluster 循环前缓存 `state.width()` / `state.height()`，循环内不再每 cluster 调用：
