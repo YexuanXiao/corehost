@@ -760,11 +760,14 @@ class server_session final
             if (raw_completed_lines_.empty())
                 return 0;
             auto &line = raw_completed_lines_.front();
-            const auto written = std::min(output.size(), line.size());
-            std::memcpy(output.data(), line.data(), written);
-            line.erase(0, written);
-            if (line.empty())
+            const auto written = std::min(output.size(), line.size() - raw_completed_offset_);
+            std::memcpy(output.data(), line.data() + raw_completed_offset_, written);
+            raw_completed_offset_ += written;
+            if (raw_completed_offset_ == line.size())
+            {
                 raw_completed_lines_.pop_front();
+                raw_completed_offset_ = 0;
+            }
             return written;
         }
         if (raw_in_.empty())
@@ -1185,6 +1188,7 @@ class server_session final
     std::string raw_in_;
     consoleinput::line_editor raw_line_editor_;
     std::deque<std::string> raw_completed_lines_;
+    std::size_t raw_completed_offset_{};
     bool raw_editor_used_{};
     bool raw_mode_{};
     bool live_echoed_{};

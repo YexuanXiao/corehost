@@ -1,4 +1,5 @@
 #include "key_map.hpp"
+#include "line_editor.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -15,6 +16,19 @@ int main()
     if (!key.has_value() || key->key != virtual_key::up)
     {
         std::fprintf(stderr, "key mapping failed\n");
+        return EXIT_FAILURE;
+    }
+
+    line_editor editor;
+    editor.toggle_insert();
+    editor.append(u"AB");
+    editor.consume_completed_line();
+    editor.append(u"A");
+    editor.left();
+    editor.insert(u'C');
+    if (editor.text() != u"C")
+    {
+        std::fprintf(stderr, "insert mode persistence failed\n");
         return EXIT_FAILURE;
     }
 

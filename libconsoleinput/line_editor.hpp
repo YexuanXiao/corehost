@@ -32,7 +32,6 @@ class line_editor final
     {
         text_.clear();
         cursor_ = 0;
-        insert_ = false;
     }
 
     change append(std::u16string_view value)
