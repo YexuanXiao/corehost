@@ -1115,6 +1115,7 @@ eebdc63 perf(consoleapi): dispatch virtual keys with switch
 
 ```text
 c7a2266 perf(vt): carry ascii flag from parser to text renderer
+93966ad test(vtparser): cover ascii text flag
 ```
 
 `C:\1\bench_ascii_flag.cpp`，200 字符、50 万次：
