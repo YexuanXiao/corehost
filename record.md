@@ -2217,3 +2217,33 @@ RESULT	corehost	cjk-terminal-input	393275	389182	11.7
 - corehost 的 cjk 输出 385083 vs OpenConsole 395398，差 8192 字节（两个 4 KiB 块），是输入回显边界差异，不影响 marker 和读取；
 - corehost2 的 SGR 输出约为 OpenConsole 的一半，long-line 输出约为 22 倍，属于 corehost2 renderer 的输出策略/缺陷，需单独修复；
 - corehost2 的 cjk 输出只有 914 字节，是 RAW_READ 没有回显，另行处理。
+
+### corehost2 输出字节差异修复
+
+发现两个独立问题：
+
+1. **RAW_WRITE 没有透传**：corehost2 将普通屏幕上的 RAW_WRITE 重新 render 成 damage，导致 SGR 输出约为输入的一半，long-line 输出膨胀到约 22 倍。
+2. **RAW_READ 没有回显**：corehost2 读取 raw 输入后不写回显，cjk 输出只有约 900 字节。
+
+修复：
+
+- 普通屏幕 RAW_WRITE 直接透传原始字节，仍更新本地 screen state；alternate screen 保持原有策略，避免 edit 崩溃；
+- RAW_READ 完成后按 `ENABLE_ECHO_INPUT` 把读取的字节写回终端；
+- 无日志 Release 重新 benchmark。
+
+提交：
+
+```text
+4daa824 fix(corehost2): pass through raw writes and echo raw reads
+```
+
+修复后输出字节：
+
+```text
+large-mixed: OpenConsole 24.06 MiB / corehost 24.06 / corehost2 24.06
+long-line:   OpenConsole 16.00 MiB / corehost 16.00 / corehost2 16.00
+sgr-*:       OpenConsole 4.06 MiB / corehost 4.06 / corehost2 4.06
+cjk:         OpenConsole 395398 B / corehost 385083 / corehost2 394111
+```
+
+edit/Vim 仍正常，核心测试通过。
