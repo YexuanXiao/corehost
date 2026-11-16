@@ -532,7 +532,9 @@ class server_session final
 
         const auto text = raw_line_editor_.text();
         const auto origin = screen::coord{line_start_x_, line_start_y_};
-        const auto old_length = std::max(line_echo_length_, text.size());
+        const auto text_columns = static_cast<std::size_t>(
+            std::max(screen::text_width<screen::text_measurement::console>(text), 0));
+        const auto old_length = std::max(line_echo_length_, text_columns);
         for (std::size_t i = 0; i < old_length; ++i)
         {
             const auto position = echo_position(origin, static_cast<std::int32_t>(screen_.width()), i);
@@ -549,9 +551,11 @@ class server_session final
 
         state_.set_cursor(static_cast<std::size_t>(line_start_x_), static_cast<std::size_t>(line_start_y_));
         (void)write_text(text);
-        line_echo_length_ = text.size();
-        const auto cursor = echo_position(origin, static_cast<std::int32_t>(screen_.width()),
-                                          std::min(raw_line_editor_.cursor(), text.size()));
+        line_echo_length_ = text_columns;
+        const auto cursor_units = std::min(raw_line_editor_.cursor(), text.size());
+        const auto cursor_columns = static_cast<std::size_t>(std::max(
+            screen::text_width<screen::text_measurement::console>(text.substr(0, cursor_units)), 0));
+        const auto cursor = echo_position(origin, static_cast<std::int32_t>(screen_.width()), cursor_columns);
         state_.set_cursor(static_cast<std::size_t>(std::max(cursor.x, 0)),
                           static_cast<std::size_t>(std::max(cursor.y, 0)));
         const auto terminal_cursor = screen::coord{static_cast<std::int32_t>(state_.cursor().x),
@@ -751,7 +755,8 @@ class server_session final
         }
         else
         {
-            line_echo_length_ = raw_line_editor_.text().size();
+            line_echo_length_ = static_cast<std::size_t>(std::max(
+                screen::text_width<screen::text_measurement::console>(raw_line_editor_.text()), 0));
         }
     }
 
