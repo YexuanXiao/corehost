@@ -130,6 +130,20 @@ class state_applier final
     }
 
   public:
+    void scroll_text_row(screen::screen_buffer &buffer, screen::console_state &state, screen::cell_style style) noexcept
+    {
+        const auto top = state.scroll_top();
+        const auto bottom = state.scroll_bottom();
+        if (top == 0 && bottom + 1 == state.height())
+        {
+            buffer.scroll_up(1, style);
+        }
+        else
+        {
+            buffer.scroll_region_up(screen::rectangle{0, top, state.width(), bottom - top + 1}, 1, style);
+        }
+    }
+
     template <screen::text_measurement Mode, bool Ambiguous>
     void apply_text_impl(const vtparser::vt_message &message, screen::screen_buffer &buffer,
                          screen::console_state &state)
@@ -168,10 +182,8 @@ class state_applier final
                 }
                 if (static_cast<std::size_t>(cursor.y) >= height)
                 {
-                    const auto top = state.scroll_top();
-                    const auto bottom = state.scroll_bottom();
-                    buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1, style);
-                    cursor.y = static_cast<std::int32_t>(bottom);
+                    scroll_text_row(buffer, state, style);
+                    cursor.y = static_cast<std::int32_t>(state.scroll_bottom());
                 }
 
                 const auto count = buffer.write_ascii(static_cast<std::size_t>(cursor.x),
@@ -209,10 +221,8 @@ class state_applier final
                     }
                     if (static_cast<std::size_t>(cursor.y) >= height)
                     {
-                        const auto top = state.scroll_top();
-                        const auto bottom = state.scroll_bottom();
-                        buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1, style);
-                        cursor.y = static_cast<std::int32_t>(bottom);
+                        scroll_text_row(buffer, state, style);
+                        cursor.y = static_cast<std::int32_t>(state.scroll_bottom());
                     }
                     const auto count =
                         buffer.write_ascii(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y),
@@ -244,10 +254,8 @@ class state_applier final
                     }
                     if (static_cast<std::size_t>(cursor.y) >= height)
                     {
-                        const auto top = state.scroll_top();
-                        const auto bottom = state.scroll_bottom();
-                        buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1, style);
-                        cursor.y = static_cast<std::int32_t>(bottom);
+                        scroll_text_row(buffer, state, style);
+                        cursor.y = static_cast<std::int32_t>(state.scroll_bottom());
                     }
                     if (!buffer.write_codepoint(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y),
                                                 first, style, columns >= 2 ? screen::cell_width::wide
@@ -276,10 +284,8 @@ class state_applier final
             }
             if (static_cast<std::size_t>(cursor.y) >= height)
             {
-                const auto top = state.scroll_top();
-                const auto bottom = state.scroll_bottom();
-                buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1, style);
-                cursor.y = static_cast<std::int32_t>(bottom);
+                scroll_text_row(buffer, state, style);
+                cursor.y = static_cast<std::int32_t>(state.scroll_bottom());
             }
             if (!buffer.write_glyph(cursor, std::u16string_view{cluster.text.data(), cluster.text.size()}, columns,
                                     style, hyperlink))

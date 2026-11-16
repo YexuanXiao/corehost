@@ -181,6 +181,11 @@ class page final
         return damage_active_;
     }
 
+    [[nodiscard]] bool full_damage() const noexcept
+    {
+        return full_damage_;
+    }
+
     [[nodiscard]] row_block &block(std::size_t y) noexcept
     {
         assert(y < height_);
@@ -220,6 +225,7 @@ class page final
     std::size_t width_{};
     std::size_t height_{};
     bool damage_active_{};
+    bool full_damage_{};
     bizwen::deque<row_block> rows_;
 };
 class screen_buffer final
@@ -485,6 +491,8 @@ class screen_buffer final
     bool alternate_active_{};
     bizwen::deque<history_row> history_;
     std::vector<std::vector<cell>> spare_rows_;
+    std::vector<cell> blank_template_;
+    cell_style blank_style_{default_cell_style};
     style_table styles_;
     cell_style default_style_id_{};
     hyperlink_table hyperlinks_;
@@ -563,7 +571,7 @@ inline page::page(std::size_t width, std::size_t height, cell_style fill_style) 
 inline void page::mark_dirty(std::size_t y, std::size_t begin, std::size_t end) noexcept
 {
     assert(y < rows_.size());
-    if (begin >= end)
+    if (begin >= end || full_damage_)
     {
         return;
     }
@@ -604,16 +612,13 @@ inline void page::clear_damage() noexcept
         row.state.dirty_end = 0;
     }
     damage_active_ = false;
+    full_damage_ = false;
 }
 
 inline void page::mark_all_dirty() noexcept
 {
-    for (auto &row : rows_)
-    {
-        row.state.dirty_begin = 0;
-        row.state.dirty_end = static_cast<std::uint32_t>(width_);
-    }
     damage_active_ = true;
+    full_damage_ = true;
 }
 
 inline screen_buffer::screen_buffer(std::size_t width, std::size_t height, std::size_t history_limit)
@@ -1693,7 +1698,12 @@ inline void screen_buffer::scroll_up(std::size_t lines, cell_style fill_style)
         {
             auto row = std::move(spare_rows_.back());
             spare_rows_.pop_back();
-            std::fill(row.begin(), row.end(), cell::blank(fill_style));
+            if (blank_template_.size() != width_ || blank_style_ != fill_style)
+            {
+                blank_template_.assign(width_, cell::blank(fill_style));
+                blank_style_ = fill_style;
+            }
+            std::copy(blank_template_.begin(), blank_template_.end(), row.begin());
             target.push_row(std::move(row));
         }
         else
@@ -1898,12 +1908,12 @@ inline bool screen_buffer::rebuild_graphemes()
 
 inline std::size_t screen_buffer::damage_begin(std::size_t y) const noexcept
 {
-    return active_page().row(y).dirty_begin;
+    return active_page().full_damage() ? 0 : active_page().row(y).dirty_begin;
 }
 
 inline std::size_t screen_buffer::damage_end(std::size_t y) const noexcept
 {
-    return active_page().row(y).dirty_end;
+    return active_page().full_damage() ? width_ : active_page().row(y).dirty_end;
 }
 
 inline void screen_buffer::clear_damage() noexcept
