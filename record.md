@@ -1109,6 +1109,14 @@ eebdc63 perf(consoleapi): dispatch virtual keys with switch
 7fdebb5 perf(vtserializer): avoid zeroing sgr scratch
 ```
 
+### VT 序列化省略重复默认 line rendition
+
+`render_damage` / `render_viewport` 连续默认行（rendition 5）不再每行输出 `ESC#5`；非默认 rendition 和默认到非默认的切换仍逐行输出。
+
+```text
+1723cd2 perf(vtserializer): omit repeated default line rendition
+```
+
 ### VT 序列化 SGR 样式跨行保持
 
 `render_damage` 的 `current_style` 从每行重置改为整个帧保持；`append_cup` 和 line rendition 不改变 SGR，因此下一行首单元格同 style 时不再重复输出 SGR：
