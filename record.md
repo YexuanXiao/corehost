@@ -2482,3 +2482,32 @@ cjk:           corehost2   4.5  / OpenConsole 2706.7
 - 更新 corehost2 测试以覆盖行输入、行编辑和 CR 前阻塞。
 
 修复后 cjk 约 13-20 ms，输出 394239 B；OpenConsole 仍约 2.4 s，原因是其 cooked line input/echo 逐字符路径很慢，不再是 corehost2 跳过输入语义造成的假加速。
+
+### 追加边界测试：方向键/Home/End/Delete
+
+用 `C:\1\input_edge_probe.exe` 在 WT 下验证三条 line input：
+
+```text
+AB LEFT X          -> AXB
+CD HOME Y          -> YCD
+EF END Z           -> EFZ
+AB HOME RIGHT X    -> AXB
+CD LEFT DELETE E   -> CE
+FG HOME DELETE H   -> GH
+```
+
+修复前 corehost2 只在最后一个 chunk 上做无状态 line edit，箭头序列会被丢弃且光标不保持；修复后只在完整行（CR 到达）时对整行做一次有状态编辑，支持：
+
+- Left/Right
+- Home/End
+- Delete (CSI 3~)
+- Backspace/DEL
+- 多行 line input
+
+提交：
+
+```text
+75fa6bc fix(corehost2): apply stateful raw line editing for arrows/delete
+```
+
+cjk-terminal-input 修复后约 7-20 ms，输出 394239 B；OpenConsole 约 2.4 s，主要是其逐字符 cooked line input/echo 路径慢。
