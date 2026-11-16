@@ -2931,3 +2931,36 @@ powershell:  293.2 ms
 sgr-plain:    29.2 ms
 cjk:           6.6 ms
 ```
+
+### 继续清理输入状态与补齐 line 语义
+
+- completed-line 读取使用 `raw_completed_offset_`，不再每 chunk 对 `std::string` 做 front erase；
+- `line_editor::reset()` 保留 Insert 模式，Insert 在 Enter 后继续生效；
+- raw line 下 Ctrl+C 触发 STATUS_ALERTED，Ctrl+Z 触发 EOF，并清空当前行；
+- 删除 `raw_editor_used_`，line 模式直接以 completed-line 队列判断；
+- 增加 Insert 持久化、Ctrl+C/Ctrl+Z 单测。
+
+提交：
+
+```text
+f769112 fix(input): stream completed lines and persist insert mode
+9e10e40 fix(input): honor Ctrl+C and Ctrl+Z in raw line mode
+954b270 refactor(corehost2): remove redundant raw editor flag
+```
+
+验证：
+
+```text
+Release 11/11
+Debug 4/4
+```
+
+benchmark：
+
+```text
+large-mixed: 277.2 ms
+long-line:   805.6 ms
+powershell:  296.7 ms
+sgr-plain:    29.1 ms
+cjk:           7.1 ms
+```
