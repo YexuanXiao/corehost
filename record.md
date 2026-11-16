@@ -1903,12 +1903,6 @@ SGR 的 bold/faint/italic/underline/blink/negative/conceal/strikethrough 没有�
 
 conpty resize 现在通过 `server_session::queue_window_size_event()` 向启用 `ENABLE_WINDOW_INPUT` 的应用补发窗口尺寸事件；`resize_event_test.exe` 观察到底部 79x20、恢复 120x30 的 `WINDOW_BUFFER_SIZE_EVENT`。
 
-### 仍存在/未覆盖
-
-- WT scrollback 未建立：100 行输出后滚轮/Shift+PageUp 无历史可滚；用 `OpenConsole.exe.orig` 对照同样无历史，因此不是 corehost 回归，属于当前 WT/PowerShell 组合行为。
-- 多行粘贴在 PowerShell 5.1/7 都被拆成两次输入；用 `OpenConsole.exe.orig` 对照同样拆分，非 corehost 回归，后续再判断是否需要 WT 配置/PSReadLine 组合处理。
-- 鼠标 tracking、focus reporting、真实 ssh/sshd 因自动注入和本机 sshd 账户/主机密钥环境限制未完成。
-
 ### 修复 6：native CRT raw write 不刷新画面
 
 `server_dispatcher` 的 RAW_WRITE 返回 `false` 表示该消息已在 dispatch 内 inline 完成、不需要 piggyback。`message_handler` 把这个返回值当成“dispatch 失败”而提前 return，导致 `session_.write_raw` 已经解析、screen 已有 damage，但没有执行 render/flush。
@@ -1924,3 +1918,10 @@ conpty resize 现在通过 `server_session::queue_window_size_event()` 向启用
 - 关闭时清除 1000/1002/1003/1006/1004。
 
 `input_events_test2.exe` 观察到 `MOUSE x=60 y=14 buttons=0x1`、`buttons=0x0` 和滚轮 `flags=0x4`。
+
+### 仍存在/未覆盖
+
+- WT scrollback 未建立：100 行输出后滚轮/Shift+PageUp 无历史可滚；用 `OpenConsole.exe.orig` 对照同样无历史，因此不是 corehost 回归，属于当前 WT/PowerShell 组合行为。
+- 多行粘贴在 PowerShell 5.1/7 都被拆成两次输入；用 `OpenConsole.exe.orig` 对照同样拆分，非 corehost 回归，后续再判断是否需要 WT 配置/PSReadLine 组合处理。
+- focus reporting：`?1004` 已随 `ENABLE_WINDOW_INPUT` 转发，但自动 Alt+Tab 验证未观察到 FOCUS 事件，仍需单独确认。
+- 真实 ssh/sshd：本机 sshd 的账户/host key 初始化受限，未完成。
