@@ -2357,3 +2357,40 @@ cjk:           corehost2   4.9 ms (corehost  13.8)
 输出字节与修复前一致；PowerShell 输入/输出、cmd、edit、Vim 已验证。
 
 已知限制：RAW_WRITE replay 只维护 cursor/state，不重建 screen cell；SGR style state 也不写 screen。依赖 raw 输出后 screen buffer 内容的 Console API 仍需混合场景测试。
+
+### 混合 Console API 验证
+
+用一个最小程序验证 raw 输出后的 screen API：
+
+```text
+WriteFile(raw "RAW_MIX_TEXT\r\n")
+GetConsoleScreenBufferInfo
+ReadConsoleOutput(rect 0,0..15,0)
+```
+
+corehost2 与 corehost 结果完全一致：
+
+```text
+MIX_INFO_OK=1 CURSOR=0,1
+MIX_READ_OK=1 RECT=0,0,15,0
+MIX_CELLS=0020...0020（全部空格）
+```
+
+说明 UTF-8 VT replay 的 cursor-only 语义与 corehost 参考实现一致；raw 文本不重建 screen cell。
+
+截图：
+
+- `C:\1\wt_shots\M1_api_mix_corehost2.png`
+- `C:\1\wt_shots\M2_api_mix_corehost.png`
+
+最终性能（无 fastpath）：
+
+```text
+large-mixed:   corehost2 78.3 ms  (corehost 194.0)
+long-line:     corehost2 747.8 ms (corehost 890.1)
+powershell:    corehost2 289.5 ms (corehost 301.2)
+sgr-plain:     corehost2  16.6 ms (corehost  21.0)
+cjk:           corehost2   4.9 ms (corehost  13.8)
+```
+
+PowerShell/cmd 输入、edit、Vim 均验证正常。
