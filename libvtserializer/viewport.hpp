@@ -23,6 +23,7 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
     const auto origin = buffer.viewport_origin();
     const auto size = buffer.viewport_size();
     const auto buffer_width = static_cast<std::size_t>(buffer.buffer_size().x);
+    const auto buffer_height = buffer.height();
 
     auto current_hyperlink = screen::no_cell_hyperlink;
     screen::cell_style current_style = static_cast<screen::cell_style>(-1);
@@ -31,7 +32,7 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
     for (std::int32_t row = 0; row < size.y; ++row)
     {
         const auto y = static_cast<std::size_t>(origin.y + row);
-        if (y >= buffer.height())
+        if (y >= buffer_height)
         {
             break;
         }
@@ -132,6 +133,8 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
 {
     const auto origin = buffer.viewport_origin();
     const auto size = buffer.viewport_size();
+    const auto buffer_width = buffer.width();
+    const auto buffer_height = buffer.height();
     append_clear_screen(output);
 
     auto current_hyperlink = screen::no_cell_hyperlink;
@@ -141,7 +144,7 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
     for (std::int32_t row = 0; row < size.y; ++row)
     {
         const auto y = static_cast<std::size_t>(origin.y + row);
-        if (y >= buffer.height())
+        if (y >= buffer_height)
         {
             break;
         }
@@ -170,7 +173,7 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
         for (std::int32_t column = 0; column < size.x; ++column)
         {
             const auto x = static_cast<std::size_t>(origin.x + column);
-            if (x >= buffer.width())
+            if (x >= buffer_width)
             {
                 break;
             }
