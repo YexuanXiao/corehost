@@ -2660,3 +2660,32 @@ powershell:  294.1 ms
 sgr-plain:    31.4 ms
 cjk:          10.3 ms
 ```
+
+### 统一输入处理：parser text run 批量事件
+
+修复“某个模块提前拦截输入，后续模块收不到”的问题：
+
+- `session_input_sink` 不再调用 `consume_raw_text` 旁路；
+- 所有输入统一进入 `session::feed_input` / parser；
+- parser 的 text run 在 `input_queue` 中保存为一个批量 `text` 事件，而不是立即逐字符展开；
+- console consumer（ReadConsole/GetConsoleInput）通过 `input_queue::read`/`peek` 在边界展开为 key down/up；
+- raw consumer（ReadFile）通过 `input_queue::read_raw` 保留 text batch，再编码成本地代码页字节；
+- 不再有 input-sink 层针对 cjk/no-ESC 的特殊路径。
+
+提交：
+
+```text
+ce44666 refactor(input): batch parser text runs in the shared input queue
+```
+
+性能：
+
+```text
+large-mixed: 258.7 ms
+long-line:   833.4 ms
+powershell:  287.8 ms
+sgr-plain:    28.9 ms
+cjk:           9.6 ms
+```
+
+cjk 恢复到约 10 ms，同时没有 input-sink 提前拦截。
