@@ -460,6 +460,7 @@ union vt_message_payload {
 struct vt_message
 {
     vt_message_payload payload;
+    bool text_is_ascii = false;
 };
 
 struct vt_parse_result
@@ -514,12 +515,15 @@ class vt_parser
         if (input.empty())
             return {};
 
+        _msg.text_is_ascii = false;
         size_t i = 0;
         if (_mode == parser_mode::ground)
         {
-            if (const auto text_run = _direct_ground_text_run_length(input); text_run != 0)
+            bool ascii = true;
+            if (const auto text_run = _direct_ground_text_run_length(input, ascii); text_run != 0)
             {
                 _msg.payload.text = input.substr(0, text_run);
+                _msg.text_is_ascii = ascii;
                 return _make_result(vt_message_id::continue_text, text_run);
             }
 
@@ -541,12 +545,13 @@ class vt_parser
   private:
     // 返回输入开头可直接作为 ground 文本消费的 codepoint 数。调用点已经
     // 确认 parser 处于 ground；函数只负责找到首个 C0/DEL 控制字符。
-    [[nodiscard]] size_t _direct_ground_text_run_length(std::u16string_view text) const noexcept
+    [[nodiscard]] size_t _direct_ground_text_run_length(std::u16string_view text, bool &ascii) const noexcept
     {
         constexpr std::uint64_t high = 0x8000800080008000ull;
         constexpr std::uint64_t low = 0x0020002000200020ull;
         constexpr std::uint64_t del = 0x007F007F007F007Full;
         constexpr std::uint64_t one = 0x0001000100010001ull;
+        constexpr std::uint64_t non_ascii = 0xFF80FF80FF80FF80ull;
 
         size_t count = 0;
         while (count + 4 <= text.size())
@@ -554,6 +559,10 @@ class vt_parser
             std::uint64_t word = 0;
             std::memcpy(&word, text.data() + count, sizeof(word));
 
+            if ((word & non_ascii) != 0)
+            {
+                ascii = false;
+            }
             const auto below_low = ~(((word | high) - low)) & high;
             const auto is_del = word ^ del;
             const auto at_del = ~((is_del | high) - one) & ~is_del & high;
@@ -565,6 +574,10 @@ class vt_parser
             count += 4;
         }
 
+        if (count < text.size())
+        {
+            ascii = false;
+        }
         while (count < text.size())
         {
             const auto ch = text[count];

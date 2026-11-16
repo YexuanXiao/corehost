@@ -155,7 +155,7 @@ class state_applier final
         const auto hyperlink = state.default_hyperlink;
         assert(cursor.x >= 0 && cursor.y >= 0);
 
-        if (screen::all_printable_ascii(text))
+        if (!state.line_drawing_charset && (message.text_is_ascii || screen::all_printable_ascii(text)))
         {
             std::size_t consumed = 0;
             while (consumed < text.size())
