@@ -205,6 +205,12 @@ class page final
         rows_.push_back(row_block{std::vector<cell>(width_, cell::blank(fill_style)), row_state{}});
     }
 
+    void push_row(std::vector<cell> &&cells)
+    {
+        assert(rows_.size() + 1 == height_);
+        rows_.push_back(row_block{std::move(cells), row_state{}});
+    }
+
     void mark_dirty(std::size_t y, std::size_t begin, std::size_t end) noexcept;
     void mark_used(std::size_t y, std::size_t end) noexcept;
     void clear_damage() noexcept;
@@ -478,6 +484,7 @@ class screen_buffer final
     std::optional<page> alternate_;
     bool alternate_active_{};
     bizwen::deque<history_row> history_;
+    std::vector<std::vector<cell>> spare_rows_;
     style_table styles_;
     cell_style default_style_id_{};
     hyperlink_table hyperlinks_;
@@ -838,9 +845,9 @@ inline std::size_t screen_buffer::write_ascii(std::size_t x, std::size_t y, std:
     }
     if (all_narrow)
     {
+        auto value = prototype;
         for (std::size_t i = 0; i < count; ++i)
         {
-            auto value = prototype;
             value.primary_ = text[i];
             cells[x + i] = value;
         }
@@ -1677,8 +1684,22 @@ inline void screen_buffer::scroll_up(std::size_t lines, cell_style fill_style)
                 history_state{front.state.flags, front.state.command_exit_code},
             });
         }
+        else if (!front.cells.empty())
+        {
+            spare_rows_.push_back(std::move(front.cells));
+        }
         target.erase_front();
-        target.push_blank(fill_style);
+        if (!spare_rows_.empty())
+        {
+            auto row = std::move(spare_rows_.back());
+            spare_rows_.pop_back();
+            std::fill(row.begin(), row.end(), cell::blank(fill_style));
+            target.push_row(std::move(row));
+        }
+        else
+        {
+            target.push_blank(fill_style);
+        }
     }
 
     trim_history();
@@ -1830,6 +1851,11 @@ inline void screen_buffer::trim_history()
 {
     while (history_.size() > history_limit_)
     {
+        auto &front = history_.front();
+        if (!front.cells.empty())
+        {
+            spare_rows_.push_back(std::move(front.cells));
+        }
         history_.pop_front();
     }
 }
