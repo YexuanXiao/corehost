@@ -244,6 +244,18 @@ void test_text_writer()
           "runtime wcswidth measurement");
     check(codepoint_width_for(text_measurement::console, U'\u0301') == 0,
           "runtime console codepoint width");
+
+    screen_buffer runtime_buffer(8, 2);
+    coord runtime_cursor{0, 0};
+    const auto runtime_result = runtime_buffer.write_text_row_for(
+        text_measurement::graphemes, false, runtime_cursor, u"e\u0301", {}, style1, true);
+    check(runtime_result.consumed == 2 && runtime_cursor.x == 1, "runtime grapheme writer");
+    check(runtime_buffer.glyph_at(0, 0) == u"e\u0301", "runtime grapheme cluster");
+
+    runtime_cursor = {};
+    const auto wide_runtime_result = runtime_buffer.write_text_row_for(
+        text_measurement::wcswidth, false, runtime_cursor, u"\u4E2D", {}, style1, true);
+    check(wide_runtime_result.consumed == 1 && runtime_cursor.x == 2, "runtime wcswidth writer");
 }
 
 void test_copy_scroll()

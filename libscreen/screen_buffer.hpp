@@ -387,6 +387,10 @@ class screen_buffer final
     text_write_result write_text_row(coord &cursor, std::u16string_view text, std::span<const std::uint8_t> widths,
                                      cell_style style, bool wrap_at_eol = true,
                                      cell_hyperlink hyperlink = no_cell_hyperlink) noexcept;
+    text_write_result write_text_row_for(text_measurement measurement, bool ambiguous_is_wide, coord &cursor,
+                                         std::u16string_view text, std::span<const std::uint8_t> widths,
+                                         cell_style style, bool wrap_at_eol = true,
+                                         cell_hyperlink hyperlink = no_cell_hyperlink) noexcept;
     [[nodiscard]] bool write_glyph(coord position, std::u16string_view glyph, int columns, cell_style style,
                                    cell_hyperlink hyperlink = no_cell_hyperlink) noexcept;
 
@@ -1517,6 +1521,30 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
         }
     }
     return result;
+}
+
+inline screen_buffer::text_write_result screen_buffer::write_text_row_for(
+    text_measurement measurement, bool ambiguous_is_wide, coord &cursor, std::u16string_view text,
+    std::span<const std::uint8_t> widths, cell_style style, bool wrap_at_eol, cell_hyperlink hyperlink) noexcept
+{
+    switch (measurement)
+    {
+    case text_measurement::console:
+        return write_text_row<text_measurement::console, false>(cursor, text, widths, style, wrap_at_eol, hyperlink);
+    case text_measurement::graphemes:
+        return ambiguous_is_wide
+                   ? write_text_row<text_measurement::graphemes, true>(cursor, text, widths, style, wrap_at_eol,
+                                                                       hyperlink)
+                   : write_text_row<text_measurement::graphemes, false>(cursor, text, widths, style, wrap_at_eol,
+                                                                        hyperlink);
+    case text_measurement::wcswidth:
+        return ambiguous_is_wide
+                   ? write_text_row<text_measurement::wcswidth, true>(cursor, text, widths, style, wrap_at_eol,
+                                                                      hyperlink)
+                   : write_text_row<text_measurement::wcswidth, false>(cursor, text, widths, style, wrap_at_eol,
+                                                                       hyperlink);
+    }
+    return {};
 }
 
 inline bool screen_buffer::write_glyph(coord position, std::u16string_view glyph, int columns, cell_style style,
