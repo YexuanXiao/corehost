@@ -67,6 +67,11 @@ int main()
           "ground text ascii flag");
 
     parser.reset();
+    result = parser.parse(u"abc");
+    check(result.id == vt_message_id::continue_text && result.message.text_is_ascii,
+          "short text ascii flag");
+
+    parser.reset();
     result = parser.parse(u"AB\u4E2D");
     check(result.id == vt_message_id::continue_text && !result.message.text_is_ascii,
           "ground text non-ascii flag");
