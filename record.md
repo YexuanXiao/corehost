@@ -1109,6 +1109,22 @@ eebdc63 perf(consoleapi): dispatch virtual keys with switch
 7fdebb5 perf(vtserializer): avoid zeroing sgr scratch
 ```
 
+### VT 单字节标量直接 push_back
+
+`append_utf16_unit` 在编码结果只有 1 字节时（普通 ASCII）直接 `push_back`，避免构造 span 和 `append`：
+
+```text
+ebc7e0a perf(vtserializer): push one-byte scalar units directly
+```
+
+`C:\1\bench_unit2.cpp`，2000 万次：
+
+```text
+ascii     old=4.100-4.434 ns new=1.677-1.694 ns ratio=2.42-2.62x
+cjk       old=5.630-5.672 ns new=5.627-5.662 ns ratio≈1.00x
+surrogate old=5.881-5.934 ns new=5.873-6.084 ns ratio=0.97-1.00x
+```
+
 ### VT 标量单元格直接编码
 
 新增 `append_utf16_unit`，`render_damage` / `render_viewport` 的普通单元格不再构造 `u16string_view` 再走 `append_utf16` 的 `size()==1` 判断：
