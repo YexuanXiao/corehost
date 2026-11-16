@@ -810,6 +810,7 @@ inline std::size_t screen_buffer::write_ascii(std::size_t x, std::size_t y, std:
 
     const auto count = std::min(text.size(), width_ - x);
     const auto start = x;
+    const auto prototype = cell::scalar(u'\0', style, cell_width::narrow, hyperlink);
     auto &target = active_page();
     auto cells = target.row_cells(y);
     for (std::size_t i = 0; i < count; ++i)
@@ -829,7 +830,9 @@ inline std::size_t screen_buffer::write_ascii(std::size_t x, std::size_t y, std:
                 target.mark_dirty(y, x + 1, x + 2);
             }
         }
-        cells[x] = cell::scalar(text[i], style, cell_width::narrow, hyperlink);
+        auto value = prototype;
+        value.primary_ = text[i];
+        cells[x] = value;
         ++x;
     }
     target.mark_dirty(y, start, x);
