@@ -261,12 +261,79 @@ class server_session final
         return raw_mode_;
     }
 
-    void echo_raw(std::span<const char> bytes) noexcept
+    static void apply_line_edits(std::string &text)
     {
+        std::size_t out = 0;
+        for (const auto value : text)
+        {
+            const auto byte = static_cast<unsigned char>(value);
+            if (byte == 0x7F || byte == '\b')
+            {
+                if (out != 0 && text[out - 1] != '\r' && text[out - 1] != '\n')
+                {
+                    do
+                    {
+                        --out;
+                    } while (out != 0 && (static_cast<unsigned char>(text[out]) & 0xC0) == 0x80);
+                }
+                continue;
+            }
+            text[out++] = value;
+        }
+        text.resize(out);
+    }
+
+    void echo_live(std::span<const char> bytes)
+    {
+        if (!writer_ || !raw_mode_ || bytes.empty() || (state_.input_mode & ENABLE_LINE_INPUT) == 0 ||
+            (state_.input_mode & ENABLE_ECHO_INPUT) == 0)
+        {
+            return;
+        }
+        for (const auto value : bytes)
+        {
+            const auto byte = static_cast<unsigned char>(value);
+            if (byte == '\b' || byte == 0x7F || byte == 0x1B)
+            {
+                return;
+            }
+        }
+        echo_decoder_.decode(
+            std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()}, echo_text_);
+        (void)write_text(echo_text_);
+        screen_.clear_damage();
+        (void)state_.take_cursor_changed();
+        (void)state_.take_echo_line_feed();
+        writer_->buffer().append(
+            std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()});
+        live_echoed_ = true;
+    }
+
+    void echo_raw(std::span<const char> bytes)
+    {
+        if (live_echoed_)
+        {
+            if (raw_line_remaining_ == 0)
+            {
+                live_echoed_ = false;
+            }
+            return;
+        }
         if (!writer_ || bytes.empty() || (state_.input_mode & ENABLE_ECHO_INPUT) == 0)
         {
             return;
         }
+        // ECHO must update both the terminal output and the console screen
+        // buffer. Apply the text to the screen state, then emit the original
+        // bytes and drop the generated damage so a later screen API redraw does
+        // not discard the echoed text and the terminal does not see a duplicate
+        // screen render.
+        echo_decoder_.decode(
+            std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()}, echo_text_);
+        (void)write_text(echo_text_);
+        screen_.clear_damage();
+        (void)state_.take_cursor_changed();
+        (void)state_.take_echo_line_feed();
         writer_->buffer().append(
             std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()});
     }
@@ -274,9 +341,36 @@ class server_session final
     std::size_t read_raw(std::span<char> output)
     {
         raw_mode_ = true;
+        if (!win32_input_suspended_ && writer_)
+        {
+            // Console ReadFile must receive console characters/VT sequences, not
+            // WT's Win32 Input Mode protocol. Disable 9001 while a raw read is
+            // active; resume it if the application goes back to ReadConsole.
+            writer_->buffer().append_text(u8"\x1b[?9001l");
+            win32_input_suspended_ = true;
+        }
         if (output.empty() || raw_in_.empty())
         {
             return 0;
+        }
+
+        const bool line_input = (state_.input_mode & ENABLE_LINE_INPUT) != 0;
+        if (line_input)
+        {
+            apply_line_edits(raw_in_);
+            if (raw_in_.empty())
+            {
+                return 0;
+            }
+        }
+
+        if (line_input && raw_line_remaining_ != 0)
+        {
+            const auto written = std::min(output.size(), raw_line_remaining_);
+            std::memcpy(output.data(), raw_in_.data(), written);
+            raw_in_.erase(0, written);
+            raw_line_remaining_ -= written;
+            return written;
         }
 
         const auto limit = std::min<std::size_t>(output.size(), raw_in_.size());
@@ -320,11 +414,20 @@ class server_session final
 
         if (!complete)
         {
-            if (raw_in_.size() < output.size())
+            if (line_input || raw_in_.size() < output.size())
             {
                 return 0;
             }
             consumed = limit;
+        }
+
+        if (line_input && consumed > output.size())
+        {
+            const auto written = output.size();
+            std::memcpy(output.data(), raw_in_.data(), written);
+            raw_in_.erase(0, written);
+            raw_line_remaining_ = consumed - written;
+            return written;
         }
 
         const bool add_cr =
@@ -489,6 +592,12 @@ class server_session final
         if (message.descriptor.InputSize >= sizeof(CONSOLE_MSG_HEADER))
         {
             const auto *header = reinterpret_cast<const CONSOLE_MSG_HEADER *>(message.body);
+            if ((header->ApiNumber == ConsolepReadConsole || header->ApiNumber == ConsolepGetConsoleInput) &&
+                win32_input_suspended_ && writer_)
+            {
+                writer_->buffer().append_text(u8"\x1b[?9001h");
+                win32_input_suspended_ = false;
+            }
             if (header->ApiNumber == ConsolepWriteConsole)
             {
                 return write_console(message);
@@ -685,8 +794,13 @@ class server_session final
     vtparser::vt_parser parser_;
     vtstate::state_applier applier_;
     std::u16string text_;
+    std::u16string echo_text_;
+    vtparser::utf8_decoder echo_decoder_;
     std::string raw_in_;
     bool raw_mode_{};
+    bool win32_input_suspended_{};
+    bool live_echoed_{};
+    std::size_t raw_line_remaining_{};
     bool raw_eof_{};
     bool raw_alerted_{};
     coreio::process_registry processes_;

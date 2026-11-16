@@ -184,6 +184,10 @@ class session_input_sink final
         // while no read request is outstanding; otherwise pasted input that
         // arrives between reads is lost.
         console_.push_raw(std::span<const char>{reinterpret_cast<const char *>(bytes.data()), bytes.size()});
+        if (console_.raw_input_mode())
+        {
+            console_.echo_live(std::span<const char>{reinterpret_cast<const char *>(bytes.data()), bytes.size()});
+        }
         if (!raw_pending && !console_.raw_input_mode())
         {
             state_.feed_input(text_, (state_.state().input_mode & 0x0200) != 0 &&

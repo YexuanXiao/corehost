@@ -197,6 +197,23 @@ int main()
         return EXIT_FAILURE;
     }
 
+    const char line_a[]{"AB"};
+    server.push_raw(std::span<const char>{line_a, 2});
+    if (server.read_raw(std::span<char>{raw_read_data}) != 0)
+    {
+        std::fprintf(stderr, "line input returned before line terminator\n");
+        return EXIT_FAILURE;
+    }
+    const char line_edit[]{"\x7F" "C\r"};
+    server.push_raw(std::span<const char>{line_edit, 3});
+    if (server.read_raw(std::span<char>{raw_read_data}) != 4 || raw_read_data[0] != 'A' || raw_read_data[1] != 'C' ||
+        raw_read_data[2] != '\r' || raw_read_data[3] != '\n')
+    {
+        std::fprintf(stderr, "line input editing failed\n");
+        return EXIT_FAILURE;
+    }
+
+    server_state.input_mode &= ~ENABLE_LINE_INPUT;
     std::array<char, 32> long_raw{};
     long_raw.fill('A');
     server.push_raw(std::span<const char>{long_raw});
@@ -219,6 +236,7 @@ int main()
         std::fprintf(stderr, "raw control residue was not consumed correctly\n");
         return EXIT_FAILURE;
     }
+    server_state.input_mode |= ENABLE_LINE_INPUT;
 
     corehost::corehost2::session enter_session{8, 2};
     constexpr char16_t enter_input[]{u'A', u'\r'};
