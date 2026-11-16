@@ -228,6 +228,40 @@ class state_applier final
                 continue;
             }
 
+            const auto first = text[consumed];
+            if (first < 0xD800 || first > 0xDFFF)
+            {
+                auto columns = screen::char_width_for_mode<Mode, Ambiguous>(first);
+                if (columns > 0)
+                {
+                    if (columns > 2)
+                        columns = 2;
+                    if (static_cast<std::size_t>(cursor.x) + static_cast<std::size_t>(columns) > width)
+                    {
+                        buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
+                        cursor.x = 0;
+                        ++cursor.y;
+                    }
+                    if (static_cast<std::size_t>(cursor.y) >= height)
+                    {
+                        const auto top = state.scroll_top();
+                        const auto bottom = state.scroll_bottom();
+                        buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1, style);
+                        cursor.y = static_cast<std::int32_t>(bottom);
+                    }
+                    if (!buffer.write_codepoint(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y),
+                                                first, style, columns >= 2 ? screen::cell_width::wide
+                                                                           : screen::cell_width::narrow,
+                                                hyperlink))
+                    {
+                        break;
+                    }
+                    cursor.x += columns;
+                    ++consumed;
+                    continue;
+                }
+            }
+
             const auto cluster = *screen::grapheme_range<Mode, Ambiguous>{text.substr(consumed)}.begin();
             auto columns = cluster.width;
             if (columns <= 0)

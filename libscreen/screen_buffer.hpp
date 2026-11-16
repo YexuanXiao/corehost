@@ -826,6 +826,30 @@ inline std::size_t screen_buffer::write_ascii(std::size_t x, std::size_t y, std:
     const auto prototype = cell::scalar(u'\0', style, cell_width::narrow, hyperlink);
     auto &target = active_page();
     auto cells = target.row_cells(y);
+
+    bool all_narrow = true;
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        if (cells[x + i].width_ != cell_width::narrow)
+        {
+            all_narrow = false;
+            break;
+        }
+    }
+    if (all_narrow)
+    {
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            auto value = prototype;
+            value.primary_ = text[i];
+            cells[x + i] = value;
+        }
+        x += count;
+        target.mark_dirty(y, start, x);
+        target.mark_used(y, x);
+        return count;
+    }
+
     for (std::size_t i = 0; i < count; ++i)
     {
         const auto old = cells[x];
