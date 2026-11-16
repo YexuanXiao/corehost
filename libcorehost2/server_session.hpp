@@ -649,11 +649,12 @@ class server_session final
             std::span<const char8_t>{reinterpret_cast<const char8_t *>(echo_bytes_.data()), echo_bytes_.size()},
             echo_text_);
         (void)write_text(echo_text_);
+        const auto echo_cursor = screen::coord{static_cast<std::int32_t>(state_.cursor().x),
+                                               static_cast<std::int32_t>(state_.cursor().y)};
+        vtserializer::render_damage(writer_->buffer(), screen_, echo_cursor, &state_);
         screen_.clear_damage();
         (void)state_.take_cursor_changed();
         (void)state_.take_echo_line_feed();
-        writer_->buffer().append(
-            std::span<const char8_t>{reinterpret_cast<const char8_t *>(echo_bytes_.data()), echo_bytes_.size()});
         live_echoed_ = true;
         if (echo_bytes_.find("\r\n") != std::string::npos)
             line_start_valid_ = false;
@@ -671,16 +672,6 @@ class server_session final
                     (void)screen_.write_ascii(static_cast<std::size_t>(x), static_cast<std::size_t>(line_start_y_), u" ",
                                               state_.default_style, screen::no_cell_hyperlink);
                 }
-                screen_.clear_damage();
-                (void)state_.take_cursor_changed();
-                writer_->buffer().append_text(u8"\r");
-                if (line_start_x_ != 0)
-                {
-                    const auto move = "\x1b[" + std::to_string(line_start_x_) + "C";
-                    writer_->buffer().append(std::span<const char8_t>{
-                        reinterpret_cast<const char8_t *>(move.data()), move.size()});
-                }
-                writer_->buffer().append_text(u8"\x1b[K");
                 live_echoed_ = false;
                 line_edited_ = false;
                 line_start_valid_ = false;
@@ -726,12 +717,12 @@ class server_session final
                 }
             }
             (void)write_text(echo_text_);
+            const auto echo_cursor = screen::coord{static_cast<std::int32_t>(state_.cursor().x),
+                                                   static_cast<std::int32_t>(state_.cursor().y)};
+            vtserializer::render_damage(writer_->buffer(), screen_, echo_cursor, &state_);
             screen_.clear_damage();
             (void)state_.take_cursor_changed();
             (void)state_.take_echo_line_feed();
-            const auto utf8 = encode_utf8(echo_text_);
-            writer_->buffer().append(std::span<const char8_t>{reinterpret_cast<const char8_t *>(utf8.data()),
-                                                             utf8.size()});
         }
         else
         {
