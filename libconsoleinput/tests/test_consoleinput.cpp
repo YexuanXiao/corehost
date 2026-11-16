@@ -54,6 +54,30 @@ int main()
         return EXIT_FAILURE;
     }
 
+    queue.clear();
+    input_event text_event{};
+    text_event.type = input_event_type::text;
+    text_event.text = u"ABC";
+    queue.push(std::move(text_event));
+    if (queue.record_count() != 6 || !queue.has_key())
+    {
+        std::fprintf(stderr, "text batch accounting failed\n");
+        return EXIT_FAILURE;
+    }
+    input_event expanded[8]{};
+    const auto expanded_count = queue.peek(expanded);
+    if (expanded_count != 6 || expanded[0].key.character != u'A' || expanded[0].key.key == virtual_key{} ||
+        expanded[1].key.key_down)
+    {
+        std::fprintf(stderr, "text batch expansion metadata failed\n");
+        return EXIT_FAILURE;
+    }
+    if (queue.read(expanded) != 6 || !queue.empty() || queue.has_key())
+    {
+        std::fprintf(stderr, "text batch read failed\n");
+        return EXIT_FAILURE;
+    }
+
     parser.reset();
     result = parser.parse(u"\x1b[<0;5;3M");
     const auto mouse = mouse_from_message(result.id, result.message);

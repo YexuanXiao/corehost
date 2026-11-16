@@ -2016,7 +2016,7 @@ class console_api final
             return true;
         }
         auto *info = reinterpret_cast<CONSOLE_GETNUMBEROFINPUTEVENTS_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
-        info->ReadyEvents = has_input() ? static_cast<ULONG>(input_->size()) : 0;
+        info->ReadyEvents = has_input() ? static_cast<ULONG>(input_->record_count()) : 0;
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG));

@@ -6,27 +6,6 @@
 namespace corehost::consoleinput
 {
 
-[[nodiscard]] inline key_event key_from_character(char16_t character, bool key_down = true) noexcept
-{
-    key_event event;
-    event.character = character;
-    event.key_down = key_down;
-    if (character != 0)
-    {
-        const auto scan = ::VkKeyScanW(static_cast<wchar_t>(character));
-        if (scan != -1)
-        {
-            event.key = static_cast<virtual_key>(LOBYTE(scan));
-            const auto shift = HIBYTE(scan);
-            event.control_state = (shift & 1) != 0 ? 0x0010 : 0;
-            event.control_state |= (shift & 2) != 0 ? 0x0008 : 0;
-            event.control_state |= (shift & 4) != 0 ? 0x0004 : 0;
-            event.scan_code = static_cast<std::uint16_t>(::MapVirtualKeyW(LOBYTE(scan), MAPVK_VK_TO_VSC));
-        }
-    }
-    return event;
-}
-
 inline std::optional<key_event> key_from_message(vtparser::vt_message_id id,
                                                  const vtparser::vt_message &message) noexcept
 {

@@ -6,10 +6,13 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <Windows.h>
+
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 
 namespace corehost::consoleinput
 {
@@ -65,6 +68,27 @@ struct key_event final
     bool key_down{true};
 };
 
+[[nodiscard]] inline key_event key_from_character(char16_t character, bool key_down = true) noexcept
+{
+    key_event event;
+    event.character = character;
+    event.key_down = key_down;
+    if (character != 0)
+    {
+        const auto scan = ::VkKeyScanW(static_cast<wchar_t>(character));
+        if (scan != -1)
+        {
+            event.key = static_cast<virtual_key>(LOBYTE(scan));
+            const auto shift = HIBYTE(scan);
+            event.control_state = (shift & 1) != 0 ? 0x0010 : 0;
+            event.control_state |= (shift & 2) != 0 ? 0x0008 : 0;
+            event.control_state |= (shift & 4) != 0 ? 0x0004 : 0;
+            event.scan_code = static_cast<std::uint16_t>(::MapVirtualKeyW(LOBYTE(scan), MAPVK_VK_TO_VSC));
+        }
+    }
+    return event;
+}
+
 enum class input_event_type : std::uint8_t
 {
     key,
@@ -103,19 +127,45 @@ class input_queue final
     void push(const input_event &event)
     {
         if (event.type == input_event_type::key && event.key.key_down)
-        {
             ++key_count_;
-        }
+        else if (event.type == input_event_type::text)
+            key_count_ += event.text.size();
         events_.push_back(event);
+    }
+
+    void push(input_event &&event)
+    {
+        if (event.type == input_event_type::key && event.key.key_down)
+            ++key_count_;
+        else if (event.type == input_event_type::text)
+            key_count_ += event.text.size();
+        events_.push_back(std::move(event));
     }
 
     void push_front(const input_event &event)
     {
         if (event.type == input_event_type::key && event.key.key_down)
-        {
             ++key_count_;
-        }
+        else if (event.type == input_event_type::text)
+            key_count_ += event.text.size();
         events_.push_front(event);
+    }
+
+    void push_front(input_event &&event)
+    {
+        if (event.type == input_event_type::key && event.key.key_down)
+            ++key_count_;
+        else if (event.type == input_event_type::text)
+            key_count_ += event.text.size();
+        events_.push_front(std::move(event));
+    }
+
+    [[nodiscard]] std::size_t record_count() const noexcept
+    {
+        std::size_t count = 0;
+        for (const auto &event : events_)
+            count += event.type == input_event_type::text ? (event.text.size() - event.text_offset) * 2 : 1;
+        return count;
     }
 
     [[nodiscard]] std::size_t size() const noexcept
@@ -149,14 +199,13 @@ class input_queue final
             {
                 input_event down{};
                 down.type = input_event_type::key;
-                down.key.character = event.text[i];
+                down.key = key_from_character(event.text[i], true);
                 destination[count++] = down;
                 if (count == destination.size())
                     break;
                 input_event up{};
                 up.type = input_event_type::key;
-                up.key.character = event.text[i];
-                up.key.key_down = false;
+                up.key = key_from_character(event.text[i], false);
                 destination[count++] = up;
             }
         }
@@ -171,8 +220,11 @@ class input_queue final
         std::copy_n(events_.begin(), count, destination.begin());
         for (std::size_t i = 0; i < count; ++i)
         {
-            if (events_.front().type == input_event_type::key && events_.front().key.key_down)
+            auto &front = events_.front();
+            if (front.type == input_event_type::key && front.key.key_down)
                 --key_count_;
+            else if (front.type == input_event_type::text)
+                key_count_ -= front.text.size() - front.text_offset;
             events_.pop_front();
         }
         return count;
@@ -185,8 +237,7 @@ class input_queue final
         {
             input_event up{};
             up.type = input_event_type::key;
-            up.key.character = text_up_char_;
-            up.key.key_down = false;
+            up.key = key_from_character(text_up_char_, false);
             destination[count++] = up;
             text_up_pending_ = false;
         }
@@ -207,16 +258,16 @@ class input_queue final
                 continue;
             }
             const auto character = front.text[front.text_offset++];
+            --key_count_;
             input_event down{};
             down.type = input_event_type::key;
-            down.key.character = character;
+            down.key = key_from_character(character, true);
             destination[count++] = down;
             if (count < destination.size())
             {
                 input_event up{};
                 up.type = input_event_type::key;
-                up.key.character = character;
-                up.key.key_down = false;
+                up.key = key_from_character(character, false);
                 destination[count++] = up;
             }
             else
