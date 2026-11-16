@@ -10,6 +10,7 @@
 #include <libunicode/convert.h>
 
 #include <algorithm>
+#include <cassert>
 #include <iterator>
 #include <string>
 
@@ -152,19 +153,20 @@ class state_applier final
         const auto height = state.height();
         const auto style = state.default_style;
         const auto hyperlink = state.default_hyperlink;
+        assert(cursor.x >= 0 && cursor.y >= 0);
 
         if (screen::all_printable_ascii(text))
         {
             std::size_t consumed = 0;
             for (const auto ch : text)
             {
-                if (cursor.x >= 0 && static_cast<std::size_t>(cursor.x) + 1 > width)
+                if (static_cast<std::size_t>(cursor.x) + 1 > width)
                 {
                     buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
                     cursor.x = 0;
                     ++cursor.y;
                 }
-                if (cursor.y >= 0 && static_cast<std::size_t>(cursor.y) >= height)
+                if (static_cast<std::size_t>(cursor.y) >= height)
                 {
                     const auto top = state.scroll_top();
                     const auto bottom = state.scroll_bottom();
@@ -192,13 +194,13 @@ class state_applier final
             {
                 columns = 1;
             }
-            if (cursor.x >= 0 && static_cast<std::size_t>(cursor.x) + static_cast<std::size_t>(columns) > width)
+            if (static_cast<std::size_t>(cursor.x) + static_cast<std::size_t>(columns) > width)
             {
                 buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
                 cursor.x = 0;
                 ++cursor.y;
             }
-            if (cursor.y >= 0 && static_cast<std::size_t>(cursor.y) >= height)
+            if (static_cast<std::size_t>(cursor.y) >= height)
             {
                 const auto top = state.scroll_top();
                 const auto bottom = state.scroll_bottom();
