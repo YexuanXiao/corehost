@@ -370,6 +370,39 @@ int main()
         return EXIT_FAILURE;
     }
 
+    {
+        screen::screen_buffer region_buffer{4, 5};
+        screen::console_state region_state{4, 5};
+        for (std::size_t y = 0; y < 5; ++y)
+        {
+            if (!region_buffer.write_scalar(0, y, static_cast<char16_t>(u'A' + y)))
+            {
+                std::fprintf(stderr, "scroll region setup failed\n");
+                return EXIT_FAILURE;
+            }
+        }
+        region_state.set_scroll_region(1, 3);
+        region_state.set_cursor(0, 3);
+        line_applier.apply_line_feed(region_buffer, region_state);
+        if (region_state.cursor().y != 3 || region_buffer.at(0, 0).primary() != u'A' ||
+            region_buffer.at(0, 1).primary() != u'C' || region_buffer.at(0, 2).primary() != u'D' ||
+            region_buffer.at(0, 3).primary() != u' ' || region_buffer.at(0, 4).primary() != u'E')
+        {
+            std::fprintf(stderr, "scroll region line feed failed\n");
+            return EXIT_FAILURE;
+        }
+
+        region_state.set_cursor(2, 3);
+        line_applier.apply_index(region_buffer, region_state);
+        if (region_state.cursor().x != 2 || region_state.cursor().y != 3 ||
+            region_buffer.at(0, 1).primary() != u'D' || region_buffer.at(0, 2).primary() != u' ' ||
+            region_buffer.at(0, 3).primary() != u' ')
+        {
+            std::fprintf(stderr, "scroll region index failed\n");
+            return EXIT_FAILURE;
+        }
+    }
+
     parser.reset();
     result = parser.parse(u"\x1b[5;3R");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);

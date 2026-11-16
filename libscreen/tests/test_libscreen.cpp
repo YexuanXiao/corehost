@@ -296,6 +296,20 @@ void test_screen_buffer()
     check(screen.history_size() == 0, "resize clears history");
     check(screen.damage_begin(0) == 0 && screen.damage_end(0) == 6, "resize marks damage");
 
+    {
+        screen_buffer anchored{4, 4};
+        for (std::size_t y = 0; y < 4; ++y)
+        {
+            (void)anchored.write_scalar(0, y, static_cast<char16_t>(u'A' + y), style0);
+        }
+        anchored.resize(4, 2, style0, true);
+        check(anchored.at(0, 0).primary() == u'C' && anchored.at(0, 1).primary() == u'D',
+              "resize shrink anchors bottom");
+        anchored.resize(4, 4, style0, true);
+        check(anchored.at(0, 2).primary() == u'C' && anchored.at(0, 3).primary() == u'D',
+              "resize grow anchors bottom");
+    }
+
     screen.clear(style4);
     check(screen.at(0, 0).style() == style4, "clear style");
     check(screen.at(5, 1).style() == style4, "clear all cells");
