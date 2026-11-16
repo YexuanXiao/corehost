@@ -1118,6 +1118,19 @@ c7a2266 perf(vt): carry ascii flag from parser to text renderer
 93966ad test(vtparser): cover ascii text flag
 ```
 
+不足 4 字符的尾部用 4 个 `char16_t` 补空格后一次 SWAR 判断，不再直接把短文本标记为非 ASCII：
+
+```text
+edab9cd perf(vtparser): classify short ascii text runs
+dd9c9fd test(vtparser): cover short ascii flag
+```
+
+短文本 `apply_text` 基准（50 万次）：
+
+```text
+scan=18.0737-23.7208 ns/call flag=14.7449-17.3921 ns/call ratio=1.09-1.61x
+```
+
 `C:\1\bench_ascii_flag.cpp`，200 字符、50 万次：
 
 ```text
