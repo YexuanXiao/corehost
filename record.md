@@ -1994,3 +1994,34 @@ PYTHON-RAW-OK
 ```
 
 libcorehost 与 corehost2 现在都正常。
+
+### Python 交互式 REPL 验证
+
+修复 output handle 识别后，`python.exe` 交互式 REPL 正常：
+
+```text
+Python 3.15.0 ...
+>>> print("PY-REPL")
+PY-REPL
+>>>
+```
+
+### Console API 冒烟回归
+
+`api_smoke.exe` 在 WT 中逐项通过：
+
+```text
+write_chars=ok
+read_chars=ok
+read_attrs=ok
+write_attrs=ok
+read_attrs_roundtrip=ok
+fill_chars=ok
+fill_chars_roundtrip=ok
+fill_attrs=ok
+fill_attrs_roundtrip=ok
+screen_info=ok
+scroll=ok
+set_text_attr=ok
+get_text_attr=ok
+```
