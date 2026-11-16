@@ -16,9 +16,11 @@
 #include "deque.hpp"
 #include "input.hpp"
 
+#include <array>
 #include <bit>
 #include <cstring>
 #include <memory>
+#include <string>
 #include <string_view>
 
 namespace corehost::corehost2
@@ -170,9 +172,26 @@ class server_session final
         return consumed;
     }
 
+    void note_raw_bytes(std::span<const char> bytes) noexcept
+    {
+        if (raw_line_complete_)
+            return;
+        const bool processed = (state_.input_mode & ENABLE_PROCESSED_INPUT) != 0;
+        for (const auto value : bytes)
+        {
+            const auto byte = static_cast<unsigned char>(value);
+            if (byte == '\r' || byte == '\n' || (processed && (byte == 3 || byte == 0x1A)))
+            {
+                raw_line_complete_ = true;
+                return;
+            }
+        }
+    }
+
     void push_raw(std::span<const char> bytes)
     {
         raw_in_.append(bytes.data(), bytes.size());
+        note_raw_bytes(bytes);
         signal_input_event();
     }
 
@@ -386,6 +405,199 @@ class server_session final
         text = std::move(edited);
     }
 
+    [[nodiscard]] std::string encode_console_text(std::u16string_view text) const
+    {
+        const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_UTF8;
+        if (text.empty())
+            return {};
+        const auto size = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                                                static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+        std::string result(static_cast<std::size_t>(std::max(size, 0)), '\0');
+        if (!result.empty())
+        {
+            (void)::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                                        static_cast<int>(text.size()), result.data(), static_cast<int>(result.size()),
+                                        nullptr, nullptr);
+        }
+        return result;
+    }
+
+    [[nodiscard]] static std::string encode_utf8(std::u16string_view text)
+    {
+        if (text.empty())
+            return {};
+        const auto size = ::WideCharToMultiByte(CP_UTF8, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                                                static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+        std::string result(static_cast<std::size_t>(std::max(size, 0)), '\0');
+        if (!result.empty())
+        {
+            (void)::WideCharToMultiByte(CP_UTF8, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                                        static_cast<int>(text.size()), result.data(),
+                                        static_cast<int>(result.size()), nullptr, nullptr);
+        }
+        return result;
+    }
+
+    [[nodiscard]] static std::string_view terminal_key_sequence(consoleinput::virtual_key key) noexcept
+    {
+        switch (key)
+        {
+        case consoleinput::virtual_key::up:
+            return "\x1b[A";
+        case consoleinput::virtual_key::down:
+            return "\x1b[B";
+        case consoleinput::virtual_key::right:
+            return "\x1b[C";
+        case consoleinput::virtual_key::left:
+            return "\x1b[D";
+        case consoleinput::virtual_key::home:
+            return "\x1b[H";
+        case consoleinput::virtual_key::end:
+            return "\x1b[F";
+        case consoleinput::virtual_key::insert:
+            return "\x1b[2~";
+        case consoleinput::virtual_key::del:
+            return "\x1b[3~";
+        case consoleinput::virtual_key::page_up:
+            return "\x1b[5~";
+        case consoleinput::virtual_key::page_down:
+            return "\x1b[6~";
+        case consoleinput::virtual_key::f1:
+            return "\x1bOP";
+        case consoleinput::virtual_key::f2:
+            return "\x1bOQ";
+        case consoleinput::virtual_key::f3:
+            return "\x1bOR";
+        case consoleinput::virtual_key::f4:
+            return "\x1bOS";
+        case consoleinput::virtual_key::f5:
+            return "\x1b[15~";
+        case consoleinput::virtual_key::f6:
+            return "\x1b[17~";
+        case consoleinput::virtual_key::f7:
+            return "\x1b[18~";
+        case consoleinput::virtual_key::f8:
+            return "\x1b[19~";
+        case consoleinput::virtual_key::f9:
+            return "\x1b[20~";
+        case consoleinput::virtual_key::f10:
+            return "\x1b[21~";
+        case consoleinput::virtual_key::f11:
+            return "\x1b[23~";
+        case consoleinput::virtual_key::f12:
+            return "\x1b[24~";
+        default:
+            return {};
+        }
+    }
+
+    void consume_raw_text(std::u16string_view text)
+    {
+        if (!raw_mode_ || text.empty())
+            return;
+        const bool line_input = (state_.input_mode & ENABLE_LINE_INPUT) != 0;
+        const auto bytes = encode_console_text(text);
+        raw_in_.append(bytes);
+        note_raw_bytes(std::span<const char>{bytes.data(), bytes.size()});
+        if (line_input)
+        {
+            const auto echo = encode_utf8(text);
+            echo_live(std::span<const char>{echo.data(), echo.size()});
+        }
+        signal_input_event();
+    }
+
+    void process_raw_input_events()
+    {
+        if (!raw_mode_)
+            return;
+
+        const bool line_input = (state_.input_mode & ENABLE_LINE_INPUT) != 0;
+        std::array<consoleinput::input_event, 128> events{};
+        for (;;)
+        {
+            const auto count = input_.read(events);
+            if (count == 0)
+                break;
+
+            std::string bytes;
+            std::string echo;
+            std::u16string text_batch;
+            bool edited = false;
+            const auto flush_text = [&] {
+                if (text_batch.empty())
+                    return;
+                bytes.append(encode_console_text(text_batch));
+                if (line_input)
+                    echo.append(encode_utf8(text_batch));
+                text_batch.clear();
+            };
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                const auto &event = events[i];
+                if (event.type != consoleinput::input_event_type::key || !event.key.key_down)
+                    continue;
+
+                if (event.key.character != 0)
+                {
+                    const auto character = event.key.character;
+                    if (line_input && (character == u'\r' || character == u'\n'))
+                    {
+                        flush_text();
+                        bytes.push_back('\r');
+                        echo.push_back('\r');
+                    }
+                    else if (line_input && (character == u'\b' || character == u'\x7F'))
+                    {
+                        flush_text();
+                        bytes.push_back('\x7F');
+                        edited = true;
+                    }
+                    else
+                    {
+                        text_batch.push_back(character);
+                    }
+                    continue;
+                }
+
+                flush_text();
+                const auto sequence = terminal_key_sequence(event.key.key);
+                if (!sequence.empty())
+                {
+                    bytes.append(sequence);
+                    if (event.key.key == consoleinput::virtual_key::left ||
+                        event.key.key == consoleinput::virtual_key::right ||
+                        event.key.key == consoleinput::virtual_key::home ||
+                        event.key.key == consoleinput::virtual_key::end ||
+                        event.key.key == consoleinput::virtual_key::insert ||
+                        event.key.key == consoleinput::virtual_key::del)
+                    {
+                        edited = true;
+                    }
+                }
+            }
+            flush_text();
+
+            if (!bytes.empty())
+            {
+                raw_in_.append(bytes);
+                note_raw_bytes(std::span<const char>{bytes.data(), bytes.size()});
+            }
+            if (line_input)
+            {
+                if (edited || line_edited_)
+                {
+                    line_edited_ = true;
+                }
+                else if (!echo.empty())
+                {
+                    echo_live(echo);
+                }
+            }
+        }
+        signal_input_event();
+    }
+
     void echo_live(std::span<const char> bytes)
     {
         if (!writer_ || !raw_mode_ || bytes.empty() || (state_.input_mode & ENABLE_LINE_INPUT) == 0 ||
@@ -507,19 +719,18 @@ class server_session final
         (void)state_.take_echo_line_feed();
         writer_->buffer().append(
             std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()});
+        if ((state_.input_mode & ENABLE_LINE_INPUT) != 0 && raw_line_remaining_ == 0)
+        {
+            live_echoed_ = false;
+            line_edited_ = false;
+            line_start_valid_ = false;
+        }
     }
 
     std::size_t read_raw(std::span<char> output)
     {
         raw_mode_ = true;
-        if (!win32_input_suspended_ && writer_)
-        {
-            // Console ReadFile must receive console characters/VT sequences, not
-            // WT's Win32 Input Mode protocol. Disable 9001 while a raw read is
-            // active; resume it if the application goes back to ReadConsole.
-            writer_->buffer().append_text(u8"\x1b[?9001l");
-            win32_input_suspended_ = true;
-        }
+        process_raw_input_events();
         if (output.empty() || raw_in_.empty())
         {
             return 0;
@@ -530,14 +741,14 @@ class server_session final
         {
             // Editing is stateful; apply it only once a complete line is in the
             // raw buffer, not on every intermediate input chunk.
-            const auto terminator = find_raw_control<true>(raw_in_, raw_in_.size());
-            if (terminator == raw_in_.size())
+            if (!raw_line_complete_)
             {
                 return 0;
             }
             apply_line_edits(raw_in_);
             if (raw_in_.empty())
             {
+                raw_line_complete_ = false;
                 return 0;
             }
         }
@@ -548,6 +759,8 @@ class server_session final
             std::memcpy(output.data(), raw_in_.data(), written);
             raw_in_.erase(0, written);
             raw_line_remaining_ -= written;
+            if (raw_line_remaining_ == 0)
+                raw_line_complete_ = false;
             return written;
         }
 
@@ -616,6 +829,8 @@ class server_session final
         {
             std::memcpy(output.data(), raw_in_.data(), consumed);
             raw_in_.erase(0, consumed);
+            if (line_input && raw_in_.empty())
+                raw_line_complete_ = false;
             raw_eof_ = eof;
             return consumed;
         }
@@ -646,6 +861,8 @@ class server_session final
         }
 
         raw_in_.erase(0, consumed);
+        if (line_input && raw_in_.empty())
+            raw_line_complete_ = false;
         raw_eof_ = eof;
         return written;
     }
@@ -770,12 +987,6 @@ class server_session final
         if (message.descriptor.InputSize >= sizeof(CONSOLE_MSG_HEADER))
         {
             const auto *header = reinterpret_cast<const CONSOLE_MSG_HEADER *>(message.body);
-            if ((header->ApiNumber == ConsolepReadConsole || header->ApiNumber == ConsolepGetConsoleInput) &&
-                win32_input_suspended_ && writer_)
-            {
-                writer_->buffer().append_text(u8"\x1b[?9001h");
-                win32_input_suspended_ = false;
-            }
             if (header->ApiNumber == ConsolepWriteConsole)
             {
                 return write_console(message);
@@ -977,8 +1188,8 @@ class server_session final
     vtparser::utf8_decoder echo_decoder_;
     std::string raw_in_;
     bool raw_mode_{};
-    bool win32_input_suspended_{};
     bool live_echoed_{};
+    bool raw_line_complete_{};
     bool line_edited_{};
     bool line_start_valid_{};
     int line_start_x_{};

@@ -684,5 +684,32 @@ int main()
     }
 
     std::printf("libcorehost2 tests passed\n");
+    corehost::screen::screen_buffer event_buffer{8, 4};
+    corehost::screen::console_state event_state{8, 4};
+    event_state.input_mode = ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT;
+    corehost::consoleinput::input_queue event_input;
+    corehost::corehost2::server_session event_server{event_buffer, event_state, event_input};
+    const auto push_char = [&](char16_t value) {
+        corehost::consoleinput::input_event event{};
+        event.key.character = value;
+        event_input.push(event);
+    };
+    push_char(u'A');
+    push_char(u'B');
+    {
+        corehost::consoleinput::input_event event{};
+        event.key.key = corehost::consoleinput::virtual_key::left;
+        event_input.push(event);
+    }
+    push_char(u'X');
+    push_char(u'\r');
+    char event_read[8]{};
+    if (event_server.read_raw(std::span<char>{event_read}) != 5 || event_read[0] != 'A' || event_read[1] != 'X' ||
+        event_read[2] != 'B' || event_read[3] != '\r' || event_read[4] != '\n')
+    {
+        std::fprintf(stderr, "raw event line editing failed\n");
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }

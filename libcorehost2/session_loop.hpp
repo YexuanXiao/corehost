@@ -180,18 +180,14 @@ class session_input_sink final
             state_.screen().alternate_active() ? 1 : 0, raw_pending ? 1 : 0, console_.console_read_pending() ? 1 : 0);
         LOG_HEX("input", bytes.data(), bytes.size() < 256 ? bytes.size() : 256);
         decoder_.decode(std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()}, text_);
-        // Console ReadFile uses the RAW_READ path. Keep bytes buffered even
-        // while no read request is outstanding; otherwise pasted input that
-        // arrives between reads is lost.
-        console_.push_raw(std::span<const char>{reinterpret_cast<const char *>(bytes.data()), bytes.size()});
-        if (console_.raw_input_mode())
+        if (console_.raw_input_mode() && text_.find(u'\x1b') == std::u16string::npos)
         {
-            console_.echo_live(std::span<const char>{reinterpret_cast<const char *>(bytes.data()), bytes.size()});
+            console_.consume_raw_text(text_);
         }
-        if (!raw_pending && !console_.raw_input_mode())
+        else
         {
-            state_.feed_input(text_, (state_.state().input_mode & 0x0200) != 0 &&
-                                         !console_.console_read_pending());
+            state_.feed_input(text_, (state_.state().input_mode & 0x0200) != 0 && !console_.console_read_pending());
+            console_.process_raw_input_events();
         }
         console_.signal_input_event();
         const bool completed = console_.complete_pending();
