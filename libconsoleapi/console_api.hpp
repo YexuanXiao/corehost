@@ -5,6 +5,7 @@
 
 #include "win32_types.hpp"
 #include "input.hpp"
+#include "line_editor.hpp"
 #include "input_payload.hpp"
 #include "process_registry.hpp"
 
@@ -439,26 +440,31 @@ class console_api final
         auto *output =
             reinterpret_cast<char16_t *>(message.body + sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG));
         const auto max_units = capacity / sizeof(char16_t);
+        auto &editor = cooked_editor_;
         std::size_t units = 0;
         if (cooked_active_)
         {
-            units = std::min<std::size_t>(cooked_line_.size(), max_units);
-            std::copy_n(cooked_line_.data(), units, output);
+            units = std::min<std::size_t>(editor.text().size(), max_units);
+            std::copy_n(editor.text().data(), units, output);
         }
-        else if (request->Unicode && request->InitialNumBytes != 0)
+        else
         {
-            const auto payload = read_input_payload(
-                message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG),
-                message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLE_MSG));
-            const auto exe_bytes = static_cast<std::size_t>(request->ExeNameLength) * sizeof(char16_t);
-            if (exe_bytes <= payload.size())
+            editor.reset();
+            if (request->Unicode && request->InitialNumBytes != 0)
             {
-                const auto *initial = reinterpret_cast<const char16_t *>(payload.data() + exe_bytes);
-                const auto available = (payload.size() - exe_bytes) / sizeof(char16_t);
-                const auto initial_units = std::min(
-                    {static_cast<std::size_t>(request->InitialNumBytes / sizeof(char16_t)), available, max_units});
-                std::copy_n(initial, initial_units, output);
-                units = initial_units;
+                const auto payload = read_input_payload(
+                    message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG),
+                    message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER) - sizeof(CONSOLE_READCONSOLE_MSG));
+                const auto exe_bytes = static_cast<std::size_t>(request->ExeNameLength) * sizeof(char16_t);
+                if (exe_bytes <= payload.size())
+                {
+                    const auto *initial = reinterpret_cast<const char16_t *>(payload.data() + exe_bytes);
+                    const auto available = (payload.size() - exe_bytes) / sizeof(char16_t);
+                    const auto initial_units = std::min(
+                        {static_cast<std::size_t>(request->InitialNumBytes / sizeof(char16_t)), available, max_units});
+                    editor.assign(std::u16string_view{initial, initial_units}, initial_units);
+                    units = initial_units;
+                }
             }
         }
 
@@ -467,12 +473,18 @@ class console_api final
                                                          : screen::coord{static_cast<std::int32_t>(state_.cursor().x),
                                                                          static_cast<std::int32_t>(state_.cursor().y)};
         screen::coord echo_cursor = echo_origin;
-        std::size_t cursor = cooked_active_ ? std::min(cooked_cursor_, units) : units;
+        std::size_t cursor = std::min(editor.cursor(), units);
         std::size_t echo_length = cooked_active_ ? cooked_echo_length_ : 0;
         if (!cooked_active_)
         {
             state_.reset_history_browse();
         }
+        const auto refresh = [&] {
+            units = std::min<std::size_t>(editor.text().size(), max_units);
+            if (units != 0)
+                std::copy_n(editor.text().data(), units, output);
+            cursor = std::min(editor.cursor(), units);
+        };
         bool line_complete = false;
 
         auto &events = read_events_;
@@ -504,37 +516,36 @@ class console_api final
                 switch (event.key.key)
                 {
                 case consoleinput::virtual_key::left:
-                    if (cursor != 0)
-                    {
-                        --cursor;
-                    }
+                    editor.left();
+                    refresh();
                     break;
                 case consoleinput::virtual_key::right:
-                    if (cursor < units)
-                    {
-                        ++cursor;
-                    }
+                    editor.right();
+                    refresh();
                     break;
                 case consoleinput::virtual_key::home:
-                    cursor = 0;
+                    editor.home();
+                    refresh();
                     break;
                 case consoleinput::virtual_key::end:
-                    cursor = units;
+                    editor.end();
+                    refresh();
+                    break;
+                case consoleinput::virtual_key::insert:
+                    editor.toggle_insert();
                     break;
                 case consoleinput::virtual_key::del:
-                    if (cursor < units)
-                    {
-                        erase_character(output, units, cursor, cursor);
-                    }
+                    editor.del();
+                    refresh();
                     break;
                 case consoleinput::virtual_key::up:
                 {
                     auto &selected = history_selection_;
                     if (state_.browse_history_up(std::u16string_view{output, units}, selected))
                     {
-                        units = std::min<std::size_t>(selected.size(), max_units);
-                        std::copy_n(selected.data(), units, output);
-                        cursor = units;
+                        editor.assign(selected, selected.size());
+                        editor.truncate(max_units);
+                        refresh();
                     }
                     break;
                 }
@@ -543,9 +554,9 @@ class console_api final
                     auto &selected = history_selection_;
                     if (state_.browse_history_down(selected))
                     {
-                        units = std::min<std::size_t>(selected.size(), max_units);
-                        std::copy_n(selected.data(), units, output);
-                        cursor = units;
+                        editor.assign(selected, selected.size());
+                        editor.truncate(max_units);
+                        refresh();
                     }
                     break;
                 }
@@ -561,7 +572,7 @@ class console_api final
                 if (character == 3 && (state_.input_mode & 0x0001) != 0)
                 {
                     cooked_active_ = false;
-                    cooked_line_.clear();
+                    editor.reset();
                     request->NumBytes = 0;
                     request->ControlKeyState = 0;
                     coreio::prepare_completion(message, coreio::error::status_alerted, 0,
@@ -577,18 +588,9 @@ class console_api final
                 if (character >= 1 && character <= 26 &&
                     (request->CtrlWakeupMask & (1u << (character - 1))) != 0)
                 {
-                    if (units < max_units)
-                    {
-                        if (cursor < units)
-                        {
-                            for (std::size_t j = units; j > cursor; --j)
-                            {
-                                output[j] = output[j - 1];
-                            }
-                        }
-                        output[cursor++] = character;
-                        ++units;
-                    }
+                    editor.insert(character);
+                    editor.truncate(max_units);
+                    refresh();
                     redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
                     line_complete = true;
                     break;
@@ -603,19 +605,20 @@ class console_api final
                         state_.echo_line_feed = true;
                     }
                     auto &expanded = history_selection_;
-                    expanded.assign(output, units);
+                    expanded.assign(editor.text());
                     expand_console_alias(expanded);
-                    units = std::min<std::size_t>(expanded.size(), max_units);
-                    std::copy_n(expanded.data(), units, output);
+                    editor.assign(expanded, expanded.size());
+                    editor.truncate(max_units);
+                    refresh();
                     state_.add_command(std::u16string_view{output, units});
                     line_complete = true;
                     break;
                 }
                 if (character == u'\u0008')
                 {
-                    if (cursor != 0)
+                    if (editor.backspace() != consoleinput::line_editor::change::none)
                     {
-                        erase_character(output, units, cursor, cursor - 1);
+                        refresh();
                         state_.break_history_browse();
                     }
                     redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
@@ -627,18 +630,9 @@ class console_api final
                 }
             }
             state_.break_history_browse();
-            if (units < max_units)
-            {
-                if (cursor < units)
-                {
-                    for (std::size_t j = units; j > cursor; --j)
-                    {
-                        output[j] = output[j - 1];
-                    }
-                }
-                output[cursor++] = character;
-                ++units;
-            }
+            editor.insert(character);
+            editor.truncate(max_units);
+            refresh();
             redraw_echo_line(output, units, cursor, echo, echo_origin, echo_length, echo_cursor);
         }
         for (std::size_t i = parsed; i > consumed_events; --i)
@@ -647,8 +641,6 @@ class console_api final
         }
         if (!line_complete)
         {
-            cooked_line_.assign(output, units);
-            cooked_cursor_ = cursor;
             cooked_origin_ = echo_origin;
             cooked_echo_length_ = echo_length;
             cooked_active_ = true;
@@ -665,7 +657,7 @@ class console_api final
             output[units++] = u'\n';
         }
         cooked_active_ = false;
-        cooked_line_.clear();
+        editor.reset();
 
         if (echo)
         {
@@ -2574,23 +2566,6 @@ class console_api final
             return;
         }
     }
-    static void erase_character(char16_t *output, std::size_t &units, std::size_t &cursor,
-                                std::size_t position) noexcept
-    {
-        for (std::size_t i = position; i + 1 < units; ++i)
-        {
-            output[i] = output[i + 1];
-        }
-        if (units != 0)
-        {
-            --units;
-        }
-        if (cursor > units)
-        {
-            cursor = units;
-        }
-    }
-
     static void echo_position(screen::coord origin, std::int32_t width, std::size_t index, std::int32_t &x,
                               std::int32_t &y) noexcept
     {
@@ -2737,10 +2712,9 @@ class console_api final
     std::array<consoleinput::input_event, 64> read_events_;
     std::vector<char> ansi_buffer_;
     std::vector<consoleinput::input_event> prepend_buffer_;
-    std::u16string cooked_line_;
     std::u16string decoded_executable_;
     std::u16string decoded_source_;
-    std::size_t cooked_cursor_{};
+    consoleinput::line_editor cooked_editor_;
     screen::coord cooked_origin_{};
     std::size_t cooked_echo_length_{};
     bool cooked_active_{};

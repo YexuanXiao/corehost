@@ -838,6 +838,42 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::consoleinput::input_queue line_edit_queue;
+    auto push_edit = [&](char16_t character) {
+        corehost::consoleinput::key_event key;
+        key.character = character;
+        line_edit_queue.push(corehost::consoleinput::input_event{corehost::consoleinput::input_event_type::key, key});
+    };
+    push_edit(u'A');
+    push_edit(u'B');
+    {
+        corehost::consoleinput::key_event key;
+        key.key = corehost::consoleinput::virtual_key::left;
+        line_edit_queue.push(corehost::consoleinput::input_event{corehost::consoleinput::input_event_type::key, key});
+        key = {};
+        key.key = corehost::consoleinput::virtual_key::insert;
+        line_edit_queue.push(corehost::consoleinput::input_event{corehost::consoleinput::input_event_type::key, key});
+    }
+    push_edit(u'C');
+    push_edit(u'\r');
+    corehost::consoleapi::console_api line_edit_api{buffer, state, &line_edit_queue};
+    corehost::coreio::io_msg line_edit_msg{};
+    line_edit_msg.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    line_edit_msg.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8 * sizeof(char16_t);
+    auto *line_edit_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(line_edit_msg.body);
+    line_edit_header->ApiNumber = ConsolepReadConsole;
+    auto *line_edit_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(line_edit_msg.body + sizeof(CONSOLE_MSG_HEADER));
+    line_edit_request->Unicode = TRUE;
+    const auto *line_edit_output = reinterpret_cast<const char16_t *>(line_edit_msg.body + sizeof(CONSOLE_MSG_HEADER) +
+                                                                  sizeof(CONSOLE_READCONSOLE_MSG));
+    if (!line_edit_api.handle(line_edit_msg) || line_edit_request->NumBytes != 4 * sizeof(char16_t) ||
+        line_edit_output[0] != u'A' || line_edit_output[1] != u'C' || line_edit_output[2] != u'\r' || line_edit_output[3] != u'\n')
+    {
+        std::fprintf(stderr, "read console insert mode failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::screen::screen_buffer echo_buffer{4, 2};
     corehost::screen::console_state echo_state{4, 2};
     corehost::consoleinput::input_queue echo_queue;

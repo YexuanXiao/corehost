@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <string>
 #include <string_view>
@@ -32,6 +33,20 @@ class line_editor final
     {
         text_.clear();
         cursor_ = 0;
+    }
+
+    void assign(std::u16string_view value, std::size_t cursor)
+    {
+        text_.assign(value);
+        cursor_ = std::min(cursor, text_.size());
+    }
+
+    void truncate(std::size_t maximum)
+    {
+        if (text_.size() <= maximum)
+            return;
+        text_.resize(maximum);
+        cursor_ = std::min(cursor_, text_.size());
     }
 
     change append(std::u16string_view value)
