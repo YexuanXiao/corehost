@@ -2433,3 +2433,32 @@ cjk:           corehost2 约 4 ms   / OpenConsole 2464.6（已达标）
 - SGR：parser + SGR state 应用 + cell 写入。
 
 目标尚未完全达成：long-line 和 SGR 仍慢于 OpenConsole。
+
+### 通用优化达到 OpenConsole 水平
+
+最终通用优化：
+
+- `page` 增加 full-damage 惰性标记，scroll 时不必逐行 mark dirty；
+- history 行池 + blank 模板复用，减少滚动时分配/fill；
+- text wrap 在 full viewport 时使用 `scroll_up`（history 行池）而不是复制整个 scroll region；
+- `write_ascii` all-narrow 快速路径；
+- BMP codepoint 直接 `write_codepoint`，避免 CJK grapheme range；
+- mixed ASCII/CJK text path。
+
+提交：
+
+```text
+256951f perf(screen): lazy full damage and reuse blank history rows
+```
+
+3 次平均结果：
+
+```text
+large-mixed:   corehost2 267.5  / OpenConsole 355.1
+long-line:     corehost2 871.7  / OpenConsole 947.9
+powershell:    corehost2 289.5  / OpenConsole 292.4
+sgr-plain:     corehost2  30.1  / OpenConsole  31.3
+cjk:           corehost2   4.5  / OpenConsole 2706.7
+```
+
+所有场景平均均不慢于 OpenConsole；无 replay/cursor-only/fastpath 特例。

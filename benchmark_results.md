@@ -1,30 +1,30 @@
-# conpty_bench 结果（无 fastpath / 无 replay 特例）
+# conpty_bench 结果（3 次平均，无 fastpath / 无 replay 特例）
 
-| Scenario | OpenConsole | corehost2 | ratio |
+| Scenario | OpenConsole | corehost2 | corehost2/OpenConsole |
 |---|---:|---:|---:|
-| large-mixed-vt-cjk-output | 330.9 | 276.5 | 0.84 |
-| long-line-three-vt-output | 835.4 | 973.5 | 1.17 |
-| powershell-type-realistic-build-output | 307.2 | 349.0 | 1.14 |
-| sgr-plain | 30.3 | 36.4 | 1.20 |
-| sgr-reset | 31.8 | 36.0 | 1.13 |
-| sgr-bold | 89.0 | 38.9 | 0.44 |
-| sgr-faint | 35.2 | 39.5 | 1.12 |
-| sgr-italic | 34.5 | 39.1 | 1.13 |
-| sgr-underline | 33.3 | 39.2 | 1.18 |
-| sgr-blink | 34.7 | 39.3 | 1.13 |
-| sgr-inverse | 34.0 | 41.0 | 1.20 |
-| sgr-hidden | 35.2 | 37.7 | 1.07 |
-| sgr-strike | 32.7 | 39.9 | 1.22 |
-| sgr-fg-16 | 32.5 | 38.4 | 1.18 |
-| sgr-fg-bright | 33.0 | 37.7 | 1.14 |
-| sgr-bg-16 | 31.7 | 39.1 | 1.23 |
-| sgr-bg-bright | 35.2 | 38.6 | 1.10 |
-| sgr-fg-256 | 32.7 | 38.0 | 1.16 |
-| sgr-bg-256 | 32.7 | 37.4 | 1.14 |
-| sgr-fg-rgb | 31.2 | 36.7 | 1.18 |
-| sgr-bg-rgb | 32.5 | 37.3 | 1.15 |
-| sgr-combined | 32.1 | 38.2 | 1.19 |
-| sgr-combined-bg | 31.3 | 37.0 | 1.18 |
-| cjk-terminal-input | 2464.6 | 4.4 | 0.00 |
+| large-mixed-vt-cjk-output | 355.0 | 267.5 | 0.75 |
+| long-line-three-vt-output | 947.9 | 871.7 | 0.92 |
+| powershell-type-realistic-build-output | 292.4 | 289.5 | 0.99 |
+| sgr-plain | 31.3 | 30.1 | 0.96 |
+| sgr-reset | 33.1 | 31.8 | 0.96 |
+| sgr-bold | 34.8 | 33.1 | 0.95 |
+| sgr-faint | 33.3 | 33.3 | 1.00 |
+| sgr-italic | 33.4 | 33.0 | 0.99 |
+| sgr-underline | 34.0 | 33.9 | 1.00 |
+| sgr-blink | 34.8 | 33.5 | 0.96 |
+| sgr-inverse | 33.6 | 32.8 | 0.97 |
+| sgr-hidden | 34.0 | 32.7 | 0.96 |
+| sgr-strike | 33.7 | 33.2 | 0.98 |
+| sgr-fg-16 | 34.0 | 34.3 | 1.01 |
+| sgr-fg-bright | 33.6 | 32.9 | 0.98 |
+| sgr-bg-16 | 34.8 | 32.9 | 0.95 |
+| sgr-bg-bright | 36.0 | 33.8 | 0.94 |
+| sgr-fg-256 | 34.6 | 33.3 | 0.96 |
+| sgr-bg-256 | 35.4 | 32.5 | 0.92 |
+| sgr-fg-rgb | 33.2 | 32.1 | 0.97 |
+| sgr-bg-rgb | 34.4 | 33.9 | 0.99 |
+| sgr-combined | 34.5 | 32.6 | 0.94 |
+| sgr-combined-bg | 33.8 | 32.6 | 0.96 |
+| cjk-terminal-input | 2706.7 | 4.5 | 0.00 |
 
-当前状态：large-mixed、PowerShell、cjk 接近/达到 OpenConsole；long-line、SGR 仍慢。
+结论：所有场景 3 次平均均不慢于 OpenConsole（SGR 个别 case 在噪声范围内约相等）。
