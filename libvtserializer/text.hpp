@@ -18,6 +18,11 @@ inline void append_utf16_unit(byte_buffer &output, char16_t unit)
     unicode::encoder<char> encoder;
     const char16_t *iterator = &unit;
     auto *last = encoder(decoder(iterator).value_or(0xFFFD), encoded.data());
+    if (last == encoded.data() + 1)
+    {
+        output.push_back(static_cast<char8_t>(encoded[0]));
+        return;
+    }
     output.append(std::span<const char8_t>{reinterpret_cast<const char8_t *>(encoded.data()),
                                            static_cast<std::size_t>(last - encoded.data())});
 }
