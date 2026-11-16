@@ -2862,3 +2862,39 @@ powershell:  296.3 ms
 sgr-plain:    30.4 ms
 cjk:           7.4 ms
 ```
+
+### 删除 raw line 后置重放路径
+
+生产 raw line 输入已经全部走增量 line editor 后，删除旧路径：
+
+- 删除 `apply_line_edits`；
+- 删除 `raw_line_complete_` / `raw_line_offset_` / `raw_line_remaining_`；
+- 删除 `note_raw_bytes` 及其调用；
+- `read_raw` 的 line 分支只从 completed-line 队列读取；
+- 测试改为直接 push key/text 事件进入共享 editor，不再依赖 `push_raw` 的旧 line 分支；
+- 清除非 line 路径的 `echo`/`edited` 临时状态。
+
+提交：
+
+```text
+9aa0e5a refactor(corehost2): remove raw line replay fallback
+```
+
+这样 raw line 编辑只有一套 UTF-16 状态，不再存在“已编辑行列”和“CR 后重放行”两套逻辑。
+
+验证：
+
+```text
+Release 11/11
+Debug 4/4
+```
+
+benchmark：
+
+```text
+large-mixed: 269.2 ms
+long-line:   757.1 ms
+powershell:  293.3 ms
+sgr-plain:    29.7 ms
+cjk:           7.0 ms
+```
