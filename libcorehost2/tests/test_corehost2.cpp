@@ -181,6 +181,12 @@ int main()
         event.key.key = value;
         server_input.push(event);
     };
+    const auto push_text = [&](std::u16string_view value) {
+        corehost::consoleinput::input_event event{};
+        event.type = corehost::consoleinput::input_event_type::text;
+        event.text = std::make_shared<const std::u16string>(value);
+        server_input.push(std::move(event));
+    };
 
     char raw_read_data[8]{};
     push_char(u'X');
@@ -279,15 +285,16 @@ int main()
     server_state.input_mode &= ~ENABLE_LINE_INPUT;
     std::array<char, 32> long_raw{};
     long_raw.fill('A');
-    server.push_raw(std::span<const char>{long_raw});
+    std::u16string long_text(long_raw.size(), u'A');
+    push_text(long_text);
     if (server.read_raw(std::span<char>{long_raw}) != long_raw.size())
     {
         std::fprintf(stderr, "raw word scan false positive\n");
         return EXIT_FAILURE;
     }
-    long_raw.fill('B');
-    long_raw[9] = 3;
-    server.push_raw(std::span<const char>{long_raw});
+    long_text.assign(long_raw.size(), u'B');
+    long_text[9] = u'\x03';
+    push_text(long_text);
     if (server.read_raw(std::span<char>{long_raw}) != 9 || !server.raw_alerted())
     {
         std::fprintf(stderr, "raw word scan missed control byte\n");

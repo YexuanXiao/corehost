@@ -174,12 +174,6 @@ class server_session final
         return consumed;
     }
 
-    void push_raw(std::span<const char> bytes)
-    {
-        raw_in_.append(bytes.data(), bytes.size());
-        signal_input_event();
-    }
-
     void set_input_event(win32::handle_view event) noexcept
     {
         input_event_ = event;
