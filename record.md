@@ -2791,3 +2791,37 @@ cjk:           8.9 ms
 Release 11/11
 Debug 4/4
 ```
+
+### raw line 分块读取性能修复
+
+`read_raw` 的 line 模式之前每返回一个 chunk 都执行：
+
+```cpp
+raw_in_.erase(0, written);
+```
+
+大行 + 小 ReadFile buffer 会反复搬移剩余数据，退化到 O(n²)。
+
+现在使用 `raw_line_offset_` 游标：
+
+- chunk 直接从 `raw_in_.data() + offset` 拷贝；
+- 仅在整行全部消费完后做一次 erase；
+- 行内多 chunk 不再反复 memmove。
+
+提交：
+
+```text
+659f2a1 perf(corehost2): avoid raw line chunk front erases
+```
+
+验证：100/200 字符行、24KB+ 输入分块正常；Release 11/11，Debug 4/4。
+
+当前 benchmark：
+
+```text
+large-mixed: 251.3 ms
+long-line:   783.8 ms
+powershell:  284.7 ms
+sgr-plain:    28.7 ms
+cjk:          10.6 ms
+```
