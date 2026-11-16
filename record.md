@@ -1455,6 +1455,16 @@ scalar=11.2847-11.3661 ns/cell ascii_run=4.6733-4.7439 ns/cell ratio=2.38-2.43x
 3896fe3 perf(libscreen): write ascii runs with one page selection
 ```
 
+`write_ascii` 进一步按行取 `row_cells`，把 wide neighborhood 清理内联到 span 上，不再每 cell 调用 `clear_wide_neighborhood` / `target.at`。同一基准下降到：
+
+```text
+ascii_run=1.4151-1.4476 ns/cell
+```
+
+```text
+a01dea8 perf(libscreen): inline wide neighborhood checks in ascii runs
+```
+
 ### VT ASCII cell 直接写 scalar
 
 ASCII 快速路径不再构造 `u16string_view` 调用 `write_glyph`，而是直接调用 `write_scalar`，跳过 glyph 空串和边界检查：
