@@ -2025,3 +2025,35 @@ scroll=ok
 set_text_attr=ok
 get_text_attr=ok
 ```
+
+### 新发现：edit.exe 在 corehost2 下崩溃
+
+`edit.exe C:\1\edit_test.txt` 在 corehost2 下启动后约 1 秒崩溃：
+
+```text
+[process exited with code 3221225501 (0xC000001D)]
+```
+
+Windows Error Reporting：
+
+```text
+Faulting application: edit.exe 1.2.1.0
+Exception code: 0xc000001d
+Fault offset: 0x000000000001771d
+```
+
+同一操作在 libcorehost 下正常（edit 进程持续运行）。
+
+corehost2 日志显示 edit 先发送：
+
+```text
+ESC[?1049h
+ESC[?1002;1006;2004h
+OSC 4 / OSC 10 / OSC 11 查询
+ESC[6n
+ESC[c
+```
+
+WT 返回 1034 字节终端应答，corehost2 将其当作输入队列（queue=922）后 edit 崩溃。疑似终端应答被作为键盘事件投递导致 edit 解析异常，需继续对比 libcorehost 的 terminal response 路由。
+
+当前先记录为未修复 bug，Python 修复和 ReadConsoleOutput 修复不受影响。
