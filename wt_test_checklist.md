@@ -72,7 +72,7 @@
 
 - [x] E1 cmd.exe
 - [x] E2 pwsh.exe
-- [!] E3 edit.exe：corehost2 启动后崩溃 0xC000001D；libcorehost 正常，待修
+- [x] E3 edit.exe：修复 alternate screen raw passthrough 后正常
 - [x] E4 vim.exe（修复 Console 字符串 API 后全屏渲染正常）
 - [-] E5 ssh 客户端连接本机：本机 sshd 无法完成账户/主机密钥初始化
 - [-] E6 sshd.exe -d 调试服务器：`get_passwd lookup_sid failed 1332`、host key 加载失败

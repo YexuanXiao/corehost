@@ -2105,3 +2105,41 @@ da2888a  EDIT_ALIVE
 结论：崩溃与 mouse/private mode 状态写入存在相关性，但仅删除转发、改成 down-only 或丢弃 response 都不能修复。RAW_WRITE 改动可能只是让 edit 从“空白挂起”变成真正运行并暴露后续问题。
 
 后续应继续在 `4dea0cd` 的两部分改动上做更细粒度对比，并确认父提交下 edit 的真实 UI 是否已经可用，而不是仅进程存活。
+
+### edit 崩溃最终修复
+
+二分确认首个崩溃提交：
+
+```text
+4dea0cd fix(console): flush raw writes and forward mouse modes
+```
+
+在 `4dea0cd` 上继续拆分，最终定位到 `message_handler` 的 alternate screen 分支：
+
+```cpp
+if (RAW_WRITE && (alternate_before || alternate_active)) {
+    writer->buffer().append(raw_output);   // 问题
+    clear_damage();
+    return dispatched;
+}
+```
+
+edit 进入 alternate screen 后的 RAW_WRITE 被**直接透传**给 WT；WT 又返回 1034 字节终端应答，导致 edit 崩溃。
+
+修复：alternate screen 分支不再透传 raw_output，只清除 damage；同时删除不再使用的 raw_output 读取。
+
+```text
+19d554c fix(corehost2): skip raw passthrough on alternate screen
+```
+
+验证：
+
+```text
+edit.exe 正常显示菜单/编辑区/状态栏
+vim.exe 正常显示 tildes/状态栏
+```
+
+截图：
+
+- `C:\1\wt_shots\E3_edit_fixed_final.png`
+- `C:\1\wt_shots\E4_vim_final_fix.png`
