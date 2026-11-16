@@ -1513,6 +1513,16 @@ ascii_run=1.2683-1.3638 ns/cell
 77a7a3d perf(libscreen): skip neighborhood work for narrow cells
 ```
 
+`write_ascii` 再复用同一 `cell` 原型，只替换 `primary_`，不再每字符重新构造全部字段：
+
+```text
+ascii_run=0.9388-0.9929 ns/cell
+```
+
+```text
+d20a62b perf(libscreen): reuse cell prototype in ascii runs
+```
+
 ### VT ASCII cell 直接写 scalar
 
 ASCII 快速路径不再构造 `u16string_view` 调用 `write_glyph`，而是直接调用 `write_scalar`，跳过 glyph 空串和边界检查：
