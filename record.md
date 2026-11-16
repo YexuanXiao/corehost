@@ -1878,3 +1878,29 @@ dbc2722 Revert "perf(libscreen): reuse style lookup across adjacent cells"
 ### 测试稳定性
 
 `cancellable_read` 的“in read”事件改为 manual-reset，避免 waiter 先消费 auto-reset 通知、`CancelSynchronousIo` 尚未执行时阻塞读线程造成偶发 join 超时。ConptyIO 连续 20 次运行通过。
+
+## Windows Terminal 实机验收（2026-11-16）
+
+完整清单见 `wt_test_checklist.md`，截图见 `C:\1\wt_shots\`。使用 `terminal-1.24.12741.0` 的 `WindowsTerminal.exe`，把 `build\Release\corehost2.exe` 部署为 `OpenConsole.exe`。
+
+### 修复 1：SGR 属性丢失
+
+SGR 的 bold/faint/italic/underline/blink/negative/conceal/strikethrough 没有进入 `text_style`，serializer 只输出颜色。新增 `screen::text_style_attribute`，`apply_sgr` 维护属性位，`append_sgr_style` 输出对应 SGR 参数；`style_for_legacy` 同步 0x08/0x8000/0x4000。
+
+### 修复 2：scroll region 内 LF/IND 不滚动
+
+`apply_line_feed` / `apply_index` 原来只在屏幕最后一行滚动，忽略 `scroll_bottom()`。现在在滚动区底边滚动，区域外仍按屏幕边界处理。新增 `VtState` 回归测试。
+
+### 修复 3：resize 丢失底部内容
+
+`screen_buffer::resize` 增加 `anchor_bottom`，conpty signal / VT resize 使用底端锚定并同步 cursor；resize 后 `set_viewport` 覆盖新尺寸。修复缩小窗口后看不到最新输出、放大后 viewport 不更新的问题。
+
+### 修复 4：Console 字符串 API
+
+`CONSOLE_WRITECONSOLEOUTPUTSTRING_MSG::NumRecords` 是 OUT 字段，旧代码当输入 count，导致 `WriteConsoleOutputCharacter` / `WriteConsoleOutputAttribute` 只写 1 个字符，Vim 全屏空白。现在按输入载荷长度写；`ReadConsoleOutputString` 按 OutputSize 计算容量，完成 Write 载荷包含结构头和读取数据。修复后 `write_attr_test2.exe` 正常显示文本，Vim 正常显示 `~` 和状态栏。
+
+### 仍存在/未覆盖
+
+- WT scrollback 未建立：100 行输出后滚轮/Shift+PageUp 无历史可滚。属于 conhost 到 WT 的 scrollback 转发缺口。
+- 多行粘贴在 PowerShell 5.1/7 都被拆成两次输入；疑似 bracketed paste 未完整转发，需继续确认。
+- 鼠标 tracking、focus reporting、真实 ssh/sshd 因自动注入和本机 sshd 账户/主机密钥环境限制未完成。
