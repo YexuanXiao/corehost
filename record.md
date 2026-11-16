@@ -2534,3 +2534,30 @@ cjk-terminal-input 修复后约 7-20 ms，输出 394239 B；OpenConsole 约 2.4 
 ```text
 cfe68a9 fix(corehost2): preserve control bytes and support insert-mode line editing
 ```
+
+### 普通输入与编辑行的可见 echo 修复
+
+根因不是 screen buffer 没写入，而是 live echo 对 CR 只回显了 `\r`，没有推进到下一行；read 完成后的输出直接覆盖了同一行。
+
+修复：
+
+- line input 的 live echo 把 CR/LF 规范化为 CRLF；
+- 编辑行（方向键/Insert/Backspace）在 CR 后从行首重绘最终文本，并同步 screen buffer 和 terminal；
+- 重绘时保留行首 x 坐标，避免覆盖提示符；
+- live echo 与 completion echo 不再重复。
+
+验证：
+
+```text
+ABC{ENTER}       -> 屏幕显示 ABC，data=4142430D0A
+AB LEFT X        -> 屏幕显示 AXB，data=4158420D0A
+AB BS C          -> 屏幕显示 AC，data=41430D0A
+AB LEFT INSERT C -> 屏幕显示 AC，data=41430D0A
+cjk-terminal     -> 7-8 ms，output 394239 B
+```
+
+提交：
+
+```text
+c942308 fix(corehost2): keep raw echo and screen rendering consistent
+```
