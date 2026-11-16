@@ -2142,4 +2142,4 @@ vim.exe 正常显示 tildes/状态栏
 截图：
 
 - `C:\1\wt_shots\E3_edit_fixed_final.png`
-- `C:\1\wt_shots\E4_vim_final_fix.png`
+- `C:\1\wt_shots\E4_vim_clean_final.png`
