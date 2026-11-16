@@ -16,7 +16,6 @@ class line_editor final
         none,
         append,
         redraw,
-        complete,
     };
 
     [[nodiscard]] std::u16string_view text() const noexcept
@@ -27,11 +26,6 @@ class line_editor final
     [[nodiscard]] std::size_t cursor() const noexcept
     {
         return cursor_;
-    }
-
-    [[nodiscard]] bool insert_mode() const noexcept
-    {
-        return insert_;
     }
 
     void reset() noexcept
@@ -140,12 +134,6 @@ class line_editor final
     {
         insert_ = !insert_;
         return change::none;
-    }
-
-    change enter() noexcept
-    {
-        cursor_ = text_.size();
-        return change::complete;
     }
 
     void consume_completed_line() noexcept

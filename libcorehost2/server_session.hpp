@@ -502,7 +502,6 @@ class server_session final
             line_edited_ = true;
             echo_raw(std::span<const char>{raw_completed_lines_.back().data(),
                                             raw_completed_lines_.back().size()});
-            raw_echo_done_ = true;
         }
         else
         {
@@ -675,11 +674,6 @@ class server_session final
 
     void echo_raw(std::span<const char> bytes)
     {
-        if (raw_echo_done_)
-        {
-            raw_echo_done_ = false;
-            return;
-        }
         if (live_echoed_)
         {
             if (line_edited_ && line_start_valid_)
@@ -1156,7 +1150,7 @@ class server_session final
                     clear_raw_eof();
                 }
             }
-            if (written != 0)
+            if (written != 0 && !((state_.input_mode & ENABLE_LINE_INPUT) != 0 && raw_editor_used_))
             {
                 echo_raw(std::span<const char>{reinterpret_cast<const char *>(pending_message_.body), written});
             }
@@ -1214,7 +1208,6 @@ class server_session final
     bool raw_editor_used_{};
     bool raw_mode_{};
     bool live_echoed_{};
-    bool raw_echo_done_{};
     bool line_edited_{};
     bool line_start_valid_{};
     int line_start_x_{};
