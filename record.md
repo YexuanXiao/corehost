@@ -2561,3 +2561,54 @@ cjk-terminal     -> 7-8 ms，output 394239 B
 ```text
 c942308 fix(corehost2): keep raw echo and screen rendering consistent
 ```
+
+### 根因修复：不再切换 9001，改为解析 Win32 Input
+
+上一版通过 raw read 时关闭 9001 规避 Win32 Input 协议。该方案已移除。
+
+新输入路径：
+
+```text
+WT bytes
+  -> session_input_sink decoder
+  -> vtparser / consoleinput 事件
+  -> raw line editor / raw byte 转换
+  -> ReadFile
+```
+
+具体：
+
+- 始终解析 terminal input；不再在 raw mode 跳过 parser；
+- 删除 raw read 期间发送 `ESC[?9001l`、ReadConsole 时恢复的 hack；
+- 新增 `process_raw_input_events`：把 Win32 key 事件转换为 raw line 字节和编辑序列；
+- 新增 `consume_raw_text` 快速路径：无 ESC 的大段纯文本直接编码，避免逐字符事件开销；
+- 行终止状态增量维护，去掉每次 read 扫描整个 raw buffer 的 O(n²) 行为；
+- raw line 的 echo/行编辑仍走同一套 line state。
+
+边界验证：
+
+```text
+ABC              -> data 4142430D0A，可见 ABC
+AB LEFT X        -> data 4158420D0A，可见 AXB
+CD HOME Y        -> YCD
+EF END Z         -> EFZ
+Insert/Delete    -> AC
+多字节粘贴编辑   -> BA
+cjk-terminal     -> 7.3 ms，output 394231 B
+```
+
+提交：
+
+```text
+d7147c6 fix(corehost2): decode Win32 input instead of toggling 9001
+```
+
+全 benchmark 当前值：
+
+```text
+large-mixed: 256.3 ms
+long-line:   781.9 ms
+powershell:  302.8 ms
+sgr-plain:    30.4 ms
+cjk:           7.3 ms
+```
