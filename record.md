@@ -2462,3 +2462,23 @@ cjk:           corehost2   4.5  / OpenConsole 2706.7
 ```
 
 所有场景平均均不慢于 OpenConsole；无 replay/cursor-only/fastpath 特例。
+
+### cjk-terminal-input 高速原因与修复
+
+结论：原 4 ms 不是有效性能结果，corehost2 的 RAW_READ 路径存在真实 bug：
+
+1. WT Win32 Input Mode（9001）下的输入被原样交给 ReadFile，probe 收到 ESC 协议序列而不是 ABC；OpenConsole 收到 41 42 43 0D 0A。
+2. ECHO 只写 terminal，不更新 screen buffer，后续 screen API 重绘会吞掉回显。
+3. ENABLE_LINE_INPUT 下在 CR 前按 buffer 大小提前返回；OpenConsole 会等到 CR。
+4. Backspace/DEL 没有做行编辑。
+
+修复：
+
+- raw read 期间发送 `ESC[?9001l`，回到 ReadConsole 时恢复 9001；
+- echo 同时更新 screen buffer 和 terminal；
+- line input 等 CR 后再返回，并支持跨多次 ReadFile 的行块；
+- 处理 backspace/DEL 行编辑；
+- printable input 做 live echo；
+- 更新 corehost2 测试以覆盖行输入、行编辑和 CR 前阻塞。
+
+修复后 cjk 约 13-20 ms，输出 394239 B；OpenConsole 仍约 2.4 s，原因是其 cooked line input/echo 逐字符路径很慢，不再是 corehost2 跳过输入语义造成的假加速。
