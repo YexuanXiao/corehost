@@ -398,29 +398,97 @@ class server_session final
             const auto byte = static_cast<unsigned char>(value);
             if (byte == '\b' || byte == 0x7F || byte == 0x1B)
             {
+                line_edited_ = true;
                 return;
             }
         }
+        if (!line_start_valid_)
+        {
+            const auto cursor = state_.cursor();
+            line_start_x_ = cursor.x;
+            line_start_y_ = cursor.y;
+            line_start_valid_ = true;
+        }
+        if (line_edited_)
+        {
+            for (const auto value : bytes)
+            {
+                const auto byte = static_cast<unsigned char>(value);
+                if (byte == '\r' || byte == '\n')
+                    return;
+            }
+        }
+        echo_bytes_.clear();
+        for (std::size_t i = 0; i < bytes.size(); ++i)
+        {
+            const auto byte = static_cast<unsigned char>(bytes[i]);
+            if (byte == '\r')
+            {
+                echo_bytes_.append("\r\n", 2);
+                if (i + 1 < bytes.size() && bytes[i + 1] == '\n')
+                    ++i;
+            }
+            else if (byte == '\n')
+            {
+                echo_bytes_.append("\r\n", 2);
+            }
+            else
+            {
+                echo_bytes_.push_back(bytes[i]);
+            }
+        }
         echo_decoder_.decode(
-            std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()}, echo_text_);
+            std::span<const char8_t>{reinterpret_cast<const char8_t *>(echo_bytes_.data()), echo_bytes_.size()},
+            echo_text_);
         (void)write_text(echo_text_);
         screen_.clear_damage();
         (void)state_.take_cursor_changed();
         (void)state_.take_echo_line_feed();
         writer_->buffer().append(
-            std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()});
+            std::span<const char8_t>{reinterpret_cast<const char8_t *>(echo_bytes_.data()), echo_bytes_.size()});
         live_echoed_ = true;
+        if (!line_edited_ && echo_bytes_.find("\r\n") != std::string::npos)
+        {
+            line_start_valid_ = false;
+        }
     }
 
     void echo_raw(std::span<const char> bytes)
     {
         if (live_echoed_)
         {
-            if (raw_line_remaining_ == 0)
+            if (line_edited_ && line_start_valid_)
             {
+                state_.set_cursor(static_cast<std::size_t>(line_start_x_), static_cast<std::size_t>(line_start_y_));
+                for (auto x = line_start_x_; x < static_cast<int>(screen_.width()); ++x)
+                {
+                    (void)screen_.write_ascii(static_cast<std::size_t>(x), static_cast<std::size_t>(line_start_y_), u" ",
+                                              state_.default_style, screen::no_cell_hyperlink);
+                }
+                screen_.clear_damage();
+                (void)state_.take_cursor_changed();
+                writer_->buffer().append_text(u8"\r");
+                if (line_start_x_ != 0)
+                {
+                    const auto move = "\x1b[" + std::to_string(line_start_x_) + "C";
+                    writer_->buffer().append(std::span<const char8_t>{
+                        reinterpret_cast<const char8_t *>(move.data()), move.size()});
+                }
+                writer_->buffer().append_text(u8"\x1b[K");
                 live_echoed_ = false;
+                line_edited_ = false;
+                line_start_valid_ = false;
             }
-            return;
+            else
+            {
+                if (raw_line_remaining_ == 0)
+                {
+                    live_echoed_ = false;
+                    line_start_valid_ = false;
+                    line_edited_ = false;
+                }
+                return;
+            }
         }
         if (!writer_ || bytes.empty() || (state_.input_mode & ENABLE_ECHO_INPUT) == 0)
         {
@@ -905,11 +973,16 @@ class server_session final
     vtstate::state_applier applier_;
     std::u16string text_;
     std::u16string echo_text_;
+    std::string echo_bytes_;
     vtparser::utf8_decoder echo_decoder_;
     std::string raw_in_;
     bool raw_mode_{};
     bool win32_input_suspended_{};
     bool live_echoed_{};
+    bool line_edited_{};
+    bool line_start_valid_{};
+    int line_start_x_{};
+    int line_start_y_{};
     std::size_t raw_line_remaining_{};
     bool raw_eof_{};
     bool raw_alerted_{};
