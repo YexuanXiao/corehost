@@ -174,26 +174,9 @@ class server_session final
         return consumed;
     }
 
-    void note_raw_bytes(std::span<const char> bytes) noexcept
-    {
-        if (raw_line_complete_)
-            return;
-        const bool processed = (state_.input_mode & ENABLE_PROCESSED_INPUT) != 0;
-        for (const auto value : bytes)
-        {
-            const auto byte = static_cast<unsigned char>(value);
-            if (byte == '\r' || byte == '\n' || (processed && (byte == 3 || byte == 0x1A)))
-            {
-                raw_line_complete_ = true;
-                return;
-            }
-        }
-    }
-
     void push_raw(std::span<const char> bytes)
     {
         raw_in_.append(bytes.data(), bytes.size());
-        note_raw_bytes(bytes);
         signal_input_event();
     }
 
@@ -282,137 +265,6 @@ class server_session final
         return raw_mode_;
     }
 
-    void apply_line_edits(std::string &text)
-    {
-        const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_UTF8;
-        const auto count = ::MultiByteToWideChar(code_page, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-        std::u16string line(static_cast<std::size_t>(std::max(count, 0)), u'\0');
-        if (!line.empty())
-        {
-            (void)::MultiByteToWideChar(code_page, 0, text.data(), static_cast<int>(text.size()),
-                                        reinterpret_cast<LPWSTR>(line.data()), static_cast<int>(line.size()));
-        }
-
-        std::u16string edited;
-        edited.reserve(line.size());
-        std::size_t cursor = 0;
-        bool insert_mode = false;
-        const auto is_high = [](char16_t value) {
-            return value >= 0xD800 && value <= 0xDBFF;
-        };
-        const auto is_low = [](char16_t value) {
-            return value >= 0xDC00 && value <= 0xDFFF;
-        };
-        const auto previous = [&](std::size_t at) {
-            if (at == 0)
-                return std::size_t{0};
-            if (at >= 2 && is_low(edited[at - 1]) && is_high(edited[at - 2]))
-                return at - 2;
-            return at - 1;
-        };
-        const auto next = [&](std::size_t at) {
-            if (at >= edited.size())
-                return edited.size();
-            if (is_high(edited[at]) && at + 1 < edited.size() && is_low(edited[at + 1]))
-                return at + 2;
-            return at + 1;
-        };
-        const auto erase_before = [&] {
-            const auto begin = previous(cursor);
-            if (begin < cursor)
-            {
-                edited.erase(begin, cursor - begin);
-                cursor = begin;
-            }
-        };
-        const auto erase_at = [&] {
-            const auto end = next(cursor);
-            if (end > cursor)
-                edited.erase(cursor, end - cursor);
-        };
-
-        for (std::size_t i = 0; i < line.size(); ++i)
-        {
-            const auto unit = line[i];
-            if (unit == u'\x1B' && i + 1 < line.size() && line[i + 1] == u'[')
-            {
-                std::size_t end = i + 2;
-                while (end < line.size())
-                {
-                    if (line[end] >= 0x40 && line[end] <= 0x7E)
-                        break;
-                    ++end;
-                }
-                if (end >= line.size())
-                    break;
-                const auto final = line[end];
-                unsigned parameter = 0;
-                bool has_parameter = false;
-                for (std::size_t p = i + 2; p < end; ++p)
-                {
-                    if (line[p] >= u'0' && line[p] <= u'9')
-                    {
-                        parameter = parameter * 10 + static_cast<unsigned>(line[p] - u'0');
-                        has_parameter = true;
-                    }
-                    else if (line[p] != u';')
-                    {
-                        break;
-                    }
-                }
-                switch (final)
-                {
-                case u'D':
-                    cursor = previous(cursor);
-                    break;
-                case u'C':
-                    cursor = next(cursor);
-                    break;
-                case u'H':
-                    cursor = 0;
-                    break;
-                case u'F':
-                    cursor = edited.size();
-                    break;
-                case u'~':
-                    if (!has_parameter || parameter == 3)
-                        erase_at();
-                    else if (parameter == 1 || parameter == 7)
-                        cursor = 0;
-                    else if (parameter == 2)
-                        insert_mode = !insert_mode;
-                    else if (parameter == 4 || parameter == 8)
-                        cursor = edited.size();
-                    break;
-                default:
-                    break;
-                }
-                i = end;
-                continue;
-            }
-            if (unit == u'\b' || unit == u'\x7F')
-            {
-                erase_before();
-                continue;
-            }
-            if (unit < u' ')
-            {
-                edited.push_back(unit);
-                cursor = edited.size();
-                continue;
-            }
-            std::size_t length = 1;
-            if (is_high(unit) && i + 1 < line.size() && is_low(line[i + 1]))
-                length = 2;
-            if (insert_mode && cursor < edited.size())
-                erase_at();
-            edited.insert(cursor, line.data() + i, length);
-            cursor += length;
-            i += length - 1;
-        }
-
-        text = encode_console_text(edited);
-    }
     [[nodiscard]] std::u16string decode_console_text(std::span<const char> text) const
     {
         const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_UTF8;
@@ -570,15 +422,11 @@ class server_session final
                 break;
 
             std::string bytes;
-            std::string echo;
             std::u16string text_batch;
-            bool edited = false;
             const auto flush_text = [&] {
                 if (text_batch.empty())
                     return;
                 bytes.append(encode_console_text(text_batch));
-                if (line_input)
-                    echo.append(encode_utf8(text_batch));
                 text_batch.clear();
             };
             for (std::size_t i = 0; i < count; ++i)
@@ -595,7 +443,6 @@ class server_session final
                     }
                     const auto bytes = encode_console_text(*event.text);
                     raw_in_.append(bytes);
-                    note_raw_bytes(std::span<const char>{bytes.data(), bytes.size()});
                     continue;
                 }
                 if (event.type == consoleinput::input_event_type::mouse)
@@ -625,37 +472,12 @@ class server_session final
                 flush_text();
                 const auto sequence = terminal_key_sequence(event.key.key);
                 if (!sequence.empty())
-                {
                     bytes.append(sequence);
-                    if (event.key.key == consoleinput::virtual_key::left ||
-                        event.key.key == consoleinput::virtual_key::right ||
-                        event.key.key == consoleinput::virtual_key::home ||
-                        event.key.key == consoleinput::virtual_key::end ||
-                        event.key.key == consoleinput::virtual_key::insert ||
-                        event.key.key == consoleinput::virtual_key::del)
-                    {
-                        edited = true;
-                    }
-                }
             }
             flush_text();
 
             if (!bytes.empty())
-            {
                 raw_in_.append(bytes);
-                note_raw_bytes(std::span<const char>{bytes.data(), bytes.size()});
-            }
-            if (line_input)
-            {
-                if (edited || line_edited_)
-                {
-                    line_edited_ = true;
-                }
-                else if (!echo.empty())
-                {
-                    echo_live(echo);
-                }
-            }
         }
         signal_input_event();
     }
@@ -855,8 +677,7 @@ class server_session final
     {
         if (raw_echo_done_)
         {
-            if (raw_line_remaining_ == 0)
-                raw_echo_done_ = false;
+            raw_echo_done_ = false;
             return;
         }
         if (live_echoed_)
@@ -885,12 +706,9 @@ class server_session final
             }
             else
             {
-                if (raw_line_remaining_ == 0)
-                {
-                    live_echoed_ = false;
-                    line_start_valid_ = false;
-                    line_edited_ = false;
-                }
+                live_echoed_ = false;
+                line_start_valid_ = false;
+                line_edited_ = false;
                 return;
             }
         }
@@ -945,7 +763,7 @@ class server_session final
             writer_->buffer().append(
                 std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()});
         }
-        if ((state_.input_mode & ENABLE_LINE_INPUT) != 0 && raw_line_remaining_ == 0)
+        if ((state_.input_mode & ENABLE_LINE_INPUT) != 0)
         {
             live_echoed_ = false;
             line_edited_ = false;
@@ -978,57 +796,16 @@ class server_session final
         if (raw_in_.empty())
             return 0;
 
-        const bool line_input = (state_.input_mode & ENABLE_LINE_INPUT) != 0;
-        if (line_input && raw_line_remaining_ == 0)
-        {
-            // Editing is stateful; apply it only once a complete line is in the
-            // raw buffer, not on every intermediate input chunk.
-            if (!raw_line_complete_)
-            {
-                return 0;
-            }
-            apply_line_edits(raw_in_);
-            raw_line_offset_ = 0;
-            if (raw_in_.empty())
-            {
-                raw_line_complete_ = false;
-                return 0;
-            }
-            if (!live_echoed_ || line_edited_)
-            {
-                // ECHO must cover the complete logical line before the client
-                // receives the first chunk; otherwise a later chunk's echo can
-                // be interleaved with client output.
-                echo_raw(std::span<const char>{raw_in_.data(), raw_in_.size()});
-                raw_echo_done_ = true;
-            }
-        }
-
-        if (line_input && raw_line_remaining_ != 0)
-        {
-            const auto written = std::min(output.size(), raw_line_remaining_);
-            std::memcpy(output.data(), raw_in_.data() + raw_line_offset_, written);
-            raw_line_offset_ += written;
-            raw_line_remaining_ -= written;
-            if (raw_line_remaining_ == 0)
-            {
-                raw_in_.erase(0, raw_line_offset_);
-                raw_line_offset_ = 0;
-                raw_line_complete_ = false;
-            }
-            return written;
-        }
-
+        if ((state_.input_mode & ENABLE_LINE_INPUT) != 0)
+            return 0;
         const auto limit = std::min<std::size_t>(output.size(), raw_in_.size());
         std::size_t consumed = 0;
         bool complete = false;
         bool eof = false;
 
         const bool processed_input = (state_.input_mode & 0x0001) != 0;
-        const auto scan_limit = line_input ? raw_in_.size() : limit;
-        const auto found = processed_input
-                               ? find_raw_control<true>(raw_in_, scan_limit)
-                               : find_raw_control<false>(raw_in_, scan_limit);
+        const auto found = processed_input ? find_raw_control<true>(raw_in_, limit)
+                                           : find_raw_control<false>(raw_in_, limit);
         if (found != limit)
         {
             const auto value = static_cast<unsigned char>(raw_in_[found]);
@@ -1061,20 +838,11 @@ class server_session final
 
         if (!complete)
         {
-            if (line_input || raw_in_.size() < output.size())
+            if (raw_in_.size() < output.size())
             {
                 return 0;
             }
             consumed = limit;
-        }
-
-        if (line_input && consumed > output.size())
-        {
-            const auto written = output.size();
-            std::memcpy(output.data(), raw_in_.data(), written);
-            raw_line_offset_ = written;
-            raw_line_remaining_ = consumed - written;
-            return written;
         }
 
         const bool add_cr =
@@ -1085,8 +853,6 @@ class server_session final
         {
             std::memcpy(output.data(), raw_in_.data(), consumed);
             raw_in_.erase(0, consumed);
-            if (line_input && raw_in_.empty())
-                raw_line_complete_ = false;
             raw_eof_ = eof;
             return consumed;
         }
@@ -1117,8 +883,6 @@ class server_session final
         }
 
         raw_in_.erase(0, consumed);
-        if (line_input && raw_in_.empty())
-            raw_line_complete_ = false;
         raw_eof_ = eof;
         return written;
     }
@@ -1451,13 +1215,10 @@ class server_session final
     bool raw_mode_{};
     bool live_echoed_{};
     bool raw_echo_done_{};
-    bool raw_line_complete_{};
-    std::size_t raw_line_offset_{};
     bool line_edited_{};
     bool line_start_valid_{};
     int line_start_x_{};
     int line_start_y_{};
-    std::size_t raw_line_remaining_{};
     bool raw_eof_{};
     bool raw_alerted_{};
     coreio::process_registry processes_;

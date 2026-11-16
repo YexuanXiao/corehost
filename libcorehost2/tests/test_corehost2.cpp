@@ -171,16 +171,25 @@ int main()
         return EXIT_FAILURE;
     }
 
-    const char raw_x[]{"X"};
-    server.push_raw(std::span<const char>{raw_x, 1});
+    const auto push_char = [&](char16_t value) {
+        corehost::consoleinput::input_event event{};
+        event.key.character = value;
+        server_input.push(event);
+    };
+    const auto push_key = [&](corehost::consoleinput::virtual_key value) {
+        corehost::consoleinput::input_event event{};
+        event.key.key = value;
+        server_input.push(event);
+    };
+
     char raw_read_data[8]{};
+    push_char(u'X');
     if (server.read_raw(std::span<char>{raw_read_data}) != 0)
     {
-        std::fprintf(stderr, "raw read completed early\n");
+        std::fprintf(stderr, "line input returned before line terminator\n");
         return EXIT_FAILURE;
     }
-    const char raw_cr[]{"\r"};
-    server.push_raw(std::span<const char>{raw_cr, 1});
+    push_char(u'\r');
     if (server.read_raw(std::span<char>{raw_read_data}) != 3 || raw_read_data[0] != 'X' || raw_read_data[1] != '\r' ||
         raw_read_data[2] != '\n')
     {
@@ -188,24 +197,25 @@ int main()
         return EXIT_FAILURE;
     }
 
-    const char raw_lf[]{"Y\n"};
-    server.push_raw(std::span<const char>{raw_lf, 2});
+    push_char(u'Y');
+    push_char(u'\r');
     if (server.read_raw(std::span<char>{raw_read_data}) != 3 || raw_read_data[0] != 'Y' || raw_read_data[1] != '\r' ||
         raw_read_data[2] != '\n')
     {
-        std::fprintf(stderr, "raw LF normalization failed\n");
+        std::fprintf(stderr, "line input normalization failed\n");
         return EXIT_FAILURE;
     }
 
-    const char line_a[]{"AB"};
-    server.push_raw(std::span<const char>{line_a, 2});
+    push_char(u'A');
+    push_char(u'B');
     if (server.read_raw(std::span<char>{raw_read_data}) != 0)
     {
         std::fprintf(stderr, "line input returned before line terminator\n");
         return EXIT_FAILURE;
     }
-    const char line_edit[]{"\x7F" "C\r"};
-    server.push_raw(std::span<const char>{line_edit, 3});
+    push_char(0x7F);
+    push_char(u'C');
+    push_char(u'\r');
     if (server.read_raw(std::span<char>{raw_read_data}) != 4 || raw_read_data[0] != 'A' || raw_read_data[1] != 'C' ||
         raw_read_data[2] != '\r' || raw_read_data[3] != '\n')
     {
@@ -213,8 +223,11 @@ int main()
         return EXIT_FAILURE;
     }
 
-    const char line_arrow[]{"AB\x1B[D" "X\r"};
-    server.push_raw(std::span<const char>{line_arrow, 7});
+    push_char(u'A');
+    push_char(u'B');
+    push_key(corehost::consoleinput::virtual_key::left);
+    push_char(u'X');
+    push_char(u'\r');
     if (server.read_raw(std::span<char>{raw_read_data}) != 5 || raw_read_data[0] != 'A' || raw_read_data[1] != 'X' ||
         raw_read_data[2] != 'B' || raw_read_data[3] != '\r' || raw_read_data[4] != '\n')
     {
@@ -222,8 +235,12 @@ int main()
         return EXIT_FAILURE;
     }
 
-    const char line_insert[]{"AB\x1B[D\x1B[2~" "C\r"};
-    server.push_raw(std::span<const char>{line_insert, 11});
+    push_char(u'A');
+    push_char(u'B');
+    push_key(corehost::consoleinput::virtual_key::left);
+    push_key(corehost::consoleinput::virtual_key::insert);
+    push_char(u'C');
+    push_char(u'\r');
     if (server.read_raw(std::span<char>{raw_read_data}) != 4 || raw_read_data[0] != 'A' || raw_read_data[1] != 'C' ||
         raw_read_data[2] != '\r' || raw_read_data[3] != '\n')
     {
@@ -231,8 +248,11 @@ int main()
         return EXIT_FAILURE;
     }
 
-    const char line_ctrl[]{"AB\x15" "C\r"};
-    server.push_raw(std::span<const char>{line_ctrl, 5});
+    push_char(u'A');
+    push_char(u'B');
+    push_char(0x15);
+    push_char(u'C');
+    push_char(u'\r');
     if (server.read_raw(std::span<char>{raw_read_data}) != 6 || raw_read_data[0] != 'A' || raw_read_data[1] != 'B' ||
         raw_read_data[2] != 0x15 || raw_read_data[3] != 'C' || raw_read_data[4] != '\r' || raw_read_data[5] != '\n')
     {
@@ -689,20 +709,20 @@ int main()
     event_state.input_mode = ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT;
     corehost::consoleinput::input_queue event_input;
     corehost::corehost2::server_session event_server{event_buffer, event_state, event_input};
-    const auto push_char = [&](char16_t value) {
+    const auto push_event_char = [&](char16_t value) {
         corehost::consoleinput::input_event event{};
         event.key.character = value;
         event_input.push(event);
     };
-    push_char(u'A');
-    push_char(u'B');
+    push_event_char(u'A');
+    push_event_char(u'B');
     {
         corehost::consoleinput::input_event event{};
         event.key.key = corehost::consoleinput::virtual_key::left;
         event_input.push(event);
     }
-    push_char(u'X');
-    push_char(u'\r');
+    push_event_char(u'X');
+    push_event_char(u'\r');
     char event_read[8]{};
     if (event_server.read_raw(std::span<char>{event_read}) != 5 || event_read[0] != 'A' || event_read[1] != 'X' ||
         event_read[2] != 'B' || event_read[3] != '\r' || event_read[4] != '\n')
