@@ -18,7 +18,9 @@ namespace corehost::vtserializer
 // CUP, SGR only on attribute changes, and glyph runs are UTF-8 encoded directly
 // into the shared serializer buffer.
 inline void render_damage(byte_buffer &output, const screen::screen_buffer &buffer, screen::coord cursor,
-                          const screen::console_state *state = nullptr)
+                          const screen::console_state *state = nullptr,
+                          std::size_t trim_trailing_blanks_from = static_cast<std::size_t>(-1),
+                          bool include_cursor_visibility = true)
 {
     const auto origin = buffer.viewport_origin();
     const auto size = buffer.viewport_size();
@@ -28,6 +30,9 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
     auto current_hyperlink = screen::no_cell_hyperlink;
     screen::cell_style current_style = static_cast<screen::cell_style>(-1);
     unsigned current_rendition = 0;
+    std::int32_t last_rendered_row = -1;
+    std::size_t last_rendered_end = 0;
+    bool first_rendered_row = true;
 
     for (std::int32_t row = 0; row < size.y; ++row)
     {
@@ -66,10 +71,38 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
             current_rendition = rendition;
         }
 
-        append_cup(output, static_cast<unsigned>(row),
-                   static_cast<unsigned>(begin - static_cast<std::size_t>(origin.x)));
+        const auto column = static_cast<int>(begin - static_cast<std::size_t>(origin.x));
+        if (first_rendered_row && state != nullptr && state->terminal_cursor_valid &&
+            state->terminal_cursor_y == row && state->terminal_cursor_x == column)
+        {
+            // already at the first damage cell
+        }
+        else if (first_rendered_row && state != nullptr && state->terminal_cursor_valid &&
+                 state->terminal_cursor_y == row && column == 0)
+        {
+            output.append_text(u8"\r");
+        }
+        else
+        {
+            append_cup(output, static_cast<unsigned>(row), static_cast<unsigned>(column));
+        }
+        first_rendered_row = false;
 
         const auto cells = buffer.row_cells(y);
+        if (y >= trim_trailing_blanks_from)
+        {
+            while (end > begin)
+            {
+                const auto &value = cells[end - 1];
+                if (value.is_continuation() || value.primary() != u' ')
+                    break;
+                --end;
+            }
+            if (begin >= end)
+                continue;
+        }
+        last_rendered_row = static_cast<std::int32_t>(y);
+        last_rendered_end = end;
         for (auto x = begin; x < end; ++x)
         {
             const auto &value = cells[x];
@@ -117,8 +150,9 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
         append_hyperlink_close(output);
     }
 
-    append_cup(output, static_cast<unsigned>(cursor.y - origin.y), static_cast<unsigned>(cursor.x - origin.x));
-    if (state != nullptr)
+    if (cursor.y != last_rendered_row || static_cast<std::size_t>(cursor.x) != last_rendered_end)
+        append_cup(output, static_cast<unsigned>(cursor.y - origin.y), static_cast<unsigned>(cursor.x - origin.x));
+    if (state != nullptr && include_cursor_visibility)
     {
         append_cursor_visibility(output, state->cursor().visible);
     }
@@ -127,7 +161,7 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
 // Full viewport repaint used when the terminal may have lost local content,
 // notably after switching to/from the alternate buffer.
 inline void render_viewport(byte_buffer &output, const screen::screen_buffer &buffer, screen::coord cursor,
-                            const screen::console_state *state = nullptr)
+                            const screen::console_state *state = nullptr, bool include_cursor_visibility = true)
 {
     const auto origin = buffer.viewport_origin();
     const auto size = buffer.viewport_size();
@@ -219,7 +253,7 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
         append_hyperlink_close(output);
     }
     append_cup(output, static_cast<unsigned>(cursor.y - origin.y), static_cast<unsigned>(cursor.x - origin.x));
-    if (state != nullptr)
+    if (state != nullptr && include_cursor_visibility)
     {
         append_cursor_visibility(output, state->cursor().visible);
     }

@@ -502,6 +502,7 @@ class state_applier final
     void apply_cursor_visibility(bool visible, screen::console_state &state) noexcept
     {
         state.cursor().visible = visible;
+        state.cursor_visibility_changed = true;
         state.cursor_changed = true;
     }
 

@@ -2376,6 +2376,7 @@ class console_api final
             return true;
         }
         state_.cursor().visible = info->Visible != FALSE;
+        state_.cursor_visibility_changed = true;
         state_.cursor().size = info->CursorSize;
         state_.cursor_changed = true;
         coreio::prepare_completion(message);

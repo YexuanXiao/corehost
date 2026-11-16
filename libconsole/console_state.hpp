@@ -185,6 +185,10 @@ class console_state final
     bool scrollback_cleared{};
     bool cursor_changed{};
     bool cursor_shape_changed{};
+    bool cursor_visibility_changed{true};
+    bool terminal_cursor_valid{};
+    std::int32_t terminal_cursor_x{};
+    std::int32_t terminal_cursor_y{};
     bool viewport_changed{};
     bool win32_input_mode{true};
     bool win32_input_changed{};
@@ -294,6 +298,13 @@ class console_state final
     {
         const auto changed = cursor_changed;
         cursor_changed = false;
+        return changed;
+    }
+
+    [[nodiscard]] bool take_cursor_visibility_changed() noexcept
+    {
+        const auto changed = cursor_visibility_changed;
+        cursor_visibility_changed = false;
         return changed;
     }
 

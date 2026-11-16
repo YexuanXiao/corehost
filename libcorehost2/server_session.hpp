@@ -477,6 +477,24 @@ class server_session final
         signal_input_event();
     }
 
+    [[nodiscard]] static std::size_t trim_row_for_scroll(const screen::screen_buffer &screen,
+                                                         std::size_t scroll_lines) noexcept
+    {
+        if (scroll_lines == 0)
+            return static_cast<std::size_t>(-1);
+        const auto origin = screen.viewport_origin();
+        const auto size = screen.viewport_size();
+        return static_cast<std::size_t>(origin.y + size.y - static_cast<std::int32_t>(scroll_lines));
+    }
+
+    void note_terminal_cursor() noexcept
+    {
+        const auto origin = screen_.viewport_origin();
+        state_.terminal_cursor_x = static_cast<std::int32_t>(state_.cursor().x) - origin.x;
+        state_.terminal_cursor_y = static_cast<std::int32_t>(state_.cursor().y) - origin.y;
+        state_.terminal_cursor_valid = true;
+    }
+
     void echo_editor_append(std::u16string_view text)
     {
         const auto utf8 = encode_utf8(text);
@@ -538,8 +556,11 @@ class server_session final
                           static_cast<std::size_t>(std::max(cursor.y, 0)));
         const auto terminal_cursor = screen::coord{static_cast<std::int32_t>(state_.cursor().x),
                                                    static_cast<std::int32_t>(state_.cursor().y)};
-        vtserializer::append_scroll_up(writer_->buffer(), static_cast<unsigned>(screen_.take_scroll_up()));
-        vtserializer::render_damage(writer_->buffer(), screen_, terminal_cursor, &state_);
+        const auto scroll_lines = screen_.take_scroll_up();
+        vtserializer::append_scroll_up(writer_->buffer(), static_cast<unsigned>(scroll_lines));
+        vtserializer::render_damage(writer_->buffer(), screen_, terminal_cursor, &state_,
+                                    trim_row_for_scroll(screen_, scroll_lines));
+        note_terminal_cursor();
         screen_.clear_damage();
         (void)state_.take_cursor_changed();
         (void)state_.take_echo_line_feed();
@@ -716,6 +737,7 @@ class server_session final
             echo_text_);
         (void)write_text(echo_text_);
         (void)screen_.take_scroll_up();
+        note_terminal_cursor();
         screen_.clear_damage();
         (void)state_.take_cursor_changed();
         (void)state_.take_echo_line_feed();
@@ -792,8 +814,11 @@ class server_session final
             (void)write_text(echo_text_);
             const auto echo_cursor = screen::coord{static_cast<std::int32_t>(state_.cursor().x),
                                                    static_cast<std::int32_t>(state_.cursor().y)};
-            vtserializer::append_scroll_up(writer_->buffer(), static_cast<unsigned>(screen_.take_scroll_up()));
-            vtserializer::render_damage(writer_->buffer(), screen_, echo_cursor, &state_);
+            const auto scroll_lines = screen_.take_scroll_up();
+            vtserializer::append_scroll_up(writer_->buffer(), static_cast<unsigned>(scroll_lines));
+            vtserializer::render_damage(writer_->buffer(), screen_, echo_cursor, &state_,
+                                        trim_row_for_scroll(screen_, scroll_lines));
+            note_terminal_cursor();
             screen_.clear_damage();
             (void)state_.take_cursor_changed();
             (void)state_.take_echo_line_feed();
@@ -803,6 +828,7 @@ class server_session final
             echo_decoder_.decode(
                 std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()}, echo_text_);
             (void)write_text(echo_text_);
+            note_terminal_cursor();
             screen_.clear_damage();
             (void)state_.take_cursor_changed();
             (void)state_.take_echo_line_feed();
@@ -1005,12 +1031,16 @@ class server_session final
         auto *request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto payload = payload_.read(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG));
         std::size_t written = 0;
+        std::u16string_view written_text;
+        const auto write_cursor = state_.cursor();
         if (request->Unicode)
         {
             const auto *data = reinterpret_cast<const char16_t *>(payload.data());
             const auto count = payload.size() / sizeof(char16_t);
-            written = write_text(std::u16string_view{data, count});
+            written_text = std::u16string_view{data, count};
+            written = write_text(written_text);
             request->NumBytes = static_cast<ULONG>(written * sizeof(char16_t));
+            written_text = written_text.substr(0, written);
         }
         else
         {
@@ -1025,9 +1055,38 @@ class server_session final
                                             reinterpret_cast<LPWSTR>(text_.data()), units);
             }
             written = write_text(text_);
+            written_text = std::u16string_view{text_.data(), written};
             const auto encoded = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text_.data()),
                                                        static_cast<int>(written), nullptr, 0, nullptr, nullptr);
             request->NumBytes = static_cast<ULONG>(std::max(encoded, 0));
+        }
+        if (writer_ != nullptr)
+        {
+            const auto origin = screen_.viewport_origin();
+            const auto target_x = static_cast<std::int32_t>(write_cursor.x) - origin.x;
+            const auto target_y = static_cast<std::int32_t>(write_cursor.y) - origin.y;
+            if (!state_.terminal_cursor_valid || state_.terminal_cursor_y != target_y ||
+                state_.terminal_cursor_x != target_x)
+            {
+                if (state_.terminal_cursor_valid && state_.terminal_cursor_y == target_y && target_x == 0)
+                {
+                    writer_->buffer().append_text(u8"\r");
+                }
+                else
+                {
+                    vtserializer::append_cup(writer_->buffer(), static_cast<unsigned>(std::max(target_y, 0)),
+                                             static_cast<unsigned>(std::max(target_x, 0)));
+                }
+            }
+            const auto utf8 = encode_utf8(written_text);
+            writer_->buffer().append(
+                std::span<const char8_t>{reinterpret_cast<const char8_t *>(utf8.data()), utf8.size()});
+            (void)screen_.take_scroll_up();
+            screen_.clear_damage();
+            (void)state_.take_cursor_changed();
+            (void)state_.take_echo_line_feed();
+            note_terminal_cursor();
+            writer_->flush();
         }
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLE_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_WRITECONSOLE_MSG));
