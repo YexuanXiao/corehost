@@ -169,13 +169,12 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
         append_cup(output, static_cast<unsigned>(row), 0);
 
         const auto cells = buffer.row_cells(y);
-        for (std::int32_t column = 0; column < size.x; ++column)
+        const auto origin_x = static_cast<std::size_t>(origin.x);
+        const auto columns = std::min<std::size_t>(
+            static_cast<std::size_t>(size.x), buffer_width > origin_x ? buffer_width - origin_x : 0);
+        for (std::size_t column = 0; column < columns; ++column)
         {
-            const auto x = static_cast<std::size_t>(origin.x + column);
-            if (x >= buffer_width)
-            {
-                break;
-            }
+            const auto x = origin_x + column;
             const auto &value = cells[x];
             if (value.is_continuation())
             {
