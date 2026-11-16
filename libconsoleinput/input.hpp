@@ -127,37 +127,25 @@ class input_queue final
   public:
     void push(const input_event &event)
     {
-        if (event.type == input_event_type::key && event.key.key_down)
-            ++key_count_;
-        else if (event.type == input_event_type::text)
-            key_count_ += event.text ? event.text->size() : 0;
+        account(event);
         events_.push_back(event);
     }
 
     void push(input_event &&event)
     {
-        if (event.type == input_event_type::key && event.key.key_down)
-            ++key_count_;
-        else if (event.type == input_event_type::text)
-            key_count_ += event.text ? event.text->size() : 0;
+        account(event);
         events_.push_back(std::move(event));
     }
 
     void push_front(const input_event &event)
     {
-        if (event.type == input_event_type::key && event.key.key_down)
-            ++key_count_;
-        else if (event.type == input_event_type::text)
-            key_count_ += event.text ? event.text->size() : 0;
+        account(event);
         events_.push_front(event);
     }
 
     void push_front(input_event &&event)
     {
-        if (event.type == input_event_type::key && event.key.key_down)
-            ++key_count_;
-        else if (event.type == input_event_type::text)
-            key_count_ += event.text ? event.text->size() : 0;
+        account(event);
         events_.push_front(std::move(event));
     }
 
@@ -232,11 +220,7 @@ class input_queue final
         std::copy_n(events_.begin(), count, destination.begin());
         for (std::size_t i = 0; i < count; ++i)
         {
-            auto &front = events_.front();
-            if (front.type == input_event_type::key && front.key.key_down)
-                --key_count_;
-            else if (front.type == input_event_type::text)
-                key_count_ -= (front.text ? front.text->size() : 0) - front.text_offset;
+            unaccount(events_.front());
             events_.pop_front();
         }
         return count;
@@ -303,6 +287,22 @@ class input_queue final
     }
 
   private:
+    void account(const input_event &event) noexcept
+    {
+        if (event.type == input_event_type::key && event.key.key_down)
+            ++key_count_;
+        else if (event.type == input_event_type::text)
+            key_count_ += event.text ? event.text->size() : 0;
+    }
+
+    void unaccount(const input_event &event) noexcept
+    {
+        if (event.type == input_event_type::key && event.key.key_down)
+            --key_count_;
+        else if (event.type == input_event_type::text)
+            key_count_ -= (event.text ? event.text->size() : 0) - event.text_offset;
+    }
+
     bizwen::deque<input_event> events_;
     std::size_t key_count_{};
     bool text_up_pending_{};
