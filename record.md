@@ -3107,3 +3107,42 @@ cjk:           8.4 ms
 ```
 
 cjk 输出增加 CUP 序列，耗时从约 6.9 ms 到 8.4 ms，仍远低于原始 400 ms。
+
+### line 编辑实时重绘
+
+编辑期间不再等 Enter 才显示最终行：
+
+- `feed_line_text` / `feed_line_key` 的 append 继续走 `echo_live`；
+- Backspace/Delete/Left/Right/Home/End/Insert 覆盖触发 `redraw_line_echo()`；
+- `redraw_line_echo` 用 `line_echo_length_` 清旧行，写入新的 line_editor 文本；
+- 屏幕 damage 通过 `vtserializer::render_damage()` 输出；
+- 终端 cursor 由 renderer 的 CUP 定位，不再手写 `\r`/`ESC[K`；
+- 记录并清理 `line_echo_length_`，避免重绘残留。
+
+提交：
+
+```text
+f753f2e feat(input): redraw line edits through shared renderer
+```
+
+验证：
+
+```text
+AB + Left + Insert + C -> 实时 AC，数据 AC
+AB + Left + X -> AXB
+CD + Home + Y -> YCD
+EF + End + Z -> EFZ
+200 字符 + Home + X -> 实时正确、数据正确、无崩溃
+Release 11/11
+Debug 4/4
+```
+
+benchmark：
+
+```text
+large-mixed: 273.3 ms
+long-line:   802.6 ms
+powershell:  295.8 ms
+sgr-plain:    29.5 ms
+cjk:           8.1 ms
+```
