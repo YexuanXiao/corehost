@@ -259,6 +259,11 @@ class server_session final
         queued_console_inputs_.clear();
     }
 
+    [[nodiscard]] bool raw_input_mode() const noexcept
+    {
+        return raw_mode_;
+    }
+
     void echo_raw(std::span<const char> bytes) noexcept
     {
         if (!writer_ || bytes.empty() || (state_.input_mode & ENABLE_ECHO_INPUT) == 0)
@@ -271,6 +276,7 @@ class server_session final
 
     std::size_t read_raw(std::span<char> output)
     {
+        raw_mode_ = true;
         if (output.empty() || raw_in_.empty())
         {
             return 0;
@@ -682,6 +688,7 @@ class server_session final
     vtstate::state_applier applier_;
     std::u16string text_;
     std::string raw_in_;
+    bool raw_mode_{};
     bool raw_eof_{};
     bool raw_alerted_{};
     coreio::process_registry processes_;
