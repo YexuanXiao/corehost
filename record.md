@@ -2725,3 +2725,39 @@ ESC[<style*2+2> q
 - 默认 WT profile cursor 恢复细光标；
 - 两张相隔 700 ms 的截图 hash 不同，确认闪烁；
 - 所有测试通过。
+
+### 输入队列 batch 的 API 语义修复
+
+修复 text batch 引入的语义问题：
+
+- `input_queue::push` 支持 rvalue，避免 text batch 复制；
+- text batch 计入 `key_count_`，`has_key` 正确；
+- `record_count()` 按展开后的 key down/up 计算；
+- `GetNumberOfInputEvents` 改用 `record_count()`；
+- text 展开使用 `key_from_character`，恢复 VK/ScanCode/ControlState；
+- `read` 的 down/up 展开同步扣减 key_count；
+- `read_raw` 弹出 text batch 时同步扣减 key_count；
+- 增加 text batch 计数/元数据单测。
+
+提交：
+
+```text
+0329a70 fix(input): preserve batched text key metadata and record counts
+```
+
+验证：
+
+```text
+Release 11/11
+Debug 4/4
+```
+
+当前 benchmark：
+
+```text
+large-mixed: 254.2 ms
+long-line:   803.2 ms
+powershell:  276-292 ms
+sgr-plain:    29.4 ms
+cjk:          10.4 ms
+```
