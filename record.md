@@ -2825,3 +2825,40 @@ powershell:  284.7 ms
 sgr-plain:    28.7 ms
 cjk:          10.6 ms
 ```
+
+### raw line 输入切换到共享增量 line editor
+
+生产 raw line 路径不再在 CR 后用 `apply_line_edits` 重放整行：
+
+- parser text batch 直接进入 `consoleinput::line_editor`；
+- 方向键/Home/End/Insert/Delete/Backspace 增量修改同一 UTF-16 line state；
+- Enter 后把 completed line 编码为输入代码页并进入 completed-line 队列；
+- `ReadFile` 从 completed 队列读取；
+- `complete_pending` 同时识别 raw_in 和 completed-line 队列；
+- echo 仍在 Enter 时用已有 echo 路径完成一次最终重绘；实时重绘不再直接操作 screen cursor。
+
+提交：
+
+```text
+752bd89 refactor(corehost2): use incremental line editor for raw reads
+```
+
+验证：
+
+```text
+ABC、方向键、Home/End、Insert、Backspace
+多字节 Insert -> 你好
+CP936 -> C4E3BAC30D0A
+200 字符 + Home + X 分块行
+cjk -> 6.7-7.5 ms
+```
+
+benchmark：
+
+```text
+large-mixed: 258.2 ms
+long-line:   793.3 ms
+powershell:  296.3 ms
+sgr-plain:    30.4 ms
+cjk:           7.4 ms
+```
