@@ -67,6 +67,12 @@ struct message_handler final
         {
             std::unique_lock guard{*context.mutex};
             const bool alternate_before = context.state->screen().alternate_active();
+            std::span<const std::byte> raw_output;
+            if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE)
+            {
+                coreio::input_payload_reader raw_reader{context.server};
+                raw_output = raw_reader.read(message, 0);
+            }
             dispatched = context.dispatcher->handle(message);
             for (const auto [mode, enabled] : context.state->state().take_private_modes())
             {
@@ -87,6 +93,19 @@ struct message_handler final
                 {
                     vtserializer::append_window_title(context.writer->buffer(), context.state->state().title);
                 }
+                return dispatched;
+            }
+            if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE)
+            {
+                context.writer->buffer().append(
+                    std::span<const char8_t>{reinterpret_cast<const char8_t *>(raw_output.data()), raw_output.size()});
+                context.state->screen().clear_damage();
+                (void)context.state->take_alternate_changed();
+                (void)context.state->take_viewport_changed();
+                (void)context.state->state().take_cursor_changed();
+                (void)context.state->take_echo_line_feed();
+                (void)context.state->take_title_changed();
+                (void)context.state->take_scrollback_cleared();
                 return dispatched;
             }
             context.dispatcher->take_ctrl_events(ctrl_events);

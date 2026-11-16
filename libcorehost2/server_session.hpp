@@ -259,6 +259,16 @@ class server_session final
         queued_console_inputs_.clear();
     }
 
+    void echo_raw(std::span<const char> bytes) noexcept
+    {
+        if (!writer_ || bytes.empty() || (state_.input_mode & ENABLE_ECHO_INPUT) == 0)
+        {
+            return;
+        }
+        writer_->buffer().append(
+            std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()});
+    }
+
     std::size_t read_raw(std::span<char> output)
     {
         if (output.empty() || raw_in_.empty())
@@ -621,6 +631,10 @@ class server_session final
                 {
                     clear_raw_eof();
                 }
+            }
+            if (written != 0)
+            {
+                echo_raw(std::span<const char>{reinterpret_cast<const char *>(pending_message_.body), written});
             }
             coreio::prepare_completion(pending_message_, status, written, pending_message_.body, written);
         }
