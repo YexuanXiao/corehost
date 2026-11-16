@@ -895,6 +895,50 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer cluster_buffer{8, 2};
+    corehost::screen::console_state cluster_state{8, 2};
+    corehost::consoleinput::input_queue cluster_queue;
+    cluster_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'e'}});
+    cluster_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\u0301'}});
+    corehost::consoleapi::console_api cluster_api{cluster_buffer, cluster_state, &cluster_queue};
+    corehost::coreio::io_msg cluster_message{};
+    cluster_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    cluster_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8 * sizeof(char16_t);
+    auto *cluster_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(cluster_message.body);
+    cluster_header->ApiNumber = ConsolepReadConsole;
+    auto *cluster_request =
+        reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(cluster_message.body + sizeof(CONSOLE_MSG_HEADER));
+    cluster_request->Unicode = TRUE;
+    if (cluster_api.handle(cluster_message) || cluster_buffer.glyph_at(0, 0) != u"e\u0301" ||
+        cluster_state.cursor().x != 1)
+    {
+        std::fprintf(stderr, "combining echo failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::screen::screen_buffer wide_buffer{8, 2};
+    corehost::screen::console_state wide_state{8, 2};
+    corehost::consoleinput::input_queue wide_queue;
+    wide_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\u4E2D'}});
+    corehost::consoleapi::console_api wide_api{wide_buffer, wide_state, &wide_queue};
+    corehost::coreio::io_msg wide_message{};
+    wide_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    wide_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8 * sizeof(char16_t);
+    auto *wide_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(wide_message.body);
+    wide_header->ApiNumber = ConsolepReadConsole;
+    auto *wide_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(wide_message.body + sizeof(CONSOLE_MSG_HEADER));
+    wide_request->Unicode = TRUE;
+    if (wide_api.handle(wide_message) || wide_buffer.glyph_at(0, 0) != u"\u4E2D" || wide_state.cursor().x != 2)
+    {
+        std::fprintf(stderr, "wide echo failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::coreio::io_msg font_size_message{};
     font_size_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETFONTSIZE_MSG);
     font_size_message.descriptor.OutputSize = sizeof(font_size_message.body);

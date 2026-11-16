@@ -2590,36 +2590,59 @@ class console_api final
         }
         const auto width = static_cast<std::int32_t>(state_.width());
         const auto height = static_cast<std::int32_t>(state_.height());
-        const auto first_capacity = std::max(width - origin.x, 1);
+        const auto text = std::u16string_view{output, units};
 
-        for (std::size_t i = 0; i < units; ++i)
+        std::size_t column = 0;
+        for (const auto cluster : screen::grapheme_range<screen::text_measurement::console>{text})
+        {
+            std::int32_t x = 0;
+            std::int32_t y = 0;
+            echo_position(origin, width, column, x, y);
+            if (y >= 0 && y < height)
+            {
+                const auto cell_width =
+                    cluster.width >= 2 ? screen::cell_width::wide : screen::cell_width::narrow;
+                if (cluster.text.size() == 1)
+                {
+                    (void)buffer_.write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
+                                               cluster.text[0], state_.default_style, cell_width,
+                                               state_.default_hyperlink);
+                }
+                else
+                {
+                    (void)buffer_.write_cluster(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
+                                                cluster.text, state_.default_style, cell_width,
+                                                state_.default_hyperlink);
+                }
+            }
+            column += static_cast<std::size_t>(std::max(cluster.width, 1));
+        }
+        for (std::size_t i = column; i < echo_length; ++i)
         {
             std::int32_t x = 0;
             std::int32_t y = 0;
             echo_position(origin, width, i, x, y);
-            if (y < 0 || y >= height)
+            if (y >= 0 && y < height)
             {
-                continue;
+                (void)buffer_.write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y), u' ',
+                                           state_.default_style, screen::cell_width::narrow,
+                                           state_.default_hyperlink);
             }
-            (void)buffer_.write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y), output[i],
-                                       state_.default_style, screen::cell_width::narrow, state_.default_hyperlink);
         }
-        for (std::size_t i = units; i < echo_length; ++i)
+        echo_length = column;
+
+        std::size_t cursor_column = 0;
+        std::size_t consumed = 0;
+        for (const auto cluster : screen::grapheme_range<screen::text_measurement::console>{text})
         {
-            std::int32_t x = 0;
-            std::int32_t y = 0;
-            echo_position(origin, width, i, x, y);
-            if (y < 0 || y >= height)
-            {
-                continue;
-            }
-            (void)buffer_.write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y), u' ',
-                                       state_.default_style, screen::cell_width::narrow, state_.default_hyperlink);
+            if (consumed >= cursor)
+                break;
+            consumed += cluster.text.size();
+            cursor_column += static_cast<std::size_t>(std::max(cluster.width, 1));
         }
-        echo_length = units;
         std::int32_t cursor_x = origin.x;
         std::int32_t cursor_y = origin.y;
-        echo_position(origin, width, cursor, cursor_x, cursor_y);
+        echo_position(origin, width, cursor_column, cursor_x, cursor_y);
         echo_cursor = screen::coord{cursor_x, cursor_y};
     }
     void fill_rect_segment(std::size_t x, std::size_t y, std::size_t width, char16_t fill_char,
