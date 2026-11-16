@@ -3,34 +3,34 @@
 - OpenConsole: `C:\1\OpenConsole.exe`
 - corehost: `build-nolog\Release\corehost.exe`（Release，`COREHOST_DISABLE_LOG=ON`）
 - corehost2: `build-nolog\Release\corehost2.exe`（Release，`COREHOST_DISABLE_LOG=ON`）
-- 运行方式: `conpty_bench --worker <label>`（绕过 parent worker 临时目录 bug）
+- 运行方式: `conpty_bench --worker <label>`
 - 时间单位: ms；ratio = corehost2 / OpenConsole
 
-| Scenario | OpenConsole | corehost | corehost2 | ratio |
-|---|---:|---:|---:|---:|
-| large-mixed-vt-cjk-output | 304.9 | 183.3 | 340.7 | 1.12 |
-| long-line-three-vt-output | 837.1 | 906.8 | 1636.4 | 1.95 |
-| powershell-type-realistic-build-output | 275.0 | 262.7 | 339.9 | 1.24 |
-| sgr-plain | 28.2 | 19.1 | 146.7 | 5.21 |
-| sgr-reset | 30.9 | 21.3 | 145.1 | 4.69 |
-| sgr-bold | 30.7 | 22.1 | 144.6 | 4.71 |
-| sgr-faint | 31.7 | 22.2 | 141.8 | 4.47 |
-| sgr-italic | 30.2 | 21.0 | 144.1 | 4.77 |
-| sgr-underline | 31.7 | 22.4 | 141.8 | 4.48 |
-| sgr-blink | 32.0 | 21.9 | 140.9 | 4.40 |
-| sgr-inverse | 31.4 | 22.5 | 141.1 | 4.49 |
-| sgr-hidden | 30.1 | 20.8 | 142.3 | 4.72 |
-| sgr-strike | 31.3 | 22.3 | 142.4 | 4.55 |
-| sgr-fg-16 | 30.5 | 21.9 | 141.4 | 4.63 |
-| sgr-fg-bright | 31.3 | 23.2 | 140.8 | 4.50 |
-| sgr-bg-16 | 29.8 | 21.7 | 145.0 | 4.87 |
-| sgr-bg-bright | 31.4 | 22.4 | 141.4 | 4.50 |
-| sgr-fg-256 | 30.6 | 23.6 | 134.4 | 4.40 |
-| sgr-bg-256 | 30.4 | 23.5 | 137.7 | 4.52 |
-| sgr-fg-rgb | 29.4 | 21.9 | 129.3 | 4.40 |
-| sgr-bg-rgb | 30.5 | 22.1 | 131.0 | 4.30 |
-| sgr-combined | 31.9 | 23.0 | 125.9 | 3.95 |
-| sgr-combined-bg | 28.4 | 22.8 | 125.6 | 4.43 |
-| cjk-terminal-input | 2333.9 | 4.7 | 394.8 | 0.17 |
+| Scenario | OpenConsole | corehost | corehost2 | ratio | out OpenConsole(MiB) | out corehost(MiB) | out corehost2(MiB) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| large-mixed-vt-cjk-output | 330.9 | 194.0 | 355.7 | 1.08 | 24.06 | 24.06 | 22.31 |
+| long-line-three-vt-output | 835.4 | 890.1 | 1620.0 | 1.94 | 16.00 | 16.00 | 364.86 |
+| powershell-type-realistic-build-output | 307.2 | 301.2 | 281.6 | 0.92 | 0.00 | 0.00 | 0.01 |
+| sgr-plain | 30.3 | 21.0 | 154.6 | 5.10 | 4.06 | 4.06 | 1.93 |
+| sgr-reset | 31.8 | 22.7 | 149.8 | 4.71 | 4.06 | 4.06 | 1.92 |
+| sgr-bold | 89.0 | 22.7 | 141.0 | 1.58 | 4.06 | 4.06 | 2.01 |
+| sgr-faint | 35.2 | 22.7 | 145.4 | 4.13 | 4.06 | 4.06 | 2.00 |
+| sgr-italic | 34.5 | 22.0 | 141.8 | 4.11 | 4.06 | 4.06 | 2.00 |
+| sgr-underline | 33.3 | 22.8 | 143.9 | 4.32 | 4.06 | 4.06 | 2.00 |
+| sgr-blink | 34.7 | 21.4 | 197.9 | 5.71 | 4.06 | 4.06 | 2.00 |
+| sgr-inverse | 34.0 | 22.0 | 143.9 | 4.23 | 4.06 | 4.06 | 2.00 |
+| sgr-hidden | 35.2 | 22.1 | 142.2 | 4.04 | 4.06 | 4.06 | 2.00 |
+| sgr-strike | 32.7 | 22.1 | 143.8 | 4.39 | 4.06 | 4.06 | 2.00 |
+| sgr-fg-16 | 32.5 | 23.7 | 146.3 | 4.51 | 4.06 | 4.06 | 2.04 |
+| sgr-fg-bright | 33.0 | 22.6 | 144.1 | 4.37 | 4.06 | 4.06 | 2.04 |
+| sgr-bg-16 | 31.7 | 24.3 | 143.6 | 4.53 | 4.06 | 4.06 | 2.04 |
+| sgr-bg-bright | 35.2 | 22.8 | 146.4 | 4.16 | 4.06 | 4.06 | 2.04 |
+| sgr-fg-256 | 32.7 | 23.8 | 137.6 | 4.21 | 4.06 | 4.06 | 2.05 |
+| sgr-bg-256 | 32.7 | 21.9 | 139.0 | 4.25 | 4.06 | 4.06 | 2.04 |
+| sgr-fg-rgb | 31.2 | 23.1 | 133.3 | 4.27 | 4.06 | 4.06 | 2.10 |
+| sgr-bg-rgb | 32.5 | 23.0 | 130.8 | 4.02 | 4.06 | 4.06 | 2.08 |
+| sgr-combined | 32.1 | 23.3 | 134.7 | 4.20 | 4.05 | 4.05 | 2.14 |
+| sgr-combined-bg | 31.3 | 23.3 | 127.2 | 4.06 | 4.06 | 4.06 | 2.17 |
+| cjk-terminal-input | 2464.6 | 13.8 | 400.6 | 0.16 | 0.38 | 0.37 | 0.00 |
 
-说明: corehost/corehost2 的 SGR 输出字节数约为 OpenConsole 的一半，主要受终端渲染策略影响；cjk-terminal-input 的 corehost 输出只有 4096 字节（无完整回显），corehost2 修复后输出 914 字节并正常完成。
+说明：corehost 的 cjk 已修复为正常读取并回显；corehost2 的 SGR 输出恰好约为 OpenConsole/corehost 的一半，long-line 输出约为 22 倍，属于另外的 renderer 输出问题，需单独修复。

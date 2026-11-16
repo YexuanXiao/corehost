@@ -2178,3 +2178,42 @@ RESULT	corehost2	cjk-terminal-input	393275	914	394.8
 
 完整 benchmark 24 个场景全部完成，耗时约 6 秒。
 结果见 `benchmark_results.md`。
+
+### corehost cjk benchmark 修复
+
+现象：
+
+```text
+direct input write timed out: scenario=cjk-terminal-input bytes_read=4099
+```
+
+根因：
+
+- `cjk-terminal-input` 的 `ReadFile` 使用 RAW_READ；
+- 两次 RAW_READ 之间到达的输入在 `_read_total` 达到缓冲上限后，如果当前没有 pending，会抛 `invalid_state`，输入线程中断；
+- 子进程只读到第一块，后续输入无法完成，benchmark 写超时。
+
+修复：
+
+`on_input_bytes` 在没有 pending 时把输入放入 `_queued_vt_input`，缓冲满时也保留剩余字节，等待下一次 ReadFile/ReadConsole。
+
+提交：
+
+```text
+8af4aaf fix(corehost): queue raw input while no read is pending
+```
+
+修复后：
+
+```text
+RESULT	corehost	cjk-terminal-input	393275	389182	11.7
+```
+
+不再出现 write timeout，输出字节数从 4096 恢复到约 389 KiB，接近 OpenConsole 的 395 KiB。
+
+### 输出字节数差异
+
+- corehost 的 large-mixed、long-line、SGR 输出字节数与 OpenConsole 基本一致；
+- corehost 的 cjk 输出 385083 vs OpenConsole 395398，差 8192 字节（两个 4 KiB 块），是输入回显边界差异，不影响 marker 和读取；
+- corehost2 的 SGR 输出约为 OpenConsole 的一半，long-line 输出约为 22 倍，属于 corehost2 renderer 的输出策略/缺陷，需单独修复；
+- corehost2 的 cjk 输出只有 914 字节，是 RAW_READ 没有回显，另行处理。
