@@ -1925,3 +1925,17 @@ conpty resize 现在通过 `server_session::queue_window_size_event()` 向启用
 - 多行粘贴在 PowerShell 5.1/7 都被拆成两次输入；用 `OpenConsole.exe.orig` 对照同样拆分，非 corehost 回归，后续再判断是否需要 WT 配置/PSReadLine 组合处理。
 - focus reporting：`?1004` 已随 `ENABLE_WINDOW_INPUT` 转发，但自动 Alt+Tab 验证未观察到 FOCUS 事件，仍需单独确认。
 - 真实 ssh/sshd：本机 sshd 的账户/host key 初始化受限，未完成。
+
+### 修复 8：ReadConsoleOutput / ReadConsoleOutputString 的完成载荷
+
+`ReadConsoleOutput` 完成 Write 载荷原来只包含 `char_info` 数组，长度没有包含 `CONSOLE_READCONSOLEOUTPUT_MSG` 结构头；客户端只收到前 4 个 cell，后续是旧内存。现在 Write.Data 指向结构头，Write.Size 为 `sizeof(struct) + required`，客户端读回 `READOUT`。
+
+`ReadConsoleOutputString` 同样修正：容量按客户端的 `OutputSize - sizeof(struct)` 计算，完成载荷包含结构头；实测：
+
+```text
+write=1 written=12 read=1 read_count=12 text=[HELLO-STRING]
+```
+
+### focus reporting 对照
+
+`?1004` 已随 `ENABLE_WINDOW_INPUT` 转发。用 `OpenConsole.exe.orig` 做同样 Alt+Tab/Notepad 焦点切换，同样没有观察到 FOCUS 事件，因此当前不归为 corehost 回归，保留待确认。

@@ -37,7 +37,7 @@
 - [x] B17 OSC 0/2 窗口标题
 - [x] B18 OSC 8 hyperlink（序列被接受；点击行为未自动验证）
 - [-] B19 bracketed paste：原版 conhost 对照同样拆分，非 corehost 回归；PowerShell/WT 行为待确认
-- [-] B20 focus in/out 报告：需要可显示原始输入事件的应用，未自动验证
+- [-] B20 focus in/out 报告：`?1004` 已转发；原版 conhost 对照同样未观察到 FOCUS 事件，非 corehost 回归
 - [-] B21 mouse tracking 模式：自动注入未可靠触发回滚/鼠标事件
 - [x] B22 窗口 resize 后重绘
 
@@ -66,6 +66,7 @@
 - [x] D6 多标签同时输出
 - [x] D7 shell 嵌套 shell
 - [x] D8 进程退出、关闭标签页、退出码
+- [x] D9 ReadConsoleOutput / ReadConsoleOutputCharacter 往返（READOUT / HELLO-STRING）
 
 ## E. 第三方程序
 
