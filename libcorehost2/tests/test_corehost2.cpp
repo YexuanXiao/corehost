@@ -222,6 +222,24 @@ int main()
         return EXIT_FAILURE;
     }
 
+    const char line_insert[]{"AB\x1B[D\x1B[2~" "C\r"};
+    server.push_raw(std::span<const char>{line_insert, 11});
+    if (server.read_raw(std::span<char>{raw_read_data}) != 4 || raw_read_data[0] != 'A' || raw_read_data[1] != 'C' ||
+        raw_read_data[2] != '\r' || raw_read_data[3] != '\n')
+    {
+        std::fprintf(stderr, "line input insert mode failed\n");
+        return EXIT_FAILURE;
+    }
+
+    const char line_ctrl[]{"AB\x15" "C\r"};
+    server.push_raw(std::span<const char>{line_ctrl, 5});
+    if (server.read_raw(std::span<char>{raw_read_data}) != 6 || raw_read_data[0] != 'A' || raw_read_data[1] != 'B' ||
+        raw_read_data[2] != 0x15 || raw_read_data[3] != 'C' || raw_read_data[4] != '\r' || raw_read_data[5] != '\n')
+    {
+        std::fprintf(stderr, "line input control passthrough failed\n");
+        return EXIT_FAILURE;
+    }
+
     server_state.input_mode &= ~ENABLE_LINE_INPUT;
     std::array<char, 32> long_raw{};
     long_raw.fill('A');

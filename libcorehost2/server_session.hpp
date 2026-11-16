@@ -266,6 +266,7 @@ class server_session final
         std::string edited;
         edited.reserve(text.size());
         std::size_t cursor = 0;
+        bool insert_mode = false;
 
         const auto previous = [&](std::size_t at) {
             if (at == 0)
@@ -300,7 +301,7 @@ class server_session final
         for (std::size_t i = 0; i < text.size(); ++i)
         {
             const auto byte = static_cast<unsigned char>(text[i]);
-            if (byte == '\r' || byte == '\n' || byte == '\t' || byte == 3 || byte == 0x1A)
+            if (byte < 0x20 && byte != 0x1B)
             {
                 edited.push_back(static_cast<char>(byte));
                 cursor = edited.size();
@@ -352,6 +353,8 @@ class server_session final
                         erase_at();
                     else if (parameter == 1 || parameter == 7)
                         cursor = 0;
+                    else if (parameter == 2)
+                        insert_mode = !insert_mode;
                     else if (parameter == 4 || parameter == 8)
                         cursor = edited.size();
                     break;
@@ -368,8 +371,16 @@ class server_session final
             }
             if (byte >= 0x80 || (byte >= 0x20 && byte != 0x7F))
             {
-                edited.insert(edited.begin() + static_cast<std::ptrdiff_t>(cursor), static_cast<char>(byte));
-                ++cursor;
+                if (insert_mode && cursor < edited.size() && byte < 0x80)
+                {
+                    edited[cursor] = static_cast<char>(byte);
+                    cursor = next(cursor);
+                }
+                else
+                {
+                    edited.insert(edited.begin() + static_cast<std::ptrdiff_t>(cursor), static_cast<char>(byte));
+                    ++cursor;
+                }
             }
         }
         text = std::move(edited);
