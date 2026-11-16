@@ -107,8 +107,7 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
             }
             else
             {
-                const char16_t primary = value.primary();
-                append_utf16(output, std::u16string_view{&primary, 1});
+                append_utf16_unit(output, value.primary());
             }
         }
     }
@@ -212,8 +211,7 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
             }
             else
             {
-                const char16_t primary = value.primary();
-                append_utf16(output, std::u16string_view{&primary, 1});
+                append_utf16_unit(output, value.primary());
             }
         }
     }
