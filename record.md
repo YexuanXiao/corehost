@@ -1109,6 +1109,14 @@ eebdc63 perf(consoleapi): dispatch virtual keys with switch
 7fdebb5 perf(vtserializer): avoid zeroing sgr scratch
 ```
 
+### VT 序列化 SGR 样式跨行保持
+
+`render_damage` 的 `current_style` 从每行重置改为整个帧保持；`append_cup` 和 line rendition 不改变 SGR，因此下一行首单元格同 style 时不再重复输出 SGR：
+
+```text
+b3ad687 perf(vtserializer): keep sgr style across damaged rows
+```
+
 ### VT 序列化按行取 cell span
 
 `render_damage` / `render_viewport` 原来每个单元格调用 `buffer.at(x, y)`，会重新选择 active page。现在每行只调用一次 `row_cells(y)`，循环内直接索引 span：
