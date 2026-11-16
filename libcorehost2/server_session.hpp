@@ -126,6 +126,10 @@ class server_session final
                     continue;
                 }
                 (void)vtstate::apply(result.id, result.message, screen_, state_, applier_);
+                if (result.id == vtparser::vt_message_id::resize_window)
+                {
+                    queue_window_size_event();
+                }
 #ifdef COREHOST2_TESTING
                 const bool forward = writer_ != nullptr && should_forward_to_terminal(result.id);
 #else
@@ -186,6 +190,20 @@ class server_session final
         {
             (void)::SetEvent(input_event_.get());
         }
+    }
+
+    void queue_window_size_event()
+    {
+        if ((state_.input_mode & 0x0008) == 0)
+        {
+            return;
+        }
+        consoleinput::input_event event{};
+        event.type = consoleinput::input_event_type::window;
+        event.window.width = static_cast<std::int16_t>(state_.width());
+        event.window.height = static_cast<std::int16_t>(state_.height());
+        input_.push(event);
+        signal_input_event();
     }
 
     void reset_input_event_if_empty() const noexcept
