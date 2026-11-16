@@ -1930,6 +1930,7 @@ inline std::size_t screen_buffer::damage_end(std::size_t y) const noexcept
 inline void screen_buffer::clear_damage() noexcept
 {
     active_page().clear_damage();
+    pending_scroll_up_ = 0;
 }
 
 inline page &screen_buffer::active_page() noexcept

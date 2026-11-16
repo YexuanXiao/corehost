@@ -32,6 +32,30 @@ int main()
         return EXIT_FAILURE;
     }
 
+    line_editor codepoints;
+    codepoints.append(u"e\u0301");
+    codepoints.backspace();
+    if (codepoints.text() != u"e" || codepoints.cursor() != 1)
+    {
+        std::fprintf(stderr, "combining mark backspace failed\n");
+        return EXIT_FAILURE;
+    }
+    codepoints.insert(u'\u0301');
+    if (codepoints.text() != u"e\u0301")
+    {
+        std::fprintf(stderr, "combining mark reinsert failed\n");
+        return EXIT_FAILURE;
+    }
+
+    codepoints.reset();
+    codepoints.append(u"\U0001F600");
+    codepoints.backspace();
+    if (!codepoints.text().empty())
+    {
+        std::fprintf(stderr, "surrogate pair backspace failed\n");
+        return EXIT_FAILURE;
+    }
+
     input_queue queue;
     queue.push(input_event{input_event_type::key, *key});
     queue.push(input_event{input_event_type::key, key_event{}});

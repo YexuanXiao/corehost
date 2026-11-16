@@ -279,6 +279,9 @@ void test_screen_buffer()
     check(screen.at(0, 2).is_blank(), "scroll bottom line");
     check(screen.has_pending_scroll(), "scroll pending");
     check(screen.take_scroll_up() == 1, "scroll count");
+    screen.scroll_up(1);
+    screen.clear_damage();
+    check(!screen.has_pending_scroll(), "clear damage consumes scroll");
 
     screen.clear_damage();
     (void)screen.write_scalar(0, 0, u'M', style0);
