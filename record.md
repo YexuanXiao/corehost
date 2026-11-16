@@ -2511,3 +2511,26 @@ FG HOME DELETE H   -> GH
 ```
 
 cjk-terminal-input 修复后约 7-20 ms，输出 394239 B；OpenConsole 约 2.4 s，主要是其逐字符 cooked line input/echo 路径慢。
+
+### 继续边界测试
+
+已覆盖并通过（数据字节与 OpenConsole 对齐）：
+
+- 方向键/Home/End/Delete：`AXB`、`YCD`、`EFZ`
+- Insert 覆盖模式：`AB LEFT INSERT C` -> `AC`
+- Ctrl+U 控制字节 passthrough：`AB 0x15 C`
+- 多字节字符：粘贴 `你A`，Left + Backspace + B -> `BA`
+- 多行 line input：连续三次 ReadFile 正常
+- CR 前阻塞：16 字节 buffer 输入 26 字符，CR 前不返回
+- 大行跨 4 KiB buffer：cjk-terminal-input 393275 B，输出 394239 B
+
+未完全解决：
+
+- 编辑行（箭头/Insert/Backspace）的 **live echo 视觉**仍与 OpenConsole 有差异。数据、行编辑结果和 screen 状态正确，但编辑行的 terminal 回显轨迹还没有做到逐键一致。
+- 鼠标、bracketed paste 与复杂 cooked line editor 仍未完整覆盖。
+
+提交：
+
+```text
+cfe68a9 fix(corehost2): preserve control bytes and support insert-mode line editing
+```
