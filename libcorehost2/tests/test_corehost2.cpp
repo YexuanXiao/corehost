@@ -146,7 +146,7 @@ int main()
     corehost::corehost2::session input_session{4, 2};
     constexpr char16_t text_input[]{u'A'};
     input_session.feed_input(text_input);
-    if (input_session.input().size() != 2 || input_session.screen().at(0, 0).primary() != u' ')
+    if (input_session.input().size() != 1 || input_session.screen().at(0, 0).primary() != u' ')
     {
         std::fprintf(stderr, "session feed_input failed\n");
         return EXIT_FAILURE;

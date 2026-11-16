@@ -554,22 +554,6 @@ class server_session final
         return result;
     }
 
-    void consume_raw_text(std::u16string_view text)
-    {
-        if (!raw_mode_ || text.empty())
-            return;
-        const bool line_input = (state_.input_mode & ENABLE_LINE_INPUT) != 0;
-        const auto bytes = encode_console_text(text);
-        raw_in_.append(bytes);
-        note_raw_bytes(std::span<const char>{bytes.data(), bytes.size()});
-        if (line_input)
-        {
-            const auto echo = encode_utf8(text);
-            echo_live(std::span<const char>{echo.data(), echo.size()});
-        }
-        signal_input_event();
-    }
-
     void process_raw_input_events()
     {
         if (!raw_mode_)
@@ -579,7 +563,7 @@ class server_session final
         std::array<consoleinput::input_event, 128> events{};
         for (;;)
         {
-            const auto count = input_.read(events);
+            const auto count = input_.read_raw(events);
             if (count == 0)
                 break;
 
@@ -598,6 +582,18 @@ class server_session final
             for (std::size_t i = 0; i < count; ++i)
             {
                 const auto &event = events[i];
+                if (event.type == consoleinput::input_event_type::text)
+                {
+                    const auto bytes = encode_console_text(event.text);
+                    raw_in_.append(bytes);
+                    note_raw_bytes(std::span<const char>{bytes.data(), bytes.size()});
+                    if (line_input)
+                    {
+                        const auto echo = encode_utf8(event.text);
+                        echo_live(std::span<const char>{echo.data(), echo.size()});
+                    }
+                    continue;
+                }
                 if (event.type == consoleinput::input_event_type::mouse)
                 {
                     if (!line_input && state_.mouse_tracking())

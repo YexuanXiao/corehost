@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 
 namespace corehost::consoleinput
 {
@@ -69,6 +70,7 @@ enum class input_event_type : std::uint8_t
     key,
     mouse,
     window,
+    text,
 };
 
 struct input_event final
@@ -77,6 +79,11 @@ struct input_event final
     key_event key;
     mouse_event mouse;
     window_event window;
+    // A text event batches one parser text run. Consumers that need per-key
+    // semantics expand it at their boundary; the raw reader consumes it as a
+    // batch.
+    std::u16string text;
+    std::size_t text_offset{};
 };
 
 // Converts parser keyboard messages to a portable key event. Non-keyboard
@@ -128,28 +135,97 @@ class input_queue final
 
     std::size_t peek(std::span<input_event> destination) const noexcept
     {
+        std::size_t count = 0;
+        for (const auto &event : events_)
+        {
+            if (count == destination.size())
+                break;
+            if (event.type != input_event_type::text)
+            {
+                destination[count++] = event;
+                continue;
+            }
+            for (std::size_t i = event.text_offset; i < event.text.size() && count < destination.size(); ++i)
+            {
+                input_event down{};
+                down.type = input_event_type::key;
+                down.key.character = event.text[i];
+                destination[count++] = down;
+                if (count == destination.size())
+                    break;
+                input_event up{};
+                up.type = input_event_type::key;
+                up.key.character = event.text[i];
+                up.key.key_down = false;
+                destination[count++] = up;
+            }
+        }
+        return count;
+    }
+
+    // Raw consumers need the text batch intact. Console consumers use read(),
+    // which expands it at the queue boundary.
+    std::size_t read_raw(std::span<input_event> destination) noexcept
+    {
         const auto count = std::min(destination.size(), events_.size());
         std::copy_n(events_.begin(), count, destination.begin());
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (events_.front().type == input_event_type::key && events_.front().key.key_down)
+                --key_count_;
+            events_.pop_front();
+        }
         return count;
     }
 
     std::size_t read(std::span<input_event> destination) noexcept
     {
-        const auto count = std::min(destination.size(), events_.size());
-        std::copy_n(events_.begin(), count, destination.begin());
-        if (count == events_.size())
+        std::size_t count = 0;
+        if (text_up_pending_)
         {
-            events_.clear();
-            key_count_ = 0;
-            return count;
+            input_event up{};
+            up.type = input_event_type::key;
+            up.key.character = text_up_char_;
+            up.key.key_down = false;
+            destination[count++] = up;
+            text_up_pending_ = false;
         }
-        for (std::size_t i = 0; i < count; ++i)
+        while (count < destination.size() && !events_.empty())
         {
-            if (events_.front().type == input_event_type::key && events_.front().key.key_down)
+            auto &front = events_.front();
+            if (front.type != input_event_type::text)
             {
-                --key_count_;
+                destination[count++] = front;
+                if (front.type == input_event_type::key && front.key.key_down)
+                    --key_count_;
+                events_.pop_front();
+                continue;
             }
-            events_.pop_front();
+            if (front.text_offset >= front.text.size())
+            {
+                events_.pop_front();
+                continue;
+            }
+            const auto character = front.text[front.text_offset++];
+            input_event down{};
+            down.type = input_event_type::key;
+            down.key.character = character;
+            destination[count++] = down;
+            if (count < destination.size())
+            {
+                input_event up{};
+                up.type = input_event_type::key;
+                up.key.character = character;
+                up.key.key_down = false;
+                destination[count++] = up;
+            }
+            else
+            {
+                text_up_pending_ = true;
+                text_up_char_ = character;
+            }
+            if (front.text_offset >= front.text.size())
+                events_.pop_front();
         }
         return count;
     }
@@ -158,11 +234,14 @@ class input_queue final
     {
         events_.clear();
         key_count_ = 0;
+        text_up_pending_ = false;
     }
 
   private:
     bizwen::deque<input_event> events_;
     std::size_t key_count_{};
+    bool text_up_pending_{};
+    char16_t text_up_char_{};
 };
 
 } // namespace corehost::consoleinput

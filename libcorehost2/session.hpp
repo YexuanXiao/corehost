@@ -381,15 +381,10 @@ class session final
         if (input_direction &&
             (result.id == vtparser::vt_message_id::continue_text || result.id == vtparser::vt_message_id::text))
         {
-            for (const auto ch : result.message.payload.text)
-            {
-                input_.push(
-                    consoleinput::input_event{consoleinput::input_event_type::key,
-                                              consoleinput::key_from_character(static_cast<char16_t>(ch), true)});
-                input_.push(
-                    consoleinput::input_event{consoleinput::input_event_type::key,
-                                              consoleinput::key_from_character(static_cast<char16_t>(ch), false)});
-            }
+            consoleinput::input_event event{};
+            event.type = consoleinput::input_event_type::text;
+            event.text.assign(result.message.payload.text.begin(), result.message.payload.text.end());
+            input_.push(std::move(event));
             return;
         }
 

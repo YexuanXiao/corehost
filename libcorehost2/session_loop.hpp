@@ -180,15 +180,8 @@ class session_input_sink final
             state_.screen().alternate_active() ? 1 : 0, raw_pending ? 1 : 0, console_.console_read_pending() ? 1 : 0);
         LOG_HEX("input", bytes.data(), bytes.size() < 256 ? bytes.size() : 256);
         decoder_.decode(std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()}, text_);
-        if (console_.raw_input_mode() && text_.find(u'\x1b') == std::u16string::npos)
-        {
-            console_.consume_raw_text(text_);
-        }
-        else
-        {
-            state_.feed_input(text_, (state_.state().input_mode & 0x0200) != 0 && !console_.console_read_pending());
-            console_.process_raw_input_events();
-        }
+        state_.feed_input(text_, (state_.state().input_mode & 0x0200) != 0 && !console_.console_read_pending());
+        console_.process_raw_input_events();
         console_.signal_input_event();
         const bool completed = console_.complete_pending();
         LOG("input parsed text=%zu queue=%zu read_pending=%d completed=%d", text_.size(), state_.input().size(),
