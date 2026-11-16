@@ -1,6 +1,7 @@
 #pragma once
 
 #include "console_api.hpp"
+#include "line_editor.hpp"
 #include "terminal_writer.hpp"
 #include "viewport.hpp"
 #include "utility/log.hpp"
@@ -19,6 +20,7 @@
 #include <array>
 #include <bit>
 #include <cstring>
+#include <deque>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -586,14 +588,14 @@ class server_session final
                 {
                     if (!event.text || event.text->empty())
                         continue;
+                    if (line_input)
+                    {
+                        feed_line_text(*event.text);
+                        continue;
+                    }
                     const auto bytes = encode_console_text(*event.text);
                     raw_in_.append(bytes);
                     note_raw_bytes(std::span<const char>{bytes.data(), bytes.size()});
-                    if (line_input)
-                    {
-                        const auto echo = encode_utf8(*event.text);
-                        echo_live(std::span<const char>{echo.data(), echo.size()});
-                    }
                     continue;
                 }
                 if (event.type == consoleinput::input_event_type::mouse)
@@ -608,25 +610,15 @@ class server_session final
                 if (event.type != consoleinput::input_event_type::key || !event.key.key_down)
                     continue;
 
+                if (line_input)
+                {
+                    feed_line_key(event.key);
+                    continue;
+                }
+
                 if (event.key.character != 0)
                 {
-                    const auto character = event.key.character;
-                    if (line_input && (character == u'\r' || character == u'\n'))
-                    {
-                        flush_text();
-                        bytes.push_back('\r');
-                        echo.push_back('\r');
-                    }
-                    else if (line_input && (character == u'\b' || character == u'\x7F'))
-                    {
-                        flush_text();
-                        bytes.push_back('\x7F');
-                        edited = true;
-                    }
-                    else
-                    {
-                        text_batch.push_back(character);
-                    }
+                    text_batch.push_back(event.key.character);
                     continue;
                 }
 
@@ -666,6 +658,130 @@ class server_session final
             }
         }
         signal_input_event();
+    }
+
+    void echo_editor_append(std::u16string_view text)
+    {
+        const auto utf8 = encode_utf8(text);
+        echo_live(std::span<const char>{utf8.data(), utf8.size()});
+    }
+
+    void complete_line_editor()
+    {
+        raw_editor_used_ = true;
+        auto line = encode_console_text(raw_line_editor_.text());
+        line.append("\r\n", 2);
+        raw_completed_lines_.push_back(std::move(line));
+
+        const bool needs_redraw = line_edited_ || !live_echoed_;
+        raw_line_editor_.consume_completed_line();
+        if (needs_redraw && (state_.input_mode & ENABLE_ECHO_INPUT) != 0)
+        {
+            line_edited_ = true;
+            echo_raw(std::span<const char>{raw_completed_lines_.back().data(),
+                                            raw_completed_lines_.back().size()});
+            raw_echo_done_ = true;
+        }
+        else
+        {
+            line_edited_ = false;
+            line_start_valid_ = false;
+            if ((state_.input_mode & ENABLE_ECHO_INPUT) != 0)
+            {
+                constexpr char8_t newline[] = u8"\r";
+                echo_live(std::span<const char>{reinterpret_cast<const char *>(newline), 1});
+            }
+        }
+    }
+
+    void feed_line_text(std::u16string_view text)
+    {
+        raw_editor_used_ = true;
+        std::u16string batch;
+        batch.reserve(text.size());
+        const auto flush = [&] {
+            if (batch.empty())
+                return;
+            const auto change = raw_line_editor_.append(batch);
+            if (change == consoleinput::line_editor::change::append)
+                echo_editor_append(batch);
+            else if (change == consoleinput::line_editor::change::redraw)
+                line_edited_ = true;
+            batch.clear();
+        };
+        for (const auto unit : text)
+        {
+            if (unit == u'\r' || unit == u'\n')
+            {
+                flush();
+                complete_line_editor();
+            }
+            else if (unit == u'\b' || unit == u'\x7F')
+            {
+                flush();
+                if (raw_line_editor_.backspace() != consoleinput::line_editor::change::none)
+                    line_edited_ = true;
+            }
+            else
+            {
+                batch.push_back(unit);
+            }
+        }
+        flush();
+    }
+
+    void feed_line_key(const consoleinput::key_event &key)
+    {
+        raw_editor_used_ = true;
+        if (key.character != 0)
+        {
+            const auto unit = key.character;
+            if (unit == u'\r' || unit == u'\n')
+            {
+                complete_line_editor();
+            }
+            else if (unit == u'\b' || unit == u'\x7F')
+            {
+                if (raw_line_editor_.backspace() != consoleinput::line_editor::change::none)
+                    line_edited_ = true;
+            }
+            else
+            {
+                const auto change = raw_line_editor_.insert(unit);
+                if (change == consoleinput::line_editor::change::append)
+                    echo_editor_append(std::u16string_view{&unit, 1});
+                else
+                    line_edited_ = true;
+            }
+            return;
+        }
+
+        auto change = consoleinput::line_editor::change::none;
+        switch (key.key)
+        {
+        case consoleinput::virtual_key::left:
+            change = raw_line_editor_.left();
+            break;
+        case consoleinput::virtual_key::right:
+            change = raw_line_editor_.right();
+            break;
+        case consoleinput::virtual_key::home:
+            change = raw_line_editor_.home();
+            break;
+        case consoleinput::virtual_key::end:
+            change = raw_line_editor_.end();
+            break;
+        case consoleinput::virtual_key::insert:
+            change = raw_line_editor_.toggle_insert();
+            break;
+        case consoleinput::virtual_key::del:
+            change = raw_line_editor_.del();
+            break;
+        default:
+            break;
+        }
+        if (change != consoleinput::line_editor::change::none)
+            line_edited_ = true;
     }
 
     void echo_live(std::span<const char> bytes)
@@ -845,10 +961,22 @@ class server_session final
     {
         raw_mode_ = true;
         process_raw_input_events();
-        if (output.empty() || raw_in_.empty())
-        {
+        if (output.empty())
             return 0;
+        if ((state_.input_mode & ENABLE_LINE_INPUT) != 0 && raw_editor_used_)
+        {
+            if (raw_completed_lines_.empty())
+                return 0;
+            auto &line = raw_completed_lines_.front();
+            const auto written = std::min(output.size(), line.size());
+            std::memcpy(output.data(), line.data(), written);
+            line.erase(0, written);
+            if (line.empty())
+                raw_completed_lines_.pop_front();
+            return written;
         }
+        if (raw_in_.empty())
+            return 0;
 
         const bool line_input = (state_.input_mode & ENABLE_LINE_INPUT) != 0;
         if (line_input && raw_line_remaining_ == 0)
@@ -1224,7 +1352,9 @@ class server_session final
         }
         if (pending_kind_ == pending_kind::raw_read)
         {
-            if (raw_in_.empty())
+            const bool editor_ready = (state_.input_mode & ENABLE_LINE_INPUT) != 0 && raw_editor_used_ &&
+                                      !raw_completed_lines_.empty();
+            if (raw_in_.empty() && !editor_ready)
             {
                 return false;
             }
@@ -1315,6 +1445,9 @@ class server_session final
     std::string echo_bytes_;
     vtparser::utf8_decoder echo_decoder_;
     std::string raw_in_;
+    consoleinput::line_editor raw_line_editor_;
+    std::deque<std::string> raw_completed_lines_;
+    bool raw_editor_used_{};
     bool raw_mode_{};
     bool live_echoed_{};
     bool raw_echo_done_{};
