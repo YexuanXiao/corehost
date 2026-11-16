@@ -811,10 +811,22 @@ inline std::size_t screen_buffer::write_ascii(std::size_t x, std::size_t y, std:
     const auto count = std::min(text.size(), width_ - x);
     const auto start = x;
     auto &target = active_page();
+    auto cells = target.row_cells(y);
     for (std::size_t i = 0; i < count; ++i)
     {
-        clear_wide_neighborhood(target, x, y);
-        target.at(x, y) = cell::scalar(text[i], style, cell_width::narrow, hyperlink);
+        const auto old = cells[x];
+        if (old.is_continuation() && x > 0)
+        {
+            const auto &head = cells[x - 1];
+            cells[x - 1] = cell::blank(head.style(), head.hyperlink());
+            target.mark_dirty(y, x - 1, x);
+        }
+        else if (old.is_wide() && x + 1 < width_ && cells[x + 1].is_continuation())
+        {
+            cells[x + 1] = cell::blank(old.style(), old.hyperlink());
+            target.mark_dirty(y, x + 1, x + 2);
+        }
+        cells[x] = cell::scalar(text[i], style, cell_width::narrow, hyperlink);
         ++x;
     }
     target.mark_dirty(y, start, x);
