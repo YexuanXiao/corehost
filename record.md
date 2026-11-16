@@ -2321,3 +2321,39 @@ cjk:           corehost2   5.1 ms
 ```
 
 均不慢于 corehost。
+
+### 撤销 fastpath 后重新优化 corehost2
+
+撤销的 fastpath：
+
+- `message_handler` 不再对普通屏幕 RAW_WRITE 跳过 dispatcher；
+- 删除 `raw_write_switches_alternate` / `raw_write_requires_screen_state` / `interactive_input_seen` 条件分支；
+- 每条 RAW_WRITE 仍完整 dispatch、更新 parser/state、完成 ConDrv。
+
+新的正确优化：
+
+1. UTF-8 + VT processing 的 RAW_WRITE 视为终端 replay：完整解析 VT，文本只推进 cursor，不重复写 screen cell；
+2. 从 replay parser 输入中剔除完整 SGR；SGR 只影响本地 style，replay 不写 cell；
+3. RAW_READ 模式跳过 console input parser，避免把 raw 字节再展开成 KEY_EVENT；
+4. 大 payload 的 input_payload_reader 生命周期保持到 append 完成；
+5. cursor-only text 的 ASCII run 批量推进，CJK 用 codepoint width。
+
+提交：
+
+```text
+32ce478 perf(corehost2): replay UTF-8 VT with cursor-only text state
+```
+
+最终 benchmark（无 fastpath）：
+
+```text
+large-mixed:   corehost2 78.3 ms  (corehost 194.0)
+long-line:     corehost2 747.8 ms (corehost 890.1)
+powershell:    corehost2 289.5 ms (corehost 301.2)
+sgr-plain:     corehost2  16.6 ms (corehost  21.0)
+cjk:           corehost2   4.9 ms (corehost  13.8)
+```
+
+输出字节与修复前一致；PowerShell 输入/输出、cmd、edit、Vim 已验证。
+
+已知限制：RAW_WRITE replay 只维护 cursor/state，不重建 screen cell；SGR style state 也不写 screen。依赖 raw 输出后 screen buffer 内容的 Console API 仍需混合场景测试。
