@@ -2761,3 +2761,33 @@ powershell:  276-292 ms
 sgr-plain:    29.4 ms
 cjk:          10.4 ms
 ```
+
+### 输入 batch payload 压缩与 pending up 稳定化
+
+- `input_event` 的 text payload 改为 `shared_ptr<const u16string>`，key/mouse/window 事件不再携带空 `u16string`；
+- text batch 复制变为引用计数复制；
+- `peek` 现在包含已读 down 后尚未发出的 pending up；
+- `record_count` 计入 pending up；
+- 增加 pending up 的 peek/read 单测。
+
+提交：
+
+```text
+ece1adb perf(input): compact batched text payload and stabilize pending expansion
+```
+
+性能：
+
+```text
+large-mixed: 248.0 ms
+long-line:   782.8 ms
+sgr-plain:    28.1 ms
+cjk:           8.9 ms
+```
+
+测试：
+
+```text
+Release 11/11
+Debug 4/4
+```
