@@ -766,12 +766,23 @@ class server_session final
         {
             if (line_edited_ && line_start_valid_)
             {
-                state_.set_cursor(static_cast<std::size_t>(line_start_x_), static_cast<std::size_t>(line_start_y_));
-                for (auto x = line_start_x_; x < static_cast<int>(screen_.width()); ++x)
+                const auto origin = screen::coord{line_start_x_, line_start_y_};
+                const auto clear_columns = std::max<std::size_t>(line_echo_length_, 1);
+                for (std::size_t i = 0; i < clear_columns; ++i)
                 {
-                    (void)screen_.write_ascii(static_cast<std::size_t>(x), static_cast<std::size_t>(line_start_y_), u" ",
-                                              state_.default_style, screen::no_cell_hyperlink);
+                    const auto position =
+                        echo_position(origin, static_cast<std::int32_t>(screen_.width()), i);
+                    if (position.x < 0 || position.y < 0 ||
+                        static_cast<std::size_t>(position.x) >= screen_.width() ||
+                        static_cast<std::size_t>(position.y) >= screen_.height())
+                    {
+                        continue;
+                    }
+                    (void)screen_.write_ascii(static_cast<std::size_t>(position.x),
+                                              static_cast<std::size_t>(position.y), u" ", state_.default_style,
+                                              screen::no_cell_hyperlink);
                 }
+                state_.set_cursor(static_cast<std::size_t>(line_start_x_), static_cast<std::size_t>(line_start_y_));
                 live_echoed_ = false;
                 line_edited_ = false;
                 line_start_valid_ = false;

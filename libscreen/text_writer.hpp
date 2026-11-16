@@ -350,14 +350,9 @@ class grapheme_range final
 
 [[nodiscard]] inline int console_glyph_width(std::u16string_view glyph) noexcept
 {
-    std::size_t offset = 0;
     int width = 0;
-    while (offset < glyph.size())
-    {
-        const auto decoded = next_codepoint(glyph, offset);
-        width += console_codepoint_width(decoded.value);
-        offset += decoded.units;
-    }
+    for (const auto cluster : grapheme_range<text_measurement::console>{glyph})
+        width += cluster.width;
     return width;
 }
 
@@ -405,14 +400,9 @@ template <std::ranges::input_range Range>
     requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<Range>>, char16_t>
 [[nodiscard]] inline int console_text_width(Range &&text) noexcept
 {
-    auto iterator = std::ranges::begin(text);
-    const auto end = std::ranges::end(text);
     int total = 0;
-    while (iterator != end)
-    {
-        const auto decoded = next_codepoint(iterator, end);
-        total += console_codepoint_width(decoded.value);
-    }
+    for (const auto cluster : grapheme_range<text_measurement::console>{std::u16string_view{text}})
+        total += cluster.width;
     return total;
 }
 

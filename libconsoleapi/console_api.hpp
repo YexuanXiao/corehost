@@ -2595,29 +2595,63 @@ class console_api final
             screen::text_width_for(state_.measurement, text, state_.ambiguous_is_wide), 0));
 
         std::size_t column = 0;
-        for (const auto cluster : screen::grapheme_range<screen::text_measurement::console>{text})
-        {
+        const auto draw_cluster = [&](std::span<const char16_t> cluster, int cluster_width) {
             std::int32_t x = 0;
             std::int32_t y = 0;
             echo_position(origin, width, column, x, y);
             if (y >= 0 && y < height)
             {
                 const auto cell_width =
-                    cluster.width >= 2 ? screen::cell_width::wide : screen::cell_width::narrow;
-                if (cluster.text.size() == 1)
+                    cluster_width >= 2 ? screen::cell_width::wide : screen::cell_width::narrow;
+                if (cluster.size() == 1)
                 {
                     (void)buffer_.write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
-                                               cluster.text[0], state_.default_style, cell_width,
+                                               cluster[0], state_.default_style, cell_width,
                                                state_.default_hyperlink);
                 }
                 else
                 {
                     (void)buffer_.write_cluster(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
-                                                cluster.text, state_.default_style, cell_width,
+                                                cluster, state_.default_style, cell_width,
                                                 state_.default_hyperlink);
                 }
             }
-            column += static_cast<std::size_t>(std::max(cluster.width, 1));
+            column += static_cast<std::size_t>(std::max(cluster_width, 1));
+        };
+        switch (state_.measurement)
+        {
+        case screen::text_measurement::console:
+            for (const auto cluster : screen::grapheme_range<screen::text_measurement::console>{text})
+                draw_cluster(cluster.text, cluster.width);
+            break;
+        case screen::text_measurement::graphemes:
+            if (state_.ambiguous_is_wide)
+            {
+                for (const auto cluster :
+                     screen::grapheme_range<screen::text_measurement::graphemes, true>{text})
+                    draw_cluster(cluster.text, cluster.width);
+            }
+            else
+            {
+                for (const auto cluster :
+                     screen::grapheme_range<screen::text_measurement::graphemes, false>{text})
+                    draw_cluster(cluster.text, cluster.width);
+            }
+            break;
+        case screen::text_measurement::wcswidth:
+            if (state_.ambiguous_is_wide)
+            {
+                for (const auto cluster :
+                     screen::grapheme_range<screen::text_measurement::wcswidth, true>{text})
+                    draw_cluster(cluster.text, cluster.width);
+            }
+            else
+            {
+                for (const auto cluster :
+                     screen::grapheme_range<screen::text_measurement::wcswidth, false>{text})
+                    draw_cluster(cluster.text, cluster.width);
+            }
+            break;
         }
         const auto clear_from = std::max(column, echo_columns);
         for (std::size_t i = clear_from; i < echo_length; ++i)

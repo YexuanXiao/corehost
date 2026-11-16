@@ -897,6 +897,7 @@ int main()
 
     corehost::screen::screen_buffer cluster_buffer{8, 2};
     corehost::screen::console_state cluster_state{8, 2};
+    cluster_state.measurement = corehost::screen::text_measurement::graphemes;
     corehost::consoleinput::input_queue cluster_queue;
     cluster_queue.push(corehost::consoleinput::input_event{
         corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'e'}});
@@ -921,6 +922,7 @@ int main()
 
     corehost::screen::screen_buffer wide_buffer{8, 2};
     corehost::screen::console_state wide_state{8, 2};
+    wide_state.measurement = corehost::screen::text_measurement::wcswidth;
     corehost::consoleinput::input_queue wide_queue;
     wide_queue.push(corehost::consoleinput::input_event{
         corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\u4E2D'}});
