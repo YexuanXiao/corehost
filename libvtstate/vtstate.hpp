@@ -150,6 +150,8 @@ class state_applier final
         };
         const auto width = state.width();
         const auto height = state.height();
+        const auto style = state.default_style;
+        const auto hyperlink = state.default_hyperlink;
 
         if (screen::all_printable_ascii(text))
         {
@@ -166,12 +168,11 @@ class state_applier final
                 {
                     const auto top = state.scroll_top();
                     const auto bottom = state.scroll_bottom();
-                    buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1,
-                                            state.default_style);
+                    buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1, style);
                     cursor.y = static_cast<std::int32_t>(bottom);
                 }
                 if (!buffer.write_scalar(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y), ch,
-                                         state.default_style, screen::cell_width::narrow, state.default_hyperlink))
+                                         style, screen::cell_width::narrow, hyperlink))
                 {
                     break;
                 }
@@ -201,12 +202,11 @@ class state_applier final
             {
                 const auto top = state.scroll_top();
                 const auto bottom = state.scroll_bottom();
-                buffer.scroll_region_up(screen::rectangle{0, top, state.width(), bottom - top + 1}, 1,
-                                        state.default_style);
+                buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1, style);
                 cursor.y = static_cast<std::int32_t>(bottom);
             }
             if (!buffer.write_glyph(cursor, std::u16string_view{cluster.text.data(), cluster.text.size()}, columns,
-                                    state.default_style, state.default_hyperlink))
+                                    style, hyperlink))
             {
                 break;
             }
