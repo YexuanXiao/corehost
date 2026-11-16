@@ -231,8 +231,18 @@ class state_applier final
         {
             return;
         }
-        state.resize(static_cast<std::size_t>(cols), static_cast<std::size_t>(rows));
-        buffer.resize(static_cast<std::size_t>(cols), static_cast<std::size_t>(rows), state.default_style);
+        const auto width = static_cast<std::size_t>(cols);
+        const auto height = static_cast<std::size_t>(rows);
+        const auto old_height = state.height();
+        const auto old_cursor = state.cursor();
+        state.resize(width, height);
+        buffer.resize(width, height, state.default_style, true);
+        buffer.set_viewport(screen::rect{0, 0, static_cast<std::int32_t>(width) - 1,
+                                         static_cast<std::int32_t>(height) - 1});
+        const auto y = height > old_height
+                           ? old_cursor.y + (height - old_height)
+                           : old_cursor.y > old_height - height ? old_cursor.y - (old_height - height) : 0;
+        state.set_cursor(old_cursor.x, y);
     }
 
     void apply_alternate_buffer(bool enabled, screen::screen_buffer &buffer, screen::console_state &state)
@@ -297,14 +307,28 @@ class state_applier final
     {
         const auto x = state.cursor().x;
         const auto y = state.cursor().y;
-        if (y + 1 < state.height())
+        const auto top = state.scroll_top();
+        const auto bottom = state.scroll_bottom();
+
+        if (y < bottom)
         {
             state.set_cursor(x, y + 1);
             return;
         }
+        if (y > bottom)
+        {
+            if (y + 1 < state.height())
+            {
+                state.set_cursor(x, y + 1);
+            }
+            else
+            {
+                buffer.scroll_up(1, state.default_style);
+                state.set_cursor(x, state.height() - 1);
+            }
+            return;
+        }
 
-        const auto top = state.scroll_top();
-        const auto bottom = state.scroll_bottom();
         if (top == 0 && bottom + 1 == state.height())
         {
             buffer.scroll_up(1, state.default_style);
@@ -531,21 +555,63 @@ class state_applier final
             style = screen::text_style{};
             state.default_attributes = 0x07;
         }
-        if (payload.has(vtparser::vt_sgr_flag::bold))
+        const auto set_attribute = [&](screen::text_style_attribute attribute, bool enabled) {
+            const auto bit = screen::text_style_attribute_bit(attribute);
+            if (enabled)
+            {
+                style.attributes |= bit;
+            }
+            else
+            {
+                style.attributes &= static_cast<std::uint16_t>(~bit);
+            }
+        };
+        if (payload.has(vtparser::vt_sgr_flag::bold) || payload.clears(vtparser::vt_sgr_flag::bold))
         {
-            state.default_attributes |= 0x08;
+            const bool enabled = payload.has(vtparser::vt_sgr_flag::bold);
+            set_attribute(screen::text_style_attribute::bold, enabled);
+            state.default_attributes =
+                enabled ? static_cast<std::uint16_t>(state.default_attributes | 0x08)
+                        : static_cast<std::uint16_t>(state.default_attributes & ~0x08);
         }
-        if (payload.clears(vtparser::vt_sgr_flag::bold))
+        if (payload.has(vtparser::vt_sgr_flag::faint) || payload.clears(vtparser::vt_sgr_flag::faint))
         {
-            state.default_attributes &= static_cast<std::uint16_t>(~0x08);
+            set_attribute(screen::text_style_attribute::faint, payload.has(vtparser::vt_sgr_flag::faint));
         }
-        if (payload.has(vtparser::vt_sgr_flag::underline))
+        if (payload.has(vtparser::vt_sgr_flag::italic) || payload.clears(vtparser::vt_sgr_flag::italic))
         {
-            state.default_attributes |= 0x8000;
+            set_attribute(screen::text_style_attribute::italic, payload.has(vtparser::vt_sgr_flag::italic));
         }
-        if (payload.clears(vtparser::vt_sgr_flag::underline))
+        if (payload.has(vtparser::vt_sgr_flag::underline) ||
+            payload.clears(vtparser::vt_sgr_flag::underline))
         {
-            state.default_attributes &= static_cast<std::uint16_t>(~0x8000);
+            const bool enabled = payload.has(vtparser::vt_sgr_flag::underline);
+            set_attribute(screen::text_style_attribute::underline, enabled);
+            state.default_attributes =
+                enabled ? static_cast<std::uint16_t>(state.default_attributes | 0x8000)
+                        : static_cast<std::uint16_t>(state.default_attributes & ~0x8000);
+        }
+        if (payload.has(vtparser::vt_sgr_flag::blink) || payload.clears(vtparser::vt_sgr_flag::blink))
+        {
+            set_attribute(screen::text_style_attribute::blink, payload.has(vtparser::vt_sgr_flag::blink));
+        }
+        if (payload.has(vtparser::vt_sgr_flag::negative) || payload.clears(vtparser::vt_sgr_flag::negative))
+        {
+            const bool enabled = payload.has(vtparser::vt_sgr_flag::negative);
+            set_attribute(screen::text_style_attribute::negative, enabled);
+            state.default_attributes =
+                enabled ? static_cast<std::uint16_t>(state.default_attributes | 0x4000)
+                        : static_cast<std::uint16_t>(state.default_attributes & ~0x4000);
+        }
+        if (payload.has(vtparser::vt_sgr_flag::conceal) || payload.clears(vtparser::vt_sgr_flag::conceal))
+        {
+            set_attribute(screen::text_style_attribute::conceal, payload.has(vtparser::vt_sgr_flag::conceal));
+        }
+        if (payload.has(vtparser::vt_sgr_flag::strikethrough) ||
+            payload.clears(vtparser::vt_sgr_flag::strikethrough))
+        {
+            set_attribute(screen::text_style_attribute::strikethrough,
+                          payload.has(vtparser::vt_sgr_flag::strikethrough));
         }
         if (payload.fg.kind != vtparser::vt_sgr_color_kind::none)
         {
@@ -702,14 +768,28 @@ class state_applier final
     void apply_line_feed(screen::screen_buffer &buffer, screen::console_state &state)
     {
         const auto y = state.cursor().y;
-        if (y + 1 < state.height())
+        const auto top = state.scroll_top();
+        const auto bottom = state.scroll_bottom();
+
+        if (y < bottom)
         {
             state.set_cursor(0, y + 1);
             return;
         }
+        if (y > bottom)
+        {
+            if (y + 1 < state.height())
+            {
+                state.set_cursor(0, y + 1);
+            }
+            else
+            {
+                buffer.scroll_up(1, state.default_style);
+                state.set_cursor(0, state.height() - 1);
+            }
+            return;
+        }
 
-        const auto top = state.scroll_top();
-        const auto bottom = state.scroll_bottom();
         if (top == 0 && bottom + 1 == state.height())
         {
             buffer.scroll_up(1, state.default_style);

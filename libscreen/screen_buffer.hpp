@@ -393,7 +393,8 @@ class screen_buffer final
     void scroll_region_up(rectangle area, std::size_t lines, cell_style fill_style = default_cell_style);
     void scroll_region_down(rectangle area, std::size_t lines, cell_style fill_style = default_cell_style);
 
-    void resize(std::size_t width, std::size_t height, cell_style fill_style = default_cell_style);
+    void resize(std::size_t width, std::size_t height, cell_style fill_style = default_cell_style,
+                bool anchor_bottom = false);
     void set_alternate(bool enabled);
     [[nodiscard]] bool alternate_active() const noexcept
     {
@@ -728,6 +729,18 @@ inline cell_style screen_buffer::style_for_legacy(std::uint16_t attributes)
 
     auto value = text_style{};
     value.legacy_attributes = attributes;
+    if ((attributes & 0x0008) != 0)
+    {
+        value.attributes |= text_style_attribute_bit(text_style_attribute::bold);
+    }
+    if ((attributes & 0x8000) != 0)
+    {
+        value.attributes |= text_style_attribute_bit(text_style_attribute::underline);
+    }
+    if ((attributes & 0x4000) != 0)
+    {
+        value.attributes |= text_style_attribute_bit(text_style_attribute::negative);
+    }
     const auto to_indexed = [](std::uint16_t bgri) noexcept {
         return static_cast<std::uint32_t>((bgri & 0x04 ? 1u : 0u) | (bgri & 0x02 ? 2u : 0u) |
                                           (bgri & 0x01 ? 4u : 0u) | (bgri & 0x08 ? 8u : 0u));
@@ -1701,20 +1714,25 @@ inline void screen_buffer::scroll_region_up(rectangle area, std::size_t lines, c
     }
 }
 
-inline void screen_buffer::resize(std::size_t width, std::size_t height, cell_style fill_style)
+inline void screen_buffer::resize(std::size_t width, std::size_t height, cell_style fill_style, bool anchor_bottom)
 {
     assert(width != 0 && height != 0);
 
-    page resized_main(width, height, fill_style);
     const auto copy_width = std::min(width, width_);
     const auto copy_height = std::min(height, height_);
+    const auto source_top = anchor_bottom && height_ > height ? height_ - height : 0;
+    const auto target_top = anchor_bottom && height > height_ ? height - height_ : 0;
+
+    page resized_main(width, height, fill_style);
     for (std::size_t y = 0; y < copy_height; ++y)
     {
-        std::copy_n(main_.row_cells(y).begin(), copy_width, resized_main.row_cells(y).begin());
-        resized_main.row(y).used_columns =
-            static_cast<std::uint32_t>(std::min<std::size_t>(main_.row(y).used_columns, width));
-        resized_main.row(y).flags = main_.row(y).flags;
-        resized_main.row(y).command_exit_code = main_.row(y).command_exit_code;
+        const auto source_y = source_top + y;
+        const auto target_y = target_top + y;
+        std::copy_n(main_.row_cells(source_y).begin(), copy_width, resized_main.row_cells(target_y).begin());
+        resized_main.row(target_y).used_columns =
+            static_cast<std::uint32_t>(std::min<std::size_t>(main_.row(source_y).used_columns, width));
+        resized_main.row(target_y).flags = main_.row(source_y).flags;
+        resized_main.row(target_y).command_exit_code = main_.row(source_y).command_exit_code;
     }
 
     if (alternate_)
@@ -1722,11 +1740,14 @@ inline void screen_buffer::resize(std::size_t width, std::size_t height, cell_st
         page resized_alt(width, height, fill_style);
         for (std::size_t y = 0; y < copy_height; ++y)
         {
-            std::copy_n(alternate_->row_cells(y).begin(), copy_width, resized_alt.row_cells(y).begin());
-            resized_alt.row(y).used_columns =
-                static_cast<std::uint32_t>(std::min<std::size_t>(alternate_->row(y).used_columns, width));
-            resized_alt.row(y).flags = alternate_->row(y).flags;
-            resized_alt.row(y).command_exit_code = alternate_->row(y).command_exit_code;
+            const auto source_y = source_top + y;
+            const auto target_y = target_top + y;
+            std::copy_n(alternate_->row_cells(source_y).begin(), copy_width,
+                        resized_alt.row_cells(target_y).begin());
+            resized_alt.row(target_y).used_columns =
+                static_cast<std::uint32_t>(std::min<std::size_t>(alternate_->row(source_y).used_columns, width));
+            resized_alt.row(target_y).flags = alternate_->row(source_y).flags;
+            resized_alt.row(target_y).command_exit_code = alternate_->row(source_y).command_exit_code;
         }
         *alternate_ = std::move(resized_alt);
     }

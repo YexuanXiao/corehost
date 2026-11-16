@@ -29,6 +29,23 @@ struct color final
     friend constexpr auto operator<=>(const color &, const color &) noexcept = default;
 };
 
+enum class text_style_attribute : std::uint16_t
+{
+    bold = 1 << 0,
+    faint = 1 << 1,
+    italic = 1 << 2,
+    underline = 1 << 3,
+    blink = 1 << 4,
+    negative = 1 << 5,
+    conceal = 1 << 6,
+    strikethrough = 1 << 7,
+};
+
+[[nodiscard]] constexpr std::uint16_t text_style_attribute_bit(text_style_attribute attribute) noexcept
+{
+    return static_cast<std::uint16_t>(attribute);
+}
+
 // Full style is stored once in a screen-wide table. A cell only carries the
 // 32-bit style ID; legacy Console API attributes are projected on demand.
 struct text_style final

@@ -4,6 +4,7 @@
 
 #include "style.hpp"
 
+#include <array>
 #include <charconv>
 #include <cstdint>
 
@@ -50,6 +51,25 @@ inline void append_sgr_style(byte_buffer &output, const screen::text_style &styl
     *first++ = static_cast<char>(0x1B);
     *first++ = '[';
     *first++ = '0';
+
+    constexpr std::array<std::pair<std::uint16_t, char>, 8> attribute_codes{{
+        {screen::text_style_attribute_bit(screen::text_style_attribute::bold), '1'},
+        {screen::text_style_attribute_bit(screen::text_style_attribute::faint), '2'},
+        {screen::text_style_attribute_bit(screen::text_style_attribute::italic), '3'},
+        {screen::text_style_attribute_bit(screen::text_style_attribute::underline), '4'},
+        {screen::text_style_attribute_bit(screen::text_style_attribute::blink), '5'},
+        {screen::text_style_attribute_bit(screen::text_style_attribute::negative), '7'},
+        {screen::text_style_attribute_bit(screen::text_style_attribute::conceal), '8'},
+        {screen::text_style_attribute_bit(screen::text_style_attribute::strikethrough), '9'},
+    }};
+    for (const auto &[bit, code] : attribute_codes)
+    {
+        if ((style.attributes & bit) != 0)
+        {
+            *first++ = ';';
+            *first++ = code;
+        }
+    }
 
     first = append_color(first, sequence + sizeof(sequence), style.foreground, 38);
     first = append_color(first, sequence + sizeof(sequence), style.background, 48);
