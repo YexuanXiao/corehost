@@ -51,6 +51,21 @@ inline void append_cup(byte_buffer &output, unsigned row, unsigned column)
                                            static_cast<std::size_t>(first - sequence)});
 }
 
+inline void append_scroll_up(byte_buffer &output, unsigned lines)
+{
+    if (lines == 0)
+        return;
+    char sequence[24];
+    auto *first = sequence;
+    *first++ = static_cast<char>(0x1B);
+    *first++ = '[';
+    const auto result = std::to_chars(first, sequence + sizeof(sequence), lines);
+    first = result.ptr;
+    *first++ = 'S';
+    output.append(std::span<const char8_t>{reinterpret_cast<const char8_t *>(sequence),
+                                           static_cast<std::size_t>(first - sequence)});
+}
+
 inline void append_hyperlink_open_id(byte_buffer &output, std::u16string_view id, std::u16string_view uri)
 {
     output.append_text(u8"\x1b]8;id=");

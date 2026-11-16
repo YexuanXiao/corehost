@@ -474,6 +474,16 @@ class screen_buffer final
     {
         return active_page().has_damage();
     }
+    [[nodiscard]] bool has_pending_scroll() const noexcept
+    {
+        return pending_scroll_up_ != 0;
+    }
+    [[nodiscard]] std::size_t take_scroll_up() noexcept
+    {
+        const auto value = pending_scroll_up_;
+        pending_scroll_up_ = 0;
+        return value;
+    }
 
   private:
     [[nodiscard]] page &active_page() noexcept;
@@ -485,6 +495,7 @@ class screen_buffer final
     std::size_t width_{};
     std::size_t height_{};
     std::size_t history_limit_{};
+    std::size_t pending_scroll_up_{};
     page main_;
     viewport view_;
     std::optional<page> alternate_;
@@ -1713,7 +1724,7 @@ inline void screen_buffer::scroll_up(std::size_t lines, cell_style fill_style)
     }
 
     trim_history();
-    target.mark_all_dirty();
+    pending_scroll_up_ += lines;
 }
 
 inline void screen_buffer::scroll_region_down(rectangle area, std::size_t lines, cell_style fill_style)

@@ -538,6 +538,7 @@ class server_session final
                           static_cast<std::size_t>(std::max(cursor.y, 0)));
         const auto terminal_cursor = screen::coord{static_cast<std::int32_t>(state_.cursor().x),
                                                    static_cast<std::int32_t>(state_.cursor().y)};
+        vtserializer::append_scroll_up(writer_->buffer(), static_cast<unsigned>(screen_.take_scroll_up()));
         vtserializer::render_damage(writer_->buffer(), screen_, terminal_cursor, &state_);
         screen_.clear_damage();
         (void)state_.take_cursor_changed();
@@ -714,6 +715,7 @@ class server_session final
             std::span<const char8_t>{reinterpret_cast<const char8_t *>(echo_bytes_.data()), echo_bytes_.size()},
             echo_text_);
         (void)write_text(echo_text_);
+        (void)screen_.take_scroll_up();
         screen_.clear_damage();
         (void)state_.take_cursor_changed();
         (void)state_.take_echo_line_feed();
@@ -790,6 +792,7 @@ class server_session final
             (void)write_text(echo_text_);
             const auto echo_cursor = screen::coord{static_cast<std::int32_t>(state_.cursor().x),
                                                    static_cast<std::int32_t>(state_.cursor().y)};
+            vtserializer::append_scroll_up(writer_->buffer(), static_cast<unsigned>(screen_.take_scroll_up()));
             vtserializer::render_damage(writer_->buffer(), screen_, echo_cursor, &state_);
             screen_.clear_damage();
             (void)state_.take_cursor_changed();
@@ -1095,6 +1098,7 @@ class server_session final
                 static_cast<std::int32_t>(state_.cursor().x),
                 static_cast<std::int32_t>(state_.cursor().y),
             };
+            (void)screen_.take_scroll_up();
             vtserializer::render_viewport(writer_->buffer(), screen_, cursor, &state_);
             if (!state_.title.empty())
             {

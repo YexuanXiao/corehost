@@ -277,7 +277,8 @@ void test_screen_buffer()
     check(screen.at(0, 0).primary() == u'Z', "scroll moves row 1 to row 0");
     check(screen.history_line(0)[0].primary() == u'A', "scroll history keeps old row 0");
     check(screen.at(0, 2).is_blank(), "scroll bottom line");
-    check(screen.damage_begin(0) <= 0 && screen.damage_end(0) >= 4, "scroll damage");
+    check(screen.has_pending_scroll(), "scroll pending");
+    check(screen.take_scroll_up() == 1, "scroll count");
 
     screen.clear_damage();
     (void)screen.write_scalar(0, 0, u'M', style0);
