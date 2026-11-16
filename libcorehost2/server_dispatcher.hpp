@@ -129,6 +129,11 @@ class server_dispatcher final
         }
     }
 
+    [[nodiscard]] bool session_interactive_input_seen() const noexcept
+    {
+        return session_.interactive_input_seen();
+    }
+
     void take_ctrl_events(std::vector<std::pair<DWORD, DWORD>> &output)
     {
         session_.take_ctrl_events(output);

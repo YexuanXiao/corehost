@@ -47,6 +47,37 @@ struct server_worker_context final
     coreio::ctrl_delivery *delivery{};
 };
 
+inline bool raw_write_requires_screen_state(std::span<const std::byte> bytes) noexcept
+{
+    for (std::size_t i = 0; i + 2 < bytes.size(); ++i)
+    {
+        if (bytes[i] != std::byte{0x1B} || bytes[i + 1] != std::byte{'['})
+            continue;
+        std::size_t j = i + 2;
+        while (j < bytes.size())
+        {
+            const auto c = std::to_integer<unsigned char>(bytes[j]);
+            if ((c >= '0' && c <= '9') || c == ';' || c == '?')
+            {
+                ++j;
+                continue;
+            }
+            break;
+        }
+        if (j >= bytes.size())
+            return false;
+        const auto final = static_cast<char>(std::to_integer<unsigned char>(bytes[j]));
+        if (final == 'H' || final == 'f' || final == 'G' || final == 'd' || final == 'A' || final == 'B' ||
+            final == 'C' || final == 'D' || final == 'J' || final == 'K' || final == 'S' || final == 'T' ||
+            final == 'L' || final == 'M' || final == 'P' || final == '@' || final == 'X')
+        {
+            return true;
+        }
+        i = j;
+    }
+    return false;
+}
+
 inline bool raw_write_switches_alternate(std::span<const std::byte> bytes) noexcept
 {
     for (std::size_t i = 0; i + 3 < bytes.size(); ++i)
@@ -93,7 +124,8 @@ struct message_handler final
                 raw_output = raw_reader.read(message, 0);
             }
             if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE && !alternate_before &&
-                !raw_write_switches_alternate(raw_output))
+                !raw_write_switches_alternate(raw_output) && !raw_write_requires_screen_state(raw_output) &&
+                !context.dispatcher->session_interactive_input_seen())
             {
                 // 普通屏幕的 RAW_WRITE 只需要透传给终端；不需要先解析并重绘
                 // 整个 screen buffer。alternate screen 仍走 dispatcher。

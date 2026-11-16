@@ -264,6 +264,11 @@ class server_session final
         return raw_mode_;
     }
 
+    [[nodiscard]] bool interactive_input_seen() const noexcept
+    {
+        return interactive_input_seen_;
+    }
+
     void echo_raw(std::span<const char> bytes) noexcept
     {
         if (!writer_ || bytes.empty() || (state_.input_mode & ENABLE_ECHO_INPUT) == 0)
@@ -488,9 +493,16 @@ class server_session final
 
     bool handle(coreio::io_msg &message)
     {
+        // USER_DEFINED console APIs mean the application is reading through
+        // ReadConsole/ReadConsoleInput again; stop treating input as raw-only.
+        raw_mode_ = false;
         if (message.descriptor.InputSize >= sizeof(CONSOLE_MSG_HEADER))
         {
             const auto *header = reinterpret_cast<const CONSOLE_MSG_HEADER *>(message.body);
+            if (header->ApiNumber == ConsolepReadConsole || header->ApiNumber == ConsolepGetConsoleInput)
+            {
+                interactive_input_seen_ = true;
+            }
             if (header->ApiNumber == ConsolepWriteConsole)
             {
                 return write_console(message);
@@ -689,6 +701,7 @@ class server_session final
     std::u16string text_;
     std::string raw_in_;
     bool raw_mode_{};
+    bool interactive_input_seen_{};
     bool raw_eof_{};
     bool raw_alerted_{};
     coreio::process_registry processes_;
