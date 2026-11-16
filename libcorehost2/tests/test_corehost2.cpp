@@ -213,6 +213,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    const char line_arrow[]{"AB\x1B[D" "X\r"};
+    server.push_raw(std::span<const char>{line_arrow, 7});
+    if (server.read_raw(std::span<char>{raw_read_data}) != 5 || raw_read_data[0] != 'A' || raw_read_data[1] != 'X' ||
+        raw_read_data[2] != 'B' || raw_read_data[3] != '\r' || raw_read_data[4] != '\n')
+    {
+        std::fprintf(stderr, "line input arrow editing failed\n");
+        return EXIT_FAILURE;
+    }
+
     server_state.input_mode &= ~ENABLE_LINE_INPUT;
     std::array<char, 32> long_raw{};
     long_raw.fill('A');

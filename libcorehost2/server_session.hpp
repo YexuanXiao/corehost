@@ -263,24 +263,116 @@ class server_session final
 
     static void apply_line_edits(std::string &text)
     {
-        std::size_t out = 0;
-        for (const auto value : text)
-        {
-            const auto byte = static_cast<unsigned char>(value);
-            if (byte == 0x7F || byte == '\b')
+        std::string edited;
+        edited.reserve(text.size());
+        std::size_t cursor = 0;
+
+        const auto previous = [&](std::size_t at) {
+            if (at == 0)
+                return std::size_t{0};
+            --at;
+            while (at != 0 && (static_cast<unsigned char>(edited[at]) & 0xC0) == 0x80)
+                --at;
+            return at;
+        };
+        const auto next = [&](std::size_t at) {
+            if (at >= edited.size())
+                return edited.size();
+            ++at;
+            while (at < edited.size() && (static_cast<unsigned char>(edited[at]) & 0xC0) == 0x80)
+                ++at;
+            return at;
+        };
+        const auto erase_before = [&] {
+            const auto begin = previous(cursor);
+            if (begin < cursor)
             {
-                if (out != 0 && text[out - 1] != '\r' && text[out - 1] != '\n')
-                {
-                    do
-                    {
-                        --out;
-                    } while (out != 0 && (static_cast<unsigned char>(text[out]) & 0xC0) == 0x80);
-                }
+                edited.erase(begin, cursor - begin);
+                cursor = begin;
+            }
+        };
+        const auto erase_at = [&] {
+            const auto end = next(cursor);
+            if (end > cursor)
+                edited.erase(cursor, end - cursor);
+        };
+
+        for (std::size_t i = 0; i < text.size(); ++i)
+        {
+            const auto byte = static_cast<unsigned char>(text[i]);
+            if (byte == '\r' || byte == '\n' || byte == '\t' || byte == 3 || byte == 0x1A)
+            {
+                edited.push_back(static_cast<char>(byte));
+                cursor = edited.size();
                 continue;
             }
-            text[out++] = value;
+            if (byte == 0x1B && i + 1 < text.size() && text[i + 1] == '[')
+            {
+                std::size_t end = i + 2;
+                while (end < text.size())
+                {
+                    const auto value = static_cast<unsigned char>(text[end]);
+                    if (value >= 0x40 && value <= 0x7E)
+                        break;
+                    ++end;
+                }
+                if (end >= text.size())
+                    break;
+                const char final = text[end];
+                unsigned parameter = 0;
+                bool has_parameter = false;
+                for (std::size_t p = i + 2; p < end; ++p)
+                {
+                    if (text[p] >= '0' && text[p] <= '9')
+                    {
+                        parameter = parameter * 10 + static_cast<unsigned>(text[p] - '0');
+                        has_parameter = true;
+                    }
+                    else if (text[p] != ';')
+                    {
+                        break;
+                    }
+                }
+                switch (final)
+                {
+                case 'D':
+                    cursor = previous(cursor);
+                    break;
+                case 'C':
+                    cursor = next(cursor);
+                    break;
+                case 'H':
+                    cursor = 0;
+                    break;
+                case 'F':
+                    cursor = edited.size();
+                    break;
+                case '~':
+                    if (!has_parameter || parameter == 3)
+                        erase_at();
+                    else if (parameter == 1 || parameter == 7)
+                        cursor = 0;
+                    else if (parameter == 4 || parameter == 8)
+                        cursor = edited.size();
+                    break;
+                default:
+                    break;
+                }
+                i = end;
+                continue;
+            }
+            if (byte == 0x7F || byte == '\b')
+            {
+                erase_before();
+                continue;
+            }
+            if (byte >= 0x80 || (byte >= 0x20 && byte != 0x7F))
+            {
+                edited.insert(edited.begin() + static_cast<std::ptrdiff_t>(cursor), static_cast<char>(byte));
+                ++cursor;
+            }
         }
-        text.resize(out);
+        text = std::move(edited);
     }
 
     void echo_live(std::span<const char> bytes)
@@ -355,8 +447,15 @@ class server_session final
         }
 
         const bool line_input = (state_.input_mode & ENABLE_LINE_INPUT) != 0;
-        if (line_input)
+        if (line_input && raw_line_remaining_ == 0)
         {
+            // Editing is stateful; apply it only once a complete line is in the
+            // raw buffer, not on every intermediate input chunk.
+            const auto terminator = find_raw_control<true>(raw_in_, raw_in_.size());
+            if (terminator == raw_in_.size())
+            {
+                return 0;
+            }
             apply_line_edits(raw_in_);
             if (raw_in_.empty())
             {
