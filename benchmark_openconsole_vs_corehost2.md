@@ -11,7 +11,7 @@
 | 路径 | `C:\1\OpenConsole.exe` | `build-nolog\Release\corehost2.exe` |
 | 版本 | 1.26.2611.09003 / 1.26.261109003-preview | 本地 Release 无日志构建 |
 | 大小 | 1,091,424 B | 4,855,296 B |
-| SHA-256 | `7E04EC7E4691ABF5308831D531CC2B7B8AC61E2B2F3EA52B51BDA810DDF7FF6A` | `E9F9716BA6A093B38C706D7FE3D6881A1FBA25A1388EA09B079E500F8613E5BD` |
+| SHA-256 | `7E04EC7E4691ABF5308831D531CC2B7B8AC61E2B2F3EA52B51BDA810DDF7FF6A` | `B264A78B246FC53EE5D139EC2D091EADC4B96DF3FE2DEA4187FD2804AF7B6829` |
 
 ## 方法
 
@@ -38,7 +38,7 @@ cd C:\1\bench-compare-ocworker
 |---|---:|---:|---:|
 | large-mixed | 337.2 ms（321.6-348.7） | **285.8 ms**（258.4-315.3） | **0.848** |
 | long-line | 869.8 ms（806.2-993.9） | **803.1 ms**（791.2-809.9） | **0.923** |
-| powershell-type | 1,756.0 ms（1,682.7-1,802.4） | 2,418.6 ms（2,284.8-2,538.7） | N/A* |
+| powershell-type | **1,675.4 ms**（1,638.6-1,745.5） | 2,059.2 ms（1,895.3-2,214.0） | 1.229 |
 | sgr-plain | 31.5 ms（31.2-31.9） | **30.1 ms**（29.1-30.9） | **0.955** |
 | cjk-terminal-input | 2,426.7 ms（2,416.4-2,446.0） | **6.4 ms**（6.3-6.4） | **0.003** |
 
@@ -50,9 +50,9 @@ cd C:\1\bench-compare-ocworker
 2. **long-line：corehost2 快约 7.7%**  
    869.8 → 803.1 ms，ratio 0.923。三次波动较大（791-810 ms）。
 
-3. **powershell-type：不可作为性能项**  
-   OpenConsole 2.06 MB / 1.756 s；corehost2 137.8 MB / 2.419 s。  
-   同一 fixture 下 corehost2 触发了 WriteConsole 滚动全屏重绘，输出工作量不等价。
+3. **powershell-type：corehost2 慢约 23%**  
+   1,675.4 → 2,059.2 ms，ratio 1.229。  
+   同一 2,063,574 B fixture；corehost2 输出 2,972,860 B（+44%），是 scroll renderer 序列开销，输入 workload 已一致。
 
 4. **sgr-plain：corehost2 快约 4.5%**  
    31.5 → 30.1 ms，ratio 0.955。
@@ -65,9 +65,9 @@ cd C:\1\bench-compare-ocworker
    OpenConsole 2,426.7 ms，corehost2 6.4 ms。  
    这仍然包含真实的 cooked line input / echo 语义，不是靠跳过输入处理得到的。
 
-7. **非 CJK、不含 PowerShell 的未加权均值：corehost2 快约 4.5%**  
-   OpenConsole 84.92 ms，corehost2 81.05 ms，ratio 0.955。  
-   这个均值仍受 large-mixed 影响，不能代替每个场景的结论。
+7. **全部非 CJK 场景未加权均值：corehost2 慢约 8.4%**  
+   OpenConsole 154.07 ms，corehost2 167.06 ms，ratio 1.084。  
+   这个均值被 PowerShell 长场景主导，不能代替每个场景的结论。
 
 ## 输出字节数
 
@@ -75,7 +75,7 @@ cd C:\1\bench-compare-ocworker
 |---|---:|---:|---:|
 | large-mixed | 25,228,948 | 25,228,948 | 0 |
 | long-line | 16,777,377 | 16,777,376 | -1 B |
-| powershell-type | 2,063,636 | 137,824,303 | 不可比，见分析 |
+| powershell-type | 2,063,637 | 2,972,860 | +44.0%（renderer 序列） |
 | sgr-plain | 4,256,879 | 4,256,878 | -1 B |
 | cjk-terminal-input | 395,398 | 393,988 | -1,410 B（-0.36%） |
 
@@ -139,34 +139,36 @@ CJK 输出字节数从 +37.8% 恢复到 -0.36%，性能也恢复到约 6.4 ms。
 
 ## 注意事项
 
-### PowerShell 场景：bench 已修正，代码 bug 未修
+### PowerShell 场景：bench 修正 + scroll renderer 修复
 
 之前的结果不成立，原因有两层：
 
 1. **手工 `--worker` 时没有生成 fixture**  
    场景读取 `corehost-bench-realistic-type-vt.txt`。手工 worker 目录没有该文件，两边实际跑的是“文件不存在”错误路径，所以输出只有 720 B / 10,892 B。
 
-2. **corehost2 的 WriteConsole 滚动重绘 bug**  
-   fixture 正确后，corehost2 输出 137,824,303 B，约为 OpenConsole 的 67 倍。原因是 `WriteConsole` 只更新 screen，随后 `session_loop` 对滚动后的整屏 damage 调用 `render_damage()`，每行都重绘整个 viewport。
+2. **corehost2 的滚动重绘 bug**  
+   fixture 正确后，旧 corehost2 输出 137,824,303 B，约为 OpenConsole 的 67 倍。原因是 `scroll_up` 把整屏标为 damaged，`session_loop` 每行调用 `render_damage()` 重绘整个 viewport。
 
 已修正 benchmark：
 
 - worker 在计时前生成固定的 2,063,574 B fixture；
-- 两边执行同一 `Get-Content -TotalCount 12000` 命令；
-- 输出字节可用于判断 workload 是否等价。
+- 两边执行同一 `Get-Content -TotalCount 12000` 命令。
 
-未合入代码修复：
+已修正代码：
 
-- 尝试过直接 WriteConsole + CUP 快路径，输出可降到约 2.07 MB；
-- 但会破坏 PSReadLine 的 prompt/echo 光标位置，已回退；
-- 因此 PowerShell 行暂标为 `N/A`，不参与“可比场景”均值。
+- `scroll_up` 不再 `mark_all_dirty()`，改为累计 pending scroll；
+- renderer 先发 `CSI n S`，再只重绘新增/变化的行；
+- 避免每行全屏重绘。
+
+结果：
 
 ```text
-OpenConsole：2,063,636 B，1,756.0 ms
-corehost2：  137,824,303 B，2,418.6 ms
+OpenConsole：2,063,636 B，1,675.4 ms
+corehost2：  2,972,860 B，2,059.2 ms
 ```
 
-这是 **corehost2 代码 bug**，不是 bench 输入不等价。
+corehost2 仍多 44% 输出字节，来自 `CSI S`、CUP 和 damage 行序列；输入 workload 相同，差异是 renderer 开销，不是 bench 输入不等价。  
+直接 WriteConsole + CUP 快路径能达到约 2.07 MB，但会破坏 PSReadLine 的 prompt/echo 光标位置，已回退，没有合入。
 
 ### SGR 子集不是全面领先
 
@@ -187,7 +189,7 @@ corehost2：  137,824,303 B，2,418.6 ms
 | cjk-terminal-input | 2,426.7 | 6.4 | 0.003 | 395,398 | 393,988 |
 | large-mixed-vt-cjk-output | 337.2 | 285.8 | 0.848 | 25,228,948 | 25,228,948 |
 | long-line-three-vt-output | 869.8 | 803.1 | 0.923 | 16,777,377 | 16,777,376 |
-| powershell-type-realistic-build-output | 1,756.0 | 2,418.6 | N/A | 2,063,636 | 137,824,303 |
+| powershell-type-realistic-build-output | 1,675.4 | 2,059.2 | 1.229 | 2,063,637 | 2,972,860 |
 | sgr-bg-16 | 33.1 | 33.8 | 1.019 | 4,254,994 | 4,254,994 |
 | sgr-bg-256 | 33.0 | 36.2 | 1.099 | 4,258,829 | 4,258,829 |
 | sgr-bg-bright | 33.5 | 33.6 | 1.001 | 4,258,439 | 4,258,438 |
@@ -212,7 +214,7 @@ corehost2：  137,824,303 B，2,418.6 ms
 ## 结论
 
 - corehost2 在 **large-mixed** 上明显领先（约 15%），long-line 快约 7.7%，sgr-plain 快约 4.5%。
-- **PowerShell 暂不可比**：bench fixture 已正确，但 corehost2 的滚动重绘导致输出 137.8 MB（OpenConsole 2.06 MB）；这是待修代码 bug。
+- **PowerShell 慢约 23%**：同一 fixture，但 corehost2 scroll renderer 仍多输出 44% 字节。
 - **SGR 子集整体慢约 5%**，没有做到全部场景领先。
 - **cjk-terminal-input** 有数量级优势（约 381 倍），输出字节数与 OpenConsole 基本一致。
-- 不含 PowerShell 的非 CJK 场景未加权均值快约 4.5%；large-mixed/CJK 明显更快，SGR 子集慢约 5%。
+- 全部非 CJK 场景未加权均值慢约 8.4%，主要受 PowerShell 长场景影响；large-mixed/CJK 明显更快，PowerShell 和 SGR 子集仍有回退。
