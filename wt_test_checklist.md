@@ -51,7 +51,7 @@
 - [x] C6 Ctrl+C
 - [x] C7 Ctrl+Z（报告为 KEY=Z CHAR=26 MOD=Control）
 - [-] C8 多行粘贴（与 B19 同现象；原版 conhost 对照同样拆分）
-- [-] C9 鼠标点击/拖动/滚轮：自动注入未可靠触发
+- [x] C9 鼠标点击/拖动/滚轮（MOUSE x=60 y=14 buttons=0x1 / 0x0 / wheel flags=0x4）
 - [-] C10 滚轮回滚/回到底部：原版 conhost 对照同样无 scrollback，非 corehost 回归
 - [x] C11 控制台窗口大小变化事件（WINDOW EVENT 79x20 / 120x30）
 - [x] C12 ReadConsole 行编辑：方向键、Home/End、历史输入
@@ -76,7 +76,7 @@
 - [-] E5 ssh 客户端连接本机：本机 sshd 无法完成账户/主机密钥初始化
 - [-] E6 sshd.exe -d 调试服务器：`get_passwd lookup_sid failed 1332`、host key 加载失败
 - [x] E7 PowerShell / cmd 嵌套 shell
-- [x] E8 长输出程序（100 行输出）
+- [x] E8 长输出程序（100 行输出；CRT raw write 也已修复）
 
 ## F. 压力与回归
 

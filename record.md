@@ -1908,3 +1908,19 @@ conpty resize 现在通过 `server_session::queue_window_size_event()` 向启用
 - WT scrollback 未建立：100 行输出后滚轮/Shift+PageUp 无历史可滚；用 `OpenConsole.exe.orig` 对照同样无历史，因此不是 corehost 回归，属于当前 WT/PowerShell 组合行为。
 - 多行粘贴在 PowerShell 5.1/7 都被拆成两次输入；用 `OpenConsole.exe.orig` 对照同样拆分，非 corehost 回归，后续再判断是否需要 WT 配置/PSReadLine 组合处理。
 - 鼠标 tracking、focus reporting、真实 ssh/sshd 因自动注入和本机 sshd 账户/主机密钥环境限制未完成。
+
+### 修复 6：native CRT raw write 不刷新画面
+
+`server_dispatcher` 的 RAW_WRITE 返回 `false` 表示该消息已在 dispatch 内 inline 完成、不需要 piggyback。`message_handler` 把这个返回值当成“dispatch 失败”而提前 return，导致 `session_.write_raw` 已经解析、screen 已有 damage，但没有执行 render/flush。
+
+`print_test.exe`（仅 `wprintf`）此前完全空白，日志显示 raw write 完成、`raw applied damage=1`，但没有 flush。修复为：仍然执行 render/flush，只把 `dispatched` 作为是否 piggyback 的返回值。修复后 native CRT 输出正常显示。
+
+### 修复 7：Console 鼠标/焦点模式未转发给 WT
+
+`SetConsoleMode` 设置 `ENABLE_MOUSE_INPUT` / `ENABLE_WINDOW_INPUT` 时，conhost 只更新内部 `input_mode`，没有把对应 DEC private mode 转发给 WT，因此 WT 不发送鼠标事件。现在：
+
+- `ENABLE_MOUSE_INPUT` → 1000（无已有 tracking 时）和 1006；
+- `ENABLE_WINDOW_INPUT` → 1004；
+- 关闭时清除 1000/1002/1003/1006/1004。
+
+`input_events_test2.exe` 观察到 `MOUSE x=60 y=14 buttons=0x1`、`buttons=0x0` 和滚轮 `flags=0x4`。
