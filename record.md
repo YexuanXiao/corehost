@@ -2057,3 +2057,16 @@ ESC[c
 WT 返回 1034 字节终端应答，corehost2 将其当作输入队列（queue=922）后 edit 崩溃。疑似终端应答被作为键盘事件投递导致 edit 解析异常，需继续对比 libcorehost 的 terminal response 路由。
 
 当前先记录为未修复 bug，Python 修复和 ReadConsoleOutput 修复不受影响。
+
+### edit 崩溃继续排查
+
+尝试把 terminal response 全部丢弃（不投递为 KEY_EVENT）后，edit 仍然崩溃，退出码仍为 `0xC000001D`。因此问题不只是 terminal response 入队；已回退该实验。
+
+当前已知：
+
+- corehost2 下 edit 启动后崩溃，fault offset `0x1771d`；
+- libcorehost 下正常；
+- 日志显示 edit 进入 alternate screen、发送 OSC 颜色查询和 DA/DSR 后崩溃；
+- 丢弃或改成 down-only 的 response 投递都不能修复。
+
+下一步需要在 libcorehost / corehost2 的 API 调用序列上继续 diff，重点看 edit 初始化阶段的 `ReadConsoleOutput`/`ReadConsoleInput`/输出缓冲区。
