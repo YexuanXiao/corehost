@@ -2996,3 +2996,45 @@ powershell:  293.3 ms
 sgr-plain:    28.6 ms
 cjk:           6.9 ms
 ```
+
+### console_api cooked line 合并到共享 line_editor
+
+`console_api::read_console` 不再维护自己的：
+
+- `cooked_line_`
+- `cooked_cursor_`
+- 数组内手工插入/删除/左移逻辑
+
+现在统一使用 `consoleinput::line_editor`：
+
+- 字符插入、Insert 覆盖、Backspace/Delete、Left/Right/Home/End 使用同一套 UTF-16 语义；
+- history 通过 `assign()` 进入同一 editor；
+- CtrlWakeup、Tab、普通字符统一走 editor；
+- `erase_character` 删除；
+- console ReadConsole 也支持 Insert 模式；
+- 增加 ReadConsole Insert 覆盖测试。
+
+提交：
+
+```text
+821ced7 refactor(consoleapi): share incremental line editor with raw input
+```
+
+验证：
+
+```text
+Release 11/11
+Debug 4/4
+```
+
+benchmark：
+
+```text
+large-mixed: 278.8 ms
+long-line:   807.5 ms
+powershell:  291.1 ms
+sgr-plain:    28.8 ms
+cjk:           6.8 ms
+```
+
+PowerShell、edit 正常。
