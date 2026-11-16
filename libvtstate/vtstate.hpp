@@ -158,9 +158,9 @@ class state_applier final
         if (screen::all_printable_ascii(text))
         {
             std::size_t consumed = 0;
-            for (const auto ch : text)
+            while (consumed < text.size())
             {
-                if (static_cast<std::size_t>(cursor.x) + 1 > width)
+                if (static_cast<std::size_t>(cursor.x) >= width)
                 {
                     buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
                     cursor.x = 0;
@@ -173,13 +173,16 @@ class state_applier final
                     buffer.scroll_region_up(screen::rectangle{0, top, width, bottom - top + 1}, 1, style);
                     cursor.y = static_cast<std::int32_t>(bottom);
                 }
-                if (!buffer.write_scalar(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y), ch,
-                                         style, screen::cell_width::narrow, hyperlink))
+
+                const auto count = buffer.write_ascii(static_cast<std::size_t>(cursor.x),
+                                                      static_cast<std::size_t>(cursor.y), text.substr(consumed),
+                                                      style, hyperlink);
+                if (count == 0)
                 {
                     break;
                 }
-                ++cursor.x;
-                ++consumed;
+                consumed += count;
+                cursor.x += static_cast<std::int32_t>(count);
             }
             state.set_cursor(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y));
             last_consumed_ = consumed;

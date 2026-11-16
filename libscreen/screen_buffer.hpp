@@ -294,6 +294,10 @@ class screen_buffer final
     [[nodiscard]] bool write_scalar(std::size_t x, std::size_t y, char16_t primary,
                                     cell_style style = default_cell_style, cell_width width = cell_width::narrow,
                                     cell_hyperlink hyperlink = no_cell_hyperlink, cell_flags flags = cell_flags::none);
+    // Writes printable ASCII cells without re-selecting the page or checking
+    // bounds per cell. Stops at the end of the row.
+    std::size_t write_ascii(std::size_t x, std::size_t y, std::u16string_view text, cell_style style,
+                            cell_hyperlink hyperlink);
 
     // Writes a complete UTF-16 cluster, including its primary. The stored cell
     // primary is U+FFFD and offset/length point into graphemes().
@@ -794,6 +798,28 @@ inline bool screen_buffer::write_scalar(std::size_t x, std::size_t y, char16_t p
     }
 
     return write_cell(x, y, cell::scalar(primary, style, width, hyperlink, flags));
+}
+
+inline std::size_t screen_buffer::write_ascii(std::size_t x, std::size_t y, std::u16string_view text,
+                                              cell_style style, cell_hyperlink hyperlink)
+{
+    if (x >= width_ || y >= height_ || text.empty())
+    {
+        return 0;
+    }
+
+    const auto count = std::min(text.size(), width_ - x);
+    const auto start = x;
+    auto &target = active_page();
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        clear_wide_neighborhood(target, x, y);
+        target.at(x, y) = cell::scalar(text[i], style, cell_width::narrow, hyperlink);
+        ++x;
+    }
+    target.mark_dirty(y, start, x);
+    target.mark_used(y, x);
+    return count;
 }
 
 inline bool screen_buffer::write_cluster(std::size_t x, std::size_t y, std::span<const char16_t> cluster,
