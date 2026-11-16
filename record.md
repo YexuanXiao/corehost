@@ -1109,6 +1109,14 @@ eebdc63 perf(consoleapi): dispatch virtual keys with switch
 7fdebb5 perf(vtserializer): avoid zeroing sgr scratch
 ```
 
+### VT 序列化缓存 viewport 尺寸
+
+`render_damage` / `render_viewport` 缓存 `buffer.width()` / `buffer.height()`，行循环和列循环不再重复调用：
+
+```text
+1bf844a perf(vtserializer): hoist viewport dimensions
+```
+
 ### VT 序列化省略重复默认 line rendition
 
 `render_damage` / `render_viewport` 连续默认行（rendition 5）不再每行输出 `ESC#5`；非默认 rendition 和默认到非默认的切换仍逐行输出。
