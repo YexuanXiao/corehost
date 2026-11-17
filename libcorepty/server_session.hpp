@@ -305,7 +305,7 @@ class server_session final
         result.clear();
         if (text.empty())
             return;
-        const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_UTF8;
+        const auto code_page = state_.input_code_page;
         result.resize(text.size());
         const auto count =
             ::MultiByteToWideChar(code_page, 0, text.data(), static_cast<int>(text.size()),
@@ -320,7 +320,7 @@ class server_session final
         result.clear();
         if (text.empty())
             return;
-        const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_UTF8;
+        const auto code_page = state_.input_code_page;
         result.resize(vtparser::narrow_capacity_from_wide(text.size(), code_page == CP_UTF8));
         const auto size = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
                                                 static_cast<int>(text.size()), reinterpret_cast<LPSTR>(result.data()),
