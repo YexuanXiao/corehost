@@ -87,4 +87,11 @@ using raw_u8_buffer = raw_byte_vector<char8_t>;
 using raw_u16_buffer = raw_byte_vector<char16_t>;
 using raw_wide_buffer = raw_byte_vector<wchar_t>;
 
+// Rough upper bound for one wide-character conversion. Exact conversion
+// lengths are only queried when this estimate turns out to be insufficient.
+[[nodiscard]] constexpr std::size_t narrow_capacity_from_wide(std::size_t units) noexcept
+{
+    return units + (units + 1) / 2;
+}
+
 } // namespace corehost::vtparser

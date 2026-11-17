@@ -868,19 +868,10 @@ class console_api final
         {
             const auto code_page = state_.output_code_page;
             const auto *bytes_data = reinterpret_cast<const char *>(payload.data());
-            const auto units =
-                ::MultiByteToWideChar(code_page, 0, bytes_data, static_cast<int>(payload.size()), nullptr, 0);
-            text_buffer_.resize(static_cast<std::size_t>(std::max(units, 0)));
-            if (units > 0)
-            {
-                (void)::MultiByteToWideChar(code_page, 0, bytes_data, static_cast<int>(payload.size()),
-                                            reinterpret_cast<LPWSTR>(text_buffer_.data()), units);
-            }
+            decode_console_text_into(text_buffer_, bytes_data, 0, payload.size(), false, code_page);
             written = write_console_text(text_buffer_);
-            const auto encoded =
-                ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text_buffer_.data()),
-                                      static_cast<int>(written), nullptr, 0, nullptr, nullptr);
-            request->NumBytes = static_cast<ULONG>(std::max(encoded, 0));
+            encode_console_text_into(ansi_buffer_, std::u16string_view{text_buffer_.data(), written}, code_page);
+            request->NumBytes = static_cast<ULONG>(ansi_buffer_.size());
         }
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLE_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_WRITECONSOLE_MSG));
@@ -1820,13 +1811,8 @@ class console_api final
         }
         else
         {
-            const auto code_page = state_.input_code_page;
-            ansi_buffer_.resize(title.size() * 2 + 2);
-            const auto converted =
-                ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(title.data()),
-                                      static_cast<int>(title.size()), ansi_buffer_.data(),
-                                      static_cast<int>(ansi_buffer_.size()), nullptr, nullptr);
-            const auto total = static_cast<std::size_t>(std::max(converted, 0));
+            encode_console_text_into(ansi_buffer_, title, state_.input_code_page);
+            const auto total = ansi_buffer_.size();
             const auto units = std::min<std::size_t>(total, capacity);
             std::memcpy(output, ansi_buffer_.data(), units);
             if (units < capacity)
@@ -1862,16 +1848,8 @@ class console_api final
         }
         else
         {
-            const auto code_page = state_.input_code_page;
-            const auto units = ::MultiByteToWideChar(code_page, 0, reinterpret_cast<const char *>(payload.data()),
-                                                     static_cast<int>(payload.size()), nullptr, 0);
-            title.resize(static_cast<std::size_t>(std::max(units, 0)));
-            if (units > 0)
-            {
-                (void)::MultiByteToWideChar(code_page, 0, reinterpret_cast<const char *>(payload.data()),
-                                            static_cast<int>(payload.size()), reinterpret_cast<LPWSTR>(title.data()),
-                                            units);
-            }
+            decode_console_text_into(title, reinterpret_cast<const char *>(payload.data()), 0, payload.size(), false,
+                                     state_.input_code_page);
         }
 
         if (state_.title.empty())
@@ -2145,16 +2123,8 @@ class console_api final
         }
         else if (request->StringType == CONSOLE_ASCII)
         {
-            const auto count = data_size;
-            const auto *chars = reinterpret_cast<const char *>(data);
-            const auto code_page = state_.output_code_page;
-            const auto units = ::MultiByteToWideChar(code_page, 0, chars, static_cast<int>(count), nullptr, 0);
-            text_buffer_.resize(static_cast<std::size_t>(std::max(units, 0)));
-            if (units > 0)
-            {
-                (void)::MultiByteToWideChar(code_page, 0, chars, static_cast<int>(count),
-                                            reinterpret_cast<LPWSTR>(text_buffer_.data()), units);
-            }
+            decode_console_text_into(text_buffer_, reinterpret_cast<const char *>(data), 0, data_size, false,
+                                     state_.output_code_page);
             written = buffer_.write_chars(coordinate, text_buffer_);
         }
         request->NumRecords = static_cast<ULONG>(written);
@@ -2702,11 +2672,44 @@ class console_api final
         buffer_.fill_attrs(segment, attributes);
     }
 
+    // Exact conversion length. Only use this when the caller needs the exact
+    // byte/unit count (for example a Win32 length query).
     static std::size_t console_text_length(std::u16string_view value, UINT code_page) noexcept
     {
         const auto units = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(value.data()),
                                                  static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
         return static_cast<std::size_t>(std::max(units, 0));
+    }
+
+    template <typename String>
+    static void encode_console_text_into(String &value, std::u16string_view text, UINT code_page)
+    {
+        value.clear();
+        if (text.empty())
+            return;
+        value.resize(vtparser::narrow_capacity_from_wide(text.size()));
+        auto units = ::WideCharToMultiByte(
+            code_page, 0, reinterpret_cast<const wchar_t *>(text.data()), static_cast<int>(text.size()), value.data(),
+            static_cast<int>(value.size()), nullptr, nullptr);
+        if (units <= 0)
+        {
+            const auto exact = ::WideCharToMultiByte(
+                code_page, 0, reinterpret_cast<const wchar_t *>(text.data()), static_cast<int>(text.size()), nullptr, 0,
+                nullptr, nullptr);
+            if (exact <= 0)
+            {
+                value.clear();
+                return;
+            }
+            value.resize(static_cast<std::size_t>(exact));
+            units = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                                          static_cast<int>(text.size()), value.data(),
+                                          static_cast<int>(value.size()), nullptr, nullptr);
+        }
+        if (units <= 0)
+            value.clear();
+        else
+            value.resize(static_cast<std::size_t>(units));
     }
 
     template <typename String>
@@ -2721,13 +2724,14 @@ class console_api final
         }
         else
         {
-            const auto units = ::MultiByteToWideChar(code_page, 0, data + offset, static_cast<int>(bytes), nullptr, 0);
-            value.resize(static_cast<std::size_t>(std::max(units, 0)));
-            if (units > 0)
-            {
-                (void)::MultiByteToWideChar(code_page, 0, data + offset, static_cast<int>(bytes),
-                                            reinterpret_cast<LPWSTR>(value.data()), units);
-            }
+            value.resize(bytes);
+            const auto units = ::MultiByteToWideChar(code_page, 0, data + offset, static_cast<int>(bytes),
+                                                     reinterpret_cast<LPWSTR>(value.data()),
+                                                     static_cast<int>(value.size()));
+            if (units <= 0)
+                value.clear();
+            else
+                value.resize(static_cast<std::size_t>(units));
         }
     }
 

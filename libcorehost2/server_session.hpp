@@ -305,13 +305,14 @@ class server_session final
         if (text.empty())
             return;
         const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_UTF8;
-        const auto count = ::MultiByteToWideChar(code_page, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-        result.resize(static_cast<std::size_t>(std::max(count, 0)), u'\0');
-        if (!result.empty())
-        {
-            (void)::MultiByteToWideChar(code_page, 0, text.data(), static_cast<int>(text.size()),
-                                        reinterpret_cast<LPWSTR>(result.data()), static_cast<int>(result.size()));
-        }
+        result.resize(text.size());
+        const auto count = ::MultiByteToWideChar(code_page, 0, text.data(), static_cast<int>(text.size()),
+                                                 reinterpret_cast<LPWSTR>(result.data()),
+                                                 static_cast<int>(result.size()));
+        if (count <= 0)
+            result.clear();
+        else
+            result.resize(static_cast<std::size_t>(count));
     }
 
     template <typename String>
@@ -321,15 +322,29 @@ class server_session final
         if (text.empty())
             return;
         const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_UTF8;
-        const auto size = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
-                                                static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
-        result.resize(static_cast<std::size_t>(std::max(size, 0)), '\0');
-        if (!result.empty())
+        result.resize(vtparser::narrow_capacity_from_wide(text.size()));
+        auto size = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                                          static_cast<int>(text.size()), result.data(),
+                                          static_cast<int>(result.size()), nullptr, nullptr);
+        if (size <= 0)
         {
-            (void)::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
-                                        static_cast<int>(text.size()), result.data(), static_cast<int>(result.size()),
-                                        nullptr, nullptr);
+            const auto exact = ::WideCharToMultiByte(
+                code_page, 0, reinterpret_cast<const wchar_t *>(text.data()), static_cast<int>(text.size()), nullptr, 0,
+                nullptr, nullptr);
+            if (exact <= 0)
+            {
+                result.clear();
+                return;
+            }
+            result.resize(static_cast<std::size_t>(exact));
+            size = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                                         static_cast<int>(text.size()), result.data(), static_cast<int>(result.size()),
+                                         nullptr, nullptr);
         }
+        if (size <= 0)
+            result.clear();
+        else
+            result.resize(static_cast<std::size_t>(size));
     }
 
     template <typename String>
@@ -338,15 +353,28 @@ class server_session final
         result.clear();
         if (text.empty())
             return;
-        const auto size = ::WideCharToMultiByte(CP_UTF8, 0, reinterpret_cast<const wchar_t *>(text.data()),
-                                                static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
-        result.resize(static_cast<std::size_t>(std::max(size, 0)), '\0');
-        if (!result.empty())
+        result.resize(vtparser::narrow_capacity_from_wide(text.size()));
+        auto size = ::WideCharToMultiByte(CP_UTF8, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                                          static_cast<int>(text.size()), result.data(),
+                                          static_cast<int>(result.size()), nullptr, nullptr);
+        if (size <= 0)
         {
-            (void)::WideCharToMultiByte(CP_UTF8, 0, reinterpret_cast<const wchar_t *>(text.data()),
-                                        static_cast<int>(text.size()), result.data(),
-                                        static_cast<int>(result.size()), nullptr, nullptr);
+            const auto exact = ::WideCharToMultiByte(CP_UTF8, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                                                     static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+            if (exact <= 0)
+            {
+                result.clear();
+                return;
+            }
+            result.resize(static_cast<std::size_t>(exact));
+            size = ::WideCharToMultiByte(CP_UTF8, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                                         static_cast<int>(text.size()), result.data(),
+                                         static_cast<int>(result.size()), nullptr, nullptr);
         }
+        if (size <= 0)
+            result.clear();
+        else
+            result.resize(static_cast<std::size_t>(size));
     }
 
     [[nodiscard]] static std::string_view terminal_key_sequence(consoleinput::virtual_key key) noexcept
@@ -1071,21 +1099,12 @@ class server_session final
         }
         else
         {
-            const auto code_page = state_.output_code_page;
-            const auto *bytes_data = reinterpret_cast<const char *>(payload.data());
-            const auto units =
-                ::MultiByteToWideChar(code_page, 0, bytes_data, static_cast<int>(payload.size()), nullptr, 0);
-            text_.resize(static_cast<std::size_t>(std::max(units, 0)));
-            if (units > 0)
-            {
-                (void)::MultiByteToWideChar(code_page, 0, bytes_data, static_cast<int>(payload.size()),
-                                            reinterpret_cast<LPWSTR>(text_.data()), units);
-            }
+            decode_console_text_into(
+                std::span<const char>{reinterpret_cast<const char *>(payload.data()), payload.size()}, text_);
             written = write_text(text_);
             written_text = std::u16string_view{text_.data(), written};
-            const auto encoded = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text_.data()),
-                                                       static_cast<int>(written), nullptr, 0, nullptr, nullptr);
-            request->NumBytes = static_cast<ULONG>(std::max(encoded, 0));
+            encode_console_text_into(written_text, console_scratch_);
+            request->NumBytes = static_cast<ULONG>(console_scratch_.size());
         }
         if (can_stream_direct_output())
         {
