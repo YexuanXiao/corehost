@@ -1854,7 +1854,7 @@ class console_api final
         state_.title = title;
         state_.title_changed = true;
 
-#ifdef COREHOST2_TESTING
+#ifdef COREPTY_TESTING
         if (window_handle_ != 0)
 #endif
         {
@@ -2480,7 +2480,7 @@ class console_api final
   private:
     [[nodiscard]] bool has_input() const noexcept
     {
-#ifdef COREHOST2_TESTING
+#ifdef COREPTY_TESTING
         return input_ != nullptr;
 #else
         return true;
@@ -2489,7 +2489,7 @@ class console_api final
 
     [[nodiscard]] bool has_processes() const noexcept
     {
-#ifdef COREHOST2_TESTING
+#ifdef COREPTY_TESTING
         return processes_ != nullptr;
 #else
         return true;
@@ -2499,7 +2499,7 @@ class console_api final
     [[nodiscard]] std::span<const std::byte> read_input_payload(coreio::io_msg &message, std::size_t header_size,
                                                                 std::size_t fallback_size) const noexcept
     {
-#ifdef COREHOST2_TESTING
+#ifdef COREPTY_TESTING
         if (payload_ == nullptr)
         {
             return std::span<const std::byte>{reinterpret_cast<const std::byte *>(message.body + header_size),

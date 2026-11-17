@@ -46,7 +46,7 @@ class pseudo_window final
         {
             return;
         }
-        thread_ = win32::basic_thread{&pseudo_window::thread_entry, this, {.name = L"corehost2-window"}};
+        thread_ = win32::basic_thread{&pseudo_window::thread_entry, this, {.name = L"corehost-window"}};
         ready_.wait();
     }
 
