@@ -134,10 +134,17 @@ class console_session final
             return false;
         }
         case CONSOLE_IO_RAW_READ:
+/*
             // defterm2 has no terminal input source. Report EOF instead of
             // inventing a vt_in handle or leaving the request suspended.
             coreio::prepare_completion(message, 0, 0, nullptr, 0);
             coreio::complete_io(server_, message.complete);
+*/
+            // No terminal input source exists in the local defterm2 path.
+            // defterm1 keeps a fake vt_in pipe open, so its raw read blocks
+            // instead of reporting EOF. Leave this request pending to match
+            // that behavior without inventing a vt_in handle or validity
+            // check. WM_CLOSE cancels the server loop and releases the client.
             return false;
         case CONSOLE_IO_USER_DEFINED: {
             const bool handled = api_.handle(message);
