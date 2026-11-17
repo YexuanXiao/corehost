@@ -245,6 +245,17 @@ void test_text_writer()
     check(codepoint_width_for(text_measurement::console, U'\u0301') == 0,
           "runtime console codepoint width");
 
+    constexpr char16_t family_emoji[] = u"\U0001F468\u200D\U0001F469\u200D\U0001F467";
+    screen_buffer console_cluster_buffer(10, 1);
+    coord console_cluster_cursor{0, 0};
+    const auto console_cluster_result = console_cluster_buffer.write_console_text_row(
+        console_cluster_cursor, family_emoji, {}, style1, true);
+    check(console_cluster_result.consumed == std::size(family_emoji) - 1,
+          "console cluster consumed");
+    check(console_cluster_cursor.x ==
+              console_text_width(std::u16string_view{family_emoji, std::size(family_emoji) - 1}),
+          "console cluster width consistency");
+
     screen_buffer runtime_buffer(8, 2);
     coord runtime_cursor{0, 0};
     const auto runtime_result = runtime_buffer.write_text_row_for(

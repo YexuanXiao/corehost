@@ -1424,7 +1424,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
         return result;
     }
 
-    if constexpr (Mode == text_measurement::graphemes)
+    if constexpr (Mode == text_measurement::graphemes || Mode == text_measurement::console)
     {
         if (widths.empty() && all_printable_ascii(text) &&
             (!wrap_at_eol || (cursor.x >= 0 && cursor.y >= 0 &&
