@@ -30,11 +30,6 @@ class state_applier final
     {
     }
 
-    void set_measurement(screen::text_measurement measurement) noexcept
-    {
-        measurement_ = measurement;
-    }
-
     [[nodiscard]] static char16_t line_drawing(char16_t value) noexcept
     {
         static constexpr char16_t table[] = {
