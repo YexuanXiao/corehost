@@ -475,14 +475,14 @@ class server_session final
                 const auto &event = events[i];
                 if (event.type == consoleinput::input_event_type::text)
                 {
-                    if (!event.text || event.text->empty())
+                    if (event.text.empty())
                         continue;
                     if (line_input)
                     {
-                        feed_line_text(*event.text);
+                        feed_line_text(event.text);
                         continue;
                     }
-                    encode_console_text_into(*event.text, console_scratch_);
+                    encode_console_text_into(event.text, console_scratch_);
                     raw_in_.append(console_scratch_);
                     continue;
                 }

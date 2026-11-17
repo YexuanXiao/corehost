@@ -9,10 +9,8 @@
 #include <Windows.h>
 
 #include <cstdint>
-#include <memory>
 #include <optional>
 #include <span>
-#include <string>
 #include <utility>
 
 namespace corehost::consoleinput
@@ -117,7 +115,7 @@ struct input_event final
     // A text event batches one parser text run. Consumers that need per-key
     // semantics expand it at their boundary; the raw reader consumes it as a
     // batch.
-    std::shared_ptr<const vtparser::raw_u16_string> text;
+    vtparser::raw_u16_string text;
     std::size_t text_offset{};
 };
 
@@ -164,7 +162,7 @@ class input_queue final
         std::size_t count = text_up_pending_ ? 1 : 0;
         for (const auto &event : events_)
             count += event.type == input_event_type::text
-                         ? ((event.text ? event.text->size() : 0) - event.text_offset) * 2
+                         ? (event.text.size() - event.text_offset) * 2
                          : 1;
         return count;
     }
@@ -200,17 +198,17 @@ class input_queue final
                 destination[count++] = event;
                 continue;
             }
-            for (std::size_t i = event.text_offset; i < (event.text ? event.text->size() : 0) && count < destination.size(); ++i)
+            for (std::size_t i = event.text_offset; i < event.text.size() && count < destination.size(); ++i)
             {
                 input_event down{};
                 down.type = input_event_type::key;
-                down.key = key_from_text_character((*event.text)[i], true);
+                down.key = key_from_text_character(event.text[i], true);
                 destination[count++] = down;
                 if (count == destination.size())
                     break;
                 input_event up{};
                 up.type = input_event_type::key;
-                up.key = key_from_text_character((*event.text)[i], false);
+                up.key = key_from_text_character(event.text[i], false);
                 destination[count++] = up;
             }
         }
@@ -255,12 +253,12 @@ class input_queue final
                 events_.pop_front();
                 continue;
             }
-            if (front.text_offset >= (front.text ? front.text->size() : 0))
+            if (front.text_offset >= front.text.size())
             {
                 events_.pop_front();
                 continue;
             }
-            const auto character = (*front.text)[front.text_offset++];
+            const auto character = front.text[front.text_offset++];
             --key_count_;
             input_event down{};
             down.type = input_event_type::key;
@@ -278,7 +276,7 @@ class input_queue final
                 text_up_pending_ = true;
                 text_up_char_ = character;
             }
-            if (front.text_offset >= (front.text ? front.text->size() : 0))
+            if (front.text_offset >= front.text.size())
                 events_.pop_front();
         }
         return count;
@@ -297,7 +295,7 @@ class input_queue final
         if (event.type == input_event_type::key && event.key.key_down)
             ++key_count_;
         else if (event.type == input_event_type::text)
-            key_count_ += event.text ? event.text->size() : 0;
+            key_count_ += event.text.size();
     }
 
     void unaccount(const input_event &event) noexcept
@@ -305,7 +303,7 @@ class input_queue final
         if (event.type == input_event_type::key && event.key.key_down)
             --key_count_;
         else if (event.type == input_event_type::text)
-            key_count_ -= (event.text ? event.text->size() : 0) - event.text_offset;
+            key_count_ -= event.text.size() - event.text_offset;
     }
 
     bizwen::deque<input_event> events_;
