@@ -35,41 +35,87 @@ enum class render_frame_kind : std::uint8_t
     full,
 };
 
-// All render-relevant state is consumed exactly once into this snapshot. A
-// render frame is then either a complete viewport, an incremental damage frame,
-// or a cursor-only update; no caller has to pair individual take_* calls.
-struct render_snapshot final
+// All render-relevant state is consumed exactly once into this snapshot. Fields
+// are private so a frame can only be projected from take(), never assembled by
+// an output path.
+class render_snapshot final
 {
-    std::size_t scroll_lines{};
-    bool alternate_changed{};
-    bool viewport_changed{};
-    bool damage{};
-    bool cursor_changed{};
-    bool cursor_visibility_changed{};
-    bool cursor_shape_changed{};
+  public:
+    render_snapshot() = delete;
+
+    [[nodiscard]] static render_snapshot take(screen::screen_buffer &screen,
+                                              screen::console_state &console) noexcept;
+
+    template <typename SessionState>
+    [[nodiscard]] static render_snapshot take(screen::screen_buffer &screen, screen::console_state &console,
+                                              SessionState &session) noexcept;
 
     [[nodiscard]] render_frame_kind kind() const noexcept
     {
-        if (alternate_changed || viewport_changed)
+        if (alternate_changed_ || viewport_changed_)
             return render_frame_kind::full;
-        if (scroll_lines != 0 || damage || cursor_changed || cursor_visibility_changed)
+        if (scroll_lines_ != 0 || damage_ || cursor_changed_ || cursor_visibility_changed_)
             return render_frame_kind::incremental;
-        if (cursor_shape_changed)
+        if (cursor_shape_changed_)
             return render_frame_kind::cursor_only;
         return render_frame_kind::none;
     }
+
+    [[nodiscard]] std::size_t scroll_lines() const noexcept
+    {
+        return scroll_lines_;
+    }
+
+    [[nodiscard]] bool cursor_visibility_changed() const noexcept
+    {
+        return cursor_visibility_changed_;
+    }
+
+    [[nodiscard]] bool cursor_shape_changed() const noexcept
+    {
+        return cursor_shape_changed_;
+    }
+
+  private:
+    render_snapshot(std::size_t scroll_lines, bool alternate_changed, bool viewport_changed, bool damage,
+                    bool cursor_changed, bool cursor_visibility_changed, bool cursor_shape_changed) noexcept
+        : scroll_lines_{scroll_lines}, alternate_changed_{alternate_changed}, viewport_changed_{viewport_changed},
+          damage_{damage}, cursor_changed_{cursor_changed}, cursor_visibility_changed_{cursor_visibility_changed},
+          cursor_shape_changed_{cursor_shape_changed}
+    {
+    }
+
+    std::size_t scroll_lines_{};
+    bool alternate_changed_{};
+    bool viewport_changed_{};
+    bool damage_{};
+    bool cursor_changed_{};
+    bool cursor_visibility_changed_{};
+    bool cursor_shape_changed_{};
 };
+
+inline render_snapshot render_snapshot::take(screen::screen_buffer &screen,
+                                              screen::console_state &console) noexcept
+{
+    return render_snapshot{screen.take_scroll_up(), false, false, screen.has_damage(),
+                           console.take_cursor_changed(), console.take_cursor_visibility_changed(),
+                           console.take_cursor_shape_changed()};
+}
+
+template <typename SessionState>
+render_snapshot render_snapshot::take(screen::screen_buffer &screen, screen::console_state &console,
+                                      SessionState &session) noexcept
+{
+    auto snapshot = take(screen, console);
+    snapshot.alternate_changed_ = session.take_alternate_changed();
+    snapshot.viewport_changed_ = session.take_viewport_changed();
+    return snapshot;
+}
 
 [[nodiscard]] inline render_snapshot take_render_snapshot(screen::screen_buffer &screen,
                                                           screen::console_state &console) noexcept
 {
-    render_snapshot snapshot;
-    snapshot.scroll_lines = screen.take_scroll_up();
-    snapshot.damage = screen.has_damage();
-    snapshot.cursor_changed = console.take_cursor_changed();
-    snapshot.cursor_visibility_changed = console.take_cursor_visibility_changed();
-    snapshot.cursor_shape_changed = console.take_cursor_shape_changed();
-    return snapshot;
+    return render_snapshot::take(screen, console);
 }
 
 template <typename SessionState>
@@ -77,10 +123,7 @@ template <typename SessionState>
                                                           screen::console_state &console,
                                                           SessionState &session) noexcept
 {
-    auto snapshot = take_render_snapshot(screen, console);
-    snapshot.alternate_changed = session.take_alternate_changed();
-    snapshot.viewport_changed = session.take_viewport_changed();
-    return snapshot;
+    return render_snapshot::take(screen, console, session);
 }
 
 inline void render_snapshot_frame(const render_snapshot &snapshot, screen::screen_buffer &screen,
@@ -96,10 +139,10 @@ inline void render_snapshot_frame(const render_snapshot &snapshot, screen::scree
         note_terminal_cursor(console, screen, cursor);
         break;
     case render_frame_kind::incremental:
-        if (snapshot.scroll_lines != 0)
-            vtserializer::append_scroll_up(output, static_cast<unsigned>(snapshot.scroll_lines));
+        if (snapshot.scroll_lines() != 0)
+            vtserializer::append_scroll_up(output, static_cast<unsigned>(snapshot.scroll_lines()));
         vtserializer::render_damage(output, screen, cursor, &console,
-                                    trim_row_for_scroll(screen, snapshot.scroll_lines), false);
+                                    trim_row_for_scroll(screen, snapshot.scroll_lines()), false);
         screen.clear_damage();
         note_terminal_cursor(console, screen, cursor);
         break;
@@ -107,9 +150,9 @@ inline void render_snapshot_frame(const render_snapshot &snapshot, screen::scree
     case render_frame_kind::none:
         break;
     }
-    if (snapshot.cursor_visibility_changed)
+    if (snapshot.cursor_visibility_changed())
         vtserializer::append_cursor_visibility(output, console.cursor().visible);
-    if (snapshot.cursor_shape_changed)
+    if (snapshot.cursor_shape_changed())
         vtserializer::append_cursor_shape(output, static_cast<unsigned>(console.cursor().style),
                                           console.cursor().blinking);
 }
@@ -117,15 +160,15 @@ inline void render_snapshot_frame(const render_snapshot &snapshot, screen::scree
 inline void render_full_viewport(screen::screen_buffer &screen, screen::console_state &console,
                                  vtserializer::byte_buffer &output)
 {
-    const auto snapshot = take_render_snapshot(screen, console);
+    const auto snapshot = render_snapshot::take(screen, console);
     const auto cursor = screen::coord{static_cast<std::int32_t>(console.cursor().x),
                                       static_cast<std::int32_t>(console.cursor().y)};
     vtserializer::render_viewport(output, screen, cursor, &console, false);
     screen.clear_damage();
     note_terminal_cursor(console, screen, cursor);
-    if (snapshot.cursor_visibility_changed)
+    if (snapshot.cursor_visibility_changed())
         vtserializer::append_cursor_visibility(output, console.cursor().visible);
-    if (snapshot.cursor_shape_changed)
+    if (snapshot.cursor_shape_changed())
         vtserializer::append_cursor_shape(output, static_cast<unsigned>(console.cursor().style),
                                           console.cursor().blinking);
 }
@@ -144,10 +187,10 @@ template <typename SessionState>
 inline void consume_render_state_after_raw(screen::screen_buffer &screen, screen::console_state &console,
                                            SessionState &session, vtserializer::byte_buffer &output)
 {
-    const auto snapshot = take_render_snapshot(screen, console, session);
+    const auto snapshot = render_snapshot::take(screen, console, session);
     screen.clear_damage();
     console.invalidate_terminal_cursor();
-    if (snapshot.cursor_shape_changed)
+    if (snapshot.cursor_shape_changed())
         vtserializer::append_cursor_shape(output, static_cast<unsigned>(console.cursor().style),
                                           console.cursor().blinking);
 }
@@ -155,16 +198,14 @@ inline void consume_render_state_after_raw(screen::screen_buffer &screen, screen
 inline void render_pending_screen(screen::screen_buffer &screen, screen::console_state &console,
                                   vtserializer::byte_buffer &output)
 {
-    const auto snapshot = take_render_snapshot(screen, console);
-    render_snapshot_frame(snapshot, screen, console, output);
+    render_snapshot_frame(render_snapshot::take(screen, console), screen, console, output);
 }
 
 template <typename SessionState>
 inline void render_pending(screen::screen_buffer &screen, screen::console_state &console, SessionState &session,
                            vtserializer::byte_buffer &output)
 {
-    const auto snapshot = take_render_snapshot(screen, console, session);
-    render_snapshot_frame(snapshot, screen, console, output);
+    render_snapshot_frame(render_snapshot::take(screen, console, session), screen, console, output);
 }
 
 } // namespace corehost::corehost2
