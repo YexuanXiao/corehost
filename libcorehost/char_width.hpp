@@ -3,7 +3,7 @@
 //
 // 功能分解：
 // 1. console 模式用固定 Unicode 范围模拟传统 conhost 宽度判断。
-// 2. wcswidth 模式使用 ICU/libunicode，并按 ambiguous_is_wide 修正 EAW=A。
+// 2. wcswidth 模式使用 libunicode，并按 ambiguous_is_wide 修正 EAW=A。
 // 3. graphemes 模式先分割 grapheme cluster，再把单个 cluster 钳制到 2 列。
 //
 // 返回值约定：0 表示不占列，1 表示单列，2 表示双列。
@@ -13,12 +13,8 @@
 #include <array>
 #include <numeric>
 #include "../third_parties/libunicode/src/libunicode/grapheme_segmenter.h"
-#ifdef COREHOST_USE_SYSTEM_ICU
-#include <icu.h>
-#else
 #include "../third_parties/libunicode/src/libunicode/width.h"
 #include "../third_parties/libunicode/src/libunicode/codepoint_properties.h"
-#endif
 #include "text_measurement_mode.hpp"
 
 namespace corehost::conpty
@@ -120,41 +116,7 @@ inline int char_width_console(char32_t cp) noexcept
     return 1;
 }
 
-#ifdef COREHOST_USE_SYSTEM_ICU
-// 使用系统 ICU 的 EastAsianWidth/GeneralCategory 计算单码点终端宽度。
-inline int char_width_icu(char32_t cp, bool ambiguous_is_wide = false) noexcept
-{
-    if (cp < 0x20)
-        return 0;
-    if (cp == 0x7F)
-        return 0;
-    if (cp > 0x10FFFF)
-        return 1;
-
-    const auto icu_cp = static_cast<UChar32>(cp);
-    const auto category = u_getIntPropertyValue(icu_cp, UCHAR_GENERAL_CATEGORY);
-    switch (category)
-    {
-    case U_NON_SPACING_MARK:
-    case U_ENCLOSING_MARK:
-    case U_COMBINING_SPACING_MARK:
-    case U_FORMAT_CHAR:
-    case U_CONTROL_CHAR:
-        return 0;
-    default:
-        break;
-    }
-
-    const auto east_asian_width = static_cast<UEastAsianWidth>(u_getIntPropertyValue(icu_cp, UCHAR_EAST_ASIAN_WIDTH));
-    if (east_asian_width == U_EA_FULLWIDTH || east_asian_width == U_EA_WIDE)
-        return 2;
-    if (ambiguous_is_wide && east_asian_width == U_EA_AMBIGUOUS)
-        return 2;
-    return 1;
-}
-#endif
-
-// ── wcswidth 模式: ICU/libunicode width ───────────────
+// ── wcswidth 模式: libunicode width ───────────────────
 // 返回 wcwidth 风格宽度；ambiguous_is_wide 会把 EAW=A 从 1 列提升为 2 列。
 inline int char_width_wcswidth(char32_t cp, bool ambiguous_is_wide = false) noexcept
 {
@@ -162,9 +124,6 @@ inline int char_width_wcswidth(char32_t cp, bool ambiguous_is_wide = false) noex
         return 0;
     if (cp == 0x7F)
         return 0;
-#ifdef COREHOST_USE_SYSTEM_ICU
-    return char_width_icu(cp, ambiguous_is_wide);
-#else
     // libunicode::width() 将 EAW=Ambiguous 永远计为 1
     // 需要额外查询 EAW 属性来判断
     if (ambiguous_is_wide)
@@ -174,7 +133,6 @@ inline int char_width_wcswidth(char32_t cp, bool ambiguous_is_wide = false) noex
             return 2;
     }
     return static_cast<int>(unicode::width(cp));
-#endif
 }
 
 // ── graphemes 模式: 段级别总宽度 ─────────────────────
@@ -182,9 +140,6 @@ inline int char_width_wcswidth(char32_t cp, bool ambiguous_is_wide = false) noex
 // 返回 Unicode width 数据下单码点宽度；grapheme 分段前的 codepoint 路径使用它。
 inline int char_width_unicode(char32_t cp, bool ambiguous_is_wide = false) noexcept
 {
-#ifdef COREHOST_USE_SYSTEM_ICU
-    return char_width_icu(cp, ambiguous_is_wide);
-#else
     if (ambiguous_is_wide)
     {
         auto props = unicode::codepoint_properties::get(cp);
@@ -192,7 +147,6 @@ inline int char_width_unicode(char32_t cp, bool ambiguous_is_wide = false) noexc
             return 2;
     }
     return static_cast<int>(unicode::width(cp));
-#endif
 }
 
 // 计算单个 grapheme cluster 的显示宽度；返回值最多为 2 列。

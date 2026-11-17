@@ -53,6 +53,7 @@ target_link_libraries(corehost PRIVATE
     conhost_proxy_headers
 )
 
+corehost_target_msvc_linker_options(corehost PRIVATE "/OPT:REF" "/OPT:ICF")
 corehost_target_msvc_linker_option(corehost PRIVATE "/SUBSYSTEM:WINDOWS,10.0")
 
 # corehost2.exe：ConPTY 会话入口使用 libcorehost2。

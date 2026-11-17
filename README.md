@@ -120,7 +120,6 @@ Running the tests requires ssh, sshd, edit and vim.
 | `COREHOST_ANSI_OPT` | `OFF` | Enables optional table-driven ANSI code page fast paths. For users who have enabled UTF-8, this is unnecessary and will increase the binary size. |
 | `COREHOST_DEFAULT_UTF8` | `ON` | Make UTF-8 the default console code page and make UTF-8 as corehost's active code page. |
 | `COREHOST_RUN_AS_UTF8` | `ON` | Make UTF-8 as corehost's active code page. |
-| `COREHOST_USE_SYSTEM_ICU` | `ON` | Uses the Windows system ICU library for Unicode character width calculation, reducing the binary size. Disable it when targeting Windows versions earlier than 1903. |
 | `COREHOST_VERSION` | `0.0.0.0` | Sets the version baked into `corehost.exe` and `version.h`. Accepts dot-separated numbers such as `1.2.3.4`; missing segments default to `0` and extra segments are ignored. |
 | `COREHOST_ENABLE_ASAN` | `ON` | Enable AddressSanitizer in MSVC Debug builds. |
 | `USE_INBOX_CONHOST` | `OFF` | Make libconpty only use the system's conhost.exe. |
