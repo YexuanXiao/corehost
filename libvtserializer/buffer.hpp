@@ -1,10 +1,11 @@
 #pragma once
 
+#include "raw_buffer.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string_view>
-#include <vector>
 #include <charconv>
 
 namespace corehost::vtserializer
@@ -79,7 +80,7 @@ class byte_buffer final
     }
 
   private:
-    std::vector<char8_t> bytes_;
+    vtparser::raw_byte_vector<char8_t> bytes_;
 };
 
 } // namespace corehost::vtserializer

@@ -19,7 +19,8 @@ namespace corehost::vtparser
 class utf8_decoder final
 {
   public:
-    void decode(std::span<const char8_t> bytes, std::u16string &output)
+    template <typename String>
+    void decode(std::span<const char8_t> bytes, String &output)
     {
         output.clear();
 
@@ -94,12 +95,14 @@ class utf8_decoder final
         return (byte & 0xC0) == 0x80;
     }
 
-    static void append(std::u16string &output, char32_t codepoint)
+    template <typename String>
+static void append(String &output, char32_t codepoint)
     {
         unicode::encoder<char16_t>{}(codepoint, std::back_inserter(output));
     }
 
-    static bool append_sequence(std::span<const char8_t> sequence, std::u16string &output)
+    template <typename String>
+static bool append_sequence(std::span<const char8_t> sequence, String &output)
     {
         if (sequence.empty())
         {
@@ -153,7 +156,8 @@ class utf8_decoder final
         pending_size_ = 0;
     }
 
-    void consume(std::uint8_t byte, std::u16string &output)
+    template <typename String>
+void consume(std::uint8_t byte, String &output)
     {
         if (pending_size_ == 0)
         {

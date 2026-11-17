@@ -1189,8 +1189,9 @@ class console_api final
         return true;
     }
 
+    template <typename String>
     static void alias_exe_from_message_into(const coreio::io_msg &message, std::size_t descriptor_size, bool unicode,
-                                            std::u16string &exe)
+                                            String &exe)
     {
         exe.clear();
         const auto offset = sizeof(CONSOLE_MSG_HEADER) + descriptor_size;
@@ -2548,7 +2549,8 @@ class console_api final
         return payload_->read(message, header_size);
     }
 
-    void expand_console_alias(std::u16string &line)
+    template <typename String>
+    void expand_console_alias(String &line)
     {
         if (line.empty())
         {
@@ -2706,7 +2708,8 @@ class console_api final
         return static_cast<std::size_t>(std::max(units, 0));
     }
 
-    static void decode_console_text_into(std::u16string &value, const char *data, std::size_t offset,
+    template <typename String>
+    static void decode_console_text_into(String &value, const char *data, std::size_t offset,
                                          std::size_t bytes, bool unicode, UINT code_page)
     {
         value.clear();
@@ -2770,16 +2773,16 @@ class console_api final
     std::uintptr_t window_handle_{};
     coreio::process_registry *processes_{};
     coreio::input_payload_reader *payload_{};
-    std::u16string text_buffer_;
-    std::u16string alias_exe_scratch_;
-    std::u16string history_selection_;
+    vtparser::raw_u16_string text_buffer_;
+    vtparser::raw_u16_string alias_exe_scratch_;
+    vtparser::raw_u16_string history_selection_;
     std::vector<std::u16string_view> alias_exes_seen_;
     std::vector<std::uintptr_t> ctrl_targets_;
     std::array<consoleinput::input_event, 64> read_events_;
-    std::vector<char> ansi_buffer_;
+    vtparser::raw_byte_vector<char> ansi_buffer_;
     std::vector<consoleinput::input_event> prepend_buffer_;
-    std::u16string decoded_executable_;
-    std::u16string decoded_source_;
+    vtparser::raw_u16_string decoded_executable_;
+    vtparser::raw_u16_string decoded_source_;
     consoleinput::line_editor cooked_editor_;
     screen::coord cooked_origin_{};
     std::size_t cooked_echo_length_{};

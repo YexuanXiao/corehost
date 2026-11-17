@@ -1,13 +1,13 @@
 #pragma once
 
 #include "cell.hpp"
+#include "raw_buffer.hpp"
 
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <span>
-#include <vector>
 
 namespace corehost::screen
 {
@@ -46,7 +46,7 @@ class grapheme_store final
         assert(can_append(cluster.size()));
 
         const auto offset = static_cast<cluster_offset>(units_.size());
-        units_.append_range(cluster);
+        units_.insert(units_.end(), cluster.begin(), cluster.end());
         return ref{offset, static_cast<std::uint8_t>(cluster.size())};
     }
 
@@ -68,7 +68,7 @@ class grapheme_store final
     }
 
   private:
-    std::vector<char16_t> units_;
+    vtparser::raw_byte_vector<char16_t> units_;
 };
 
 } // namespace corehost::screen

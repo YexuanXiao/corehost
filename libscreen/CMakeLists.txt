@@ -6,6 +6,6 @@ target_include_directories(libscreen INTERFACE
     ${CMAKE_SOURCE_DIR}/third_parties/deque
 )
 
-target_link_libraries(libscreen INTERFACE libinterop unicode::unicode)
+target_link_libraries(libscreen INTERFACE libinterop libvtparser unicode::unicode)
 
 target_compile_features(libscreen INTERFACE cxx_std_23)

@@ -326,7 +326,8 @@ class screen_buffer final
 
     // Appends the complete glyph at x as UTF-16. A trailing cell resolves to its
     // leading cell. Blank/background cells produce one space.
-    void glyph_at_into(std::size_t x, std::size_t y, std::u16string &result) const;
+    template <typename String>
+    void glyph_at_into(std::size_t x, std::size_t y, String &result) const;
 
     // First Unicode scalar of the glyph at x. Surrogate pairs are decoded.
     [[nodiscard]] char32_t codepoint_at(std::size_t x, std::size_t y) const;
@@ -339,7 +340,8 @@ class screen_buffer final
     [[nodiscard]] std::size_t used_columns(std::size_t y) const;
 
     // Appends the visible row text, skipping trailing wide-cell columns.
-    void line_text_into(std::size_t y, std::u16string &result) const;
+    template <typename String>
+    void line_text_into(std::size_t y, String &result) const;
 
     [[nodiscard]] legacy_cell legacy_at(std::size_t x, std::size_t y) const;
 
@@ -952,7 +954,8 @@ inline bool screen_buffer::write_codepoint(std::size_t x, std::size_t y, char32_
     return write_cluster(x, y, std::span<const char16_t>{cluster, cluster_size}, style, width, hyperlink, flags);
 }
 
-inline void screen_buffer::glyph_at_into(std::size_t x, std::size_t y, std::u16string &result) const
+template <typename String>
+inline void screen_buffer::glyph_at_into(std::size_t x, std::size_t y, String &result) const
 {
     result.clear();
     while (x > 0 && at(x, y).is_continuation())
@@ -1010,7 +1013,8 @@ inline std::size_t screen_buffer::used_columns(std::size_t y) const
     return active_page().row(y).used_columns;
 }
 
-inline void screen_buffer::line_text_into(std::size_t y, std::u16string &result) const
+template <typename String>
+inline void screen_buffer::line_text_into(std::size_t y, String &result) const
 {
     result.clear();
     result.reserve(width_);

@@ -11,6 +11,7 @@
 #include "server_loop.hpp"
 #include "win32_transport.hpp"
 
+#include "raw_buffer.hpp"
 #include "terminal_reader.hpp"
 #include "terminal_writer.hpp"
 #include "viewport.hpp"
@@ -213,7 +214,7 @@ class session_input_sink final
     win32::srwlock &mutex_;
     server_session &console_;
     vtparser::utf8_decoder decoder_;
-    std::u16string text_;
+    vtparser::raw_u16_string text_;
 };
 
 class session_signal_sink final

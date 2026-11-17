@@ -4,6 +4,6 @@ target_include_directories(libvtserializer INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(libvtserializer INTERFACE libscreen libconsole unicode::unicode)
+target_link_libraries(libvtserializer INTERFACE libscreen libconsole libvtparser unicode::unicode)
 
 target_compile_features(libvtserializer INTERFACE cxx_std_23)

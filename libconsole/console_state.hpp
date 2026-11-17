@@ -2,6 +2,7 @@
 
 #include "cell.hpp"
 #include "deque.hpp"
+#include "raw_buffer.hpp"
 #include "screen_buffer.hpp"
 
 #include <Windows.h>
@@ -168,9 +169,9 @@ class console_state final
     std::uint32_t history_flags{};
     struct alias_entry
     {
-        std::u16string source;
-        std::u16string target;
-        std::u16string executable;
+        vtparser::raw_u16_string source;
+        vtparser::raw_u16_string target;
+        vtparser::raw_u16_string executable;
     };
     std::vector<alias_entry> aliases;
     bizwen::deque<std::u16string> command_history;
@@ -228,7 +229,7 @@ class console_state final
     std::array<std::uint32_t, 16> color_table{};
     std::u16string title;
     std::u16string original_title;
-    std::u16string selected_text_scratch_;
+    vtparser::raw_u16_string selected_text_scratch_;
     coord max_window_size{};
     text_measurement measurement{text_measurement::console};
     bool ambiguous_is_wide{false};
@@ -279,7 +280,8 @@ class console_state final
     void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y) noexcept;
     void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y,
                        selection_mode mode) noexcept;
-    void selected_text_into(const screen_buffer &buffer, std::u16string &result);
+    template <typename String>
+    void selected_text_into(const screen_buffer &buffer, String &result);
     void set_keypad_application(bool value) noexcept
     {
         if (keypad_application == value)
@@ -394,7 +396,8 @@ class console_state final
         }
     }
 
-    [[nodiscard]] bool browse_history_up(std::u16string_view current_input, std::u16string &selected)
+    template <typename String>
+    [[nodiscard]] bool browse_history_up(std::u16string_view current_input, String &selected)
     {
         if (command_history.empty())
         {
@@ -413,7 +416,8 @@ class console_state final
         return true;
     }
 
-    [[nodiscard]] bool browse_history_down(std::u16string &selected)
+    template <typename String>
+    [[nodiscard]] bool browse_history_down(String &selected)
     {
         if (history_browse_index == no_history_selection)
         {
@@ -701,7 +705,8 @@ inline void console_state::set_selection(std::size_t anchor_x, std::size_t ancho
     selection_.caret_y = std::min(caret_y, height_ - 1);
 }
 
-inline void console_state::selected_text_into(const screen_buffer &buffer, std::u16string &result)
+template <typename String>
+inline void console_state::selected_text_into(const screen_buffer &buffer, String &result)
 {
     result.clear();
     if (!selection_.active)

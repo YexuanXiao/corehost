@@ -41,7 +41,8 @@ namespace corehost::corehost2
     return false;
 }
 
-inline void normalize_line_feeds_into(std::u16string_view text, std::u16string &normalized)
+template <typename String>
+inline void normalize_line_feeds_into(std::u16string_view text, String &normalized)
 {
     normalized.clear();
     normalized.reserve(text.size() + 8);
@@ -297,7 +298,8 @@ class server_session final
 #endif
     }
 
-    void decode_console_text_into(std::span<const char> text, std::u16string &result) const
+    template <typename String>
+    void decode_console_text_into(std::span<const char> text, String &result) const
     {
         result.clear();
         if (text.empty())
@@ -312,7 +314,8 @@ class server_session final
         }
     }
 
-    void encode_console_text_into(std::u16string_view text, std::string &result) const
+    template <typename String>
+    void encode_console_text_into(std::u16string_view text, String &result) const
     {
         result.clear();
         if (text.empty())
@@ -329,7 +332,8 @@ class server_session final
         }
     }
 
-    static void encode_utf8_into(std::u16string_view text, std::string &result)
+    template <typename String>
+    static void encode_utf8_into(std::u16string_view text, String &result)
     {
         result.clear();
         if (text.empty())
@@ -398,7 +402,8 @@ class server_session final
         }
     }
 
-    static void encode_mouse_event_into(const consoleinput::mouse_event &mouse, std::string &result)
+    template <typename String>
+    static void encode_mouse_event_into(const consoleinput::mouse_event &mouse, String &result)
     {
         unsigned button = 3;
         if ((mouse.button_state & FROM_LEFT_1ST_BUTTON_PRESSED) != 0)
@@ -1329,21 +1334,21 @@ class server_session final
     vtparser::raw_u16_buffer raw_;
     vtparser::vt_parser parser_;
     vtstate::state_applier applier_;
-    std::u16string text_;
-    std::u16string echo_text_;
-    std::u16string decoded_text_;
-    std::u16string direct_text_;
-    std::string echo_bytes_;
-    std::string console_scratch_;
-    std::string utf8_scratch_;
-    std::string direct_utf8_;
-    std::string raw_event_bytes_;
-    std::u16string raw_text_batch_;
-    std::u16string line_text_batch_;
+    vtparser::raw_u16_string text_;
+    vtparser::raw_u16_string echo_text_;
+    vtparser::raw_u16_string decoded_text_;
+    vtparser::raw_u16_string direct_text_;
+    vtparser::raw_string echo_bytes_;
+    vtparser::raw_string console_scratch_;
+    vtparser::raw_string utf8_scratch_;
+    vtparser::raw_string direct_utf8_;
+    vtparser::raw_string raw_event_bytes_;
+    vtparser::raw_u16_string raw_text_batch_;
+    vtparser::raw_u16_string line_text_batch_;
     vtparser::utf8_decoder echo_decoder_;
-    std::string raw_in_;
+    vtparser::raw_string raw_in_;
     consoleinput::line_editor raw_line_editor_;
-    std::deque<std::string> raw_completed_lines_;
+    std::deque<vtparser::raw_string> raw_completed_lines_;
     std::size_t raw_completed_offset_{};
     bool raw_mode_{};
     bool live_echoed_{};
