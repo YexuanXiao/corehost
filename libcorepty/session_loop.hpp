@@ -328,9 +328,8 @@ inline void run_conpty_session(win32::handle_view server, win32::handle_view eve
 
     win32::event server_stop_event{win32::create_tag, true, false};
     coreio::ctrl_delivery ctrl_delivery;
-    server_worker_context server_context{server,         event,        server_stop_event.view(),
-                                         dispatcher,     state,        writer,
-                                         session_mutex,  server_stop,  ctrl_delivery};
+    server_worker_context server_context{
+        server, event, server_stop_event.view(), dispatcher, state, writer, session_mutex, server_stop, ctrl_delivery};
     if (server.valid())
     {
         server_thread = win32::basic_thread{&server_worker_entry, &server_context, {.name = L"corehost-server"}};

@@ -57,7 +57,6 @@ connect_decision handle_connect(win32::handle_view server, win32::handle_view in
     return {};
 }
 
-
 void defterm_entry(std::uintptr_t condrv_handle)
 {
     assert(condrv_handle != 0);
@@ -104,7 +103,7 @@ void defterm_entry(std::uintptr_t condrv_handle)
                                 : 30;
 
         console_session session{server.view(), input_event.view(), static_cast<short>(width > 0 ? width : 120),
-                                            static_cast<short>(height > 0 ? height : 30)};
+                                static_cast<short>(height > 0 ? height : 30)};
         session.handle(message);
         session.run();
         return;

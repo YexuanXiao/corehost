@@ -84,7 +84,6 @@ std::wstring write_connect_report(win32::wcstring_view reason, DWORD client_pid,
     return path;
 }
 
-
 std::wstring write_elevated_terminal_blocked(win32::wcstring_view reason, DWORD client_pid, DWORD process_group_id,
                                              DWORD show_window, DWORD startup_flags, bool window_visible,
                                              bool console_app, win32::wcstring_view command_line) noexcept

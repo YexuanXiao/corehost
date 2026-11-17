@@ -136,9 +136,9 @@ class pseudo_window final
             win32::throw_last_error();
         }
 
-        const HWND created =
-            ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP, class_name_,
-                              reinterpret_cast<LPCWSTR>(title_.c_str()), WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, nullptr, this);
+        const HWND created = ::CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
+                                               class_name_, reinterpret_cast<LPCWSTR>(title_.c_str()), WS_POPUP, 0, 0,
+                                               0, 0, nullptr, nullptr, nullptr, this);
         if (created == nullptr)
         {
             ready_.set();

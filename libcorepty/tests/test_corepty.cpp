@@ -61,9 +61,9 @@ int main()
         return EXIT_FAILURE;
     }
 
-    corehost::corepty::conpty_entry(win32::handle_view{}, win32::handle_view{}, {}, {},
-                                      win32::handle_view{input_read}, win32::handle_view{output}, {}, 8, 2, false,
-                                      corehost::screen::text_measurement::console);
+    corehost::corepty::conpty_entry(win32::handle_view{}, win32::handle_view{}, {}, {}, win32::handle_view{input_read},
+                                    win32::handle_view{output}, {}, 8, 2, false,
+                                    corehost::screen::text_measurement::console);
 
     ::CloseHandle(output);
     ::CloseHandle(input_read);
@@ -161,7 +161,7 @@ int main()
     }
 
     corehost::corepty::server_dispatcher dispatcher{win32::handle_view{}, win32::handle_view{}, win32::handle_view{},
-                                                      server};
+                                                    server};
     corehost::coreio::io_msg close_message{};
     close_message.descriptor.Function = CONSOLE_IO_CLOSE_OBJECT;
     if (!dispatcher.handle(close_message) || close_message.complete.IoStatus.Status != 0)

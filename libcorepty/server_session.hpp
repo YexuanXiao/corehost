@@ -597,7 +597,8 @@ class server_session final
         if (needs_redraw && (state_.input_mode & ENABLE_ECHO_INPUT) != 0)
         {
             line_edited_ = true;
-            echo_raw(std::span<const char>{reinterpret_cast<const char *>(raw_completed_lines_.back().data()), raw_completed_lines_.back().size()});
+            echo_raw(std::span<const char>{reinterpret_cast<const char *>(raw_completed_lines_.back().data()),
+                                           raw_completed_lines_.back().size()});
         }
         else
         {
@@ -749,14 +750,11 @@ class server_session final
                 echo_bytes_.push_back(static_cast<char8_t>(bytes[i]));
             }
         }
-        echo_decoder_.decode(
-            std::span<const char8_t>{echo_bytes_.data(), echo_bytes_.size()},
-            echo_text_);
+        echo_decoder_.decode(std::span<const char8_t>{echo_bytes_.data(), echo_bytes_.size()}, echo_text_);
         (void)write_text(echo_text_);
         commit_direct_output(screen_, state_);
         (void)state_.take_echo_line_feed();
-        writer_->buffer().append(
-            std::span<const char8_t>{echo_bytes_.data(), echo_bytes_.size()});
+        writer_->buffer().append(std::span<const char8_t>{echo_bytes_.data(), echo_bytes_.size()});
         live_echoed_ = true;
         if (echo_bytes_.find(u8"\r\n") != vtparser::raw_u8string::npos)
         {
@@ -1090,8 +1088,7 @@ class server_session final
             if (has_lone_lf)
                 normalize_line_feeds_into(written_text, direct_text_);
             encode_utf8_into(has_lone_lf ? std::u16string_view{direct_text_} : written_text, direct_utf8_);
-            writer_->buffer().append(
-                std::span<const char8_t>{direct_utf8_.data(), direct_utf8_.size()});
+            writer_->buffer().append(std::span<const char8_t>{direct_utf8_.data(), direct_utf8_.size()});
             commit_direct_output(screen_, state_);
             (void)state_.take_echo_line_feed();
         }

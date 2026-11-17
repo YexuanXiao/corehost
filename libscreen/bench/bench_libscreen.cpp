@@ -5,7 +5,6 @@
 #include <cstdio>
 #include <vector>
 
-
 using clock_type = std::chrono::steady_clock;
 
 double ns_per_op(clock_type::duration elapsed, std::size_t iterations)
@@ -67,7 +66,6 @@ void bench_char_info()
     const auto end = clock_type::now();
     std::printf("read_char_info 120x30: %.2f ns/op\n", ns_per_op(end - begin, iterations));
 }
-
 
 int main()
 {

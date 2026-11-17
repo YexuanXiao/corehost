@@ -18,7 +18,6 @@
 #include <string>
 #include <utility>
 
-
 int run_com_handoff()
 {
     corehost::support::com_handoff_raw handoff{};
@@ -37,8 +36,8 @@ int run_com_handoff()
     auto signal = win32::handle::from_uintptr(handoff.signal);
 
     corehost::corepty::conpty_entry(server.view(), event.view(), std::move(condrv_input), std::move(condrv_output),
-                                      vt_in.view(), vt_out.view(), std::move(signal), handoff.width, handoff.height,
-                                      false, corehost::screen::text_measurement::graphemes, true);
+                                    vt_in.view(), vt_out.view(), std::move(signal), handoff.width, handoff.height,
+                                    false, corehost::screen::text_measurement::graphemes, true);
     return 0;
 }
 
@@ -61,7 +60,6 @@ int run_headless(const corehost::cli::console_arguments &args)
         args.inherit_cursor(), args.text_measurement(), args.ambiguous_is_wide());
     return 0;
 }
-
 
 int __stdcall wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
 {

@@ -19,7 +19,6 @@ static_assert(sizeof(corehost::vtparser::vt_mouse_payload) == 8);
 static_assert(sizeof(corehost::vtparser::vt_private_mode_payload) == 4);
 static_assert(sizeof(corehost::vtparser::vt_win32_key_payload) == 16);
 
-
 int failures = 0;
 
 void check(bool value, const char *message)
@@ -30,7 +29,6 @@ void check(bool value, const char *message)
         ++failures;
     }
 }
-
 
 int main()
 {

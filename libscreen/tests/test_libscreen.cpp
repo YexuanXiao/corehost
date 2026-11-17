@@ -10,7 +10,6 @@
 #include <string>
 #include <vector>
 
-
 using namespace corehost::screen;
 
 constexpr cell_style style0{0};
@@ -323,7 +322,6 @@ void test_screen_buffer()
     check(!corehost::screen::all_printable_ascii(u"AB\x7F"), "del detection");
     check(!corehost::screen::all_printable_ascii(u"AB\u4E2D"), "non-ascii detection");
 }
-
 
 int main()
 {

@@ -42,8 +42,8 @@ class console_session final
     console_session(win32::handle_view server, win32::handle_view event, short width, short height)
         : server_{server}, event_{event}, width_{width}, height_{height},
           screen_{static_cast<std::size_t>(width), static_cast<std::size_t>(height)},
-          state_{static_cast<std::size_t>(width), static_cast<std::size_t>(height)}, window_{server},
-          processes_{}, payload_{server}, io_state_{server, {}, {}, processes_},
+          state_{static_cast<std::size_t>(width), static_cast<std::size_t>(height)}, window_{server}, processes_{},
+          payload_{server}, io_state_{server, {}, {}, processes_},
           api_{screen_, state_, &input_, 0, &processes_, &payload_}
     {
         state_.output_mode = 0x0001 | 0x0002 | 0x0004;
@@ -97,7 +97,7 @@ class console_session final
             if (!was_connected)
             {
                 coreio::prepare_connection_completion(message, io_state_.input(), io_state_.output(),
-                                                       static_cast<ULONG_PTR>(message.descriptor.Process));
+                                                      static_cast<ULONG_PTR>(message.descriptor.Process));
             }
             // Complete CONNECT immediately. The client may issue its first
             // Console API call before the next READ_IO can piggyback this
@@ -134,12 +134,12 @@ class console_session final
             return false;
         }
         case CONSOLE_IO_RAW_READ:
-/*
-            // defterm has no terminal input source. Report EOF instead of
-            // inventing a vt_in handle or leaving the request suspended.
-            coreio::prepare_completion(message, 0, 0, nullptr, 0);
-            coreio::complete_io(server_, message.complete);
-*/
+            /*
+                        // defterm has no terminal input source. Report EOF instead of
+                        // inventing a vt_in handle or leaving the request suspended.
+                        coreio::prepare_completion(message, 0, 0, nullptr, 0);
+                        coreio::complete_io(server_, message.complete);
+            */
             // No terminal input source exists in the local defterm path.
             // defterm1 keeps a fake vt_in pipe open, so its raw read blocks
             // instead of reporting EOF. Leave this request pending to match
@@ -202,8 +202,7 @@ class console_session final
             state_.resize(static_cast<std::size_t>(width_), static_cast<std::size_t>(height_));
         }
 
-        if (info.TitleLength <= sizeof(info.Title) - sizeof(char16_t) &&
-            (info.TitleLength % sizeof(char16_t)) == 0)
+        if (info.TitleLength <= sizeof(info.Title) - sizeof(char16_t) && (info.TitleLength % sizeof(char16_t)) == 0)
         {
             const auto length = info.TitleLength / sizeof(char16_t);
             state_.title.assign(reinterpret_cast<const char16_t *>(info.Title), length);
@@ -222,10 +221,9 @@ class console_session final
         }
 
         text_.resize(bytes.size());
-        const auto units = ::MultiByteToWideChar(state_.output_code_page, 0, bytes.data(),
-                                                 static_cast<int>(bytes.size()),
-                                                 reinterpret_cast<LPWSTR>(text_.data()),
-                                                 static_cast<int>(text_.size()));
+        const auto units =
+            ::MultiByteToWideChar(state_.output_code_page, 0, bytes.data(), static_cast<int>(bytes.size()),
+                                  reinterpret_cast<LPWSTR>(text_.data()), static_cast<int>(text_.size()));
         assert(units > 0);
         text_.resize(static_cast<std::size_t>(units));
 
