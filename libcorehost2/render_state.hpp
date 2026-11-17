@@ -194,6 +194,8 @@ inline void consume_render_state_after_raw(screen::screen_buffer &screen, screen
     const auto snapshot = render_snapshot::take(screen, console, session);
     screen.clear_damage();
     console.invalidate_terminal_cursor();
+    if (snapshot.cursor_visibility_changed())
+        vtserializer::append_cursor_visibility(output, console.cursor().visible);
     if (snapshot.cursor_shape_changed())
         vtserializer::append_cursor_shape(output, static_cast<unsigned>(console.cursor().style),
                                           console.cursor().blinking);
