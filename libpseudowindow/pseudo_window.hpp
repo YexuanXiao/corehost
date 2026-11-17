@@ -49,7 +49,8 @@ class pseudo_window final
     void stop_and_join()
     {
         assert(thread_.valid());
-        if (hwnd_ != nullptr && ::IsWindow(hwnd_) != FALSE)
+        assert(hwnd_ != nullptr);
+        if (::IsWindow(hwnd_) != FALSE)
         {
             if (::PostMessageW(hwnd_, wm_stop_thread, 0, 0) == FALSE)
             {
@@ -91,7 +92,8 @@ class pseudo_window final
 
     void set_visibility(bool visible)
     {
-        if (hwnd_ == nullptr || ::IsWindow(hwnd_) == FALSE)
+        assert(hwnd_ != nullptr);
+        if (::IsWindow(hwnd_) == FALSE)
         {
             return;
         }
@@ -105,7 +107,8 @@ class pseudo_window final
 
     void set_owner(HWND owner)
     {
-        if (hwnd_ == nullptr || ::IsWindow(hwnd_) == FALSE)
+        assert(hwnd_ != nullptr);
+        if (::IsWindow(hwnd_) == FALSE)
         {
             return;
         }
