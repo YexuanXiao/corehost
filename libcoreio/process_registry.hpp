@@ -9,27 +9,31 @@
 namespace corehost::coreio
 {
 
+// Windows process ids are 32-bit values. Store the bit pattern in int32_t and
+// convert back to uint32_t at the ABI boundary.
 class process_registry final
 {
   public:
-    void add(std::uintptr_t process, std::uintptr_t group = 0) noexcept
+    void add(std::uint32_t process, std::uint32_t group = 0) noexcept
     {
         if (process == 0)
         {
             return;
         }
-        if (std::ranges::find(processes_, process) == processes_.end())
+        const auto stored = to_storage(process);
+        if (std::ranges::find(processes_, stored) == processes_.end())
         {
-            processes_.push_back(process);
-            groups_.push_back(group != 0 ? group : process);
+            processes_.push_back(stored);
+            groups_.push_back(to_storage(group != 0 ? group : process));
         }
     }
 
-    void remove(std::uintptr_t process) noexcept
+    void remove(std::uint32_t process) noexcept
     {
+        const auto stored = to_storage(process);
         for (std::size_t i = 0; i < processes_.size(); ++i)
         {
-            if (processes_[i] == process)
+            if (processes_[i] == stored)
             {
                 processes_.erase(processes_.begin() + static_cast<std::ptrdiff_t>(i));
                 groups_.erase(groups_.begin() + static_cast<std::ptrdiff_t>(i));
@@ -38,14 +42,14 @@ class process_registry final
         }
     }
 
-    [[nodiscard]] bool contains(std::uintptr_t process) const noexcept
+    [[nodiscard]] bool contains(std::uint32_t process) const noexcept
     {
-        return std::ranges::find(processes_, process) != processes_.end();
+        return std::ranges::find(processes_, to_storage(process)) != processes_.end();
     }
 
-    [[nodiscard]] bool contains_group(std::uintptr_t group) const noexcept
+    [[nodiscard]] bool contains_group(std::uint32_t group) const noexcept
     {
-        return std::ranges::find(groups_, group) != groups_.end();
+        return std::ranges::find(groups_, to_storage(group)) != groups_.end();
     }
 
     [[nodiscard]] std::size_t size() const noexcept
@@ -53,17 +57,17 @@ class process_registry final
         return processes_.size();
     }
 
-    [[nodiscard]] std::span<const std::uintptr_t> processes() const noexcept
+    [[nodiscard]] std::span<const std::int32_t> processes() const noexcept
     {
         return processes_;
     }
 
-    [[nodiscard]] std::size_t copy_for_group(std::uintptr_t group, std::span<std::uintptr_t> output) const noexcept
+    [[nodiscard]] std::size_t copy_for_group(std::uint32_t group, std::span<std::int32_t> output) const noexcept
     {
         std::size_t written = 0;
         for (std::size_t i = 0; i < processes_.size() && written < output.size(); ++i)
         {
-            if (group == 0 || groups_[i] == group)
+            if (group == 0 || static_cast<std::uint32_t>(groups_[i]) == group)
             {
                 output[written++] = processes_[i];
             }
@@ -78,8 +82,13 @@ class process_registry final
     }
 
   private:
-    std::vector<std::uintptr_t> processes_;
-    std::vector<std::uintptr_t> groups_;
+    [[nodiscard]] static constexpr std::int32_t to_storage(std::uint32_t value) noexcept
+    {
+        return static_cast<std::int32_t>(value);
+    }
+
+    std::vector<std::int32_t> processes_;
+    std::vector<std::int32_t> groups_;
 };
 
 } // namespace corehost::coreio
