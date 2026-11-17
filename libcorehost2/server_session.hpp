@@ -4,6 +4,7 @@
 #include "line_editor.hpp"
 #include "terminal_writer.hpp"
 #include "viewport.hpp"
+#include "render_state.hpp"
 #include "utility/log.hpp"
 #include "apply.hpp"
 #include "utf8.hpp"
@@ -477,16 +478,6 @@ class server_session final
         signal_input_event();
     }
 
-    [[nodiscard]] static std::size_t trim_row_for_scroll(const screen::screen_buffer &screen,
-                                                         std::size_t scroll_lines) noexcept
-    {
-        if (scroll_lines == 0)
-            return static_cast<std::size_t>(-1);
-        const auto origin = screen.viewport_origin();
-        const auto size = screen.viewport_size();
-        return static_cast<std::size_t>(origin.y + size.y - static_cast<std::int32_t>(scroll_lines));
-    }
-
     void note_terminal_cursor() noexcept
     {
         const auto origin = screen_.viewport_origin();
@@ -558,15 +549,7 @@ class server_session final
         const auto cursor = echo_position(origin, static_cast<std::int32_t>(screen_.width()), cursor_columns);
         state_.set_cursor(static_cast<std::size_t>(std::max(cursor.x, 0)),
                           static_cast<std::size_t>(std::max(cursor.y, 0)));
-        const auto terminal_cursor = screen::coord{static_cast<std::int32_t>(state_.cursor().x),
-                                                   static_cast<std::int32_t>(state_.cursor().y)};
-        const auto scroll_lines = screen_.take_scroll_up();
-        vtserializer::append_scroll_up(writer_->buffer(), static_cast<unsigned>(scroll_lines));
-        vtserializer::render_damage(writer_->buffer(), screen_, terminal_cursor, &state_,
-                                    trim_row_for_scroll(screen_, scroll_lines));
-        note_terminal_cursor();
-        screen_.clear_damage();
-        (void)state_.take_cursor_changed();
+        render_pending_screen(screen_, state_, writer_->buffer());
         (void)state_.take_echo_line_feed();
         writer_->flush();
         line_edited_ = true;
@@ -828,15 +811,7 @@ class server_session final
                 }
             }
             (void)write_text(echo_text_);
-            const auto echo_cursor = screen::coord{static_cast<std::int32_t>(state_.cursor().x),
-                                                   static_cast<std::int32_t>(state_.cursor().y)};
-            const auto scroll_lines = screen_.take_scroll_up();
-            vtserializer::append_scroll_up(writer_->buffer(), static_cast<unsigned>(scroll_lines));
-            vtserializer::render_damage(writer_->buffer(), screen_, echo_cursor, &state_,
-                                        trim_row_for_scroll(screen_, scroll_lines));
-            note_terminal_cursor();
-            screen_.clear_damage();
-            (void)state_.take_cursor_changed();
+            render_pending_screen(screen_, state_, writer_->buffer());
             (void)state_.take_echo_line_feed();
         }
         else
