@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent
-RAW = Path(r"C:\1\bench-results\compare-workers-3x-final.txt")
+RAW = Path(r"C:\1\bench-results\final-2026-11-17-3x.txt")
 OUT_CSV = ROOT / "benchmark_openconsole_vs_corehost2.csv"
 OUT_PNG = ROOT / "benchmark_openconsole_vs_corehost2.png"
 
