@@ -190,6 +190,29 @@ class console_state final
     std::int32_t terminal_cursor_x{};
     std::int32_t terminal_cursor_y{};
     bool viewport_changed{};
+
+    void note_terminal_cursor(std::int32_t x, std::int32_t y) noexcept
+    {
+        terminal_cursor_x = x;
+        terminal_cursor_y = y;
+        terminal_cursor_valid = true;
+    }
+
+    void invalidate_terminal_cursor() noexcept
+    {
+        terminal_cursor_valid = false;
+    }
+
+    [[nodiscard]] bool terminal_cursor_at(std::int32_t x, std::int32_t y) const noexcept
+    {
+        return terminal_cursor_valid && terminal_cursor_x == x && terminal_cursor_y == y;
+    }
+
+    [[nodiscard]] bool terminal_cursor_on_row(std::int32_t y) const noexcept
+    {
+        return terminal_cursor_valid && terminal_cursor_y == y;
+    }
+
     bool win32_input_mode{true};
     bool win32_input_changed{};
     bool echo_line_feed{};

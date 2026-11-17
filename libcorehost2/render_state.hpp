@@ -24,9 +24,7 @@ inline void note_terminal_cursor(screen::console_state &state, const screen::scr
                                  screen::coord cursor) noexcept
 {
     const auto origin = screen.viewport_origin();
-    state.terminal_cursor_x = cursor.x - origin.x;
-    state.terminal_cursor_y = cursor.y - origin.y;
-    state.terminal_cursor_valid = true;
+    state.note_terminal_cursor(cursor.x - origin.x, cursor.y - origin.y);
 }
 
 enum class render_frame_kind : std::uint8_t
@@ -148,7 +146,7 @@ inline void consume_render_state_after_raw(screen::screen_buffer &screen, screen
 {
     const auto snapshot = take_render_snapshot(screen, console, session);
     screen.clear_damage();
-    console.terminal_cursor_valid = false;
+    console.invalidate_terminal_cursor();
     if (snapshot.cursor_shape_changed)
         vtserializer::append_cursor_shape(output, static_cast<unsigned>(console.cursor().style),
                                           console.cursor().blinking);

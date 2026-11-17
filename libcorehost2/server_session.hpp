@@ -1043,10 +1043,9 @@ class server_session final
             const auto origin = screen_.viewport_origin();
             const auto target_x = static_cast<std::int32_t>(write_cursor.x) - origin.x;
             const auto target_y = static_cast<std::int32_t>(write_cursor.y) - origin.y;
-            if (!state_.terminal_cursor_valid || state_.terminal_cursor_y != target_y ||
-                state_.terminal_cursor_x != target_x)
+            if (!state_.terminal_cursor_at(target_x, target_y))
             {
-                if (state_.terminal_cursor_valid && state_.terminal_cursor_y == target_y && target_x == 0)
+                if (state_.terminal_cursor_on_row(target_y) && target_x == 0)
                 {
                     writer_->buffer().append_text(u8"\r");
                 }
