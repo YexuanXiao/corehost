@@ -27,6 +27,10 @@
 #include <string>
 #include <string_view>
 
+#ifndef COREHOST2_ENABLE_DIRECT_WRITE
+#define COREHOST2_ENABLE_DIRECT_WRITE 0
+#endif
+
 namespace corehost::corehost2
 {
 
@@ -295,8 +299,12 @@ class server_session final
     // with the screen buffer.
     [[nodiscard]] bool can_stream_direct_output() const noexcept
     {
+#if COREHOST2_ENABLE_DIRECT_WRITE
         return writer_ != nullptr && (state_.output_mode & 0x0001) != 0 &&
                state_.default_style == state_.plain_style;
+#else
+        return false;
+#endif
     }
 
     void decode_console_text_into(std::span<const char> text, std::u16string &result) const
@@ -1104,6 +1112,7 @@ class server_session final
                 }
             }
             const bool has_lone_lf = has_lone_line_feed(written_text);
+            writer_->buffer().append_text(u8"\x1b[0m");
             if (has_lone_lf)
                 normalize_line_feeds_into(written_text, direct_text_);
             encode_utf8_into(has_lone_lf ? std::u16string_view{direct_text_} : written_text, direct_utf8_);
