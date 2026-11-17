@@ -10,6 +10,7 @@
 #include <libunicode/convert.h>
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <iterator>
 #include <string>
@@ -631,7 +632,21 @@ class state_applier final
     void apply_sgr(const vtparser::vt_message &message, screen::screen_buffer &buffer, screen::console_state &state)
     {
         const auto &payload = message.payload.sgr;
-        auto style = buffer.styles().at(state.default_style);
+        const auto base_style = state.default_style;
+        const auto base_attributes = state.default_attributes;
+        const auto *style_table = &buffer.styles();
+        for (const auto &cached : sgr_cache_)
+        {
+            if (cached.valid && cached.style_table == style_table && cached.payload == payload &&
+                cached.base_style == base_style && cached.base_attributes == base_attributes)
+            {
+                state.default_style = cached.result_style;
+                state.default_attributes = cached.result_attributes;
+                return;
+            }
+        }
+
+        auto style = buffer.styles().at(base_style);
         if (payload.has(vtparser::vt_sgr_flag::reset))
         {
             style = screen::text_style{};
@@ -736,6 +751,10 @@ class state_applier final
         }
         style.legacy_attributes = state.default_attributes;
         state.default_style = buffer.styles().intern(style);
+        auto &cached = sgr_cache_[sgr_cache_next_];
+        sgr_cache_next_ = (sgr_cache_next_ + 1) % sgr_cache_.size();
+        cached = sgr_cache_entry{payload, style_table, base_style, base_attributes, state.default_style,
+                                 state.default_attributes, true};
     }
 
     static std::uint16_t ansi_to_bgri(std::uint8_t index) noexcept
@@ -936,6 +955,20 @@ class state_applier final
     std::u16string id_;
 
   private:
+    struct sgr_cache_entry final
+    {
+        vtparser::vt_sgr_payload payload;
+        const screen::style_table *style_table{};
+        screen::cell_style base_style{};
+        std::uint16_t base_attributes{};
+        screen::cell_style result_style{};
+        std::uint16_t result_attributes{};
+        bool valid{};
+    };
+
+  private:
+    std::array<sgr_cache_entry, 4> sgr_cache_{};
+    std::size_t sgr_cache_next_{};
     std::size_t last_consumed_{};
     screen::text_measurement measurement_{screen::text_measurement::graphemes};
     bool ambiguous_is_wide_{};

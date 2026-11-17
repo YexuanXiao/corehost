@@ -217,6 +217,21 @@ int main()
         return EXIT_FAILURE;
     }
 
+    parser.reset();
+    result = parser.parse(u"\x1b[0m");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    parser.reset();
+    result = parser.parse(u"\x1b[31m");
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    const auto cached_style = buffer.styles().at(state.default_style);
+    const auto cached_attributes = state.default_attributes;
+    (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
+    if (buffer.styles().at(state.default_style) != cached_style || state.default_attributes != cached_attributes)
+    {
+        std::fprintf(stderr, "sgr cache failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::screen::screen_buffer wrap_buffer{4, 2};
     corehost::screen::console_state wrap_state{4, 2};
     parser.reset();

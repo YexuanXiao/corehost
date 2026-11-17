@@ -11,7 +11,7 @@
 | 路径 | `C:\1\OpenConsole.exe` | `build-nolog\Release\corehost2.exe` |
 | 版本 | 1.26.2611.09003 / 1.26.261109003-preview | 本地 Release 无日志构建 |
 | 大小 | 1,091,424 B | 4,855,296 B |
-| SHA-256 | `7E04EC7E4691ABF5308831D531CC2B7B8AC61E2B2F3EA52B51BDA810DDF7FF6A` | `544A3FE08A344319B9A3BB728746521D62E7207D6CA9274850CCC3E04023845D` |
+| SHA-256 | `7E04EC7E4691ABF5308831D531CC2B7B8AC61E2B2F3EA52B51BDA810DDF7FF6A` | `58FA78ADE25FDDEA96E93A6D2E36FB17DC1D172E9BB002E7DC8FE42F8B5A2E2E` |
 
 ## 方法
 
@@ -177,6 +177,16 @@ PowerShell prompt 的淡色重影在原版 OpenConsole 上也存在，不是本�
 
 20 个 SGR 场景平均 corehost2 慢约 5%，个别场景慢约 7%。  
 差异只有约 1-3 ms，绝对量很小，但如果目标是“所有 SGR 场景都不慢于 OpenConsole”，当前还没有完全达到。
+
+另外增加了 SGR style 结果缓存：以 `(style table, base style, base attributes, SGR payload)` 为键，缓存最近 4 个 `(style id, legacy attributes)` 结果。SGR 前缀/后缀交替重复时不再每次重建并 intern style。
+
+A/B 对比（同一 SGR workload，旧 binary vs 新 binary，20 个场景各 3 次、交替 2 轮）：
+
+```text
+new / old mean ratio: 0.9495
+```
+
+端到端仍受 ConPTY 调度噪声影响，上表是旧一轮的 3 次均值；缓存本身主要降低重复 SGR 的 CPU 成本。
 
 ### CJK 输出字节数已修复
 

@@ -297,6 +297,8 @@ struct vt_sgr_color_payload
         b = blue;
     }
 
+    friend constexpr bool operator==(const vt_sgr_color_payload &, const vt_sgr_color_payload &) noexcept = default;
+
     // true 表示该颜色参数要求恢复默认色，而不是设置具体颜色。
     [[nodiscard]] bool is_default() const noexcept
     {
@@ -326,6 +328,8 @@ struct vt_sgr_payload
     vt_sgr_color_payload fg;
     // 背景色修改；kind==none 表示本条消息不改背景。
     vt_sgr_color_payload bg;
+
+    friend constexpr bool operator==(const vt_sgr_payload &, const vt_sgr_payload &) noexcept = default;
 
     // 标记某个文本属性需要启用，并取消同一属性的清除标记。
     void set(vt_sgr_flag flag) noexcept
