@@ -40,9 +40,9 @@ namespace corehost::corehost2
     return false;
 }
 
-[[nodiscard]] inline std::u16string normalize_line_feeds(std::u16string_view text)
+inline void normalize_line_feeds_into(std::u16string_view text, std::u16string &normalized)
 {
-    std::u16string normalized;
+    normalized.clear();
     normalized.reserve(text.size() + 8);
     for (std::size_t i = 0; i < text.size(); ++i)
     {
@@ -50,6 +50,12 @@ namespace corehost::corehost2
             normalized.push_back(u'\r');
         normalized.push_back(text[i]);
     }
+}
+
+[[nodiscard]] inline std::u16string normalize_line_feeds(std::u16string_view text)
+{
+    std::u16string normalized;
+    normalize_line_feeds_into(text, normalized);
     return normalized;
 }
 
@@ -284,50 +290,67 @@ class server_session final
         return raw_mode_;
     }
 
-    [[nodiscard]] std::u16string decode_console_text(std::span<const char> text) const
+    // The direct path writes text without renderer output. It is only valid
+    // when no style transition must be serialized and terminal wrapping agrees
+    // with the screen buffer.
+    [[nodiscard]] bool can_stream_direct_output() const noexcept
     {
-        const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_UTF8;
+        return writer_ != nullptr && (state_.output_mode & 0x0001) != 0 &&
+               state_.default_style == screen::default_cell_style;
+    }
+
+    void decode_console_text_into(std::span<const char> text, std::u16string &result) const
+    {
+        result.clear();
         if (text.empty())
-            return {};
+            return;
+        const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_UTF8;
         const auto count = ::MultiByteToWideChar(code_page, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-        std::u16string result(static_cast<std::size_t>(std::max(count, 0)), u'\0');
+        result.resize(static_cast<std::size_t>(std::max(count, 0)), u'\0');
         if (!result.empty())
         {
             (void)::MultiByteToWideChar(code_page, 0, text.data(), static_cast<int>(text.size()),
                                         reinterpret_cast<LPWSTR>(result.data()), static_cast<int>(result.size()));
         }
-        return result;
     }
-    [[nodiscard]] std::string encode_console_text(std::u16string_view text) const
+
+    void encode_console_text_into(std::u16string_view text, std::string &result) const
     {
-        const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_UTF8;
+        result.clear();
         if (text.empty())
-            return {};
+            return;
+        const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_UTF8;
         const auto size = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
                                                 static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
-        std::string result(static_cast<std::size_t>(std::max(size, 0)), '\0');
+        result.resize(static_cast<std::size_t>(std::max(size, 0)), '\0');
         if (!result.empty())
         {
             (void)::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
                                         static_cast<int>(text.size()), result.data(), static_cast<int>(result.size()),
                                         nullptr, nullptr);
         }
-        return result;
     }
 
-    [[nodiscard]] static std::string encode_utf8(std::u16string_view text)
+    static void encode_utf8_into(std::u16string_view text, std::string &result)
     {
+        result.clear();
         if (text.empty())
-            return {};
+            return;
         const auto size = ::WideCharToMultiByte(CP_UTF8, 0, reinterpret_cast<const wchar_t *>(text.data()),
                                                 static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
-        std::string result(static_cast<std::size_t>(std::max(size, 0)), '\0');
+        result.resize(static_cast<std::size_t>(std::max(size, 0)), '\0');
         if (!result.empty())
         {
             (void)::WideCharToMultiByte(CP_UTF8, 0, reinterpret_cast<const wchar_t *>(text.data()),
                                         static_cast<int>(text.size()), result.data(),
                                         static_cast<int>(result.size()), nullptr, nullptr);
         }
+    }
+
+    [[nodiscard]] std::string encode_console_text(std::u16string_view text) const
+    {
+        std::string result;
+        encode_console_text_into(text, result);
         return result;
     }
 
@@ -445,7 +468,8 @@ class server_session final
             const auto flush_text = [&] {
                 if (text_batch.empty())
                     return;
-                bytes.append(encode_console_text(text_batch));
+                encode_console_text_into(text_batch, console_scratch_);
+                bytes.append(console_scratch_);
                 text_batch.clear();
             };
             for (std::size_t i = 0; i < count; ++i)
@@ -460,8 +484,8 @@ class server_session final
                         feed_line_text(*event.text);
                         continue;
                     }
-                    const auto bytes = encode_console_text(*event.text);
-                    raw_in_.append(bytes);
+                    encode_console_text_into(*event.text, console_scratch_);
+                    raw_in_.append(console_scratch_);
                     continue;
                 }
                 if (event.type == consoleinput::input_event_type::mouse)
@@ -503,8 +527,8 @@ class server_session final
 
     void echo_editor_append(std::u16string_view text)
     {
-        const auto utf8 = encode_utf8(text);
-        echo_live(std::span<const char>{utf8.data(), utf8.size()});
+        encode_utf8_into(text, utf8_scratch_);
+        echo_live(std::span<const char>{utf8_scratch_.data(), utf8_scratch_.size()});
     }
 
     [[nodiscard]] static screen::coord echo_position(screen::coord origin, std::int32_t width,
@@ -801,7 +825,8 @@ class server_session final
         // screen render.
         if ((state_.input_mode & ENABLE_LINE_INPUT) != 0)
         {
-            const auto decoded = decode_console_text(bytes);
+            decode_console_text_into(bytes, decoded_text_);
+            const auto &decoded = decoded_text_;
             echo_text_.clear();
             echo_text_.reserve(decoded.size() + 2);
             for (std::size_t i = 0; i < decoded.size(); ++i)
@@ -1061,8 +1086,7 @@ class server_session final
                                                        static_cast<int>(written), nullptr, 0, nullptr, nullptr);
             request->NumBytes = static_cast<ULONG>(std::max(encoded, 0));
         }
-        if (writer_ != nullptr && (state_.output_mode & 0x0001) != 0 &&
-            state_.default_style == screen::default_cell_style)
+        if (can_stream_direct_output())
         {
             const auto origin = screen_.viewport_origin();
             const auto target_x = static_cast<std::int32_t>(write_cursor.x) - origin.x;
@@ -1080,12 +1104,11 @@ class server_session final
                 }
             }
             const bool has_lone_lf = has_lone_line_feed(written_text);
-            std::u16string direct_text;
             if (has_lone_lf)
-                direct_text = normalize_line_feeds(written_text);
-            const auto utf8 = encode_utf8(has_lone_lf ? std::u16string_view{direct_text} : written_text);
-            writer_->buffer().append(
-                std::span<const char8_t>{reinterpret_cast<const char8_t *>(utf8.data()), utf8.size()});
+                normalize_line_feeds_into(written_text, direct_text_);
+            encode_utf8_into(has_lone_lf ? std::u16string_view{direct_text_} : written_text, direct_utf8_);
+            writer_->buffer().append(std::span<const char8_t>{
+                reinterpret_cast<const char8_t *>(direct_utf8_.data()), direct_utf8_.size()});
             commit_direct_output(screen_, state_);
             (void)state_.take_echo_line_feed();
             writer_->flush();
@@ -1313,7 +1336,12 @@ class server_session final
     vtstate::state_applier applier_;
     std::u16string text_;
     std::u16string echo_text_;
+    std::u16string decoded_text_;
+    std::u16string direct_text_;
     std::string echo_bytes_;
+    std::string console_scratch_;
+    std::string utf8_scratch_;
+    std::string direct_utf8_;
     vtparser::utf8_decoder echo_decoder_;
     std::string raw_in_;
     consoleinput::line_editor raw_line_editor_;
