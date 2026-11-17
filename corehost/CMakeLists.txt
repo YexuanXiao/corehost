@@ -83,4 +83,5 @@ target_link_libraries(corehost2 PRIVATE
     conhost_proxy_headers
 )
 
+corehost_target_msvc_linker_options(corehost2 PRIVATE "/OPT:REF" "/OPT:ICF")
 corehost_target_msvc_linker_option(corehost2 PRIVATE "/SUBSYSTEM:WINDOWS,10.0")
