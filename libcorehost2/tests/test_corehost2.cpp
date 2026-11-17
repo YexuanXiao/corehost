@@ -182,12 +182,12 @@ int main()
     const auto push_char = [&](char16_t value) {
         corehost::consoleinput::input_event event{};
         event.key.character = value;
-        server_input.push(event);
+        server_input.push(std::move(event));
     };
     const auto push_key = [&](corehost::consoleinput::virtual_key value) {
         corehost::consoleinput::input_event event{};
         event.key.key = value;
-        server_input.push(event);
+        server_input.push(std::move(event));
     };
     const auto push_text = [&](std::u16string_view value) {
         corehost::consoleinput::input_event event{};
@@ -743,14 +743,14 @@ int main()
     const auto push_event_char = [&](char16_t value) {
         corehost::consoleinput::input_event event{};
         event.key.character = value;
-        event_input.push(event);
+        event_input.push(std::move(event));
     };
     push_event_char(u'A');
     push_event_char(u'B');
     {
         corehost::consoleinput::input_event event{};
         event.key.key = corehost::consoleinput::virtual_key::left;
-        event_input.push(event);
+        event_input.push(std::move(event));
     }
     push_event_char(u'X');
     push_event_char(u'\r');

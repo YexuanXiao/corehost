@@ -82,7 +82,7 @@ class session final
         consoleinput::input_event event{consoleinput::input_event_type::window};
         event.window.width = width;
         event.window.height = height;
-        input_.push(event);
+        input_.push(std::move(event));
     }
 
     [[nodiscard]] bool take_viewport_changed() noexcept
@@ -282,7 +282,7 @@ class session final
                 }
                 consoleinput::input_event event{consoleinput::input_event_type::mouse};
                 event.mouse = *mouse;
-                input_.push(event);
+                input_.push(std::move(event));
                 return;
             }
         }

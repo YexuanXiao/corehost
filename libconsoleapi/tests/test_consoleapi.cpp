@@ -1189,7 +1189,7 @@ int main()
     corehost::consoleinput::input_queue mouse_queue;
     corehost::consoleinput::input_event mouse_event{corehost::consoleinput::input_event_type::mouse};
     mouse_event.mouse = corehost::consoleinput::mouse_event{4, 2, 1, 0, 0};
-    mouse_queue.push(mouse_event);
+    mouse_queue.push(std::move(mouse_event));
     corehost::consoleapi::console_api mouse_api{buffer, state, &mouse_queue};
     corehost::coreio::io_msg mouse_record_message{};
     mouse_record_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG);

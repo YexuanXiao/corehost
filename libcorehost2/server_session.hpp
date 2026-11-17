@@ -223,7 +223,7 @@ class server_session final
         event.type = consoleinput::input_event_type::window;
         event.window.width = static_cast<std::int16_t>(state_.width());
         event.window.height = static_cast<std::int16_t>(state_.height());
-        input_.push(event);
+        input_.push(std::move(event));
         signal_input_event();
     }
 

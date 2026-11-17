@@ -133,22 +133,10 @@ struct input_event final
 class input_queue final
 {
   public:
-    void push(const input_event &event)
-    {
-        account(event);
-        events_.push_back(event);
-    }
-
     void push(input_event &&event)
     {
         account(event);
         events_.push_back(std::move(event));
-    }
-
-    void push_front(const input_event &event)
-    {
-        account(event);
-        events_.push_front(event);
     }
 
     void push_front(input_event &&event)

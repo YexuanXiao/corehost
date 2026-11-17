@@ -272,7 +272,7 @@ class console_api final
         consoleinput::input_event event{consoleinput::input_event_type::window};
         event.window.width = static_cast<std::int16_t>(width);
         event.window.height = static_cast<std::int16_t>(height);
-        input_->push(event);
+        input_->push(std::move(event));
     }
 
     [[nodiscard]] bool get_cursor_info(coreio::io_msg &message) noexcept
@@ -511,7 +511,7 @@ class console_api final
             {
                 auto remaining = event;
                 --remaining.key.repeat_count;
-                input_->push_front(remaining);
+                input_->push_front(std::move(remaining));
             }
             if (character == 0)
             {
@@ -639,7 +639,7 @@ class console_api final
         }
         for (std::size_t i = parsed; i > consumed_events; --i)
         {
-            input_->push_front(events[i - 1]);
+            input_->push_front(std::move(events[i - 1]));
         }
         if (!line_complete)
         {
@@ -959,17 +959,17 @@ class console_api final
                 }
                 if (request->Append)
                 {
-                    input_->push(converted);
+                    input_->push(std::move(converted));
                 }
                 else
                 {
-                    prepend.push_back(converted);
+                    prepend.push_back(std::move(converted));
                 }
                 ++written;
             }
             for (auto iterator = prepend.rbegin(); iterator != prepend.rend(); ++iterator)
             {
-                input_->push_front(*iterator);
+                input_->push_front(std::move(*iterator));
             }
         }
         request->NumRecords = static_cast<ULONG>(written);
