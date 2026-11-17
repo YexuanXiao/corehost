@@ -633,14 +633,24 @@ inline bool console_state::restore_alt_cursor() noexcept
         return false;
     }
     const bool keep_default_shape = cursor_.default_shape;
+    const bool keep_visible = cursor_.visible;
     cursor_ = alt_saved_cursor.cursor;
     default_style = alt_saved_cursor.style;
+    if (keep_visible && !cursor_.visible)
+    {
+        // edit.exe shows the cursor again with DECTCEM just before leaving the
+        // alternate buffer. The main buffer's saved cursor may still be hidden
+        // from when the editor started; keep the explicit "visible" request.
+        cursor_.visible = true;
+        cursor_visibility_changed = true;
+        cursor_changed = true;
+    }
     if (keep_default_shape)
     {
-        // DECSCUSR 0 restores the terminal profile cursor. It is a global
-        // terminal state and must survive the alternate-buffer switch that
-        // edit.exe performs after emitting "0 q".
-        cursor_.default_shape = true;
+        // DECSCUSR 0 was emitted inside the alternate buffer. Restore the
+        // concrete cursor style that the main buffer had before edit started,
+        // instead of leaving WT on its profile cursor (which can be green/bar).
+        cursor_.default_shape = false;
         cursor_shape_changed = true;
         cursor_changed = true;
     }

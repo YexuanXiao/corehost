@@ -179,14 +179,13 @@ template <typename SessionState>
 inline void consume_render_state_after_raw(screen::screen_buffer &screen, screen::console_state &console,
                                            SessionState &session, vtserializer::byte_buffer &output)
 {
-    const auto snapshot = render_snapshot::take(screen, console, session);
+    // Raw VT output already contains the application's own DECTCEM/DECSCUSR
+    // sequences. Emitting a second cursor visibility/shape here would override
+    // the application's reset (edit.exe's "0 q") with corehost's internal
+    // block-cursor state, producing a wide, profile-colored cursor.
+    (void)render_snapshot::take(screen, console, session);
     screen.clear_damage();
     console.invalidate_terminal_cursor();
-    if (snapshot.cursor_visibility_changed())
-        vtserializer::append_cursor_visibility(output, console.cursor().visible);
-    if (snapshot.cursor_shape_changed())
-        vtserializer::append_cursor_shape(output, static_cast<unsigned>(console.cursor().style),
-                                          console.cursor().blinking, console.cursor().default_shape);
 }
 
 inline void render_pending_screen(screen::screen_buffer &screen, screen::console_state &console,
