@@ -1,10 +1,11 @@
 # corehost2 as OpenConsole.exe — Windows Terminal 验收清单
 
 测试目标：`corehost.exe`
-对照目标：`C:\1\OpenConsole.exe` (原版)
+对照目标：`C:\1\OpenConsole.exe` (微软原版)
 宿主：`C:\1\terminal-1.24.12741.0\WindowsTerminal.exe`
 部署方式：复制目标为 `C:\1\terminal-1.24.12741.0\openconsole.exe`，然后启动宿主
-目标：使 corehost 和 openconsole 行为一致（除非明显是 openconsole 的 bug），必须修复根因
+目标：使 corehost 和 openconsole 行为一致（除非明显是 openconsole 的 bug），并增加测试
+review 目标：修复根因，不会降低性能
 
 状态：`[ ]` 通过，`[!]` 失败/待修，`[-]` 未测或环境阻塞。
 
