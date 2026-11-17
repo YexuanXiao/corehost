@@ -56,9 +56,9 @@ class console_api final
             static_cast<std::int32_t>(state_.cursor().x),
             static_cast<std::int32_t>(state_.cursor().y),
         };
-        const auto result = buffer_.write_text_row_for(
-            state_.measurement, state_.ambiguous_is_wide, cursor, text, {}, state_.default_style,
-            (state_.output_mode & 0x0001) != 0, state_.default_hyperlink);
+        const auto result = buffer_.write_text_row_for(state_.measurement, state_.ambiguous_is_wide, cursor, text, {},
+                                                       state_.default_style, (state_.output_mode & 0x0001) != 0,
+                                                       state_.default_hyperlink);
         state_.set_cursor(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y));
         return result.consumed == text.size();
     }
@@ -417,8 +417,7 @@ class console_api final
 
     [[nodiscard]] bool is_output_object(std::uintptr_t object) const noexcept
     {
-        return (output_object_ != 0 && object == output_object_) ||
-               (output_handle_ != 0 && object == output_handle_) ||
+        return (output_object_ != 0 && object == output_object_) || (output_handle_ != 0 && object == output_handle_) ||
                (alternate_object_ != 0 && object == alternate_object_);
     }
     [[nodiscard]] bool read_console(coreio::io_msg &message, bool pending_allowed = true) noexcept
@@ -540,8 +539,7 @@ class console_api final
                     editor.del();
                     refresh();
                     break;
-                case consoleinput::virtual_key::up:
-                {
+                case consoleinput::virtual_key::up: {
                     auto &selected = history_selection_;
                     if (state_.browse_history_up(std::u16string_view{output, units}, selected))
                     {
@@ -551,8 +549,7 @@ class console_api final
                     }
                     break;
                 }
-                case consoleinput::virtual_key::down:
-                {
+                case consoleinput::virtual_key::down: {
                     auto &selected = history_selection_;
                     if (state_.browse_history_down(selected))
                     {
@@ -587,8 +584,7 @@ class console_api final
                     line_complete = true;
                     break;
                 }
-                if (character >= 1 && character <= 26 &&
-                    (request->CtrlWakeupMask & (1u << (character - 1))) != 0)
+                if (character >= 1 && character <= 26 && (request->CtrlWakeupMask & (1u << (character - 1))) != 0)
                 {
                     editor.insert(character);
                     editor.truncate(max_units);
@@ -1231,8 +1227,8 @@ class console_api final
             else
             {
                 const auto code_page = state_.input_code_page;
-                length += console_text_length(alias.source, code_page) +
-                          console_text_length(alias.target, code_page) + 2;
+                length +=
+                    console_text_length(alias.source, code_page) + console_text_length(alias.target, code_page) + 2;
             }
         }
         info->AliasesLength = static_cast<ULONG>(length);
@@ -1298,10 +1294,9 @@ class console_api final
             {
                 continue;
             }
-            const auto bytes = info->Unicode
-                                   ? (alias.source.size() + alias.target.size() + 2) * sizeof(char16_t)
-                                   : console_text_length(alias.source, state_.input_code_page) +
-                                         console_text_length(alias.target, state_.input_code_page) + 2;
+            const auto bytes = info->Unicode ? (alias.source.size() + alias.target.size() + 2) * sizeof(char16_t)
+                                             : console_text_length(alias.source, state_.input_code_page) +
+                                                   console_text_length(alias.target, state_.input_code_page) + 2;
             if (written + bytes > capacity)
             {
                 break;
@@ -1600,8 +1595,8 @@ class console_api final
         for (const auto &command : state_.command_history)
         {
             const auto code_page = state_.input_code_page;
-            const auto bytes = info->Unicode ? (command.size() + 1) * sizeof(char16_t)
-                                             : console_text_length(command, code_page) + 1;
+            const auto bytes =
+                info->Unicode ? (command.size() + 1) * sizeof(char16_t) : console_text_length(command, code_page) + 1;
             if (written + bytes > capacity)
             {
                 break;
@@ -1620,8 +1615,8 @@ class console_api final
                 {
                     (void)::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(command.data()),
                                                 static_cast<int>(command.size()),
-                                                reinterpret_cast<char *>(output + written),
-                                                static_cast<int>(units), nullptr, nullptr);
+                                                reinterpret_cast<char *>(output + written), static_cast<int>(units),
+                                                nullptr, nullptr);
                     written += units;
                 }
                 output[written++] = 0;
@@ -1865,8 +1860,7 @@ class console_api final
         {
             assert(window_handle_ != 0);
             static_assert(sizeof(wchar_t) == sizeof(char16_t));
-            ::SetWindowTextW(reinterpret_cast<HWND>(window_handle_),
-                             reinterpret_cast<LPCWSTR>(title.c_str()));
+            ::SetWindowTextW(reinterpret_cast<HWND>(window_handle_), reinterpret_cast<LPCWSTR>(title.c_str()));
         }
         coreio::prepare_completion(message);
         return true;
@@ -1933,8 +1927,7 @@ class console_api final
             const auto count = processes_->copy_for_group(request->ProcessGroupId, ctrl_targets_);
             for (std::size_t i = 0; i < count; ++i)
             {
-                ctrl_events_.push_back(
-                    {static_cast<DWORD>(request->CtrlEvent), static_cast<DWORD>(ctrl_targets_[i])});
+                ctrl_events_.push_back({static_cast<DWORD>(request->CtrlEvent), static_cast<DWORD>(ctrl_targets_[i])});
             }
         }
         coreio::prepare_completion(message);
@@ -2054,9 +2047,8 @@ class console_api final
         const auto unit = request->StringType == CONSOLE_ATTRIBUTE ? sizeof(std::uint16_t)
                           : request->StringType == CONSOLE_ASCII   ? sizeof(char)
                                                                    : sizeof(char16_t);
-        const auto requested = request->NumRecords != 0
-                                   ? std::min<std::size_t>(request->NumRecords, capacity / unit)
-                                   : capacity / unit;
+        const auto requested =
+            request->NumRecords != 0 ? std::min<std::size_t>(request->NumRecords, capacity / unit) : capacity / unit;
         request->NumRecords = 0;
         std::size_t written = 0;
         const auto coordinate = screen::coord{request->ReadCoord.X, request->ReadCoord.Y};
@@ -2451,9 +2443,8 @@ class console_api final
             if (segment_end > offset)
             {
                 const auto result = buffer_.write_text_row_for(
-                    state_.measurement, state_.ambiguous_is_wide, cursor,
-                    text.substr(offset, segment_end - offset), {}, state_.default_style,
-                    (state_.output_mode & 0x0001) != 0, state_.default_hyperlink);
+                    state_.measurement, state_.ambiguous_is_wide, cursor, text.substr(offset, segment_end - offset), {},
+                    state_.default_style, (state_.output_mode & 0x0001) != 0, state_.default_hyperlink);
                 written += result.consumed;
                 if (cursor.x >= static_cast<std::int32_t>(state_.width()))
                 {
@@ -2570,8 +2561,8 @@ class console_api final
         const auto width = static_cast<std::int32_t>(state_.width());
         const auto height = static_cast<std::int32_t>(state_.height());
         const auto text = std::u16string_view{output, units};
-        const auto echo_columns = static_cast<std::size_t>(std::max(
-            screen::text_width_for(state_.measurement, text, state_.ambiguous_is_wide), 0));
+        const auto echo_columns = static_cast<std::size_t>(
+            std::max(screen::text_width_for(state_.measurement, text, state_.ambiguous_is_wide), 0));
 
         std::size_t column = 0;
         const auto draw_cluster = [&](std::span<const char16_t> cluster, int cluster_width) {
@@ -2582,19 +2573,16 @@ class console_api final
             echo_position(origin, width, column, x, y);
             if (y >= 0 && y < height)
             {
-                const auto cell_width =
-                    cluster_width >= 2 ? screen::cell_width::wide : screen::cell_width::narrow;
+                const auto cell_width = cluster_width >= 2 ? screen::cell_width::wide : screen::cell_width::narrow;
                 if (cluster.size() == 1)
                 {
-                    (void)buffer_.write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
-                                               cluster[0], state_.default_style, cell_width,
-                                               state_.default_hyperlink);
+                    (void)buffer_.write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y), cluster[0],
+                                               state_.default_style, cell_width, state_.default_hyperlink);
                 }
                 else
                 {
-                    (void)buffer_.write_cluster(static_cast<std::size_t>(x), static_cast<std::size_t>(y),
-                                                cluster, state_.default_style, cell_width,
-                                                state_.default_hyperlink);
+                    (void)buffer_.write_cluster(static_cast<std::size_t>(x), static_cast<std::size_t>(y), cluster,
+                                                state_.default_style, cell_width, state_.default_hyperlink);
                 }
             }
             column += static_cast<std::size_t>(std::max(cluster_width, 1));
@@ -2603,36 +2591,35 @@ class console_api final
         {
         case screen::text_measurement::console:
             for (const auto cluster : screen::grapheme_range<screen::text_measurement::console>{text})
-                draw_cluster(cluster.text, screen::console_glyph_width(std::u16string_view{cluster.text.data(), cluster.text.size()}));
+                draw_cluster(cluster.text, screen::console_glyph_width(
+                                               std::u16string_view{cluster.text.data(), cluster.text.size()}));
             break;
         case screen::text_measurement::graphemes:
             if (state_.ambiguous_is_wide)
             {
-                for (const auto cluster :
-                     screen::grapheme_range<screen::text_measurement::graphemes, true>{text})
+                for (const auto cluster : screen::grapheme_range<screen::text_measurement::graphemes, true>{text})
                     draw_cluster(cluster.text, cluster.width);
             }
             else
             {
-                for (const auto cluster :
-                     screen::grapheme_range<screen::text_measurement::graphemes, false>{text})
+                for (const auto cluster : screen::grapheme_range<screen::text_measurement::graphemes, false>{text})
                     draw_cluster(cluster.text, cluster.width);
             }
             break;
         case screen::text_measurement::wcswidth:
             if (state_.ambiguous_is_wide)
             {
-                for (const auto cluster :
-                     screen::grapheme_range<screen::text_measurement::wcswidth, true>{text})
-                    draw_cluster(cluster.text,
-                                 screen::wcswidth_glyph_width(std::u16string_view{cluster.text.data(), cluster.text.size()}, state_.ambiguous_is_wide));
+                for (const auto cluster : screen::grapheme_range<screen::text_measurement::wcswidth, true>{text})
+                    draw_cluster(cluster.text, screen::wcswidth_glyph_width(
+                                                   std::u16string_view{cluster.text.data(), cluster.text.size()},
+                                                   state_.ambiguous_is_wide));
             }
             else
             {
-                for (const auto cluster :
-                     screen::grapheme_range<screen::text_measurement::wcswidth, false>{text})
-                    draw_cluster(cluster.text,
-                                 screen::wcswidth_glyph_width(std::u16string_view{cluster.text.data(), cluster.text.size()}, state_.ambiguous_is_wide));
+                for (const auto cluster : screen::grapheme_range<screen::text_measurement::wcswidth, false>{text})
+                    draw_cluster(cluster.text, screen::wcswidth_glyph_width(
+                                                   std::u16string_view{cluster.text.data(), cluster.text.size()},
+                                                   state_.ambiguous_is_wide));
             }
             break;
         }
@@ -2645,8 +2632,7 @@ class console_api final
             if (y >= 0 && y < height)
             {
                 (void)buffer_.write_scalar(static_cast<std::size_t>(x), static_cast<std::size_t>(y), u' ',
-                                           state_.default_style, screen::cell_width::narrow,
-                                           state_.default_hyperlink);
+                                           state_.default_style, screen::cell_width::narrow, state_.default_hyperlink);
             }
         }
         echo_length = std::max(column, echo_columns);
@@ -2688,17 +2674,16 @@ class console_api final
         if (text.empty())
             return;
         value.resize(vtparser::narrow_capacity_from_wide(text.size(), code_page == CP_UTF8));
-        const auto units =
-            ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
-                                  static_cast<int>(text.size()), value.data(), static_cast<int>(value.size()),
-                                  nullptr, nullptr);
+        const auto units = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                                                 static_cast<int>(text.size()), value.data(),
+                                                 static_cast<int>(value.size()), nullptr, nullptr);
         assert(units > 0);
         value.resize(static_cast<std::size_t>(units));
     }
 
     template <typename String>
-    static void decode_console_text_into(String &value, const char *data, std::size_t offset,
-                                         std::size_t bytes, bool unicode, UINT code_page)
+    static void decode_console_text_into(String &value, const char *data, std::size_t offset, std::size_t bytes,
+                                         bool unicode, UINT code_page)
     {
         value.clear();
         if (unicode)
@@ -2709,9 +2694,9 @@ class console_api final
         else
         {
             value.resize(bytes);
-            const auto units = ::MultiByteToWideChar(code_page, 0, data + offset, static_cast<int>(bytes),
-                                                     reinterpret_cast<LPWSTR>(value.data()),
-                                                     static_cast<int>(value.size()));
+            const auto units =
+                ::MultiByteToWideChar(code_page, 0, data + offset, static_cast<int>(bytes),
+                                      reinterpret_cast<LPWSTR>(value.data()), static_cast<int>(value.size()));
             assert(units > 0);
             value.resize(static_cast<std::size_t>(units));
         }

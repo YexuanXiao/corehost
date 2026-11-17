@@ -82,8 +82,7 @@ struct message_handler final
             }
             if (context.state->state().take_keypad_changed())
             {
-                context.writer->buffer().append_text(context.state->state().keypad_application ? u8"\x1b="
-                                                                                             : u8"\x1b>");
+                context.writer->buffer().append_text(context.state->state().keypad_application ? u8"\x1b=" : u8"\x1b>");
             }
             if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE &&
                 (alternate_before || context.state->screen().alternate_active()))
@@ -108,8 +107,7 @@ struct message_handler final
                 return dispatched;
             }
             context.dispatcher->take_ctrl_events(ctrl_events);
-            render_pending(context.state->screen(), context.state->state(), *context.state,
-                           context.writer->buffer());
+            render_pending(context.state->screen(), context.state->state(), *context.state, context.writer->buffer());
             if (context.state->take_echo_line_feed())
             {
                 context.writer->buffer().append_text(u8"\r\n");
@@ -171,8 +169,7 @@ class session_input_sink final
         console_.signal_input_event();
         const bool completed = console_.complete_pending();
         LOG("input parsed text=%zu records=%zu read_pending=%d completed=%d", text_.size(),
-            state_.input().record_count(),
-            console_.console_read_pending() ? 1 : 0, completed ? 1 : 0);
+            state_.input().record_count(), console_.console_read_pending() ? 1 : 0, completed ? 1 : 0);
         for (const auto [mode, enabled] : state_.state().take_private_modes())
         {
             vtserializer::append_private_mode(writer_.buffer(), mode, enabled);

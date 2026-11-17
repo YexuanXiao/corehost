@@ -409,9 +409,8 @@ int main()
 
         region_state.set_cursor(2, 3);
         line_applier.apply_index(region_buffer, region_state);
-        if (region_state.cursor().x != 2 || region_state.cursor().y != 3 ||
-            region_buffer.at(0, 1).primary() != u'D' || region_buffer.at(0, 2).primary() != u' ' ||
-            region_buffer.at(0, 3).primary() != u' ')
+        if (region_state.cursor().x != 2 || region_state.cursor().y != 3 || region_buffer.at(0, 1).primary() != u'D' ||
+            region_buffer.at(0, 2).primary() != u' ' || region_buffer.at(0, 3).primary() != u' ')
         {
             std::fprintf(stderr, "scroll region index failed\n");
             return EXIT_FAILURE;

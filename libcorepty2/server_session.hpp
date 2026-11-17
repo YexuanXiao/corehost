@@ -65,9 +65,7 @@ template <bool ProcessedInput>
     constexpr std::uint64_t ctrl_c = 0x0303030303030303ull;
     constexpr std::uint64_t ctrl_z = 0x1A1A1A1A1A1A1A1Aull;
 
-    const auto has_zero = [](std::uint64_t value) noexcept {
-        return (value - one) & ~value & high;
-    };
+    const auto has_zero = [](std::uint64_t value) noexcept { return (value - one) & ~value & high; };
 
     std::size_t offset = 0;
     while (offset + sizeof(std::uint64_t) <= limit)
@@ -90,8 +88,7 @@ template <bool ProcessedInput>
     while (offset < limit)
     {
         const auto value = static_cast<unsigned char>(text[offset]);
-        if (value == '\r' || value == '\n' ||
-            (ProcessedInput && (value == 3 || value == 26)))
+        if (value == '\r' || value == '\n' || (ProcessedInput && (value == 3 || value == 26)))
         {
             return offset;
         }
@@ -99,7 +96,6 @@ template <bool ProcessedInput>
     }
     return limit;
 }
-
 
 // Assembly object for the ConDrv server side. It owns only the console-facing
 // handler; reading/completion batching stays in libcoreio.
@@ -137,9 +133,9 @@ class server_session final
             return;
         const auto code_page = state_.output_code_page;
         text_.resize(bytes.size());
-        const auto units = ::MultiByteToWideChar(code_page, 0, bytes.data(), static_cast<int>(bytes.size()),
-                                                 reinterpret_cast<LPWSTR>(text_.data()),
-                                                 static_cast<int>(text_.size()));
+        const auto units =
+            ::MultiByteToWideChar(code_page, 0, bytes.data(), static_cast<int>(bytes.size()),
+                                  reinterpret_cast<LPWSTR>(text_.data()), static_cast<int>(text_.size()));
         assert(units > 0);
         text_.resize(static_cast<std::size_t>(units));
         auto input = std::u16string_view{text_};
@@ -295,8 +291,7 @@ class server_session final
     [[nodiscard]] bool can_stream_direct_output() const noexcept
     {
 #ifdef COREHOST2_ENABLE_DIRECT_WRITE
-        return writer_ != nullptr && (state_.output_mode & 0x0001) != 0 &&
-               state_.default_style == state_.plain_style;
+        return writer_ != nullptr && (state_.output_mode & 0x0001) != 0 && state_.default_style == state_.plain_style;
 #else
         return false;
 #endif
@@ -310,9 +305,9 @@ class server_session final
             return;
         const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_UTF8;
         result.resize(text.size());
-        const auto count = ::MultiByteToWideChar(code_page, 0, text.data(), static_cast<int>(text.size()),
-                                                 reinterpret_cast<LPWSTR>(result.data()),
-                                                 static_cast<int>(result.size()));
+        const auto count =
+            ::MultiByteToWideChar(code_page, 0, text.data(), static_cast<int>(text.size()),
+                                  reinterpret_cast<LPWSTR>(result.data()), static_cast<int>(result.size()));
         assert(count > 0);
         result.resize(static_cast<std::size_t>(count));
     }
@@ -325,10 +320,9 @@ class server_session final
             return;
         const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_UTF8;
         result.resize(vtparser::narrow_capacity_from_wide(text.size(), code_page == CP_UTF8));
-        const auto size =
-            ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
-                                  static_cast<int>(text.size()), result.data(), static_cast<int>(result.size()),
-                                  nullptr, nullptr);
+        const auto size = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                                                static_cast<int>(text.size()), result.data(),
+                                                static_cast<int>(result.size()), nullptr, nullptr);
         assert(size > 0);
         result.resize(static_cast<std::size_t>(size));
     }
@@ -340,10 +334,9 @@ class server_session final
         if (text.empty())
             return;
         result.resize(vtparser::narrow_capacity_from_wide(text.size(), true));
-        const auto size =
-            ::WideCharToMultiByte(CP_UTF8, 0, reinterpret_cast<const wchar_t *>(text.data()),
-                                  static_cast<int>(text.size()), result.data(), static_cast<int>(result.size()),
-                                  nullptr, nullptr);
+        const auto size = ::WideCharToMultiByte(CP_UTF8, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                                                static_cast<int>(text.size()), result.data(),
+                                                static_cast<int>(result.size()), nullptr, nullptr);
         assert(size > 0);
         result.resize(static_cast<std::size_t>(size));
     }
@@ -530,7 +523,7 @@ class server_session final
     }
 
     [[nodiscard]] static screen::coord echo_position(screen::coord origin, std::int32_t width,
-                                                    std::size_t index) noexcept
+                                                     std::size_t index) noexcept
     {
         const auto first = static_cast<std::size_t>(std::max(width - origin.x, 1));
         if (index < first)
@@ -551,8 +544,7 @@ class server_session final
             line_start_y_ = cursor.y;
             line_start_valid_ = true;
         }
-        if (line_start_x_ < 0 || line_start_y_ < 0 ||
-            static_cast<std::size_t>(line_start_x_) >= screen_.width() ||
+        if (line_start_x_ < 0 || line_start_y_ < 0 || static_cast<std::size_t>(line_start_x_) >= screen_.width() ||
             static_cast<std::size_t>(line_start_y_) >= screen_.height())
         {
             return;
@@ -566,15 +558,13 @@ class server_session final
         for (std::size_t i = 0; i < old_length; ++i)
         {
             const auto position = echo_position(origin, static_cast<std::int32_t>(screen_.width()), i);
-            if (position.x < 0 || position.y < 0 ||
-                static_cast<std::size_t>(position.x) >= screen_.width() ||
+            if (position.x < 0 || position.y < 0 || static_cast<std::size_t>(position.x) >= screen_.width() ||
                 static_cast<std::size_t>(position.y) >= screen_.height())
             {
                 continue;
             }
-            (void)screen_.write_ascii(static_cast<std::size_t>(position.x),
-                                      static_cast<std::size_t>(position.y), u" ", state_.default_style,
-                                      screen::no_cell_hyperlink);
+            (void)screen_.write_ascii(static_cast<std::size_t>(position.x), static_cast<std::size_t>(position.y), u" ",
+                                      state_.default_style, screen::no_cell_hyperlink);
         }
 
         state_.set_cursor(static_cast<std::size_t>(line_start_x_), static_cast<std::size_t>(line_start_y_));
@@ -605,8 +595,7 @@ class server_session final
         if (needs_redraw && (state_.input_mode & ENABLE_ECHO_INPUT) != 0)
         {
             line_edited_ = true;
-            echo_raw(std::span<const char>{raw_completed_lines_.back().data(),
-                                            raw_completed_lines_.back().size()});
+            echo_raw(std::span<const char>{raw_completed_lines_.back().data(), raw_completed_lines_.back().size()});
         }
         else
         {
@@ -788,10 +777,8 @@ class server_session final
                 const auto clear_columns = std::max<std::size_t>(line_echo_length_, 1);
                 for (std::size_t i = 0; i < clear_columns; ++i)
                 {
-                    const auto position =
-                        echo_position(origin, static_cast<std::int32_t>(screen_.width()), i);
-                    if (position.x < 0 || position.y < 0 ||
-                        static_cast<std::size_t>(position.x) >= screen_.width() ||
+                    const auto position = echo_position(origin, static_cast<std::int32_t>(screen_.width()), i);
+                    if (position.x < 0 || position.y < 0 || static_cast<std::size_t>(position.x) >= screen_.width() ||
                         static_cast<std::size_t>(position.y) >= screen_.height())
                     {
                         continue;
@@ -905,8 +892,8 @@ class server_session final
         bool eof = false;
 
         const bool processed_input = (state_.input_mode & 0x0001) != 0;
-        const auto found = processed_input ? find_raw_control<true>(raw_in_, limit)
-                                           : find_raw_control<false>(raw_in_, limit);
+        const auto found =
+            processed_input ? find_raw_control<true>(raw_in_, limit) : find_raw_control<false>(raw_in_, limit);
         if (found != limit)
         {
             const auto value = static_cast<unsigned char>(raw_in_[found]);
@@ -1099,8 +1086,8 @@ class server_session final
             if (has_lone_lf)
                 normalize_line_feeds_into(written_text, direct_text_);
             encode_utf8_into(has_lone_lf ? std::u16string_view{direct_text_} : written_text, direct_utf8_);
-            writer_->buffer().append(std::span<const char8_t>{
-                reinterpret_cast<const char8_t *>(direct_utf8_.data()), direct_utf8_.size()});
+            writer_->buffer().append(
+                std::span<const char8_t>{reinterpret_cast<const char8_t *>(direct_utf8_.data()), direct_utf8_.size()});
             commit_direct_output(screen_, state_);
             (void)state_.take_echo_line_feed();
         }
@@ -1237,8 +1224,7 @@ class server_session final
         }
         if (pending_kind_ == pending_kind::raw_read)
         {
-            const bool editor_ready = (state_.input_mode & ENABLE_LINE_INPUT) != 0 &&
-                                      !raw_completed_lines_.empty();
+            const bool editor_ready = (state_.input_mode & ENABLE_LINE_INPUT) != 0 && !raw_completed_lines_.empty();
             if (raw_in_.empty() && !editor_ready)
             {
                 return false;

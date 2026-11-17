@@ -48,33 +48,27 @@ int main()
 
     parser.reset();
     result = parser.parse(u"ABCDEFG\x01");
-    check(result.id == vt_message_id::continue_text && result.consumed == 7,
-          "ground text c0 boundary");
+    check(result.id == vt_message_id::continue_text && result.consumed == 7, "ground text c0 boundary");
 
     parser.reset();
     result = parser.parse(u"ABCDEFG\x7F");
-    check(result.id == vt_message_id::continue_text && result.consumed == 7,
-          "ground text del boundary");
+    check(result.id == vt_message_id::continue_text && result.consumed == 7, "ground text del boundary");
 
     parser.reset();
     result = parser.parse(u"ABCDEFG\u4E2D");
-    check(result.id == vt_message_id::continue_text && result.consumed == 8,
-          "ground text non-ascii run");
+    check(result.id == vt_message_id::continue_text && result.consumed == 8, "ground text non-ascii run");
 
     parser.reset();
     result = parser.parse(u"ABCD");
-    check(result.id == vt_message_id::continue_text && result.message.text_is_ascii,
-          "ground text ascii flag");
+    check(result.id == vt_message_id::continue_text && result.message.text_is_ascii, "ground text ascii flag");
 
     parser.reset();
     result = parser.parse(u"abc");
-    check(result.id == vt_message_id::continue_text && result.message.text_is_ascii,
-          "short text ascii flag");
+    check(result.id == vt_message_id::continue_text && result.message.text_is_ascii, "short text ascii flag");
 
     parser.reset();
     result = parser.parse(u"AB\u4E2D");
-    check(result.id == vt_message_id::continue_text && !result.message.text_is_ascii,
-          "ground text non-ascii flag");
+    check(result.id == vt_message_id::continue_text && !result.message.text_is_ascii, "ground text non-ascii flag");
 
     parser.reset();
     result = parser.parse(u"\x1b]2;corehost\x07");

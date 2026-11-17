@@ -313,8 +313,7 @@ void test_screen_buffer()
         check(anchored.at(0, 0).primary() == u'C' && anchored.at(0, 1).primary() == u'D',
               "resize shrink anchors bottom");
         anchored.resize(4, 4, style0, true);
-        check(anchored.at(0, 2).primary() == u'C' && anchored.at(0, 3).primary() == u'D',
-              "resize grow anchors bottom");
+        check(anchored.at(0, 2).primary() == u'C' && anchored.at(0, 3).primary() == u'D', "resize grow anchors bottom");
     }
 
     screen.clear(style4);

@@ -47,8 +47,7 @@ class render_snapshot final
     render_snapshot(render_snapshot &&) noexcept = default;
     render_snapshot &operator=(render_snapshot &&) noexcept = default;
 
-    [[nodiscard]] static render_snapshot take(screen::screen_buffer &screen,
-                                              screen::console_state &console) noexcept;
+    [[nodiscard]] static render_snapshot take(screen::screen_buffer &screen, screen::console_state &console) noexcept;
 
     template <typename SessionState>
     [[nodiscard]] static render_snapshot take(screen::screen_buffer &screen, screen::console_state &console,
@@ -98,11 +97,14 @@ class render_snapshot final
     bool cursor_shape_changed_{};
 };
 
-inline render_snapshot render_snapshot::take(screen::screen_buffer &screen,
-                                              screen::console_state &console) noexcept
+inline render_snapshot render_snapshot::take(screen::screen_buffer &screen, screen::console_state &console) noexcept
 {
-    return render_snapshot{screen.take_scroll_up(), false, false, screen.has_damage(),
-                           console.take_cursor_changed(), console.take_cursor_visibility_changed(),
+    return render_snapshot{screen.take_scroll_up(),
+                           false,
+                           false,
+                           screen.has_damage(),
+                           console.take_cursor_changed(),
+                           console.take_cursor_visibility_changed(),
                            console.take_cursor_shape_changed()};
 }
 
@@ -119,8 +121,8 @@ render_snapshot render_snapshot::take(screen::screen_buffer &screen, screen::con
 inline void render_snapshot_frame(const render_snapshot &snapshot, screen::screen_buffer &screen,
                                   screen::console_state &console, vtserializer::byte_buffer &output)
 {
-    const auto cursor = screen::coord{static_cast<std::int32_t>(console.cursor().x),
-                                      static_cast<std::int32_t>(console.cursor().y)};
+    const auto cursor =
+        screen::coord{static_cast<std::int32_t>(console.cursor().x), static_cast<std::int32_t>(console.cursor().y)};
     switch (snapshot.kind())
     {
     case render_frame_kind::full:
@@ -151,8 +153,8 @@ inline void render_full_viewport(screen::screen_buffer &screen, screen::console_
                                  vtserializer::byte_buffer &output)
 {
     const auto snapshot = render_snapshot::take(screen, console);
-    const auto cursor = screen::coord{static_cast<std::int32_t>(console.cursor().x),
-                                      static_cast<std::int32_t>(console.cursor().y)};
+    const auto cursor =
+        screen::coord{static_cast<std::int32_t>(console.cursor().x), static_cast<std::int32_t>(console.cursor().y)};
     vtserializer::render_viewport(output, screen, cursor, &console, false);
     screen.clear_damage();
     note_terminal_cursor(console, screen, cursor);
@@ -168,8 +170,8 @@ inline void commit_direct_output(screen::screen_buffer &screen, screen::console_
     (void)screen.take_scroll_up();
     screen.clear_damage();
     (void)console.take_cursor_changed();
-    const auto cursor = screen::coord{static_cast<std::int32_t>(console.cursor().x),
-                                      static_cast<std::int32_t>(console.cursor().y)};
+    const auto cursor =
+        screen::coord{static_cast<std::int32_t>(console.cursor().x), static_cast<std::int32_t>(console.cursor().y)};
     note_terminal_cursor(console, screen, cursor);
 }
 

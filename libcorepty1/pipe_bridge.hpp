@@ -130,8 +130,7 @@ struct pipe_bridge
         // 读取之间丢掉输入并中断会话。
         if (!_pending.has_pending())
         {
-            _queued_vt_input.append_range(
-                std::span{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()});
+            _queued_vt_input.append_range(std::span{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()});
             vt_flush();
             return;
         }
@@ -164,8 +163,8 @@ struct pipe_bridge
                 // 字节留在队列中，等下一次 ReadFile/ReadConsole。
                 if (!_pending.has_pending())
                 {
-                    _queued_vt_input.append_range(std::span{
-                        reinterpret_cast<const char8_t *>(bytes.data() + offset), bytes.size() - offset});
+                    _queued_vt_input.append_range(
+                        std::span{reinterpret_cast<const char8_t *>(bytes.data() + offset), bytes.size() - offset});
                     vt_flush();
                     return;
                 }

@@ -203,8 +203,7 @@ int main()
 
     corehost::coreio::io_msg read_string_message{};
     read_string_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG);
-    read_string_message.descriptor.OutputSize =
-        sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + 2 * sizeof(char16_t);
+    read_string_message.descriptor.OutputSize = sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + 2 * sizeof(char16_t);
     auto *read_string_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(read_string_message.body);
     read_string_header->ApiNumber = ConsolepReadConsoleOutputString;
     auto *read_string_request =
@@ -214,8 +213,7 @@ int main()
     read_string_request->NumRecords = 0;
     if (!api.handle(read_string_message) || read_string_request->NumRecords != 2 ||
         read_string_message.complete.IoStatus.Information != 2 * sizeof(char16_t) ||
-        read_string_message.complete.Write.Size !=
-            sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + 2 * sizeof(char16_t))
+        read_string_message.complete.Write.Size != sizeof(CONSOLE_READCONSOLEOUTPUTSTRING_MSG) + 2 * sizeof(char16_t))
     {
         std::fprintf(stderr, "read console output string failed\n");
         return EXIT_FAILURE;
@@ -393,7 +391,8 @@ int main()
     auto *write_input_record = reinterpret_cast<INPUT_RECORD *>(write_input_message.body + sizeof(CONSOLE_MSG_HEADER) +
                                                                 sizeof(CONSOLE_WRITECONSOLEINPUT_MSG));
     *write_input_record = input_record;
-    if (!input_api.handle(write_input_message) || write_input_request->NumRecords != 1 || input_queue.record_count() != 1)
+    if (!input_api.handle(write_input_message) || write_input_request->NumRecords != 1 ||
+        input_queue.record_count() != 1)
     {
         std::fprintf(stderr, "write console input failed\n");
         return EXIT_FAILURE;
@@ -863,12 +862,14 @@ int main()
         sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8 * sizeof(char16_t);
     auto *line_edit_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(line_edit_msg.body);
     line_edit_header->ApiNumber = ConsolepReadConsole;
-    auto *line_edit_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(line_edit_msg.body + sizeof(CONSOLE_MSG_HEADER));
+    auto *line_edit_request =
+        reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(line_edit_msg.body + sizeof(CONSOLE_MSG_HEADER));
     line_edit_request->Unicode = TRUE;
     const auto *line_edit_output = reinterpret_cast<const char16_t *>(line_edit_msg.body + sizeof(CONSOLE_MSG_HEADER) +
-                                                                  sizeof(CONSOLE_READCONSOLE_MSG));
+                                                                      sizeof(CONSOLE_READCONSOLE_MSG));
     if (!line_edit_api.handle(line_edit_msg) || line_edit_request->NumBytes != 4 * sizeof(char16_t) ||
-        line_edit_output[0] != u'A' || line_edit_output[1] != u'C' || line_edit_output[2] != u'\r' || line_edit_output[3] != u'\n')
+        line_edit_output[0] != u'A' || line_edit_output[1] != u'C' || line_edit_output[2] != u'\r' ||
+        line_edit_output[3] != u'\n')
     {
         std::fprintf(stderr, "read console insert mode failed\n");
         return EXIT_FAILURE;
@@ -899,10 +900,10 @@ int main()
     corehost::screen::console_state cluster_state{8, 2};
     cluster_state.measurement = corehost::screen::text_measurement::graphemes;
     corehost::consoleinput::input_queue cluster_queue;
-    cluster_queue.push(corehost::consoleinput::input_event{
-        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'e'}});
-    cluster_queue.push(corehost::consoleinput::input_event{
-        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\u0301'}});
+    cluster_queue.push(corehost::consoleinput::input_event{corehost::consoleinput::input_event_type::key,
+                                                           corehost::consoleinput::key_event{u'e'}});
+    cluster_queue.push(corehost::consoleinput::input_event{corehost::consoleinput::input_event_type::key,
+                                                           corehost::consoleinput::key_event{u'\u0301'}});
     corehost::consoleapi::console_api cluster_api{cluster_buffer, cluster_state, &cluster_queue};
     corehost::coreio::io_msg cluster_message{};
     cluster_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
@@ -926,8 +927,8 @@ int main()
     corehost::screen::console_state wide_state{8, 2};
     wide_state.measurement = corehost::screen::text_measurement::wcswidth;
     corehost::consoleinput::input_queue wide_queue;
-    wide_queue.push(corehost::consoleinput::input_event{
-        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\u4E2D'}});
+    wide_queue.push(corehost::consoleinput::input_event{corehost::consoleinput::input_event_type::key,
+                                                        corehost::consoleinput::key_event{u'\u4E2D'}});
     corehost::consoleapi::console_api wide_api{wide_buffer, wide_state, &wide_queue};
     corehost::coreio::io_msg wide_message{};
     wide_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
@@ -973,8 +974,8 @@ int main()
     corehost::screen::console_state zero_state{8, 2};
     zero_state.measurement = corehost::screen::text_measurement::wcswidth;
     corehost::consoleinput::input_queue zero_queue;
-    zero_queue.push(corehost::consoleinput::input_event{
-        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\u0301'}});
+    zero_queue.push(corehost::consoleinput::input_event{corehost::consoleinput::input_event_type::key,
+                                                        corehost::consoleinput::key_event{u'\u0301'}});
     corehost::consoleapi::console_api zero_api{zero_buffer, zero_state, &zero_queue};
     corehost::coreio::io_msg zero_message{};
     zero_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);

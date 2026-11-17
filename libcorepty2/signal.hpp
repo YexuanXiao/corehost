@@ -62,9 +62,9 @@ inline void apply_signal(std::uint16_t id, std::span<const std::byte> payload, s
             state.resize(width, height);
             buffer.resize(width, height, state.default_style, true);
             buffer.set_viewport(screen::rect{0, 0, width - 1, height - 1});
-            const auto y = height > old_height
-                               ? old_cursor.y + (height - old_height)
-                               : old_cursor.y > old_height - height ? old_cursor.y - (old_height - height) : 0;
+            const auto y = height > old_height                  ? old_cursor.y + (height - old_height)
+                           : old_cursor.y > old_height - height ? old_cursor.y - (old_height - height)
+                                                                : 0;
             state.set_cursor(old_cursor.x, y);
         }
         break;

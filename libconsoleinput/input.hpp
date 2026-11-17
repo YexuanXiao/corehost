@@ -149,9 +149,7 @@ class input_queue final
     {
         std::size_t count = text_up_pending_ ? 1 : 0;
         for (const auto &event : events_)
-            count += event.type == input_event_type::text
-                         ? (event.text.size() - event.text_offset) * 2
-                         : 1;
+            count += event.type == input_event_type::text ? (event.text.size() - event.text_offset) * 2 : 1;
         return count;
     }
 

@@ -72,8 +72,8 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
         }
 
         const auto column = static_cast<int>(begin - static_cast<std::size_t>(origin.x));
-        if (first_rendered_row && state != nullptr && state->terminal_cursor_valid &&
-            state->terminal_cursor_y == row && state->terminal_cursor_x == column)
+        if (first_rendered_row && state != nullptr && state->terminal_cursor_valid && state->terminal_cursor_y == row &&
+            state->terminal_cursor_x == column)
         {
             // already at the first damage cell
         }
@@ -203,8 +203,8 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
 
         const auto cells = buffer.row_cells(y);
         const auto origin_x = static_cast<std::size_t>(origin.x);
-        const auto columns = std::min<std::size_t>(
-            static_cast<std::size_t>(size.x), buffer_width > origin_x ? buffer_width - origin_x : 0);
+        const auto columns = std::min<std::size_t>(static_cast<std::size_t>(size.x),
+                                                   buffer_width > origin_x ? buffer_width - origin_x : 0);
         for (std::size_t column = 0; column < columns; ++column)
         {
             const auto x = origin_x + column;

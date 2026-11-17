@@ -188,9 +188,9 @@ class state_applier final
                     cursor.y = static_cast<std::int32_t>(state.scroll_bottom());
                 }
 
-                const auto count = buffer.write_ascii(static_cast<std::size_t>(cursor.x),
-                                                      static_cast<std::size_t>(cursor.y), text.substr(consumed),
-                                                      style, hyperlink);
+                const auto count =
+                    buffer.write_ascii(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y),
+                                       text.substr(consumed), style, hyperlink);
                 if (count == 0)
                 {
                     break;
@@ -259,10 +259,9 @@ class state_applier final
                         scroll_text_row(buffer, state, style);
                         cursor.y = static_cast<std::int32_t>(state.scroll_bottom());
                     }
-                    if (!buffer.write_codepoint(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y),
-                                                first, style, columns >= 2 ? screen::cell_width::wide
-                                                                           : screen::cell_width::narrow,
-                                                hyperlink))
+                    if (!buffer.write_codepoint(
+                            static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y), first, style,
+                            columns >= 2 ? screen::cell_width::wide : screen::cell_width::narrow, hyperlink))
                     {
                         break;
                     }
@@ -316,11 +315,11 @@ class state_applier final
         const auto old_cursor = state.cursor();
         state.resize(width, height);
         buffer.resize(width, height, state.default_style, true);
-        buffer.set_viewport(screen::rect{0, 0, static_cast<std::int32_t>(width) - 1,
-                                         static_cast<std::int32_t>(height) - 1});
-        const auto y = height > old_height
-                           ? old_cursor.y + (height - old_height)
-                           : old_cursor.y > old_height - height ? old_cursor.y - (old_height - height) : 0;
+        buffer.set_viewport(
+            screen::rect{0, 0, static_cast<std::int32_t>(width) - 1, static_cast<std::int32_t>(height) - 1});
+        const auto y = height > old_height                  ? old_cursor.y + (height - old_height)
+                       : old_cursor.y > old_height - height ? old_cursor.y - (old_height - height)
+                                                            : 0;
         state.set_cursor(old_cursor.x, y);
     }
 
@@ -668,9 +667,8 @@ class state_applier final
         {
             const bool enabled = payload.has(vtparser::vt_sgr_flag::bold);
             set_attribute(screen::text_style_attribute::bold, enabled);
-            state.default_attributes =
-                enabled ? static_cast<std::uint16_t>(state.default_attributes | 0x08)
-                        : static_cast<std::uint16_t>(state.default_attributes & ~0x08);
+            state.default_attributes = enabled ? static_cast<std::uint16_t>(state.default_attributes | 0x08)
+                                               : static_cast<std::uint16_t>(state.default_attributes & ~0x08);
         }
         if (payload.has(vtparser::vt_sgr_flag::faint) || payload.clears(vtparser::vt_sgr_flag::faint))
         {
@@ -680,14 +678,12 @@ class state_applier final
         {
             set_attribute(screen::text_style_attribute::italic, payload.has(vtparser::vt_sgr_flag::italic));
         }
-        if (payload.has(vtparser::vt_sgr_flag::underline) ||
-            payload.clears(vtparser::vt_sgr_flag::underline))
+        if (payload.has(vtparser::vt_sgr_flag::underline) || payload.clears(vtparser::vt_sgr_flag::underline))
         {
             const bool enabled = payload.has(vtparser::vt_sgr_flag::underline);
             set_attribute(screen::text_style_attribute::underline, enabled);
-            state.default_attributes =
-                enabled ? static_cast<std::uint16_t>(state.default_attributes | 0x8000)
-                        : static_cast<std::uint16_t>(state.default_attributes & ~0x8000);
+            state.default_attributes = enabled ? static_cast<std::uint16_t>(state.default_attributes | 0x8000)
+                                               : static_cast<std::uint16_t>(state.default_attributes & ~0x8000);
         }
         if (payload.has(vtparser::vt_sgr_flag::blink) || payload.clears(vtparser::vt_sgr_flag::blink))
         {
@@ -697,16 +693,14 @@ class state_applier final
         {
             const bool enabled = payload.has(vtparser::vt_sgr_flag::negative);
             set_attribute(screen::text_style_attribute::negative, enabled);
-            state.default_attributes =
-                enabled ? static_cast<std::uint16_t>(state.default_attributes | 0x4000)
-                        : static_cast<std::uint16_t>(state.default_attributes & ~0x4000);
+            state.default_attributes = enabled ? static_cast<std::uint16_t>(state.default_attributes | 0x4000)
+                                               : static_cast<std::uint16_t>(state.default_attributes & ~0x4000);
         }
         if (payload.has(vtparser::vt_sgr_flag::conceal) || payload.clears(vtparser::vt_sgr_flag::conceal))
         {
             set_attribute(screen::text_style_attribute::conceal, payload.has(vtparser::vt_sgr_flag::conceal));
         }
-        if (payload.has(vtparser::vt_sgr_flag::strikethrough) ||
-            payload.clears(vtparser::vt_sgr_flag::strikethrough))
+        if (payload.has(vtparser::vt_sgr_flag::strikethrough) || payload.clears(vtparser::vt_sgr_flag::strikethrough))
         {
             set_attribute(screen::text_style_attribute::strikethrough,
                           payload.has(vtparser::vt_sgr_flag::strikethrough));
@@ -754,8 +748,8 @@ class state_applier final
         state.default_style = buffer.styles().intern(style);
         auto &cached = sgr_cache_[sgr_cache_next_];
         sgr_cache_next_ = (sgr_cache_next_ + 1) % sgr_cache_.size();
-        cached = sgr_cache_entry{payload, style_table, base_style, base_attributes, state.default_style,
-                                 state.default_attributes, true};
+        cached = sgr_cache_entry{
+            payload, style_table, base_style, base_attributes, state.default_style, state.default_attributes, true};
     }
 
     static std::uint16_t ansi_to_bgri(std::uint8_t index) noexcept

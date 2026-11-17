@@ -96,13 +96,13 @@ class utf8_decoder final
     }
 
     template <typename String>
-static void append(String &output, char32_t codepoint)
+    static void append(String &output, char32_t codepoint)
     {
         unicode::encoder<char16_t>{}(codepoint, std::back_inserter(output));
     }
 
     template <typename String>
-static bool append_sequence(std::span<const char8_t> sequence, String &output)
+    static bool append_sequence(std::span<const char8_t> sequence, String &output)
     {
         if (sequence.empty())
         {
@@ -157,7 +157,7 @@ static bool append_sequence(std::span<const char8_t> sequence, String &output)
     }
 
     template <typename String>
-void consume(std::uint8_t byte, String &output)
+    void consume(std::uint8_t byte, String &output)
     {
         if (pending_size_ == 0)
         {

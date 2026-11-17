@@ -245,35 +245,31 @@ void test_text_writer()
     check(console_glyph_width(u"e\u0301") == 1, "console concrete glyph");
     check(grapheme_glyph_width(u"e\u0301", false) == 1, "grapheme concrete glyph");
     check(wcswidth_glyph_width(u"e\u0301", false) == 1, "wcswidth concrete glyph");
-    check(text_width_for(text_measurement::graphemes, u"e\u0301", false) == 1,
-          "runtime grapheme measurement");
-    check(text_width_for(text_measurement::wcswidth, u"\u4E2D", false) == 2,
-          "runtime wcswidth measurement");
-    check(codepoint_width_for(text_measurement::console, U'\u0301') == 0,
-          "runtime console codepoint width");
+    check(text_width_for(text_measurement::graphemes, u"e\u0301", false) == 1, "runtime grapheme measurement");
+    check(text_width_for(text_measurement::wcswidth, u"\u4E2D", false) == 2, "runtime wcswidth measurement");
+    check(codepoint_width_for(text_measurement::console, U'\u0301') == 0, "runtime console codepoint width");
 
     constexpr char16_t family_emoji[] = u"\U0001F468\u200D\U0001F469\u200D\U0001F467";
     screen_buffer console_cluster_buffer(10, 1);
     coord console_cluster_cursor{0, 0};
-    const auto console_cluster_result = console_cluster_buffer.write_console_text_row(
-        console_cluster_cursor, family_emoji, {}, style1, true);
-    check(console_cluster_result.consumed == std::size(family_emoji) - 1,
-          "console cluster consumed");
+    const auto console_cluster_result =
+        console_cluster_buffer.write_console_text_row(console_cluster_cursor, family_emoji, {}, style1, true);
+    check(console_cluster_result.consumed == std::size(family_emoji) - 1, "console cluster consumed");
     check(console_cluster_cursor.x ==
               console_text_width(std::u16string_view{family_emoji, std::size(family_emoji) - 1}),
           "console cluster width consistency");
 
     screen_buffer runtime_buffer(8, 2);
     coord runtime_cursor{0, 0};
-    const auto runtime_result = runtime_buffer.write_text_row_for(
-        text_measurement::graphemes, false, runtime_cursor, u"e\u0301", {}, style1, true);
+    const auto runtime_result = runtime_buffer.write_text_row_for(text_measurement::graphemes, false, runtime_cursor,
+                                                                  u"e\u0301", {}, style1, true);
     check(runtime_result.consumed == 2 && runtime_cursor.x == 1, "runtime grapheme writer");
     runtime_buffer.glyph_at_into(0, 0, read_text);
     check(read_text == u"e\u0301", "runtime grapheme cluster");
 
     runtime_cursor = {};
-    const auto wide_runtime_result = runtime_buffer.write_text_row_for(
-        text_measurement::wcswidth, false, runtime_cursor, u"\u4E2D", {}, style1, true);
+    const auto wide_runtime_result = runtime_buffer.write_text_row_for(text_measurement::wcswidth, false,
+                                                                       runtime_cursor, u"\u4E2D", {}, style1, true);
     check(wide_runtime_result.consumed == 1 && runtime_cursor.x == 2, "runtime wcswidth writer");
 }
 

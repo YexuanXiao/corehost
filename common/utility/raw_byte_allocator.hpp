@@ -18,8 +18,7 @@ namespace corehost::utility
 template <typename T, bool EnforceTrivial = std::is_trivial_v<T>>
 struct raw_byte_allocator_impl
 {
-    static_assert(!EnforceTrivial || std::is_trivial_v<T>,
-                  "raw_byte_allocator requires a trivial value type");
+    static_assert(!EnforceTrivial || std::is_trivial_v<T>, "raw_byte_allocator requires a trivial value type");
 
     using value_type = T;
     using size_type = std::size_t;

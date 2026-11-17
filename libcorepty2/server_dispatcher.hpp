@@ -116,8 +116,7 @@ class server_dispatcher final
                 }
                 return session_.suspend_raw(message);
             }
-            session_.echo_raw(
-                std::span<const char>{reinterpret_cast<const char *>(message.body), written});
+            session_.echo_raw(std::span<const char>{reinterpret_cast<const char *>(message.body), written});
             coreio::prepare_completion(message, 0, written, message.body, written);
             return true;
         }
