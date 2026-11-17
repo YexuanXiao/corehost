@@ -87,6 +87,11 @@ struct message_handler final
             if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE &&
                 (alternate_before || context.state.screen().alternate_active()))
             {
+                // Alternate-screen applications (edit.exe) write their TUI as raw
+                // VT bytes. Keep forwarding those bytes to vt_out; only consume the
+                // screen damage so we don't render the same content twice.
+                context.writer.buffer().append(
+                    std::span<const char8_t>{reinterpret_cast<const char8_t *>(raw_output.data()), raw_output.size()});
                 consume_render_state_after_raw(context.state.screen(), context.state.state(), context.state,
                                                context.writer.buffer());
                 if (context.state.take_title_changed())

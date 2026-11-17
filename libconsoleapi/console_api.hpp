@@ -1193,8 +1193,12 @@ class console_api final
                 coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
                 return true;
             }
-            state_.win32_input_mode = (state_.input_mode & 0x0200) == 0;
-            state_.win32_input_changed = true;
+            // Win32Input is the ConPTY host protocol, not an application input
+            // mode. Applications that enable ENABLE_VIRTUAL_TERMINAL_INPUT (for
+            // example edit.exe) still call ReadConsoleInputEx and need the
+            // structured VK/Uc/ControlKeyState records. Keep Win32Input enabled,
+            // matching conhost's VtInputThread.
+
             if ((state_.input_mode & 0x0010) != 0)
             {
                 if (!state_.mouse_tracking())
@@ -1203,13 +1207,10 @@ class console_api final
                 }
                 state_.set_private_mode(1006, true);
             }
-            else
-            {
-                state_.set_private_mode(1000, false);
-                state_.set_private_mode(1002, false);
-                state_.set_private_mode(1003, false);
-                state_.set_private_mode(1006, false);
-            }
+            // ENABLE_MOUSE_INPUT 只控制 Win32 MOUSE_EVENT 的生成。VT mouse
+            // tracking（1000/1002/1003/1006）由应用自己的输出序列管理；
+            // edit.exe 会在不设置 ENABLE_MOUSE_INPUT 的情况下启用 SGR
+            // mouse tracking，SetConsoleMode 不应清除这些私有模式。
             state_.set_private_mode(1004, (state_.input_mode & 0x0008) != 0);
         }
         else
