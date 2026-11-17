@@ -105,6 +105,7 @@ Refer to CI for cross compilation and building with Clang.
 - `corehost`: the main executable. It provides the functionality of conhost/OpenConsole.
 - `libcorepty1`: (deprecated) the core of corehost and implements full ConPTY functionality, currently has around 570KiB of code. Third-party terminals can directly link libcorepty1 into their programs without needing to use an external conhost program.
 - `libcorepty2`: the core of modular corehost and implements full ConPTY functionality, currently has around 830KiB of code. Third-party terminals can directly link libcorepty1 into their programs without needing to use an external conhost program.
+- `defterm2`: console-only default-terminal entry used by `corehost2`; it has no `vt_in`, `vt_out`, or signal handles.
 - `conpty`: the shared library form of libconpty for third-party terminals that export the symbols declared by winconpty.h.
 - `conpty_static`: the static library form of libconpty.
 - `conhost_proxy`: the COM proxy/stub DLL used by default-terminal handoff and COM embedding.
