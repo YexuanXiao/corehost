@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <charconv>
 #include <cstring>
 #include <deque>
 #include <memory>
@@ -50,13 +51,6 @@ inline void normalize_line_feeds_into(std::u16string_view text, std::u16string &
             normalized.push_back(u'\r');
         normalized.push_back(text[i]);
     }
-}
-
-[[nodiscard]] inline std::u16string normalize_line_feeds(std::u16string_view text)
-{
-    std::u16string normalized;
-    normalize_line_feeds_into(text, normalized);
-    return normalized;
 }
 
 template <bool ProcessedInput>
@@ -351,13 +345,6 @@ class server_session final
         }
     }
 
-    [[nodiscard]] std::string encode_console_text(std::u16string_view text) const
-    {
-        std::string result;
-        encode_console_text_into(text, result);
-        return result;
-    }
-
     [[nodiscard]] static std::string_view terminal_key_sequence(consoleinput::virtual_key key) noexcept
     {
         switch (key)
@@ -411,7 +398,7 @@ class server_session final
         }
     }
 
-    [[nodiscard]] static std::string encode_mouse_event(const consoleinput::mouse_event &mouse)
+    static void encode_mouse_event_into(const consoleinput::mouse_event &mouse, std::string &result)
     {
         unsigned button = 3;
         if ((mouse.button_state & FROM_LEFT_1ST_BUTTON_PRESSED) != 0)
@@ -442,16 +429,18 @@ class server_session final
             final = 'm';
         }
 
-        std::string result;
-        result.reserve(24);
+        char numbers[32];
+        auto *cursor = numbers;
+        cursor = std::to_chars(cursor, numbers + sizeof(numbers), code).ptr;
+        *cursor++ = ';';
+        cursor = std::to_chars(cursor, numbers + sizeof(numbers), mouse.x + 1).ptr;
+        *cursor++ = ';';
+        cursor = std::to_chars(cursor, numbers + sizeof(numbers), mouse.y + 1).ptr;
+
+        result.clear();
         result.append("\x1b[<");
-        result.append(std::to_string(code));
-        result.push_back(';');
-        result.append(std::to_string(mouse.x + 1));
-        result.push_back(';');
-        result.append(std::to_string(mouse.y + 1));
+        result.append(numbers, static_cast<std::size_t>(cursor - numbers));
         result.push_back(final);
-        return result;
     }
 
     void process_raw_input_events()
@@ -467,14 +456,14 @@ class server_session final
             if (count == 0)
                 break;
 
-            std::string bytes;
-            std::u16string text_batch;
+            raw_event_bytes_.clear();
+            raw_text_batch_.clear();
             const auto flush_text = [&] {
-                if (text_batch.empty())
+                if (raw_text_batch_.empty())
                     return;
-                encode_console_text_into(text_batch, console_scratch_);
-                bytes.append(console_scratch_);
-                text_batch.clear();
+                encode_console_text_into(raw_text_batch_, console_scratch_);
+                raw_event_bytes_.append(console_scratch_);
+                raw_text_batch_.clear();
             };
             for (std::size_t i = 0; i < count; ++i)
             {
@@ -497,7 +486,8 @@ class server_session final
                     if (!line_input && state_.mouse_tracking())
                     {
                         flush_text();
-                        bytes.append(encode_mouse_event(event.mouse));
+                        encode_mouse_event_into(event.mouse, console_scratch_);
+                        raw_event_bytes_.append(console_scratch_);
                     }
                     continue;
                 }
@@ -512,19 +502,19 @@ class server_session final
 
                 if (event.key.character != 0)
                 {
-                    text_batch.push_back(event.key.character);
+                    raw_text_batch_.push_back(event.key.character);
                     continue;
                 }
 
                 flush_text();
                 const auto sequence = terminal_key_sequence(event.key.key);
                 if (!sequence.empty())
-                    bytes.append(sequence);
+                    raw_event_bytes_.append(sequence);
             }
             flush_text();
 
-            if (!bytes.empty())
-                raw_in_.append(bytes);
+            if (!raw_event_bytes_.empty())
+                raw_in_.append(raw_event_bytes_);
         }
         signal_input_event();
     }
@@ -601,9 +591,10 @@ class server_session final
 
     void complete_line_editor()
     {
-        auto line = encode_console_text(raw_line_editor_.text());
+        raw_completed_lines_.emplace_back();
+        auto &line = raw_completed_lines_.back();
+        encode_console_text_into(raw_line_editor_.text(), line);
         line.append("\r\n", 2);
-        raw_completed_lines_.push_back(std::move(line));
 
         const bool needs_redraw = line_edited_ || !live_echoed_;
         raw_line_editor_.consume_completed_line();
@@ -627,17 +618,17 @@ class server_session final
 
     void feed_line_text(std::u16string_view text)
     {
-        std::u16string batch;
-        batch.reserve(text.size());
+        line_text_batch_.clear();
+        line_text_batch_.reserve(text.size());
         const auto flush = [&] {
-            if (batch.empty())
+            if (line_text_batch_.empty())
                 return;
-            const auto change = raw_line_editor_.append(batch);
+            const auto change = raw_line_editor_.append(line_text_batch_);
             if (change == consoleinput::line_editor::change::append)
-                echo_editor_append(batch);
+                echo_editor_append(line_text_batch_);
             else if (change == consoleinput::line_editor::change::redraw)
                 redraw_line_echo();
-            batch.clear();
+            line_text_batch_.clear();
         };
         for (const auto unit : text)
         {
@@ -654,7 +645,7 @@ class server_session final
             }
             else
             {
-                batch.push_back(unit);
+                line_text_batch_.push_back(unit);
             }
         }
         flush();
@@ -1346,6 +1337,9 @@ class server_session final
     std::string console_scratch_;
     std::string utf8_scratch_;
     std::string direct_utf8_;
+    std::string raw_event_bytes_;
+    std::u16string raw_text_batch_;
+    std::u16string line_text_batch_;
     vtparser::utf8_decoder echo_decoder_;
     std::string raw_in_;
     consoleinput::line_editor raw_line_editor_;

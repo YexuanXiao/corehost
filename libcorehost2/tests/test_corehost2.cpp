@@ -10,8 +10,9 @@
 
 int main()
 {
-    if (!corehost::corehost2::has_lone_line_feed(u"a\nb\r\nc") ||
-        corehost::corehost2::normalize_line_feeds(u"a\nb\r\nc") != u"a\r\nb\r\nc")
+    std::u16string normalized_text;
+    corehost::corehost2::normalize_line_feeds_into(u"a\nb\r\nc", normalized_text);
+    if (!corehost::corehost2::has_lone_line_feed(u"a\nb\r\nc") || normalized_text != u"a\r\nb\r\nc")
     {
         std::fprintf(stderr, "line feed normalization failed\n");
         return EXIT_FAILURE;
