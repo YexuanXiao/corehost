@@ -103,6 +103,16 @@ inline void render_snapshot_frame(const render_snapshot &snapshot, screen::scree
                                           console.cursor().blinking);
 }
 
+inline void commit_direct_output(screen::screen_buffer &screen, screen::console_state &console) noexcept
+{
+    (void)screen.take_scroll_up();
+    screen.clear_damage();
+    (void)console.take_cursor_changed();
+    const auto cursor = screen::coord{static_cast<std::int32_t>(console.cursor().x),
+                                      static_cast<std::int32_t>(console.cursor().y)};
+    note_terminal_cursor(console, screen, cursor);
+}
+
 template <typename SessionState>
 inline void consume_render_state_after_raw(screen::screen_buffer &screen, screen::console_state &console,
                                            SessionState &session, vtserializer::byte_buffer &output)

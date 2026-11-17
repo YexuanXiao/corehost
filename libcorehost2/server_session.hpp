@@ -478,14 +478,6 @@ class server_session final
         signal_input_event();
     }
 
-    void note_terminal_cursor() noexcept
-    {
-        const auto origin = screen_.viewport_origin();
-        state_.terminal_cursor_x = static_cast<std::int32_t>(state_.cursor().x) - origin.x;
-        state_.terminal_cursor_y = static_cast<std::int32_t>(state_.cursor().y) - origin.y;
-        state_.terminal_cursor_valid = true;
-    }
-
     void echo_editor_append(std::u16string_view text)
     {
         const auto utf8 = encode_utf8(text);
@@ -723,10 +715,7 @@ class server_session final
             std::span<const char8_t>{reinterpret_cast<const char8_t *>(echo_bytes_.data()), echo_bytes_.size()},
             echo_text_);
         (void)write_text(echo_text_);
-        (void)screen_.take_scroll_up();
-        note_terminal_cursor();
-        screen_.clear_damage();
-        (void)state_.take_cursor_changed();
+        commit_direct_output(screen_, state_);
         (void)state_.take_echo_line_feed();
         writer_->buffer().append(
             std::span<const char8_t>{reinterpret_cast<const char8_t *>(echo_bytes_.data()), echo_bytes_.size()});
@@ -819,9 +808,7 @@ class server_session final
             echo_decoder_.decode(
                 std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()}, echo_text_);
             (void)write_text(echo_text_);
-            note_terminal_cursor();
-            screen_.clear_damage();
-            (void)state_.take_cursor_changed();
+            commit_direct_output(screen_, state_);
             (void)state_.take_echo_line_feed();
             writer_->buffer().append(
                 std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()});
@@ -1072,11 +1059,8 @@ class server_session final
             const auto utf8 = encode_utf8(written_text);
             writer_->buffer().append(
                 std::span<const char8_t>{reinterpret_cast<const char8_t *>(utf8.data()), utf8.size()});
-            (void)screen_.take_scroll_up();
-            screen_.clear_damage();
-            (void)state_.take_cursor_changed();
+            commit_direct_output(screen_, state_);
             (void)state_.take_echo_line_feed();
-            note_terminal_cursor();
             writer_->flush();
         }
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLE_MSG),

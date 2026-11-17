@@ -87,12 +87,8 @@ struct message_handler final
             if (message.descriptor.Function == CONSOLE_IO_RAW_WRITE &&
                 (alternate_before || context.state->screen().alternate_active()))
             {
-                context.state->screen().clear_damage();
-                (void)context.state->screen().take_scroll_up();
-                (void)context.state->take_alternate_changed();
-                (void)context.state->take_viewport_changed();
-                (void)context.state->state().take_cursor_visibility_changed();
-                context.state->state().terminal_cursor_valid = false;
+                consume_render_state_after_raw(context.state->screen(), context.state->state(), *context.state,
+                                               context.writer->buffer());
                 if (context.state->take_title_changed())
                 {
                     vtserializer::append_window_title(context.writer->buffer(), context.state->state().title);
