@@ -5,7 +5,7 @@
 #include "win32/handle.hpp"
 
 #include <Windows.h>
-#include <cstdlib>
+#include <cassert>
 
 namespace corehost::coreio
 {
@@ -27,26 +27,12 @@ class win32_transport final
 
     void wait() const
     {
-        HANDLE waits[2]{};
-        DWORD count = 0;
-        DWORD stop_index = MAXDWORD;
-        DWORD event_index = MAXDWORD;
-        if (stop_event_.valid())
-        {
-            stop_index = count;
-            waits[count++] = stop_event_.get();
-        }
-        if (event_.valid())
-        {
-            event_index = count;
-            waits[count++] = event_.get();
-        }
-        if (count == 0)
-        {
-            std::abort();
-        }
-        const auto result = ::WaitForMultipleObjects(count, waits, FALSE, INFINITE);
-        if (result == WAIT_OBJECT_0 + stop_index || result == WAIT_OBJECT_0 + event_index)
+        assert(stop_event_.valid());
+        assert(event_.valid());
+
+        const HANDLE waits[] = {stop_event_.get(), event_.get()};
+        const auto result = ::WaitForMultipleObjects(2, waits, FALSE, INFINITE);
+        if (result == WAIT_OBJECT_0 || result == WAIT_OBJECT_0 + 1)
         {
             return;
         }
