@@ -42,6 +42,10 @@ class render_snapshot final
 {
   public:
     render_snapshot() = delete;
+    render_snapshot(const render_snapshot &) = delete;
+    render_snapshot &operator=(const render_snapshot &) = delete;
+    render_snapshot(render_snapshot &&) noexcept = default;
+    render_snapshot &operator=(render_snapshot &&) noexcept = default;
 
     [[nodiscard]] static render_snapshot take(screen::screen_buffer &screen,
                                               screen::console_state &console) noexcept;
