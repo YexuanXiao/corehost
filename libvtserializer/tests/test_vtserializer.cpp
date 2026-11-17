@@ -163,6 +163,15 @@ int main()
         return EXIT_FAILURE;
     }
 
+    buffer.clear();
+    append_cursor_shape(buffer, static_cast<unsigned>(corehost::screen::cursor_style::block), true, true);
+    const std::u8string default_cursor_output{buffer.bytes().begin(), buffer.bytes().end()};
+    if (default_cursor_output != u8"\x1b[0 q")
+    {
+        std::fprintf(stderr, "default cursor serialization failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::screen::console_state cursor_state{10, 2};
     cursor_state.cursor().visible = false;
     cursor_state.cursor().style = corehost::screen::cursor_style::bar;

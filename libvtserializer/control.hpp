@@ -80,8 +80,13 @@ inline void append_cursor_visibility(byte_buffer &output, bool visible)
     output.append_text(visible ? u8"\x1b[?25h" : u8"\x1b[?25l");
 }
 
-inline void append_cursor_shape(byte_buffer &output, unsigned style, bool blinking)
+inline void append_cursor_shape(byte_buffer &output, unsigned style, bool blinking, bool is_default = false)
 {
+    if (is_default)
+    {
+        output.append_text(u8"\x1b[0 q");
+        return;
+    }
     const unsigned code = style * 2 + (blinking ? 1u : 2u);
     char sequence[8];
     auto *first = sequence;

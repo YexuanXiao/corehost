@@ -146,7 +146,7 @@ inline void render_snapshot_frame(const render_snapshot &snapshot, screen::scree
         vtserializer::append_cursor_visibility(output, console.cursor().visible);
     if (snapshot.cursor_shape_changed())
         vtserializer::append_cursor_shape(output, static_cast<unsigned>(console.cursor().style),
-                                          console.cursor().blinking);
+                                          console.cursor().blinking, console.cursor().default_shape);
 }
 
 inline void render_full_viewport(screen::screen_buffer &screen, screen::console_state &console,
@@ -162,7 +162,7 @@ inline void render_full_viewport(screen::screen_buffer &screen, screen::console_
         vtserializer::append_cursor_visibility(output, console.cursor().visible);
     if (snapshot.cursor_shape_changed())
         vtserializer::append_cursor_shape(output, static_cast<unsigned>(console.cursor().style),
-                                          console.cursor().blinking);
+                                          console.cursor().blinking, console.cursor().default_shape);
 }
 
 inline void commit_direct_output(screen::screen_buffer &screen, screen::console_state &console) noexcept
@@ -186,7 +186,7 @@ inline void consume_render_state_after_raw(screen::screen_buffer &screen, screen
         vtserializer::append_cursor_visibility(output, console.cursor().visible);
     if (snapshot.cursor_shape_changed())
         vtserializer::append_cursor_shape(output, static_cast<unsigned>(console.cursor().style),
-                                          console.cursor().blinking);
+                                          console.cursor().blinking, console.cursor().default_shape);
 }
 
 inline void render_pending_screen(screen::screen_buffer &screen, screen::console_state &console,

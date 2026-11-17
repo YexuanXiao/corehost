@@ -74,6 +74,8 @@ struct cursor_state final
     std::size_t y{};
     bool visible{true};
     bool blinking{true};
+    // DECSCUSR 0 表示“恢复终端 profile 的默认光标”，不能折叠成 block/bar。
+    bool default_shape{};
     std::uint32_t size{25};
     cursor_style style{cursor_style::block};
 };
@@ -630,8 +632,18 @@ inline bool console_state::restore_alt_cursor() noexcept
     {
         return false;
     }
+    const bool keep_default_shape = cursor_.default_shape;
     cursor_ = alt_saved_cursor.cursor;
     default_style = alt_saved_cursor.style;
+    if (keep_default_shape)
+    {
+        // DECSCUSR 0 restores the terminal profile cursor. It is a global
+        // terminal state and must survive the alternate-buffer switch that
+        // edit.exe performs after emitting "0 q".
+        cursor_.default_shape = true;
+        cursor_shape_changed = true;
+        cursor_changed = true;
+    }
     clamp_cursor();
     return true;
 }

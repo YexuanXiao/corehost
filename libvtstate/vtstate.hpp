@@ -477,6 +477,19 @@ class state_applier final
     void apply_cursor_shape(const vtparser::vt_message &message, screen::console_state &state) noexcept
     {
         const auto shape = message.payload.cursor_shape;
+        if (shape == 0)
+        {
+            // DECSCUSR 0 restores the terminal profile's default cursor. Keep
+            // that as a distinct state so we emit "0 q" instead of forcing a
+            // blinking block (which looks wide and uses the profile cursor color).
+            state.cursor().default_shape = true;
+            state.cursor().blinking = true;
+            state.cursor_shape_changed = true;
+            state.cursor_changed = true;
+            return;
+        }
+
+        state.cursor().default_shape = false;
         switch (shape)
         {
         case 3:
@@ -491,8 +504,8 @@ class state_applier final
             state.cursor().style = screen::cursor_style::block;
             break;
         }
-        // DECSCUSR: odd values blink; 0/1 use the default blinking block.
-        state.cursor().blinking = shape == 0 || shape == 1 || shape == 3 || shape == 5;
+        // DECSCUSR: 1/3/5 blink, 2/4/6 steady.
+        state.cursor().blinking = shape == 1 || shape == 3 || shape == 5;
         state.cursor_shape_changed = true;
         state.cursor_changed = true;
     }
