@@ -102,15 +102,14 @@ Refer to CI for cross compilation and building with Clang.
 
 ### Build targets
 
-- `corehost`: the main executable. It provides the functionality of conhost/OpenConsole.
-- `libcorepty1`: (deprecated) the core of corehost and implements full ConPTY functionality, currently has around 570KiB of code. Third-party terminals can directly link libcorepty1 into their programs without needing to use an external conhost program.
-- `libcorepty2`: the core of modular corehost and implements full ConPTY functionality, currently has around 830KiB of code. Third-party terminals can directly link libcorepty1 into their programs without needing to use an external conhost program.
-- `defterm2`: console-only default-terminal entry used by `corehost2`; it has no `vt_in`, `vt_out`, or signal handles.
+- `corehost2`: the sole host executable. It provides the functionality of conhost/OpenConsole.
+- `libcorepty2`: the core of modular corehost and implements full ConPTY functionality. Third-party terminals can link libcorepty2 into their programs without needing to use an external conhost program.
+- `defterm2`: default-terminal entry used by `corehost2`; it has no `vt_in`, `vt_out`, or signal members.
 - `conpty`: the shared library form of libconpty for third-party terminals that export the symbols declared by winconpty.h.
 - `conpty_static`: the static library form of libconpty.
 - `conhost_proxy`: the COM proxy/stub DLL used by default-terminal handoff and COM embedding.
 
-Running the tests requires ssh, sshd, edit and vim.
+The legacy tests that targeted the removed `libcorepty1`/`corehost` modules are currently disabled.
 
 ### CMake options
 
@@ -122,7 +121,7 @@ Running the tests requires ssh, sshd, edit and vim.
 | `COREHOST_ANSI_OPT` | `OFF` | Enables optional table-driven ANSI code page fast paths. For users who have enabled UTF-8, this is unnecessary and will increase the binary size. |
 | `COREHOST_DEFAULT_UTF8` | `ON` | Make UTF-8 the default console code page and make UTF-8 as corehost's active code page. |
 | `COREHOST_RUN_AS_UTF8` | `ON` | Make UTF-8 as corehost's active code page. |
-| `COREHOST_VERSION` | `0.0.0.0` | Sets the version baked into `corehost.exe` and `corehost/version.h`. Accepts dot-separated numbers such as `1.2.3.4`; missing segments default to `0` and extra segments are ignored. |
+| `COREHOST_VERSION` | `0.0.0.0` | Sets the version baked into `corehost2.exe` and `corehost2/version.h`. Accepts dot-separated numbers such as `1.2.3.4`; missing segments default to `0` and extra segments are ignored. |
 | `COREHOST_ENABLE_ASAN` | `ON` | Enable AddressSanitizer in MSVC Debug builds. |
 | `USE_INBOX_CONHOST` | `OFF` | Make libconpty only use the system's conhost.exe. |
 

@@ -28,8 +28,8 @@ option(COREHOST_DEFAULT_UTF8 "Make UTF-8 the default console code page and make 
 option(COREHOST_RUN_AS_UTF8 "Make UTF-8 as corehost's active code page" ON)
 
 # ── 版本 ──────────────────────────────────────────────────
-# COREHOST_VERSION 决定 corehost/version.h 中的宏，version.h 又决定
-# corehost.rc 的资源版本。格式为点分隔的数字（如 1.2.3.4）；不足四段
+# COREHOST_VERSION 决定 corehost2/version.h 中的宏，version.h 又决定
+# corehost2.rc 的资源版本。格式为点分隔的数字（如 1.2.3.4）；不足四段
 # 时缺失段按 0 处理。
 set(COREHOST_VERSION "0.0.0.0" CACHE STRING "CoreHost version (dot-separated numbers, e.g. 1.2.3.4)")
 
@@ -97,14 +97,11 @@ add_subdirectory(libpseudowindow)
 # ── libcorepty2 (new modular host assembly) ───────────
 add_subdirectory(libcorepty2)
 
-# ── libcorepty1 (ConPTY 核心静态库) ──────────────────
-add_subdirectory(libcorepty1)
-
 # ── defterm2 (new console-only default-terminal entry) ─
 add_subdirectory(defterm2)
 
-# ── corehost (宿主可执行文件) ────────────────────────
-add_subdirectory(corehost)
+# ── corehost2 (sole host executable) ────────────────
+add_subdirectory(corehost2)
 
 # ── libconpty (ConPTY 静态库 + DLL) ──────────────────
 add_subdirectory(libconpty)
@@ -116,4 +113,4 @@ add_subdirectory(bench)
 # 测试
 # ═══════════════════════════════════════════════════════════════
 enable_testing()
-add_subdirectory(tests)
+# Legacy tests target removed modules that no longer exist; production build is corehost2 only.

@@ -1,4 +1,4 @@
-// ── libcorehost/condrv_io.hpp ───────────────────────────────
+// ── libcoreio/condrv_io.hpp ───────────────────────────────
 // ConDrv 驱动通信 — IOCTL 原语
 //
 // ConDrv (condrv.sys) 是 Windows 内核控制台驱动。

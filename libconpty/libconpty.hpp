@@ -191,7 +191,7 @@ std::wstring FindConsoleHostPath()
 #ifndef USE_INBOX_CONHOST
     auto modulePath = shell::get_module_dir_path();
     auto modulePathSize = modulePath.size();
-    modulePath.append(L"corehost.exe");
+    modulePath.append(L"corehost2.exe");
     if (shell::file_exists(modulePath.c_str()))
         return modulePath;
     modulePath.resize(modulePathSize);
