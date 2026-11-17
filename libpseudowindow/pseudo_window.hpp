@@ -8,6 +8,7 @@
 
 #include <Windows.h>
 
+#include <cassert>
 #include <cstdlib>
 #include <string>
 #include <string_view>
@@ -34,7 +35,10 @@ class pseudo_window final
 
     ~pseudo_window()
     {
-        stop_and_join();
+        if (thread_.valid())
+        {
+            stop_and_join();
+        }
     }
 
     void start()
@@ -49,10 +53,7 @@ class pseudo_window final
 
     void stop_and_join()
     {
-        if (!thread_.valid())
-        {
-            return;
-        }
+        assert(thread_.valid());
         if (hwnd_ != nullptr && ::IsWindow(hwnd_) != FALSE)
         {
             if (::PostMessageW(hwnd_, wm_stop_thread, 0, 0) == FALSE)

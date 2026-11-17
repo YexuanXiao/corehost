@@ -239,10 +239,6 @@ int main()
         1, std::span<const std::byte>{reinterpret_cast<const std::byte *>(&visible), sizeof(visible)}, signal_buffer,
         signal_state, signal_window);
 
-    signal_window.stop_and_join();
-
-    signal_window.stop_and_join();
-
     std::printf("libcorepty tests passed\n");
     return EXIT_SUCCESS;
 }
