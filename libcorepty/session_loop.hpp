@@ -90,8 +90,37 @@ struct message_handler final
                 // Alternate-screen applications (edit.exe) write their TUI as raw
                 // VT bytes. Keep forwarding those bytes to vt_out; only consume the
                 // screen damage so we don't render the same content twice.
-                context.writer.buffer().append(
-                    std::span<const char8_t>{reinterpret_cast<const char8_t *>(raw_output.data()), raw_output.size()});
+                //
+                // Do not forward DECSCUSR "0 q": that asks the host terminal for
+                // its profile cursor, which can be green/wide. Conhost renders
+                // the cursor itself and leaves the existing host cursor alone.
+                constexpr std::array<char, 5> cursor_reset{'\x1b', '[', '0', ' ', 'q'};
+                const auto *raw_chars = reinterpret_cast<const char *>(raw_output.data());
+                const std::span<const char> raw_text{raw_chars, raw_output.size()};
+                std::size_t raw_offset = 0;
+                while (raw_offset < raw_text.size())
+                {
+                    const auto begin = raw_text.begin() + static_cast<std::ptrdiff_t>(raw_offset);
+                    const auto found = std::search(begin, raw_text.end(), cursor_reset.begin(), cursor_reset.end());
+                    const auto chunk_end = found == raw_text.end() ? raw_text.end() : found;
+                    const auto chunk_size = static_cast<std::size_t>(chunk_end - begin);
+                    if (chunk_size != 0)
+                    {
+                        context.writer.buffer().append(std::span<const char8_t>{
+                            reinterpret_cast<const char8_t *>(raw_chars + raw_offset), chunk_size});
+                    }
+                    if (found == raw_text.end())
+                        break;
+                    // WT's profile cursor color can differ from the console's
+                    // default white cursor. DECSCUSR 0 alone would pick that
+                    // profile color. Keep the console-compatible white cursor
+                    // color when the application restores the default cursor.
+                    constexpr std::string_view white_cursor = "\x1b]12;#ffffff\x07";
+                    context.writer.buffer().append(
+                        std::span<const char8_t>{reinterpret_cast<const char8_t *>(white_cursor.data()),
+                                                 white_cursor.size()});
+                    raw_offset = static_cast<std::size_t>(found - raw_text.begin()) + cursor_reset.size();
+                }
                 consume_render_state_after_raw(context.state.screen(), context.state.state(), context.state,
                                                context.writer.buffer());
                 if (context.state.take_title_changed())
