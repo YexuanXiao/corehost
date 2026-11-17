@@ -59,17 +59,28 @@ class vt_input_thread final
 
         if (is_overlapped_)
         {
-            stop_.set();
-            thread_.join();
-            return;
+            stop_and_join_overlapped();
         }
+        else
+        {
+            stop_and_join_synchronous();
+        }
+    }
 
+  private:
+    void stop_and_join_overlapped()
+    {
+        stop_.set();
+        thread_.join();
+    }
+
+    void stop_and_join_synchronous()
+    {
         reader_.request_stop();
         reader_.wait_for_exit(thread_);
         thread_.join();
     }
 
-  private:
     static DWORD WINAPI thread_entry(LPVOID self)
     {
         static_cast<vt_input_thread *>(self)->run();
