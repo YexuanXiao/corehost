@@ -913,8 +913,10 @@ int main()
     auto *cluster_request =
         reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(cluster_message.body + sizeof(CONSOLE_MSG_HEADER));
     cluster_request->Unicode = TRUE;
-    if (cluster_api.handle(cluster_message) || cluster_buffer.glyph_at(0, 0) != u"e\u0301" ||
-        cluster_state.cursor().x != 1)
+    const bool cluster_handled = cluster_api.handle(cluster_message);
+    std::u16string glyph_text;
+    cluster_buffer.glyph_at_into(0, 0, glyph_text);
+    if (cluster_handled || glyph_text != u"e\u0301" || cluster_state.cursor().x != 1)
     {
         std::fprintf(stderr, "combining echo failed\n");
         return EXIT_FAILURE;
@@ -935,7 +937,9 @@ int main()
     wide_header->ApiNumber = ConsolepReadConsole;
     auto *wide_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(wide_message.body + sizeof(CONSOLE_MSG_HEADER));
     wide_request->Unicode = TRUE;
-    if (wide_api.handle(wide_message) || wide_buffer.glyph_at(0, 0) != u"\u4E2D" || wide_state.cursor().x != 2)
+    const bool wide_handled = wide_api.handle(wide_message);
+    wide_buffer.glyph_at_into(0, 0, glyph_text);
+    if (wide_handled || glyph_text != u"\u4E2D" || wide_state.cursor().x != 2)
     {
         std::fprintf(stderr, "wide echo failed\n");
         return EXIT_FAILURE;
@@ -980,7 +984,9 @@ int main()
     zero_header->ApiNumber = ConsolepReadConsole;
     auto *zero_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(zero_message.body + sizeof(CONSOLE_MSG_HEADER));
     zero_request->Unicode = TRUE;
-    if (zero_api.handle(zero_message) || zero_buffer.glyph_at(0, 0) != u" " || zero_state.cursor().x != 0)
+    const bool zero_handled = zero_api.handle(zero_message);
+    zero_buffer.glyph_at_into(0, 0, glyph_text);
+    if (zero_handled || glyph_text != u" " || zero_state.cursor().x != 0)
     {
         std::fprintf(stderr, "zero width echo failed\n");
         return EXIT_FAILURE;

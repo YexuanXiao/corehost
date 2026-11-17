@@ -28,13 +28,13 @@ class hyperlink_table final
     [[nodiscard]] cell_hyperlink intern(std::u16string_view uri, std::u16string_view id = {})
     {
         // A separator that cannot occur in a URI keeps the lookup key stable.
-        std::u16string key;
-        key.reserve(uri.size() + id.size() + 1);
-        key.append(uri);
-        key.push_back(u'\n');
-        key.append(id);
+        key_scratch_.clear();
+        key_scratch_.reserve(uri.size() + id.size() + 1);
+        key_scratch_.append(uri);
+        key_scratch_.push_back(u'\n');
+        key_scratch_.append(id);
 
-        const auto found = ids_.find(key);
+        const auto found = ids_.find(key_scratch_);
         if (found != ids_.end())
         {
             return found->second;
@@ -46,7 +46,7 @@ class hyperlink_table final
 
         const auto value = static_cast<cell_hyperlink>(links_.size());
         links_.push_back(hyperlink{std::u16string{uri}, std::u16string{id}});
-        ids_.emplace(std::move(key), value);
+        ids_.emplace(key_scratch_, value);
         return value;
     }
 
@@ -65,6 +65,7 @@ class hyperlink_table final
   private:
     std::vector<hyperlink> links_{{}};
     std::flat_map<std::u16string, cell_hyperlink> ids_;
+    std::u16string key_scratch_;
 };
 
 } // namespace corehost::screen

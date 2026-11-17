@@ -228,6 +228,7 @@ class console_state final
     std::array<std::uint32_t, 16> color_table{};
     std::u16string title;
     std::u16string original_title;
+    mutable std::u16string selected_text_scratch_;
     coord max_window_size{};
     text_measurement measurement{text_measurement::console};
     bool ambiguous_is_wide{false};
@@ -278,7 +279,7 @@ class console_state final
     void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y) noexcept;
     void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y,
                        selection_mode mode) noexcept;
-    [[nodiscard]] std::u16string selected_text(const screen_buffer &buffer) const;
+    void selected_text_into(const screen_buffer &buffer, std::u16string &result) const;
     void set_keypad_application(bool value) noexcept
     {
         if (keypad_application == value)
@@ -700,18 +701,18 @@ inline void console_state::set_selection(std::size_t anchor_x, std::size_t ancho
     selection_.caret_y = std::min(caret_y, height_ - 1);
 }
 
-inline std::u16string console_state::selected_text(const screen_buffer &buffer) const
+inline void console_state::selected_text_into(const screen_buffer &buffer, std::u16string &result) const
 {
+    result.clear();
     if (!selection_.active)
     {
-        return {};
+        return;
     }
 
     const auto left = std::min(selection_.anchor_x, selection_.caret_x);
     const auto right = std::max(selection_.anchor_x, selection_.caret_x);
     const auto top = std::min(selection_.anchor_y, selection_.caret_y);
     const auto bottom = std::max(selection_.anchor_y, selection_.caret_y);
-    std::u16string result;
 
     for (auto y = top; y <= bottom; ++y)
     {
@@ -721,12 +722,12 @@ inline std::u16string console_state::selected_text(const screen_buffer &buffer) 
         }
         if (selection_.mode == selection_mode::line)
         {
-            auto line = buffer.line_text(y);
-            while (!line.empty() && line.back() == u' ')
+            buffer.line_text_into(y, selected_text_scratch_);
+            while (!selected_text_scratch_.empty() && selected_text_scratch_.back() == u' ')
             {
-                line.pop_back();
+                selected_text_scratch_.pop_back();
             }
-            result.append(line);
+            result.append(selected_text_scratch_);
         }
         else
         {
@@ -734,7 +735,8 @@ inline std::u16string console_state::selected_text(const screen_buffer &buffer) 
             {
                 if (!buffer.is_trailing(x, y))
                 {
-                    result.append(buffer.glyph_at(x, y));
+                    buffer.glyph_at_into(x, y, selected_text_scratch_);
+                    result.append(selected_text_scratch_);
                 }
             }
         }
@@ -743,7 +745,6 @@ inline std::u16string console_state::selected_text(const screen_buffer &buffer) 
             result.push_back(u'\n');
         }
     }
-    return result;
 }
 
 inline void console_state::add_command(std::u16string_view command)

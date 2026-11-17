@@ -324,9 +324,9 @@ class screen_buffer final
                                        cell_hyperlink hyperlink = no_cell_hyperlink,
                                        cell_flags flags = cell_flags::none);
 
-    // Returns the complete glyph at x as UTF-16. A trailing cell resolves to its
-    // leading cell. Blank/background cells return one space.
-    [[nodiscard]] std::u16string glyph_at(std::size_t x, std::size_t y) const;
+    // Appends the complete glyph at x as UTF-16. A trailing cell resolves to its
+    // leading cell. Blank/background cells produce one space.
+    void glyph_at_into(std::size_t x, std::size_t y, std::u16string &result) const;
 
     // First Unicode scalar of the glyph at x. Surrogate pairs are decoded.
     [[nodiscard]] char32_t codepoint_at(std::size_t x, std::size_t y) const;
@@ -338,8 +338,8 @@ class screen_buffer final
 
     [[nodiscard]] std::size_t used_columns(std::size_t y) const;
 
-    // Returns the visible row text, skipping trailing wide-cell columns.
-    [[nodiscard]] std::u16string line_text(std::size_t y) const;
+    // Appends the visible row text, skipping trailing wide-cell columns.
+    void line_text_into(std::size_t y, std::u16string &result) const;
 
     [[nodiscard]] legacy_cell legacy_at(std::size_t x, std::size_t y) const;
 
@@ -952,40 +952,42 @@ inline bool screen_buffer::write_codepoint(std::size_t x, std::size_t y, char32_
     return write_cluster(x, y, std::span<const char16_t>{cluster, cluster_size}, style, width, hyperlink, flags);
 }
 
-inline std::u16string screen_buffer::glyph_at(std::size_t x, std::size_t y) const
+inline void screen_buffer::glyph_at_into(std::size_t x, std::size_t y, std::u16string &result) const
 {
-    const auto &value = at(x, y);
-    if (value.is_continuation())
-    {
-        if (x == 0)
-        {
-            return {};
-        }
-        return glyph_at(x - 1, y);
-    }
+    result.clear();
+    while (x > 0 && at(x, y).is_continuation())
+        --x;
 
+    const auto &value = at(x, y);
     if (value.has_cluster())
     {
         const auto cluster = cluster_of(value);
-        return std::u16string{cluster.begin(), cluster.end()};
+        result.append(cluster.begin(), cluster.end());
     }
-
-    if (value.is_blank())
+    else if (value.is_blank())
     {
-        return std::u16string(1, u' ');
+        result.push_back(u' ');
     }
-
-    return std::u16string(1, value.primary());
+    else
+    {
+        result.push_back(value.primary());
+    }
 }
 
 inline char32_t screen_buffer::codepoint_at(std::size_t x, std::size_t y) const
 {
-    const auto text = glyph_at(x, y);
-    if (text.empty())
+    while (x > 0 && at(x, y).is_continuation())
+        --x;
+
+    const auto &value = at(x, y);
+    if (value.has_cluster())
     {
-        return U' ';
+        const auto cluster = cluster_of(value);
+        return next_codepoint(std::u16string_view{cluster.data(), cluster.size()}, 0).value;
     }
-    return next_codepoint(text, 0).value;
+    if (value.is_blank())
+        return U' ';
+    return value.primary();
 }
 
 inline int screen_buffer::glyph_width(std::size_t x, std::size_t y) const
@@ -1008,9 +1010,9 @@ inline std::size_t screen_buffer::used_columns(std::size_t y) const
     return active_page().row(y).used_columns;
 }
 
-inline std::u16string screen_buffer::line_text(std::size_t y) const
+inline void screen_buffer::line_text_into(std::size_t y, std::u16string &result) const
 {
-    std::u16string result;
+    result.clear();
     result.reserve(width_);
     for (std::size_t x = 0; x < width_; ++x)
     {
@@ -1033,7 +1035,6 @@ inline std::u16string screen_buffer::line_text(std::size_t y) const
             result.push_back(value.primary());
         }
     }
-    return result;
 }
 
 inline legacy_cell screen_buffer::legacy_at(std::size_t x, std::size_t y) const

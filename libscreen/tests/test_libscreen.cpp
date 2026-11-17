@@ -219,9 +219,12 @@ void test_screen_buffer()
     check(screen.at(0, 0).primary() == u'A', "scalar write");
     check(screen.at(0, 0).style() == style0, "scalar style");
     check(screen.write_codepoint(2, 0, U'\U0001F600', style1), "codepoint write");
-    check(screen.glyph_at(2, 0) == u"\xD83D\xDE00", "codepoint glyph");
+    std::u16string read_text;
+    screen.glyph_at_into(2, 0, read_text);
+    check(read_text == u"\xD83D\xDE00", "codepoint glyph");
     check(screen.codepoint_at(2, 0) == U'\U0001F600', "codepoint decode");
-    check(screen.line_text(0).find(u"\xD83D\xDE00") != std::u16string::npos, "line text codepoint");
+    screen.line_text_into(0, read_text);
+    check(read_text.find(u"\xD83D\xDE00") != std::u16string::npos, "line text codepoint");
     check(screen.write_legacy_scalar(0, 2, u'Q', 0x1F), "legacy scalar");
     check(screen.legacy_at(0, 2).attributes == 0x1F, "legacy attributes");
     const auto legacy_color_style = screen.styles().at(screen.style_for_attributes(0x1C));

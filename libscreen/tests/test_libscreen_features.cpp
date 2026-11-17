@@ -163,11 +163,13 @@ void test_text_writer()
     using namespace corehost::screen;
 
     screen_buffer buffer(10, 3);
+    std::u16string read_text;
     coord cursor{0, 0};
     const auto result = buffer.write_text_row(cursor, u"AB", {}, style1);
     check(result.consumed == 2 && !result.row_end, "text writer ascii");
     check(cursor == coord{2, 0}, "text writer cursor");
-    check(buffer.line_text(0).starts_with(u"AB"), "text writer text");
+    buffer.line_text_into(0, read_text);
+    check(read_text.starts_with(u"AB"), "text writer text");
 
     coord wide_cursor{0, 1};
     const auto wide_result = buffer.write_text_row(wide_cursor, u"\u4E2D", {}, style1);
@@ -177,7 +179,8 @@ void test_text_writer()
 
     coord glyph_cursor{0, 2};
     check(buffer.write_glyph(glyph_cursor, u"e\u0301", 1, style1), "write glyph cluster");
-    check(buffer.glyph_at(0, 2) == u"e\u0301", "glyph cluster data");
+    buffer.glyph_at_into(0, 2, read_text);
+    check(read_text == u"e\u0301", "glyph cluster data");
     check(glyph_width<text_measurement::console>(u"e\u0301") == 1, "cluster width");
 
     screen_buffer grapheme_buffer(10, 2);
@@ -186,7 +189,8 @@ void test_text_writer()
         grapheme_buffer.write_text_row<text_measurement::graphemes>(grapheme_cursor, u"e\u0301", {}, style1, true);
     check(grapheme_result.consumed == 2, "grapheme writer consumed");
     check(grapheme_cursor.x == 1, "grapheme writer cursor");
-    check(grapheme_buffer.glyph_at(0, 0) == u"e\u0301", "grapheme writer cluster");
+    grapheme_buffer.glyph_at_into(0, 0, read_text);
+    check(read_text == u"e\u0301", "grapheme writer cluster");
 
     check(codepoint_width<text_measurement::console>(U'\u0301') == 0, "combining width");
     check(codepoint_width<text_measurement::console>(U'\u4E2D') == 2, "wide width");
@@ -264,7 +268,8 @@ void test_text_writer()
     const auto runtime_result = runtime_buffer.write_text_row_for(
         text_measurement::graphemes, false, runtime_cursor, u"e\u0301", {}, style1, true);
     check(runtime_result.consumed == 2 && runtime_cursor.x == 1, "runtime grapheme writer");
-    check(runtime_buffer.glyph_at(0, 0) == u"e\u0301", "runtime grapheme cluster");
+    runtime_buffer.glyph_at_into(0, 0, read_text);
+    check(read_text == u"e\u0301", "runtime grapheme cluster");
 
     runtime_cursor = {};
     const auto wide_runtime_result = runtime_buffer.write_text_row_for(
@@ -298,10 +303,13 @@ void test_console_selection()
     (void)buffer.write_scalar(1, 1, u'D', style0);
 
     console_state state(8, 3);
+    std::u16string selected;
     state.set_selection(0, 0, 1, 1);
-    check(state.selected_text(buffer) == u"AB\nCD", "block selection copy");
+    state.selected_text_into(buffer, selected);
+    check(selected == u"AB\nCD", "block selection copy");
     state.set_selection(1, 1, 0, 1, selection_mode::line);
-    check(state.selected_text(buffer) == u"CD", "line selection copy");
+    state.selected_text_into(buffer, selected);
+    check(selected == u"CD", "line selection copy");
     check(state.is_selected(7, 1), "line selection contains full row");
 
     state.set_search_matches({rectangle{0, 0, 2, 1}});

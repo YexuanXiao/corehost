@@ -1189,16 +1189,16 @@ class console_api final
         return true;
     }
 
-    [[nodiscard]] static std::u16string alias_exe_from_message(const coreio::io_msg &message,
-                                                               std::size_t descriptor_size, bool unicode)
+    static void alias_exe_from_message_into(const coreio::io_msg &message, std::size_t descriptor_size, bool unicode,
+                                            std::u16string &exe)
     {
+        exe.clear();
         const auto offset = sizeof(CONSOLE_MSG_HEADER) + descriptor_size;
         if (offset >= message.descriptor.InputSize)
         {
-            return {};
+            return;
         }
         const auto bytes = message.descriptor.InputSize - offset;
-        std::u16string exe;
         if (unicode)
         {
             const auto *chars = reinterpret_cast<const char16_t *>(message.body + offset);
@@ -1211,7 +1211,6 @@ class console_api final
                 exe.push_back(static_cast<unsigned char>(message.body[offset + i]));
             }
         }
-        return exe;
     }
     [[nodiscard]] bool get_aliases_length(coreio::io_msg &message) noexcept
     {
@@ -1222,7 +1221,9 @@ class console_api final
         }
         auto *info = reinterpret_cast<CONSOLE_GETALIASESLENGTH_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
-        const auto exe = alias_exe_from_message(message, sizeof(CONSOLE_GETALIASESLENGTH_MSG), info->Unicode != FALSE);
+        alias_exe_from_message_into(message, sizeof(CONSOLE_GETALIASESLENGTH_MSG), info->Unicode != FALSE,
+                                    alias_exe_scratch_);
+        const auto &exe = alias_exe_scratch_;
         std::size_t length = 0;
         for (const auto &alias : state_.aliases)
         {
@@ -1294,7 +1295,9 @@ class console_api final
                                   ? message.descriptor.OutputSize - sizeof(CONSOLE_GETALIASES_MSG)
                                   : 0;
         const auto unit = info->Unicode ? sizeof(char16_t) : sizeof(char);
-        const auto exe = alias_exe_from_message(message, sizeof(CONSOLE_GETALIASES_MSG), info->Unicode != FALSE);
+        alias_exe_from_message_into(message, sizeof(CONSOLE_GETALIASES_MSG), info->Unicode != FALSE,
+                                    alias_exe_scratch_);
+        const auto &exe = alias_exe_scratch_;
         std::size_t written = 0;
         for (const auto &alias : state_.aliases)
         {
@@ -2768,6 +2771,7 @@ class console_api final
     coreio::process_registry *processes_{};
     coreio::input_payload_reader *payload_{};
     std::u16string text_buffer_;
+    std::u16string alias_exe_scratch_;
     std::u16string history_selection_;
     std::vector<std::u16string_view> alias_exes_seen_;
     std::vector<std::uintptr_t> ctrl_targets_;
