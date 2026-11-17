@@ -396,12 +396,14 @@ template <text_measurement Mode, bool AmbiguousIsWide = false>
         return wcswidth_glyph_width(glyph, AmbiguousIsWide);
 }
 
-template <std::ranges::input_range Range>
-    requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<Range>>, char16_t>
+template <std::ranges::contiguous_range Range>
+    requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<Range>>, char16_t> &&
+             std::ranges::sized_range<Range>
 [[nodiscard]] inline int console_text_width(Range &&text) noexcept
 {
+    const std::u16string_view view{std::ranges::data(text), std::ranges::size(text)};
     int total = 0;
-    for (const auto cluster : grapheme_range<text_measurement::console>{std::u16string_view{text}})
+    for (const auto cluster : grapheme_range<text_measurement::console>{view})
         total += cluster.width;
     return total;
 }

@@ -227,6 +227,9 @@ void test_text_writer()
     check(console_text_width(u"\u4E2D"
                              "A") == 3,
           "console concrete width");
+    const std::u16string console_string = u"\u4E2D"
+                                          "A";
+    check(console_text_width(console_string) == 3, "console string width");
     check(grapheme_text_width(u"e\u0301"
                               "A",
                               false) == 2,
