@@ -244,6 +244,8 @@ class pseudo_window final
             show_event_.reset();
             hide_event_.set();
         }
+        // CreateWindowExW sends WM_SIZE before it returns, while hwnd_ is
+        // still null; only cancel server I/O once the handle is published.
         if (hwnd_ != nullptr)
         {
             cancel_server_io();
