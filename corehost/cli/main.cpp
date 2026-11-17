@@ -7,7 +7,7 @@
 #undef WIN32_NO_STATUS
 
 #include "console_arguments.hpp"
-#include "defterm/defterm.hpp"
+#include "defterm2/defterm.hpp"
 #include "comserver/com_server.hpp"
 #include "conpty.hpp"
 #include "client/client.hpp"
@@ -46,7 +46,7 @@ int __stdcall wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     if (auto ch = args.condrv_handle(); ch != 0)
     {
         LOG("entering defterm_entry, handle=0x%Ix", ch);
-        corehost::defterm::defterm_entry(ch);
+        corehost::defterm2::defterm_entry(ch);
         LOG("defterm_entry returned");
         return 0;
     }

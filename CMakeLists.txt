@@ -91,11 +91,17 @@ add_subdirectory(libvtstate)
 # ── libconsoleapi (Console API-facing screen operations) ─
 add_subdirectory(libconsoleapi)
 
+# ── libpseudowindow (shared hidden console window) ─────
+add_subdirectory(libpseudowindow)
+
 # ── libcorepty2 (new modular host assembly) ───────────
 add_subdirectory(libcorepty2)
 
 # ── libcorepty1 (ConPTY 核心静态库) ──────────────────
 add_subdirectory(libcorepty1)
+
+# ── defterm2 (new console-only default-terminal entry) ─
+add_subdirectory(defterm2)
 
 # ── corehost (宿主可执行文件) ────────────────────────
 add_subdirectory(corehost)
