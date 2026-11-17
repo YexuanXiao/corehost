@@ -14,7 +14,7 @@ using corehost::utility::raw_string_allocator;
 template <typename T>
 using raw_byte_string = std::basic_string<T, std::char_traits<T>, raw_string_allocator<T>>;
 
-using raw_string = raw_byte_string<char>;
+using raw_u8string = raw_byte_string<char8_t>;
 using raw_u16_string = raw_byte_string<char16_t>;
 
 using raw_u8_buffer = raw_byte_vector<char8_t>;

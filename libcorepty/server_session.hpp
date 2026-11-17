@@ -56,7 +56,7 @@ inline void normalize_line_feeds_into(std::u16string_view text, String &normaliz
 }
 
 template <bool ProcessedInput>
-[[nodiscard]] inline std::size_t find_raw_control(std::string_view text, std::size_t limit) noexcept
+[[nodiscard]] inline std::size_t find_raw_control(std::u8string_view text, std::size_t limit) noexcept
 {
     constexpr std::uint64_t high = 0x8080808080808080ull;
     constexpr std::uint64_t one = 0x0101010101010101ull;
@@ -321,7 +321,7 @@ class server_session final
         const auto code_page = state_.input_code_page != 0 ? state_.input_code_page : CP_UTF8;
         result.resize(vtparser::narrow_capacity_from_wide(text.size(), code_page == CP_UTF8));
         const auto size = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
-                                                static_cast<int>(text.size()), result.data(),
+                                                static_cast<int>(text.size()), reinterpret_cast<LPSTR>(result.data()),
                                                 static_cast<int>(result.size()), nullptr, nullptr);
         assert(size > 0);
         result.resize(static_cast<std::size_t>(size));
@@ -335,7 +335,7 @@ class server_session final
             return;
         result.resize(vtparser::narrow_capacity_from_wide(text.size(), true));
         const auto size = ::WideCharToMultiByte(CP_UTF8, 0, reinterpret_cast<const wchar_t *>(text.data()),
-                                                static_cast<int>(text.size()), result.data(),
+                                                static_cast<int>(text.size()), reinterpret_cast<LPSTR>(result.data()),
                                                 static_cast<int>(result.size()), nullptr, nullptr);
         assert(size > 0);
         result.resize(static_cast<std::size_t>(size));
@@ -435,9 +435,9 @@ class server_session final
         cursor = std::to_chars(cursor, numbers + sizeof(numbers), mouse.y + 1).ptr;
 
         result.clear();
-        result.append("\x1b[<");
-        result.append(numbers, static_cast<std::size_t>(cursor - numbers));
-        result.push_back(final);
+        result.append(u8"\x1b[<");
+        result.append(reinterpret_cast<const char8_t *>(numbers), static_cast<std::size_t>(cursor - numbers));
+        result.push_back(static_cast<char8_t>(final));
     }
 
     void process_raw_input_events()
@@ -506,7 +506,7 @@ class server_session final
                 flush_text();
                 const auto sequence = terminal_key_sequence(event.key.key);
                 if (!sequence.empty())
-                    raw_event_bytes_.append(sequence);
+                    raw_event_bytes_.append(reinterpret_cast<const char8_t *>(sequence.data()), sequence.size());
             }
             flush_text();
 
@@ -519,7 +519,7 @@ class server_session final
     void echo_editor_append(std::u16string_view text)
     {
         encode_utf8_into(text, utf8_scratch_);
-        echo_live(std::span<const char>{utf8_scratch_.data(), utf8_scratch_.size()});
+        echo_live(std::span<const char>{reinterpret_cast<const char *>(utf8_scratch_.data()), utf8_scratch_.size()});
     }
 
     [[nodiscard]] static screen::coord echo_position(screen::coord origin, std::int32_t width,
@@ -588,14 +588,14 @@ class server_session final
         raw_completed_lines_.emplace_back();
         auto &line = raw_completed_lines_.back();
         encode_console_text_into(raw_line_editor_.text(), line);
-        line.append("\r\n", 2);
+        line.append(u8"\r\n", 2);
 
         const bool needs_redraw = line_edited_ || !live_echoed_;
         raw_line_editor_.consume_completed_line();
         if (needs_redraw && (state_.input_mode & ENABLE_ECHO_INPUT) != 0)
         {
             line_edited_ = true;
-            echo_raw(std::span<const char>{raw_completed_lines_.back().data(), raw_completed_lines_.back().size()});
+            echo_raw(std::span<const char>{reinterpret_cast<const char *>(raw_completed_lines_.back().data()), raw_completed_lines_.back().size()});
         }
         else
         {
@@ -733,29 +733,29 @@ class server_session final
             const auto byte = static_cast<unsigned char>(bytes[i]);
             if (byte == '\r')
             {
-                echo_bytes_.append("\r\n", 2);
+                echo_bytes_.append(u8"\r\n", 2);
                 if (i + 1 < bytes.size() && bytes[i + 1] == '\n')
                     ++i;
             }
             else if (byte == '\n')
             {
-                echo_bytes_.append("\r\n", 2);
+                echo_bytes_.append(u8"\r\n", 2);
             }
             else
             {
-                echo_bytes_.push_back(bytes[i]);
+                echo_bytes_.push_back(static_cast<char8_t>(bytes[i]));
             }
         }
         echo_decoder_.decode(
-            std::span<const char8_t>{reinterpret_cast<const char8_t *>(echo_bytes_.data()), echo_bytes_.size()},
+            std::span<const char8_t>{echo_bytes_.data(), echo_bytes_.size()},
             echo_text_);
         (void)write_text(echo_text_);
         commit_direct_output(screen_, state_);
         (void)state_.take_echo_line_feed();
         writer_->buffer().append(
-            std::span<const char8_t>{reinterpret_cast<const char8_t *>(echo_bytes_.data()), echo_bytes_.size()});
+            std::span<const char8_t>{echo_bytes_.data(), echo_bytes_.size()});
         live_echoed_ = true;
-        if (echo_bytes_.find("\r\n") != std::string::npos)
+        if (echo_bytes_.find(u8"\r\n") != vtparser::raw_u8string::npos)
         {
             line_start_valid_ = false;
             line_echo_length_ = 0;
@@ -1087,7 +1087,7 @@ class server_session final
                 normalize_line_feeds_into(written_text, direct_text_);
             encode_utf8_into(has_lone_lf ? std::u16string_view{direct_text_} : written_text, direct_utf8_);
             writer_->buffer().append(
-                std::span<const char8_t>{reinterpret_cast<const char8_t *>(direct_utf8_.data()), direct_utf8_.size()});
+                std::span<const char8_t>{direct_utf8_.data(), direct_utf8_.size()});
             commit_direct_output(screen_, state_);
             (void)state_.take_echo_line_feed();
         }
@@ -1315,17 +1315,17 @@ class server_session final
     vtparser::raw_u16_string echo_text_;
     vtparser::raw_u16_string decoded_text_;
     vtparser::raw_u16_string direct_text_;
-    vtparser::raw_string echo_bytes_;
-    vtparser::raw_string console_scratch_;
-    vtparser::raw_string utf8_scratch_;
-    vtparser::raw_string direct_utf8_;
-    vtparser::raw_string raw_event_bytes_;
+    vtparser::raw_u8string echo_bytes_;
+    vtparser::raw_u8string console_scratch_;
+    vtparser::raw_u8string utf8_scratch_;
+    vtparser::raw_u8string direct_utf8_;
+    vtparser::raw_u8string raw_event_bytes_;
     vtparser::raw_u16_string raw_text_batch_;
     vtparser::raw_u16_string line_text_batch_;
     vtparser::utf8_decoder echo_decoder_;
-    vtparser::raw_string raw_in_;
+    vtparser::raw_u8string raw_in_;
     consoleinput::line_editor raw_line_editor_;
-    std::deque<vtparser::raw_string> raw_completed_lines_;
+    std::deque<vtparser::raw_u8string> raw_completed_lines_;
     std::size_t raw_completed_offset_{};
     bool raw_mode_{};
     bool live_echoed_{};
