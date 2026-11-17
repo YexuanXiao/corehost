@@ -109,4 +109,13 @@ add_subdirectory(libconpty)
 # ── bench (ConPTY 性能测试工具) ───────────────────────
 add_subdirectory(bench)
 
-# Tests were removed together with the legacy corehost/libcorepty1 modules.
+# Current corepty tests only; legacy corehost/libcorepty1 tests were removed.
+enable_testing()
+add_subdirectory(libcorepty/tests)
+add_subdirectory(libconsoleapi/tests)
+add_subdirectory(libconsoleinput/tests)
+add_subdirectory(libcoreio/tests)
+add_subdirectory(libscreen/tests)
+add_subdirectory(libvtparser/tests)
+add_subdirectory(libvtserializer/tests)
+add_subdirectory(libvtstate/tests)
