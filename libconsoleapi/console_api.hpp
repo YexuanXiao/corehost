@@ -224,10 +224,6 @@ class console_api final
         }
         const auto layer = header->ApiNumber >> 24;
         const auto api = header->ApiNumber & 0x00FFFFFFu;
-        const auto reject = [&message](LONG status) noexcept {
-            coreio::prepare_completion(message, status);
-            return true;
-        };
         switch (layer)
         {
         case 1:
@@ -248,13 +244,13 @@ class console_api final
             case level1_api::write_console:
                 return write_console(message);
             case level1_api::notify_last_close:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level1_api::get_lang_id:
                 return get_language_id(message);
             case level1_api::map_bitmap:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             default:
-                return reject(coreio::error::status_invalid_parameter);
+                return reject(message, coreio::error::status_invalid_parameter);
             }
         case 2:
             switch (static_cast<level2_api>(api))
@@ -304,45 +300,45 @@ class console_api final
             case level2_api::set_title:
                 return set_title(message);
             default:
-                return reject(coreio::error::status_invalid_parameter);
+                return reject(message, coreio::error::status_invalid_parameter);
             }
         case 3:
             switch (static_cast<level3_api>(api))
             {
             case level3_api::get_number_of_fonts:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::get_mouse_info:
                 return get_mouse_info(message);
             case level3_api::get_font_info:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::get_font_size:
                 return get_font_size(message);
             case level3_api::get_current_font:
                 return get_current_font(message);
             case level3_api::set_font:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::set_icon:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::invalidate_bitmap_rect:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::vdm_operation:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::set_cursor:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::show_cursor:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::menu_control:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::set_palette:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::set_display_mode:
                 return set_display_mode(message);
             case level3_api::register_vdm:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::get_hardware_state:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::set_hardware_state:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::get_display_mode:
                 return get_display_mode(message);
             case level3_api::add_alias:
@@ -366,29 +362,29 @@ class console_api final
             case level3_api::get_command_history:
                 return get_command_history(message);
             case level3_api::set_key_shortcuts:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::set_menu_close:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::get_keyboard_layout_name:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::get_console_window:
                 return get_console_window(message);
             case level3_api::char_type:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::set_local_eudc:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::set_cursor_mode:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::get_cursor_mode:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::register_os2:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::set_os2_oem_format:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::get_nls_mode:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::set_nls_mode:
-                return reject(coreio::error::status_not_implemented);
+                return reject(message, coreio::error::status_not_implemented);
             case level3_api::get_selection_info:
                 return get_selection_info(message);
             case level3_api::get_console_process_list:
@@ -400,10 +396,10 @@ class console_api final
             case level3_api::set_current_font:
                 return set_current_font(message);
             default:
-                return reject(coreio::error::status_invalid_parameter);
+                return reject(message, coreio::error::status_invalid_parameter);
             }
         default:
-            return reject(coreio::error::status_invalid_parameter);
+            return reject(message, coreio::error::status_invalid_parameter);
         }
     }
 
@@ -2633,6 +2629,12 @@ class console_api final
     }
 
   private:
+    [[nodiscard]] static bool reject(coreio::io_msg &message, LONG status) noexcept
+    {
+        coreio::prepare_completion(message, status);
+        return true;
+    }
+
     [[nodiscard]] bool has_input() const noexcept
     {
 #ifdef COREPTY_TESTING
