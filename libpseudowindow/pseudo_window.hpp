@@ -34,10 +34,7 @@ class pseudo_window final
 
     ~pseudo_window()
     {
-        if (thread_.valid())
-        {
-            stop_and_join();
-        }
+        stop_and_join();
     }
 
     void start()

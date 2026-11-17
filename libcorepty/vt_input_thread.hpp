@@ -9,6 +9,7 @@
 #include <Windows.h>
 
 #include <array>
+#include <cassert>
 #include <cstddef>
 #include <span>
 
@@ -44,18 +45,13 @@ class vt_input_thread final
 
     void join()
     {
-        if (thread_.valid())
-        {
-            thread_.join();
-        }
+        assert(thread_.valid());
+        thread_.join();
     }
 
     void stop_and_join()
     {
-        if (!thread_.valid())
-        {
-            return;
-        }
+        assert(thread_.valid());
 
         if (is_overlapped_)
         {
