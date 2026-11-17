@@ -111,14 +111,6 @@ struct message_handler final
                     }
                     if (found == raw_text.end())
                         break;
-                    // WT's profile cursor color can differ from the console's
-                    // default white cursor. DECSCUSR 0 alone would pick that
-                    // profile color. Keep the console-compatible white cursor
-                    // color when the application restores the default cursor.
-                    constexpr std::string_view white_cursor = "\x1b]12;#ffffff\x07";
-                    context.writer.buffer().append(
-                        std::span<const char8_t>{reinterpret_cast<const char8_t *>(white_cursor.data()),
-                                                 white_cursor.size()});
                     raw_offset = static_cast<std::size_t>(found - raw_text.begin()) + cursor_reset.size();
                 }
                 consume_render_state_after_raw(context.state.screen(), context.state.state(), context.state,
