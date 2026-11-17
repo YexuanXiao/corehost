@@ -9,6 +9,8 @@ add_executable(corehost WIN32
     corehost.rc
     $<IF:$<OR:$<BOOL:${COREHOST_DEFAULT_UTF8}>,$<BOOL:${COREHOST_RUN_AS_UTF8}>>,corehost.utf8.manifest,corehost.manifest>
     cli/main.cpp
+    defterm/defterm.cpp
+    defterm/signal.cpp
     comserver/com_server.cpp
 )
 
@@ -34,7 +36,6 @@ target_include_directories(corehost PRIVATE
 )
 
 target_link_libraries(corehost PRIVATE
-    defterm2
     libcorepty1
     libcoreio
     conhost_proxy_headers
@@ -67,6 +68,7 @@ target_include_directories(corehost2 PRIVATE
 )
 
 target_link_libraries(corehost2 PRIVATE
+    defterm2
     libcorepty2
     shell32
     conhost_proxy_headers

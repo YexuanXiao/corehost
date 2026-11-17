@@ -1,4 +1,5 @@
 #include "libcorepty2/conpty.hpp"
+#include "defterm2/defterm.hpp"
 
 #include "support/com_handoff_bridge.hpp"
 
@@ -28,6 +29,7 @@ struct parsed_arguments
     bool ambiguous_is_wide{};
     std::uintptr_t server{};
     std::uintptr_t signal{};
+    std::uintptr_t condrv{};
     short width{120};
     short height{30};
     corehost::screen::text_measurement measurement{corehost::screen::text_measurement::graphemes};
@@ -88,6 +90,10 @@ parsed_arguments parse_arguments()
         else if (arg == L"--height" && i + 1 < count)
         {
             result.height = static_cast<short>(std::wcstol(argv[++i], nullptr, 10));
+        }
+        else if (result.condrv == 0 && (arg.empty() || arg.front() != L'-'))
+        {
+            result.condrv = parse_handle(argv[i]);
         }
         else if (arg == L"--textMeasurement" && i + 1 < count)
         {
@@ -159,6 +165,11 @@ int __stdcall wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     LOG("corehost2 process start, cmdline=%ls", ::GetCommandLineW());
 
     const auto args = parse_arguments();
+    if (args.condrv != 0)
+    {
+        corehost::defterm2::defterm_entry(args.condrv);
+        return 0;
+    }
     if (args.com_server)
     {
         return run_com_handoff();
