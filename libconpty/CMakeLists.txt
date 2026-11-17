@@ -22,7 +22,7 @@ target_sources(conpty_static
 
 target_include_directories(conpty_static PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/../libcorehost
+    ${CMAKE_CURRENT_SOURCE_DIR}/../libcorepty1
 )
 
 target_link_libraries(conpty_static PUBLIC
@@ -51,7 +51,7 @@ target_sources(conpty
 target_include_directories(conpty PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../common
-    ${CMAKE_CURRENT_SOURCE_DIR}/../libcorehost
+    ${CMAKE_CURRENT_SOURCE_DIR}/../libcorepty1
     ${CMAKE_CURRENT_SOURCE_DIR}/../third_parties/cstring_view/include/beman
 )
 

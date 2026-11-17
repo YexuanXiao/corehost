@@ -10,7 +10,7 @@
 #include "char_convert.hpp"
 #include "perf_diag.hpp"
 #include "utility/log.hpp"
-#include "raw_byte_allocator.hpp"
+#include "raw_buffers.hpp"
 
 namespace corehost::conpty
 {

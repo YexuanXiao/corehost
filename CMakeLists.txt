@@ -78,9 +78,6 @@ add_subdirectory(libvtserializer)
 # ── libconsoleinput (parser keys -> portable input events) ─
 add_subdirectory(libconsoleinput)
 
-# ── libconptyio (terminal pipe vt_out sink) ───────────
-add_subdirectory(libconptyio)
-
 # ── libscreen (16-byte cell 屏幕缓冲区参考实现) ────────
 add_subdirectory(libscreen)
 add_subdirectory(libscreen/bench)
@@ -94,11 +91,11 @@ add_subdirectory(libvtstate)
 # ── libconsoleapi (Console API-facing screen operations) ─
 add_subdirectory(libconsoleapi)
 
-# ── libcorehost2 (new modular host assembly) ──────────
-add_subdirectory(libcorehost2)
+# ── libcorepty2 (new modular host assembly) ───────────
+add_subdirectory(libcorepty2)
 
-# ── libcorehost (ConPTY 核心静态库) ──────────────────
-add_subdirectory(libcorehost)
+# ── libcorepty1 (ConPTY 核心静态库) ──────────────────
+add_subdirectory(libcorepty1)
 
 # ── corehost (宿主可执行文件) ────────────────────────
 add_subdirectory(corehost)

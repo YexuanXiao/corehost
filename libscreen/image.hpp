@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <vector>
 
 namespace corehost::screen
 {
@@ -68,7 +69,7 @@ class image_table final
     }
 
   private:
-    vtparser::raw_byte_vector<image_fragment> fragments_{{}};
+    std::vector<image_fragment> fragments_{{}};
     std::flat_map<image_fragment, std::uint32_t> ids_;
 };
 

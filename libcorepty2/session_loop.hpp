@@ -136,7 +136,7 @@ struct message_handler final
         ctrl_events.clear();
         return dispatched;
     }
-    vtparser::raw_byte_vector<std::pair<DWORD, DWORD>> ctrl_events;
+    std::vector<std::pair<DWORD, DWORD>> ctrl_events;
 };
 
 inline DWORD WINAPI server_worker_entry(LPVOID raw)

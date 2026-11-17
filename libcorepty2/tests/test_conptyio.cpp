@@ -243,6 +243,6 @@ int main()
 
     signal_window.stop_and_join();
 
-    std::printf("libconptyio tests passed\n");
+    std::printf("libcorepty2 tests passed\n");
     return EXIT_SUCCESS;
 }

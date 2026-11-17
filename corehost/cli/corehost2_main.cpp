@@ -1,4 +1,4 @@
-#include "libcorehost2/conpty.hpp"
+#include "libcorepty2/conpty.hpp"
 
 #include "support/com_handoff_bridge.hpp"
 

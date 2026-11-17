@@ -734,7 +734,7 @@ int main()
         return EXIT_FAILURE;
     }
 
-    std::printf("libcorehost2 tests passed\n");
+    std::printf("libcorepty2 tests passed\n");
     corehost::screen::screen_buffer event_buffer{8, 4};
     corehost::screen::console_state event_state{8, 4};
     event_state.input_mode = ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT;

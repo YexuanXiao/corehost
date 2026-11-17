@@ -24,7 +24,7 @@
 #ifdef COREHOST_ANSI_OPT
 #include "gbk_table.hpp"
 #endif
-#include "raw_byte_allocator.hpp"
+#include "raw_buffers.hpp"
 
 namespace corehost::conpty
 {

@@ -18,7 +18,7 @@
 #include "vt_parser.hpp"
 #include "input_engine.hpp"
 #include "char_convert.hpp"
-#include "raw_byte_allocator.hpp"
+#include "raw_buffers.hpp"
 #include "deque.hpp"
 
 namespace corehost::conpty

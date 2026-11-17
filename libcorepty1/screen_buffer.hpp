@@ -19,7 +19,7 @@
 #include "char_convert.hpp"
 #include "char_width.hpp"
 #include "perf_diag.hpp"
-#include "raw_byte_allocator.hpp"
+#include "raw_buffers.hpp"
 
 namespace corehost::conpty
 {

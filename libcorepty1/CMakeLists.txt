@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════
-# libcorehost — ConPTY 核心静态库
+# libcorepty1 — ConPTY 核心静态库
 #
 # 提供 conpty_entry() 函数作为外部接口。
 # ═══════════════════════════════════════════════════════════════
@@ -8,12 +8,12 @@
 # 通过本目录的 include 路径引用同一份宏定义。
 configure_file(version.h.in ${CMAKE_CURRENT_BINARY_DIR}/version.h @ONLY)
 
-add_library(libcorehost STATIC
+add_library(libcorepty1 STATIC
     conpty.cpp
     signal.cpp
 )
 
-target_sources(libcorehost
+target_sources(libcorepty1
     PUBLIC
         FILE_SET HEADERS
             FILES
@@ -40,7 +40,7 @@ target_sources(libcorehost
                 pipe_bridge.hpp
                 pipe_bridge_io.hpp
                 pseudo_window.hpp
-                raw_byte_allocator.hpp
+                raw_buffers.hpp
                 screen_buffer.hpp
                 screen_buffer_row.hpp
                 signal.hpp
@@ -53,21 +53,21 @@ target_sources(libcorehost
                 vt_parser.hpp
 )
 
-target_include_directories(libcorehost PUBLIC
+target_include_directories(libcorepty1 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_SOURCE_DIR}/third_parties/deque
 )
 
-target_link_libraries(libcorehost PUBLIC
+target_link_libraries(libcorepty1 PUBLIC
     common
     unicode::unicode
 )
 
 if(COREHOST_DEFAULT_UTF8)
-    target_compile_definitions(libcorehost PRIVATE COREHOST_DEFAULT_UTF8)
+    target_compile_definitions(libcorepty1 PRIVATE COREHOST_DEFAULT_UTF8)
 endif()
 
 if(COREHOST_RUN_AS_UTF8)
-    target_compile_definitions(libcorehost PRIVATE COREHOST_RUN_AS_UTF8)
+    target_compile_definitions(libcorepty1 PRIVATE COREHOST_RUN_AS_UTF8)
 endif()

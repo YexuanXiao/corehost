@@ -2,7 +2,7 @@
 #include <windows.h>
 #include <array>
 #include <vector>
-#include "raw_byte_allocator.hpp"
+#include "raw_buffers.hpp"
 
 namespace corehost::conpty
 {

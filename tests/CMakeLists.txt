@@ -23,7 +23,7 @@ target_sources(test_common
 )
 target_include_directories(test_common INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/libcorehost
+    ${CMAKE_SOURCE_DIR}/libcorepty1
     ${CMAKE_SOURCE_DIR}/corehost
     ${CMAKE_SOURCE_DIR}/third_parties/libunicode/src
     ${CMAKE_SOURCE_DIR}/third_parties/deque
@@ -95,7 +95,7 @@ set_tests_properties(ScreenBuffer PROPERTIES LABELS "sb" TIMEOUT 30)
 # ── test_console_state ────────────────────────────
 add_executable(test_console_state
     test_console_state.cpp
-    ${CMAKE_SOURCE_DIR}/libcorehost/signal.cpp
+    ${CMAKE_SOURCE_DIR}/libcorepty1/signal.cpp
 )
 target_link_libraries(test_console_state PRIVATE test_common unicode::unicode)
 add_test(NAME ConsoleState COMMAND test_console_state)
@@ -464,17 +464,14 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/libconsoleinput/tests ${CMAKE_CURRENT_BINAR
 # ── libcoreio 测试 ──────────────────────────────────
 add_subdirectory(${CMAKE_SOURCE_DIR}/libcoreio/tests ${CMAKE_CURRENT_BINARY_DIR}/libcoreio-tests)
 
-# ── libconptyio 测试 ────────────────────────────────
-add_subdirectory(${CMAKE_SOURCE_DIR}/libconptyio/tests ${CMAKE_CURRENT_BINARY_DIR}/libconptyio-tests)
-
 # ── libvtstate 测试 ─────────────────────────────────
 add_subdirectory(${CMAKE_SOURCE_DIR}/libvtstate/tests ${CMAKE_CURRENT_BINARY_DIR}/libvtstate-tests)
 
 # ── libconsoleapi 测试 ──────────────────────────────
 add_subdirectory(${CMAKE_SOURCE_DIR}/libconsoleapi/tests ${CMAKE_CURRENT_BINARY_DIR}/libconsoleapi-tests)
 
-# ── libcorehost2 测试 ───────────────────────────────
-add_subdirectory(${CMAKE_SOURCE_DIR}/libcorehost2/tests ${CMAKE_CURRENT_BINARY_DIR}/libcorehost2-tests)
+# ── libcorepty2 测试 ───────────────────────────────
+add_subdirectory(${CMAKE_SOURCE_DIR}/libcorepty2/tests ${CMAKE_CURRENT_BINARY_DIR}/libcorepty2-tests)
 
 # ── libscreen 参考实现测试 ───────────────────────────
 add_subdirectory(${CMAKE_SOURCE_DIR}/libscreen/tests ${CMAKE_CURRENT_BINARY_DIR}/libscreen-tests)

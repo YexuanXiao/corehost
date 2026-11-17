@@ -12,6 +12,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace corehost::screen
 {
@@ -63,7 +64,7 @@ class hyperlink_table final
     }
 
   private:
-    vtparser::raw_byte_vector<hyperlink> links_{{}};
+    std::vector<hyperlink> links_{{}};
     std::flat_map<vtparser::raw_u16_string, cell_hyperlink> ids_;
     vtparser::raw_u16_string key_scratch_;
 };

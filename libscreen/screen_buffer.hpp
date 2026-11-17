@@ -98,7 +98,7 @@ struct history_state final
     std::int32_t command_exit_code{no_command_exit_code};
 };
 
-using cell_vector = vtparser::raw_byte_vector<cell>;
+using cell_vector = std::vector<cell>;
 
 struct row_block final
 {
@@ -521,7 +521,7 @@ class screen_buffer final
     std::optional<page> alternate_;
     bool alternate_active_{};
     bizwen::deque<history_row> history_;
-    vtparser::raw_byte_vector<cell_vector> spare_rows_;
+    std::vector<cell_vector> spare_rows_;
     cell_vector blank_template_;
     cell_style blank_style_{default_cell_style};
     style_table styles_;

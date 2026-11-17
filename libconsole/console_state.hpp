@@ -173,7 +173,7 @@ class console_state final
         vtparser::raw_u16_string target;
         vtparser::raw_u16_string executable;
     };
-    vtparser::raw_byte_vector<alias_entry> aliases;
+    std::vector<alias_entry> aliases;
     bizwen::deque<vtparser::raw_u16_string> command_history;
     std::size_t history_browse_index{no_history_selection};
     vtparser::raw_u16_string history_saved_input;
@@ -219,7 +219,7 @@ class console_state final
     bool win32_input_changed{};
     bool echo_line_feed{};
     std::bitset<2048> private_modes;
-    vtparser::raw_byte_vector<std::pair<std::uint16_t, bool>> private_mode_changes;
+    std::vector<std::pair<std::uint16_t, bool>> private_mode_changes;
     std::uint32_t output_code_page{};
     std::uint32_t font_index{};
     coord font_size{8, 12};
@@ -314,7 +314,7 @@ class console_state final
         private_mode_changes.emplace_back(mode, enabled);
     }
 
-    [[nodiscard]] vtparser::raw_byte_vector<std::pair<std::uint16_t, bool>> take_private_modes()
+    [[nodiscard]] std::vector<std::pair<std::uint16_t, bool>> take_private_modes()
     {
         return std::move(private_mode_changes);
     }
@@ -463,7 +463,7 @@ class console_state final
     [[nodiscard]] bool has_selection() const noexcept;
     [[nodiscard]] bool is_selected(std::size_t x, std::size_t y) const noexcept;
 
-    void set_search_matches(vtparser::raw_byte_vector<rectangle> matches);
+    void set_search_matches(std::vector<rectangle> matches);
     void clear_search_matches() noexcept;
     [[nodiscard]] std::span<const rectangle> search_matches() const noexcept;
     [[nodiscard]] bool is_search_match(std::size_t x, std::size_t y) const noexcept;
@@ -476,7 +476,7 @@ class console_state final
     std::size_t scroll_bottom_{};
     tab_stop_table tabs_;
     selection_range selection_;
-    vtparser::raw_byte_vector<rectangle> search_matches_;
+    std::vector<rectangle> search_matches_;
 };
 
 inline void tab_stop_table::assign(std::size_t columns, bool value)
@@ -780,7 +780,7 @@ inline bool console_state::is_selected(std::size_t x, std::size_t y) const noexc
     return selection_.contains(x, y);
 }
 
-inline void console_state::set_search_matches(vtparser::raw_byte_vector<rectangle> matches)
+inline void console_state::set_search_matches(std::vector<rectangle> matches)
 {
     search_matches_ = std::move(matches);
 }
