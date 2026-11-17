@@ -1,4 +1,4 @@
-// ── defterm/signal.hpp ────────────────────────────────────
+// ── cli/defterm/signal.hpp ────────────────────────────────────
 // Ctrl+C / Break / Close 信号管道转发
 //
 // COM 移交后, 按键事件 (Ctrl+C / Ctrl+Break / 关闭按钮) 实际发生在

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.30)
+cmake_minimum_required(VERSION 4.3)
 
 project(CoreHost)
 
@@ -97,10 +97,7 @@ add_subdirectory(libpseudowindow)
 # ── libcorepty (new modular host assembly) ───────────
 add_subdirectory(libcorepty)
 
-# ── defterm (new console-only default-terminal entry) ─
-add_subdirectory(defterm)
-
-# ── corehost (sole host executable) ────────────────
+# ── corehost (sole host executable, includes defterm) ─
 add_subdirectory(corehost)
 
 # ── libconpty (ConPTY 静态库 + DLL) ──────────────────
