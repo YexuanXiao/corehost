@@ -17,9 +17,7 @@
 #include <utility>
 
 namespace corehost::defterm
-{
 
-namespace
 {
 
 struct connect_decision final
@@ -59,7 +57,6 @@ connect_decision handle_connect(win32::handle_view server, win32::handle_view in
     return {};
 }
 
-} // namespace
 
 void defterm_entry(std::uintptr_t condrv_handle)
 {

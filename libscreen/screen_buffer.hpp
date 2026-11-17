@@ -531,11 +531,9 @@ class screen_buffer final
     grapheme_store graphemes_;
 };
 
-namespace
-{
 using cluster_remap = std::flat_map<cluster_offset, grapheme_store::ref>;
 
-bool remap_cell(cell &value, const grapheme_store &source, grapheme_store &destination, cluster_remap &map)
+inline bool remap_cell(cell &value, const grapheme_store &source, grapheme_store &destination, cluster_remap &map)
 {
     if (!value.has_cluster())
     {
@@ -561,7 +559,7 @@ bool remap_cell(cell &value, const grapheme_store &source, grapheme_store &desti
     return true;
 }
 
-bool remap_page(page &target, const grapheme_store &source, grapheme_store &destination, cluster_remap &map)
+inline bool remap_page(page &target, const grapheme_store &source, grapheme_store &destination, cluster_remap &map)
 {
     for (std::size_t y = 0; y < target.height(); ++y)
     {
@@ -576,7 +574,7 @@ bool remap_page(page &target, const grapheme_store &source, grapheme_store &dest
     return true;
 }
 
-bool remap_line(cell_vector &line, const grapheme_store &source, grapheme_store &destination, cluster_remap &map)
+inline bool remap_line(cell_vector &line, const grapheme_store &source, grapheme_store &destination, cluster_remap &map)
 {
     for (auto &value : line)
     {
@@ -587,7 +585,6 @@ bool remap_line(cell_vector &line, const grapheme_store &source, grapheme_store 
     }
     return true;
 }
-} // namespace
 
 inline page::page(std::size_t width, std::size_t height, cell_style fill_style) : width_{width}, height_{height}
 {

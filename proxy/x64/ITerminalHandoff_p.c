@@ -138,12 +138,13 @@ extern const ITerminalHandoff_MIDL_PROC_FORMAT_STRING ITerminalHandoff__MIDL_Pro
 extern const ITerminalHandoff_MIDL_EXPR_FORMAT_STRING ITerminalHandoff__MIDL_ExprFormatString;
 
 #ifdef __cplusplus
-namespace {
+namespace midl_ITerminalHandoff_p_x64 {
 #endif
 
 extern const MIDL_STUB_DESC Object_StubDesc;
 #ifdef __cplusplus
 }
+using namespace midl_ITerminalHandoff_p_x64;
 #endif
 
 
@@ -151,12 +152,13 @@ extern const MIDL_SERVER_INFO ITerminalHandoff_ServerInfo;
 extern const MIDL_STUBLESS_PROXY_INFO ITerminalHandoff_ProxyInfo;
 
 #ifdef __cplusplus
-namespace {
+namespace midl_ITerminalHandoff_p_x64 {
 #endif
 
 extern const MIDL_STUB_DESC Object_StubDesc;
 #ifdef __cplusplus
 }
+using namespace midl_ITerminalHandoff_p_x64;
 #endif
 
 
@@ -164,12 +166,13 @@ extern const MIDL_SERVER_INFO ITerminalHandoff2_ServerInfo;
 extern const MIDL_STUBLESS_PROXY_INFO ITerminalHandoff2_ProxyInfo;
 
 #ifdef __cplusplus
-namespace {
+namespace midl_ITerminalHandoff_p_x64 {
 #endif
 
 extern const MIDL_STUB_DESC Object_StubDesc;
 #ifdef __cplusplus
 }
+using namespace midl_ITerminalHandoff_p_x64;
 #endif
 
 
@@ -557,7 +560,7 @@ extern const USER_MARSHAL_ROUTINE_QUADRUPLE NDR64_UserMarshalRoutines[ WIRE_MARS
 #include "ndr64types.h"
 #include "pshpack8.h"
 #ifdef __cplusplus
-namespace {
+namespace midl_ITerminalHandoff_p_x64 {
 #endif
 
 
@@ -1584,6 +1587,7 @@ static const __midl_frag1_t __midl_frag1 =
 (NDR64_UINT32) 0 /* 0x0 */;
 #ifdef __cplusplus
 }
+using namespace midl_ITerminalHandoff_p_x64;
 #endif
 
 
@@ -1847,7 +1851,7 @@ const CInterfaceStubVtbl _ITerminalHandoff3StubVtbl =
 };
 
 #ifdef __cplusplus
-namespace {
+namespace midl_ITerminalHandoff_p_x64 {
 #endif
 static const MIDL_STUB_DESC Object_StubDesc = 
     {
@@ -1874,6 +1878,7 @@ static const MIDL_STUB_DESC Object_StubDesc =
     };
 #ifdef __cplusplus
 }
+using namespace midl_ITerminalHandoff_p_x64;
 #endif
 
 const CInterfaceProxyVtbl * const _ITerminalHandoff_ProxyVtblList[] = 

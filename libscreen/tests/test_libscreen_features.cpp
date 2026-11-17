@@ -11,8 +11,6 @@
 #include <string_view>
 #include <vector>
 
-namespace
-{
 
 constexpr corehost::screen::cell_style style0{0};
 constexpr corehost::screen::cell_style style1{1};
@@ -349,7 +347,6 @@ void test_alt_history()
     check(buffer.history_flags(0) == line_flag_ops::raw(line_flag::marked), "history flags");
 }
 
-} // namespace
 
 int main()
 {

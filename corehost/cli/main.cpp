@@ -18,8 +18,6 @@
 #include <string>
 #include <utility>
 
-namespace
-{
 
 int run_com_handoff()
 {
@@ -64,7 +62,6 @@ int run_headless(const corehost::cli::console_arguments &args)
     return 0;
 }
 
-} // namespace
 
 int __stdcall wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
 {

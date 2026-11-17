@@ -16,12 +16,9 @@ using raw_byte_string = std::basic_string<T, std::char_traits<T>, raw_string_all
 
 using raw_string = raw_byte_string<char>;
 using raw_u16_string = raw_byte_string<char16_t>;
-using raw_wide_string = raw_byte_string<wchar_t>;
 
 using raw_u8_buffer = raw_byte_vector<char8_t>;
 using raw_u16_buffer = raw_byte_vector<char16_t>;
-using raw_wide_buffer = raw_byte_vector<wchar_t>;
-using raw_u32_buffer = raw_byte_vector<char32_t>;
 
 // ANSI is treated as DBCS here: a wide unit can produce at most two bytes.
 // UTF-8 is the 4-byte character set; over an arbitrary UTF-16 sequence the

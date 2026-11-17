@@ -10,8 +10,6 @@
 #include <string>
 #include <vector>
 
-namespace
-{
 
 using namespace corehost::screen;
 
@@ -326,7 +324,6 @@ void test_screen_buffer()
     check(!corehost::screen::all_printable_ascii(u"AB\u4E2D"), "non-ascii detection");
 }
 
-} // namespace
 
 int main()
 {

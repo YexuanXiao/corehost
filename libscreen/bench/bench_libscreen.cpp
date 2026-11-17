@@ -5,8 +5,6 @@
 #include <cstdio>
 #include <vector>
 
-namespace
-{
 
 using clock_type = std::chrono::steady_clock;
 
@@ -70,7 +68,6 @@ void bench_char_info()
     std::printf("read_char_info 120x30: %.2f ns/op\n", ns_per_op(end - begin, iterations));
 }
 
-} // namespace
 
 int main()
 {

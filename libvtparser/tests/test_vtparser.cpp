@@ -19,8 +19,6 @@ static_assert(sizeof(corehost::vtparser::vt_mouse_payload) == 8);
 static_assert(sizeof(corehost::vtparser::vt_private_mode_payload) == 4);
 static_assert(sizeof(corehost::vtparser::vt_win32_key_payload) == 16);
 
-namespace
-{
 
 int failures = 0;
 
@@ -33,7 +31,6 @@ void check(bool value, const char *message)
     }
 }
 
-} // namespace
 
 int main()
 {
