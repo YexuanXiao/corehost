@@ -1109,7 +1109,8 @@ class console_api final
         return true;
     }
 
-    void take_ctrl_events(std::vector<std::pair<DWORD, DWORD>> &output)
+    template <typename Output>
+    void take_ctrl_events(Output &output)
     {
         output.append_range(ctrl_events_);
         ctrl_events_.clear();
@@ -2776,11 +2777,11 @@ class console_api final
     vtparser::raw_u16_string text_buffer_;
     vtparser::raw_u16_string alias_exe_scratch_;
     vtparser::raw_u16_string history_selection_;
-    std::vector<std::u16string_view> alias_exes_seen_;
-    std::vector<std::uintptr_t> ctrl_targets_;
+    vtparser::raw_byte_vector<std::u16string_view> alias_exes_seen_;
+    vtparser::raw_byte_vector<std::uintptr_t> ctrl_targets_;
     std::array<consoleinput::input_event, 64> read_events_;
     vtparser::raw_byte_vector<char> ansi_buffer_;
-    std::vector<consoleinput::input_event> prepend_buffer_;
+    vtparser::raw_byte_vector<consoleinput::input_event> prepend_buffer_;
     vtparser::raw_u16_string decoded_executable_;
     vtparser::raw_u16_string decoded_source_;
     consoleinput::line_editor cooked_editor_;
@@ -2789,7 +2790,7 @@ class console_api final
     bool cooked_active_{};
     pending_read_kind pending_read_kind_{};
     bool cancel_pending_{};
-    std::vector<std::pair<DWORD, DWORD>> ctrl_events_;
+    vtparser::raw_byte_vector<std::pair<DWORD, DWORD>> ctrl_events_;
 };
 
 } // namespace corehost::consoleapi

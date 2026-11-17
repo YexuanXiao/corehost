@@ -89,7 +89,7 @@ class tab_stop_table final
     void clear() noexcept;
 
   private:
-    std::vector<std::uint8_t> values_;
+    vtparser::raw_byte_vector<std::uint8_t> values_;
 };
 
 enum class selection_mode : std::uint8_t
@@ -173,10 +173,10 @@ class console_state final
         vtparser::raw_u16_string target;
         vtparser::raw_u16_string executable;
     };
-    std::vector<alias_entry> aliases;
-    bizwen::deque<std::u16string> command_history;
+    vtparser::raw_byte_vector<alias_entry> aliases;
+    bizwen::deque<vtparser::raw_u16_string> command_history;
     std::size_t history_browse_index{no_history_selection};
-    std::u16string history_saved_input;
+    vtparser::raw_u16_string history_saved_input;
     std::size_t command_history_limit{50};
     std::uint32_t display_mode{};
     bool line_drawing_charset{};
@@ -219,16 +219,16 @@ class console_state final
     bool win32_input_changed{};
     bool echo_line_feed{};
     std::bitset<2048> private_modes;
-    std::vector<std::pair<std::uint16_t, bool>> private_mode_changes;
+    vtparser::raw_byte_vector<std::pair<std::uint16_t, bool>> private_mode_changes;
     std::uint32_t output_code_page{};
     std::uint32_t font_index{};
     coord font_size{8, 12};
     std::uint32_t font_family{};
     std::uint32_t font_weight{400};
-    std::u16string face_name{u"Consolas"};
+    vtparser::raw_u16_string face_name{u"Consolas"};
     std::array<std::uint32_t, 16> color_table{};
-    std::u16string title;
-    std::u16string original_title;
+    vtparser::raw_u16_string title;
+    vtparser::raw_u16_string original_title;
     vtparser::raw_u16_string selected_text_scratch_;
     coord max_window_size{};
     text_measurement measurement{text_measurement::console};
@@ -314,7 +314,7 @@ class console_state final
         private_mode_changes.emplace_back(mode, enabled);
     }
 
-    [[nodiscard]] std::vector<std::pair<std::uint16_t, bool>> take_private_modes()
+    [[nodiscard]] vtparser::raw_byte_vector<std::pair<std::uint16_t, bool>> take_private_modes()
     {
         return std::move(private_mode_changes);
     }
@@ -463,7 +463,7 @@ class console_state final
     [[nodiscard]] bool has_selection() const noexcept;
     [[nodiscard]] bool is_selected(std::size_t x, std::size_t y) const noexcept;
 
-    void set_search_matches(std::vector<rectangle> matches);
+    void set_search_matches(vtparser::raw_byte_vector<rectangle> matches);
     void clear_search_matches() noexcept;
     [[nodiscard]] std::span<const rectangle> search_matches() const noexcept;
     [[nodiscard]] bool is_search_match(std::size_t x, std::size_t y) const noexcept;
@@ -476,7 +476,7 @@ class console_state final
     std::size_t scroll_bottom_{};
     tab_stop_table tabs_;
     selection_range selection_;
-    std::vector<rectangle> search_matches_;
+    vtparser::raw_byte_vector<rectangle> search_matches_;
 };
 
 inline void tab_stop_table::assign(std::size_t columns, bool value)
@@ -780,7 +780,7 @@ inline bool console_state::is_selected(std::size_t x, std::size_t y) const noexc
     return selection_.contains(x, y);
 }
 
-inline void console_state::set_search_matches(std::vector<rectangle> matches)
+inline void console_state::set_search_matches(vtparser::raw_byte_vector<rectangle> matches)
 {
     search_matches_ = std::move(matches);
 }

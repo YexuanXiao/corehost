@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cell.hpp"
+#include "raw_buffer.hpp"
 
 #include <cassert>
 #include <compare>
@@ -9,7 +10,6 @@
 #include <flat_map>
 #include <limits>
 #include <type_traits>
-#include <vector>
 
 namespace corehost::screen
 {
@@ -92,7 +92,7 @@ class style_table final
     }
 
   private:
-    std::vector<text_style> styles_{text_style{}};
+    vtparser::raw_byte_vector<text_style> styles_{text_style{}};
     std::flat_map<text_style, cell_style> ids_;
 };
 

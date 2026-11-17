@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cell.hpp"
+#include "raw_buffer.hpp"
 
 #include <cassert>
 #include <cstddef>
@@ -11,15 +12,14 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 namespace corehost::screen
 {
 
 struct hyperlink final
 {
-    std::u16string uri;
-    std::u16string id;
+    vtparser::raw_u16_string uri;
+    vtparser::raw_u16_string id;
 };
 
 class hyperlink_table final
@@ -45,7 +45,8 @@ class hyperlink_table final
         assert(links_.size() <= max_id);
 
         const auto value = static_cast<cell_hyperlink>(links_.size());
-        links_.push_back(hyperlink{std::u16string{uri}, std::u16string{id}});
+        links_.push_back(hyperlink{vtparser::raw_u16_string{uri.begin(), uri.end()},
+                                   vtparser::raw_u16_string{id.begin(), id.end()}});
         ids_.emplace(key_scratch_, value);
         return value;
     }
@@ -63,9 +64,9 @@ class hyperlink_table final
     }
 
   private:
-    std::vector<hyperlink> links_{{}};
-    std::flat_map<std::u16string, cell_hyperlink> ids_;
-    std::u16string key_scratch_;
+    vtparser::raw_byte_vector<hyperlink> links_{{}};
+    std::flat_map<vtparser::raw_u16_string, cell_hyperlink> ids_;
+    vtparser::raw_u16_string key_scratch_;
 };
 
 } // namespace corehost::screen

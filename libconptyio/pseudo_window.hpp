@@ -1,5 +1,6 @@
 #pragma once
 
+#include "raw_buffer.hpp"
 #include "win32/error.hpp"
 #include "win32/event.hpp"
 #include "win32/handle.hpp"
@@ -9,6 +10,7 @@
 
 #include <cstdlib>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace corehost::conptyio
@@ -20,8 +22,8 @@ namespace corehost::conptyio
 class pseudo_window final
 {
   public:
-    explicit pseudo_window(win32::handle_view server = {}, std::wstring title = {})
-        : server_{server}, title_{std::move(title)}, ready_{win32::create_tag, true, false},
+    explicit pseudo_window(win32::handle_view server = {}, std::wstring_view title = {})
+        : server_{server}, title_{title.begin(), title.end()}, ready_{win32::create_tag, true, false},
           close_requested_{win32::create_tag, true, false}, show_event_{win32::create_tag, false, false},
           hide_event_{win32::create_tag, false, false}
     {
@@ -275,7 +277,7 @@ class pseudo_window final
     static constexpr const wchar_t *class_name_ = L"CorehostPseudoConsoleWindow";
 
     win32::handle_view server_;
-    std::wstring title_;
+    vtparser::raw_wide_string title_;
     win32::event ready_;
     win32::event close_requested_;
     win32::event show_event_;

@@ -383,7 +383,7 @@ class session final
         {
             consoleinput::input_event event{};
             event.type = consoleinput::input_event_type::text;
-            event.text = std::make_shared<const std::u16string>(
+            event.text = std::make_shared<const vtparser::raw_u16_string>(
                 result.message.payload.text.begin(), result.message.payload.text.end());
             input_.push(std::move(event));
             return;

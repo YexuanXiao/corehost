@@ -46,7 +46,7 @@ class grapheme_store final
         assert(can_append(cluster.size()));
 
         const auto offset = static_cast<cluster_offset>(units_.size());
-        units_.insert(units_.end(), cluster.begin(), cluster.end());
+        units_.append_range(cluster);
         return ref{offset, static_cast<std::uint8_t>(cluster.size())};
     }
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "raw_buffer.hpp"
+
 #include <algorithm>
 #include <compare>
 #include <flat_map>
@@ -8,7 +10,6 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
-#include <vector>
 
 namespace corehost::screen
 {
@@ -67,7 +68,7 @@ class image_table final
     }
 
   private:
-    std::vector<image_fragment> fragments_{{}};
+    vtparser::raw_byte_vector<image_fragment> fragments_{{}};
     std::flat_map<image_fragment, std::uint32_t> ids_;
 };
 

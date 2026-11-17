@@ -77,7 +77,7 @@ int main()
     queue.clear();
     input_event metadata_text_event{};
     metadata_text_event.type = input_event_type::text;
-    metadata_text_event.text = std::make_shared<const std::u16string>(u"A");
+    metadata_text_event.text = std::make_shared<const corehost::vtparser::raw_u16_string>(u"A");
     queue.push(std::move(metadata_text_event));
     input_event text_events[2]{};
     if (queue.read(text_events) != 2 || text_events[0].key.character != u'A' ||
@@ -110,7 +110,7 @@ int main()
     queue.clear();
     input_event text_event{};
     text_event.type = input_event_type::text;
-    text_event.text = std::make_shared<const std::u16string>(u"ABC");
+    text_event.text = std::make_shared<const corehost::vtparser::raw_u16_string>(u"ABC");
     queue.push(std::move(text_event));
     if (queue.record_count() != 6 || !queue.has_key())
     {
@@ -132,7 +132,7 @@ int main()
     }
 
     queue.clear();
-    text_event.text = std::make_shared<const std::u16string>(u"AB");
+    text_event.text = std::make_shared<const corehost::vtparser::raw_u16_string>(u"AB");
     queue.push(std::move(text_event));
     input_event one[1]{};
     if (queue.read(one) != 1 || !one[0].key.key_down || one[0].key.character != u'A')

@@ -129,7 +129,8 @@ class server_dispatcher final
         }
     }
 
-    void take_ctrl_events(std::vector<std::pair<DWORD, DWORD>> &output)
+    template <typename Output>
+    void take_ctrl_events(Output &output)
     {
         session_.take_ctrl_events(output);
     }

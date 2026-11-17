@@ -203,7 +203,8 @@ void consume(std::uint8_t byte, String &output)
     std::size_t pending_size_{};
 };
 
-inline void convert_to_utf16(std::span<const char16_t> input, std::u16string &output)
+template <typename String>
+inline void convert_to_utf16(std::span<const char16_t> input, String &output)
 {
     output.clear();
     unicode::convert_to<char16_t>(std::u16string_view{input.data(), input.size()}, std::back_inserter(output));

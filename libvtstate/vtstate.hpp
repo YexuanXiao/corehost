@@ -5,6 +5,7 @@
 #include "sixel.hpp"
 
 #include "console_state.hpp"
+#include "raw_buffer.hpp"
 #include "screen_buffer.hpp"
 
 #include <libunicode/convert.h>
@@ -950,9 +951,9 @@ class state_applier final
     }
 
   private:
-    std::u16string text_;
-    std::u16string uri_;
-    std::u16string id_;
+    vtparser::raw_u16_string text_;
+    vtparser::raw_u16_string uri_;
+    vtparser::raw_u16_string id_;
 
   private:
     struct sgr_cache_entry final

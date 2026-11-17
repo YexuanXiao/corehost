@@ -117,7 +117,7 @@ struct input_event final
     // A text event batches one parser text run. Consumers that need per-key
     // semantics expand it at their boundary; the raw reader consumes it as a
     // batch.
-    std::shared_ptr<const std::u16string> text;
+    std::shared_ptr<const vtparser::raw_u16_string> text;
     std::size_t text_offset{};
 };
 

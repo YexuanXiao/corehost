@@ -98,15 +98,17 @@ struct history_state final
     std::int32_t command_exit_code{no_command_exit_code};
 };
 
+using cell_vector = vtparser::raw_byte_vector<cell>;
+
 struct row_block final
 {
-    std::vector<cell> cells;
+    cell_vector cells;
     row_state state;
 };
 
 struct history_row final
 {
-    std::vector<cell> cells;
+    cell_vector cells;
     history_state state;
 };
 
@@ -207,10 +209,10 @@ class page final
     void push_blank(cell_style fill_style)
     {
         assert(rows_.size() + 1 == height_);
-        rows_.push_back(row_block{std::vector<cell>(width_, cell::blank(fill_style)), row_state{}});
+        rows_.push_back(row_block{cell_vector(width_, cell::blank(fill_style)), row_state{}});
     }
 
-    void push_row(std::vector<cell> &&cells)
+    void push_row(cell_vector &&cells)
     {
         assert(rows_.size() + 1 == height_);
         rows_.push_back(row_block{std::move(cells), row_state{}});
@@ -231,7 +233,7 @@ class page final
 class screen_buffer final
 {
   public:
-    using line = std::vector<cell>;
+    using line = cell_vector;
 
     screen_buffer(std::size_t width, std::size_t height, std::size_t history_limit = 1000);
 
@@ -519,8 +521,8 @@ class screen_buffer final
     std::optional<page> alternate_;
     bool alternate_active_{};
     bizwen::deque<history_row> history_;
-    std::vector<std::vector<cell>> spare_rows_;
-    std::vector<cell> blank_template_;
+    vtparser::raw_byte_vector<cell_vector> spare_rows_;
+    cell_vector blank_template_;
     cell_style blank_style_{default_cell_style};
     style_table styles_;
     cell_style default_style_id_{};
@@ -574,7 +576,7 @@ bool remap_page(page &target, const grapheme_store &source, grapheme_store &dest
     return true;
 }
 
-bool remap_line(std::vector<cell> &line, const grapheme_store &source, grapheme_store &destination, cluster_remap &map)
+bool remap_line(cell_vector &line, const grapheme_store &source, grapheme_store &destination, cluster_remap &map)
 {
     for (auto &value : line)
     {
@@ -592,7 +594,7 @@ inline page::page(std::size_t width, std::size_t height, cell_style fill_style) 
     assert(width != 0 && height != 0);
     for (std::size_t y = 0; y < height_; ++y)
     {
-        rows_.push_back(row_block{std::vector<cell>(width_, cell::blank(fill_style)), row_state{}});
+        rows_.push_back(row_block{cell_vector(width_, cell::blank(fill_style)), row_state{}});
     }
     mark_all_dirty();
 }
