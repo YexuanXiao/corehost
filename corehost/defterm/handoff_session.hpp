@@ -1,4 +1,4 @@
-// ── cli/defterm/handoff_session.hpp ────────────────────────────
+// ── defterm/handoff_session.hpp ────────────────────────────
 // 默认终端 handoff 的**协议执行**部分：拿到 IConsoleHandoff 之后，创建信号
 // 管道、调用 EstablishHandoff、启动信号转发线程，并等待终端进程退出或信号
 // 管道断开。
