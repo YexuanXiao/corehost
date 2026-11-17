@@ -47,13 +47,6 @@ struct server_worker_context final
     coreio::ctrl_delivery *delivery{};
 };
 
-inline void append_pending_scroll(screen::screen_buffer &screen, vtserializer::byte_buffer &output)
-{
-    const auto lines = screen.take_scroll_up();
-    if (lines != 0)
-        vtserializer::append_scroll_up(output, static_cast<unsigned>(lines));
-}
-
 [[nodiscard]] inline std::size_t trim_row_for_scroll(const screen::screen_buffer &screen, std::size_t scroll_lines)
 {
     if (scroll_lines == 0)
@@ -61,14 +54,6 @@ inline void append_pending_scroll(screen::screen_buffer &screen, vtserializer::b
     const auto origin = screen.viewport_origin();
     const auto size = screen.viewport_size();
     return static_cast<std::size_t>(origin.y + size.y - static_cast<std::int32_t>(scroll_lines));
-}
-
-inline void append_cursor_shape_change(screen::console_state &state, vtserializer::byte_buffer &output)
-{
-    if (!state.take_cursor_shape_changed())
-        return;
-    const auto &cursor = state.cursor();
-    vtserializer::append_cursor_shape(output, static_cast<unsigned>(cursor.style), cursor.blinking);
 }
 
 inline void note_terminal_cursor(screen::console_state &state, const screen::screen_buffer &screen,
@@ -80,37 +65,79 @@ inline void note_terminal_cursor(screen::console_state &state, const screen::scr
     state.terminal_cursor_valid = true;
 }
 
-inline void append_cursor_visibility_change(screen::console_state &state, vtserializer::byte_buffer &output)
+// All render-relevant state is consumed exactly once into this snapshot. A
+// render frame is then either a complete viewport, an incremental damage frame,
+// or a cursor-only update; no caller has to pair individual take_* calls.
+struct render_snapshot final
 {
-    if (state.take_cursor_visibility_changed())
-        vtserializer::append_cursor_visibility(output, state.cursor().visible);
+    std::size_t scroll_lines{};
+    bool alternate_changed{};
+    bool viewport_changed{};
+    bool damage{};
+    bool cursor_changed{};
+    bool cursor_visibility_changed{};
+    bool cursor_shape_changed{};
+
+    [[nodiscard]] bool full_frame() const noexcept
+    {
+        return alternate_changed || viewport_changed;
+    }
+
+    [[nodiscard]] bool incremental_frame() const noexcept
+    {
+        return scroll_lines != 0 || damage || cursor_changed || cursor_visibility_changed;
+    }
+};
+
+template <typename SessionState>
+[[nodiscard]] inline render_snapshot take_render_snapshot(screen::screen_buffer &screen,
+                                                          screen::console_state &console,
+                                                          SessionState &session) noexcept
+{
+    render_snapshot snapshot;
+    snapshot.scroll_lines = screen.take_scroll_up();
+    snapshot.alternate_changed = session.take_alternate_changed();
+    snapshot.viewport_changed = session.take_viewport_changed();
+    snapshot.damage = screen.has_damage();
+    snapshot.cursor_changed = console.take_cursor_changed();
+    snapshot.cursor_visibility_changed = console.take_cursor_visibility_changed();
+    snapshot.cursor_shape_changed = console.take_cursor_shape_changed();
+    return snapshot;
+}
+
+inline void render_snapshot_frame(const render_snapshot &snapshot, screen::screen_buffer &screen,
+                                  screen::console_state &console, vtserializer::byte_buffer &output)
+{
+    const auto cursor = screen::coord{static_cast<std::int32_t>(console.cursor().x),
+                                      static_cast<std::int32_t>(console.cursor().y)};
+    if (snapshot.full_frame())
+    {
+        vtserializer::render_viewport(output, screen, cursor, &console, false);
+        screen.clear_damage();
+        note_terminal_cursor(console, screen, cursor);
+    }
+    else if (snapshot.incremental_frame())
+    {
+        if (snapshot.scroll_lines != 0)
+            vtserializer::append_scroll_up(output, static_cast<unsigned>(snapshot.scroll_lines));
+        vtserializer::render_damage(output, screen, cursor, &console,
+                                    trim_row_for_scroll(screen, snapshot.scroll_lines), false);
+        screen.clear_damage();
+        note_terminal_cursor(console, screen, cursor);
+    }
+    if (snapshot.cursor_visibility_changed)
+        vtserializer::append_cursor_visibility(output, console.cursor().visible);
+    if (snapshot.cursor_shape_changed)
+        vtserializer::append_cursor_shape(output, static_cast<unsigned>(console.cursor().style),
+                                          console.cursor().blinking);
 }
 
 template <typename SessionState>
 inline void render_pending(screen::screen_buffer &screen, screen::console_state &console, SessionState &session,
                            vtserializer::byte_buffer &output)
 {
-    const auto cursor = screen::coord{static_cast<std::int32_t>(console.cursor().x),
-                                      static_cast<std::int32_t>(console.cursor().y)};
-    const auto scroll_lines = screen.take_scroll_up();
-    if (session.take_alternate_changed() || session.take_viewport_changed())
-    {
-        vtserializer::render_viewport(output, screen, cursor, &console, false);
-        screen.clear_damage();
-        note_terminal_cursor(console, screen, cursor);
-    }
-    else if (scroll_lines != 0 || screen.has_damage() || console.take_cursor_changed() ||
-             console.cursor_visibility_changed)
-    {
-        vtserializer::append_scroll_up(output, static_cast<unsigned>(scroll_lines));
-        vtserializer::render_damage(output, screen, cursor, &console, trim_row_for_scroll(screen, scroll_lines),
-                                    false);
-        screen.clear_damage();
-        note_terminal_cursor(console, screen, cursor);
-    }
-    (void)console.take_cursor_changed();
-    append_cursor_visibility_change(console, output);
-    append_cursor_shape_change(console, output);
+    const auto snapshot = take_render_snapshot(screen, console, session);
+    render_snapshot_frame(snapshot, screen, console, output);
 }
 
 struct message_handler final
