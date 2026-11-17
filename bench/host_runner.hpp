@@ -268,7 +268,8 @@ inline void print_comparison(const host_result &baseline, const host_result &can
 {
     std::printf("\n# comparison: %s / %s\n", candidate.label.c_str(), baseline.label.c_str());
     std::printf("%-22s %14s %18s\n", "scenario", "time ratio", "throughput ratio");
-    for (size_t i = 0; i < std::min(baseline.scenarios.size(), candidate.scenarios.size()); ++i)
+    const auto scenario_count = std::min(baseline.scenarios.size(), candidate.scenarios.size());
+    for (size_t i = 0; i < scenario_count; ++i)
     {
         const auto &base = baseline.scenarios[i];
         const auto &cand = candidate.scenarios[i];

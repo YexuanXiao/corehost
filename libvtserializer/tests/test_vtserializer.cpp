@@ -102,9 +102,11 @@ int main()
     std::fprintf(stderr, "after render\n");
     std::fflush(stderr);
     bool found_ab = false;
-    for (std::size_t i = 0; i + 1 < buffer.bytes().size(); ++i)
+    const auto bytes = buffer.bytes();
+    const auto bytes_size = bytes.size();
+    for (std::size_t i = 0; i + 1 < bytes_size; ++i)
     {
-        if (buffer.bytes()[i] == u8'A' && buffer.bytes()[i + 1] == u8'B')
+        if (bytes[i] == u8'A' && bytes[i + 1] == u8'B')
         {
             found_ab = true;
             break;

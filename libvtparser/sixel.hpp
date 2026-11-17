@@ -20,8 +20,9 @@ namespace detail
 
 inline std::uint32_t raster_value(std::u16string_view data, std::size_t &position) noexcept
 {
+    const auto data_size = data.size();
     std::uint32_t value = 0;
-    while (position < data.size() && data[position] >= u'0' && data[position] <= u'9')
+    while (position < data_size && data[position] >= u'0' && data[position] <= u'9')
     {
         value = value * 10 + static_cast<std::uint32_t>(data[position] - u'0');
         ++position;
@@ -37,8 +38,9 @@ inline void parse_raster_attributes(std::u16string_view data, std::uint32_t &wid
         return;
     }
 
+    const auto data_size = data.size();
     std::size_t position = marker + 1;
-    for (int field = 0; field < 4 && position < data.size(); ++field)
+    for (int field = 0; field < 4 && position < data_size; ++field)
     {
         const auto value = raster_value(data, position);
         if (field == 2)

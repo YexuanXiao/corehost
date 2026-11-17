@@ -520,6 +520,7 @@ class vt_parser
             return {};
 
         _msg.text_is_ascii = false;
+        const auto input_size = input.size();
         size_t i = 0;
         if (_mode == parser_mode::ground)
         {
@@ -537,13 +538,13 @@ class vt_parser
             i = 1;
         }
 
-        for (; i != input.size(); ++i)
+        for (; i != input_size; ++i)
         {
             auto id = _parse_sequence_char(input[i]);
             if (id != vt_message_id::continue_)
                 return _make_result(id, i + 1);
         }
-        return {vt_message_id::continue_, input.size()};
+        return {vt_message_id::continue_, input_size};
     }
 
   private:
@@ -557,8 +558,9 @@ class vt_parser
         constexpr std::uint64_t one = 0x0001000100010001ull;
         constexpr std::uint64_t non_ascii = 0xFF80FF80FF80FF80ull;
 
+        const auto text_size = text.size();
         size_t count = 0;
-        while (count + 4 <= text.size())
+        while (count + 4 <= text_size)
         {
             std::uint64_t word = 0;
             std::memcpy(&word, text.data() + count, sizeof(word));
@@ -578,7 +580,7 @@ class vt_parser
             count += 4;
         }
 
-        if (count < text.size())
+        if (count < text_size)
         {
             std::array<char16_t, 4> tail{u' ', u' ', u' ', u' '};
             std::copy(text.begin() + static_cast<std::ptrdiff_t>(count), text.end(), tail.begin());
@@ -589,7 +591,7 @@ class vt_parser
                 ascii = false;
             }
         }
-        while (count < text.size())
+        while (count < text_size)
         {
             const auto ch = text[count];
             if ((ch < 0x20) | (ch == 0x7F))
@@ -1313,14 +1315,15 @@ class vt_parser
             return vt_message_id::continue_;
 
         // 解析操作码（数字）
+        const auto seq_size = seq.size();
         size_t pos = 2;
         short code = 0;
-        while (pos < seq.size() && seq[pos] >= u'0' && seq[pos] <= u'9')
+        while (pos < seq_size && seq[pos] >= u'0' && seq[pos] <= u'9')
         {
             code = static_cast<short>(code * 10 + (seq[pos] - u'0'));
             ++pos;
         }
-        if (pos >= seq.size() || seq[pos] != u';')
+        if (pos >= seq_size || seq[pos] != u';')
             return vt_message_id::continue_;
         ++pos; // 跳过分号
 

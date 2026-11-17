@@ -25,11 +25,12 @@ class utf8_decoder final
         output.clear();
 
         constexpr std::uint64_t high_bits = 0x8080808080808080ull;
+        const auto bytes_size = bytes.size();
         std::size_t index = 0;
 
-        while (index < bytes.size())
+        while (index < bytes_size)
         {
-            if (pending_size_ == 0 && index + 8 <= bytes.size())
+            if (pending_size_ == 0 && index + 8 <= bytes_size)
             {
                 std::uint64_t word = 0;
                 std::memcpy(&word, bytes.data() + index, sizeof(word));

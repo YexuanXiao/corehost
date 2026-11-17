@@ -30,8 +30,9 @@ namespace corehost::screen
     constexpr std::uint64_t one = 0x0001000100010001ull;
     constexpr std::uint64_t non_ascii = 0xFF80FF80FF80FF80ull;
 
+    const auto text_size = text.size();
     std::size_t offset = 0;
-    while (offset + 4 <= text.size())
+    while (offset + 4 <= text_size)
     {
         std::uint64_t word = 0;
         std::memcpy(&word, text.data() + offset, sizeof(word));
@@ -47,7 +48,7 @@ namespace corehost::screen
         offset += 4;
     }
 
-    while (offset < text.size())
+    while (offset < text_size)
     {
         const auto ch = text[offset];
         if (ch < 0x20 || ch >= 0x7F)
@@ -302,13 +303,14 @@ class grapheme_iterator final
 
         auto cursor = start;
         const auto first = next_codepoint(text_, cursor);
+        const auto text_size = text_.size();
         cursor += first.units;
 
         unicode::grapheme_segmenter_state state{};
         unicode::grapheme_process_init(first.value, state);
         auto width = first.value == 0xFE0F ? 2 : codepoint_width<Mode, AmbiguousIsWide>(first.value);
 
-        while (cursor < text_.size())
+        while (cursor < text_size)
         {
             const auto next = next_codepoint(text_, cursor);
             if (unicode::grapheme_process_breakable(next.value, state))
@@ -374,9 +376,10 @@ class grapheme_range final
 
 [[nodiscard]] inline int wcswidth_glyph_width(std::u16string_view glyph, bool ambiguous_is_wide) noexcept
 {
+    const auto glyph_size = glyph.size();
     std::size_t offset = 0;
     int width = 0;
-    while (offset < glyph.size())
+    while (offset < glyph_size)
     {
         const auto decoded = next_codepoint(glyph, offset);
         width += wcswidth_codepoint_width(decoded.value, ambiguous_is_wide);

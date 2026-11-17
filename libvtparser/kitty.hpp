@@ -26,8 +26,9 @@ namespace detail
 
 inline std::uint32_t parse_decimal(std::u16string_view text, std::size_t &position) noexcept
 {
+    const auto text_size = text.size();
     std::uint32_t value = 0;
-    while (position < text.size() && text[position] >= u'0' && text[position] <= u'9')
+    while (position < text_size && text[position] >= u'0' && text[position] <= u'9')
     {
         value = value * 10 + static_cast<std::uint32_t>(text[position] - u'0');
         ++position;
@@ -37,8 +38,9 @@ inline std::uint32_t parse_decimal(std::u16string_view text, std::size_t &positi
 
 inline std::optional<std::uint32_t> field_value(std::u16string_view control, char16_t key) noexcept
 {
+    const auto control_size = control.size();
     std::size_t position = 0;
-    while (position < control.size())
+    while (position < control_size)
     {
         if (control[position] == key && position + 1 < control.size() && control[position + 1] == u'=')
         {
@@ -84,7 +86,8 @@ inline std::optional<std::uint32_t> field_value(std::u16string_view control, cha
     result.control = control;
     result.payload = payload;
 
-    for (std::size_t position = 0; position < control.size();)
+    const auto control_size = control.size();
+    for (std::size_t position = 0; position < control_size;)
     {
         if (control[position] == u'a' && position + 1 < control.size() && control[position + 1] == u'=')
         {

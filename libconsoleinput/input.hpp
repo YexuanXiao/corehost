@@ -165,10 +165,11 @@ class input_queue final
 
     std::size_t peek(std::span<input_event> destination) const noexcept
     {
+        const auto destination_size = destination.size();
         std::size_t count = 0;
         if (text_up_pending_)
         {
-            if (destination.empty())
+            if (destination_size == 0)
                 return 0;
             input_event up{};
             up.type = input_event_type::key;
@@ -177,20 +178,21 @@ class input_queue final
         }
         for (const auto &event : events_)
         {
-            if (count == destination.size())
+            if (count == destination_size)
                 break;
             if (event.type != input_event_type::text)
             {
                 destination[count++] = event;
                 continue;
             }
-            for (std::size_t i = event.text_offset; i < event.text.size() && count < destination.size(); ++i)
+            const auto text_size = event.text.size();
+            for (std::size_t i = event.text_offset; i < text_size && count < destination_size; ++i)
             {
                 input_event down{};
                 down.type = input_event_type::key;
                 down.key = key_from_text_character(event.text[i], true);
                 destination[count++] = down;
-                if (count == destination.size())
+                if (count == destination_size)
                     break;
                 input_event up{};
                 up.type = input_event_type::key;
@@ -218,8 +220,9 @@ class input_queue final
 
     std::size_t read(std::span<input_event> destination) noexcept
     {
+        const auto destination_size = destination.size();
         std::size_t count = 0;
-        if (destination.empty())
+        if (destination_size == 0)
             return 0;
         if (text_up_pending_)
         {
@@ -229,7 +232,7 @@ class input_queue final
             destination[count++] = up;
             text_up_pending_ = false;
         }
-        while (count < destination.size() && !events_.empty())
+        while (count < destination_size && !events_.empty())
         {
             auto &front = events_.front();
             if (front.type != input_event_type::text)
@@ -252,7 +255,7 @@ class input_queue final
             down.type = input_event_type::key;
             down.key = key_from_text_character(character, true);
             destination[count++] = down;
-            if (count < destination.size())
+            if (count < destination_size)
             {
                 input_event up{};
                 up.type = input_event_type::key;

@@ -156,6 +156,8 @@ class state_applier final
             text = text_;
         }
 
+        const auto text_size = text.size();
+
         auto cursor = screen::coord{
             static_cast<std::int32_t>(state.cursor().x),
             static_cast<std::int32_t>(state.cursor().y),
@@ -169,7 +171,7 @@ class state_applier final
         if (!state.line_drawing_charset && (message.text_is_ascii || screen::all_printable_ascii(text)))
         {
             std::size_t consumed = 0;
-            while (consumed < text.size())
+            while (consumed < text_size)
             {
                 if (static_cast<std::size_t>(cursor.x) >= width)
                 {
@@ -199,12 +201,12 @@ class state_applier final
         }
 
         std::size_t consumed = 0;
-        while (consumed < text.size())
+        while (consumed < text_size)
         {
             if (!state.line_drawing_charset && text[consumed] >= u' ' && text[consumed] < u'\x7f')
             {
                 auto end = consumed;
-                while (end < text.size() && text[end] >= u' ' && text[end] < u'\x7f')
+                while (end < text_size && text[end] >= u' ' && text[end] < u'\x7f')
                     ++end;
 
                 auto remaining = end - consumed;

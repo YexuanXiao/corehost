@@ -65,10 +65,11 @@ class line_editor final
             return at_end ? change::append : change::redraw;
         }
 
-        for (std::size_t i = 0; i < value.size();)
+        const auto value_size = value.size();
+        for (std::size_t i = 0; i < value_size;)
         {
             std::size_t length = 1;
-            if (is_high(value[i]) && i + 1 < value.size() && is_low(value[i + 1]))
+            if (is_high(value[i]) && i + 1 < value_size && is_low(value[i + 1]))
                 length = 2;
             if (cursor_ < text_.size())
                 erase_next();

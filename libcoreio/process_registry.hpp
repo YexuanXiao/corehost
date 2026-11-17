@@ -31,7 +31,8 @@ class process_registry final
     void remove(std::uint32_t process) noexcept
     {
         const auto stored = to_storage(process);
-        for (std::size_t i = 0; i < processes_.size(); ++i)
+        const auto process_count = processes_.size();
+        for (std::size_t i = 0; i < process_count; ++i)
         {
             if (processes_[i] == stored)
             {
@@ -64,8 +65,10 @@ class process_registry final
 
     [[nodiscard]] std::size_t copy_for_group(std::uint32_t group, std::span<std::int32_t> output) const noexcept
     {
+        const auto process_count = processes_.size();
+        const auto output_size = output.size();
         std::size_t written = 0;
-        for (std::size_t i = 0; i < processes_.size() && written < output.size(); ++i)
+        for (std::size_t i = 0; i < process_count && written < output_size; ++i)
         {
             if (group == 0 || static_cast<std::uint32_t>(groups_[i]) == group)
             {

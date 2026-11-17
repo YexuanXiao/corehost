@@ -34,7 +34,8 @@ namespace corehost::corepty
 
 [[nodiscard]] inline bool has_lone_line_feed(std::u16string_view text) noexcept
 {
-    for (std::size_t i = 0; i < text.size(); ++i)
+    const auto text_size = text.size();
+    for (std::size_t i = 0; i < text_size; ++i)
     {
         if (text[i] == u'\n' && (i == 0 || text[i - 1] != u'\r'))
             return true;
@@ -47,7 +48,8 @@ inline void normalize_line_feeds_into(std::u16string_view text, String &normaliz
 {
     normalized.clear();
     normalized.reserve(text.size() + 8);
-    for (std::size_t i = 0; i < text.size(); ++i)
+    const auto text_size = text.size();
+    for (std::size_t i = 0; i < text_size; ++i)
     {
         if (text[i] == u'\n' && (i == 0 || text[i - 1] != u'\r'))
             normalized.push_back(u'\r');
@@ -728,13 +730,14 @@ class server_session final
             line_start_valid_ = true;
         }
         echo_bytes_.clear();
-        for (std::size_t i = 0; i < bytes.size(); ++i)
+        const auto bytes_size = bytes.size();
+        for (std::size_t i = 0; i < bytes_size; ++i)
         {
             const auto byte = static_cast<unsigned char>(bytes[i]);
             if (byte == '\r')
             {
                 echo_bytes_.append(u8"\r\n", 2);
-                if (i + 1 < bytes.size() && bytes[i + 1] == '\n')
+                if (i + 1 < bytes_size && bytes[i + 1] == '\n')
                     ++i;
             }
             else if (byte == '\n')
@@ -815,13 +818,14 @@ class server_session final
             const auto &decoded = decoded_text_;
             echo_text_.clear();
             echo_text_.reserve(decoded.size() + 2);
-            for (std::size_t i = 0; i < decoded.size(); ++i)
+            const auto decoded_size = decoded.size();
+            for (std::size_t i = 0; i < decoded_size; ++i)
             {
                 const auto unit = decoded[i];
                 if (unit == u'\r')
                 {
                     echo_text_.append(u"\r\n", 2);
-                    if (i + 1 < decoded.size() && decoded[i + 1] == u'\n')
+                    if (i + 1 < decoded_size && decoded[i + 1] == u'\n')
                         ++i;
                 }
                 else if (unit == u'\n')

@@ -1092,7 +1092,8 @@ class console_api final
         state_.default_style = buffer_.style_for_attributes(request->Attributes);
         state_.max_window_size = screen::coord{request->MaximumWindowSize.X, request->MaximumWindowSize.Y};
         state_.popup_attributes = request->PopupAttributes;
-        for (std::size_t i = 0; i < state_.color_table.size(); ++i)
+        const auto color_count = state_.color_table.size();
+        for (std::size_t i = 0; i < color_count; ++i)
         {
             state_.color_table[i] = request->ColorTable[i];
         }
@@ -2514,7 +2515,8 @@ class console_api final
             COORD{static_cast<SHORT>(state_.max_window_size.x), static_cast<SHORT>(state_.max_window_size.y)};
         info->PopupAttributes = state_.popup_attributes;
         info->FullscreenSupported = FALSE;
-        for (std::size_t i = 0; i < state_.color_table.size(); ++i)
+        const auto color_count = state_.color_table.size();
+        for (std::size_t i = 0; i < color_count; ++i)
         {
             info->ColorTable[i] = state_.color_table[i];
         }
@@ -2533,12 +2535,13 @@ class console_api final
     {
         screen::coord cursor{static_cast<std::int32_t>(state_.cursor().x),
                              static_cast<std::int32_t>(state_.cursor().y)};
+        const auto text_size = text.size();
         std::size_t written = 0;
         std::size_t offset = 0;
-        while (offset < text.size())
+        while (offset < text_size)
         {
             auto segment_end = offset;
-            while (segment_end < text.size() && text[segment_end] != u'\r' && text[segment_end] != u'\n')
+            while (segment_end < text_size && text[segment_end] != u'\r' && text[segment_end] != u'\n')
             {
                 ++segment_end;
             }

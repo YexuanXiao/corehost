@@ -116,7 +116,8 @@ class cancellable_read
     {
         assert(!destination.empty());
         read_bytes = 0;
-        while (read_bytes < destination.size())
+        const auto destination_size = destination.size();
+        while (read_bytes < destination_size)
         {
             DWORD chunk = 0;
             const auto status = read(destination.subspan(read_bytes), chunk);

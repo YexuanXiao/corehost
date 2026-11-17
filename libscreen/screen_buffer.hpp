@@ -1112,10 +1112,11 @@ inline std::size_t screen_buffer::read_char_info(rect area, std::span<char_info>
     const auto right = std::min(area.right, static_cast<std::int32_t>(width_) - 1);
     const auto bottom = std::min(area.bottom, static_cast<std::int32_t>(height_) - 1);
 
+    const auto out_size = out.size();
     std::size_t count = 0;
-    for (auto y = top; y <= bottom && count < out.size(); ++y)
+    for (auto y = top; y <= bottom && count < out_size; ++y)
     {
-        for (auto x = left; x <= right && count < out.size(); ++x)
+        for (auto x = left; x <= right && count < out_size; ++x)
         {
             out[count++] = char_info_at(coord{x, y});
         }
@@ -1125,10 +1126,11 @@ inline std::size_t screen_buffer::read_char_info(rect area, std::span<char_info>
 
 inline std::size_t screen_buffer::write_char_info(rect area, std::span<const char_info> values) noexcept
 {
+    const auto values_size = values.size();
     std::size_t index = 0;
-    for (auto y = area.top; y <= area.bottom && index < values.size(); ++y)
+    for (auto y = area.top; y <= area.bottom && index < values_size; ++y)
     {
-        for (auto x = area.left; x <= area.right && index < values.size(); ++x)
+        for (auto x = area.left; x <= area.right && index < values_size; ++x)
         {
             if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
             {
@@ -1174,10 +1176,11 @@ inline std::size_t screen_buffer::read_char_info_abi(rect area, std::span<intero
     const auto right = std::min(area.right, static_cast<std::int32_t>(width_) - 1);
     const auto bottom = std::min(area.bottom, static_cast<std::int32_t>(height_) - 1);
 
+    const auto out_size = out.size();
     std::size_t count = 0;
-    for (auto y = top; y <= bottom && count < out.size(); ++y)
+    for (auto y = top; y <= bottom && count < out_size; ++y)
     {
-        for (auto x = left; x <= right && count < out.size(); ++x)
+        for (auto x = left; x <= right && count < out_size; ++x)
         {
             out[count++] = to_win32(char_info_at(coord{x, y}));
         }
@@ -1188,10 +1191,11 @@ inline std::size_t screen_buffer::read_char_info_abi(rect area, std::span<intero
 inline std::size_t screen_buffer::write_char_info_abi(rect area,
                                                       std::span<const interop::win32::char_info> values) noexcept
 {
+    const auto values_size = values.size();
     std::size_t index = 0;
-    for (auto y = area.top; y <= area.bottom && index < values.size(); ++y)
+    for (auto y = area.top; y <= area.bottom && index < values_size; ++y)
     {
-        for (auto x = area.left; x <= area.right && index < values.size(); ++x)
+        for (auto x = area.left; x <= area.right && index < values_size; ++x)
         {
             if (x < 0 || y < 0 || static_cast<std::size_t>(x) >= width_ || static_cast<std::size_t>(y) >= height_)
             {
@@ -1238,11 +1242,12 @@ inline std::size_t screen_buffer::read_chars(coord start, std::span<char16_t> ou
         return 0;
     }
 
+    const auto out_size = out.size();
     std::size_t count = 0;
-    for (auto y = start.y; y < static_cast<std::int32_t>(height_) && count < out.size(); ++y)
+    for (auto y = start.y; y < static_cast<std::int32_t>(height_) && count < out_size; ++y)
     {
         auto x = y == start.y ? start.x : 0;
-        while (x < static_cast<std::int32_t>(width_) && count < out.size())
+        while (x < static_cast<std::int32_t>(width_) && count < out_size)
         {
             const auto &value = at(static_cast<std::size_t>(x), static_cast<std::size_t>(y));
             if (value.is_continuation() || !value.has_cluster())
@@ -1269,8 +1274,9 @@ inline std::size_t screen_buffer::read_attrs(coord start, std::span<std::uint16_
         return 0;
     }
 
+    const auto out_size = out.size();
     std::size_t count = 0;
-    while (count < out.size() && static_cast<std::size_t>(y) < height_)
+    while (count < out_size && static_cast<std::size_t>(y) < height_)
     {
         out[count++] = char_info_at(coord{x, y}).attributes;
         if (++x >= static_cast<std::int32_t>(width_))
@@ -1291,8 +1297,9 @@ inline std::size_t screen_buffer::write_chars(coord start, std::u16string_view t
         return 0;
     }
 
+    const auto text_size = text.size();
     std::size_t count = 0;
-    while (count < text.size() && static_cast<std::size_t>(y) < height_)
+    while (count < text_size && static_cast<std::size_t>(y) < height_)
     {
         const auto decoded = next_codepoint(text, count);
         auto columns = console_width(decoded.value);
@@ -1516,8 +1523,9 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
         return result;
     }
 
+    const auto text_size = text.size();
     std::size_t offset = 0;
-    while (offset < text.size())
+    while (offset < text_size)
     {
         if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.y) >= height_)
         {
