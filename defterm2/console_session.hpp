@@ -85,6 +85,10 @@ class console_session final
             apply_connect_info(message);
             const bool was_connected = io_state_.connected();
             io_state_.handle_connect(message);
+            // defterm1 pre-registers the attached client before starting its
+            // local session. Keep the same behavior here instead of relying
+            // on a later process-list query racing the CONNECT handler.
+            processes_.add(static_cast<std::uintptr_t>(message.descriptor.Process));
             api_.set_input_object(io_state_.input_id());
             api_.set_input_handle(reinterpret_cast<std::uintptr_t>(io_state_.input().get()));
             api_.set_output_object(io_state_.output_id());
