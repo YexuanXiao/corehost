@@ -1128,12 +1128,7 @@ class server_session final
         {
             LOG("render initial alternate viewport");
             initial_repaint_sent_ = true;
-            const auto cursor = screen::coord{
-                static_cast<std::int32_t>(state_.cursor().x),
-                static_cast<std::int32_t>(state_.cursor().y),
-            };
-            (void)screen_.take_scroll_up();
-            vtserializer::render_viewport(writer_->buffer(), screen_, cursor, &state_);
+            render_full_viewport(screen_, state_, writer_->buffer());
             if (!state_.title.empty())
             {
                 vtserializer::append_window_title(writer_->buffer(), state_.title);

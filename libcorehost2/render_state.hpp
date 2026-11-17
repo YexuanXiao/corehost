@@ -103,6 +103,22 @@ inline void render_snapshot_frame(const render_snapshot &snapshot, screen::scree
                                           console.cursor().blinking);
 }
 
+inline void render_full_viewport(screen::screen_buffer &screen, screen::console_state &console,
+                                 vtserializer::byte_buffer &output)
+{
+    const auto snapshot = take_render_snapshot(screen, console);
+    const auto cursor = screen::coord{static_cast<std::int32_t>(console.cursor().x),
+                                      static_cast<std::int32_t>(console.cursor().y)};
+    vtserializer::render_viewport(output, screen, cursor, &console, false);
+    screen.clear_damage();
+    note_terminal_cursor(console, screen, cursor);
+    if (snapshot.cursor_visibility_changed)
+        vtserializer::append_cursor_visibility(output, console.cursor().visible);
+    if (snapshot.cursor_shape_changed)
+        vtserializer::append_cursor_shape(output, static_cast<unsigned>(console.cursor().style),
+                                          console.cursor().blinking);
+}
+
 inline void commit_direct_output(screen::screen_buffer &screen, screen::console_state &console) noexcept
 {
     (void)screen.take_scroll_up();
