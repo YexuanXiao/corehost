@@ -47,6 +47,8 @@ class console_session final
           api_{screen_, state_, &input_, 0, &processes_, &payload_}
     {
         state_.output_mode = 0x0001 | 0x0002 | 0x0004;
+        state_.measurement = screen::text_measurement::graphemes;
+        state_.ambiguous_is_wide = true;
         window_.start();
         api_.set_window_handle(reinterpret_cast<std::uintptr_t>(window_.handle()));
     }
