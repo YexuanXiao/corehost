@@ -103,6 +103,18 @@ inline void render_snapshot_frame(const render_snapshot &snapshot, screen::scree
                                           console.cursor().blinking);
 }
 
+template <typename SessionState>
+inline void consume_render_state_after_raw(screen::screen_buffer &screen, screen::console_state &console,
+                                           SessionState &session, vtserializer::byte_buffer &output)
+{
+    const auto snapshot = take_render_snapshot(screen, console, session);
+    screen.clear_damage();
+    console.terminal_cursor_valid = false;
+    if (snapshot.cursor_shape_changed)
+        vtserializer::append_cursor_shape(output, static_cast<unsigned>(console.cursor().style),
+                                          console.cursor().blinking);
+}
+
 inline void render_pending_screen(screen::screen_buffer &screen, screen::console_state &console,
                                   vtserializer::byte_buffer &output)
 {

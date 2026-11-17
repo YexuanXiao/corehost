@@ -103,13 +103,8 @@ struct message_handler final
             {
                 context.writer->buffer().append(
                     std::span<const char8_t>{reinterpret_cast<const char8_t *>(raw_output.data()), raw_output.size()});
-                context.state->screen().clear_damage();
-                (void)context.state->screen().take_scroll_up();
-                (void)context.state->take_alternate_changed();
-                (void)context.state->take_viewport_changed();
-                (void)context.state->state().take_cursor_changed();
-                (void)context.state->state().take_cursor_visibility_changed();
-                context.state->state().terminal_cursor_valid = false;
+                consume_render_state_after_raw(context.state->screen(), context.state->state(), *context.state,
+                                               context.writer->buffer());
                 (void)context.state->take_echo_line_feed();
                 (void)context.state->take_title_changed();
                 (void)context.state->take_scrollback_cleared();
