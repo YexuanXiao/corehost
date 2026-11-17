@@ -1061,7 +1061,8 @@ class server_session final
                                                        static_cast<int>(written), nullptr, 0, nullptr, nullptr);
             request->NumBytes = static_cast<ULONG>(std::max(encoded, 0));
         }
-        if (writer_ != nullptr && (state_.output_mode & 0x0001) != 0)
+        if (writer_ != nullptr && (state_.output_mode & 0x0001) != 0 &&
+            state_.default_style == screen::default_cell_style)
         {
             const auto origin = screen_.viewport_origin();
             const auto target_x = static_cast<std::int32_t>(write_cursor.x) - origin.x;

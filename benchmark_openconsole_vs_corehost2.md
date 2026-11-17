@@ -11,7 +11,7 @@
 | 路径 | `C:\1\OpenConsole.exe` | `build-nolog\Release\corehost2.exe` |
 | 版本 | 1.26.2611.09003 / 1.26.261109003-preview | 本地 Release 无日志构建 |
 | 大小 | 1,091,424 B | 4,855,296 B |
-| SHA-256 | `7E04EC7E4691ABF5308831D531CC2B7B8AC61E2B2F3EA52B51BDA810DDF7FF6A` | `58FA78ADE25FDDEA96E93A6D2E36FB17DC1D172E9BB002E7DC8FE42F8B5A2E2E` |
+| SHA-256 | `7E04EC7E4691ABF5308831D531CC2B7B8AC61E2B2F3EA52B51BDA810DDF7FF6A` | `EB4FA858BDD64D21F3B75F7FF81093B6E70A6A8E7D434A5B50532BC0F569F954` |
 
 ## 方法
 
@@ -172,6 +172,8 @@ corehost2：  2,073,522 B，1,819.9 ms
 
 输出只差 +0.48%，耗时慢约 4%。  
 PowerShell prompt 的淡色重影在原版 OpenConsole 上也存在，不是本次 WriteConsole 路径引入的。
+
+另外，`WriteConsole` 的零拷贝直接路径只允许默认 style；非默认颜色改回 renderer 输出，否则 PowerShell 错误文本会丢掉红色。实测该行为与真实 OpenConsole 一致（红色文字、黑色 console 背景）。
 
 ### SGR 子集不是全面领先
 
