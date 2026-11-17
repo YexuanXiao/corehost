@@ -103,13 +103,10 @@ Refer to CI for cross compilation and building with Clang.
 ### Build targets
 
 - `corehost`: the sole host executable. It provides the functionality of conhost/OpenConsole.
-- `libcorepty`: the core of modular corehost and implements full ConPTY functionality. Third-party terminals can link libcorepty into their programs without needing to use an external conhost program.
-- `defterm`: default-terminal entry used by `corehost`; it has no `vt_in`, `vt_out`, or signal members.
+- `libcorepty`: the core of corehost and implements full ConPTY functionality. Third-party terminals can link libcorepty into their programs without needing to use an external conhost program.
 - `conpty`: the shared library form of libconpty for third-party terminals that export the symbols declared by winconpty.h.
 - `conpty_static`: the static library form of libconpty.
 - `conhost_proxy`: the COM proxy/stub DLL used by default-terminal handoff and COM embedding.
-
-Tests that targeted the removed `libcorepty1`/legacy `corehost` modules have been deleted together with those modules.
 
 ### CMake options
 
