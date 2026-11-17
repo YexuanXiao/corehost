@@ -220,10 +220,11 @@ class input_queue final
     std::size_t read_raw(std::span<input_event> destination) noexcept
     {
         const auto count = std::min(destination.size(), events_.size());
-        std::copy_n(events_.begin(), count, destination.begin());
         for (std::size_t i = 0; i < count; ++i)
         {
-            unaccount(events_.front());
+            auto &front = events_.front();
+            unaccount(front);
+            destination[i] = std::move(front);
             events_.pop_front();
         }
         return count;
@@ -247,8 +248,9 @@ class input_queue final
             auto &front = events_.front();
             if (front.type != input_event_type::text)
             {
-                destination[count++] = front;
-                if (front.type == input_event_type::key && front.key.key_down)
+                const bool key_down = front.type == input_event_type::key && front.key.key_down;
+                destination[count++] = std::move(front);
+                if (key_down)
                     --key_count_;
                 events_.pop_front();
                 continue;
