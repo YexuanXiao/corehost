@@ -116,20 +116,6 @@ render_snapshot render_snapshot::take(screen::screen_buffer &screen, screen::con
     return snapshot;
 }
 
-[[nodiscard]] inline render_snapshot take_render_snapshot(screen::screen_buffer &screen,
-                                                          screen::console_state &console) noexcept
-{
-    return render_snapshot::take(screen, console);
-}
-
-template <typename SessionState>
-[[nodiscard]] inline render_snapshot take_render_snapshot(screen::screen_buffer &screen,
-                                                          screen::console_state &console,
-                                                          SessionState &session) noexcept
-{
-    return render_snapshot::take(screen, console, session);
-}
-
 inline void render_snapshot_frame(const render_snapshot &snapshot, screen::screen_buffer &screen,
                                   screen::console_state &console, vtserializer::byte_buffer &output)
 {
