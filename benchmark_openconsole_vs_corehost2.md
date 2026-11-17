@@ -11,9 +11,9 @@
 | 路径 | `C:\1\OpenConsole.exe` | `build-nolog\Release\corehost2.exe` |
 | 版本 | 1.26.2611.09003 / 1.26.261109003-preview | 本地 Release 无日志构建 |
 | 大小 | 1,091,424 B | 485,376 B |
-| SHA-256 | `7E04EC7E4691ABF5308831D531CC2B7B8AC61E2B2F3EA52B51BDA810DDF7FF6A` | `725A1417410147F1517BD2573E78F8C4F68517D510154771F17D214A18E9CA77` |
+| SHA-256 | `7E04EC7E4691ABF5308831D531CC2B7B8AC61E2B2F3EA52B51BDA810DDF7FF6A` | `3748B8C4B3DDA19B7BB052A21D7A21DB50245C37DBEBBEDE2AA5012FE25A94C7` |
 
-> 后续为 libunicode 增加 `/Gw` 数据 COMDAT 折叠，corehost2 从 4,855,296 B 降到 485,376 B。以上性能数据来自同一代码在链接裁剪前的构建；折叠只移除未引用的 Unicode 名称表，不改变执行路径。
+> 后续为 libunicode 增加 `/Gw` 数据 COMDAT 折叠，并移除 libcorehost 的系统 ICU 依赖：corehost2 从 4,855,296 B 降到 485,376 B，corehost 为 570,368 B。以上性能数据来自同一代码在链接裁剪前的构建；折叠只移除未引用的 Unicode 名称表，不改变执行路径。
 
 ## 方法
 
