@@ -28,6 +28,107 @@
 namespace corehost::consoleapi
 {
 
+// API numbers are level-tagged in their high byte. Keep the per-level
+// normalized order identical to the ABI enums so callers can switch on a
+// zero-based value.
+enum class level1_api : std::uint32_t
+{
+    get_cp,
+    get_mode,
+    set_mode,
+    get_number_of_input_events,
+    get_console_input,
+    read_console,
+    write_console,
+    notify_last_close,
+    get_lang_id,
+    map_bitmap,
+};
+
+enum class level2_api : std::uint32_t
+{
+    fill_console_output,
+    generate_ctrl_event,
+    set_active_screen_buffer,
+    flush_input_buffer,
+    set_cp,
+    get_cursor_info,
+    set_cursor_info,
+    get_screen_buffer_info,
+    set_screen_buffer_info,
+    set_screen_buffer_size,
+    set_cursor_position,
+    get_largest_window_size,
+    scroll_screen_buffer,
+    set_text_attribute,
+    set_window_info,
+    read_console_output_string,
+    write_console_input,
+    write_console_output,
+    write_console_output_string,
+    read_console_output,
+    get_title,
+    set_title,
+};
+
+enum class level3_api : std::uint32_t
+{
+    get_number_of_fonts,
+    get_mouse_info,
+    get_font_info,
+    get_font_size,
+    get_current_font,
+    set_font,
+    set_icon,
+    invalidate_bitmap_rect,
+    vdm_operation,
+    set_cursor,
+    show_cursor,
+    menu_control,
+    set_palette,
+    set_display_mode,
+    register_vdm,
+    get_hardware_state,
+    set_hardware_state,
+    get_display_mode,
+    add_alias,
+    get_alias,
+    get_aliases_length,
+    get_alias_exes_length,
+    get_aliases,
+    get_alias_exes,
+    expunge_command_history,
+    set_number_of_commands,
+    get_command_history_length,
+    get_command_history,
+    set_key_shortcuts,
+    set_menu_close,
+    get_keyboard_layout_name,
+    get_console_window,
+    char_type,
+    set_local_eudc,
+    set_cursor_mode,
+    get_cursor_mode,
+    register_os2,
+    set_os2_oem_format,
+    get_nls_mode,
+    set_nls_mode,
+    get_selection_info,
+    get_console_process_list,
+    get_history,
+    set_history,
+    set_current_font,
+};
+
+static_assert(static_cast<std::uint32_t>(level1_api::map_bitmap) ==
+              static_cast<std::uint32_t>(ConsolepMapBitmap - CONSOLE_FIRST_API_NUMBER(1)));
+static_assert(static_cast<std::uint32_t>(level2_api::set_title) ==
+              static_cast<std::uint32_t>(ConsolepSetTitle - CONSOLE_FIRST_API_NUMBER(2)));
+static_assert(static_cast<std::uint32_t>(level3_api::get_console_process_list) ==
+              static_cast<std::uint32_t>(ConsolepGetConsoleProcessList - CONSOLE_FIRST_API_NUMBER(3)));
+static_assert(static_cast<std::uint32_t>(level3_api::set_current_font) ==
+              static_cast<std::uint32_t>(ConsolepSetCurrentFont - CONSOLE_FIRST_API_NUMBER(3)));
+
 // Native console-facing operations. This layer owns cursor advancement and
 // ABI projection, while libscreen owns cell storage.
 class console_api final
@@ -122,126 +223,127 @@ class console_api final
             return true;
         }
         const auto layer = header->ApiNumber >> 24;
+        const auto api = header->ApiNumber & 0x00FFFFFFu;
         switch (layer)
         {
         case 1:
-            switch (header->ApiNumber)
+            switch (static_cast<level1_api>(api))
             {
-            case ConsolepGetCP:
+            case level1_api::get_cp:
                 return get_code_page(message);
-            case ConsolepGetMode:
+            case level1_api::get_mode:
                 return get_mode(message, !is_output_object(message.descriptor.Object));
-            case ConsolepSetMode:
+            case level1_api::set_mode:
                 return set_mode(message, !is_output_object(message.descriptor.Object));
-            case ConsolepGetNumberOfInputEvents:
+            case level1_api::get_number_of_input_events:
                 return get_number_of_input_events(message);
-            case ConsolepGetConsoleInput:
+            case level1_api::get_console_input:
                 return read_console_input(message);
-            case ConsolepReadConsole:
+            case level1_api::read_console:
                 return read_console(message);
-            case ConsolepWriteConsole:
+            case level1_api::write_console:
                 return write_console(message);
-            case ConsolepGetLangId:
+            case level1_api::get_lang_id:
                 return get_language_id(message);
             default:
                 break;
             }
             break;
         case 2:
-            switch (header->ApiNumber)
+            switch (static_cast<level2_api>(api))
             {
-            case ConsolepFillConsoleOutput:
+            case level2_api::fill_console_output:
                 return fill_console_output(message);
-            case ConsolepGenerateCtrlEvent:
+            case level2_api::generate_ctrl_event:
                 return generate_ctrl_event(message);
-            case ConsolepSetActiveScreenBuffer:
+            case level2_api::set_active_screen_buffer:
                 return set_active_screen_buffer(message);
-            case ConsolepFlushInputBuffer:
+            case level2_api::flush_input_buffer:
                 return flush_input_buffer(message);
-            case ConsolepSetCP:
+            case level2_api::set_cp:
                 return set_code_page(message);
-            case ConsolepGetCursorInfo:
+            case level2_api::get_cursor_info:
                 return get_cursor_info(message);
-            case ConsolepSetCursorInfo:
+            case level2_api::set_cursor_info:
                 return set_cursor_info(message);
-            case ConsolepGetScreenBufferInfo:
+            case level2_api::get_screen_buffer_info:
                 return get_screen_buffer_info(message);
-            case ConsolepSetScreenBufferInfo:
+            case level2_api::set_screen_buffer_info:
                 return set_screen_buffer_info(message);
-            case ConsolepSetScreenBufferSize:
+            case level2_api::set_screen_buffer_size:
                 return set_screen_buffer_size(message);
-            case ConsolepSetCursorPosition:
+            case level2_api::set_cursor_position:
                 return set_cursor_position(message);
-            case ConsolepGetLargestWindowSize:
+            case level2_api::get_largest_window_size:
                 return get_largest_window_size(message);
-            case ConsolepScrollScreenBuffer:
+            case level2_api::scroll_screen_buffer:
                 return scroll_console_buffer(message);
-            case ConsolepSetTextAttribute:
+            case level2_api::set_text_attribute:
                 return set_text_attribute(message);
-            case ConsolepSetWindowInfo:
+            case level2_api::set_window_info:
                 return set_window_info(message);
-            case ConsolepReadConsoleOutputString:
+            case level2_api::read_console_output_string:
                 return read_console_output_string(message);
-            case ConsolepWriteConsoleInput:
+            case level2_api::write_console_input:
                 return write_console_input(message);
-            case ConsolepWriteConsoleOutput:
+            case level2_api::write_console_output:
                 return write_console_output(message);
-            case ConsolepWriteConsoleOutputString:
+            case level2_api::write_console_output_string:
                 return write_console_output_string(message);
-            case ConsolepReadConsoleOutput:
+            case level2_api::read_console_output:
                 return read_console_output(message);
-            case ConsolepGetTitle:
+            case level2_api::get_title:
                 return get_title(message);
-            case ConsolepSetTitle:
+            case level2_api::set_title:
                 return set_title(message);
             default:
                 break;
             }
             break;
         case 3:
-            switch (header->ApiNumber)
+            switch (static_cast<level3_api>(api))
             {
-            case ConsolepGetConsoleProcessList:
+            case level3_api::get_console_process_list:
                 return get_process_list(message);
-            case ConsolepGetMouseInfo:
+            case level3_api::get_mouse_info:
                 return get_mouse_info(message);
-            case ConsolepGetFontSize:
+            case level3_api::get_font_size:
                 return get_font_size(message);
-            case ConsolepGetCurrentFont:
+            case level3_api::get_current_font:
                 return get_current_font(message);
-            case ConsolepSetCurrentFont:
+            case level3_api::set_current_font:
                 return set_current_font(message);
-            case ConsolepGetDisplayMode:
+            case level3_api::get_display_mode:
                 return get_display_mode(message);
-            case ConsolepSetDisplayMode:
+            case level3_api::set_display_mode:
                 return set_display_mode(message);
-            case ConsolepGetAliasesLength:
+            case level3_api::get_aliases_length:
                 return get_aliases_length(message);
-            case ConsolepGetAliasExesLength:
+            case level3_api::get_alias_exes_length:
                 return get_alias_exes_length(message);
-            case ConsolepGetAliases:
+            case level3_api::get_aliases:
                 return get_aliases(message);
-            case ConsolepGetAliasExes:
+            case level3_api::get_alias_exes:
                 return get_alias_exes(message);
-            case ConsolepAddAlias:
+            case level3_api::add_alias:
                 return add_alias(message);
-            case ConsolepGetAlias:
+            case level3_api::get_alias:
                 return get_alias(message);
-            case ConsolepExpungeCommandHistory:
+            case level3_api::expunge_command_history:
                 return expunge_command_history(message);
-            case ConsolepSetNumberOfCommands:
+            case level3_api::set_number_of_commands:
                 return set_number_of_commands(message);
-            case ConsolepGetCommandHistoryLength:
+            case level3_api::get_command_history_length:
                 return get_command_history_length(message);
-            case ConsolepGetCommandHistory:
+            case level3_api::get_command_history:
                 return get_command_history(message);
-            case ConsolepGetHistory:
+            case level3_api::get_history:
                 return get_history_info(message);
-            case ConsolepSetHistory:
+            case level3_api::set_history:
                 return set_history_info(message);
-            case ConsolepGetConsoleWindow:
+            case level3_api::get_console_window:
                 return get_console_window(message);
-            case ConsolepGetSelectionInfo:
+            case level3_api::get_selection_info:
                 return get_selection_info(message);
             default:
                 break;
