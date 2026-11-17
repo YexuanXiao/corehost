@@ -3,6 +3,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 
 int main()
 {
@@ -74,6 +75,20 @@ int main()
     }
 
     queue.clear();
+    input_event metadata_text_event{};
+    metadata_text_event.type = input_event_type::text;
+    metadata_text_event.text = std::make_shared<const std::u16string>(u"A");
+    queue.push(std::move(metadata_text_event));
+    input_event text_events[2]{};
+    if (queue.read(text_events) != 2 || text_events[0].key.character != u'A' ||
+        text_events[0].key.key != static_cast<virtual_key>(0) || text_events[0].key.scan_code != 0 ||
+        text_events[0].key.control_state != 0 || !text_events[0].key.key_down || text_events[1].key.key_down)
+    {
+        std::fprintf(stderr, "text metadata failed\n");
+        return EXIT_FAILURE;
+    }
+
+    queue.clear();
     queue.push(input_event{input_event_type::key, key_event{u'A'}});
     queue.push_front(input_event{input_event_type::key, key_event{u'B'}});
     input_event ordered[2]{};
@@ -104,7 +119,7 @@ int main()
     }
     input_event expanded[8]{};
     const auto expanded_count = queue.peek(expanded);
-    if (expanded_count != 6 || expanded[0].key.character != u'A' || expanded[0].key.key == virtual_key{} ||
+    if (expanded_count != 6 || expanded[0].key.character != u'A' || expanded[0].key.key != virtual_key{} ||
         expanded[1].key.key_down)
     {
         std::fprintf(stderr, "text batch expansion metadata failed\n");

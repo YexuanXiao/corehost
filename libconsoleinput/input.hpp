@@ -90,6 +90,16 @@ struct key_event final
     return event;
 }
 
+// Text from a terminal is not a keyboard event. Keep the character but do not
+// invent a virtual key, scan code, or modifier state for it.
+[[nodiscard]] inline key_event key_from_text_character(char16_t character, bool key_down = true) noexcept
+{
+    key_event event;
+    event.character = character;
+    event.key_down = key_down;
+    return event;
+}
+
 enum class input_event_type : std::uint8_t
 {
     key,
@@ -178,7 +188,7 @@ class input_queue final
                 return 0;
             input_event up{};
             up.type = input_event_type::key;
-            up.key = key_from_character(text_up_char_, false);
+            up.key = key_from_text_character(text_up_char_, false);
             destination[count++] = up;
         }
         for (const auto &event : events_)
@@ -194,13 +204,13 @@ class input_queue final
             {
                 input_event down{};
                 down.type = input_event_type::key;
-                down.key = key_from_character((*event.text)[i], true);
+                down.key = key_from_text_character((*event.text)[i], true);
                 destination[count++] = down;
                 if (count == destination.size())
                     break;
                 input_event up{};
                 up.type = input_event_type::key;
-                up.key = key_from_character((*event.text)[i], false);
+                up.key = key_from_text_character((*event.text)[i], false);
                 destination[count++] = up;
             }
         }
@@ -230,7 +240,7 @@ class input_queue final
         {
             input_event up{};
             up.type = input_event_type::key;
-            up.key = key_from_character(text_up_char_, false);
+            up.key = key_from_text_character(text_up_char_, false);
             destination[count++] = up;
             text_up_pending_ = false;
         }
@@ -254,13 +264,13 @@ class input_queue final
             --key_count_;
             input_event down{};
             down.type = input_event_type::key;
-            down.key = key_from_character(character, true);
+            down.key = key_from_text_character(character, true);
             destination[count++] = down;
             if (count < destination.size())
             {
                 input_event up{};
                 up.type = input_event_type::key;
-                up.key = key_from_character(character, false);
+                up.key = key_from_text_character(character, false);
                 destination[count++] = up;
             }
             else
