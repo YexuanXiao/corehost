@@ -46,6 +46,7 @@ target_sources(common
                 utility/env.hpp
                 utility/log.hpp
                 utility/notification.hpp
+                utility/raw_byte_allocator.hpp
                 utility/temp_path.hpp
                 utility/utf.hpp
                 utility/wil.hpp

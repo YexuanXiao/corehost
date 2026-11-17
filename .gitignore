@@ -2,7 +2,9 @@
 .vscode
 build
 contour
+ghostty
 terminal
 build_*
 build-*
 build
+edit

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "win32/command_line.hpp"
-#include "text_measurement_mode.hpp"
+#include "console_state.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -176,7 +176,7 @@ class console_arguments
             //   "console" 传统 conhost 规则测量宽度
             if (token == text_measurement_arg)
             {
-                using enum corehost::conpty::text_measurement_mode;
+                using enum corehost::screen::text_measurement;
                 if (parser.done())
                     throw parse_error::missing_text_measurement_value;
                 const auto value = parser.next();
@@ -234,7 +234,7 @@ class console_arguments
     {
         return _original_command_line;
     }
-    [[nodiscard]] corehost::conpty::text_measurement_mode text_measurement() const noexcept
+    [[nodiscard]] corehost::screen::text_measurement text_measurement() const noexcept
     {
         return _text_measurement;
     }
@@ -311,7 +311,7 @@ class console_arguments
     win32::wcstring_view _client_command_line;
     win32::wcstring_view _original_command_line;
 
-    corehost::conpty::text_measurement_mode _text_measurement{};
+    corehost::screen::text_measurement _text_measurement{};
 
     bool _force_no_handoff = false;
     bool _force_v1 = false;

@@ -22,8 +22,6 @@
 
 namespace corehost::log
 {
-namespace
-{
 
 FILE *init_log_file() noexcept
 {
@@ -94,7 +92,6 @@ void write_hex_digits(wchar_t *out, const unsigned char *bytes, std::size_t coun
     else
         out[0] = L'\0';
 }
-} // namespace
 
 void initialize_log() noexcept
 {

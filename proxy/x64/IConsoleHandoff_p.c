@@ -138,12 +138,13 @@ extern const IConsoleHandoff_MIDL_PROC_FORMAT_STRING IConsoleHandoff__MIDL_ProcF
 extern const IConsoleHandoff_MIDL_EXPR_FORMAT_STRING IConsoleHandoff__MIDL_ExprFormatString;
 
 #ifdef __cplusplus
-namespace {
+namespace midl_IConsoleHandoff_p_x64 {
 #endif
 
 extern const MIDL_STUB_DESC Object_StubDesc;
 #ifdef __cplusplus
 }
+using namespace midl_IConsoleHandoff_p_x64;
 #endif
 
 
@@ -151,12 +152,13 @@ extern const MIDL_SERVER_INFO IConsoleHandoff_ServerInfo;
 extern const MIDL_STUBLESS_PROXY_INFO IConsoleHandoff_ProxyInfo;
 
 #ifdef __cplusplus
-namespace {
+namespace midl_IConsoleHandoff_p_x64 {
 #endif
 
 extern const MIDL_STUB_DESC Object_StubDesc;
 #ifdef __cplusplus
 }
+using namespace midl_IConsoleHandoff_p_x64;
 #endif
 
 
@@ -347,7 +349,7 @@ static const unsigned short IDefaultTerminalMarker_FormatStringOffsetTable[] =
 #include "ndr64types.h"
 #include "pshpack8.h"
 #ifdef __cplusplus
-namespace {
+namespace midl_IConsoleHandoff_p_x64 {
 #endif
 
 
@@ -678,6 +680,7 @@ static const __midl_frag1_t __midl_frag1 =
 (NDR64_UINT32) 0 /* 0x0 */;
 #ifdef __cplusplus
 }
+using namespace midl_IConsoleHandoff_p_x64;
 #endif
 
 
@@ -846,7 +849,7 @@ const CInterfaceStubVtbl _IDefaultTerminalMarkerStubVtbl =
 };
 
 #ifdef __cplusplus
-namespace {
+namespace midl_IConsoleHandoff_p_x64 {
 #endif
 static const MIDL_STUB_DESC Object_StubDesc = 
     {
@@ -873,6 +876,7 @@ static const MIDL_STUB_DESC Object_StubDesc =
     };
 #ifdef __cplusplus
 }
+using namespace midl_IConsoleHandoff_p_x64;
 #endif
 
 const CInterfaceProxyVtbl * const _IConsoleHandoff_ProxyVtblList[] = 

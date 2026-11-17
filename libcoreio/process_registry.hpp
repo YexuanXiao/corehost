@@ -1,0 +1,97 @@
+#pragma once
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <vector>
+
+namespace corehost::coreio
+{
+
+// Windows process ids are 32-bit values. Store the bit pattern in int32_t and
+// convert back to uint32_t at the ABI boundary.
+class process_registry final
+{
+  public:
+    void add(std::uint32_t process, std::uint32_t group = 0) noexcept
+    {
+        if (process == 0)
+        {
+            return;
+        }
+        const auto stored = to_storage(process);
+        if (std::ranges::find(processes_, stored) == processes_.end())
+        {
+            processes_.push_back(stored);
+            groups_.push_back(to_storage(group != 0 ? group : process));
+        }
+    }
+
+    void remove(std::uint32_t process) noexcept
+    {
+        const auto stored = to_storage(process);
+        const auto process_count = processes_.size();
+        for (std::size_t i = 0; i < process_count; ++i)
+        {
+            if (processes_[i] == stored)
+            {
+                processes_.erase(processes_.begin() + static_cast<std::ptrdiff_t>(i));
+                groups_.erase(groups_.begin() + static_cast<std::ptrdiff_t>(i));
+                return;
+            }
+        }
+    }
+
+    [[nodiscard]] bool contains(std::uint32_t process) const noexcept
+    {
+        return std::ranges::find(processes_, to_storage(process)) != processes_.end();
+    }
+
+    [[nodiscard]] bool contains_group(std::uint32_t group) const noexcept
+    {
+        return std::ranges::find(groups_, to_storage(group)) != groups_.end();
+    }
+
+    [[nodiscard]] std::size_t size() const noexcept
+    {
+        return processes_.size();
+    }
+
+    [[nodiscard]] std::span<const std::int32_t> processes() const noexcept
+    {
+        return processes_;
+    }
+
+    [[nodiscard]] std::size_t copy_for_group(std::uint32_t group, std::span<std::int32_t> output) const noexcept
+    {
+        const auto process_count = processes_.size();
+        const auto output_size = output.size();
+        std::size_t written = 0;
+        for (std::size_t i = 0; i < process_count && written < output_size; ++i)
+        {
+            if (group == 0 || static_cast<std::uint32_t>(groups_[i]) == group)
+            {
+                output[written++] = processes_[i];
+            }
+        }
+        return written;
+    }
+
+    void clear() noexcept
+    {
+        processes_.clear();
+        groups_.clear();
+    }
+
+  private:
+    [[nodiscard]] static constexpr std::int32_t to_storage(std::uint32_t value) noexcept
+    {
+        return static_cast<std::int32_t>(value);
+    }
+
+    std::vector<std::int32_t> processes_;
+    std::vector<std::int32_t> groups_;
+};
+
+} // namespace corehost::coreio

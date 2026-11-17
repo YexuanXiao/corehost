@@ -22,6 +22,8 @@
 namespace corehost::defterm
 {
 
+namespace condrv_io = corehost::coreio;
+
 [[nodiscard]] inline CONSOLE_PORTABLE_ATTACH_MSG make_portable_attach_msg(const condrv_io::io_msg &msg) noexcept
 {
     // CONSOLE_PORTABLE_ATTACH_MSG 是默认终端 COM 协议可跨进程传输的

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.30)
+cmake_minimum_required(VERSION 4.3)
 
 project(CoreHost)
 
@@ -27,10 +27,8 @@ add_compile_definitions($<$<BOOL:${COREHOST_ANSI_OPT}>:COREHOST_ANSI_OPT>)
 option(COREHOST_DEFAULT_UTF8 "Make UTF-8 the default console code page and make UTF-8 as corehost's active code page" ON)
 option(COREHOST_RUN_AS_UTF8 "Make UTF-8 as corehost's active code page" ON)
 
-option(COREHOST_USE_SYSTEM_ICU "Use system ICU for Unicode character width calculation" ON)
-
 # ── 版本 ──────────────────────────────────────────────────
-# COREHOST_VERSION 决定 libcorehost/version.h 中的宏，version.h 又决定
+# COREHOST_VERSION 决定 corehost/version.h 中的宏，version.h 又决定
 # corehost.rc 的资源版本。格式为点分隔的数字（如 1.2.3.4）；不足四段
 # 时缺失段按 0 处理。
 set(COREHOST_VERSION "0.0.0.0" CACHE STRING "CoreHost version (dot-separated numbers, e.g. 1.2.3.4)")
@@ -65,10 +63,41 @@ add_subdirectory(proxy)
 # ── common (核心基础设施: os/ntapi/win32/com/utility) ──
 add_subdirectory(common)
 
-# ── libcorehost (ConPTY 核心静态库) ──────────────────
-add_subdirectory(libcorehost)
+# ── libinterop (ABI-compatible Win32 console types) ───
+add_subdirectory(libinterop)
 
-# ── corehost (宿主可执行文件) ────────────────────────
+# ── libcoreio (ConDrv IO primitives) ──────────────────
+add_subdirectory(libcoreio)
+
+# ── libvtparser (platform-neutral VT parser) ─────────
+add_subdirectory(libvtparser)
+
+# ── libvtserializer (platform-neutral VT serializer) ─
+add_subdirectory(libvtserializer)
+
+# ── libconsoleinput (parser keys -> portable input events) ─
+add_subdirectory(libconsoleinput)
+
+# ── libscreen (16-byte cell 屏幕缓冲区参考实现) ────────
+add_subdirectory(libscreen)
+add_subdirectory(libscreen/bench)
+
+# ── libconsole (console state on top of libscreen) ────
+add_subdirectory(libconsole)
+
+# ── libvtstate (parser messages -> libscreen state) ──
+add_subdirectory(libvtstate)
+
+# ── libconsoleapi (Console API-facing screen operations) ─
+add_subdirectory(libconsoleapi)
+
+# ── libpseudowindow (shared hidden console window) ─────
+add_subdirectory(libpseudowindow)
+
+# ── libcorepty (new modular host assembly) ───────────
+add_subdirectory(libcorepty)
+
+# ── corehost (sole host executable, includes defterm) ─
 add_subdirectory(corehost)
 
 # ── libconpty (ConPTY 静态库 + DLL) ──────────────────
@@ -77,8 +106,13 @@ add_subdirectory(libconpty)
 # ── bench (ConPTY 性能测试工具) ───────────────────────
 add_subdirectory(bench)
 
-# ═══════════════════════════════════════════════════════════════
-# 测试
-# ═══════════════════════════════════════════════════════════════
+# Current corepty tests only; legacy corehost/libcorepty1 tests were removed.
 enable_testing()
-add_subdirectory(tests)
+add_subdirectory(libcorepty/tests)
+add_subdirectory(libconsoleapi/tests)
+add_subdirectory(libconsoleinput/tests)
+add_subdirectory(libcoreio/tests)
+add_subdirectory(libscreen/tests)
+add_subdirectory(libvtparser/tests)
+add_subdirectory(libvtserializer/tests)
+add_subdirectory(libvtstate/tests)

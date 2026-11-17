@@ -9,8 +9,6 @@
 
 namespace diagnostic_report
 {
-namespace
-{
 
 [[nodiscard]] unsigned long long current_process_creation_unix_time() noexcept
 {
@@ -85,8 +83,6 @@ std::wstring write_connect_report(win32::wcstring_view reason, DWORD client_pid,
     std::fclose(file);
     return path;
 }
-
-} // namespace
 
 std::wstring write_elevated_terminal_blocked(win32::wcstring_view reason, DWORD client_pid, DWORD process_group_id,
                                              DWORD show_window, DWORD startup_flags, bool window_visible,
