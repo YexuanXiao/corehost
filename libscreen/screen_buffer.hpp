@@ -1426,7 +1426,9 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
 
     if constexpr (Mode == text_measurement::graphemes)
     {
-        if (widths.empty() && all_printable_ascii(text))
+        if (widths.empty() && all_printable_ascii(text) &&
+            (!wrap_at_eol || (cursor.x >= 0 && cursor.y >= 0 &&
+                              static_cast<std::size_t>(cursor.x) + text.size() <= width_)))
         {
             if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.x) >= width_ ||
                 static_cast<std::size_t>(cursor.y) >= height_)
@@ -1453,11 +1455,25 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
 
         for (const auto cluster : grapheme_range<Mode, AmbiguousIsWide>{text})
         {
-            if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.x) >= width_ ||
-                static_cast<std::size_t>(cursor.y) >= height_)
+            if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.y) >= height_)
             {
                 result.row_end = true;
                 break;
+            }
+            if (static_cast<std::size_t>(cursor.x) >= width_)
+            {
+                if (!wrap_at_eol)
+                {
+                    result.row_end = true;
+                    break;
+                }
+                cursor.x = 0;
+                ++cursor.y;
+                if (static_cast<std::size_t>(cursor.y) >= height_)
+                {
+                    result.row_end = true;
+                    break;
+                }
             }
 
             auto columns = cluster.width;
@@ -1471,8 +1487,18 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
             }
             if (cursor.x + columns > static_cast<std::int32_t>(width_))
             {
-                result.row_end = true;
-                break;
+                if (!wrap_at_eol)
+                {
+                    result.row_end = true;
+                    break;
+                }
+                cursor.x = 0;
+                ++cursor.y;
+                if (static_cast<std::size_t>(cursor.y) >= height_)
+                {
+                    result.row_end = true;
+                    break;
+                }
             }
 
             const std::u16string_view cluster_text{cluster.text.data(), cluster.text.size()};
@@ -1484,17 +1510,35 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
             cursor.x += columns;
             result.consumed += cluster.text.size();
         }
+        if (cursor.x >= static_cast<std::int32_t>(width_))
+        {
+            result.row_end = true;
+        }
         return result;
     }
 
     std::size_t offset = 0;
     while (offset < text.size())
     {
-        if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.x) >= width_ ||
-            static_cast<std::size_t>(cursor.y) >= height_)
+        if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.y) >= height_)
         {
             result.row_end = true;
             break;
+        }
+        if (static_cast<std::size_t>(cursor.x) >= width_)
+        {
+            if (!wrap_at_eol)
+            {
+                result.row_end = true;
+                break;
+            }
+            cursor.x = 0;
+            ++cursor.y;
+            if (static_cast<std::size_t>(cursor.y) >= height_)
+            {
+                result.row_end = true;
+                break;
+            }
         }
 
         const auto decoded = next_codepoint(text, offset);
@@ -1526,11 +1570,10 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
         cursor.x += columns;
         offset += decoded.units;
         result.consumed = offset;
-        if (cursor.x >= static_cast<std::int32_t>(width_))
-        {
-            result.row_end = true;
-            break;
-        }
+    }
+    if (cursor.x >= static_cast<std::int32_t>(width_))
+    {
+        result.row_end = true;
     }
     return result;
 }

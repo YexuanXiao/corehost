@@ -941,6 +941,30 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer wrap_off_buffer{4, 2};
+    corehost::screen::console_state wrap_off_state{4, 2};
+    wrap_off_state.output_mode = 0;
+    corehost::consoleapi::console_api wrap_off_api{wrap_off_buffer, wrap_off_state};
+    if (wrap_off_api.write_text(u"ABCDE") || wrap_off_buffer.at(0, 0).primary() != u'A' ||
+        wrap_off_buffer.at(3, 0).primary() != u'D' || wrap_off_buffer.at(0, 1).primary() != u' ')
+    {
+        std::fprintf(stderr, "wrap disabled failed\n");
+        return EXIT_FAILURE;
+    }
+
+    corehost::screen::screen_buffer wrap_on_buffer{4, 2};
+    corehost::screen::console_state wrap_on_state{4, 2};
+    wrap_on_state.output_mode = 0x0001;
+    corehost::consoleapi::console_api wrap_on_api{wrap_on_buffer, wrap_on_state};
+    const auto wrap_on_result = wrap_on_api.write_text(u"ABCDE");
+    if (!wrap_on_result || wrap_on_buffer.at(0, 1).primary() != u'E')
+    {
+        std::fprintf(stderr, "wrap enabled failed: result=%d cell=%04x cursor=%zu,%zu\n",
+                     static_cast<int>(wrap_on_result), static_cast<unsigned>(wrap_on_buffer.at(0, 1).primary()),
+                     wrap_on_state.cursor().x, wrap_on_state.cursor().y);
+        return EXIT_FAILURE;
+    }
+
     corehost::coreio::io_msg font_size_message{};
     font_size_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETFONTSIZE_MSG);
     font_size_message.descriptor.OutputSize = sizeof(font_size_message.body);
