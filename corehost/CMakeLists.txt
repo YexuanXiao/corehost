@@ -2,22 +2,7 @@
 # corehost / corehost2 — CoreHost 可执行文件
 # ═══════════════════════════════════════════════════════════════
 
-# libcorepty1 的 COM handoff 适配层。单独编译，避免 libcorepty1 与
-# libcorepty2 的同名头文件互相遮蔽。
-add_library(corehost1_support STATIC
-    support/com_handoff_bridge.cpp
-    comserver/com_server.cpp
-)
-
-target_include_directories(corehost1_support PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}
-)
-
-target_link_libraries(corehost1_support PRIVATE
-    libcorepty1
-    conhost_proxy_headers
-)
+configure_file(version.h.in ${CMAKE_CURRENT_BINARY_DIR}/version.h @ONLY)
 
 # 原始 corehost.exe：完全使用 libcorepty1 的实现。
 add_executable(corehost WIN32
@@ -46,10 +31,13 @@ target_sources(corehost
 
 target_include_directories(corehost PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
 )
 
 target_link_libraries(corehost PRIVATE
     libcorepty1
+    libcoreio
     conhost_proxy_headers
 )
 
@@ -61,6 +49,8 @@ add_executable(corehost2 WIN32
     corehost.rc
     $<IF:$<OR:$<BOOL:${COREHOST_DEFAULT_UTF8}>,$<BOOL:${COREHOST_RUN_AS_UTF8}>>,corehost.utf8.manifest,corehost.manifest>
     cli/corehost2_main.cpp
+    support/com_handoff_bridge.cpp
+    comserver/com_server.cpp
 )
 
 target_sources(corehost2
@@ -68,18 +58,17 @@ target_sources(corehost2
         FILE_SET HEADERS
             FILES
                 support/com_handoff_bridge.hpp
+                comserver/com_server.hpp
 )
 
 target_include_directories(corehost2 PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}
-    ${CMAKE_BINARY_DIR}/libcorepty1
+    ${CMAKE_CURRENT_BINARY_DIR}
 )
 
 target_link_libraries(corehost2 PRIVATE
     libcorepty2
-    "$<LINK_ONLY:corehost1_support>"
-    "$<LINK_ONLY:libcorepty1>"
     shell32
     conhost_proxy_headers
 )

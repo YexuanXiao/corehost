@@ -18,12 +18,14 @@
 #include "IConsoleHandoff.h"
 #include "ITerminalHandoff.h"
 #include "ntapi/condrv.hpp"
-#include "condrv_io.hpp"
+#include "libcoreio/condrv_io.hpp"
 #include "os/Console/conmsgl1.h"
 #include "default_console_size.hpp"
 #include "win32/thread.hpp"
 #include "utility/log.hpp"
 #include "mutex"
+
+namespace condrv_io = corehost::coreio;
 
 namespace corehost::comserver
 {
