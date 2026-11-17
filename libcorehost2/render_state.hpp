@@ -29,6 +29,14 @@ inline void note_terminal_cursor(screen::console_state &state, const screen::scr
     state.terminal_cursor_valid = true;
 }
 
+enum class render_frame_kind : std::uint8_t
+{
+    none,
+    cursor_only,
+    incremental,
+    full,
+};
+
 // All render-relevant state is consumed exactly once into this snapshot. A
 // render frame is then either a complete viewport, an incremental damage frame,
 // or a cursor-only update; no caller has to pair individual take_* calls.
@@ -42,14 +50,15 @@ struct render_snapshot final
     bool cursor_visibility_changed{};
     bool cursor_shape_changed{};
 
-    [[nodiscard]] bool full_frame() const noexcept
+    [[nodiscard]] render_frame_kind kind() const noexcept
     {
-        return alternate_changed || viewport_changed;
-    }
-
-    [[nodiscard]] bool incremental_frame() const noexcept
-    {
-        return scroll_lines != 0 || damage || cursor_changed || cursor_visibility_changed;
+        if (alternate_changed || viewport_changed)
+            return render_frame_kind::full;
+        if (scroll_lines != 0 || damage || cursor_changed || cursor_visibility_changed)
+            return render_frame_kind::incremental;
+        if (cursor_shape_changed)
+            return render_frame_kind::cursor_only;
+        return render_frame_kind::none;
     }
 };
 
@@ -81,20 +90,24 @@ inline void render_snapshot_frame(const render_snapshot &snapshot, screen::scree
 {
     const auto cursor = screen::coord{static_cast<std::int32_t>(console.cursor().x),
                                       static_cast<std::int32_t>(console.cursor().y)};
-    if (snapshot.full_frame())
+    switch (snapshot.kind())
     {
+    case render_frame_kind::full:
         vtserializer::render_viewport(output, screen, cursor, &console, false);
         screen.clear_damage();
         note_terminal_cursor(console, screen, cursor);
-    }
-    else if (snapshot.incremental_frame())
-    {
+        break;
+    case render_frame_kind::incremental:
         if (snapshot.scroll_lines != 0)
             vtserializer::append_scroll_up(output, static_cast<unsigned>(snapshot.scroll_lines));
         vtserializer::render_damage(output, screen, cursor, &console,
                                     trim_row_for_scroll(screen, snapshot.scroll_lines), false);
         screen.clear_damage();
         note_terminal_cursor(console, screen, cursor);
+        break;
+    case render_frame_kind::cursor_only:
+    case render_frame_kind::none:
+        break;
     }
     if (snapshot.cursor_visibility_changed)
         vtserializer::append_cursor_visibility(output, console.cursor().visible);
