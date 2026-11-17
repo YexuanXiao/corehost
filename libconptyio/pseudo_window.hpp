@@ -23,7 +23,7 @@ class pseudo_window final
 {
   public:
     explicit pseudo_window(win32::handle_view server = {}, std::wstring_view title = {})
-        : server_{server}, title_{title.begin(), title.end()}, ready_{win32::create_tag, true, false},
+        : server_{server}, title_{title}, ready_{win32::create_tag, true, false},
           close_requested_{win32::create_tag, true, false}, show_event_{win32::create_tag, false, false},
           hide_event_{win32::create_tag, false, false}
     {

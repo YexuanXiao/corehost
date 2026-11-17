@@ -45,8 +45,7 @@ class hyperlink_table final
         assert(links_.size() <= max_id);
 
         const auto value = static_cast<cell_hyperlink>(links_.size());
-        links_.push_back(hyperlink{vtparser::raw_u16_string{uri.begin(), uri.end()},
-                                   vtparser::raw_u16_string{id.begin(), id.end()}});
+        links_.push_back(hyperlink{vtparser::raw_u16_string{uri}, vtparser::raw_u16_string{id}});
         ids_.emplace(key_scratch_, value);
         return value;
     }
