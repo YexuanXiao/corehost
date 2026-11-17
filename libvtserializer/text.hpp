@@ -36,7 +36,7 @@ inline void append_utf16(byte_buffer &output, std::u16string_view text)
     }
 
     const auto offset = output.size();
-    output.resize(offset + text.size() * 3);
+    output.resize(offset + vtparser::narrow_capacity_from_wide(text.size(), true));
 
     auto *first = reinterpret_cast<char *>(output.mutable_data() + offset);
     auto *last = first;

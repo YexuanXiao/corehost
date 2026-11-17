@@ -2687,29 +2687,13 @@ class console_api final
         value.clear();
         if (text.empty())
             return;
-        value.resize(vtparser::narrow_capacity_from_wide(text.size()));
-        auto units = ::WideCharToMultiByte(
-            code_page, 0, reinterpret_cast<const wchar_t *>(text.data()), static_cast<int>(text.size()), value.data(),
-            static_cast<int>(value.size()), nullptr, nullptr);
-        if (units <= 0)
-        {
-            const auto exact = ::WideCharToMultiByte(
-                code_page, 0, reinterpret_cast<const wchar_t *>(text.data()), static_cast<int>(text.size()), nullptr, 0,
-                nullptr, nullptr);
-            if (exact <= 0)
-            {
-                value.clear();
-                return;
-            }
-            value.resize(static_cast<std::size_t>(exact));
-            units = ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
-                                          static_cast<int>(text.size()), value.data(),
-                                          static_cast<int>(value.size()), nullptr, nullptr);
-        }
-        if (units <= 0)
-            value.clear();
-        else
-            value.resize(static_cast<std::size_t>(units));
+        value.resize(vtparser::narrow_capacity_from_wide(text.size(), code_page == CP_UTF8));
+        const auto units =
+            ::WideCharToMultiByte(code_page, 0, reinterpret_cast<const wchar_t *>(text.data()),
+                                  static_cast<int>(text.size()), value.data(), static_cast<int>(value.size()),
+                                  nullptr, nullptr);
+        assert(units > 0);
+        value.resize(static_cast<std::size_t>(units));
     }
 
     template <typename String>
@@ -2728,10 +2712,8 @@ class console_api final
             const auto units = ::MultiByteToWideChar(code_page, 0, data + offset, static_cast<int>(bytes),
                                                      reinterpret_cast<LPWSTR>(value.data()),
                                                      static_cast<int>(value.size()));
-            if (units <= 0)
-                value.clear();
-            else
-                value.resize(static_cast<std::size_t>(units));
+            assert(units > 0);
+            value.resize(static_cast<std::size_t>(units));
         }
     }
 
