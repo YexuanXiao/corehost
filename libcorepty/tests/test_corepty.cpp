@@ -192,7 +192,7 @@ int main()
     const auto push_text = [&](std::u16string_view value) {
         corehost::consoleinput::input_event event{};
         event.type = corehost::consoleinput::input_event_type::text;
-        event.text = corehost::vtparser::raw_u16_string{value};
+        event.text = corehost::vtparser::raw_u16string{value};
         server_input.push(std::move(event));
     };
 

@@ -19,8 +19,8 @@ namespace corehost::screen
 
 struct hyperlink final
 {
-    vtparser::raw_u16_string uri;
-    vtparser::raw_u16_string id;
+    vtparser::raw_u16string uri;
+    vtparser::raw_u16string id;
 };
 
 class hyperlink_table final
@@ -46,7 +46,7 @@ class hyperlink_table final
         assert(links_.size() <= max_id);
 
         const auto value = static_cast<cell_hyperlink>(links_.size());
-        links_.push_back(hyperlink{vtparser::raw_u16_string{uri}, vtparser::raw_u16_string{id}});
+        links_.push_back(hyperlink{vtparser::raw_u16string{uri}, vtparser::raw_u16string{id}});
         ids_.emplace(key_scratch_, value);
         return value;
     }
@@ -65,8 +65,8 @@ class hyperlink_table final
 
   private:
     std::vector<hyperlink> links_{{}};
-    std::flat_map<vtparser::raw_u16_string, cell_hyperlink> ids_;
-    vtparser::raw_u16_string key_scratch_;
+    std::flat_map<vtparser::raw_u16string, cell_hyperlink> ids_;
+    vtparser::raw_u16string key_scratch_;
 };
 
 } // namespace corehost::screen

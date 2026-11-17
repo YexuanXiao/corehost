@@ -945,9 +945,9 @@ class state_applier final
     }
 
   private:
-    vtparser::raw_u16_string text_;
-    vtparser::raw_u16_string uri_;
-    vtparser::raw_u16_string id_;
+    vtparser::raw_u16string text_;
+    vtparser::raw_u16string uri_;
+    vtparser::raw_u16string id_;
 
   private:
     struct sgr_cache_entry final

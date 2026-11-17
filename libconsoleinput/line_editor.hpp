@@ -195,7 +195,7 @@ class line_editor final
             text_.erase(cursor_, end - cursor_);
     }
 
-    vtparser::raw_u16_string text_;
+    vtparser::raw_u16string text_;
     std::size_t cursor_{};
     bool insert_{};
 };

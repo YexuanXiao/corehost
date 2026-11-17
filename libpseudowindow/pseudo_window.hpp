@@ -277,7 +277,7 @@ class pseudo_window final
     static constexpr const wchar_t *class_name_ = L"CorehostPseudoConsoleWindow";
 
     win32::handle_view server_;
-    vtparser::raw_u16_string title_;
+    vtparser::raw_u16string title_;
     win32::event ready_;
     win32::event close_requested_;
     win32::event show_event_;

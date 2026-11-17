@@ -36,7 +36,7 @@ int main()
 {
     using namespace corehost::vtparser;
 
-    raw_u16_buffer raw;
+    raw_u16buffer raw;
     vt_parser parser{raw};
     auto result = parser.parse(u"abc");
     check(result.id == vt_message_id::continue_text, "ground text id");

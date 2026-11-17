@@ -169,14 +169,14 @@ class console_state final
     std::uint32_t history_flags{};
     struct alias_entry
     {
-        vtparser::raw_u16_string source;
-        vtparser::raw_u16_string target;
-        vtparser::raw_u16_string executable;
+        vtparser::raw_u16string source;
+        vtparser::raw_u16string target;
+        vtparser::raw_u16string executable;
     };
     std::vector<alias_entry> aliases;
-    bizwen::deque<vtparser::raw_u16_string> command_history;
+    bizwen::deque<vtparser::raw_u16string> command_history;
     std::size_t history_browse_index{no_history_selection};
-    vtparser::raw_u16_string history_saved_input;
+    vtparser::raw_u16string history_saved_input;
     std::size_t command_history_limit{50};
     std::uint32_t display_mode{};
     bool line_drawing_charset{};
@@ -225,11 +225,11 @@ class console_state final
     coord font_size{8, 12};
     std::uint32_t font_family{};
     std::uint32_t font_weight{400};
-    vtparser::raw_u16_string face_name{u"Consolas"};
+    vtparser::raw_u16string face_name{u"Consolas"};
     std::array<std::uint32_t, 16> color_table{};
-    vtparser::raw_u16_string title;
-    vtparser::raw_u16_string original_title;
-    vtparser::raw_u16_string selected_text_scratch_;
+    vtparser::raw_u16string title;
+    vtparser::raw_u16string original_title;
+    vtparser::raw_u16string selected_text_scratch_;
     coord max_window_size{};
     text_measurement measurement{text_measurement::console};
     bool ambiguous_is_wide{false};

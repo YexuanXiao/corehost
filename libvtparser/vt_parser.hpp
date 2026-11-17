@@ -15,7 +15,7 @@
 //     raw 缓冲区，让下一次 parse(range) 从 ground 状态继续。
 //
 // 使用方式：
-//   raw_u16_buffer raw;
+//   raw_u16buffer raw;
 //   vt_parser p{raw};
 //   while (!code_points.empty()) {
 //       vt_parse_result result = p.parse(code_points);
@@ -510,7 +510,7 @@ class vt_parser
 
   public:
     // raw 由调用方持有，parser 把当前消息文本/标题 view 指向该缓冲。
-    explicit vt_parser(raw_u16_buffer &raw) noexcept : _raw(raw)
+    explicit vt_parser(raw_u16buffer &raw) noexcept : _raw(raw)
     {
     }
 
@@ -1055,7 +1055,7 @@ class vt_parser
     // ── 中央缓冲区与视图位置 ──
     // _raw 保存当前跨字符累计的文本或控制序列；text-before-control、
     // unknown_sequence、OSC title 的 view 指向该缓冲。continue_text 不使用它。
-    raw_u16_buffer &_raw;
+    raw_u16buffer &_raw;
 
     // 当前 ESC/CSI/OSC 序列在 _raw 中的起始偏移。vt_parse_result::raw_sequence
     // 和 unknown_sequence 都依赖它返回完整原文。

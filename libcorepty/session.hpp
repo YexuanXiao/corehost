@@ -383,7 +383,7 @@ class session final
         {
             consoleinput::input_event event{};
             event.type = consoleinput::input_event_type::text;
-            event.text = vtparser::raw_u16_string{result.message.payload.text};
+            event.text = vtparser::raw_u16string{result.message.payload.text};
             input_.push(std::move(event));
             return;
         }
@@ -400,7 +400,7 @@ class session final
 
     screen::screen_buffer screen_;
     screen::console_state state_;
-    vtparser::raw_u16_buffer raw_;
+    vtparser::raw_u16buffer raw_;
     vtparser::vt_parser parser_;
     vtstate::state_applier applier_;
     consoleinput::input_queue input_;

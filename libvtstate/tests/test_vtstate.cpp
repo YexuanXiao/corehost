@@ -9,7 +9,7 @@ int main()
     namespace vtparser = corehost::vtparser;
     namespace screen = corehost::screen;
 
-    vtparser::raw_u16_buffer raw;
+    vtparser::raw_u16buffer raw;
     vtparser::vt_parser parser{raw};
     auto result = parser.parse(u"AB\u4E2D");
     if (result.id != vtparser::vt_message_id::continue_text)

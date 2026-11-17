@@ -262,10 +262,10 @@ class console_session final
     coreio::input_payload_reader payload_;
     coreio::io_state io_state_;
     consoleapi::console_api api_;
-    vtparser::raw_u16_buffer raw_;
+    vtparser::raw_u16buffer raw_;
     vtparser::vt_parser parser_{raw_};
     vtstate::state_applier applier_{};
-    vtparser::raw_u16_string text_;
+    vtparser::raw_u16string text_;
 };
 
 } // namespace corehost::defterm
