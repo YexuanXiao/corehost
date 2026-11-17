@@ -2598,6 +2598,8 @@ class console_api final
 
         std::size_t column = 0;
         const auto draw_cluster = [&](std::span<const char16_t> cluster, int cluster_width) {
+            if (cluster_width <= 0)
+                return;
             std::int32_t x = 0;
             std::int32_t y = 0;
             echo_position(origin, width, column, x, y);

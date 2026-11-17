@@ -965,6 +965,27 @@ int main()
         return EXIT_FAILURE;
     }
 
+    corehost::screen::screen_buffer zero_buffer{8, 2};
+    corehost::screen::console_state zero_state{8, 2};
+    zero_state.measurement = corehost::screen::text_measurement::wcswidth;
+    corehost::consoleinput::input_queue zero_queue;
+    zero_queue.push(corehost::consoleinput::input_event{
+        corehost::consoleinput::input_event_type::key, corehost::consoleinput::key_event{u'\u0301'}});
+    corehost::consoleapi::console_api zero_api{zero_buffer, zero_state, &zero_queue};
+    corehost::coreio::io_msg zero_message{};
+    zero_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG);
+    zero_message.descriptor.OutputSize =
+        sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG) + 8 * sizeof(char16_t);
+    auto *zero_header = reinterpret_cast<CONSOLE_MSG_HEADER *>(zero_message.body);
+    zero_header->ApiNumber = ConsolepReadConsole;
+    auto *zero_request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(zero_message.body + sizeof(CONSOLE_MSG_HEADER));
+    zero_request->Unicode = TRUE;
+    if (zero_api.handle(zero_message) || zero_buffer.glyph_at(0, 0) != u" " || zero_state.cursor().x != 0)
+    {
+        std::fprintf(stderr, "zero width echo failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::coreio::io_msg font_size_message{};
     font_size_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETFONTSIZE_MSG);
     font_size_message.descriptor.OutputSize = sizeof(font_size_message.body);
