@@ -31,10 +31,7 @@
 
 ## Background
 
-The orginal Windows conhost has the following issues:
-
-- The code quality is poor and has become nearly unmaintainable
-- Contains numerous bugs that are almost impossible to fix
+The original Windows console, after 36 years and more than four generations of development, has poor code quality and is fragile.
 
 Actually, the Windows Console team also agrees that it is far from ideal; see https://github.com/microsoft/terminal/blob/main/doc/specs/%2313000%20-%20In-process%20ConPTY.md and other comments you can find in the repo's issue tracker.
 
@@ -169,15 +166,19 @@ The ConPTY runtime is the shared implementation used by all three startup modes.
 - The VT output path serializes console output and console-state changes back to VT for the terminal frontend. It buffers output so that large console writes do not become one small `WriteFile` call per character or per escape sequence.
 - The signal path handles terminal-side control notifications, such as close, resize, and control events, and maps them into the Windows console behavior expected by attached processes.
 
-## Design
-
-Data usually flows in two directions. Output from a console application arrives as ConDrv API messages, is applied to the local console and screen state, and is serialized as VT to the terminal. Input from the terminal arrives as VT bytes, is parsed into keyboard, text, control, or terminal-response messages, and is then exposed to the console application through the input APIs. This is the core bridge that lets Windows console programs run behind a modern terminal frontend while still observing Windows console semantics.
+Data mostly flows in two directions. Output from a console application arrives as ConDrv API messages, is applied to the local console and screen state, and is serialized as VT to the terminal. Input from the terminal arrives as VT bytes, is parsed into keyboard, text, control, or terminal-response messages, and is then exposed to the console application through the input APIs. This is the core bridge that lets Windows console programs run behind a modern terminal frontend while still observing Windows console semantics.
 
 ## The Future of the Windows Console and corehost
 
 corehost currently has three issues:
 
 1. corehost's compatibility is not yet good enough; it requires a large amount of user feedback to improve compatibility. If you care about the future of the Windows Console, please follow this project and actively try it out. All your compatibility feedback will be recorded and documented.
-2. corehost's code is not yet good enough. First, I must admit that most of the code in corehost was written by AI, but I guarantee that I participated in the design of the vast majority of functions and classes. You can read the code and evaluate its quality to determine whether I am trustworthy. Although I have reviewed it again and again to ensure that the AI wrote meaningful code, my energy is limited and I cannot guarantee that it is optimal. Therefore, corehost will need to be redesigned in the future.
+2. corehost's code is not yet good enough. First, I must admit that most of the code in corehost was written by AI, but I guarantee that I participated in the design of the vast majority of functions and classes. Although I have reviewed it again and again to ensure that the AI wrote meaningful code, my energy is limited and I cannot guarantee that it is optimal.
 
 After the above issues are resolved, corehost will reach its end point, because corehost was written to demonstrate how the Windows Console works and to replace conhost under the existing design. Once that goal is achieved, corehost will enter a stable state. But this is also a new starting point for the Windows Console. The experience gained from corehost will be used to give rise to a new terminal with GUI, which should be able to independently perform all the work of conhost and use the best design we can have.
+
+## Acknowledgement
+
+The implementation of corehost is built on the following three codebases:
+
+I thank the Windows Console team for open-sourcing [conhost](https://github.com/microsoft/terminal) and for their patient, professional responses to several questions. It was a pleasure to communicate with you. I also thank [Ghostty](https://github.com/ghostty-org/ghostty), from which corehost learned how to correctly represent the console’s internal structures. Finally, I thank Contour for providing a high-quality [C++ Unicode library](https://github.com/contour-terminal/libunicode).
