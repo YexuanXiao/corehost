@@ -30,6 +30,29 @@
 namespace corehost::corehost2
 {
 
+[[nodiscard]] inline bool has_lone_line_feed(std::u16string_view text) noexcept
+{
+    for (std::size_t i = 0; i < text.size(); ++i)
+    {
+        if (text[i] == u'\n' && (i == 0 || text[i - 1] != u'\r'))
+            return true;
+    }
+    return false;
+}
+
+[[nodiscard]] inline std::u16string normalize_line_feeds(std::u16string_view text)
+{
+    std::u16string normalized;
+    normalized.reserve(text.size() + 8);
+    for (std::size_t i = 0; i < text.size(); ++i)
+    {
+        if (text[i] == u'\n' && (i == 0 || text[i - 1] != u'\r'))
+            normalized.push_back(u'\r');
+        normalized.push_back(text[i]);
+    }
+    return normalized;
+}
+
 template <bool ProcessedInput>
 [[nodiscard]] inline std::size_t find_raw_control(std::string_view text, std::size_t limit) noexcept
 {
@@ -1055,7 +1078,11 @@ class server_session final
                                              static_cast<unsigned>(std::max(target_x, 0)));
                 }
             }
-            const auto utf8 = encode_utf8(written_text);
+            const bool has_lone_lf = has_lone_line_feed(written_text);
+            std::u16string direct_text;
+            if (has_lone_lf)
+                direct_text = normalize_line_feeds(written_text);
+            const auto utf8 = encode_utf8(has_lone_lf ? std::u16string_view{direct_text} : written_text);
             writer_->buffer().append(
                 std::span<const char8_t>{reinterpret_cast<const char8_t *>(utf8.data()), utf8.size()});
             commit_direct_output(screen_, state_);

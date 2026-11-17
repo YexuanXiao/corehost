@@ -10,6 +10,13 @@
 
 int main()
 {
+    if (!corehost::corehost2::has_lone_line_feed(u"a\nb\r\nc") ||
+        corehost::corehost2::normalize_line_feeds(u"a\nb\r\nc") != u"a\r\nb\r\nc")
+    {
+        std::fprintf(stderr, "line feed normalization failed\n");
+        return EXIT_FAILURE;
+    }
+
     corehost::corehost2::session session{8, 2};
     if (session.state().input_code_page == 0 || session.state().input_code_page != session.state().output_code_page)
     {
