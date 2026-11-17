@@ -5,8 +5,8 @@
 namespace corehost::support
 {
 
-// Raw handles from libcorehost's COM handoff. Ownership is transferred to the
-// caller; the values are wrapped by libcorehost2's win32::handle at the entry.
+// Raw handles from libcorepty1's COM handoff. Ownership is transferred to the
+// caller; the values are wrapped by libcorepty2's win32::handle at the entry.
 struct com_handoff_raw final
 {
     std::uintptr_t server{};

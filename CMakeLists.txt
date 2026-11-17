@@ -28,7 +28,7 @@ option(COREHOST_DEFAULT_UTF8 "Make UTF-8 the default console code page and make 
 option(COREHOST_RUN_AS_UTF8 "Make UTF-8 as corehost's active code page" ON)
 
 # ── 版本 ──────────────────────────────────────────────────
-# COREHOST_VERSION 决定 libcorehost/version.h 中的宏，version.h 又决定
+# COREHOST_VERSION 决定 libcorepty1/version.h 中的宏，version.h 又决定
 # corehost.rc 的资源版本。格式为点分隔的数字（如 1.2.3.4）；不足四段
 # 时缺失段按 0 处理。
 set(COREHOST_VERSION "0.0.0.0" CACHE STRING "CoreHost version (dot-separated numbers, e.g. 1.2.3.4)")
