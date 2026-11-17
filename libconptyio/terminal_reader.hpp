@@ -50,7 +50,7 @@ class terminal_reader final
     win32::handle_view input_;
     std::array<char8_t, 4096> bytes_{};
     vtparser::utf8_decoder decoder_;
-    vtparser::raw_u16_string codepoints_;
+    vtparser::raw_u16_buffer codepoints_;
 };
 
 } // namespace corehost::conptyio

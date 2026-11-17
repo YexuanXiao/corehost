@@ -165,7 +165,8 @@ class session_input_sink final
             state_.screen().alternate_active() ? 1 : 0, raw_pending ? 1 : 0, console_.console_read_pending() ? 1 : 0);
         LOG_HEX("input", bytes.data(), bytes.size() < 256 ? bytes.size() : 256);
         decoder_.decode(std::span<const char8_t>{reinterpret_cast<const char8_t *>(bytes.data()), bytes.size()}, text_);
-        state_.feed_input(text_, (state_.state().input_mode & 0x0200) != 0 && !console_.console_read_pending());
+        state_.feed_input(std::u16string_view{text_.data(), text_.size()},
+                          (state_.state().input_mode & 0x0200) != 0 && !console_.console_read_pending());
         console_.process_raw_input_events();
         console_.signal_input_event();
         const bool completed = console_.complete_pending();
@@ -214,7 +215,7 @@ class session_input_sink final
     win32::srwlock &mutex_;
     server_session &console_;
     vtparser::utf8_decoder decoder_;
-    vtparser::raw_u16_string text_;
+    vtparser::raw_u16_buffer text_;
 };
 
 class session_signal_sink final
