@@ -11,7 +11,7 @@
 | 路径 | `C:\1\OpenConsole.exe` | `build-nolog\Release\corehost2.exe` |
 | 版本 | 1.26.2611.09003 / 1.26.261109003-preview | 本地 Release 无日志构建 |
 | 大小 | 1,091,424 B | 4,855,296 B |
-| SHA-256 | `7E04EC7E4691ABF5308831D531CC2B7B8AC61E2B2F3EA52B51BDA810DDF7FF6A` | `CA37AA8F9BED2BE0EC5094E3C85DEBC5ED67AE31D714BD0F1870CA42D96E178E` |
+| SHA-256 | `7E04EC7E4691ABF5308831D531CC2B7B8AC61E2B2F3EA52B51BDA810DDF7FF6A` | `60480C90533B4270E9F0F1A9A4BA3EFEC2A9CC49EB5C3BB38307780398476818` |
 
 ## 方法
 
@@ -174,6 +174,27 @@ corehost2：  2,073,522 B，1,819.9 ms
 PowerShell prompt 的淡色重影在原版 OpenConsole 上也存在，不是本次 WriteConsole 路径引入的。
 
 另外，`WriteConsole` 的零拷贝直接路径只允许默认 style；非默认颜色改回 renderer 输出，否则 PowerShell 错误文本会丢掉红色。实测该行为与真实 OpenConsole 一致（红色文字、黑色 console 背景）。
+
+### 关闭 WriteConsole 直接路径的 A/B
+
+PowerShell 12000 行 fixture，同一机器交替运行，每个 variant 各 10 次：
+
+```text
+直接路径: 2,073,521 B, mean 1,897.1 ms
+纯 renderer: 2,301,364 B, mean 1,881.8 ms
+```
+
+关闭直接路径后耗时基本持平（差距在运行噪声内），但输出字节增加约 11%。  
+直接路径的价值主要是减少 ConPTY 输出量，而不是稳定降低耗时。
+
+直接路径内部又测试了每个 WriteConsole 后立即 flush vs 交给 session loop 批量 flush：
+
+```text
+immediate flush: mean 1,950.8 ms
+deferred flush:  mean 1,935.1 ms
+```
+
+去掉每条 WriteConsole 的额外 flush 后约快 0.8%，因此保留 deferred flush。
 
 ### SGR 子集不是全面领先
 

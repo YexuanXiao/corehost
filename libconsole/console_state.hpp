@@ -152,6 +152,7 @@ class console_state final
     bool origin_mode{false};
     bool dec_line_drawing_mode{false};
     cell_style default_style{default_cell_style};
+    cell_style plain_style{default_cell_style};
     cell_hyperlink default_hyperlink{no_cell_hyperlink};
     std::uint16_t default_attributes{0x07};
     std::uint16_t popup_attributes{0x07};

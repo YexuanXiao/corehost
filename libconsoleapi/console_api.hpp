@@ -47,6 +47,7 @@ class console_api final
     {
         last_window_width_ = buffer_.width();
         last_window_height_ = buffer_.height();
+        state_.plain_style = buffer_.style_for_attributes(0x07);
     }
 
     [[nodiscard]] bool write_text(std::u16string_view text)

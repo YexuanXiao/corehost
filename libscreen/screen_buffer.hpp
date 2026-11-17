@@ -653,7 +653,7 @@ inline screen_buffer::screen_buffer(std::size_t width, std::size_t height, std::
       view_(coord{static_cast<std::int32_t>(width), static_cast<std::int32_t>(height)})
 {
     assert(width != 0 && height != 0);
-    default_style_id_ = styles_.intern(text_style{});
+    default_style_id_ = styles_.intern(text_style{.legacy_attributes = 0x0007});
 }
 
 inline const cell &screen_buffer::at(std::size_t x, std::size_t y) const noexcept

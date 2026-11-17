@@ -296,7 +296,7 @@ class server_session final
     [[nodiscard]] bool can_stream_direct_output() const noexcept
     {
         return writer_ != nullptr && (state_.output_mode & 0x0001) != 0 &&
-               state_.default_style == screen::default_cell_style;
+               state_.default_style == state_.plain_style;
     }
 
     void decode_console_text_into(std::span<const char> text, std::u16string &result) const
@@ -1111,7 +1111,6 @@ class server_session final
                 reinterpret_cast<const char8_t *>(direct_utf8_.data()), direct_utf8_.size()});
             commit_direct_output(screen_, state_);
             (void)state_.take_echo_line_feed();
-            writer_->flush();
         }
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLE_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_WRITECONSOLE_MSG));
