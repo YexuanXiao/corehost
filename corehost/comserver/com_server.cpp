@@ -136,7 +136,7 @@ void create_terminal_pty(REFCLSID terminal_clsid, win32::handle_view signal_writ
     com::bstring title{!startup_title.empty() ? startup_title.c_str() : L"corehost"};
 
     // dwXCountChars/dwYCountChars 为 WT 初始字符尺寸；default_console_size 是
-    // corehost 与 libcorehost 统一的 120x30。show_window 可能是 SW_SHOWDEFAULT
+    // 默认终端尺寸为 120x30。show_window 可能是 SW_SHOWDEFAULT
     // 或 CreateProcess lpStartupInfo 中显式给出的值。dwFlags 当前只声明字符
     // 列/行数有效，不支持窗口位置、像素尺寸、填充属性和快捷方式图标。
     TERMINAL_STARTUP_INFO startup{.pszTitle = title.get(),

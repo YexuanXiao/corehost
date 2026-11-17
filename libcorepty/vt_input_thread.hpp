@@ -16,7 +16,7 @@ namespace corehost::conptyio
 {
 
 // the byte stream; parsing and console state stay on the session side.
-// Blocking terminal-input thread, mirroring libcorehost's vt_input_thread.
+// Blocking terminal-input thread.
 // Asynchronous pipes use OVERLAPPED reads and a stop event; synchronous pipes
 // use cancellable_read. Neither path polls and neither path uses a timeout.
 template <typename Consumer>

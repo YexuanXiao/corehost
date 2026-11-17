@@ -24,8 +24,8 @@
 namespace corehost::screen
 {
 
-// Mirrors libcorehost's console_state constructor: the default console code
-// page is UTF-8 when the build opts into it, otherwise the system OEM code page.
+// The default console code page is UTF-8 when the build opts into it,
+// otherwise the system OEM code page.
 [[nodiscard]] inline std::uint32_t initial_console_code_page()
 {
 #ifdef COREHOST_DEFAULT_UTF8

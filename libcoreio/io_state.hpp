@@ -12,10 +12,10 @@
 namespace corehost::coreio
 {
 
-// ConDrv connection and object state. This mirrors libcorehost's io_state:
-// the first CONNECT accepts the shared \Input/\Output handles, later CONNECTs
-// join the same console, and CREATE/CLOSE_OBJECT maintain the client-visible
-// object ids used by Console API dispatch.
+// ConDrv connection and object state: the first CONNECT accepts the shared
+// \Input/\Output handles, later CONNECTs join the same console, and
+// CREATE/CLOSE_OBJECT maintain the client-visible object ids used by Console
+// API dispatch.
 class io_state final
 {
   public:

@@ -14,7 +14,7 @@ namespace corehost::corepty
 {
 
 // ConDrv control-plane dispatcher. Object lifetime and connection state live
-// in libcoreio::io_state, mirroring libcorehost; this class only routes
+// in libcoreio::io_state; this class only routes
 // messages to the session.
 class server_dispatcher final
 {

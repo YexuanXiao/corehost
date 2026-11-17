@@ -30,7 +30,7 @@ inline ULONG console_ctrl_flags(DWORD event) noexcept
 }
 
 // Delivers a console control event to one client process through
-// user32!ConsoleControl(ConsoleEndTask), matching libcorehost.
+// user32!ConsoleControl(ConsoleEndTask).
 class ctrl_delivery final
 {
   public:

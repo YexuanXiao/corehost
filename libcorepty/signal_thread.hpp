@@ -16,7 +16,7 @@
 namespace corehost::conptyio
 {
 
-// Blocking PtySignal reader thread. Mirrors libcorehost's pty_signal_thread:
+// Blocking PtySignal reader thread:
 // a cancellable blocking read, an explicit stop request, and an infinite join.
 template <typename Consumer>
 class pty_signal_thread final
