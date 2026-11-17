@@ -228,7 +228,7 @@ class console_state final
     std::array<std::uint32_t, 16> color_table{};
     std::u16string title;
     std::u16string original_title;
-    mutable std::u16string selected_text_scratch_;
+    std::u16string selected_text_scratch_;
     coord max_window_size{};
     text_measurement measurement{text_measurement::console};
     bool ambiguous_is_wide{false};
@@ -279,7 +279,7 @@ class console_state final
     void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y) noexcept;
     void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y,
                        selection_mode mode) noexcept;
-    void selected_text_into(const screen_buffer &buffer, std::u16string &result) const;
+    void selected_text_into(const screen_buffer &buffer, std::u16string &result);
     void set_keypad_application(bool value) noexcept
     {
         if (keypad_application == value)
@@ -701,7 +701,7 @@ inline void console_state::set_selection(std::size_t anchor_x, std::size_t ancho
     selection_.caret_y = std::min(caret_y, height_ - 1);
 }
 
-inline void console_state::selected_text_into(const screen_buffer &buffer, std::u16string &result) const
+inline void console_state::selected_text_into(const screen_buffer &buffer, std::u16string &result)
 {
     result.clear();
     if (!selection_.active)
