@@ -45,7 +45,7 @@ Its goal is to act as a **bridge between the Terminal GUI and the Windows consol
 - As the default console, acts as a bridge between the console application and the terminal.
 - As the implementer of the Windows system, one codebase drives both windowless console applications and pseudo console at the same time.
 
-corehost aims to provide **high quality and high performance** for driving:
+corehost aims to provide **high performance** for driving:
 
 - Windows Terminal
 - Contour
@@ -60,6 +60,8 @@ Actually, corehost is the ideal OpenConsole/conhost.
 corehost is based on in-depth research of microsoft/terminal, but its codebase is not derived from microsoft/terminal; it was written entirely from scratch.
 
 corehost **does not use any mutable global variables**, and **no singletons, including magic statics**, are used. All state is **passed through function parameters** and is modularized as much as possible.
+
+This allows corehost to be used as a library, and no matter how many times it is loaded in the same process or what operations it performs, each instance will always remain isolated from the others because they share nothing. corehost also provides high-quality code that helps anyone who wants to improve the Windows console or develop their own Windows terminal understand how the Windows console works.
 
 ## corehost as conhost
 
