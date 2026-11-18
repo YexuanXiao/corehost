@@ -28,6 +28,7 @@ class vt_input_thread final
         : vt_in_{vt_in}, consumer_{consumer}, is_overlapped_{win32::handle_is_async(vt_in)},
           stop_{win32::create_tag, true, false}, reader_{vt_in}
     {
+        assert(vt_in_.valid());
     }
 
     vt_input_thread(const vt_input_thread &) = delete;
