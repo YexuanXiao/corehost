@@ -5,9 +5,9 @@
 namespace corehost::support
 {
 
-// Raw handles from libcorepty's COM handoff. Ownership is transferred to the
+// Handoff result from libcorepty's COM handoff. Ownership is transferred to the
 // caller; the values are wrapped by libcorepty's win32::handle at the entry.
-struct com_handoff_raw final
+struct com_handoff_result final
 {
     std::uintptr_t server{};
     std::uintptr_t event{};
@@ -20,6 +20,6 @@ struct com_handoff_raw final
     short height{};
 };
 
-[[nodiscard]] bool acquire_com_handoff(com_handoff_raw &result) noexcept;
+[[nodiscard]] bool acquire_com_handoff(com_handoff_result &result) noexcept;
 
 } // namespace corehost::support

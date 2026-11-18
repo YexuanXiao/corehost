@@ -4,7 +4,7 @@
 #include "comserver/com_server.hpp"
 #include "defterm/defterm.hpp"
 #include "libcorepty/conpty.hpp"
-#include "support/com_handoff_bridge.hpp"
+#include "comserver/com_handoff_bridge.hpp"
 
 #include "condrv_io.hpp"
 #include "shell/shell.hpp"
@@ -20,7 +20,7 @@
 
 int run_com_handoff()
 {
-    corehost::support::com_handoff_raw handoff{};
+    corehost::support::com_handoff_result handoff{};
     if (!corehost::support::acquire_com_handoff(handoff))
     {
         LOG("COM handoff failed");

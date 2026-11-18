@@ -1818,6 +1818,6 @@ int main()
         return EXIT_FAILURE;
     }
 
-    std::printf("libconsoleapi tests passed\n");
+    std::printf("libconsole API tests passed\n");
     return EXIT_SUCCESS;
 }

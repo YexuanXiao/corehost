@@ -216,6 +216,6 @@ int main()
         return EXIT_FAILURE;
     }
 
-    std::printf("libvtserializer tests passed\n");
+    std::printf("libvtstate serializer tests passed\n");
     return EXIT_SUCCESS;
 }

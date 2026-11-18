@@ -72,24 +72,15 @@ add_subdirectory(libcoreio)
 # ── libvtparser (platform-neutral VT parser) ─────────
 add_subdirectory(libvtparser)
 
-# ── libvtserializer (platform-neutral VT serializer) ─
-add_subdirectory(libvtserializer)
-
-# ── libconsoleinput (parser keys -> portable input events) ─
-add_subdirectory(libconsoleinput)
-
 # ── libscreen (16-byte cell 屏幕缓冲区参考实现) ────────
 add_subdirectory(libscreen)
 add_subdirectory(libscreen/bench)
 
-# ── libconsole (console state on top of libscreen) ────
+# ── libconsole (console state, input queues, API operations) ─
 add_subdirectory(libconsole)
 
-# ── libvtstate (parser messages -> libscreen state) ──
+# ── libvtstate (parser messages -> libscreen state + serializer) ──
 add_subdirectory(libvtstate)
-
-# ── libconsoleapi (Console API-facing screen operations) ─
-add_subdirectory(libconsoleapi)
 
 # ── libpseudowindow (shared hidden console window) ─────
 add_subdirectory(libpseudowindow)
@@ -109,10 +100,8 @@ add_subdirectory(bench)
 # Current corepty tests only; legacy corehost/libcorepty1 tests were removed.
 enable_testing()
 add_subdirectory(libcorepty/tests)
-add_subdirectory(libconsoleapi/tests)
-add_subdirectory(libconsoleinput/tests)
+add_subdirectory(libconsole/tests)
 add_subdirectory(libcoreio/tests)
 add_subdirectory(libscreen/tests)
 add_subdirectory(libvtparser/tests)
-add_subdirectory(libvtserializer/tests)
 add_subdirectory(libvtstate/tests)

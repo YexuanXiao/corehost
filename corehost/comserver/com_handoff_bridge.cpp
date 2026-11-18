@@ -7,7 +7,7 @@
 namespace corehost::support
 {
 
-bool acquire_com_handoff(com_handoff_raw &result) noexcept
+bool acquire_com_handoff(com_handoff_result &result) noexcept
 {
     auto handoff = corehost::comserver::com_server_entry();
     if (!handoff.server.valid())

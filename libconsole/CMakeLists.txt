@@ -1,11 +1,18 @@
-# libconsole — console state built on libscreen.
+# libconsole — console state, input queues, and API-facing screen operations.
 add_library(libconsole INTERFACE)
 
 target_include_directories(libconsole INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/third_parties/deque
 )
 
-target_link_libraries(libconsole INTERFACE libscreen)
+target_link_libraries(libconsole INTERFACE
+    libscreen
+    libinterop
+    libcoreio
+    libvtparser
+    common
+)
 
 target_compile_features(libconsole INTERFACE cxx_std_23)
 

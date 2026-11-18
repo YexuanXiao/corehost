@@ -161,6 +161,6 @@ int main()
         return EXIT_FAILURE;
     }
 
-    std::printf("libconsoleinput tests passed\n");
+    std::printf("libconsole input tests passed\n");
     return EXIT_SUCCESS;
 }
