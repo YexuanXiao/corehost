@@ -114,8 +114,12 @@ struct message_handler final
                 return dispatched;
             }
             context.dispatcher.take_ctrl_events(ctrl_events);
-            render_pending(context.state.screen(), context.state.state(), context.state, context.writer.buffer());
-            if (context.state.take_echo_line_feed())
+            const bool echo_line_feed = context.state.take_echo_line_feed();
+            // Echo line feed already advances the terminal; emitting the final
+            // CUP first would move to the next row and then advance again.
+            render_pending(context.state.screen(), context.state.state(), context.state, context.writer.buffer(),
+                           !echo_line_feed);
+            if (echo_line_feed)
             {
                 context.writer.buffer().append_text(u8"\r\n");
             }
@@ -185,8 +189,9 @@ class session_input_sink final
         {
             writer_.buffer().append_text(state_.state().keypad_application ? u8"\x1b=" : u8"\x1b>");
         }
-        render_pending(state_.screen(), state_.state(), state_, writer_.buffer());
-        if (state_.take_echo_line_feed())
+        const bool echo_line_feed = state_.take_echo_line_feed();
+        render_pending(state_.screen(), state_.state(), state_, writer_.buffer(), !echo_line_feed);
+        if (echo_line_feed)
         {
             writer_.buffer().append_text(u8"\r\n");
         }
@@ -245,8 +250,9 @@ class session_signal_sink final
         {
             return;
         }
-        render_pending(state_.screen(), state_.state(), state_, writer_.buffer());
-        if (state_.take_echo_line_feed())
+        const bool echo_line_feed = state_.take_echo_line_feed();
+        render_pending(state_.screen(), state_.state(), state_, writer_.buffer(), !echo_line_feed);
+        if (echo_line_feed)
         {
             writer_.buffer().append_text(u8"\r\n");
         }

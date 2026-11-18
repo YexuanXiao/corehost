@@ -119,14 +119,15 @@ render_snapshot render_snapshot::take(screen::screen_buffer &screen, screen::con
 }
 
 inline void render_snapshot_frame(const render_snapshot &snapshot, screen::screen_buffer &screen,
-                                  screen::console_state &console, vtserializer::byte_buffer &output)
+                                  screen::console_state &console, vtserializer::byte_buffer &output,
+                                  bool move_cursor = true)
 {
     const auto cursor =
         screen::coord{static_cast<std::int32_t>(console.cursor().x), static_cast<std::int32_t>(console.cursor().y)};
     switch (snapshot.kind())
     {
     case render_frame_kind::full:
-        vtserializer::render_viewport(output, screen, cursor, &console, false);
+        vtserializer::render_viewport(output, screen, cursor, &console, false, move_cursor);
         screen.clear_damage();
         note_terminal_cursor(console, screen, cursor);
         break;
@@ -134,7 +135,7 @@ inline void render_snapshot_frame(const render_snapshot &snapshot, screen::scree
         if (snapshot.scroll_lines() != 0)
             vtserializer::append_scroll_up(output, static_cast<unsigned>(snapshot.scroll_lines()));
         vtserializer::render_damage(output, screen, cursor, &console,
-                                    trim_row_for_scroll(screen, snapshot.scroll_lines()), false);
+                                    trim_row_for_scroll(screen, snapshot.scroll_lines()), false, move_cursor);
         screen.clear_damage();
         note_terminal_cursor(console, screen, cursor);
         break;
@@ -196,9 +197,9 @@ inline void render_pending_screen(screen::screen_buffer &screen, screen::console
 
 template <typename SessionState>
 inline void render_pending(screen::screen_buffer &screen, screen::console_state &console, SessionState &session,
-                           vtserializer::byte_buffer &output)
+                           vtserializer::byte_buffer &output, bool move_cursor = true)
 {
-    render_snapshot_frame(render_snapshot::take(screen, console, session), screen, console, output);
+    render_snapshot_frame(render_snapshot::take(screen, console, session), screen, console, output, move_cursor);
 }
 
 } // namespace corehost::corepty

@@ -20,7 +20,7 @@ namespace corehost::vtserializer
 inline void render_damage(byte_buffer &output, const screen::screen_buffer &buffer, screen::coord cursor,
                           const screen::console_state *state = nullptr,
                           std::size_t trim_trailing_blanks_from = static_cast<std::size_t>(-1),
-                          bool include_cursor_visibility = true)
+                          bool include_cursor_visibility = true, bool move_cursor = true)
 {
     const auto origin = buffer.viewport_origin();
     const auto size = buffer.viewport_size();
@@ -150,7 +150,8 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
         append_hyperlink_close(output);
     }
 
-    if (cursor.y != last_rendered_row || static_cast<std::size_t>(cursor.x) != last_rendered_end)
+    if (move_cursor &&
+        (cursor.y != last_rendered_row || static_cast<std::size_t>(cursor.x) != last_rendered_end))
         append_cup(output, static_cast<unsigned>(cursor.y - origin.y), static_cast<unsigned>(cursor.x - origin.x));
     if (state != nullptr && include_cursor_visibility)
     {
@@ -161,7 +162,8 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
 // Full viewport repaint used when the terminal may have lost local content,
 // notably after switching to/from the alternate buffer.
 inline void render_viewport(byte_buffer &output, const screen::screen_buffer &buffer, screen::coord cursor,
-                            const screen::console_state *state = nullptr, bool include_cursor_visibility = true)
+                            const screen::console_state *state = nullptr, bool include_cursor_visibility = true,
+                            bool move_cursor = true)
 {
     const auto origin = buffer.viewport_origin();
     const auto size = buffer.viewport_size();
@@ -252,7 +254,8 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
     {
         append_hyperlink_close(output);
     }
-    append_cup(output, static_cast<unsigned>(cursor.y - origin.y), static_cast<unsigned>(cursor.x - origin.x));
+    if (move_cursor)
+        append_cup(output, static_cast<unsigned>(cursor.y - origin.y), static_cast<unsigned>(cursor.x - origin.x));
     if (state != nullptr && include_cursor_visibility)
     {
         append_cursor_visibility(output, state->cursor().visible);
