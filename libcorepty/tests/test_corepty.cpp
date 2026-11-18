@@ -1,11 +1,17 @@
 #include "conpty.hpp"
+#include "simd/legacy_sgr.hpp"
+#include "terminal_writer.hpp"
 #include "server_dispatcher.hpp"
+#include "utility/isa_features.hpp"
 #include "server_session.hpp"
 #include "server_loop.hpp"
 #include "session.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <iterator>
 
 int main()
@@ -760,6 +766,93 @@ int main()
     {
         std::fprintf(stderr, "raw event line editing failed\n");
         return EXIT_FAILURE;
+    }
+
+    {
+        std::array<char8_t, 128> data{};
+        data.fill(u8' ');
+        constexpr char8_t pattern[] = u8"\x1b[0;37;40m";
+        const auto active_find = corehost::conptyio::simd::select_legacy_sgr_backend();
+        for (std::size_t position = 0; position + (sizeof(pattern) - 1) <= data.size(); ++position)
+        {
+            std::memcpy(data.data() + position, pattern, sizeof(pattern) - 1);
+            const auto *scalar =
+                corehost::conptyio::simd::find_legacy_sgr_scalar(data.data(), position + sizeof(pattern) - 1);
+            const auto *active = active_find(data.data(), position + sizeof(pattern) - 1);
+            if (scalar != data.data() + position || active != scalar)
+            {
+                std::fprintf(stderr, "legacy SGR SIMD/scalar mismatch at %zu\n", position);
+                return EXIT_FAILURE;
+            }
+            data[position] = u8' ';
+        }
+
+        std::array<char8_t, 8> short_data{};
+        short_data.fill(u8' ');
+        if (active_find(short_data.data(), short_data.size()) != nullptr)
+        {
+            std::fprintf(stderr, "legacy SGR false positive\n");
+            return EXIT_FAILURE;
+        }
+
+        const auto compare_backend = [&](auto backend) {
+            for (std::size_t position = 0; position + (sizeof(pattern) - 1) <= data.size(); ++position)
+            {
+                std::memcpy(data.data() + position, pattern, sizeof(pattern) - 1);
+                const auto *scalar =
+                    corehost::conptyio::simd::find_legacy_sgr_scalar(data.data(), position + sizeof(pattern) - 1);
+                const auto *active = backend(data.data(), position + sizeof(pattern) - 1);
+                if (scalar != data.data() + position || active != scalar)
+                {
+                    std::fprintf(stderr, "legacy SGR backend mismatch at %zu\n", position);
+                    std::exit(EXIT_FAILURE);
+                }
+                data[position] = u8' ';
+            }
+        };
+
+#if defined(COREHOST_TEST_HAVE_SSE42)
+        if (corehost::isa::detect_level() >= corehost::isa::level::sse42)
+            compare_backend(&corehost::conptyio::simd::find_legacy_sgr_sse42);
+#endif
+#if defined(COREHOST_TEST_HAVE_AVX2)
+        if (corehost::isa::detect_level() >= corehost::isa::level::avx2)
+            compare_backend(&corehost::conptyio::simd::find_legacy_sgr_avx2);
+#endif
+#if defined(COREHOST_TEST_HAVE_AVX10)
+        if (corehost::isa::detect_level() >= corehost::isa::level::avx10_1)
+            compare_backend(&corehost::conptyio::simd::find_legacy_sgr_avx10);
+#endif
+    }
+
+    {
+        HANDLE read_pipe = nullptr;
+        HANDLE write_pipe = nullptr;
+        if (!::CreatePipe(&read_pipe, &write_pipe, nullptr, 0))
+        {
+            std::fprintf(stderr, "create terminal writer pipe failed\n");
+            return EXIT_FAILURE;
+        }
+
+        win32::handle read_handle{read_pipe};
+        win32::handle write_handle{write_pipe};
+        corehost::conptyio::terminal_writer writer{write_handle.view()};
+        writer.buffer().append_text(u8"X\x1b[0;37;40mY");
+        writer.flush();
+
+        char output[16]{};
+        DWORD read = 0;
+        if (!::ReadFile(read_handle.get(), output, sizeof(output), &read, nullptr))
+        {
+            std::fprintf(stderr, "read terminal writer pipe failed\n");
+            return EXIT_FAILURE;
+        }
+        constexpr char expected[] = "X\x1b[0mY";
+        if (read != sizeof(expected) - 1 || std::memcmp(output, expected, read) != 0)
+        {
+            std::fprintf(stderr, "legacy SGR writer normalization failed\n");
+            return EXIT_FAILURE;
+        }
     }
 
     return EXIT_SUCCESS;

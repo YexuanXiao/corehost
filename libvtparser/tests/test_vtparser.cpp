@@ -1,8 +1,12 @@
 #include "kitty.hpp"
+#include "simd/simd.hpp"
 #include "sixel.hpp"
+#include "utility/isa_features.hpp"
 #include "utf8.hpp"
 #include "vt_parser.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <iterator>
@@ -28,6 +32,127 @@ void check(bool value, const char *message)
         std::fprintf(stderr, "FAIL: %s\n", message);
         ++failures;
     }
+}
+
+void test_simd_helpers()
+{
+    using namespace corehost::vtparser;
+    const auto active_decode = simd::select_decode_backend();
+    const auto active_ground = simd::select_ground_backend();
+    std::array<char8_t, 128> bytes{};
+    for (std::size_t i = 0; i < bytes.size(); ++i)
+        bytes[i] = static_cast<char8_t>((i % 26) + 'A');
+
+    std::array<char16_t, 128> scalar{};
+    std::array<char16_t, 128> active{};
+    for (std::size_t length = 0; length <= 80; ++length)
+    {
+        const auto scalar_size = simd::decode_ascii_scalar(bytes.data(), length, scalar.data());
+        const auto active_size = active_decode(bytes.data(), length, active.data());
+        check(scalar_size == active_size, "ascii simd/scalar size");
+        check(std::equal(scalar.begin(), scalar.begin() + static_cast<std::ptrdiff_t>(scalar_size), active.begin()),
+              "ascii simd/scalar bytes");
+    }
+
+    for (std::size_t position = 0; position < 80; ++position)
+    {
+        bytes[position] = 0xE4;
+        const auto scalar_size = simd::decode_ascii_scalar(bytes.data(), 80, scalar.data());
+        const auto active_size = active_decode(bytes.data(), 80, active.data());
+        check(scalar_size == position, "ascii simd stops at non-ascii");
+        check(active_size == scalar_size, "ascii simd non-ascii size");
+        check(std::equal(scalar.begin(), scalar.begin() + static_cast<std::ptrdiff_t>(scalar_size), active.begin()),
+              "ascii simd non-ascii prefix");
+        bytes[position] = static_cast<char8_t>((position % 26) + 'A');
+    }
+
+    std::array<char16_t, 128> text{};
+    for (std::size_t i = 0; i < text.size(); ++i)
+        text[i] = static_cast<char16_t>((i % 26) + 'A');
+
+    for (std::size_t length = 0; length <= 80; ++length)
+    {
+        bool scalar_ascii = true;
+        bool active_ascii = true;
+        const auto scalar_size = simd::ground_text_scalar(text.data(), length, scalar_ascii);
+        const auto active_size = active_ground(text.data(), length, active_ascii);
+        check(scalar_size == active_size, "ground simd/scalar size");
+        check(scalar_ascii == active_ascii, "ground simd/scalar ascii");
+    }
+
+    for (std::size_t position = 0; position < 80; ++position)
+    {
+        text[position] = 0x01;
+        bool scalar_ascii = true;
+        bool active_ascii = true;
+        const auto scalar_size = simd::ground_text_scalar(text.data(), 80, scalar_ascii);
+        const auto active_size = active_ground(text.data(), 80, active_ascii);
+        check(scalar_size == position, "ground simd stops at control");
+        check(active_size == scalar_size, "ground simd control size");
+        check(scalar_ascii == active_ascii, "ground simd control ascii");
+        text[position] = static_cast<char16_t>((position % 26) + 'A');
+    }
+
+    text[5] = 0x4E2D;
+    text[6] = 0x01;
+    text[7] = 0x4E2D;
+    bool mixed_scalar_ascii = true;
+    bool mixed_active_ascii = true;
+    const auto mixed_scalar_size = simd::ground_text_scalar(text.data(), 16, mixed_scalar_ascii);
+    const auto mixed_active_size = active_ground(text.data(), 16, mixed_active_ascii);
+    check(mixed_scalar_size == 6, "ground mixed control position");
+    check(mixed_active_size == mixed_scalar_size, "ground mixed control size");
+    check(!mixed_scalar_ascii && !mixed_active_ascii, "ground mixed control ascii");
+    text[5] = static_cast<char16_t>((5 % 26) + 'A');
+    text[6] = static_cast<char16_t>((6 % 26) + 'A');
+    text[7] = static_cast<char16_t>((7 % 26) + 'A');
+
+    const auto compare_decode = [&](auto backend) {
+        for (std::size_t length = 0; length <= 80; ++length)
+        {
+            std::fill(scalar.begin(), scalar.end(), char16_t{});
+            std::fill(active.begin(), active.end(), char16_t{});
+            const auto scalar_size = simd::decode_ascii_scalar(bytes.data(), length, scalar.data());
+            const auto active_size = backend(bytes.data(), length, active.data());
+            check(scalar_size == active_size, "ascii backend size");
+            check(std::equal(scalar.begin(), scalar.begin() + static_cast<std::ptrdiff_t>(scalar_size), active.begin()),
+                  "ascii backend bytes");
+        }
+    };
+
+    const auto compare_ground = [&](auto backend) {
+        for (std::size_t length = 0; length <= 80; ++length)
+        {
+            bool scalar_ascii = true;
+            bool active_ascii = true;
+            const auto scalar_size = simd::ground_text_scalar(text.data(), length, scalar_ascii);
+            const auto active_size = backend(text.data(), length, active_ascii);
+            check(scalar_size == active_size, "ground backend size");
+            check(scalar_ascii == active_ascii, "ground backend ascii");
+        }
+    };
+
+#if defined(COREHOST_TEST_HAVE_SSE42)
+    if (corehost::isa::detect_level() >= corehost::isa::level::sse42)
+    {
+        compare_decode(&simd::decode_ascii_sse42);
+        compare_ground(&simd::ground_text_sse42);
+    }
+#endif
+#if defined(COREHOST_TEST_HAVE_AVX2)
+    if (corehost::isa::detect_level() >= corehost::isa::level::avx2)
+    {
+        compare_decode(&simd::decode_ascii_avx2);
+        compare_ground(&simd::ground_text_avx2);
+    }
+#endif
+#if defined(COREHOST_TEST_HAVE_AVX10)
+    if (corehost::isa::detect_level() >= corehost::isa::level::avx10_1)
+    {
+        compare_decode(&simd::decode_ascii_avx10);
+        compare_ground(&simd::ground_text_avx10);
+    }
+#endif
 }
 
 int main()
@@ -150,6 +275,8 @@ int main()
     constexpr char8_t invalid[]{0x80};
     decoder.decode(invalid, decoded);
     check(decoded == u"\uFFFD", "utf8 invalid replacement");
+
+    test_simd_helpers();
 
     if (failures != 0)
     {

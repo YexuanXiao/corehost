@@ -1,6 +1,7 @@
 #pragma once
 
 #include "buffer.hpp"
+#include "simd/legacy_sgr.hpp"
 
 #include "win32/event.hpp"
 #include "win32/handle.hpp"
@@ -24,7 +25,8 @@ class terminal_writer final
     static constexpr std::size_t initial_capacity = 64 * 1024;
 
     explicit terminal_writer(win32::handle_view output)
-        : output_{output}, close_requested_{win32::create_tag, /*manual_reset=*/true, /*initial=*/false}
+        : output_{output}, close_requested_{win32::create_tag, /*manual_reset=*/true, /*initial=*/false},
+          find_legacy_sgr_{simd::select_legacy_sgr_backend()}
     {
         buffer_.reserve(initial_capacity);
     }
@@ -81,31 +83,24 @@ class terminal_writer final
     // 终端自己的默认背景，因此把这个等价默认序列归一化为 SGR 0。
     void normalize_legacy_default_sgr() noexcept
     {
-        constexpr std::u8string_view legacy = u8"\x1b[0;37;40m";
         constexpr std::u8string_view canonical = u8"\x1b[0m";
         auto *data = buffer_.mutable_data();
         std::size_t size = buffer_.size();
-        for (std::size_t i = 0; i + legacy.size() <= size;)
+        std::size_t offset = 0;
+        while (const auto *match = find_legacy_sgr_(data + offset, size - offset))
         {
-            if (std::equal(legacy.begin(), legacy.end(), data + i))
-            {
-                std::memmove(data + i + canonical.size(), data + i + legacy.size(),
-                             (size - i - legacy.size()) * sizeof(char8_t));
-                std::copy(canonical.begin(), canonical.end(), data + i);
-                size -= legacy.size() - canonical.size();
-                i += canonical.size();
-            }
-            else
-            {
-                ++i;
-            }
+            const auto index = static_cast<std::size_t>(match - data);
+            std::memmove(data + index + canonical.size(), data + index + 10, (size - index - 10) * sizeof(char8_t));
+            std::copy(canonical.begin(), canonical.end(), data + index);
+            size -= 10 - canonical.size();
+            offset = index + canonical.size();
         }
         buffer_.resize(size);
     }
-
     vtserializer::byte_buffer buffer_;
     win32::handle_view output_;
     win32::event close_requested_;
+    simd::find_legacy_sgr_function find_legacy_sgr_;
 };
 
 } // namespace corehost::conptyio

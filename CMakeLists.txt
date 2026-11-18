@@ -18,6 +18,7 @@ add_compile_definitions($<$<BOOL:${COREHOST_DISABLE_LOG}>:COREHOST_DISABLE_LOG>)
 set(COREHOST_LOG_LEVEL "1" CACHE STRING "CoreHost log level by frequency: 1=low, 2=medium, 3=high")
 add_compile_definitions(COREHOST_LOG_LEVEL=${COREHOST_LOG_LEVEL})
 
+option(COREHOST_SIMD "Enable x86 SIMD fast paths" ON)
 option(COREHOST_PERF_DIAG "Enable aggregated CoreHost performance diagnostics" OFF)
 add_compile_definitions($<$<BOOL:${COREHOST_PERF_DIAG}>:COREHOST_PERF_DIAG>)
 
@@ -44,6 +45,10 @@ unset(_version_parts)
 
 # ── 架构检测 (proxy 子目录使用) ──────────────────────
 corehost_detect_arch(CONHOST_PROXY_ARCH_DIR)
+if(COREHOST_SIMD AND COREHOST_COMPILER_MSVC AND CONHOST_PROXY_ARCH_DIR STREQUAL "x64")
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag("/arch:AVX10.1" COREHOST_HAS_AVX10)
+endif()
 
 # ── 统一输出目录：所有目标输出到 build/$<CONFIG>/ ──
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/$<CONFIG>)

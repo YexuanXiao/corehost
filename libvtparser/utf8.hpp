@@ -1,5 +1,7 @@
 #pragma once
 
+#include "simd/simd.hpp"
+
 #include <libunicode/convert.h>
 
 #include <algorithm>
@@ -19,41 +21,29 @@ namespace corehost::vtparser
 class utf8_decoder final
 {
   public:
+    utf8_decoder() noexcept : decode_ascii_{simd::select_decode_backend()}
+    {
+    }
+
     template <typename String>
     void decode(std::span<const char8_t> bytes, String &output)
     {
         output.clear();
 
-        constexpr std::uint64_t high_bits = 0x8080808080808080ull;
         const auto bytes_size = bytes.size();
         std::size_t index = 0;
 
         while (index < bytes_size)
         {
-            if (pending_size_ == 0 && index + 8 <= bytes_size)
+            if (pending_size_ == 0 && bytes[index] < 0x80 && index + 8 <= bytes_size)
             {
-                std::uint64_t word = 0;
-                std::memcpy(&word, bytes.data() + index, sizeof(word));
-                if ((word & high_bits) == 0)
+                const auto offset = output.size();
+                output.resize(offset + (bytes_size - index));
+                const auto consumed = decode_ascii_(bytes.data() + index, bytes_size - index, output.data() + offset);
+                output.resize(offset + consumed);
+                if (consumed != 0)
                 {
-                    const auto offset = output.size();
-                    output.resize(offset + 8);
-
-                    std::uint32_t first = 0;
-                    std::uint32_t second = 0;
-                    std::memcpy(&first, bytes.data() + index, sizeof(first));
-                    std::memcpy(&second, bytes.data() + index + 4, sizeof(second));
-                    const auto widen = [](std::uint32_t value) noexcept {
-                        return static_cast<std::uint64_t>(value & 0x000000FFu) |
-                               (static_cast<std::uint64_t>(value & 0x0000FF00u) << 8) |
-                               (static_cast<std::uint64_t>(value & 0x00FF0000u) << 16) |
-                               (static_cast<std::uint64_t>(value & 0xFF000000u) << 24);
-                    };
-                    const auto first_wide = widen(first);
-                    const auto second_wide = widen(second);
-                    std::memcpy(output.data() + offset, &first_wide, sizeof(first_wide));
-                    std::memcpy(output.data() + offset + 4, &second_wide, sizeof(second_wide));
-                    index += 8;
+                    index += consumed;
                     continue;
                 }
             }
@@ -68,6 +58,7 @@ class utf8_decoder final
     }
 
   private:
+    simd::decode_ascii_function decode_ascii_;
     static constexpr char16_t replacement = u'\uFFFD';
 
     static std::size_t expected_length(std::uint8_t byte) noexcept

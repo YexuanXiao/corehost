@@ -7,6 +7,7 @@
 
 add_library(common STATIC
     utility/diagnostic_report.cpp
+    utility/isa_features.cpp
     utility/log.cpp
     utility/notification.cpp
     utility/temp_path.cpp
@@ -44,6 +45,7 @@ target_sources(common
                 utility/crtdbg.hpp
                 utility/diagnostic_report.hpp
                 utility/env.hpp
+                utility/isa_features.hpp
                 utility/log.hpp
                 utility/notification.hpp
                 utility/raw_byte_allocator.hpp

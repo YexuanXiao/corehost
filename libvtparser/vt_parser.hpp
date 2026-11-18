@@ -51,6 +51,7 @@
 #include <libunicode/convert.h>
 #include <array>
 #include <vector>
+#include "simd/simd.hpp"
 #include "raw_buffer.hpp"
 
 namespace corehost::vtparser
@@ -510,7 +511,7 @@ class vt_parser
 
   public:
     // raw 由调用方持有，parser 把当前消息文本/标题 view 指向该缓冲。
-    explicit vt_parser(raw_u16buffer &raw) noexcept : _raw(raw)
+    explicit vt_parser(raw_u16buffer &raw) noexcept : _raw(raw), _ground_text{simd::select_ground_backend()}
     {
     }
 
@@ -552,57 +553,10 @@ class vt_parser
     // 确认 parser 处于 ground；函数只负责找到首个 C0/DEL 控制字符。
     [[nodiscard]] size_t _direct_ground_text_run_length(std::u16string_view text, bool &ascii) const noexcept
     {
-        constexpr std::uint64_t high = 0x8000800080008000ull;
-        constexpr std::uint64_t low = 0x0020002000200020ull;
-        constexpr std::uint64_t del = 0x007F007F007F007Full;
-        constexpr std::uint64_t one = 0x0001000100010001ull;
-        constexpr std::uint64_t non_ascii = 0xFF80FF80FF80FF80ull;
-
-        const auto text_size = text.size();
-        size_t count = 0;
-        while (count + 4 <= text_size)
-        {
-            std::uint64_t word = 0;
-            std::memcpy(&word, text.data() + count, sizeof(word));
-
-            if ((word & non_ascii) != 0)
-            {
-                ascii = false;
-            }
-            const auto below_low = ~(((word | high) - low)) & high;
-            const auto is_del = word ^ del;
-            const auto at_del = ~((is_del | high) - one) & ~is_del & high;
-            const auto control = below_low | at_del;
-            if (control != 0)
-            {
-                return count + (std::countr_zero(control) >> 4);
-            }
-            count += 4;
-        }
-
-        if (count < text_size)
-        {
-            std::array<char16_t, 4> tail{u' ', u' ', u' ', u' '};
-            std::copy(text.begin() + static_cast<std::ptrdiff_t>(count), text.end(), tail.begin());
-            std::uint64_t word = 0;
-            std::memcpy(&word, tail.data(), sizeof(word));
-            if ((word & non_ascii) != 0)
-            {
-                ascii = false;
-            }
-        }
-        while (count < text_size)
-        {
-            const auto ch = text[count];
-            if ((ch < 0x20) | (ch == 0x7F))
-            {
-                break;
-            }
-            ++count;
-        }
-        return count;
+        if (text.size() >= 8)
+            return _ground_text(text.data(), text.size(), ascii);
+        return simd::ground_text_scalar(text.data(), text.size(), ascii);
     }
-
     // 返回当前正在解析的 ESC 序列原文；不在 ESC 序列内时返回空 view。
     [[nodiscard]] std::u16string_view _raw_sequence() const noexcept
     {
@@ -1058,6 +1012,7 @@ class vt_parser
     // _raw 保存当前跨字符累计的文本或控制序列；text-before-control、
     // unknown_sequence、OSC title 的 view 指向该缓冲。continue_text 不使用它。
     raw_u16buffer &_raw;
+    simd::ground_text_function _ground_text;
 
     // 当前 ESC/CSI/OSC 序列在 _raw 中的起始偏移。vt_parse_result::raw_sequence
     // 和 unknown_sequence 都依赖它返回完整原文。
