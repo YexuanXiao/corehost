@@ -133,21 +133,6 @@ class session final
     }
 
   private:
-    [[nodiscard]] static bool is_terminal_response(vtparser::vt_message_id id) noexcept
-    {
-        switch (id)
-        {
-        case vtparser::vt_message_id::device_attributes:
-        case vtparser::vt_message_id::cpr_response:
-        case vtparser::vt_message_id::set_palette_color:
-        case vtparser::vt_message_id::set_window_title:
-        case vtparser::vt_message_id::unknown_sequence:
-            return true;
-        default:
-            return false;
-        }
-    }
-
     [[nodiscard]] static std::u16string_view vt_input_sequence(consoleinput::virtual_key key) noexcept
     {
         switch (key)
@@ -201,6 +186,21 @@ class session final
         }
     }
 
+    [[nodiscard]] static bool is_terminal_response(vtparser::vt_message_id id) noexcept
+    {
+        switch (id)
+        {
+        case vtparser::vt_message_id::device_attributes:
+        case vtparser::vt_message_id::cpr_response:
+        case vtparser::vt_message_id::set_palette_color:
+        case vtparser::vt_message_id::set_window_title:
+        case vtparser::vt_message_id::unknown_sequence:
+            return true;
+        default:
+            return false;
+        }
+    }
+
     void consume(const vtparser::vt_parse_result &result, bool input_direction, bool raw_passthrough = false)
     {
         if (result.id == vtparser::vt_message_id::continue_)
@@ -234,6 +234,20 @@ class session final
             return;
         }
 
+        // Terminal replies are VT text, not keyboard keys. Queue the exact
+        // sequence as one text event; input_queue::read expands it into
+        // down/up KEY_EVENTs with key_from_text_character(), preserving ESC and
+        // control characters. Synthesizing keys here corrupts responses such
+        // as CPR/DA1 and aborts edit.exe.
+        if (input_direction && is_terminal_response(result.id))
+        {
+            consoleinput::input_event event{};
+            event.type = consoleinput::input_event_type::text;
+            event.text = result.raw_sequence;
+            input_.push(std::move(event));
+            return;
+        }
+
         if (input_direction && raw_passthrough && !result.raw_sequence.empty())
         {
             for (const auto ch : result.raw_sequence)
@@ -242,21 +256,6 @@ class session final
                                                       consoleinput::key_from_character(ch, true)});
                 input_.push(consoleinput::input_event{consoleinput::input_event_type::key,
                                                       consoleinput::key_from_character(ch, false)});
-            }
-            return;
-        }
-
-        if (input_direction && !raw_passthrough && is_terminal_response(result.id))
-        {
-            LOG("terminal response id=%d chars=%zu", static_cast<int>(result.id), result.raw_sequence.size());
-            for (const auto ch : result.raw_sequence)
-            {
-                input_.push(consoleinput::input_event{consoleinput::input_event_type::key,
-                                                      consoleinput::key_from_character(ch, true)});
-                auto up = consoleinput::key_from_character(ch, true);
-                up.character = 0;
-                up.key_down = false;
-                input_.push(consoleinput::input_event{consoleinput::input_event_type::key, up});
             }
             return;
         }

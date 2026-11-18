@@ -186,6 +186,9 @@ class input_queue final
                 continue;
             }
             const auto text_size = event.text.size();
+            const auto expanded = (text_size - event.text_offset) * 2;
+            if (count != 0 && expanded > destination_size - count)
+                break; // keep a complete VT reply together
             for (std::size_t i = event.text_offset; i < text_size && count < destination_size; ++i)
             {
                 input_event down{};
@@ -249,6 +252,9 @@ class input_queue final
                 events_.pop_front();
                 continue;
             }
+            const auto expanded = (front.text.size() - front.text_offset) * 2;
+            if (count != 0 && expanded > destination_size - count)
+                break; // keep a complete VT reply together
             const auto character = front.text[front.text_offset++];
             --key_count_;
             input_event down{};
