@@ -476,7 +476,7 @@ int main()
     parser.reset();
     result = parser.parse(u"\x1b[?1000h");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
-    if (!state.private_modes.test(1000))
+    if (!state.private_modes.test(1000) || !state.mouse_tracking())
     {
         std::fprintf(stderr, "private mode enable failed\n");
         return EXIT_FAILURE;
@@ -484,7 +484,7 @@ int main()
     parser.reset();
     result = parser.parse(u"\x1b[?1000l");
     (void)corehost::vtstate::apply(result.id, result.message, buffer, state, applier);
-    if (state.private_modes.test(1000))
+    if (state.private_modes.test(1000) || state.mouse_tracking())
     {
         std::fprintf(stderr, "private mode disable failed\n");
         return EXIT_FAILURE;

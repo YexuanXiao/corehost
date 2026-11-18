@@ -19,7 +19,6 @@
 #include <system_error>
 #include <utility>
 #include <vector>
-#include <bitset>
 
 namespace corehost::screen
 {
@@ -110,6 +109,53 @@ struct selection_range final
     std::size_t caret_y{};
 
     [[nodiscard]] bool contains(std::size_t x, std::size_t y) const noexcept;
+};
+
+// DEC private modes are sparse but the valid range is 0..2047. This small
+// fixed bitset keeps the same range while avoiding std::bitset's checked
+// narrow API on the per-input mouse_tracking() path.
+class private_mode_set final
+{
+  public:
+    static constexpr std::size_t capacity = 2048;
+    static constexpr std::size_t word_bits = 64;
+    static constexpr std::size_t word_count = capacity / word_bits;
+
+    [[nodiscard]] bool test(std::size_t mode) const noexcept
+    {
+        assert(mode < capacity);
+        const auto mask = std::uint64_t{1} << (mode % word_bits);
+        return (words_[mode / word_bits] & mask) != 0;
+    }
+
+    // Returns true when the bit changed.
+    bool set(std::size_t mode, bool enabled) noexcept
+    {
+        assert(mode < capacity);
+        const auto mask = std::uint64_t{1} << (mode % word_bits);
+        auto &word = words_[mode / word_bits];
+        const auto previous = word;
+        if (enabled)
+            word |= mask;
+        else
+            word &= ~mask;
+        return ((previous & mask) != 0) != enabled;
+    }
+
+    // 1000/1002/1003 are all in the same bitmap word. Check them with one load
+    // on the input hot path instead of three independent test() calls.
+    [[nodiscard]] bool mouse_tracking() const noexcept
+    {
+        constexpr auto word_index = std::size_t{1000} / word_bits;
+        static_assert(std::size_t{1002} / word_bits == word_index);
+        static_assert(std::size_t{1003} / word_bits == word_index);
+        constexpr auto mask = (std::uint64_t{1} << (1000 % word_bits)) | (std::uint64_t{1} << (1002 % word_bits)) |
+                              (std::uint64_t{1} << (1003 % word_bits));
+        return (words_[word_index] & mask) != 0;
+    }
+
+  private:
+    std::array<std::uint64_t, word_count> words_{};
 };
 
 // Console-level state shared by VT and Console API paths. This deliberately
@@ -220,7 +266,7 @@ class console_state final
     bool win32_input_mode{true};
     bool win32_input_changed{};
     bool echo_line_feed{};
-    std::bitset<2048> private_modes;
+    private_mode_set private_modes;
     std::vector<std::pair<std::uint16_t, bool>> private_mode_changes;
     std::uint32_t output_code_page{};
     std::uint32_t font_index{};
@@ -303,16 +349,19 @@ class console_state final
 
     [[nodiscard]] bool mouse_tracking() const noexcept
     {
-        return private_modes.test(1000) || private_modes.test(1002) || private_modes.test(1003);
+        return private_modes.mouse_tracking();
     }
 
     void set_private_mode(std::uint16_t mode, bool enabled)
     {
-        if (mode >= private_modes.size() || private_modes.test(mode) == enabled)
+        if (mode >= private_mode_set::capacity)
         {
             return;
         }
-        private_modes.set(mode, enabled);
+        if (!private_modes.set(mode, enabled))
+        {
+            return;
+        }
         private_mode_changes.emplace_back(mode, enabled);
     }
 
