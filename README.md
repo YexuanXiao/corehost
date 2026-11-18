@@ -33,6 +33,8 @@
 
 The original Windows console, after 36 years and more than four generations of development, has poor code quality and is fragile.
 
+Moreover, almost all console state and a mutex protecting it are globally shared and mutable, which makes it impossible to use as an in-process library.
+
 Actually, the Windows Console team also agrees that it is far from ideal; see https://github.com/microsoft/terminal/blob/main/doc/specs/%2313000%20-%20In-process%20ConPTY.md and other comments you can find in the repo's issue tracker.
 
 ## Positioning
@@ -41,7 +43,7 @@ corehost **is not a complete console / terminal**, as it does not provide a wind
 
 Its goal is to act as a **bridge between the Terminal GUI and the Windows console system**. To that end, corehost implements three core features:
 
-- When running as conhost.exe, dispatch the console application to the default console.
+- When running as conhost.exe, dispatch the console application to the default terminal.
 - As the default console, acts as a bridge between the console application and the terminal.
 - As the implementer of the Windows system, one codebase drives both windowless console applications and pseudo console at the same time.
 
