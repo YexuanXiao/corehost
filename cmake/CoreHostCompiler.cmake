@@ -36,6 +36,9 @@ function(corehost_configure_global_compiler)
         add_compile_options(/Zc:__cplusplus /utf-8 /permissive-)
         if(COREHOST_COMPILER_MSVC)
             add_compile_options(/Zc:preprocessor)
+            # Let LTCG put each global data item in its own COMDAT, so the
+            # linker can discard unused generated Unicode tables.
+            add_compile_options("$<$<NOT:$<CONFIG:Debug>>:/Gw>")
             if(COREHOST_ENABLE_ASAN)
                 add_compile_options("$<$<CONFIG:Debug>:/fsanitize=address>")
             endif()
