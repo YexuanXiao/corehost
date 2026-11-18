@@ -149,7 +149,7 @@ class input_queue final
     {
         std::size_t count = text_up_pending_ ? 1 : 0;
         for (const auto &event : events_)
-            count += event.type == input_event_type::text ? (event.text.size() - event.text_offset) * 2 : 1;
+            count += event.type == input_event_type::text ? text_record_count(event) : 1;
         return count;
     }
 
@@ -171,10 +171,7 @@ class input_queue final
         {
             if (destination_size == 0)
                 return 0;
-            input_event up{};
-            up.type = input_event_type::key;
-            up.key = key_from_text_character(text_up_char_, false);
-            destination[count++] = up;
+            destination[count++] = make_text_key(text_up_char_, false);
         }
         for (const auto &event : events_)
         {
@@ -185,23 +182,13 @@ class input_queue final
                 destination[count++] = event;
                 continue;
             }
-            const auto text_size = event.text.size();
-            const auto expanded = (text_size - event.text_offset) * 2;
-            if (count != 0 && expanded > destination_size - count)
-                break; // keep a complete VT reply together
-            for (std::size_t i = event.text_offset; i < text_size && count < destination_size; ++i)
-            {
-                input_event down{};
-                down.type = input_event_type::key;
-                down.key = key_from_text_character(event.text[i], true);
-                destination[count++] = down;
-                if (count == destination_size)
-                    break;
-                input_event up{};
-                up.type = input_event_type::key;
-                up.key = key_from_text_character(event.text[i], false);
-                destination[count++] = up;
-            }
+            auto offset = event.text_offset;
+            bool pending = false;
+            char16_t pending_character{};
+            const auto before = count;
+            count = append_text_event(event, offset, destination, count, pending, pending_character);
+            if (count == before)
+                break;
         }
         return count;
     }
@@ -229,10 +216,7 @@ class input_queue final
             return 0;
         if (text_up_pending_)
         {
-            input_event up{};
-            up.type = input_event_type::key;
-            up.key = key_from_text_character(text_up_char_, false);
-            destination[count++] = up;
+            destination[count++] = make_text_key(text_up_char_, false);
             text_up_pending_ = false;
         }
         while (count < destination_size && !events_.empty())
@@ -252,27 +236,13 @@ class input_queue final
                 events_.pop_front();
                 continue;
             }
-            const auto expanded = (front.text.size() - front.text_offset) * 2;
-            if (count != 0 && expanded > destination_size - count)
-                break; // keep a complete VT reply together
-            const auto character = front.text[front.text_offset++];
-            --key_count_;
-            input_event down{};
-            down.type = input_event_type::key;
-            down.key = key_from_text_character(character, true);
-            destination[count++] = down;
-            if (count < destination_size)
-            {
-                input_event up{};
-                up.type = input_event_type::key;
-                up.key = key_from_text_character(character, false);
-                destination[count++] = up;
-            }
-            else
-            {
-                text_up_pending_ = true;
-                text_up_char_ = character;
-            }
+            const auto offset_before = front.text_offset;
+            const auto count_before = count;
+            count = append_text_event(front, front.text_offset, destination, count, text_up_pending_,
+                                      text_up_char_);
+            key_count_ -= front.text_offset - offset_before;
+            if (count == count_before)
+                break;
             if (front.text_offset >= front.text.size())
                 events_.pop_front();
         }
@@ -287,6 +257,50 @@ class input_queue final
     }
 
   private:
+    [[nodiscard]] static std::size_t text_record_count(const input_event &event) noexcept
+    {
+        return (event.text.size() - event.text_offset) * 2;
+    }
+
+    [[nodiscard]] static bool complete_text_fits(const input_event &event, std::size_t used,
+                                                 std::size_t capacity) noexcept
+    {
+        return used == 0 || text_record_count(event) <= capacity - used;
+    }
+
+    [[nodiscard]] static input_event make_text_key(char16_t character, bool key_down) noexcept
+    {
+        input_event event{};
+        event.type = input_event_type::key;
+        event.key = key_from_text_character(character, key_down);
+        return event;
+    }
+
+    // Expands a text batch into down/up key records without splitting a batch
+    // when the destination has already been partially filled.
+    static std::size_t append_text_event(const input_event &event, std::size_t &offset,
+                                         std::span<input_event> destination, std::size_t count,
+                                         bool &up_pending, char16_t &up_character) noexcept
+    {
+        if (!complete_text_fits(event, count, destination.size()))
+            return count;
+        while (offset < event.text.size() && count < destination.size())
+        {
+            const auto character = event.text[offset++];
+            destination[count++] = make_text_key(character, true);
+            if (count < destination.size())
+            {
+                destination[count++] = make_text_key(character, false);
+            }
+            else
+            {
+                up_pending = true;
+                up_character = character;
+            }
+        }
+        return count;
+    }
+
     void account(const input_event &event) noexcept
     {
         if (event.type == input_event_type::key && event.key.key_down)

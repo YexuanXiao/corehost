@@ -2908,7 +2908,9 @@ class console_api final
     vtparser::raw_u16string history_selection_;
     std::vector<std::u16string_view> alias_exes_seen_;
     vtparser::raw_byte_vector<std::int32_t> ctrl_targets_;
-    // Large enough for one complete terminal reply (for example an OSC 4\n    // palette response) expanded into key down/up records.\n    std::array<consoleinput::input_event, 256> read_events_;
+    // Large enough for one complete terminal reply (for example an OSC 4
+    // palette response) expanded into key down/up records.
+    std::array<consoleinput::input_event, 256> read_events_;
     vtparser::raw_byte_vector<char> ansi_buffer_;
     std::vector<consoleinput::input_event> prepend_buffer_;
     vtparser::raw_u16string decoded_executable_;
