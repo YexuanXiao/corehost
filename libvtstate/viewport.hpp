@@ -150,8 +150,7 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
         append_hyperlink_close(output);
     }
 
-    if (move_cursor &&
-        (cursor.y != last_rendered_row || static_cast<std::size_t>(cursor.x) != last_rendered_end))
+    if (move_cursor && (cursor.y != last_rendered_row || static_cast<std::size_t>(cursor.x) != last_rendered_end))
         append_cup(output, static_cast<unsigned>(cursor.y - origin.y), static_cast<unsigned>(cursor.x - origin.x));
     if (state != nullptr && include_cursor_visibility)
     {

@@ -5,11 +5,28 @@
 #include <vector>
 #include <cstdlib>
 
-int main()
+struct console_api_fixture final
 {
-    corehost::screen::screen_buffer buffer{8, 2};
-    corehost::screen::console_state state{8, 2};
-    corehost::consoleapi::console_api api{buffer, state};
+    corehost::screen::screen_buffer buffer;
+    corehost::screen::console_state state;
+    corehost::consoleapi::console_api api;
+    corehost::consoleinput::input_queue input_queue;
+    corehost::consoleapi::console_api input_api;
+
+    console_api_fixture()
+        : buffer{8, 2}, state{8, 2}, api{buffer, state}, input_queue{}, input_api{buffer, state, &input_queue}
+    {
+        input_queue.push(corehost::consoleinput::input_event{});
+    }
+};
+
+static int run_console_api_output_tests(console_api_fixture &fixture)
+{
+    auto &buffer = fixture.buffer;
+    auto &state = fixture.state;
+    auto &api = fixture.api;
+    auto &input_queue = fixture.input_queue;
+    auto &input_api = fixture.input_api;
 
     if (!api.write_text(u"AB"))
     {
@@ -241,9 +258,6 @@ int main()
         return EXIT_FAILURE;
     }
 
-    corehost::consoleinput::input_queue input_queue;
-    input_queue.push(corehost::consoleinput::input_event{});
-    corehost::consoleapi::console_api input_api{buffer, state, &input_queue};
     corehost::coreio::io_msg event_message{};
     event_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG);
     event_message.descriptor.OutputSize = sizeof(event_message.body);
@@ -397,6 +411,17 @@ int main()
         std::fprintf(stderr, "write console input failed\n");
         return EXIT_FAILURE;
     }
+
+    return EXIT_SUCCESS;
+}
+
+static int run_console_api_display_tests(console_api_fixture &fixture)
+{
+    auto &buffer = fixture.buffer;
+    auto &state = fixture.state;
+    auto &api = fixture.api;
+    auto &input_queue = fixture.input_queue;
+    auto &input_api = fixture.input_api;
 
     corehost::screen::screen_buffer scroll_buffer{4, 2};
     corehost::screen::console_state scroll_state{4, 2};
@@ -1415,6 +1440,17 @@ int main()
         return EXIT_FAILURE;
     }
 
+    return EXIT_SUCCESS;
+}
+
+static int run_console_api_pending_tests(console_api_fixture &fixture)
+{
+    auto &buffer = fixture.buffer;
+    auto &state = fixture.state;
+    auto &api = fixture.api;
+    auto &input_queue = fixture.input_queue;
+    auto &input_api = fixture.input_api;
+
     corehost::consoleinput::input_queue pending_queue;
     corehost::screen::screen_buffer pending_buffer{4, 2};
     corehost::screen::console_state pending_state{4, 2};
@@ -1820,4 +1856,25 @@ int main()
 
     std::printf("libconsole API tests passed\n");
     return EXIT_SUCCESS;
+
+    return EXIT_SUCCESS;
+}
+
+int main()
+{
+    console_api_fixture fixture;
+    int result = EXIT_SUCCESS;
+    result = run_console_api_output_tests(fixture);
+    if (result != EXIT_SUCCESS)
+        return result;
+
+    result = run_console_api_display_tests(fixture);
+    if (result != EXIT_SUCCESS)
+        return result;
+
+    result = run_console_api_pending_tests(fixture);
+    if (result != EXIT_SUCCESS)
+        return result;
+
+    return result;
 }

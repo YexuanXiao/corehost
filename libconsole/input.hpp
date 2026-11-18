@@ -238,8 +238,7 @@ class input_queue final
             }
             const auto offset_before = front.text_offset;
             const auto count_before = count;
-            count = append_text_event(front, front.text_offset, destination, count, text_up_pending_,
-                                      text_up_char_);
+            count = append_text_event(front, front.text_offset, destination, count, text_up_pending_, text_up_char_);
             key_count_ -= front.text_offset - offset_before;
             if (count == count_before)
                 break;
@@ -279,8 +278,8 @@ class input_queue final
     // Expands a text batch into down/up key records without splitting a batch
     // when the destination has already been partially filled.
     static std::size_t append_text_event(const input_event &event, std::size_t &offset,
-                                         std::span<input_event> destination, std::size_t count,
-                                         bool &up_pending, char16_t &up_character) noexcept
+                                         std::span<input_event> destination, std::size_t count, bool &up_pending,
+                                         char16_t &up_character) noexcept
     {
         if (!complete_text_fits(event, count, destination.size()))
             return count;
