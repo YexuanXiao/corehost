@@ -249,37 +249,13 @@ class server_session final
 
     void on_input_eof()
     {
+        // The terminal input pipe is gone. Keep pending ReadFile/ReadConsoleInput
+        // requests pending: conhost sends CTRL_CLOSE_EVENT and lets the client
+        // leave; if a client ignores the close event, the request will fail when
+        // the console handle closes. Completing it here as a successful
+        // zero-record read would make PSReadLine/line readers retry on a dead
+        // console.
         raw_eof_ = true;
-#ifdef COREPTY_TESTING
-        if (!pending_active_ || !server_.valid())
-#else
-        if (!pending_active_)
-#endif
-        {
-            return;
-        }
-        if (pending_kind_ == pending_kind::raw_read)
-        {
-            const auto capacity =
-                std::min<std::size_t>(pending_message_.descriptor.OutputSize, sizeof(pending_message_.body));
-            const auto written = std::min<std::size_t>(raw_in_.size(), capacity);
-            std::copy_n(raw_in_.begin(), written, pending_message_.body);
-            raw_in_.clear();
-            coreio::prepare_completion(pending_message_, 0, written, pending_message_.body, written);
-        }
-        else
-        {
-            coreio::prepare_completion(pending_message_, 0, 0, pending_message_.body, 0);
-        }
-        coreio::complete_io(server_, pending_message_.complete);
-        pending_active_ = false;
-        pending_kind_ = pending_kind::none;
-        for (auto &queued : queued_console_inputs_)
-        {
-            coreio::prepare_completion(queued, 0, 0, queued.body, 0);
-            coreio::complete_io(server_, queued.complete);
-        }
-        queued_console_inputs_.clear();
     }
 
     [[nodiscard]] bool raw_input_mode() const noexcept

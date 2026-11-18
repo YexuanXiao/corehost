@@ -32,6 +32,25 @@ int main()
     }
 
     ::CloseHandle(raw);
+
+    HANDLE closed_read = nullptr;
+    HANDLE closed_write = nullptr;
+    if (!::CreatePipe(&closed_read, &closed_write, nullptr, 0))
+    {
+        std::fprintf(stderr, "create closed pipe failed\n");
+        return EXIT_FAILURE;
+    }
+    corehost::conptyio::terminal_writer closed_writer{win32::handle_view{closed_write}};
+    ::CloseHandle(closed_read);
+    closed_writer.buffer().append_text(u8"closed");
+    closed_writer.flush();
+    if (::WaitForSingleObject(closed_writer.close_requested().get(), 0) != WAIT_OBJECT_0)
+    {
+        std::fprintf(stderr, "writer did not report a closed output pipe\n");
+        return EXIT_FAILURE;
+    }
+    ::CloseHandle(closed_write);
+
     HANDLE pipe_read = nullptr;
     HANDLE pipe_write = nullptr;
     if (!::CreatePipe(&pipe_read, &pipe_write, nullptr, 0))

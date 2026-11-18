@@ -33,6 +33,7 @@
 #include <libunicode/convert.h>
 #include <thread>
 #include <span>
+#include <vector>
 
 namespace corehost::corepty
 {
@@ -358,8 +359,11 @@ inline void run_conpty_session(win32::handle_view server, win32::handle_view eve
         pty_signal_thread.start();
     }
 
-    std::array<HANDLE, 4> waits{};
+    std::array<HANDLE, 5> waits{};
     DWORD wait_count = 0;
+#ifndef COREPTY_TESTING
+    DWORD server_wait_index = MAXDWORD;
+#endif
     waits[wait_count++] = input_thread.view().get();
 #ifdef COREPTY_TESTING
     // The entry-point unit test intentionally supplies no server or signal pipe.
@@ -372,15 +376,47 @@ inline void run_conpty_session(win32::handle_view server, win32::handle_view eve
         waits[wait_count++] = pty_signal_thread.view().get();
     }
 #else
+    server_wait_index = wait_count;
     waits[wait_count++] = server_thread.get();
     waits[wait_count++] = pty_signal_thread.view().get();
 #endif
     waits[wait_count++] = window.close_requested().get();
+    waits[wait_count++] = writer.close_requested().get();
     const auto wait = ::WaitForMultipleObjects(wait_count, waits.data(), FALSE, INFINITE);
     if (wait == WAIT_FAILED)
     {
         win32::throw_last_error();
     }
+
+#ifndef COREPTY_TESTING
+    // The terminal owns the window. Like conhost's SendCloseEvent, deliver
+    // CTRL_CLOSE_EVENT when a terminal pipe (input/signal/output) or the
+    // window closes, before the console handles disappear, so a
+    // ReadConsoleInput waiter (PSReadLine) is not left on a dead console.
+    // The server thread ending means the client disconnected; that is not a
+    // terminal close and must not kill other attached processes.
+    const bool client_exited = wait == WAIT_OBJECT_0 + server_wait_index;
+    if (!client_exited)
+    {
+        // Snapshot the process list under the session lock, then deliver outside
+        // it. EndTask waits (bounded by CSRSS' close-handler timeout) for the
+        // client close handler; that handler may call a Console API, which
+        // reaches the corehost server thread and needs this same session lock.
+        // Holding the lock while calling EndTask closes that cycle.
+        std::vector<DWORD> close_targets;
+        {
+            std::unique_lock guard{session_mutex};
+            close_targets.reserve(console_session.processes().size());
+            for (const auto process : console_session.processes().processes())
+                close_targets.push_back(static_cast<DWORD>(process));
+        }
+        for (const auto process : close_targets)
+        {
+            LOG("close: deliver CTRL_CLOSE_EVENT pid=%lu", static_cast<unsigned long>(process));
+            ctrl_delivery.deliver(process, CTRL_CLOSE_EVENT);
+        }
+    }
+#endif
 
     input_thread.stop_and_join();
     pty_signal_thread.stop_and_join();
