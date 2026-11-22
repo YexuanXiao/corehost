@@ -206,10 +206,8 @@ class console_session final
         {
             const auto length = info.TitleLength / sizeof(char16_t);
             state_.title.assign(reinterpret_cast<const char16_t *>(info.Title), length);
-            if (window_.handle() != nullptr)
-            {
-                (void)::SetWindowTextW(window_.handle(), reinterpret_cast<LPCWSTR>(state_.title.c_str()));
-            }
+            assert(window_.handle() != nullptr);
+            (void)::SetWindowTextW(window_.handle(), reinterpret_cast<LPCWSTR>(state_.title.c_str()));
         }
     }
 
