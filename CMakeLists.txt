@@ -8,7 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CoreHostCompiler)
-include(TargetArch)
+include(CoreHostTargetArch)
 normzalied_target_arch(COREHOST_TARGET_ARCH)
 
 if(COREHOST_TARGET_ARCH STREQUAL "x86_64")

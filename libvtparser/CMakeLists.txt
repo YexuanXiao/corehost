@@ -1,15 +1,10 @@
-# libvtparser — platform-neutral VT parser (TARGET: standalone).
-add_library(libvtparser STATIC
-    simd/ascii_scalar.cpp
-    simd/ground_scalar.cpp
-    simd/ascii_sse42.cpp
-    simd/ascii_avx2.cpp
-    simd/ascii_avx10.cpp
-    simd/dispatch.cpp
-)
+# libvtparser — platform-neutral VT parser (TARGET: standalone, header-only).
+add_library(libvtparser INTERFACE)
 
-target_include_directories(libvtparser PUBLIC
+target_include_directories(libvtparser INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(libvtparser PUBLIC common unicode::unicode)
+target_link_libraries(libvtparser INTERFACE common unicode::unicode)
+
+target_compile_features(libvtparser INTERFACE cxx_std_23)

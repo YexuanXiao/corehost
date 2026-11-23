@@ -1,17 +1,11 @@
-add_library(libcorepty STATIC
-    simd/legacy_sgr_scalar.cpp
-    simd/legacy_sgr_sse42.cpp
-    simd/legacy_sgr_avx2.cpp
-    simd/legacy_sgr_avx10.cpp
-    simd/legacy_sgr_dispatch.cpp
-)
+add_library(libcorepty INTERFACE)
 
-target_include_directories(libcorepty PUBLIC
+target_include_directories(libcorepty INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/third_parties/deque
 )
 
-target_link_libraries(libcorepty PUBLIC
+target_link_libraries(libcorepty INTERFACE
     libvtparser
     libvtstate
     libconsole
@@ -22,4 +16,3 @@ target_link_libraries(libcorepty PUBLIC
     unicode::unicode
     user32
 )
-
