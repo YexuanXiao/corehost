@@ -1,16 +1,11 @@
 #include "legacy_sgr.hpp"
 
+#if COREHOST_X64_SIMD
 #include <immintrin.h>
 
 #include <bit>
 #include <cstdint>
 #include <cstring>
-
-#if defined(_MSC_VER)
-#define COREHOST_SIMD_NOINLINE __declspec(noinline)
-#else
-#define COREHOST_SIMD_NOINLINE
-#endif
 
 namespace corehost::conptyio::simd
 {
@@ -49,3 +44,4 @@ COREHOST_SIMD_NOINLINE const char8_t *find_legacy_sgr_avx10(const char8_t *data,
 }
 
 } // namespace corehost::conptyio::simd
+#endif

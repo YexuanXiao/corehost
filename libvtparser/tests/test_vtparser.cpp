@@ -132,21 +132,21 @@ void test_simd_helpers()
         }
     };
 
-#if defined(COREHOST_TEST_HAVE_SSE42)
+#if COREHOST_X64_SIMD
     if (corehost::isa::detect_level() >= corehost::isa::level::sse42)
     {
         compare_decode(&simd::decode_ascii_sse42);
         compare_ground(&simd::ground_text_sse42);
     }
 #endif
-#if defined(COREHOST_TEST_HAVE_AVX2)
+#if COREHOST_X64_SIMD
     if (corehost::isa::detect_level() >= corehost::isa::level::avx2)
     {
         compare_decode(&simd::decode_ascii_avx2);
         compare_ground(&simd::ground_text_avx2);
     }
 #endif
-#if defined(COREHOST_TEST_HAVE_AVX10)
+#if COREHOST_X64_SIMD
     if (corehost::isa::detect_level() >= corehost::isa::level::avx10_1)
     {
         compare_decode(&simd::decode_ascii_avx10);

@@ -13,15 +13,15 @@ using find_fn = const char8_t *(*)(const char8_t *, std::size_t) noexcept;
 {
     switch (corehost::isa::detect_level())
     {
-#ifdef COREHOST_SIMD_HAVE_AVX10
+#if COREHOST_X64_SIMD
     case corehost::isa::level::avx10_1:
         return &find_legacy_sgr_avx10;
 #endif
-#ifdef COREHOST_SIMD_HAVE_AVX2
+#if COREHOST_X64_SIMD
     case corehost::isa::level::avx2:
         return &find_legacy_sgr_avx2;
 #endif
-#ifdef COREHOST_SIMD_HAVE_SSE42
+#if COREHOST_X64_SIMD
     case corehost::isa::level::sse42:
         return &find_legacy_sgr_sse42;
 #endif

@@ -6,4 +6,3 @@ target_include_directories(libcoreio INTERFACE
 
 target_link_libraries(libcoreio INTERFACE common)
 
-target_compile_features(libcoreio INTERFACE cxx_std_23)

@@ -6,4 +6,3 @@ target_include_directories(libpseudowindow INTERFACE
 
 target_link_libraries(libpseudowindow INTERFACE common libvtparser user32)
 
-target_compile_features(libpseudowindow INTERFACE cxx_std_23)

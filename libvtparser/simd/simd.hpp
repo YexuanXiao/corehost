@@ -1,5 +1,7 @@
 #pragma once
 
+#include "utility/simd_support.hpp"
+
 #include <cstddef>
 
 namespace corehost::vtparser::simd

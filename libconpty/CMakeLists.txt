@@ -60,8 +60,6 @@ target_link_libraries(conpty PUBLIC
 )
 
 # DLL 特有的严格编译选项
-target_compile_features(conpty PRIVATE cxx_std_20)
-
 target_compile_definitions(conpty PRIVATE
     NOMINMAX
     UNICODE

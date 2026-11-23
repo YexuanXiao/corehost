@@ -811,15 +811,15 @@ int main()
             }
         };
 
-#if defined(COREHOST_TEST_HAVE_SSE42)
+#if COREHOST_X64_SIMD
         if (corehost::isa::detect_level() >= corehost::isa::level::sse42)
             compare_backend(&corehost::conptyio::simd::find_legacy_sgr_sse42);
 #endif
-#if defined(COREHOST_TEST_HAVE_AVX2)
+#if COREHOST_X64_SIMD
         if (corehost::isa::detect_level() >= corehost::isa::level::avx2)
             compare_backend(&corehost::conptyio::simd::find_legacy_sgr_avx2);
 #endif
-#if defined(COREHOST_TEST_HAVE_AVX10)
+#if COREHOST_X64_SIMD
         if (corehost::isa::detect_level() >= corehost::isa::level::avx10_1)
             compare_backend(&corehost::conptyio::simd::find_legacy_sgr_avx10);
 #endif

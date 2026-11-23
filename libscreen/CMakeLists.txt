@@ -8,4 +8,3 @@ target_include_directories(libscreen INTERFACE
 
 target_link_libraries(libscreen INTERFACE libinterop libvtparser unicode::unicode)
 
-target_compile_features(libscreen INTERFACE cxx_std_23)

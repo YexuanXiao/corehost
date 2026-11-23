@@ -19,23 +19,16 @@ else()
     message(FATAL_ERROR "Unsupported compiler: ${CMAKE_CXX_COMPILER_ID}")
 endif()
 
-function(corehost_detect_arch output_variable)
-    if(CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64" OR
-       CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x86_64")
-        set(${output_variable} "x64" PARENT_SCOPE)
-    elseif(CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "ARM64" OR
-           CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "aarch64")
-        set(${output_variable} "arm64" PARENT_SCOPE)
-    else()
-        message(FATAL_ERROR "Unsupported architecture: ${CMAKE_CXX_COMPILER_ARCHITECTURE_ID}")
-    endif()
-endfunction()
-
-function(corehost_configure_global_compiler)
+function(corehost_configure_compiler)
     if(COREHOST_COMPILER_MSVC_DRIVER)
         add_compile_options(/Zc:__cplusplus /utf-8 /permissive-)
         if(COREHOST_COMPILER_MSVC)
             add_compile_options(/Zc:preprocessor)
+            if(COREHOST_TARGET_ARCH STREQUAL "x86_64")
+                add_compile_options(/arch:SSE4.2)
+            elseif(COREHOST_TARGET_ARCH STREQUAL "aarch64")
+                add_compile_options(/arch:armv8.2)
+            endif()
             # Let LTCG put each global data item in its own COMDAT, so the
             # linker can discard unused generated Unicode tables.
             add_compile_options("$<$<NOT:$<CONFIG:Debug>>:/Gw>")

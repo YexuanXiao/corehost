@@ -101,6 +101,8 @@ During development, corehost was tested using cmd, powershell, pwsh, and edit. I
 
 Refer to CI for cross compilation and building with Clang.
 
+Although corehost is written using platform-neutral code and relies only on features provided by Windows 8, corehost still deliberately restricts the minimum requirements via CMake to x86_64 v2, ARM v8.2A, and Windows 10.
+
 ### Build targets
 
 - `corehost`: the sole host executable. It provides the functionality of conhost/OpenConsole.

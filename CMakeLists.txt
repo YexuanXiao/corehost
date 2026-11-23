@@ -8,7 +8,18 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CoreHostCompiler)
-corehost_configure_global_compiler()
+include(TargetArch)
+normzalied_target_arch(COREHOST_TARGET_ARCH)
+
+if(COREHOST_TARGET_ARCH STREQUAL "x86_64")
+    set(CONHOST_PROXY_ARCH_DIR "x64")
+elseif(COREHOST_TARGET_ARCH STREQUAL "aarch64")
+    set(CONHOST_PROXY_ARCH_DIR "arm64")
+else()
+    message(FATAL_ERROR "Unsupported architecture: ${COREHOST_TARGET_ARCH}")
+endif()
+
+corehost_configure_compiler()
 
 add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 
@@ -18,7 +29,6 @@ add_compile_definitions($<$<BOOL:${COREHOST_DISABLE_LOG}>:COREHOST_DISABLE_LOG>)
 set(COREHOST_LOG_LEVEL "1" CACHE STRING "CoreHost log level by frequency: 1=low, 2=medium, 3=high")
 add_compile_definitions(COREHOST_LOG_LEVEL=${COREHOST_LOG_LEVEL})
 
-option(COREHOST_SIMD "Enable x86 SIMD fast paths" ON)
 option(COREHOST_PERF_DIAG "Enable aggregated CoreHost performance diagnostics" OFF)
 add_compile_definitions($<$<BOOL:${COREHOST_PERF_DIAG}>:COREHOST_PERF_DIAG>)
 
@@ -42,13 +52,6 @@ list(GET _version_parts 1 COREHOST_VERSION_MINOR)
 list(GET _version_parts 2 COREHOST_VERSION_PATCH)
 list(GET _version_parts 3 COREHOST_VERSION_BUILD)
 unset(_version_parts)
-
-# ── 架构检测 (proxy 子目录使用) ──────────────────────
-corehost_detect_arch(CONHOST_PROXY_ARCH_DIR)
-if(COREHOST_SIMD AND COREHOST_COMPILER_MSVC AND CONHOST_PROXY_ARCH_DIR STREQUAL "x64")
-    include(CheckCXXCompilerFlag)
-    check_cxx_compiler_flag("/arch:AVX10.1" COREHOST_HAS_AVX10)
-endif()
 
 # ── 统一输出目录：所有目标输出到 build/$<CONFIG>/ ──
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/$<CONFIG>)

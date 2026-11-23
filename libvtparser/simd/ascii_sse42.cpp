@@ -1,15 +1,10 @@
 #include "simd.hpp"
 
+#if COREHOST_X64_SIMD
 #include <immintrin.h>
 
 #include <bit>
 #include <cstdint>
-
-#if defined(_MSC_VER)
-#define COREHOST_SIMD_NOINLINE __declspec(noinline)
-#else
-#define COREHOST_SIMD_NOINLINE
-#endif
 
 namespace corehost::vtparser::simd
 {
@@ -65,3 +60,4 @@ COREHOST_SIMD_NOINLINE std::size_t ground_text_sse42(const char16_t *text, std::
 }
 
 } // namespace corehost::vtparser::simd
+#endif

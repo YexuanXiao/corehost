@@ -47,6 +47,7 @@ target_sources(common
                 utility/env.hpp
                 utility/isa_features.hpp
                 utility/log.hpp
+                utility/simd_support.hpp
                 utility/notification.hpp
                 utility/raw_byte_allocator.hpp
                 utility/temp_path.hpp

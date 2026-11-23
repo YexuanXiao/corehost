@@ -14,15 +14,15 @@ using ground_fn = std::size_t (*)(const char16_t *, std::size_t, bool &) noexcep
 {
     switch (corehost::isa::detect_level())
     {
-#ifdef COREHOST_SIMD_HAVE_AVX10
+#if COREHOST_X64_SIMD
     case corehost::isa::level::avx10_1:
         return &decode_ascii_avx10;
 #endif
-#ifdef COREHOST_SIMD_HAVE_AVX2
+#if COREHOST_X64_SIMD
     case corehost::isa::level::avx2:
         return &decode_ascii_avx2;
 #endif
-#ifdef COREHOST_SIMD_HAVE_SSE42
+#if COREHOST_X64_SIMD
     case corehost::isa::level::sse42:
         return &decode_ascii_sse42;
 #endif
@@ -36,15 +36,15 @@ using ground_fn = std::size_t (*)(const char16_t *, std::size_t, bool &) noexcep
 {
     switch (corehost::isa::detect_level())
     {
-#ifdef COREHOST_SIMD_HAVE_AVX10
+#if COREHOST_X64_SIMD
     case corehost::isa::level::avx10_1:
         return &ground_text_avx10;
 #endif
-#ifdef COREHOST_SIMD_HAVE_AVX2
+#if COREHOST_X64_SIMD
     case corehost::isa::level::avx2:
         return &ground_text_avx2;
 #endif
-#ifdef COREHOST_SIMD_HAVE_SSE42
+#if COREHOST_X64_SIMD
     case corehost::isa::level::sse42:
         return &ground_text_sse42;
 #endif
