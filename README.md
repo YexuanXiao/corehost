@@ -65,15 +65,17 @@ corehost **does not use any mutable global variables**, and **no singletons, inc
 
 This allows corehost to be used as a library, and no matter how many times it is loaded in the same process or what operations it performs, each instance will always remain isolated from the others because they share nothing. corehost also provides high-quality code that helps anyone who wants to improve the Windows console or develop their own Windows terminal understand how the Windows console works.
 
+Although corehost is written using platform-neutral code and relies only on features provided by Windows 8, corehost still deliberately restricts the minimum requirements via CMake to x86_64 v2, ARM v8.2A, and Windows 10.
+
 ## corehost as conhost
 
 corehost solves the problem that the original version of conhost does not support opening the default terminal (e.g., Windows Terminal) when calling `AllocConsole`.
 
 When corehost runs with elevated integrity (High IL) due to sudo or runas, UIPI prevents COM activation and handle transfer to Medium IL terminals. Since no GUI is available (the only GUI available to the original conhost is itself), corehost will refuse to execute the program and send a message in the notification center about what happened.
 
-Some third-party programs incorrectly launch other programs indirectly through an administrator-mode cmd. Since cmd lacks an equivalent to PowerShell's -WindowStyle parameter, this typically manifests as a conhost window that flashes briefly at boot. After replacing conhost with corehost, these programs will fail to start at boot.
+Some third-party programs incorrectly launch other programs indirectly through an administrator-mode cmd. Since cmd lacks an equivalent to PowerShell's `-WindowStyle` parameter, this typically manifests as a conhost window that flashes briefly at boot. After replacing conhost with corehost, these programs may work properly, or they may fail.
 
-Note that since msix applications cannot run in safe mode, please back up the system's conhost.exe as an alternative terminal.
+Note that since msix applications cannot run in safe mode, please backup the system's conhost.exe as an alternative terminal.
 
 ## How to use it
 
@@ -89,24 +91,22 @@ Additionally, corehost can be used as a C++ library by third-party terminals, as
 
 ## Compatibility
 
-During development, corehost was tested using cmd, powershell, pwsh, and edit. If you encounter any compatibility issues, including when using other programs, please submit an issue report.
+During development, corehost was tested using cmd, powershell, pwsh, vim and edit. If you encounter any compatibility issues, including when using other programs, please submit an issue report.
 
 ## How to build
 
 1. MSVC 14.51+ or Clang 20+.
 2. CMake 4.3 or later
-3. `git clone --recurse-submodules https://github.com/YexuanXiao/corehost`
+3. `git clone --recurse-submodules --shallow-submodules https://github.com/YexuanXiao/corehost`
 4. `cmake -B build`
 5. `cmake --build build --config Release`
 
 Refer to CI for cross compilation and building with Clang.
 
-Although corehost is written using platform-neutral code and relies only on features provided by Windows 8, corehost still deliberately restricts the minimum requirements via CMake to x86_64 v2, ARM v8.2A, and Windows 10.
-
 ### Build targets
 
-- `corehost`: the sole host executable. It provides the functionality of conhost/OpenConsole.
-- `libcorepty`: the core of corehost and implements full ConPTY functionality. Third-party terminals can link libcorepty into their programs without needing to use an external conhost program.
+- `corehost`: the main executable whitch provides the functionality of conhost/OpenConsole.
+- `libcorepty`: The entry point of ConPTY, which assembles the console runtime and the VT input/output from the terminal GUI. Third-party terminals can link libcorepty into their programs without needing to use an external conhost process.
 - `conpty`: the shared library form of libconpty for third-party terminals that export the symbols declared by winconpty.h.
 - `conpty_static`: the static library form of libconpty.
 - `conhost_proxy`: the COM proxy/stub DLL used by default-terminal handoff and COM embedding.
@@ -127,41 +127,39 @@ Although corehost is written using platform-neutral code and relies only on feat
 
 ## Architecture and startup flow
 
-corehost is built around one common runtime: a ConPTY session that speaks to ConDrv on one side and to a terminal frontend on the other side. The different startup modes mainly decide where the ConDrv handle comes from, whether a terminal GUI must be created, and which handoff protocol is used before the ConPTY session starts.
+corehost is built around one common runtime. The different startup modes mainly decide where the ConDrv handle comes from, whether a terminal GUI must be created, and which handoff protocol is used before the console runtime session starts. All code of the console runtime are headers and can be used independently; code exclusive to ConPTY accounts for only 2.8% of the console runtime.
 
-### Mode 1: corehost as conhost.exe
+### Mode 1: corehost as conhost
 
-Windows starts conhost.exe for classic console allocation paths, such as launching a console process with `CreateProcess` and `CREATE_NEW_CONSOLE`, using Run to start a console program, or calling `AllocConsole` from a GUI process. In this path ConDrv.sys launches conhost with a command-line handle value such as `0x4`. This value is the process-local numeric value of an already-open ConDrv `\Server` handle. The `\Server` object is the user-mode conhost's control endpoint for one console session: ConDrv produces console requests on it, and corehost consumes those requests and returns completion results. During `CONNECT`, corehost opens the session's `\Input` and `\Output` objects relative to that `\Server` handle. Those two client handles are handed back to ConDrv and become the console input and console output handles observed by the attached application. When the application later calls console APIs or reads/writes those handles, ConDrv turns that client-side activity into requests that corehost receives through `\Server`.
+Windows starts conhost.exe for classic console allocation paths, such as launching a console process with `CreateProcess` and `CREATE_NEW_CONSOLE`, using Run to start a console program, or calling `AllocConsole` from a GUI process. In this path ConDrv.sys launches conhost with a command-line handle value such as `0x4`. This value is the process-local numeric value of an already-open ConDrv `\Server` handle. The `\Server` object is the user-mode conhost's control endpoint for one console session: ConDrv produces console requests on it, and corehost consumes those requests and returns completion results. During `CONNECT`, corehost opens the session's `\Input` and `\Output` objects relative to that `\Server` handle. Those two client handles are handed back to ConDrv and become the console input and console output handles observed by the attached program. When the program later calls console APIs or reads/writes those handles, ConDrv turns that client-side activity into requests that corehost receives through `\Server`.
 
-The first important ConDrv message is the `CONNECT` request. Its payload is a `CONSOLE_SERVER_MSG`. This structure contains startup information that originally came from the client process and the Windows console subsystem, including the requested title, show-window flag, initial buffer/window size, process group id, whether the client is a console application, and whether a visible window is expected.
+The first important ConDrv message is the `CONNECT` request. Its payload is a `CONSOLE_SERVER_MSG`. This structure contains startup information that originally came from the client process and the Windows console subsystem, including the requested title, show-window flag, initial buffer/window size, process group id, whether the client is a console progeam, and whether a visible window is expected.
 
-If `CONSOLE_SERVER_MSG` says that the client needs a visible console UI, corehost looks up the configured default terminal COM class under `HKCU\Console\%%Startup`. The relevant registry values are `DelegationConsole` for the first handoff step and `DelegationTerminal` for the second terminal handoff step. In this direct conhost path, corehost creates the configured terminal's `IConsoleHandoff` object and passes the ConDrv server handle, the ConDrv input-available event, a portable description of the pending `CONNECT` request, a signal pipe, and a corehost process handle. A successful `IConsoleHandoff` call transfers the visible session to that default-terminal implementation. In the current path, corehost does not start its own ConPTY loop after this first-hop handoff; it waits for the terminal process or signal pipe to close and then returns.
+If `CONSOLE_SERVER_MSG` says that the client needs a visible console UI, corehost looks up the configured default terminal COM class under `HKCU\Console\%%Startup`. The relevant registry values are `DelegationConsole` for the first handoff step and `DelegationTerminal` for the second terminal handoff step. In this direct conhost path, corehost creates the configured terminal's `IConsoleHandoff` object and passes the ConDrv server handle, the ConDrv input-available event, a portable description of the pending `CONNECT` request, a signal pipe, and a corehost process handle. A successful `IConsoleHandoff` call transfers the visible session to that default-terminal implementation. In the current path, corehost does not start its own console runtime loop after this first-hop handoff; it waits for the terminal process or signal pipe to close and then returns.
 
-The process that ConDrv started with the `0x4` handle still cannot exit immediately after `IConsoleHandoff` returns. The terminal receives corehost's process handle and a signal pipe, so corehost must keep those lifetime objects valid until the terminal process exits or the signal pipe closes. In this first-hop path, corehost is a lifetime anchor rather than the long-running ConPTY message loop.
-
-If the `CONNECT` request does not require a visible GUI, corehost accepts the ConDrv connection itself and enters ConPTY mode directly. In that case it acts as a complete headless console host. There is no terminal window, but console APIs still need coherent behavior.
+If the `CONNECT` request does not require a visible GUI, corehost accepts the ConDrv connection itself and enters the most simplified mode, which only provides a headless virtual console environment sufficient for what a console program to run. There is no terminal window and user input, but console APIs still need coherent behavior.
 
 ### Mode 2: corehost as the default-console COM server
 
-When corehost is registered as an `IConsoleHandoff` implementation, the Windows conhost.exe may start it with `-Embedding`. In this mode corehost is not launched directly with the initial ConDrv handle. Instead, COM activates corehost and invokes the default-terminal handoff entry point.
+When corehost is registered as an `IConsoleHandoff` implementation, the conhost.exe start it with `-Embedding`. In this mode corehost is not launched directly with the initial ConDrv handle. Instead, COM activates corehost and invokes the default-terminal handoff entry point.
 
 The incoming `IConsoleHandoff` call provides the ConDrv server handle, the input-available event, a portable attach message that identifies the pending `CONNECT` request, a signal pipe, and process handles used to coordinate lifetimes. The portable attach message intentionally contains only the stable descriptor fields needed to find the original request. It does not contain the full `CONSOLE_SERVER_MSG`, so corehost reads the original `CONNECT` payload back from ConDrv when it needs the startup title, `ShowWindow`, and related startup data.
 
-During the handoff call, corehost duplicates the ConDrv server handle and input event supplied by the inbox conhost, creates a ConDrv `\Reference` handle, opens the client process, reads the original `CONSOLE_SERVER_MSG`, and then looks up the configured terminal-side CLSID. It creates an `ITerminalHandoff3` object, currently implemented by Windows Terminal, passes terminal startup information and process handles, and receives a pair of VT pipes from the terminal. Once that succeeds, corehost accepts the original ConDrv `CONNECT` request and starts its ConPTY runtime using the resulting handles. From that point on, the terminal owns the GUI side of the session, while this corehost process remains the console server that consumes the ConDrv messages and completes the corresponding console requests.
+During the handoff call, corehost duplicates the ConDrv server handle and input event supplied by the inbox conhost, creates a ConDrv `\Reference` handle, opens the client process, reads the original `CONSOLE_SERVER_MSG`, and then looks up the configured terminal-side CLSID. It creates an `ITerminalHandoff3` object, currently implemented by Windows Terminal, passes terminal startup information and process handles, and receives a pair of VT pipes from the terminal. Once that succeeds, corehost accepts the original ConDrv `CONNECT` request and starts its console runtime using the resulting handles. From that point on, the terminal owns the GUI side of the session, while this corehost process remains the console server that consumes the ConDrv messages and completes the corresponding console requests.
 
-In this second mode, the COM handoff only sets up the session; it does not finish the console host's work. After the handoff, corehost owns the duplicated ConDrv `\Server` handle, the accepted `\Input` and `\Output` handles, the VT pipes returned by the terminal, and the signal pipe used for terminal notifications. The `\Server` handle is needed to consume ConDrv requests and return completions, while `\Input` and `\Output` keep the client-side console handles connected. If corehost exited at this point, the attached application could see broken console handles, blocked console API calls, or lost VT communication with the terminal. Therefore corehost must continue running the ConPTY runtime for the lifetime of the console session.
-
-The terminal and corehost keep separate state for the same session. The terminal owns the visible UI and terminal-facing state, such as windows, tabs, rendering, selection, scrollback, and its VT screen model. corehost owns the Windows console-server state, including process membership, console modes, input records, code pages, API-visible cursor/attribute state, the API-readable screen buffer, pending ConDrv requests, and control-event routing. VT bytes are the boundary between them: terminal input is sent to corehost as VT, and console output is sent back to the terminal as VT. The terminal does not implement Windows Console APIs, and corehost does not own the visible UI.
+After the handoff, corehost enters ConPTY mode.
 
 ### Mode 3: ConPTY
 
 `ConptyCreatePseudoConsole` or `CreatePseudoConsole` starts corehost with `--headless`. They creates the ConDrv server handle, a signal handle, and the VT input/output pipes, then launches corehost with arguments such as `--server`, `--signal`, and others.
 
-corehost parses those arguments, adopts the inherited handles, initializes the session configuration, and enters ConPTY mode immediately. This is the path used by applications that explicitly use the ConPTY API and provide their own terminal frontend and also the mode that Mode 1 and Mode 2 will eventually enter.
+corehost parses those arguments, adopts the inherited handles, initializes the session configuration, and enters ConPTY mode immediately.  The task of corehost is to convert messages from the console program into VT output, and to receive messages from the terminal GUI via VT input, update the console state, and then send them back to the console program. This is the path used by applications that explicitly use the ConPTY API and provide their own terminal frontend and also the Mode 2 will eventually enter.
 
-### ConPTY runtime
+The terminal and corehost keep separate state for the same session. The terminal owns the visible UI and terminal-facing state, such as windows, tabs, rendering, selection, scrollback, and its VT screen model. corehost owns the Windows console-server state, including process membership, console modes, input records, code pages, API-visible cursor/attribute state, the API-readable screen buffer, pending ConDrv requests, and control-event routing. The terminal does not implement Windows Console APIs, and corehost does not own the visible UI.
 
-The ConPTY runtime is the shared implementation used by all three startup modes. It is intentionally split into a few functional areas:
+### Console runtime
+
+The Console runtime is the shared implementation used by all three startup modes. It is intentionally split into a few functional areas:
 
 - ConDrv I/O reads requests from the ConDrv, completes previous requests, accepts `CONNECT`, and keeps the client `\Input` and `\Output` handles alive for as long as the session exists.
 - The message router decodes console API messages and dispatches them to focused handlers. These handlers implement the observable Windows console API behavior that programs expect.
