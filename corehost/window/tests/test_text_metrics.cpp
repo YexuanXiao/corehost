@@ -50,24 +50,24 @@ int main()
             return EXIT_FAILURE;
         }
 
-        std::vector<corehost::uitext::glyph_bitmap> clusters;
-        engine.rasterize(u"e\u0301", clusters);
-        if (clusters.size() != 1)
+        engine.rasterize(u"e\u0301", glyphs);
+        if (glyphs.empty() || glyphs.front().alpha.empty())
         {
-            std::fprintf(stderr, "combining sequence was not one grapheme cluster\n");
+            std::fprintf(stderr, "combining sequence rasterization failed\n");
             return EXIT_FAILURE;
         }
 
-        engine.rasterize(u"\U0001F600", clusters);
-        if (clusters.empty() || clusters.front().alpha.empty())
+        engine.rasterize(u"\U0001F600", glyphs);
+        if (glyphs.empty() || glyphs.front().alpha.empty())
         {
             std::fprintf(stderr, "fallback font list failed for emoji\n");
             return EXIT_FAILURE;
         }
-        engine.rasterize(u"ab", clusters);
-        if (clusters.size() != 2)
+
+        engine.rasterize(u"ab", glyphs);
+        if (glyphs.empty())
         {
-            std::fprintf(stderr, "expected two grapheme clusters\n");
+            std::fprintf(stderr, "multi-character layout rasterization failed\n");
             return EXIT_FAILURE;
         }
     }

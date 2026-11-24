@@ -1,6 +1,5 @@
 #pragma once
 
-#include "text_writer.hpp"
 #include "win32/string.hpp"
 
 #include <dwrite.h>
@@ -40,7 +39,7 @@ struct font_fallback_entry final
     DWRITE_UNICODE_RANGE range{0, 0x10FFFF};
 };
 
-// Header-only DirectWrite text layout and grapheme-cluster rasterization.
+// Header-only DirectWrite text layout and glyph-run rasterization.
 //
 // The family list is registered as DirectWrite's fallback chain, followed by
 // the system fallback. IDWriteTextLayout then selects fonts and shapes the
@@ -97,9 +96,15 @@ class text_engine final
         regions_.clear();
         alpha_storage_.clear();
 
-        for (const auto cluster : screen::grapheme_range<screen::text_measurement::graphemes>{text})
+        if (!text.empty())
         {
-            rasterize_cluster(cluster.text);
+            winrt::com_ptr<IDWriteTextLayout> layout;
+            winrt::check_hresult(factory_->CreateTextLayout(
+                reinterpret_cast<const WCHAR *>(text.data()), static_cast<UINT32>(text.size()), text_format_.get(),
+                100000.0f, 100000.0f, layout.put()));
+
+            run_renderer renderer{*this};
+            winrt::check_hresult(layout->Draw(nullptr, &renderer, 0.0f, 0.0f));
         }
 
         out.reserve(regions_.size());
@@ -232,19 +237,6 @@ class text_engine final
         winrt::check_hresult(base_face_->GetDesignGlyphMetrics(&glyph, 1, &glyph_metrics, FALSE));
         metrics.advance = size_ * static_cast<float>(glyph_metrics.advanceWidth) / units_per_em_;
         return metrics;
-    }
-
-    void rasterize_cluster(std::span<const char16_t> cluster)
-    {
-        assert(!cluster.empty());
-
-        winrt::com_ptr<IDWriteTextLayout> layout;
-        winrt::check_hresult(factory_->CreateTextLayout(
-            reinterpret_cast<const WCHAR *>(cluster.data()), static_cast<UINT32>(cluster.size()),
-            text_format_.get(), 4096.0f, 4096.0f, layout.put()));
-
-        run_renderer renderer{*this};
-        winrt::check_hresult(layout->Draw(nullptr, &renderer, 0.0f, 0.0f));
     }
 
     void rasterize_run(const DWRITE_GLYPH_RUN &run)

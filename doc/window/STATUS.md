@@ -14,7 +14,7 @@
 - GPU fence 使用 `win32::event`，不暴露裸 `HANDLE`；
 - `libuitext` 已建立 header-only DirectWrite 文本度量与 UTF-16 grapheme cluster alpha 光栅化，使用 `libscreen::grapheme_range`；
 - 字体 fallback 项由 `font_fallback_entry{family, range}` 组成，每个字体项只有一个 Unicode 范围，默认全范围；同一字体可重复出现并指定不同范围；
-- 该列表交给 `IDWriteFontFallbackBuilder`，并追加 `IDWriteFactory2::GetSystemFontFallback()`；`IDWriteTextLayout` 使用该 fallback 自行完成字体选择与 shaping，不逐字符探测；
+- 该列表交给 `IDWriteFontFallbackBuilder`，并追加 `IDWriteFactory2::GetSystemFontFallback()`；整个字符串直接交给 `IDWriteTextLayout`，由其完成 fallback、cluster 和 shaping，不手工切分字符串也不逐字符探测；
 - glyph 输出使用可复用的 alpha/region 缓冲区，`glyph_bitmap` 只持有 span，不逐 glyph 分配 vector；
 - `window_console_session` 已实现 CONNECT、CREATE_OBJECT、CLOSE_OBJECT、DISCONNECT、RAW_FLUSH、RAW_WRITE、RAW_READ、USER_DEFINED 的基础分派；
 - 实测 `corehostw cmd.exe` 可以保持 client 运行，关闭窗口后 corehostw 与 cmd 均退出。

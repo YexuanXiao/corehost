@@ -7,8 +7,6 @@ target_include_directories(libuitext INTERFACE
 target_link_libraries(libuitext INTERFACE
     common
     dwrite
-    libscreen
-    unicode
 )
 
 target_compile_features(libuitext INTERFACE cxx_std_23)
