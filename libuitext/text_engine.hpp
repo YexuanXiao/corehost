@@ -2,10 +2,12 @@
 
 #include <dwrite.h>
 #include <dwrite_2.h>
+#include <libunicode/grapheme_segmenter.h>
 #include <winrt/base.h>
 
 #include <cassert>
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 namespace corehost::uitext
@@ -28,8 +30,9 @@ struct glyph_bitmap final
     std::vector<std::uint8_t> alpha;
 };
 
-// Header-only DirectWrite metrics and glyph rasterization. Font family
-// existence is a precondition; there is no hidden fallback font.
+// Header-only DirectWrite metrics and grapheme-cluster rasterization. The
+// input is a UTF-16 string; every output bitmap corresponds to one extended
+// grapheme cluster, never to a single UTF-16 code unit.
 class text_engine final
 {
   public:
@@ -88,22 +91,82 @@ class text_engine final
         return metrics_;
     }
 
-    [[nodiscard]] glyph_bitmap rasterize(char16_t codepoint) const
+    [[nodiscard]] std::vector<glyph_bitmap> rasterize(std::wstring_view text) const
     {
-        const UINT32 source = codepoint;
-        UINT16 glyph_index = 0;
-        winrt::check_hresult(font_face_->GetGlyphIndices(&source, 1, &glyph_index));
-        assert(glyph_index != 0);
-        if (glyph_index == 0)
+        const auto codepoints = to_codepoints(text);
+        std::vector<glyph_bitmap> result;
+        if (codepoints.empty())
         {
-            return {};
+            return result;
+        }
+
+        unicode::grapheme_segmenter segmenter{codepoints.data(), codepoints.data() + codepoints.size()};
+        for (;;)
+        {
+            result.push_back(rasterize_cluster(*segmenter));
+            if (!segmenter.codepointsAvailable())
+            {
+                break;
+            }
+            ++segmenter;
+        }
+        return result;
+    }
+
+  private:
+    static std::vector<char32_t> to_codepoints(std::wstring_view text)
+    {
+        std::vector<char32_t> result;
+        result.reserve(text.size());
+        for (std::size_t index = 0; index < text.size(); ++index)
+        {
+            const auto first = static_cast<char32_t>(text[index]);
+            if (first >= 0xD800 && first <= 0xDBFF && index + 1 < text.size())
+            {
+                const auto second = static_cast<char32_t>(text[index + 1]);
+                if (second >= 0xDC00 && second <= 0xDFFF)
+                {
+                    result.push_back(0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00));
+                    ++index;
+                    continue;
+                }
+            }
+            if ((first >= 0xD800 && first <= 0xDFFF) || first > 0x10FFFF)
+            {
+                result.push_back(0xFFFD);
+            }
+            else
+            {
+                result.push_back(first);
+            }
+        }
+        return result;
+    }
+
+    [[nodiscard]] glyph_bitmap rasterize_cluster(std::u32string_view cluster) const
+    {
+        assert(!cluster.empty());
+        assert(cluster.size() <= 0xFFFF);
+
+        std::vector<UINT16> glyph_indices(cluster.size());
+        winrt::check_hresult(font_face_->GetGlyphIndices(
+            reinterpret_cast<const UINT32 *>(cluster.data()), static_cast<UINT32>(cluster.size()),
+            glyph_indices.data()));
+
+        std::vector<FLOAT> advances(cluster.size());
+        for (std::size_t index = 0; index < glyph_indices.size(); ++index)
+        {
+            DWRITE_GLYPH_METRICS metrics{};
+            winrt::check_hresult(font_face_->GetDesignGlyphMetrics(&glyph_indices[index], 1, &metrics, FALSE));
+            advances[index] = size_ * static_cast<float>(metrics.advanceWidth) / units_per_em_;
         }
 
         DWRITE_GLYPH_RUN run{};
         run.fontFace = font_face_.get();
         run.fontEmSize = size_;
-        run.glyphCount = 1;
-        run.glyphIndices = &glyph_index;
+        run.glyphCount = static_cast<UINT16>(glyph_indices.size());
+        run.glyphIndices = glyph_indices.data();
+        run.glyphAdvances = advances.data();
         run.isSideways = FALSE;
         run.bidiLevel = 0;
 
@@ -139,7 +202,6 @@ class text_engine final
         return bitmap;
     }
 
-  private:
     winrt::com_ptr<IDWriteFactory> factory_;
     winrt::com_ptr<IDWriteFontFace> font_face_;
     float size_{};
