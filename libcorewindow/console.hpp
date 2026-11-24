@@ -94,12 +94,8 @@ class console final
                 screen_.glyph_at_into(x, y, glyph);
                 const auto offset = row.text.size();
                 row.text.append(glyph);
-                const auto &value = screen_.at(x, y);
                 row.cells.push_back(screen_cell_update{
-                    .style = value.style(),
-                    .width = value.width(),
-                    .flags = value.flags(),
-                    .hyperlink = value.hyperlink(),
+                    .cell = screen_.at(x, y),
                     .text_offset = offset,
                     .text_length = glyph.size(),
                 });

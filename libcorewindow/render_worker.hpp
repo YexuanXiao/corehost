@@ -112,7 +112,7 @@ class render_worker final
             for (std::size_t x = 0; x < columns; ++x)
             {
                 const auto index = y * columns + x;
-                if (screen::cell_width_ops::is_tail(cell_state_[index].width))
+                if (screen::cell_width_ops::is_tail(cell_state_[index].cell.width()))
                 {
                     continue;
                 }

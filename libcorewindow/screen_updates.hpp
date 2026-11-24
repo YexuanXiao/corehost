@@ -11,10 +11,7 @@ namespace corehost::window
 
 struct screen_cell_update final
 {
-    screen::cell_style style{};
-    screen::cell_width width{};
-    screen::cell_flags flags{};
-    screen::cell_hyperlink hyperlink{};
+    screen::cell cell;
     std::size_t text_offset{};
     std::size_t text_length{};
 };
