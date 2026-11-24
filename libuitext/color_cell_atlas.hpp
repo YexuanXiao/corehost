@@ -47,6 +47,7 @@ class color_cell_atlas final
         shelf_x_ = 0;
         shelf_y_ = 1;
         shelf_height_ = 0;
+        dirty_ = false;
     }
 
     [[nodiscard]] std::span<const color_atlas_region> find_or_add(std::u16string_view text)
