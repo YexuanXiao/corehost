@@ -49,6 +49,16 @@ class console final
         return input_event_;
     }
 
+    void set_focused(bool focused) noexcept
+    {
+        focused_ = focused;
+    }
+
+    [[nodiscard]] bool has_focus() const noexcept
+    {
+        return focused_;
+    }
+
     void mark_input_read() noexcept
     {
         input_read_ = true;
@@ -107,6 +117,7 @@ class console final
     screen::console_state state_;
     consoleinput::input_queue input_;
     bool input_read_{};
+    bool focused_{true};
     win32::event input_event_{win32::create_tag, true, false};
 };
 

@@ -160,6 +160,20 @@ class window_host final
                            suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
             return 0;
         }
+        case WM_SETFOCUS:
+            if (self != nullptr)
+            {
+                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                self->console_.set_focused(true);
+            }
+            return 0;
+        case WM_KILLFOCUS:
+            if (self != nullptr)
+            {
+                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                self->console_.set_focused(false);
+            }
+            return 0;
         case WM_CHAR:
             if (self != nullptr)
             {

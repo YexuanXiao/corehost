@@ -207,7 +207,7 @@ class render_worker final
             }
         }
 
-        if (cursor_.visible)
+        if (draw_cursor_)
         {
             const auto cursor_height = std::max(1.0f, cell_height * static_cast<float>(cursor_.size) / 100.0f);
             const auto cursor_left = static_cast<float>(cursor_.x) * cell_width;
@@ -277,20 +277,30 @@ class render_worker final
             const auto width = static_cast<UINT>(client.right - client.left);
             const auto height = static_cast<UINT>(client.bottom - client.top);
             bool changed = false;
+            bool focused = false;
             screen::cursor_state cursor{};
 
             {
                 std::unique_lock<win32::srwlock> lock{console_mutex_};
                 changed = console_.copy_updates(updates_, styles_);
                 cursor = console_.state().cursor();
+                focused = console_.has_focus();
             }
 
             const bool cursor_changed = cursor_dirty || !same_cursor(cursor_, cursor);
+            const bool focus_changed = focused != focused_;
+            const auto now = ::GetTickCount64();
+            const bool blink_on = focused && ((now / blink_interval_ms) % 2 == 0);
+            const bool blink_changed = blink_on != blink_on_;
+
             cursor_ = cursor;
+            focused_ = focused;
+            blink_on_ = blink_on;
+            draw_cursor_ = cursor_.visible && focused_ && blink_on_;
             cursor_dirty = false;
             renderer_.resize(width, height);
 
-            if (changed || cursor_changed)
+            if (changed || cursor_changed || focus_changed || blink_changed)
             {
                 if (changed)
                 {
@@ -313,10 +323,15 @@ class render_worker final
     d3d12ui::d3d12_window_renderer renderer_;
     uitext::text_engine text_{fallback_families(), 16.0f};
     uitext::cell_atlas atlas_{text_};
+    static constexpr ULONGLONG blink_interval_ms = 530;
+
     std::vector<screen::cell> cell_state_ = std::vector<screen::cell>(columns * rows);
     screen::style_table styles_;
     console_palette palette_;
     screen::cursor_state cursor_{};
+    bool focused_{true};
+    bool blink_on_{true};
+    bool draw_cursor_{true};
     screen::grapheme_store graphemes_;
     std::vector<d3d12ui::text_quad> quads_;
     std::vector<screen::row_block> updates_;
