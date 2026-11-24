@@ -44,6 +44,21 @@ int main()
             return EXIT_FAILURE;
         }
 
+        const auto *non_bmp = atlas.find_or_add(u"\U0001F600");
+        if (non_bmp == nullptr || non_bmp->width == 0)
+        {
+            std::fprintf(stderr, "non-BMP transient atlas failed\n");
+            return EXIT_FAILURE;
+        }
+
+        atlas.begin_frame();
+        const auto *cluster = atlas.find_or_add(u"e\u0301");
+        if (cluster == nullptr || cluster->width == 0)
+        {
+            std::fprintf(stderr, "grapheme cluster transient atlas failed\n");
+            return EXIT_FAILURE;
+        }
+
         engine.rasterize(u"M", glyphs);
         if (glyphs.size() != 1)
         {

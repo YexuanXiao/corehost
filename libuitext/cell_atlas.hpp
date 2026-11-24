@@ -23,9 +23,9 @@ struct atlas_region final
     int top{};
 };
 
-// Alpha-only atlas. Normal glyphs are cached persistently. Bold glyphs are
-// rasterized with DirectWrite's bold format into the transient top region and
-// are rebuilt for every frame that contains bold cells.
+// Alpha-only atlas. Only a single BMP code unit is cached persistently.
+// Bold glyphs, non-BMP scalars and grapheme clusters are rasterized into the
+// transient top region and are rebuilt for every frame that uses them.
 class cell_atlas final
 {
   public:
@@ -54,19 +54,20 @@ class cell_atlas final
             return nullptr;
         }
 
+        const bool cacheable = is_cacheable(text, bold);
         auto key = std::u16string{text};
-        if (bold)
+        if (cacheable)
         {
-            const auto found = transient_entries_.find(key);
-            if (found != transient_entries_.end())
+            const auto found = entries_.find(key);
+            if (found != entries_.end())
             {
                 return &found->second;
             }
         }
         else
         {
-            const auto found = entries_.find(key);
-            if (found != entries_.end())
+            const auto found = transient_entries_.find(key);
+            if (found != transient_entries_.end())
             {
                 return &found->second;
             }
@@ -87,7 +88,7 @@ class cell_atlas final
         }
 
         atlas_region region{};
-        if (bold)
+        if (!cacheable)
         {
             if (!allocate(width, height, transient_x_, transient_y_, transient_height_, transient_rows_, region))
             {
@@ -107,7 +108,7 @@ class cell_atlas final
         write(region, glyph);
         dirty_ = true;
 
-        if (bold)
+        if (!cacheable)
         {
             return &transient_entries_.emplace(std::move(key), region).first->second;
         }
@@ -135,6 +136,16 @@ class cell_atlas final
     }
 
   private:
+    [[nodiscard]] static bool is_cacheable(std::u16string_view text, bool bold) noexcept
+    {
+        if (bold || text.size() != 1)
+        {
+            return false;
+        }
+        const auto value = text.front();
+        return value < 0xD800 || value > 0xDFFF;
+    }
+
     [[nodiscard]] bool allocate(std::uint32_t width, std::uint32_t height, std::uint32_t &x, std::uint32_t &y,
                                 std::uint32_t &shelf_height, std::uint32_t limit, atlas_region &region) noexcept
     {

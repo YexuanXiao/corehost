@@ -52,10 +52,16 @@ console_palette palette = console_palette::campbell()
 
 ## 文本属性
 
-- `bold`：text_engine 创建 `DWRITE_FONT_WEIGHT_BOLD` 的 format，由 DirectWrite 选择/合成粗体；bold glyph 只写入当前帧的 transient atlas，不进入持久缓存；
+- `bold`：text_engine 创建 `DWRITE_FONT_WEIGHT_BOLD` 的 format，由 DirectWrite 选择/合成粗体；bold glyph 只写入当前帧的 transient atlas，不进入持久缓存；非 BMP 字形和带 grapheme cluster 的文本同样只进入 transient atlas；
 - `underline` / `strikethrough`：用白色 atlas 采样点绘制 1px quad；
 - `faint`：`console_palette::faint` 可选 `blend_background`（默认）或 `alpha`；
 - `underline` 颜色优先使用 `text_style::underline`，否则使用 foreground。
+
+## Glyph cache
+
+- 持久缓存只接受单个 BMP code unit；
+- 非 BMP（surrogate pair）、多 code unit grapheme cluster、bold 均每帧重新栅格化到 transient 区域；
+- 这样避免为组合序列和非 BMP 字符建立无界持久缓存。
 
 ## Locale
 
