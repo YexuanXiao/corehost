@@ -336,6 +336,15 @@ class render_worker final
             }
             const auto width = static_cast<UINT>(client.right - client.left);
             const auto height = static_cast<UINT>(client.bottom - client.top);
+            const auto dpi = ::GetDpiForWindow(window_);
+            const bool dpi_changed = dpi != 0 && dpi != dpi_;
+            if (dpi_changed)
+            {
+                dpi_ = dpi;
+                text_.set_size(16.0f * static_cast<float>(dpi_) / 96.0f);
+                atlas_.reset();
+                cursor_dirty = true;
+            }
             const auto metrics = text_.metrics();
             const auto desired_columns =
                 std::max<std::size_t>(1, static_cast<std::size_t>(static_cast<float>(width) / metrics.advance));
@@ -372,7 +381,7 @@ class render_worker final
             cursor_dirty = false;
             renderer_.resize(width, height);
 
-            if (changed || cursor_changed || focus_changed || blink_changed)
+            if (changed || cursor_changed || focus_changed || blink_changed || dpi_changed)
             {
                 if (changed)
                 {
@@ -396,6 +405,7 @@ class render_worker final
     uitext::text_engine text_{fallback_families(), 16.0f};
     uitext::cell_atlas atlas_{text_};
     static constexpr ULONGLONG blink_interval_ms = 530;
+    UINT dpi_ = 96;
 
     std::vector<screen::cell> cell_state_ = std::vector<screen::cell>(columns * rows);
     screen::style_table styles_;

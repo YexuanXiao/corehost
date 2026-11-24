@@ -51,6 +51,7 @@ class text_engine final
     {
         assert(!families.empty());
         assert(size_ > 0.0f);
+        families_.assign(families.begin(), families.end());
 
         winrt::com_ptr<IUnknown> unknown;
         winrt::check_hresult(
@@ -78,7 +79,8 @@ class text_engine final
 
         winrt::com_ptr<IDWriteFontFallback> fallback;
         winrt::check_hresult(builder->CreateFontFallback(fallback.put()));
-        metrics_ = resolve_base_family(families, fallback.get());
+        fallback_ = fallback;
+        metrics_ = resolve_base_family(families_, fallback_.get());
     }
 
     text_engine(const text_engine &) = delete;
@@ -87,6 +89,17 @@ class text_engine final
     [[nodiscard]] const cell_metrics &metrics() const noexcept
     {
         return metrics_;
+    }
+
+    void set_size(float size)
+    {
+        assert(size > 0.0f);
+        if (size == size_)
+        {
+            return;
+        }
+        size_ = size;
+        metrics_ = resolve_base_family(families_, fallback_.get());
     }
 
     void rasterize(std::u16string_view text, std::vector<glyph_bitmap> &out, bool bold = false)
@@ -281,6 +294,8 @@ class text_engine final
 
     winrt::com_ptr<IDWriteFactory> factory_;
     winrt::com_ptr<IDWriteFontCollection> collection_;
+    std::vector<font_fallback_entry> families_;
+    winrt::com_ptr<IDWriteFontFallback> fallback_;
     winrt::com_ptr<IDWriteTextFormat> text_format_;
     winrt::com_ptr<IDWriteTextFormat> bold_format_;
     float size_{};

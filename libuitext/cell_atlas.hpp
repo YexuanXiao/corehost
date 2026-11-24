@@ -41,6 +41,21 @@ class cell_atlas final
         dirty_ = true;
     }
 
+    void reset()
+    {
+        entries_.clear();
+        transient_regions_.clear();
+        pixels_.assign(static_cast<std::size_t>(size_) * size_, 0);
+        pixels_.front() = 0xFF;
+        shelf_x_ = 0;
+        shelf_y_ = transient_rows_;
+        shelf_height_ = 0;
+        transient_x_ = 0;
+        transient_y_ = 1;
+        transient_height_ = 0;
+        dirty_ = true;
+    }
+
     void begin_frame() noexcept
     {
         transient_regions_.clear();

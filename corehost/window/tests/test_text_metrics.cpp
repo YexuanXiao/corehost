@@ -111,6 +111,15 @@ int main()
             std::fprintf(stderr, "multi-character layout rasterization failed\n");
             return EXIT_FAILURE;
         }
+
+        const auto base_advance = engine.metrics().advance;
+        engine.set_size(32.0f);
+        if (engine.metrics().advance <= base_advance)
+        {
+            std::fprintf(stderr, "DPI size scaling failed\n");
+            return EXIT_FAILURE;
+        }
+        engine.set_size(16.0f);
     }
     catch (...)
     {
