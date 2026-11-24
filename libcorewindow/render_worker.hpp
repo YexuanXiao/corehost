@@ -157,27 +157,128 @@ class render_worker final
         quads.push_back(quad);
     }
 
-    static void add_rounded_quad(std::vector<d3d12ui::text_quad> &quads, float x, float y, float width,
-                                 float height, float radius, float sample, console_color color, float alpha)
+    struct mask_point final
     {
-        if (radius <= 0.0f || width <= radius * 2.0f || height <= radius * 2.0f)
+        float x{};
+        float y{};
+    };
+
+    static bool point_in_polygon(const std::array<mask_point, 32> &points, int count, float x, float y) noexcept
+    {
+        bool inside = false;
+        for (int i = 0, j = count - 1; i < count; j = i++)
         {
-            add_line_quad(quads, x, y, width, height, color, sample, alpha);
-            return;
+            const auto &a = points[static_cast<std::size_t>(i)];
+            const auto &b = points[static_cast<std::size_t>(j)];
+            if (((a.y > y) != (b.y > y)) &&
+                (x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x))
+            {
+                inside = !inside;
+            }
+        }
+        return inside;
+    }
+
+    static std::array<std::uint8_t, 90> make_arrow_mask() noexcept
+    {
+        constexpr float radius = 1.35f;
+        constexpr int samples = 4;
+        const mask_point vertices[3]{{5.0f, 0.8f}, {9.2f, 8.2f}, {0.8f, 8.2f}};
+        std::array<mask_point, 32> polygon{};
+        int count = 0;
+
+        for (int i = 0; i < 3; ++i)
+        {
+            const auto &previous = vertices[(i + 2) % 3];
+            const auto &current = vertices[i];
+            const auto &next = vertices[(i + 1) % 3];
+            const auto previous_length = std::hypot(previous.x - current.x, previous.y - current.y);
+            const auto next_length = std::hypot(next.x - current.x, next.y - current.y);
+            const auto start = mask_point{current.x + (previous.x - current.x) * radius / previous_length,
+                                          current.y + (previous.y - current.y) * radius / previous_length};
+            const auto end = mask_point{current.x + (next.x - current.x) * radius / next_length,
+                                        current.y + (next.y - current.y) * radius / next_length};
+            polygon[static_cast<std::size_t>(count++)] = start;
+            for (int step = 1; step <= 8; ++step)
+            {
+                const auto t = static_cast<float>(step) / 8.0f;
+                const auto one_minus = 1.0f - t;
+                polygon[static_cast<std::size_t>(count++)] = mask_point{
+                    one_minus * one_minus * start.x + 2.0f * one_minus * t * current.x + t * t * end.x,
+                    one_minus * one_minus * start.y + 2.0f * one_minus * t * current.y + t * t * end.y};
+            }
         }
 
-        constexpr int steps = 8;
-        const auto slice = radius / static_cast<float>(steps);
-        for (int i = 0; i < steps; ++i)
+        std::array<std::uint8_t, 90> mask{};
+        for (int y = 0; y < 9; ++y)
         {
-            const auto dy = radius - (static_cast<float>(i) + 0.5f) * slice;
-            const auto inset = radius - std::sqrt(std::max(0.0f, radius * radius - dy * dy));
-            add_line_quad(quads, x + inset, y + static_cast<float>(i) * slice, width - inset * 2.0f,
-                          slice + 0.5f, color, sample, alpha);
-            add_line_quad(quads, x + inset, y + height - static_cast<float>(i + 1) * slice,
-                          width - inset * 2.0f, slice + 0.5f, color, sample, alpha);
+            for (int x = 0; x < 10; ++x)
+            {
+                int covered = 0;
+                for (int sy = 0; sy < samples; ++sy)
+                {
+                    for (int sx = 0; sx < samples; ++sx)
+                    {
+                        const auto sample_x = static_cast<float>(x) + (static_cast<float>(sx) + 0.5f) / samples;
+                        const auto sample_y = static_cast<float>(y) + (static_cast<float>(sy) + 0.5f) / samples;
+                        covered += point_in_polygon(polygon, count, sample_x, sample_y) ? 1 : 0;
+                    }
+                }
+                mask[static_cast<std::size_t>(y) * 10 + x] =
+                    static_cast<std::uint8_t>(covered * 255 / (samples * samples));
+            }
         }
-        add_line_quad(quads, x, y + radius, width, height - radius * 2.0f, color, sample, alpha);
+        return mask;
+    }
+
+    static std::array<std::uint8_t, 90> make_down_arrow_mask() noexcept
+    {
+        const auto up = make_arrow_mask();
+        std::array<std::uint8_t, 90> down{};
+        for (int y = 0; y < 9; ++y)
+        {
+            for (int x = 0; x < 10; ++x)
+            {
+                down[static_cast<std::size_t>(y) * 10 + x] = up[static_cast<std::size_t>(8 - y) * 10 + x];
+            }
+        }
+        return down;
+    }
+
+    static std::array<std::uint8_t, 64> make_thumb_mask() noexcept
+    {
+        std::array<std::uint8_t, 64> mask{};
+        constexpr float radius = 4.0f;
+        for (int y = 0; y < 8; ++y)
+        {
+            for (int x = 0; x < 8; ++x)
+            {
+                const auto px = static_cast<float>(x) + 0.5f;
+                const auto py = static_cast<float>(y) + 0.5f;
+                const auto cx = std::clamp(px, radius, 8.0f - radius);
+                const auto cy = std::clamp(py, radius, 8.0f - radius);
+                mask[static_cast<std::size_t>(y) * 8 + x] =
+                    std::hypot(px - cx, py - cy) <= radius ? 255 : 0;
+            }
+        }
+        return mask;
+    }
+
+    static void add_mask_quad(std::vector<d3d12ui::text_quad> &quads, float x, float y, float width, float height,
+                              float u0, float v0, float u1, float v1, console_color color, float alpha)
+    {
+        d3d12ui::text_quad quad{
+            .x = x,
+            .y = y,
+            .width = width,
+            .height = height,
+            .u0 = u0,
+            .v0 = v0,
+            .u1 = u1,
+            .v1 = v1,
+        };
+        set_tint(quad, color, alpha);
+        quads.push_back(quad);
     }
 
     static bool same_cursor(const screen::cursor_state &left, const screen::cursor_state &right) noexcept
@@ -383,8 +484,10 @@ class render_worker final
             const auto sample = 0.5f / static_cast<float>(atlas_.size());
             const auto scale = static_cast<float>(dpi_) / 96.0f;
             const auto scrollbar_width = scrollbar::default_width * scale;
-            const auto client_width = static_cast<float>(columns) * cell_width;
-            const auto client_height = static_cast<float>(rows) * cell_height;
+            const auto client_width = client_width_px_ > 0.0f ? client_width_px_
+                                                             : static_cast<float>(columns) * cell_width;
+            const auto client_height = client_height_px_ > 0.0f ? client_height_px_
+                                                               : static_cast<float>(rows) * cell_height;
             const auto top = history_size_ > scroll_offset_ ? history_size_ - scroll_offset_ : 0;
             const scrollbar::state scroll_state{history_size_ + rows, rows, top};
             const auto geometry = scrollbar::compute(client_width - scrollbar_width, 0.0f, scrollbar_width,
@@ -400,35 +503,54 @@ class render_worker final
                     add_line_quad(quads_, client_width - scrollbar_width, 0.0f, scrollbar_width, client_height,
                                   thumb_color, sample, 0.055f * expand);
                 }
-                add_rounded_quad(quads_, thumb_x, geometry.thumb_y, thumb_width, geometry.thumb_height,
-                                 std::min(4.0f * scale, thumb_width * 0.5f), sample, thumb_color, 0.54f);
+                static const auto thumb_mask = make_thumb_mask();
+                static const auto up_mask = make_arrow_mask();
+                static const auto down_mask = make_down_arrow_mask();
+                const auto *thumb_region = atlas_.find_or_add_mask(0x53424D, 8, 8, thumb_mask);
+                if (thumb_region == nullptr)
+                {
+                    add_line_quad(quads_, thumb_x, geometry.thumb_y, thumb_width, geometry.thumb_height, thumb_color,
+                                  sample, 0.54f);
+                }
+                else
+                {
+                    const auto cap = std::min(4.0f * scale, geometry.thumb_height * 0.5f);
+                    const auto u0 = static_cast<float>(thumb_region->x) * atlas_scale;
+                    const auto u1 = static_cast<float>(thumb_region->x + 8) * atlas_scale;
+                    const auto v0 = static_cast<float>(thumb_region->y) * atlas_scale;
+                    const auto v1 = static_cast<float>(thumb_region->y + 8) * atlas_scale;
+                    const auto vm = static_cast<float>(thumb_region->y + 4) * atlas_scale;
+                    add_mask_quad(quads_, thumb_x, geometry.thumb_y, thumb_width, cap, u0, v0, u1, vm, thumb_color,
+                                  0.54f);
+                    add_mask_quad(quads_, thumb_x, geometry.thumb_y + cap, thumb_width,
+                                  std::max(0.0f, geometry.thumb_height - cap * 2.0f), u0, vm, u1, vm, thumb_color,
+                                  0.54f);
+                    add_mask_quad(quads_, thumb_x, geometry.thumb_y + geometry.thumb_height - cap, thumb_width, cap,
+                                  u0, vm, u1, v1, thumb_color, 0.54f);
+                }
+
                 if (expand > 0.01f)
                 {
                     const auto arrow_center = client_width - 8.0f * scale;
                     const auto arrow_width = 10.0f * scale;
                     const auto arrow_height = 9.0f * scale;
+                    const auto *up = atlas_.find_or_add_mask(0x534255, 10, 9, up_mask);
+                    const auto *down = atlas_.find_or_add_mask(0x534244, 10, 9, down_mask);
                     for (int i = 0; i < 2; ++i)
                     {
-                        const auto scalar = i == 0 ? u'\u25B2' : u'\u25BC';
-                        const auto y = i == 0 ? 8.5f * scale
-                                              : client_height - 8.5f * scale - arrow_height;
-                        const auto *region = atlas_.find_or_add(scalar);
+                        const auto *region = i == 0 ? up : down;
                         if (region == nullptr)
                         {
                             continue;
                         }
-                        d3d12ui::text_quad arrow{
-                            .x = arrow_center - arrow_width * 0.5f,
-                            .y = y,
-                            .width = arrow_width,
-                            .height = arrow_height,
-                            .u0 = static_cast<float>(region->x) * atlas_scale,
-                            .v0 = static_cast<float>(region->y) * atlas_scale,
-                            .u1 = static_cast<float>(region->x + region->width) * atlas_scale,
-                            .v1 = static_cast<float>(region->y + region->height) * atlas_scale,
-                        };
-                        set_tint(arrow, thumb_color, 0.54f * expand);
-                        quads_.push_back(arrow);
+                        const auto u0 = static_cast<float>(region->x) * atlas_scale;
+                        const auto v0 = static_cast<float>(region->y) * atlas_scale;
+                        add_mask_quad(quads_, arrow_center - arrow_width * 0.5f,
+                                      i == 0 ? 8.5f * scale : client_height - 8.5f * scale - arrow_height,
+                                      arrow_width, arrow_height, u0, v0,
+                                      static_cast<float>(region->x + 10) * atlas_scale,
+                                      static_cast<float>(region->y + 9) * atlas_scale, thumb_color,
+                                      0.54f * expand);
                     }
                 }
             }
@@ -582,6 +704,8 @@ class render_worker final
                            (cursor_.blinking ? blink_on_ : true);
             cursor_dirty = false;
             renderer_.resize(width, height);
+            client_width_px_ = static_cast<float>(width);
+            client_height_px_ = static_cast<float>(height);
 
             if (changed || cursor_changed || hover_changed || scrollbar_animating || focus_changed || blink_changed ||
                 dpi_changed)
@@ -636,6 +760,8 @@ class render_worker final
     std::vector<screen::row_block> scroll_rows_;
     double scroll_offset_{};
     double scroll_fraction_{};
+    float client_width_px_{};
+    float client_height_px_{};
     std::size_t display_rows_{};
     std::size_t history_size_{};
     win32::basic_thread thread_;

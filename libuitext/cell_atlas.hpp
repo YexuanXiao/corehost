@@ -44,6 +44,7 @@ class cell_atlas final
     void reset()
     {
         entries_.clear();
+        mask_entries_.clear();
         transient_regions_.clear();
         pixels_.assign(static_cast<std::size_t>(size_) * size_, 0);
         pixels_.front() = 0xFF;
@@ -100,6 +101,34 @@ class cell_atlas final
         write(region, glyph);
         dirty_ = true;
         return &entries_.emplace(scalar, region).first->second;
+    }
+
+    [[nodiscard]] const atlas_region *find_or_add_mask(std::uint32_t key, std::uint32_t width,
+                                                       std::uint32_t height, std::span<const std::uint8_t> alpha)
+    {
+        if (const auto found = mask_entries_.find(key); found != mask_entries_.end())
+        {
+            return &found->second;
+        }
+        if (width == 0 || height == 0 || width + 2 > size_ || height + 2 > size_ ||
+            alpha.size() != static_cast<std::size_t>(width) * height)
+        {
+            return nullptr;
+        }
+
+        atlas_region region{};
+        if (!allocate(width, height, shelf_x_, shelf_y_, shelf_height_, size_, region))
+        {
+            return nullptr;
+        }
+        for (std::uint32_t row = 0; row < height; ++row)
+        {
+            const auto source = alpha.subspan(static_cast<std::size_t>(row) * width, width);
+            auto *destination = pixels_.data() + static_cast<std::size_t>(region.y + row) * size_ + region.x;
+            std::copy(source.begin(), source.end(), destination);
+        }
+        dirty_ = true;
+        return &mask_entries_.emplace(key, region).first->second;
     }
 
     [[nodiscard]] const atlas_region *find_or_add_transient(std::u16string_view text, bool bold = false)
@@ -194,6 +223,7 @@ class cell_atlas final
     std::vector<std::uint8_t> pixels_;
     std::uint32_t transient_rows_{};
     std::flat_map<char16_t, atlas_region> entries_;
+    std::flat_map<std::uint32_t, atlas_region> mask_entries_;
     bizwen::deque<atlas_region> transient_regions_;
     std::vector<glyph_bitmap> scratch_;
     std::uint32_t shelf_x_{};
