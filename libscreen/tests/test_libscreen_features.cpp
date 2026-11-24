@@ -346,6 +346,21 @@ void test_alt_history()
     check(buffer.history_flags(0) == line_flag_ops::raw(line_flag::marked), "history flags");
 }
 
+void test_alt_resize_clears()
+{
+    using namespace corehost::screen;
+
+    screen_buffer buffer(4, 2);
+    buffer.set_alternate(true);
+    (void)buffer.write_scalar(0, 0, u'A', style0);
+    buffer.set_alternate(false);
+
+    buffer.resize(6, 4);
+    buffer.set_alternate(true);
+    check(buffer.at(0, 0).is_blank(), "resize clears alternate");
+    check(buffer.width() == 6 && buffer.height() == 4, "resize alt dimensions");
+}
+
 int main()
 {
     test_interop_abi();
@@ -356,6 +371,7 @@ int main()
     test_copy_scroll();
     test_console_selection();
     test_alt_history();
+    test_alt_resize_clears();
 
     if (failures != 0)
     {

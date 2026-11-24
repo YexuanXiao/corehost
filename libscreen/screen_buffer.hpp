@@ -1965,18 +1965,7 @@ inline void screen_buffer::resize(std::size_t width, std::size_t height, cell_st
         resized_main.row(target_y).command_exit_code = main_.row(source_y).command_exit_code;
     }
 
-    page resized_alt(width, height, fill_style);
-    for (std::size_t y = 0; y < copy_height; ++y)
-    {
-        const auto source_y = source_top + y;
-        const auto target_y = target_top + y;
-        std::copy_n(alternate_.row_cells(source_y).begin(), copy_width, resized_alt.row_cells(target_y).begin());
-        resized_alt.row(target_y).used_columns =
-            static_cast<std::uint32_t>(std::min<std::size_t>(alternate_.row(source_y).used_columns, width));
-        resized_alt.row(target_y).flags = alternate_.row(source_y).flags;
-        resized_alt.row(target_y).command_exit_code = alternate_.row(source_y).command_exit_code;
-    }
-    alternate_ = std::move(resized_alt);
+    alternate_ = page(width, height, fill_style);
 
     main_ = std::move(resized_main);
     width_ = width;

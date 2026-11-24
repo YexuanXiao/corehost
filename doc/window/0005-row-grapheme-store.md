@@ -26,7 +26,7 @@ struct history_row final
 `page` 仍持有 `bizwen::deque<row_block>`；row scroll 时整个 `row_block`
 移动，store 跟着移动。
 
-`screen_buffer` 删除全局 `graphemes_` 和 `std::optional<page> alternate_`；主/备用 page 都是直接成员，只有 `alternate_active_` 选择活动页。\n\n访问变为 row-aware：
+`screen_buffer` 删除全局 `graphemes_` 和 `std::optional<page> alternate_`；主/备用 page 都是直接成员，只有 `alternate_active_` 选择活动页；alternate 在创建时为空，resize 后重新创建为空页，不跟随 main 内容。\n\n访问变为 row-aware：
 
 ```cpp
 std::span<const char16_t> cluster_of(std::size_t y, const cell &value) const;
