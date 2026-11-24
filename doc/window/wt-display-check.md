@@ -4,6 +4,12 @@
 目标：`corehostw.exe` + `powershell.exe`
 清单：`wt_test_checklist.md`
 
+## 最新状态
+
+`CONSOLE_IO_RAW_WRITE` 已由窗口层统一解析，`ConsolepWriteConsole` 也走同一套 VT parser/applier。PSReadLine 输入回显、有效/无效命令、256/RGB 色、underline/strikethrough/bold、OSC 标题均已验证。
+
+之前 `ưm` 前缀已确认是 PSReadLine 在历史文件错误时自己 `Console.Write("ưm")` 的结果；使用 `Set-PSReadLineOption -HistorySaveStyle SaveNothing` 后前缀消失，不是终端 parser 的 bug。
+
 ## 已验证
 
 | 项 | 结果 | 说明 |
