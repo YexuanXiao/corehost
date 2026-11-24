@@ -94,6 +94,7 @@ add_subdirectory(libvtstate)
 add_subdirectory(libpseudowindow)
 add_subdirectory(libd3d12ui)
 add_subdirectory(libcorewindow)
+add_subdirectory(libuitext)
 
 # ── libcorepty (new modular host assembly) ───────────
 add_subdirectory(libcorepty)
@@ -115,3 +116,4 @@ add_subdirectory(libcoreio/tests)
 add_subdirectory(libscreen/tests)
 add_subdirectory(libvtparser/tests)
 add_subdirectory(libvtstate/tests)
+add_subdirectory(corehost/window/tests)
