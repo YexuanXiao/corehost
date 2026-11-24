@@ -22,6 +22,7 @@
 - glyph 输出使用可复用的 alpha/region 缓冲区，`glyph_bitmap` 只持有 span，不逐 glyph 分配 vector；
 - `window_console_session` 已实现 CONNECT、CREATE_OBJECT、CLOSE_OBJECT、DISCONNECT、RAW_FLUSH、RAW_WRITE、RAW_READ、USER_DEFINED 的基础分派；
 - IO 线程只在 screen buffer 产生 damage 时 PostMessage；UI 线程在渲染前加锁复制 damage 区域后立即解锁，只复制变化行/列；
+- 已决定渲染路径：glyph atlas + per-cell quads，UI 线程构建/更新 atlas 和 quad 数据，不执行 console IO；
 - 实测 `corehostw cmd.exe` 可以保持 client 运行，关闭窗口后 corehostw 与 cmd 均退出。
 
 ## 未完成
