@@ -37,8 +37,7 @@ struct glyph_bitmap final
 struct font_fallback_entry final
 {
     win32::wcstring_view family;
-    // Empty means the full Unicode range.
-    std::span<const DWRITE_UNICODE_RANGE> ranges;
+    DWRITE_UNICODE_RANGE range{0, 0x10FFFF};
 };
 
 // Header-only DirectWrite text layout and grapheme-cluster rasterization.
@@ -65,16 +64,13 @@ class text_engine final
         winrt::com_ptr<IDWriteFontFallbackBuilder> builder;
         winrt::check_hresult(factory2->CreateFontFallbackBuilder(builder.put()));
 
-        constexpr DWRITE_UNICODE_RANGE all_unicode{0, 0x10FFFF};
         for (const auto &entry : families)
         {
             assert(!entry.family.empty());
-            const auto ranges = entry.ranges.empty()
-                                    ? std::span<const DWRITE_UNICODE_RANGE>{&all_unicode, 1}
-                                    : entry.ranges;
+            assert(entry.range.first <= entry.range.last);
             const WCHAR *name = entry.family.c_str();
-            winrt::check_hresult(builder->AddMapping(ranges.data(), static_cast<UINT32>(ranges.size()), &name, 1,
-                                                      collection_.get()));
+            winrt::check_hresult(
+                builder->AddMapping(&entry.range, 1, &name, 1, collection_.get()));
         }
 
         winrt::com_ptr<IDWriteFontFallback> system_fallback;

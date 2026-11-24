@@ -11,9 +11,10 @@ int main()
     {
         constexpr DWRITE_UNICODE_RANGE latin{0x20, 0x7E};
         constexpr DWRITE_UNICODE_RANGE emoji{0x1F300, 0x1FAFF};
-        const std::array<corehost::uitext::font_fallback_entry, 2> families{
-            corehost::uitext::font_fallback_entry{L"Consolas", {&latin, 1}},
-            corehost::uitext::font_fallback_entry{L"Segoe UI Emoji", {&emoji, 1}},
+        const std::array<corehost::uitext::font_fallback_entry, 3> families{
+            corehost::uitext::font_fallback_entry{L"Consolas", latin},
+            corehost::uitext::font_fallback_entry{L"Segoe UI Emoji", emoji},
+            corehost::uitext::font_fallback_entry{L"Segoe UI Symbol"},
         };
         corehost::uitext::text_engine engine{families, 16.0f};
         const auto metrics = engine.metrics();
