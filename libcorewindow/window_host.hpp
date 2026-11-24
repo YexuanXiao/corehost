@@ -58,7 +58,6 @@ class window_host final
             win32::throw_last_error();
         }
 
-        screen_.attach(window);
         renderer_.initialize(window);
         ::ShowWindow(window, SW_SHOWDEFAULT);
         ::UpdateWindow(window);
@@ -177,8 +176,20 @@ class window_host final
                            suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
             return 0;
         }
-        case screen_update_message:
-            ::InvalidateRect(hwnd, nullptr, FALSE);
+        case WM_CHAR:
+            if (self != nullptr)
+            {
+                const auto character = static_cast<char16_t>(wparam);
+                if (character >= 0x20 || character == u'\r' || character == u'\n' || character == u'\b' ||
+                    character == u'\t')
+                {
+                    auto event = consoleinput::input_event{
+                        .type = consoleinput::input_event_type::key,
+                        .key = consoleinput::key_from_character(character),
+                    };
+                    self->screen_.push_input(std::move(event));
+                }
+            }
             return 0;
         case WM_CLOSE:
             ::DestroyWindow(hwnd);
@@ -205,7 +216,6 @@ class window_host final
         case WM_DESTROY:
             if (self != nullptr)
             {
-                self->screen_.detach();
                 self->renderer_.reset();
             }
             ::PostQuitMessage(0);

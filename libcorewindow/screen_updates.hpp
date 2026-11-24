@@ -1,11 +1,13 @@
 #pragma once
 
 #include "console_state.hpp"
+#include "input.hpp"
 #include "screen_buffer.hpp"
+#include "win32/event.hpp"
+#include "win32/srwlock.hpp"
 
 #include <Windows.h>
 
-#include <atomic>
 #include <cstddef>
 #include <string>
 #include <utility>
@@ -33,11 +35,8 @@ struct screen_row_update final
     std::u16string text;
 };
 
-inline constexpr UINT screen_update_message = WM_APP + 1;
-
 // Shared console screen. The console IO thread is the only writer; the UI
-// thread asks for damage before rendering. Access is serialized with an
-// SRWLOCK, not std::mutex.
+// rendering thread asks for damage when it wants to render.
 class console_screen final
 {
   public:
@@ -46,12 +45,12 @@ class console_screen final
       public:
         explicit write_lock(console_screen &owner) noexcept : owner_{owner}
         {
-            ::AcquireSRWLockExclusive(&owner_.lock_);
+            owner_.lock_.lock();
         }
 
         ~write_lock()
         {
-            ::ReleaseSRWLockExclusive(&owner_.lock_);
+            owner_.lock_.unlock();
         }
 
         write_lock(const write_lock &) = delete;
@@ -78,28 +77,41 @@ class console_screen final
         return state_;
     }
 
-    void attach(HWND window) noexcept
+    [[nodiscard]] consoleinput::input_queue &input() noexcept
     {
-        window_.store(window, std::memory_order_release);
+        return input_;
     }
 
-    void detach() noexcept
+    [[nodiscard]] win32::event &input_event() noexcept
     {
-        window_.store(nullptr, std::memory_order_release);
+        return input_event_;
     }
 
-    [[nodiscard]] HWND window() const noexcept
+    void set_worker(HANDLE worker) noexcept
     {
-        return window_.load(std::memory_order_acquire);
+        worker_ = worker;
+    }
+
+    void push_input(consoleinput::input_event event)
+    {
+        {
+            write_lock lock{*this};
+            input_.push(std::move(event));
+            input_event_.set();
+        }
+
+        if (worker_ != nullptr)
+        {
+            (void)::CancelSynchronousIo(worker_);
+        }
     }
 
     bool copy_updates(std::vector<screen_row_update> &updates)
     {
-        ::AcquireSRWLockExclusive(&lock_);
+        write_lock lock{*this};
         updates.clear();
         if (!screen_.has_damage())
         {
-            ::ReleaseSRWLockExclusive(&lock_);
             return false;
         }
 
@@ -148,28 +160,16 @@ class console_screen final
         }
 
         screen_.clear_damage();
-        ::ReleaseSRWLockExclusive(&lock_);
         return !updates.empty();
     }
 
-    void notify_if_damaged() noexcept
-    {
-        ::AcquireSRWLockShared(&lock_);
-        const auto damaged = screen_.has_damage();
-        ::ReleaseSRWLockShared(&lock_);
-
-        const auto window = window_.load(std::memory_order_acquire);
-        if (damaged && window != nullptr)
-        {
-            (void)::PostMessageW(window, screen_update_message, 0, 0);
-        }
-    }
-
   private:
-    SRWLOCK lock_{SRWLOCK_INIT};
+    win32::srwlock lock_;
     screen::screen_buffer screen_;
     screen::console_state state_;
-    std::atomic<HWND> window_{};
+    consoleinput::input_queue input_;
+    win32::event input_event_{win32::create_tag, true, false};
+    HANDLE worker_{};
 };
 
 } // namespace corehost::window

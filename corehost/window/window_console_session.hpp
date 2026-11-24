@@ -47,9 +47,7 @@ class window_console_session final
 
         [[nodiscard]] bool handle(coreio::io_msg &message)
         {
-            const auto result = owner.handle(message);
-            owner.screen_source_.notify_if_damaged();
-            return result;
+            return owner.handle(message);
         }
 
         void flush() const noexcept
@@ -65,10 +63,13 @@ class window_console_session final
     static DWORD WINAPI thread_entry(LPVOID self);
     void run();
     bool handle(coreio::io_msg &message);
+    void complete_pending();
 
     win32::handle_view server_;
     console_screen &screen_source_;
-    consoleinput::input_queue input_;
+    coreio::io_msg pending_message_{};
+    consoleapi::console_api::pending_read_kind pending_kind_{};
+    bool pending_active_{};
     coreio::process_registry processes_;
     coreio::io_state io_state_;
     coreio::input_payload_reader payload_;
