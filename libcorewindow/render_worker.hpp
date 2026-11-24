@@ -334,12 +334,24 @@ class render_worker final
             }
             const auto width = static_cast<UINT>(client.right - client.left);
             const auto height = static_cast<UINT>(client.bottom - client.top);
+            const auto metrics = text_.metrics();
+            const auto desired_columns =
+                std::max<std::size_t>(1, static_cast<std::size_t>(static_cast<float>(width) / metrics.advance));
+            const auto desired_rows = std::max<std::size_t>(
+                1, static_cast<std::size_t>(static_cast<float>(height) / (metrics.ascent + metrics.descent + metrics.line_gap)));
             bool changed = false;
             bool focused = false;
             screen::cursor_state cursor{};
 
             {
                 std::unique_lock<win32::srwlock> lock{console_mutex_};
+                if (desired_columns != columns || desired_rows != rows)
+                {
+                    console_.resize(desired_columns, desired_rows);
+                    columns = desired_columns;
+                    rows = desired_rows;
+                    cell_state_.assign(columns * rows, screen::cell{});
+                }
                 changed = console_.copy_updates(updates_, styles_);
                 cursor = console_.state().cursor();
                 focused = console_.has_focus();
@@ -372,8 +384,8 @@ class render_worker final
         renderer_.reset();
     }
 
-    static constexpr std::size_t columns = 120;
-    static constexpr std::size_t rows = 30;
+    std::size_t columns = 120;
+    std::size_t rows = 30;
 
     console &console_;
     win32::srwlock &console_mutex_;

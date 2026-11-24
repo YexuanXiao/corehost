@@ -452,7 +452,7 @@ class screen_buffer final
     void scroll_region_down(rectangle area, std::size_t lines, cell_style fill_style = default_cell_style);
 
     void resize(std::size_t width, std::size_t height, cell_style fill_style = default_cell_style,
-                bool anchor_bottom = false);
+                bool anchor_bottom = false, coord *cursor = nullptr);
     void set_alternate(bool enabled);
     [[nodiscard]] bool alternate_active() const noexcept
     {
@@ -1462,6 +1462,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                     result.row_end = true;
                     break;
                 }
+                add_flags(static_cast<std::size_t>(cursor.y), line_flag::wrapped);
             }
 
             auto columns = cluster.width;
@@ -1487,6 +1488,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                     result.row_end = true;
                     break;
                 }
+                add_flags(static_cast<std::size_t>(cursor.y), line_flag::wrapped);
             }
 
             const std::u16string_view cluster_text{cluster.text.data(), cluster.text.size()};
@@ -1528,6 +1530,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                 result.row_end = true;
                 break;
             }
+            add_flags(static_cast<std::size_t>(cursor.y), line_flag::wrapped);
         }
 
         const auto decoded = next_codepoint(text, offset);
@@ -1546,6 +1549,10 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
             }
             cursor.x = 0;
             ++cursor.y;
+            if (static_cast<std::size_t>(cursor.y) < height_)
+            {
+                add_flags(static_cast<std::size_t>(cursor.y), line_flag::wrapped);
+            }
             continue;
         }
 
@@ -1963,34 +1970,242 @@ inline void screen_buffer::scroll_region_up(rectangle area, std::size_t lines, c
     }
 }
 
-inline void screen_buffer::resize(std::size_t width, std::size_t height, cell_style fill_style, bool anchor_bottom)
+inline void screen_buffer::resize(std::size_t width, std::size_t height, cell_style fill_style, bool,
+                                  coord *cursor)
 {
     assert(width != 0 && height != 0);
 
-    const auto copy_width = std::min(width, width_);
-    const auto copy_height = std::min(height, height_);
-    const auto source_top = anchor_bottom && height_ > height ? height_ - height : 0;
-    const auto target_top = anchor_bottom && height > height_ ? height - height_ : 0;
-
-    page resized_main(width, height, fill_style);
-    for (std::size_t y = 0; y < copy_height; ++y)
+    struct source_row_view final
     {
-        const auto source_y = source_top + y;
-        const auto target_y = target_top + y;
-        std::copy_n(main_.row_cells(source_y).begin(), copy_width, resized_main.row_cells(target_y).begin());
-        resized_main.row(target_y).used_columns =
-            static_cast<std::uint32_t>(std::min<std::size_t>(main_.row(source_y).used_columns, width));
-        resized_main.row(target_y).flags = main_.row(source_y).flags;
-        resized_main.row(target_y).command_exit_code = main_.row(source_y).command_exit_code;
+        std::span<const cell> cells;
+        const grapheme_store *graphemes{};
+        line_flags flags{};
+        std::int32_t command_exit_code{no_command_exit_code};
+    };
+
+    struct reflow_unit final
+    {
+        cell value;
+        const grapheme_store *source_graphemes{};
+        std::size_t source_row{};
+        std::size_t source_x{};
+    };
+
+    std::vector<source_row_view> sources;
+    sources.reserve(history_.size() + height_);
+    for (const auto &entry : history_)
+    {
+        sources.push_back(source_row_view{entry.cells, &entry.graphemes, entry.state.flags,
+                                          entry.state.command_exit_code});
+    }
+    for (std::size_t y = 0; y < height_; ++y)
+    {
+        sources.push_back(source_row_view{main_.row_cells(y), &main_.graphemes(y), main_.row(y).flags,
+                                          main_.row(y).command_exit_code});
     }
 
-    alternate_ = page(width, height, fill_style);
+    const auto no_cursor = std::numeric_limits<std::size_t>::max();
+    auto cursor_source_row = no_cursor;
+    auto cursor_source_x = std::size_t{};
+    if (cursor != nullptr)
+    {
+        const auto source_y = static_cast<std::size_t>(
+            std::clamp<std::int32_t>(cursor->y, 0, static_cast<std::int32_t>(height_) - 1));
+        cursor_source_row = history_.size() + source_y;
+        cursor_source_x = static_cast<std::size_t>(
+            std::clamp<std::int32_t>(cursor->x, 0, static_cast<std::int32_t>(width_) - 1));
+        while (cursor_source_x > 0 && sources[cursor_source_row].cells[cursor_source_x].is_continuation())
+        {
+            --cursor_source_x;
+        }
+    }
 
+    std::vector<row_block> output;
+    output.reserve(sources.size() + 1);
+    bool cursor_found = false;
+    std::size_t cursor_output_row = 0;
+    std::size_t cursor_output_x = 0;
+
+    for (std::size_t start = 0; start < sources.size();)
+    {
+        auto end = start + 1;
+        while (end < sources.size() && line_flag_ops::has(sources[end].flags, line_flag::wrapped))
+        {
+            ++end;
+        }
+
+        const bool cursor_line = cursor_source_row >= start && cursor_source_row < end;
+        std::vector<reflow_unit> units;
+        for (auto row_index = start; row_index < end; ++row_index)
+        {
+            const auto &source = sources[row_index];
+            for (std::size_t x = 0; x < source.cells.size(); ++x)
+            {
+                if (source.cells[x].is_continuation())
+                {
+                    continue;
+                }
+                units.push_back(reflow_unit{source.cells[x], source.graphemes, row_index, x});
+            }
+        }
+
+        while (!units.empty() && units.back().value.is_blank() &&
+               !(cursor_line && units.back().source_row == cursor_source_row &&
+                 units.back().source_x == cursor_source_x))
+        {
+            units.pop_back();
+        }
+
+        const auto base_flags =
+            sources[start].flags & ~line_flag_ops::raw(line_flag::wrapped);
+        const auto base_exit = sources[start].command_exit_code;
+        row_block current{cell_vector(width, cell::blank(fill_style)), row_state{}, {}};
+        current.state.flags = base_flags;
+        current.state.command_exit_code = base_exit;
+        auto target_x = std::size_t{};
+
+        for (const auto &unit : units)
+        {
+            auto value = unit.value;
+            auto columns = value.is_wide() ? std::size_t{2} : std::size_t{1};
+
+            if (target_x + columns > width)
+            {
+                if (target_x == 0)
+                {
+                    value = cell::blank(value.style(), value.hyperlink());
+                    columns = 1;
+                }
+                else
+                {
+                    current.state.used_columns = static_cast<std::uint32_t>(target_x);
+                    current.state.dirty_begin = 0;
+                    current.state.dirty_end = static_cast<std::uint32_t>(target_x);
+                    output.push_back(std::move(current));
+
+                    current = row_block{cell_vector(width, cell::blank(fill_style)), row_state{}, {}};
+                    current.state.flags = base_flags | line_flag_ops::raw(line_flag::wrapped);
+                    current.state.command_exit_code = base_exit;
+                    target_x = 0;
+                }
+            }
+
+            if (value.has_cluster())
+            {
+                const auto cluster = unit.source_graphemes->view(
+                    grapheme_store::ref{value.offset(), value.length()});
+                if (current.graphemes.can_append(cluster.size()))
+                {
+                    const auto ref = current.graphemes.append(cluster);
+                    value = value.with_cluster_ref(ref.offset, ref.length);
+                }
+                else
+                {
+                    value = cell::blank(value.style(), value.hyperlink());
+                }
+            }
+
+            current.cells[target_x] = value;
+            if (columns == 2 && target_x + 1 < width)
+            {
+                current.cells[target_x + 1] = cell::tail(value.style(), value.hyperlink());
+            }
+
+            if (cursor_line && unit.source_row == cursor_source_row && unit.source_x == cursor_source_x)
+            {
+                cursor_output_row = output.size();
+                cursor_output_x = target_x;
+                cursor_found = true;
+            }
+
+            target_x += columns;
+        }
+
+        current.state.used_columns = static_cast<std::uint32_t>(target_x);
+        current.state.dirty_begin = 0;
+        current.state.dirty_end = static_cast<std::uint32_t>(target_x);
+        output.push_back(std::move(current));
+        start = end;
+    }
+
+    while (output.size() > 1)
+    {
+        bool blank = true;
+        for (const auto &value : output.back().cells)
+        {
+            if (!value.is_blank())
+            {
+                blank = false;
+                break;
+            }
+        }
+        if (!blank || (cursor_found && cursor_output_row + 1 == output.size()))
+        {
+            break;
+        }
+        output.pop_back();
+    }
+
+    if (output.empty())
+    {
+        output.push_back(row_block{cell_vector(width, cell::blank(fill_style)), row_state{}, {}});
+    }
+
+    auto active_rows = std::min(height, output.size());
+    auto history_count = output.size() - active_rows;
+    if (history_count > history_limit_)
+    {
+        const auto drop = history_count - history_limit_;
+        output.erase(output.begin(), output.begin() + static_cast<std::ptrdiff_t>(drop));
+        if (cursor_found)
+        {
+            cursor_output_row = cursor_output_row >= drop ? cursor_output_row - drop : 0;
+        }
+        history_count -= drop;
+    }
+
+    history_.clear();
+    for (std::size_t index = 0; index < history_count; ++index)
+    {
+        auto &entry = output[index];
+        history_.push_back(history_row{
+            std::move(entry.cells),
+            history_state{entry.state.flags, entry.state.command_exit_code},
+            std::move(entry.graphemes),
+        });
+    }
+
+    page resized_main(width, height, fill_style);
+    for (std::size_t y = 0; y < height; ++y)
+    {
+        const auto index = history_count + y;
+        if (index < output.size())
+        {
+            resized_main.block(y) = std::move(output[index]);
+        }
+    }
+    resized_main.mark_all_dirty();
+
+    alternate_ = page(width, height, fill_style);
     main_ = std::move(resized_main);
     width_ = width;
     height_ = height;
     (void)view_.clamp_to_buffer(buffer_size());
-    clear_history();
+
+    if (cursor != nullptr)
+    {
+        if (cursor_found && cursor_output_row >= history_count)
+        {
+            cursor->x = static_cast<std::int32_t>(std::min(cursor_output_x, width - 1));
+            cursor->y = static_cast<std::int32_t>(
+                std::min(cursor_output_row - history_count, height - 1));
+        }
+        else
+        {
+            cursor->x = std::clamp<std::int32_t>(cursor->x, 0, static_cast<std::int32_t>(width) - 1);
+            cursor->y = std::clamp<std::int32_t>(cursor->y, 0, static_cast<std::int32_t>(height) - 1);
+        }
+    }
 }
 
 inline void screen_buffer::set_alternate(bool enabled)

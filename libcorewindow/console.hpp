@@ -59,6 +59,16 @@ class console final
         return focused_;
     }
 
+    void resize(std::size_t width, std::size_t height)
+    {
+        const auto cursor = state_.cursor();
+        auto position = screen::coord{static_cast<std::int32_t>(cursor.x), static_cast<std::int32_t>(cursor.y)};
+        screen_.resize(width, height, screen::default_cell_style, false, &position);
+        state_.resize(width, height);
+        state_.cursor().x = static_cast<std::size_t>(position.x);
+        state_.cursor().y = static_cast<std::size_t>(position.y);
+    }
+
     void mark_input_read() noexcept
     {
         input_read_ = true;

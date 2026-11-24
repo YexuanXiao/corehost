@@ -299,10 +299,23 @@ void test_screen_buffer()
 
     screen.resize(6, 2);
     check(screen.width() == 6 && screen.height() == 2, "resize dimensions");
-    check(screen.at(0, 0).primary() == u'M', "resize preserves overlap");
+    check(screen.at(0, 0).primary() == u'Z', "resize keeps viewport bottom");
+    check(screen.at(0, 1).primary() == u'M', "resize keeps newest line");
     check(screen.at(5, 0).is_blank(), "resize new cells are blank");
-    check(screen.history_size() == 0, "resize clears history");
+    check(screen.history_size() == 1, "resize retains history");
     check(screen.damage_begin(0) == 0 && screen.damage_end(0) == 6, "resize marks damage");
+
+    {
+        screen_buffer wrapped{4, 2};
+        coord cursor{0, 0};
+        (void)wrapped.write_grapheme_text_row(cursor, u"ABCDEF", {}, false, style0);
+        check(wrapped.has_flag(1, line_flag::wrapped), "writer marks wrapped row");
+        wrapped.resize(3, 2);
+        check(wrapped.at(0, 0).primary() == u'A' && wrapped.at(2, 0).primary() == u'C',
+              "reflow first wrapped row");
+        check(wrapped.at(0, 1).primary() == u'D' && wrapped.at(2, 1).primary() == u'F',
+              "reflow second wrapped row");
+    }
 
     {
         screen_buffer anchored{4, 4};
