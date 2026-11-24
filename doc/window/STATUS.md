@@ -39,7 +39,8 @@
 - 独立渲染线程已接入：DCompositionWaitForCompositorClock 驱动，damage 时取 screen 并 Present，UI 线程不渲染；
 - 键盘输入已接入 WM_CHAR -> shared input queue；独立 input thread 等待 input event 并完成 pending read，不使用 CancelSynchronousIo；实测 echo 输入可自动显示；
 - `console_api` 的完整 API 覆盖仍待验证；
-- 窗口关闭时直接终止 client，尚未实现完整的 console close 事件语义。
+- 窗口关闭时发送 CTRL_CLOSE_EVENT，期间保持 console server 存活，并无限等待 client 退出；client 析构不再 TerminateProcess。
+- client 自行退出由独立监控线程检测；默认 `keep_open` 并在标题显示 `(client exited)`，C++ API 可选择 `exit_if_never_read_input` / `always_exit`。
 
 ## 下一步
 

@@ -49,6 +49,16 @@ class console final
         return input_event_;
     }
 
+    void mark_input_read() noexcept
+    {
+        input_read_ = true;
+    }
+
+    [[nodiscard]] bool has_read_input() const noexcept
+    {
+        return input_read_;
+    }
+
     void push_input(consoleinput::input_event event)
     {
         input_.push(std::move(event));
@@ -96,6 +106,7 @@ class console final
     screen::screen_buffer screen_;
     screen::console_state state_;
     consoleinput::input_queue input_;
+    bool input_read_{};
     win32::event input_event_{win32::create_tag, true, false};
 };
 

@@ -77,10 +77,7 @@ window_client_process::window_client_process(win32::handle_view server, win32::w
     }
 }
 
-window_client_process::~window_client_process()
-{
-    terminate();
-}
+window_client_process::~window_client_process() = default;
 
 void window_client_process::terminate() noexcept
 {

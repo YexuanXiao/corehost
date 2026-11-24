@@ -1,5 +1,6 @@
 #pragma once
 
+#include "win32/error.hpp"
 #include "win32/handle.hpp"
 #include "win32/process_information.hpp"
 #include "win32/string.hpp"
@@ -22,6 +23,24 @@ class window_client_process final
     window_client_process &operator=(const window_client_process &) = delete;
 
     void terminate() noexcept;
+
+    [[nodiscard]] win32::handle_view process() const noexcept
+    {
+        return process_.h_process.view();
+    }
+
+    [[nodiscard]] DWORD process_id() const noexcept
+    {
+        return process_.process_id;
+    }
+
+    void wait()
+    {
+        if (::WaitForSingleObject(process_.h_process.get(), INFINITE) == WAIT_FAILED)
+        {
+            win32::throw_last_error();
+        }
+    }
 
   private:
     win32::process_information process_;

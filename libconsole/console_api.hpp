@@ -443,6 +443,11 @@ class console_api final
         return read_console_input(message, false);
     }
 
+    [[nodiscard]] bool took_input() const noexcept
+    {
+        return input_read_;
+    }
+
     [[nodiscard]] pending_read_kind take_pending_read_kind() noexcept
     {
         return std::exchange(pending_read_kind_, pending_read_kind::none);
@@ -450,6 +455,7 @@ class console_api final
 
     [[nodiscard]] bool read_console_input(coreio::io_msg &message, bool pending_allowed = true) noexcept
     {
+        input_read_ = true;
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_GETCONSOLEINPUT_MSG))
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
@@ -570,6 +576,7 @@ class console_api final
     }
     [[nodiscard]] bool read_console(coreio::io_msg &message, bool pending_allowed = true) noexcept
     {
+        input_read_ = true;
         if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_READCONSOLE_MSG))
         {
             coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
@@ -2920,6 +2927,7 @@ class console_api final
     std::size_t cooked_echo_length_{};
     bool cooked_active_{};
     pending_read_kind pending_read_kind_{};
+    bool input_read_{};
     bool cancel_pending_{};
     std::vector<std::pair<DWORD, DWORD>> ctrl_events_;
 };

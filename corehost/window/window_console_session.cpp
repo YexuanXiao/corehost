@@ -140,6 +140,10 @@ bool window_console_session::handle(coreio::io_msg &message)
         return false;
     case CONSOLE_IO_USER_DEFINED: {
         const bool handled = api_.handle(message);
+        if (api_.took_input())
+        {
+            console_.mark_input_read();
+        }
         if (handled)
         {
             coreio::complete_io(server_, message.complete);

@@ -4,6 +4,7 @@
 #include "window_client_process.hpp"
 #include "window_console_session.hpp"
 
+#include "console_ctrl.hpp"
 #include "ntapi/condrv.hpp"
 #include "win32/srwlock.hpp"
 
@@ -21,10 +22,12 @@ void window_entry(std::wstring title, std::wstring client_command_line)
     console.start();
 
     window_client_process client{server.view(), title, client_command_line};
-    window_host host{title, shared_console, console_mutex};
+    window_host host{title, shared_console, console_mutex, client.process()};
     host.run();
 
-    client.terminate();
+    coreio::ctrl_delivery delivery;
+    delivery.deliver(client.process_id(), CTRL_CLOSE_EVENT);
+    client.wait();
     console.stop();
 }
 
