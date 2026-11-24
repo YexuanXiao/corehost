@@ -8,6 +8,11 @@
 
 namespace condrv
 {
+// PROC_THREAD_ATTRIBUTE_CONSOLE_REFERENCE is defined by conhost's private
+// winbasep.h, not by the public Windows SDK.
+inline constexpr DWORD proc_thread_attribute_console_reference =
+    ProcThreadAttributeValue(10, FALSE, TRUE, FALSE);
+
 // 向 ConDrv 创建客户端句柄（\Input / \Output / \Reference）
 [[nodiscard]] inline win32::handle create_client_handle(win32::handle_view server, win32::wcstring_view name,
                                                         bool inheritable = false)

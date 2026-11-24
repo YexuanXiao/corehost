@@ -7,13 +7,21 @@
 - W1：`corehostw` target、共享 `main.cpp`、`COREHOST_WINDOW` 宏切换已建立；defterm/comserver/headless 路径仍完整保留，仅普通 client 启动路径切换为 `window_entry`；
 - `run_com_handoff`、`run_headless` 和 `com_handoff_bridge` 已删除，逻辑直接内联在 `wWinMain`；
 - W2.1：`libcorewindow` 最小 top-level Win32 窗口和消息循环已建立；
-- 公共 ConDrv `\Server` 创建辅助函数已添加。
+- 公共 ConDrv `\Server` 创建辅助函数已添加；
+- `window_client_process` 已通过 `PROC_THREAD_ATTRIBUTE_CONSOLE_REFERENCE` 和继承的 console 句柄启动 client；
+- `window_entry` 当前顺序：server、console session、client、window。
 
 ## 未完成
 
 - W1：corehostw target 与 main 宏切换已建立，仍需入口行为测试；
 - W2.1：最小 top-level 窗口已建立；
 - W2.2 及之后：控制台 server 会话、进程启动、D3D12、输入/IME、渲染。
+
+## 已知问题
+
+- 当前 `window_console_session` 直接调用 `console_api::handle`，尚未实现 conhost 自建 server 所需的 CONNECT/初始化和完整消息路由；
+- 冒烟测试中 `corehostw cmd.exe` 的 client 会立即退出，说明 console server 行为尚不完整；
+- 窗口目前只有空白 Win32 宿主，没有 D3D12/文本渲染。
 
 ## 下一步
 

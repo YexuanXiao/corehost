@@ -61,6 +61,7 @@ add_executable(corehostw WIN32
     defterm/defterm.cpp
     defterm/signal.cpp
     comserver/com_server.cpp
+    window/window_client_process.cpp
     window/window_console_session.cpp
     window/window_entry.cpp
 )
@@ -72,6 +73,7 @@ target_sources(corehostw
         FILE_SET HEADERS
             FILES
                 cli/console_arguments.hpp
+                window/window_client_process.hpp
                 window/window_console_session.hpp
                 window/window_entry.hpp
 )
