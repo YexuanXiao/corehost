@@ -12,7 +12,7 @@
 namespace corehost::window
 {
 
-window_client_process::window_client_process(win32::handle_view server, std::wstring_view title,
+window_client_process::window_client_process(win32::handle_view server, win32::wcstring_view title,
                                              const std::wstring &command_line)
 {
     auto reference = condrv::create_client_handle(server, L"\\Reference");
@@ -36,7 +36,7 @@ window_client_process::window_client_process(win32::handle_view server, std::wst
     startup.StartupInfo.hStdError = error.get();
     if (!title.empty())
     {
-        startup.StartupInfo.lpTitle = const_cast<wchar_t *>(title.data());
+        startup.StartupInfo.lpTitle = const_cast<wchar_t *>(title.c_str());
     }
 
     SIZE_T attribute_size = 0;

@@ -2,9 +2,9 @@
 
 #include "win32/handle.hpp"
 #include "win32/process_information.hpp"
+#include "win32/string.hpp"
 
 #include <string>
-#include <string_view>
 
 namespace corehost::window
 {
@@ -15,7 +15,7 @@ namespace corehost::window
 class window_client_process final
 {
   public:
-    window_client_process(win32::handle_view server, std::wstring_view title, const std::wstring &command_line);
+    window_client_process(win32::handle_view server, win32::wcstring_view title, const std::wstring &command_line);
     ~window_client_process();
 
     window_client_process(const window_client_process &) = delete;

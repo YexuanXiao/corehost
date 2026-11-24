@@ -3,11 +3,11 @@
 #include "d3d12_window_renderer.hpp"
 
 #include "win32/error.hpp"
+#include "win32/string.hpp"
 
 #include <Windows.h>
 
 #include <cassert>
-#include <string_view>
 
 namespace corehost::window
 {
@@ -17,10 +17,9 @@ namespace corehost::window
 class window_host final
 {
   public:
-    explicit window_host(std::wstring_view title) : title_{title}
+    explicit window_host(win32::wcstring_view title) : title_{title}
     {
         assert(!title_.empty());
-        assert(title_.data()[title_.size()] == L'\0');
     }
 
     window_host(const window_host &) = delete;
@@ -47,7 +46,7 @@ class window_host final
         }
 
         const HWND window =
-            ::CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, class_name, title_.data(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
+            ::CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, class_name, title_.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
                               CW_USEDEFAULT, 800, 500, nullptr, nullptr, instance, this);
         if (window == nullptr)
         {
@@ -119,7 +118,7 @@ class window_host final
         }
     }
 
-    std::wstring_view title_;
+    win32::wcstring_view title_;
     d3d12ui::d3d12_window_renderer renderer_;
 };
 
