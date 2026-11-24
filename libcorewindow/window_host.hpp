@@ -192,6 +192,7 @@ class window_host final
         case WM_PAINT:
             if (self != nullptr)
             {
+                self->updates_.clear();
                 (void)self->mailbox_.take(self->updates_);
                 self->apply_screen_updates();
                 self->build_quads();

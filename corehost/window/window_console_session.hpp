@@ -17,7 +17,6 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -80,7 +79,6 @@ class window_console_session final
     win32::event stop_event_;
     win32::basic_thread thread_;
     std::atomic_bool stop_{};
-    std::mutex screen_mutex_;
     screen_update_mailbox &mailbox_;
 };
 

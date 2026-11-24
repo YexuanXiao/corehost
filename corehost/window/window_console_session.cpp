@@ -49,12 +49,8 @@ void window_console_session::stop()
 void window_console_session::publish_screen_updates()
 {
     std::vector<screen_row_update> updates;
+    if (screen_.has_damage())
     {
-        std::scoped_lock lock{screen_mutex_};
-        if (!screen_.has_damage())
-        {
-            return;
-        }
 
         for (std::size_t y = 0; y < screen_.height(); ++y)
         {
@@ -114,7 +110,6 @@ DWORD WINAPI window_console_session::thread_entry(LPVOID self)
 
 bool window_console_session::handle(coreio::io_msg &message)
 {
-    std::scoped_lock lock{screen_mutex_};
     api_.set_window_handle(reinterpret_cast<std::uintptr_t>(mailbox_.window()));
 
     switch (message.descriptor.Function)
