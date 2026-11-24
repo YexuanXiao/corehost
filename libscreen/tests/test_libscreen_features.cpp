@@ -353,12 +353,14 @@ void test_alt_resize_clears()
     screen_buffer buffer(4, 2);
     buffer.set_alternate(true);
     (void)buffer.write_scalar(0, 0, u'A', style0);
-    buffer.set_alternate(false);
-
     buffer.resize(6, 4);
-    buffer.set_alternate(true);
-    check(buffer.at(0, 0).is_blank(), "resize clears alternate");
+    check(buffer.alternate_active(), "resize keeps alternate active");
+    check(buffer.at(0, 0).is_blank(), "resize clears active alternate");
     check(buffer.width() == 6 && buffer.height() == 4, "resize alt dimensions");
+
+    buffer.set_alternate(false);
+    buffer.set_alternate(true);
+    check(buffer.at(0, 0).is_blank(), "re-enter starts blank");
 }
 
 int main()
