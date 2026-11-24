@@ -75,11 +75,10 @@ class text_engine final
         winrt::com_ptr<IDWriteFontFallback> system_fallback;
         winrt::check_hresult(factory2->GetSystemFontFallback(system_fallback.put()));
         winrt::check_hresult(builder->AddMappings(system_fallback.get()));
-        winrt::check_hresult(builder->CreateFontFallback(fallback_.put()));
 
-
-        resolve_base_family(families);
-        metrics_ = measure_base_face();
+        winrt::com_ptr<IDWriteFontFallback> fallback;
+        winrt::check_hresult(builder->CreateFontFallback(fallback.put()));
+        metrics_ = resolve_base_family(families, fallback.get());
     }
 
     text_engine(const text_engine &) = delete;
@@ -184,7 +183,8 @@ class text_engine final
         std::size_t size{};
     };
 
-    void resolve_base_family(std::span<const font_fallback_entry> families)
+    [[nodiscard]] cell_metrics resolve_base_family(std::span<const font_fallback_entry> families,
+                                                   IDWriteFontFallback *fallback)
     {
         for (const auto &family : families)
         {
@@ -196,45 +196,45 @@ class text_engine final
                 continue;
             }
 
-            base_family_ = family.family;
             winrt::check_hresult(factory_->CreateTextFormat(
-                base_family_.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                family.family.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
                 DWRITE_FONT_STRETCH_NORMAL, size_, L"en-us", text_format_.put()));
             winrt::check_hresult(text_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
             auto format1 = text_format_.as<IDWriteTextFormat1>();
-            winrt::check_hresult(format1->SetFontFallback(fallback_.get()));
+            winrt::check_hresult(format1->SetFontFallback(fallback));
 
             winrt::com_ptr<IDWriteFontFamily> font_family;
             winrt::check_hresult(collection_->GetFontFamily(family_index, font_family.put()));
             winrt::com_ptr<IDWriteFont> font;
             winrt::check_hresult(font_family->GetFirstMatchingFont(
                 DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, font.put()));
-            winrt::check_hresult(font->CreateFontFace(base_face_.put()));
-            return;
+            winrt::com_ptr<IDWriteFontFace> base_face;
+            winrt::check_hresult(font->CreateFontFace(base_face.put()));
+            return measure_face(base_face.get(), size_);
         }
 
         assert(false);
         winrt::throw_hresult(DWRITE_E_NOFONT);
     }
 
-    [[nodiscard]] cell_metrics measure_base_face()
+    [[nodiscard]] static cell_metrics measure_face(IDWriteFontFace *face, float size)
     {
         DWRITE_FONT_METRICS font_metrics{};
-        base_face_->GetMetrics(&font_metrics);
-        units_per_em_ = static_cast<float>(font_metrics.designUnitsPerEm);
-        assert(units_per_em_ > 0.0f);
+        face->GetMetrics(&font_metrics);
+        const auto units_per_em = static_cast<float>(font_metrics.designUnitsPerEm);
+        assert(units_per_em > 0.0f);
 
         cell_metrics metrics{};
-        metrics.ascent = size_ * static_cast<float>(font_metrics.ascent) / units_per_em_;
-        metrics.descent = size_ * static_cast<float>(font_metrics.descent) / units_per_em_;
-        metrics.line_gap = size_ * static_cast<float>(font_metrics.lineGap) / units_per_em_;
+        metrics.ascent = size * static_cast<float>(font_metrics.ascent) / units_per_em;
+        metrics.descent = size * static_cast<float>(font_metrics.descent) / units_per_em;
+        metrics.line_gap = size * static_cast<float>(font_metrics.lineGap) / units_per_em;
 
         const UINT32 sample = u'M';
         UINT16 glyph = 0;
-        winrt::check_hresult(base_face_->GetGlyphIndices(&sample, 1, &glyph));
+        winrt::check_hresult(face->GetGlyphIndices(&sample, 1, &glyph));
         DWRITE_GLYPH_METRICS glyph_metrics{};
-        winrt::check_hresult(base_face_->GetDesignGlyphMetrics(&glyph, 1, &glyph_metrics, FALSE));
-        metrics.advance = size_ * static_cast<float>(glyph_metrics.advanceWidth) / units_per_em_;
+        winrt::check_hresult(face->GetDesignGlyphMetrics(&glyph, 1, &glyph_metrics, FALSE));
+        metrics.advance = size * static_cast<float>(glyph_metrics.advanceWidth) / units_per_em;
         return metrics;
     }
 
@@ -273,12 +273,8 @@ class text_engine final
 
     winrt::com_ptr<IDWriteFactory> factory_;
     winrt::com_ptr<IDWriteFontCollection> collection_;
-    winrt::com_ptr<IDWriteFontFallback> fallback_;
-    winrt::com_ptr<IDWriteFontFace> base_face_;
     winrt::com_ptr<IDWriteTextFormat> text_format_;
-    win32::wcstring_view base_family_;
     float size_{};
-    float units_per_em_{};
     cell_metrics metrics_{};
 
     std::vector<glyph_region> regions_;
