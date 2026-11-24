@@ -1,12 +1,10 @@
-add_library(libd3d12ui STATIC
-    d3d12_window_renderer.cpp
-)
+add_library(libd3d12ui INTERFACE)
 
-target_include_directories(libd3d12ui PUBLIC
+target_include_directories(libd3d12ui INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(libd3d12ui PUBLIC
+target_link_libraries(libd3d12ui INTERFACE
     common
     d3d12
     dcomp
@@ -14,4 +12,4 @@ target_link_libraries(libd3d12ui PUBLIC
     user32
 )
 
-target_compile_features(libd3d12ui PUBLIC cxx_std_23)
+target_compile_features(libd3d12ui INTERFACE cxx_std_23)
