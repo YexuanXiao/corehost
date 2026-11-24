@@ -20,8 +20,9 @@ namespace corehost::window
 class window_host final
 {
   public:
-    window_host(win32::wcstring_view title, console &console, win32::srwlock &console_mutex)
-        : title_{title}, console_{console}, console_mutex_{console_mutex}, worker_{console, console_mutex}
+    window_host(win32::wcstring_view title, console &console, win32::srwlock &console_mutex,
+                console_palette palette = console_palette::campbell())
+        : title_{title}, console_{console}, console_mutex_{console_mutex}, worker_{console, console_mutex, palette}
     {
         assert(!title_.empty());
     }
