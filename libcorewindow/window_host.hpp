@@ -64,12 +64,41 @@ class window_host final
             }
         }
 
-        const HWND window =
-            ::CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, class_name, title_.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
-                              CW_USEDEFAULT, 1200, 720, nullptr, nullptr, instance, this);
+        const auto initial_dpi = std::max<UINT>(96, ::GetDpiForSystem());
+        RECT initial_rect{0, 0, ::MulDiv(1200, static_cast<int>(initial_dpi), 96),
+                          ::MulDiv(720, static_cast<int>(initial_dpi), 96)};
+        if (::AdjustWindowRectExForDpi(&initial_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
+                                       initial_dpi) == FALSE)
+        {
+            win32::throw_last_error();
+        }
+        const auto initial_width = initial_rect.right - initial_rect.left;
+        const auto initial_height = initial_rect.bottom - initial_rect.top;
+
+        const HWND window = ::CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, class_name, title_.c_str(),
+                                              WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, initial_width,
+                                              initial_height, nullptr, nullptr, instance, this);
         if (window == nullptr)
         {
             win32::throw_last_error();
+        }
+
+        const auto window_dpi = std::max<UINT>(96, ::GetDpiForWindow(window));
+        if (window_dpi != initial_dpi)
+        {
+            RECT target_rect{0, 0, ::MulDiv(1200, static_cast<int>(window_dpi), 96),
+                             ::MulDiv(720, static_cast<int>(window_dpi), 96)};
+            if (::AdjustWindowRectExForDpi(&target_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
+                                           window_dpi) == FALSE)
+            {
+                win32::throw_last_error();
+            }
+            if (::SetWindowPos(window, nullptr, 0, 0, target_rect.right - target_rect.left,
+                               target_rect.bottom - target_rect.top,
+                               SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) == FALSE)
+            {
+                win32::throw_last_error();
+            }
         }
 
         start_process_monitor(window);
@@ -151,9 +180,12 @@ class window_host final
             ::SetWindowLongPtrW(hwnd, GWLP_USERDATA,
                                 reinterpret_cast<LONG_PTR>(reinterpret_cast<CREATESTRUCTW *>(lparam)->lpCreateParams));
             return ::DefWindowProcW(hwnd, message, wparam, lparam);
-        case WM_GETMINMAXINFO:
-            reinterpret_cast<MINMAXINFO *>(lparam)->ptMinTrackSize = POINT{320, 200};
+        case WM_GETMINMAXINFO: {
+            const auto dpi = std::max<UINT>(96, ::GetDpiForWindow(hwnd));
+            reinterpret_cast<MINMAXINFO *>(lparam)->ptMinTrackSize =
+                POINT{::MulDiv(320, static_cast<int>(dpi), 96), ::MulDiv(200, static_cast<int>(dpi), 96)};
             return 0;
+        }
         case WM_DPICHANGED: {
             const auto *suggested = reinterpret_cast<const RECT *>(lparam);
             ::SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
