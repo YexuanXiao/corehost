@@ -13,6 +13,22 @@
 namespace corehost::uitext
 {
 
+struct atlas_key final
+{
+    std::u16string text;
+    bool bold{};
+
+    friend bool operator==(const atlas_key &, const atlas_key &) = default;
+};
+
+struct atlas_key_hash final
+{
+    std::size_t operator()(const atlas_key &key) const noexcept
+    {
+        return std::hash<std::u16string>{}(key.text) ^ (key.bold ? 0x9E3779B9u : 0u);
+    }
+};
+
 struct atlas_region final
 {
     std::uint32_t x{};
@@ -36,21 +52,21 @@ class cell_atlas final
         dirty_ = true;
     }
 
-    [[nodiscard]] const atlas_region *find_or_add(std::u16string_view text)
+    [[nodiscard]] const atlas_region *find_or_add(std::u16string_view text, bool bold = false)
     {
         if (text.empty())
         {
             return nullptr;
         }
 
-        auto key = std::u16string{text};
+        auto key = atlas_key{std::u16string{text}, bold};
         const auto found = entries_.find(key);
         if (found != entries_.end())
         {
             return &found->second;
         }
 
-        engine_.rasterize(text, scratch_);
+        engine_.rasterize(text, scratch_, bold);
         if (scratch_.empty() || scratch_.front().alpha.empty())
         {
             return nullptr;
@@ -113,7 +129,7 @@ class cell_atlas final
     text_engine &engine_;
     std::uint32_t size_{};
     std::vector<std::uint8_t> pixels_;
-    std::unordered_map<std::u16string, atlas_region> entries_;
+    std::unordered_map<atlas_key, atlas_region, atlas_key_hash> entries_;
     std::vector<glyph_bitmap> scratch_;
     std::uint32_t shelf_x_{};
     std::uint32_t shelf_y_{};

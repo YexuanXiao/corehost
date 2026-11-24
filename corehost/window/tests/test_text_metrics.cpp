@@ -37,6 +37,13 @@ int main()
         atlas.clear_dirty();
 
         std::vector<corehost::uitext::glyph_bitmap> glyphs;
+        const auto *bold = atlas.find_or_add(u"M", true);
+        if (bold == nullptr || bold->width == 0 || bold->height == 0)
+        {
+            std::fprintf(stderr, "bold cell atlas failed\n");
+            return EXIT_FAILURE;
+        }
+
         engine.rasterize(u"M", glyphs);
         if (glyphs.size() != 1)
         {
@@ -73,6 +80,13 @@ int main()
         if (glyphs.empty() || glyphs.front().alpha.empty())
         {
             std::fprintf(stderr, "fallback font list failed for emoji\n");
+            return EXIT_FAILURE;
+        }
+
+        engine.rasterize(u"M", glyphs, true);
+        if (glyphs.empty() || glyphs.front().alpha.empty())
+        {
+            std::fprintf(stderr, "bold rasterization failed\n");
             return EXIT_FAILURE;
         }
 

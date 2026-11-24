@@ -17,11 +17,18 @@ struct console_color final
 
 // Theme interface. Indexed colors are resolved through this table; undefined
 // entries fall back to the default foreground/background colors.
+enum class faint_mode : std::uint8_t
+{
+    blend_background,
+    alpha,
+};
+
 struct console_palette final
 {
     std::array<console_color, 16> indexed{};
     console_color default_foreground{0xCC, 0xCC, 0xCC};
     console_color default_background{0x0C, 0x0C, 0x0C};
+    faint_mode faint{faint_mode::blend_background};
 
     // Windows Terminal's Campbell scheme.
     static console_palette campbell() noexcept
@@ -74,6 +81,21 @@ struct console_palette final
 {
     const bool negative = (style.attributes & screen::text_style_attribute_bit(screen::text_style_attribute::negative)) != 0;
     return negative ? resolve_color(style.background, palette, false) : resolve_color(style.foreground, palette, true);
+}
+
+[[nodiscard]] inline std::uint8_t blend_channel(std::uint8_t foreground, std::uint8_t background,
+                                                float amount) noexcept
+{
+    return static_cast<std::uint8_t>(static_cast<float>(foreground) * (1.0f - amount) +
+                                     static_cast<float>(background) * amount);
+}
+
+[[nodiscard]] inline console_color blend_color(console_color foreground, console_color background,
+                                               float amount) noexcept
+{
+    return console_color{blend_channel(foreground.r, background.r, amount),
+                         blend_channel(foreground.g, background.g, amount),
+                         blend_channel(foreground.b, background.b, amount)};
 }
 
 [[nodiscard]] inline console_color background_color(const screen::text_style &style,

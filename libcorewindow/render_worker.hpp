@@ -110,12 +110,34 @@ class render_worker final
         }
     }
 
-    static void set_tint(d3d12ui::text_quad &quad, console_color color) noexcept
+    static void set_tint(d3d12ui::text_quad &quad, console_color color, float alpha = 1.0f) noexcept
     {
         quad.r = static_cast<float>(color.r) / 255.0f;
         quad.g = static_cast<float>(color.g) / 255.0f;
         quad.b = static_cast<float>(color.b) / 255.0f;
-        quad.a = 1.0f;
+        quad.a = alpha;
+    }
+
+    static bool has_attribute(const screen::text_style &style, screen::text_style_attribute attribute) noexcept
+    {
+        return (style.attributes & screen::text_style_attribute_bit(attribute)) != 0;
+    }
+
+    static void add_line_quad(std::vector<d3d12ui::text_quad> &quads, float x, float y, float width, float height,
+                              console_color color, float sample, float alpha) noexcept
+    {
+        d3d12ui::text_quad quad{
+            .x = x,
+            .y = y,
+            .width = width,
+            .height = height,
+            .u0 = sample,
+            .v0 = sample,
+            .u1 = sample,
+            .v1 = sample,
+        };
+        set_tint(quad, color, alpha);
+        quads.push_back(quad);
     }
 
     static bool same_cursor(const screen::cursor_state &left, const screen::cursor_state &right) noexcept
@@ -144,18 +166,33 @@ class render_worker final
                 }
 
                 const auto &style = styles_.at(cell.style());
-                const auto foreground = foreground_color(style, palette_);
+                auto foreground = foreground_color(style, palette_);
                 const auto background = background_color(style, palette_);
                 const auto sample = 0.5f / static_cast<float>(atlas_.size());
+                const auto cell_span = cell.is_wide() ? 2.0f : 1.0f;
+                const auto bold = has_attribute(style, screen::text_style_attribute::bold);
+                const auto faint = has_attribute(style, screen::text_style_attribute::faint);
+                auto text_alpha = 1.0f;
+                if (faint)
+                {
+                    if (palette_.faint == faint_mode::alpha)
+                    {
+                        text_alpha = 0.5f;
+                    }
+                    else
+                    {
+                        foreground = blend_color(foreground, background, 0.5f);
+                    }
+                }
+
                 if (background.r != palette_.default_background.r ||
                     background.g != palette_.default_background.g ||
                     background.b != palette_.default_background.b)
                 {
-                    const auto background_cells = cell.is_wide() ? 2.0f : 1.0f;
                     d3d12ui::text_quad background_quad{
                         .x = static_cast<float>(x) * cell_width,
                         .y = static_cast<float>(y) * cell_height,
-                        .width = cell_width * background_cells,
+                        .width = cell_width * cell_span,
                         .height = cell_height,
                         .u0 = sample,
                         .v0 = sample,
@@ -164,6 +201,26 @@ class render_worker final
                     };
                     set_tint(background_quad, background);
                     quads_.push_back(background_quad);
+                }
+
+                auto line_color = style.underline.kind == screen::color_kind::default_color
+                                      ? foreground
+                                      : resolve_color(style.underline, palette_, true);
+                if (faint && palette_.faint == faint_mode::blend_background)
+                {
+                    line_color = blend_color(line_color, background, 0.5f);
+                }
+                if (has_attribute(style, screen::text_style_attribute::underline))
+                {
+                    add_line_quad(quads_, static_cast<float>(x) * cell_width,
+                                  static_cast<float>(y) * cell_height + metrics.ascent + 1.0f,
+                                  cell_width * cell_span, 1.0f, line_color, sample, text_alpha);
+                }
+                if (has_attribute(style, screen::text_style_attribute::strikethrough))
+                {
+                    add_line_quad(quads_, static_cast<float>(x) * cell_width,
+                                  static_cast<float>(y) * cell_height + metrics.ascent * 0.5f,
+                                  cell_width * cell_span, 1.0f, line_color, sample, text_alpha);
                 }
 
                 std::u16string_view text;
@@ -183,7 +240,7 @@ class render_worker final
                     text = std::u16string_view{scalar.data(), scalar.size()};
                 }
 
-                const auto *region = atlas_.find_or_add(text);
+                const auto *region = atlas_.find_or_add(text, bold);
                 if (region == nullptr)
                 {
                     continue;
@@ -202,7 +259,7 @@ class render_worker final
                     .u1 = static_cast<float>(region->x + region->width) * atlas_scale,
                     .v1 = static_cast<float>(region->y + region->height) * atlas_scale,
                 };
-                set_tint(text_quad, foreground);
+                set_tint(text_quad, foreground, text_alpha);
                 quads_.push_back(text_quad);
             }
         }

@@ -89,7 +89,7 @@ class text_engine final
         return metrics_;
     }
 
-    void rasterize(std::u16string_view text, std::vector<glyph_bitmap> &out)
+    void rasterize(std::u16string_view text, std::vector<glyph_bitmap> &out, bool bold = false)
     {
         out.clear();
         regions_.clear();
@@ -99,7 +99,8 @@ class text_engine final
 
         winrt::com_ptr<IDWriteTextLayout> layout;
         winrt::check_hresult(factory_->CreateTextLayout(
-            reinterpret_cast<const WCHAR *>(text.data()), static_cast<UINT32>(text.size()), text_format_.get(),
+            reinterpret_cast<const WCHAR *>(text.data()), static_cast<UINT32>(text.size()),
+            bold ? bold_format_.get() : text_format_.get(),
             100000.0f, 100000.0f, layout.put()));
 
         run_renderer renderer{*this};
@@ -203,6 +204,13 @@ class text_engine final
             auto format1 = text_format_.as<IDWriteTextFormat1>();
             winrt::check_hresult(format1->SetFontFallback(fallback));
 
+            winrt::check_hresult(factory_->CreateTextFormat(
+                family.family.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL, size_, L"en-us", bold_format_.put()));
+            winrt::check_hresult(bold_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
+            auto bold_format1 = bold_format_.as<IDWriteTextFormat1>();
+            winrt::check_hresult(bold_format1->SetFontFallback(fallback));
+
             winrt::com_ptr<IDWriteFontFamily> font_family;
             winrt::check_hresult(collection_->GetFontFamily(family_index, font_family.put()));
             winrt::com_ptr<IDWriteFont> font;
@@ -274,6 +282,7 @@ class text_engine final
     winrt::com_ptr<IDWriteFactory> factory_;
     winrt::com_ptr<IDWriteFontCollection> collection_;
     winrt::com_ptr<IDWriteTextFormat> text_format_;
+    winrt::com_ptr<IDWriteTextFormat> bold_format_;
     float size_{};
     cell_metrics metrics_{};
 

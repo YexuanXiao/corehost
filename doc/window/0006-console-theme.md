@@ -50,9 +50,16 @@ console_palette palette = console_palette::campbell()
 - 光标使用所在 cell 的 foreground；
 - 默认背景由 render target clear color 处理，避免每 cell 背景 quad。
 
+## 文本属性
+
+- `bold`：text_engine 创建 `DWRITE_FONT_WEIGHT_BOLD` 的 format，由 DirectWrite 选择/合成粗体；
+- `underline` / `strikethrough`：用白色 atlas 采样点绘制 1px quad；
+- `faint`：`console_palette::faint` 可选 `blend_background`（默认）或 `alpha`；
+- `underline` 颜色优先使用 `text_style::underline`，否则使用 foreground。
+
 ## 待扩展
 
-- bold/faint/underline/上划线等属性；
+- italic / overline / double underline；
 - 宽字符背景宽度；
 - 选择反色和搜索高亮；
 - 主题切换时重新上传/重绘。
