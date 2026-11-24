@@ -1,7 +1,10 @@
 #pragma once
 
 #include "buffer.hpp"
+
+#ifdef COREHOST_ENABLE_LEGACY_SGR_NORMALIZE
 #include "simd/legacy_sgr.hpp"
+#endif
 
 #include "win32/event.hpp"
 #include "win32/handle.hpp"
@@ -25,8 +28,10 @@ class terminal_writer final
     static constexpr std::size_t initial_capacity = 64 * 1024;
 
     explicit terminal_writer(win32::handle_view output)
-        : output_{output}, close_requested_{win32::create_tag, /*manual_reset=*/true, /*initial=*/false},
-          find_legacy_sgr_{simd::select_legacy_sgr_backend()}
+        : output_{output}, close_requested_{win32::create_tag, /*manual_reset=*/true, /*initial=*/false}
+#ifdef COREHOST_ENABLE_LEGACY_SGR_NORMALIZE
+          , find_legacy_sgr_{simd::select_legacy_sgr_backend()}
+#endif
     {
         buffer_.reserve(initial_capacity);
     }
@@ -59,7 +64,9 @@ class terminal_writer final
         {
             return;
         }
+#ifdef COREHOST_ENABLE_LEGACY_SGR_NORMALIZE
         normalize_legacy_default_sgr();
+#endif
         const auto result = win32::write_all(output_, buffer_.bytes());
         if (result.closed())
         {
@@ -79,6 +86,7 @@ class terminal_writer final
     }
 
   private:
+#ifdef COREHOST_ENABLE_LEGACY_SGR_NORMALIZE
     // 0x07 默认属性在旧路径里可能被展开成显式 37;40；白底配色必须使用
     // 终端自己的默认背景，因此把这个等价默认序列归一化为 SGR 0。
     void normalize_legacy_default_sgr() noexcept
@@ -97,10 +105,13 @@ class terminal_writer final
         }
         buffer_.resize(size);
     }
+#endif
     vtserializer::byte_buffer buffer_;
     win32::handle_view output_;
     win32::event close_requested_;
+#ifdef COREHOST_ENABLE_LEGACY_SGR_NORMALIZE
     simd::find_legacy_sgr_function find_legacy_sgr_;
+#endif
 };
 
 } // namespace corehost::conptyio

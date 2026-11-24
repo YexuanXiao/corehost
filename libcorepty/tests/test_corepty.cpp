@@ -847,10 +847,16 @@ int main()
             std::fprintf(stderr, "read terminal writer pipe failed\n");
             return EXIT_FAILURE;
         }
+#ifdef COREHOST_ENABLE_LEGACY_SGR_NORMALIZE
         constexpr char expected[] = "X\x1b[0mY";
+        constexpr const char *failure = "legacy SGR writer normalization failed";
+#else
+        constexpr char expected[] = "X\x1b[0;37;40mY";
+        constexpr const char *failure = "legacy SGR writer changed bytes while normalization is disabled";
+#endif
         if (read != sizeof(expected) - 1 || std::memcmp(output, expected, read) != 0)
         {
-            std::fprintf(stderr, "legacy SGR writer normalization failed\n");
+            std::fprintf(stderr, "%s\n", failure);
             return EXIT_FAILURE;
         }
     }
