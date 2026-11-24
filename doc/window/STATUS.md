@@ -13,7 +13,7 @@
 - `window_entry` 当前顺序：server、console session、client、window；
 - `libd3d12ui` 已建立 D3D12 device/queue、composition swapchain、DirectComposition visual、clear pass 和 resize；
 - GPU fence 使用 `win32::event`，不暴露裸 `HANDLE`；
-- 已加入 D3D12 文本 pass：构建期用 fxc 预编译 VS/PS 并嵌入字节数组，运行期创建根签名、PSO、上传 R8 alpha 纹理并绘制混合 quad；
+- 已加入 D3D12 文本 pass：构建期用 DXC 预编译 VS/PS（Shader Model 6.0 / DXIL） 并嵌入字节数组，运行期创建根签名、PSO、上传 R8 alpha 纹理并绘制混合 quad；
 - 默认字体 fallback 列表为 `Cascadia Code`、`Cascadia Mono`、`Consolas`，与 Windows Terminal 的字体选择方向一致；
 - `window_host` 当前用 `CoreHost` 调试字符串验证文本纹理到窗口的完整路径；
 - `libuitext` 已建立 header-only DirectWrite 文本度量与完整字符串 layout/alpha 光栅化；
