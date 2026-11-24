@@ -43,7 +43,10 @@ snap_to_bottom_if_unlocked()
 ## 交互
 
 - 滚轮：3 行/notch；
-- 右侧 8 DIP overlay scrollbar；
+- 右侧 16 DIP overlay scrollbar；
+- 普通状态 2 DIP thumb，右侧 4 DIP；hover 展开为 8 DIP thumb + 淡 track；
+- 顶部/底部上下箭头；
+- 280ms Fluent 风格展开动画，按帧推进；
 - thumb 拖动；
 - 轨道点击：上/下翻一页；
 - Shift + 轨道点击：跳到点击位置；
@@ -55,7 +58,7 @@ snap_to_bottom_if_unlocked()
 
 ## 当前限制
 
-- 尚未实现 WinUI 的失焦隐藏/悬停展开/动画；
+- hover 动画已实现，但还没有独立的动画 timer，依赖现有 compositor frame loop；
 - 新输出保持位置的 anchor 调整在 render worker 中完成；
 - history limit 只有 C++ API，不读取配置文件；
 - 选择/复制和 mouse reporting 尚未接入。

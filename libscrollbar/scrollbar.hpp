@@ -33,7 +33,7 @@ struct state final
     std::size_t top_row{};
 };
 
-inline constexpr float default_width = 8.0f;
+inline constexpr float default_width = 16.0f;
 inline constexpr float minimum_thumb_height = 24.0f;
 
 [[nodiscard]] inline std::size_t max_top(const state &value) noexcept

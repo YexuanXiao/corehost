@@ -510,6 +510,7 @@ class window_host final
                             },
                     };
                     std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                    self->console_.snap_to_bottom_if_unlocked();
                     self->console_.push_input(std::move(event));
                     return 0;
                 }

@@ -358,7 +358,7 @@ class render_worker final
         {
             const auto sample = 0.5f / static_cast<float>(atlas_.size());
             const auto scale = static_cast<float>(dpi_) / 96.0f;
-            const auto scrollbar_width = std::max(1.0f, 8.0f * scale);
+            const auto scrollbar_width = scrollbar::default_width * scale;
             const auto client_width = static_cast<float>(columns) * cell_width;
             const auto client_height = static_cast<float>(rows) * cell_height;
             const auto top = history_size_ > scroll_offset_ ? history_size_ - scroll_offset_ : 0;
@@ -367,20 +367,32 @@ class render_worker final
                                                      client_height, scroll_state);
             if (geometry.visible)
             {
-                const auto track_color = blend_color(palette_.default_foreground, palette_.default_background, 0.75f);
-                const auto thumb_color = blend_color(palette_.default_foreground, palette_.default_background, 0.35f);
-                if (scrollbar_hovered_)
+                const auto expand = scrollbar_expand_;
+                const console_color thumb_color{255, 255, 255};
+                const auto thumb_width = (2.0f + 6.0f * expand) * scale;
+                const auto thumb_x = client_width - 4.0f * scale - thumb_width;
+                if (expand > 0.0f)
                 {
-                    add_line_quad(quads_, geometry.x, geometry.y, geometry.width, geometry.height, track_color, sample,
-                                  0.45f);
-                    add_line_quad(quads_, geometry.x + 1.0f, geometry.thumb_y, geometry.width - 2.0f,
-                                  geometry.thumb_height, thumb_color, sample, 0.95f);
+                    add_line_quad(quads_, client_width - scrollbar_width, 0.0f, scrollbar_width, client_height,
+                                  thumb_color, sample, 0.055f * expand);
                 }
-                else
+                add_line_quad(quads_, thumb_x, geometry.thumb_y, thumb_width, geometry.thumb_height, thumb_color,
+                              sample, 0.54f);
+                if (expand > 0.01f)
                 {
-                    const auto thin_width = std::max(1.0f, 2.0f * scale);
-                    add_line_quad(quads_, client_width - thin_width, geometry.thumb_y, thin_width,
-                                  geometry.thumb_height, thumb_color, sample, 0.95f);
+                    const auto arrow_center = client_width - 8.0f * scale;
+                    const auto arrow_width = 10.0f * scale;
+                    const auto bar_height = std::max(1.0f, 9.0f * scale / 5.0f);
+                    for (int i = 0; i < 5; ++i)
+                    {
+                        const auto width = arrow_width * static_cast<float>(i + 1) / 5.0f;
+                        const auto y = 8.5f * scale + static_cast<float>(i) * bar_height;
+                        add_line_quad(quads_, arrow_center - width * 0.5f, y, width, bar_height, thumb_color, sample,
+                                      0.54f * expand);
+                        add_line_quad(quads_, arrow_center - width * 0.5f,
+                                      client_height - 8.5f * scale - static_cast<float>(i + 1) * bar_height, width,
+                                      bar_height, thumb_color, sample, 0.54f * expand);
+                    }
                 }
             }
         }
@@ -515,13 +527,25 @@ class render_worker final
             cursor_ = cursor;
             focused_ = focused;
             scrollbar_hovered_ = scrollbar_hovered;
+            bool scrollbar_animating = false;
+            {
+                const auto target = scrollbar_hovered_ ? 1.0f : 0.0f;
+                if (scrollbar_expand_ != target)
+                {
+                    constexpr float step = 1.0f / 17.0f;
+                    scrollbar_expand_ = target > scrollbar_expand_ ? std::min(target, scrollbar_expand_ + step)
+                                                                   : std::max(target, scrollbar_expand_ - step);
+                    scrollbar_animating = true;
+                }
+            }
             blink_on_ = blink_on;
             draw_cursor_ = cursor_.visible && focused_ && scroll_offset_ == 0 &&
                            (cursor_.blinking ? blink_on_ : true);
             cursor_dirty = false;
             renderer_.resize(width, height);
 
-            if (changed || cursor_changed || hover_changed || focus_changed || blink_changed || dpi_changed)
+            if (changed || cursor_changed || hover_changed || scrollbar_animating || focus_changed || blink_changed ||
+                dpi_changed)
             {
                 if (scroll_changed)
                 {
@@ -563,6 +587,7 @@ class render_worker final
     screen::cursor_state cursor_{};
     bool focused_{true};
     bool scrollbar_hovered_{};
+    float scrollbar_expand_{};
     bool blink_on_{true};
     bool draw_cursor_{true};
     screen::grapheme_store graphemes_;

@@ -34,7 +34,7 @@ int main()
 
     check(hit_test(full, 4.0f, 2.0f) == hit_target::thumb, "hit thumb");
     check(hit_test(full, 4.0f, 150.0f) == hit_target::below_thumb, "hit below thumb");
-    check(hit_test(full, 9.0f, 2.0f) == hit_target::none, "outside scrollbar");
+    check(hit_test(full, 17.0f, 2.0f) == hit_target::none, "outside scrollbar");
 
     check(top_from_pointer(top, 199.0f, top.thumb_height, bottom) == max_top(bottom),
           "pointer at bottom maps to max top");

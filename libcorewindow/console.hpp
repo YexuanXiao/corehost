@@ -74,7 +74,6 @@ class console final
     void mark_input_read() noexcept
     {
         input_read_ = true;
-        snap_to_bottom_if_unlocked();
     }
 
     [[nodiscard]] bool has_read_input() const noexcept
