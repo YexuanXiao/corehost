@@ -1,15 +1,15 @@
 #pragma once
 
+#include "deque.hpp"
 #include "text_engine.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
-#include <deque>
+#include <flat_map>
 #include <span>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 namespace corehost::uitext
@@ -193,8 +193,8 @@ class cell_atlas final
     std::uint32_t size_{};
     std::vector<std::uint8_t> pixels_;
     std::uint32_t transient_rows_{};
-    std::unordered_map<char16_t, atlas_region> entries_;
-    std::deque<atlas_region> transient_regions_;
+    std::flat_map<char16_t, atlas_region> entries_;
+    bizwen::deque<atlas_region> transient_regions_;
     std::vector<glyph_bitmap> scratch_;
     std::uint32_t shelf_x_{};
     std::uint32_t shelf_y_{};
