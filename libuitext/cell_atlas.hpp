@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <deque>
 #include <span>
 #include <string>
 #include <string_view>
@@ -42,7 +43,7 @@ class cell_atlas final
 
     void begin_frame() noexcept
     {
-        transient_entries_.clear();
+        transient_regions_.clear();
         transient_x_ = 0;
         transient_y_ = 1;
         transient_height_ = 0;
@@ -96,13 +97,6 @@ class cell_atlas final
             return nullptr;
         }
 
-        auto key = std::u16string{text};
-        const auto found = transient_entries_.find(key);
-        if (found != transient_entries_.end())
-        {
-            return &found->second;
-        }
-
         engine_.rasterize(text, scratch_, bold);
         if (scratch_.empty() || scratch_.front().alpha.empty())
         {
@@ -127,7 +121,8 @@ class cell_atlas final
         region.top = glyph.top;
         write(region, glyph);
         dirty_ = true;
-        return &transient_entries_.emplace(std::move(key), region).first->second;
+        transient_regions_.push_back(region);
+        return &transient_regions_.back();
     }
 
     [[nodiscard]] std::span<const std::uint8_t> pixels() const noexcept
@@ -187,7 +182,7 @@ class cell_atlas final
     std::vector<std::uint8_t> pixels_;
     std::uint32_t transient_rows_{};
     std::unordered_map<char16_t, atlas_region> entries_;
-    std::unordered_map<std::u16string, atlas_region> transient_entries_;
+    std::deque<atlas_region> transient_regions_;
     std::vector<glyph_bitmap> scratch_;
     std::uint32_t shelf_x_{};
     std::uint32_t shelf_y_{};
