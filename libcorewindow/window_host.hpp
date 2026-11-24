@@ -88,6 +88,15 @@ class window_host final
             ::SetWindowLongPtrW(hwnd, GWLP_USERDATA,
                                 reinterpret_cast<LONG_PTR>(reinterpret_cast<CREATESTRUCTW *>(lparam)->lpCreateParams));
             return ::DefWindowProcW(hwnd, message, wparam, lparam);
+        case WM_GETMINMAXINFO:
+            reinterpret_cast<MINMAXINFO *>(lparam)->ptMinTrackSize = POINT{320, 200};
+            return 0;
+        case WM_DPICHANGED: {
+            const auto *suggested = reinterpret_cast<const RECT *>(lparam);
+            ::SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
+                           suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+            return 0;
+        }
         case WM_CLOSE:
             ::DestroyWindow(hwnd);
             return 0;

@@ -7,6 +7,7 @@
 - W1：`corehostw` target、共享 `main.cpp`、`COREHOST_WINDOW` 宏切换已建立；defterm/comserver/headless 路径仍完整保留，仅普通 client 启动路径切换为 `window_entry`；
 - `run_com_handoff`、`run_headless` 和 `com_handoff_bridge` 已删除，逻辑直接内联在 `wWinMain`；
 - W2.1：`libcorewindow` 最小 top-level Win32 窗口和消息循环已建立；
+- W2.3：`WM_DPICHANGED` 使用系统建议矩形调整窗口，`WM_GETMINMAXINFO` 设置最小尺寸；
 - 公共 ConDrv `\Server` 创建辅助函数已添加；
 - `window_client_process` 已通过 `PROC_THREAD_ATTRIBUTE_CONSOLE_REFERENCE` 和继承的 console 句柄启动 client；
 - `window_entry` 当前顺序：server、console session、client、window；
