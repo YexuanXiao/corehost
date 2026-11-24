@@ -7,13 +7,14 @@
 #include <dxgi1_6.h>
 #include <winrt/base.h>
 #include "win32/event.hpp"
+#include "text_ps.hpp"
+#include "text_vs.hpp"
 
 #include <array>
 #include <cassert>
 #include <cstdint>
 #include <cstring>
 #include <span>
-#include <string_view>
 #include <vector>
 
 namespace corehost::d3d12ui
@@ -291,34 +292,6 @@ class d3d12_window_renderer final
 
     void create_text_pipeline()
     {
-        constexpr std::string_view shader_source = R"(
-cbuffer Rect : register(b0) { float4 rect; };
-struct VSOut { float4 position : SV_Position; float2 uv : TEXCOORD0; };
-VSOut VSMain(uint vertex : SV_VertexID)
-{
-    float2 corners[4] = { float2(0, 0), float2(1, 0), float2(0, 1), float2(1, 1) };
-    float2 corner = corners[vertex];
-    VSOut result;
-    result.position = float4(rect.x + corner.x * rect.z, rect.y + corner.y * rect.w, 0.0f, 1.0f);
-    result.uv = corner;
-    return result;
-}
-Texture2D<float> glyphs : register(t0);
-SamplerState linear_sampler : register(s0);
-float4 PSMain(VSOut input) : SV_Target
-{
-    return float4(1.0f, 1.0f, 1.0f, glyphs.Sample(linear_sampler, input.uv));
-}
-)";
-
-        winrt::com_ptr<ID3DBlob> vertex_shader;
-        winrt::com_ptr<ID3DBlob> pixel_shader;
-        winrt::com_ptr<ID3DBlob> error;
-        winrt::check_hresult(::D3DCompile(shader_source.data(), shader_source.size(), nullptr, nullptr, nullptr,
-                                          "VSMain", "vs_5_0", 0, 0, vertex_shader.put(), error.put()));
-        winrt::check_hresult(::D3DCompile(shader_source.data(), shader_source.size(), nullptr, nullptr, nullptr,
-                                          "PSMain", "ps_5_0", 0, 0, pixel_shader.put(), error.put()));
-
         D3D12_DESCRIPTOR_RANGE srv_range{};
         srv_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
         srv_range.NumDescriptors = 1;
@@ -358,6 +331,7 @@ float4 PSMain(VSOut input) : SV_Target
         signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
         winrt::com_ptr<ID3DBlob> signature;
+        winrt::com_ptr<ID3DBlob> error;
         winrt::check_hresult(::D3D12SerializeRootSignature(&signature_desc, D3D_ROOT_SIGNATURE_VERSION_1,
                                                            signature.put(), error.put()));
         winrt::check_hresult(device_->CreateRootSignature(0, signature->GetBufferPointer(),
@@ -366,8 +340,8 @@ float4 PSMain(VSOut input) : SV_Target
 
         D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline_desc{};
         pipeline_desc.pRootSignature = root_signature_.get();
-        pipeline_desc.VS = {vertex_shader->GetBufferPointer(), vertex_shader->GetBufferSize()};
-        pipeline_desc.PS = {pixel_shader->GetBufferPointer(), pixel_shader->GetBufferSize()};
+        pipeline_desc.VS = {text_vertex_shader, sizeof(text_vertex_shader)};
+        pipeline_desc.PS = {text_pixel_shader, sizeof(text_pixel_shader)};
         pipeline_desc.BlendState.RenderTarget[0].BlendEnable = TRUE;
         pipeline_desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
         pipeline_desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;

@@ -67,6 +67,7 @@ add_executable(corehostw WIN32
 )
 
 target_compile_definitions(corehostw PRIVATE COREHOST_WINDOW=1)
+add_dependencies(corehostw libd3d12ui_shaders)
 
 target_sources(corehostw
     PRIVATE

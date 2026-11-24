@@ -67,6 +67,7 @@ class window_host final
             renderer_.set_text_texture(glyphs.front().alpha, static_cast<UINT>(glyphs.front().width),
                                        static_cast<UINT>(glyphs.front().height));
             ::InvalidateRect(window, nullptr, FALSE);
+            renderer_.render();
         }
 
         MSG message{};
@@ -143,9 +144,13 @@ class window_host final
     d3d12ui::d3d12_window_renderer renderer_;
     uitext::text_engine text_{fallback_families(), 32.0f};
 
-    static std::array<uitext::font_fallback_entry, 1> fallback_families()
+    static std::array<uitext::font_fallback_entry, 3> fallback_families()
     {
-        return {uitext::font_fallback_entry{L"Consolas"}};
+        return {
+            uitext::font_fallback_entry{L"Cascadia Code"},
+            uitext::font_fallback_entry{L"Cascadia Mono"},
+            uitext::font_fallback_entry{L"Consolas"},
+        };
     }
 };
 

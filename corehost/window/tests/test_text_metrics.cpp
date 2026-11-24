@@ -11,7 +11,8 @@ int main()
     {
         constexpr DWRITE_UNICODE_RANGE latin{0x20, 0x7E};
         constexpr DWRITE_UNICODE_RANGE emoji{0x1F300, 0x1FAFF};
-        const std::array<corehost::uitext::font_fallback_entry, 3> families{
+        const std::array<corehost::uitext::font_fallback_entry, 4> families{
+            corehost::uitext::font_fallback_entry{L"Cascadia Code"},
             corehost::uitext::font_fallback_entry{L"Consolas", latin},
             corehost::uitext::font_fallback_entry{L"Segoe UI Emoji", emoji},
             corehost::uitext::font_fallback_entry{L"Segoe UI Symbol"},
