@@ -40,21 +40,10 @@ write_cluster(x, y, cluster)
     -> rows[y].graphemes.append(cluster)
 ```
 
-## 为什么还存在跨行复制
+## 复制语义
 
-纯按行复制不足以覆盖现有语义：
-
-- `ConsolepCopyConsole`：任意矩形复制，源/目标可以跨行；
-- `copy_rect`：VT insert/delete characters 目前是同一行，但 API 本身允许矩形；
-- `scroll_region_up/down`：当前通过 `copy_rect` 移动多行。
-
-可以做的简化：
-
-1. scroll/insert/delete lines 改为移动整个 `row_block`，避免逐 cell 跨行复制；
-2. insert/delete characters 只保留 `copy_row_span`，同一 row store 内 offset 可直接复用；
-3. 任意矩形 `copy_rect` 仍需要跨行时，把源 cluster append 到目标 row store 并重映射 offset，或者在 API 层拒绝跨行。
-
-## 待确认
-
-- 是否保留任意矩形 `copy_rect` 的跨行复制，并对 cluster 做目标 row store 重映射；
-- 或者删除通用 `copy_rect`，只保留 `copy_row_span` / `move_row_block`，由 Console copy API 自行逐行处理。
+- `scroll_region_up/down` 在全宽滚动时直接移动 `row_block` 的 cells/store，不逐 cell 复制；
+- 非全宽滚动按行复制，并把 cluster append 到目标 row store；
+- 任意矩形 `copy_rect` 保留。跨行时按方向逐行处理，source row 不会被后续目标行覆盖；cluster 从 source row store 重映射到目标 row store；
+- 不使用临时 `std::vector<copy_segment>`；
+- `rebuild_graphemes` 按 row 使用普通循环重建，不使用 `cluster_remap`。
