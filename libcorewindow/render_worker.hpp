@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cell_atlas.hpp"
+#include "color_cell_atlas.hpp"
 #include "console.hpp"
 #include "console_theme.hpp"
 #include "d3d12_window_renderer.hpp"
@@ -140,7 +141,9 @@ class render_worker final
     void build_quads()
     {
         atlas_.begin_frame();
+        color_atlas_.begin_frame();
         quads_.clear();
+        color_quads_.clear();
         const auto metrics = text_.metrics();
         const auto cell_width = metrics.advance;
         const auto cell_height = metrics.ascent + metrics.descent + metrics.line_gap;
@@ -232,6 +235,29 @@ class render_worker final
                     text = std::u16string_view{scalar.data(), scalar.size()};
                 }
 
+                if (cell.has_cluster())
+                {
+                    const auto color_scale = 1.0f / static_cast<float>(color_atlas_.size());
+                    for (const auto &region : color_atlas_.find_or_add(text))
+                    {
+                        d3d12ui::text_quad color_quad{
+                            .x = static_cast<float>(x) * cell_width + static_cast<float>(region.left),
+                            .y = static_cast<float>(y) * cell_height + metrics.ascent +
+                                 static_cast<float>(region.top),
+                            .width = static_cast<float>(region.width),
+                            .height = static_cast<float>(region.height),
+                            .u0 = static_cast<float>(region.x) * color_scale,
+                            .v0 = static_cast<float>(region.y) * color_scale,
+                            .u1 = static_cast<float>(region.x + region.width) * color_scale,
+                            .v1 = static_cast<float>(region.y + region.height) * color_scale,
+                        };
+                        set_tint(color_quad, region.colored ? console_color{255, 255, 255} : foreground,
+                                 text_alpha);
+                        color_quads_.push_back(color_quad);
+                    }
+                    continue;
+                }
+
                 const auto *region = cell.is_scalar() && !bold
                                          ? atlas_.find_or_add(cell.primary())
                                          : atlas_.find_or_add_transient(text, bold);
@@ -291,6 +317,13 @@ class render_worker final
             atlas_.clear_dirty();
         }
         renderer_.set_text_quads(quads_);
+
+        if (color_atlas_.dirty())
+        {
+            renderer_.set_color_text_texture(color_atlas_.pixels(), color_atlas_.size(), color_atlas_.size());
+            color_atlas_.clear_dirty();
+        }
+        renderer_.set_color_text_quads(color_quads_);
     }
 
     void run()
@@ -413,6 +446,7 @@ class render_worker final
     };
     uitext::text_engine text_{fallback_families_, 16.0f};
     uitext::cell_atlas atlas_{text_};
+    uitext::color_cell_atlas color_atlas_{text_};
     static constexpr ULONGLONG blink_interval_ms = 530;
     UINT dpi_ = 96;
 
@@ -425,6 +459,7 @@ class render_worker final
     bool draw_cursor_{true};
     screen::grapheme_store graphemes_;
     std::vector<d3d12ui::text_quad> quads_;
+    std::vector<d3d12ui::text_quad> color_quads_;
     std::vector<screen::row_block> updates_;
     win32::basic_thread thread_;
     win32::event stop_event_{win32::create_tag, true, false};

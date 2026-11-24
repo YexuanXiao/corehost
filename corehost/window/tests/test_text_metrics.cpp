@@ -1,4 +1,5 @@
 #include "cell_atlas.hpp"
+#include "color_cell_atlas.hpp"
 #include "text_engine.hpp"
 
 #include <array>
@@ -102,6 +103,14 @@ int main()
         if (glyphs.empty() || glyphs.front().alpha.empty())
         {
             std::fprintf(stderr, "bold rasterization failed\n");
+            return EXIT_FAILURE;
+        }
+
+        corehost::uitext::color_cell_atlas color_atlas{engine};
+        const auto color_layers = color_atlas.find_or_add(u"\U0001F600");
+        if (color_layers.empty())
+        {
+            std::fprintf(stderr, "color glyph atlas failed\n");
             return EXIT_FAILURE;
         }
 

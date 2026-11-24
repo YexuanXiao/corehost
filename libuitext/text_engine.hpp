@@ -34,6 +34,18 @@ struct glyph_bitmap final
     std::span<const std::uint8_t> alpha;
 };
 
+struct color_glyph_bitmap final
+{
+    int width{};
+    int height{};
+    int left{};
+    int top{};
+    std::uint32_t rgb{0xFFFFFF};
+    std::uint8_t alpha_scale{255};
+    bool colored{};
+    std::span<const std::uint8_t> alpha;
+};
+
 // family is a borrowed view. The caller must keep the backing string alive
 // for the entire lifetime of text_engine.
 struct font_fallback_entry final
@@ -68,9 +80,9 @@ class text_engine final
 
         winrt::check_hresult(factory_->GetSystemFontCollection(collection_.put(), FALSE));
 
-        auto factory2 = factory_.as<IDWriteFactory2>();
+        factory2_ = factory_.as<IDWriteFactory2>();
         winrt::com_ptr<IDWriteFontFallbackBuilder> builder;
-        winrt::check_hresult(factory2->CreateFontFallbackBuilder(builder.put()));
+        winrt::check_hresult(factory2_->CreateFontFallbackBuilder(builder.put()));
 
         for (const auto &entry : families)
         {
@@ -82,7 +94,7 @@ class text_engine final
         }
 
         winrt::com_ptr<IDWriteFontFallback> system_fallback;
-        winrt::check_hresult(factory2->GetSystemFontFallback(system_fallback.put()));
+        winrt::check_hresult(factory2_->GetSystemFontFallback(system_fallback.put()));
         winrt::check_hresult(builder->AddMappings(system_fallback.get()));
 
         winrt::check_hresult(builder->CreateFontFallback(fallback_.put()));
@@ -122,7 +134,7 @@ class text_engine final
             bold ? bold_format_.get() : text_format_.get(),
             100000.0f, 100000.0f, layout.put()));
 
-        run_renderer renderer{*this};
+        run_renderer renderer{*this, false};
         winrt::check_hresult(layout->Draw(nullptr, &renderer, 0.0f, 0.0f));
 
         out.reserve(regions_.size());
@@ -138,11 +150,43 @@ class text_engine final
         }
     }
 
+    void rasterize_color(std::u16string_view text, std::vector<color_glyph_bitmap> &out)
+    {
+        out.clear();
+        color_layers_.clear();
+        color_alpha_storage_.clear();
+
+        assert(!text.empty());
+
+        winrt::com_ptr<IDWriteTextLayout> layout;
+        winrt::check_hresult(factory_->CreateTextLayout(
+            reinterpret_cast<const WCHAR *>(text.data()), static_cast<UINT32>(text.size()), text_format_.get(),
+            100000.0f, 100000.0f, layout.put()));
+
+        run_renderer renderer{*this, true};
+        winrt::check_hresult(layout->Draw(nullptr, &renderer, 0.0f, 0.0f));
+
+        out.reserve(color_layers_.size());
+        for (const auto &layer : color_layers_)
+        {
+            out.push_back(color_glyph_bitmap{
+                .width = layer.width,
+                .height = layer.height,
+                .left = layer.left,
+                .top = layer.top,
+                .rgb = layer.rgb,
+                .alpha_scale = layer.alpha_scale,
+                .colored = layer.colored,
+                .alpha = std::span<const std::uint8_t>{color_alpha_storage_.data() + layer.offset, layer.size},
+            });
+        }
+    }
+
   private:
     class run_renderer final : public winrt::implements<run_renderer, IDWriteTextRenderer>
     {
       public:
-        explicit run_renderer(text_engine &owner) noexcept : owner_{owner}
+        explicit run_renderer(text_engine &owner, bool color_mode) noexcept : owner_{owner}, color_mode_{color_mode}
         {
         }
 
@@ -164,12 +208,19 @@ class text_engine final
             return S_OK;
         }
 
-        HRESULT DrawGlyphRun(void *, FLOAT, FLOAT, DWRITE_MEASURING_MODE, const DWRITE_GLYPH_RUN *glyph_run,
-                             const DWRITE_GLYPH_RUN_DESCRIPTION *, IUnknown *) noexcept
+        HRESULT DrawGlyphRun(void *, FLOAT baseline_x, FLOAT baseline_y, DWRITE_MEASURING_MODE,
+                             const DWRITE_GLYPH_RUN *glyph_run, const DWRITE_GLYPH_RUN_DESCRIPTION *, IUnknown *) noexcept
         {
             if (glyph_run != nullptr && glyph_run->glyphCount != 0)
             {
-                owner_.rasterize_run(*glyph_run);
+                if (color_mode_)
+                {
+                    owner_.rasterize_color_run(*glyph_run, baseline_x, baseline_y);
+                }
+                else
+                {
+                    owner_.rasterize_run(*glyph_run, baseline_x, baseline_y);
+                }
             }
             return S_OK;
         }
@@ -191,8 +242,21 @@ class text_engine final
 
       private:
         text_engine &owner_;
+        bool color_mode_{};
     };
 
+    struct color_layer final
+    {
+        int width{};
+        int height{};
+        int left{};
+        int top{};
+        std::size_t offset{};
+        std::size_t size{};
+        std::uint32_t rgb{0xFFFFFF};
+        std::uint8_t alpha_scale{255};
+        bool colored{};
+    };
     struct glyph_region final
     {
         int width{};
@@ -244,6 +308,19 @@ class text_engine final
         winrt::throw_hresult(DWRITE_E_NOFONT);
     }
 
+    [[nodiscard]] static std::uint8_t color_byte(float value) noexcept
+    {
+        if (value <= 0.0f)
+        {
+            return 0;
+        }
+        if (value >= 1.0f)
+        {
+            return 255;
+        }
+        return static_cast<std::uint8_t>(value * 255.0f + 0.5f);
+    }
+
     [[nodiscard]] static cell_metrics measure_face(IDWriteFontFace *face, float size)
     {
         DWRITE_FONT_METRICS font_metrics{};
@@ -265,13 +342,83 @@ class text_engine final
         return metrics;
     }
 
-    void rasterize_run(const DWRITE_GLYPH_RUN &run)
+    void rasterize_color_run(const DWRITE_GLYPH_RUN &run, float origin_x, float origin_y)
+    {
+        winrt::com_ptr<IDWriteColorGlyphRunEnumerator> layers;
+        const auto hr = factory2_->TranslateColorGlyphRun(origin_x, origin_y, &run, nullptr,
+                                                          DWRITE_MEASURING_MODE_NATURAL, nullptr, 0, layers.put());
+        bool any = false;
+        if (SUCCEEDED(hr) && layers)
+        {
+            BOOL has_run = FALSE;
+            while (SUCCEEDED(layers->MoveNext(&has_run)) && has_run)
+            {
+                const DWRITE_COLOR_GLYPH_RUN *layer = nullptr;
+                winrt::check_hresult(layers->GetCurrentRun(&layer));
+                if (layer != nullptr)
+                {
+                    rasterize_color_layer(layer->glyphRun, layer->baselineOriginX, layer->baselineOriginY,
+                                          layer->runColor, layer->paletteIndex);
+                    any = true;
+                }
+            }
+        }
+
+        if (!any)
+        {
+            rasterize_color_layer(run, origin_x, origin_y, DWRITE_COLOR_F{1.0f, 1.0f, 1.0f, 1.0f},
+                                  static_cast<UINT16>(0xFFFF));
+        }
+    }
+
+    void rasterize_color_layer(const DWRITE_GLYPH_RUN &run, float origin_x, float origin_y, DWRITE_COLOR_F color,
+                               UINT16 palette_index)
     {
         winrt::com_ptr<IDWriteGlyphRunAnalysis> analysis;
-        auto factory = factory_.as<IDWriteFactory2>();
-        winrt::check_hresult(factory->CreateGlyphRunAnalysis(
+        winrt::check_hresult(factory2_->CreateGlyphRunAnalysis(
             &run, nullptr, DWRITE_RENDERING_MODE_NATURAL, DWRITE_MEASURING_MODE_NATURAL,
-            DWRITE_GRID_FIT_MODE_DEFAULT, DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE, 0.0f, 0.0f, analysis.put()));
+            DWRITE_GRID_FIT_MODE_DEFAULT, DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE, origin_x, origin_y, analysis.put()));
+
+        RECT bounds{};
+        winrt::check_hresult(analysis->GetAlphaTextureBounds(DWRITE_TEXTURE_ALIASED_1x1, &bounds));
+        if (bounds.right <= bounds.left || bounds.bottom <= bounds.top)
+        {
+            return;
+        }
+
+        const auto width = static_cast<std::size_t>(bounds.right - bounds.left);
+        const auto height = static_cast<std::size_t>(bounds.bottom - bounds.top);
+        const auto offset = color_alpha_storage_.size();
+        color_alpha_storage_.resize(offset + width * height);
+        winrt::check_hresult(analysis->CreateAlphaTexture(
+            DWRITE_TEXTURE_ALIASED_1x1, &bounds, color_alpha_storage_.data() + offset,
+            static_cast<UINT32>(width * height)));
+
+        const bool colored = palette_index != 0xFFFF;
+        const auto alpha_scale = colored ? color_byte(color.a) : std::uint8_t{255};
+
+        color_layers_.push_back(color_layer{
+            .width = static_cast<int>(width),
+            .height = static_cast<int>(height),
+            .left = bounds.left,
+            .top = bounds.top,
+            .offset = offset,
+            .size = width * height,
+            .rgb = colored ? (static_cast<std::uint32_t>(color_byte(color.r)) << 16 |
+                              static_cast<std::uint32_t>(color_byte(color.g)) << 8 |
+                              static_cast<std::uint32_t>(color_byte(color.b)))
+                           : 0xFFFFFFu,
+            .alpha_scale = alpha_scale,
+            .colored = colored,
+        });
+    }
+
+    void rasterize_run(const DWRITE_GLYPH_RUN &run, float origin_x = 0.0f, float origin_y = 0.0f)
+    {
+        winrt::com_ptr<IDWriteGlyphRunAnalysis> analysis;
+        winrt::check_hresult(factory2_->CreateGlyphRunAnalysis(
+            &run, nullptr, DWRITE_RENDERING_MODE_NATURAL, DWRITE_MEASURING_MODE_NATURAL,
+            DWRITE_GRID_FIT_MODE_DEFAULT, DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE, origin_x, origin_y, analysis.put()));
 
         RECT bounds{};
         winrt::check_hresult(analysis->GetAlphaTextureBounds(DWRITE_TEXTURE_ALIASED_1x1, &bounds));
@@ -299,6 +446,7 @@ class text_engine final
     }
 
     winrt::com_ptr<IDWriteFactory> factory_;
+    winrt::com_ptr<IDWriteFactory2> factory2_;
     winrt::com_ptr<IDWriteFontCollection> collection_;
     std::span<const font_fallback_entry> families_;
     winrt::com_ptr<IDWriteFontFallback> fallback_;
@@ -309,6 +457,8 @@ class text_engine final
 
     std::vector<glyph_region> regions_;
     std::vector<std::uint8_t> alpha_storage_;
+    std::vector<color_layer> color_layers_;
+    std::vector<std::uint8_t> color_alpha_storage_;
 };
 
 } // namespace corehost::uitext

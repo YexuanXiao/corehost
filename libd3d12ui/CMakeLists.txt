@@ -8,6 +8,8 @@ set(TEXT_VERTEX_CSO ${CMAKE_CURRENT_BINARY_DIR}/text_vs.dxil)
 set(TEXT_PIXEL_CSO ${CMAKE_CURRENT_BINARY_DIR}/text_ps.dxil)
 set(TEXT_VERTEX_HEADER ${CMAKE_CURRENT_BINARY_DIR}/text_vs.hpp)
 set(TEXT_PIXEL_HEADER ${CMAKE_CURRENT_BINARY_DIR}/text_ps.hpp)
+set(COLOR_PIXEL_CSO ${CMAKE_CURRENT_BINARY_DIR}/color_ps.dxil)
+set(COLOR_PIXEL_HEADER ${CMAKE_CURRENT_BINARY_DIR}/color_ps.hpp)
 
 add_custom_command(
     OUTPUT ${TEXT_VERTEX_CSO}
@@ -37,6 +39,25 @@ add_custom_command(
 )
 
 add_custom_command(
+    OUTPUT ${COLOR_PIXEL_CSO}
+    COMMAND ${DXC_EXECUTABLE} -nologo -T ps_6_0 -E PSMain -Fo ${COLOR_PIXEL_CSO} ${CMAKE_CURRENT_SOURCE_DIR}/shaders/color_text.hlsl
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/shaders/color_text.hlsl
+    COMMENT "Compiling color text pixel shader"
+    VERBATIM
+)
+
+add_custom_command(
+    OUTPUT ${COLOR_PIXEL_HEADER}
+    COMMAND ${CMAKE_COMMAND}
+        -DINPUT=${COLOR_PIXEL_CSO}
+        -DOUTPUT=${COLOR_PIXEL_HEADER}
+        -DSYMBOL=color_pixel_shader
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/embed_shader.cmake
+    DEPENDS ${COLOR_PIXEL_CSO}
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT ${TEXT_PIXEL_HEADER}
     COMMAND ${CMAKE_COMMAND}
         -DINPUT=${TEXT_PIXEL_CSO}
@@ -47,7 +68,7 @@ add_custom_command(
     VERBATIM
 )
 
-add_custom_target(libd3d12ui_shaders DEPENDS ${TEXT_VERTEX_HEADER} ${TEXT_PIXEL_HEADER})
+add_custom_target(libd3d12ui_shaders DEPENDS ${TEXT_VERTEX_HEADER} ${TEXT_PIXEL_HEADER} ${COLOR_PIXEL_HEADER})
 
 add_library(libd3d12ui INTERFACE)
 
