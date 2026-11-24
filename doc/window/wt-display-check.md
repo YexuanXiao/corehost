@@ -49,6 +49,8 @@
 通过普通 `WriteConsole` 的 VT 序列都不可靠。  
 `console_theme` 的 256/RGB 颜色解析和 `render_worker` 的 title 更新代码已存在，但缺少 VT 输出入口，无法端到端验证。
 
+曾尝试把 `vtstate` 直接接入 `console_api::write_console_text`，但 mixed text/ESC 输出导致 PowerShell 初始屏幕变成空白；该尝试已回退，避免回归。正确做法需要把普通文本与 ESC 序列切分，或确保 parser 的 `continue_text` 文本被完整 flush。
+
 ### 其他
 
 - C3/C4/C5/C6/C7 组合键尚未逐项验证；
