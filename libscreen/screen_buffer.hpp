@@ -2074,12 +2074,12 @@ inline std::span<const char16_t> screen_buffer::history_cluster_of(std::size_t i
     return history_[index].graphemes.view(grapheme_store::ref{value.offset(), value.length()});
 }
 
-inline bool rebuild_page_graphemes(page &target)
+inline bool rebuild_page_graphemes(page &target, grapheme_store &scratch)
 {
     for (std::size_t y = 0; y < target.height(); ++y)
     {
+        scratch.clear();
         auto &old_store = target.graphemes(y);
-        grapheme_store rebuilt;
         for (auto &value : target.row_cells(y))
         {
             if (!value.has_cluster())
@@ -2087,33 +2087,34 @@ inline bool rebuild_page_graphemes(page &target)
                 continue;
             }
             const auto source = old_store.view(grapheme_store::ref{value.offset(), value.length()});
-            if (source.empty() || !rebuilt.can_append(source.size()))
+            if (source.empty() || !scratch.can_append(source.size()))
             {
                 return false;
             }
-            const auto ref = rebuilt.append(source);
+            const auto ref = scratch.append(source);
             value = value.with_cluster_ref(ref.offset, ref.length);
         }
-        old_store = std::move(rebuilt);
+        std::swap(old_store, scratch);
     }
     return true;
 }
 
 inline bool screen_buffer::rebuild_graphemes()
 {
-    if (!rebuild_page_graphemes(main_))
+    grapheme_store scratch;
+    if (!rebuild_page_graphemes(main_, scratch))
     {
         return false;
     }
-    if (alternate_ && !rebuild_page_graphemes(*alternate_))
+    if (alternate_ && !rebuild_page_graphemes(*alternate_, scratch))
     {
         return false;
     }
 
     for (auto &entry : history_)
     {
+        scratch.clear();
         auto &old_store = entry.graphemes;
-        grapheme_store rebuilt;
         for (auto &value : entry.cells)
         {
             if (!value.has_cluster())
@@ -2121,14 +2122,14 @@ inline bool screen_buffer::rebuild_graphemes()
                 continue;
             }
             const auto source = old_store.view(grapheme_store::ref{value.offset(), value.length()});
-            if (source.empty() || !rebuilt.can_append(source.size()))
+            if (source.empty() || !scratch.can_append(source.size()))
             {
                 return false;
             }
-            const auto ref = rebuilt.append(source);
+            const auto ref = scratch.append(source);
             value = value.with_cluster_ref(ref.offset, ref.length);
         }
-        old_store = std::move(rebuilt);
+        std::swap(old_store, scratch);
     }
     return true;
 }

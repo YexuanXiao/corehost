@@ -46,4 +46,4 @@ write_cluster(x, y, cluster)
 - 非全宽滚动按行复制，并把 cluster append 到目标 row store；
 - 任意矩形 `copy_rect` 保留。跨行时按方向逐行处理，source row 不会被后续目标行覆盖；cluster 从 source row store 重映射到目标 row store；
 - 不使用临时 `std::vector<copy_segment>`；
-- `rebuild_graphemes` 按 row 使用普通循环重建，不使用 `cluster_remap`。
+- `rebuild_graphemes` 按 row 使用普通循环重建，不使用 `cluster_remap`；整个重建过程复用一个 `grapheme_store scratch`，通过 clear/swap 复用容量。
