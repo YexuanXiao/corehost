@@ -14,6 +14,7 @@
 #include <atomic>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -77,7 +78,7 @@ class render_worker final
 
     void apply_screen_updates()
     {
-        for (const auto &row : updates_)
+        for (const auto &row : updates_.rows)
         {
             if (row.y >= rows)
             {
@@ -85,15 +86,27 @@ class render_worker final
             }
 
             auto x = row.begin;
-            for (const auto &cell : row.cells)
+            for (const auto &entry : row.cells)
             {
                 if (x >= columns)
                 {
                     break;
                 }
+
+                auto value = entry.cell;
+                if (value.has_cluster())
+                {
+                    const auto source =
+                        updates_.graphemes.view(screen::grapheme_store::ref{value.offset(), value.length()});
+                    if (graphemes_.can_append(source.size()))
+                    {
+                        const auto ref = graphemes_.append(source);
+                        value = value.with_cluster_ref(ref.offset, ref.length);
+                    }
+                }
+
                 const auto index = row.y * columns + x;
-                cells_[index] = row.text.substr(cell.text_offset, cell.text_length);
-                cell_state_[index] = cell;
+                cell_state_[index] = value;
                 ++x;
             }
         }
@@ -112,12 +125,29 @@ class render_worker final
             for (std::size_t x = 0; x < columns; ++x)
             {
                 const auto index = y * columns + x;
-                if (screen::cell_width_ops::is_tail(cell_state_[index].cell.width()))
+                const auto &cell = cell_state_[index];
+                if (cell.is_continuation())
                 {
                     continue;
                 }
 
-                const auto &text = cells_[index];
+                std::u16string_view text;
+                std::array<char16_t, 1> scalar{};
+                if (cell.has_cluster())
+                {
+                    const auto cluster = graphemes_.view(screen::grapheme_store::ref{cell.offset(), cell.length()});
+                    text = std::u16string_view{cluster.data(), cluster.size()};
+                }
+                else if (cell.is_blank())
+                {
+                    continue;
+                }
+                else
+                {
+                    scalar[0] = cell.primary();
+                    text = std::u16string_view{scalar.data(), scalar.size()};
+                }
+
                 const auto *region = atlas_.find_or_add(text);
                 if (region == nullptr)
                 {
@@ -207,10 +237,10 @@ class render_worker final
     d3d12ui::d3d12_window_renderer renderer_;
     uitext::text_engine text_{fallback_families(), 16.0f};
     uitext::cell_atlas atlas_{text_};
-    std::vector<std::u16string> cells_ = std::vector<std::u16string>(columns * rows);
-    std::vector<screen_cell_update> cell_state_ = std::vector<screen_cell_update>(columns * rows);
+    std::vector<screen::cell> cell_state_ = std::vector<screen::cell>(columns * rows);
+    screen::grapheme_store graphemes_;
     std::vector<d3d12ui::text_quad> quads_;
-    std::vector<screen_row_update> updates_;
+    screen_snapshot updates_;
     win32::basic_thread thread_;
     win32::event stop_event_{win32::create_tag, true, false};
     std::atomic_bool stop_{};

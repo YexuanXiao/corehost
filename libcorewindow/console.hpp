@@ -56,13 +56,15 @@ class console final
         input_event_.set();
     }
 
-    bool copy_updates(std::vector<screen_row_update> &updates)
+    bool copy_updates(screen_snapshot &snapshot)
     {
-        updates.clear();
+        snapshot.rows.clear();
         if (!screen_.has_damage())
         {
             return false;
         }
+
+        snapshot.graphemes = screen_.graphemes();
 
         for (std::size_t y = 0; y < screen_.height(); ++y)
         {
@@ -90,22 +92,16 @@ class console final
 
             for (std::size_t x = begin; x < end; ++x)
             {
-                std::u16string glyph;
-                screen_.glyph_at_into(x, y, glyph);
-                const auto offset = row.text.size();
-                row.text.append(glyph);
                 row.cells.push_back(screen_cell_update{
                     .cell = screen_.at(x, y),
-                    .text_offset = offset,
-                    .text_length = glyph.size(),
                 });
             }
 
-            updates.push_back(std::move(row));
+            snapshot.rows.push_back(std::move(row));
         }
 
         screen_.clear_damage();
-        return !updates.empty();
+        return !snapshot.rows.empty();
     }
 
   private:

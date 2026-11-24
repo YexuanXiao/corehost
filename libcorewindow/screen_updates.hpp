@@ -1,9 +1,9 @@
 #pragma once
 
+#include "grapheme_store.hpp"
 #include "screen_buffer.hpp"
 
 #include <cstddef>
-#include <string>
 #include <vector>
 
 namespace corehost::window
@@ -12,8 +12,6 @@ namespace corehost::window
 struct screen_cell_update final
 {
     screen::cell cell;
-    std::size_t text_offset{};
-    std::size_t text_length{};
 };
 
 struct screen_row_update final
@@ -22,7 +20,12 @@ struct screen_row_update final
     std::size_t begin{};
     std::size_t end{};
     std::vector<screen_cell_update> cells;
-    std::u16string text;
+};
+
+struct screen_snapshot final
+{
+    std::vector<screen_row_update> rows;
+    screen::grapheme_store graphemes;
 };
 
 } // namespace corehost::window
