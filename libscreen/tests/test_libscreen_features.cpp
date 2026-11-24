@@ -363,6 +363,19 @@ void test_alt_resize_clears()
     check(buffer.at(0, 0).is_blank(), "re-enter starts blank");
 }
 
+void test_scroll_region_preserves_cell_style()
+{
+    using namespace corehost::screen;
+    screen_buffer buffer(8, 4);
+    for (std::size_t y = 0; y < 4; ++y)
+    {
+        (void)buffer.write_scalar(0, y, static_cast<char16_t>(u'A' + y), style1);
+    }
+    buffer.scroll_region_up(rectangle{0, 1, 8, 2}, 1, style0);
+    check(buffer.at(0, 1).primary() == u'C', "scroll region moves row");
+    check(buffer.at(0, 1).style() == style1, "scroll region preserves style");
+}
+
 int main()
 {
     test_interop_abi();
@@ -374,6 +387,7 @@ int main()
     test_console_selection();
     test_alt_history();
     test_alt_resize_clears();
+    test_scroll_region_preserves_cell_style();
 
     if (failures != 0)
     {
