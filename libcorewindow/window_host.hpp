@@ -22,7 +22,7 @@ namespace corehost::window
 class window_host final
 {
   public:
-    window_host(win32::wcstring_view title, screen_update_mailbox &mailbox) : title_{title}, mailbox_{mailbox}
+    window_host(win32::wcstring_view title, console_screen &screen) : title_{title}, screen_{screen}
     {
         assert(!title_.empty());
     }
@@ -58,7 +58,7 @@ class window_host final
             win32::throw_last_error();
         }
 
-        mailbox_.attach(window);
+        screen_.attach(window);
         renderer_.initialize(window);
         ::ShowWindow(window, SW_SHOWDEFAULT);
         ::UpdateWindow(window);
@@ -193,7 +193,7 @@ class window_host final
             if (self != nullptr)
             {
                 self->updates_.clear();
-                (void)self->mailbox_.take(self->updates_);
+                (void)self->screen_.copy_updates(self->updates_);
                 self->apply_screen_updates();
                 self->build_quads();
                 self->renderer_.render();
@@ -205,7 +205,7 @@ class window_host final
         case WM_DESTROY:
             if (self != nullptr)
             {
-                self->mailbox_.detach();
+                self->screen_.detach();
                 self->renderer_.reset();
             }
             ::PostQuitMessage(0);
@@ -217,7 +217,7 @@ class window_host final
 
     win32::wcstring_view title_;
     d3d12ui::d3d12_window_renderer renderer_;
-    screen_update_mailbox &mailbox_;
+    console_screen &screen_;
     std::vector<screen_row_update> updates_;
     uitext::text_engine text_{fallback_families(), 16.0f};
     uitext::cell_atlas atlas_{text_};

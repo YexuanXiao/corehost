@@ -29,7 +29,7 @@ namespace corehost::window
 class window_console_session final
 {
   public:
-    window_console_session(win32::handle_view server, screen_update_mailbox &mailbox, short width, short height);
+    window_console_session(win32::handle_view server, console_screen &screen);
     ~window_console_session();
 
     window_console_session(const window_console_session &) = delete;
@@ -48,7 +48,7 @@ class window_console_session final
         [[nodiscard]] bool handle(coreio::io_msg &message)
         {
             const auto result = owner.handle(message);
-            owner.publish_screen_updates();
+            owner.screen_source_.notify_if_damaged();
             return result;
         }
 
@@ -65,11 +65,9 @@ class window_console_session final
     static DWORD WINAPI thread_entry(LPVOID self);
     void run();
     bool handle(coreio::io_msg &message);
-    void publish_screen_updates();
 
     win32::handle_view server_;
-    screen::screen_buffer screen_;
-    screen::console_state state_;
+    console_screen &screen_source_;
     consoleinput::input_queue input_;
     coreio::process_registry processes_;
     coreio::io_state io_state_;
@@ -79,7 +77,6 @@ class window_console_session final
     win32::event stop_event_;
     win32::basic_thread thread_;
     std::atomic_bool stop_{};
-    screen_update_mailbox &mailbox_;
 };
 
 } // namespace corehost::window

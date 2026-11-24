@@ -6,16 +6,15 @@
 namespace corehost::window
 {
 
-window_console_session::window_console_session(win32::handle_view server, screen_update_mailbox &mailbox, short width, short height)
-    : server_{server}, screen_{static_cast<std::size_t>(width), static_cast<std::size_t>(height)},
-      state_{static_cast<std::size_t>(width), static_cast<std::size_t>(height)}, input_{}, processes_{},
-      io_state_{server, {}, {}, processes_}, payload_{server},
-      api_{screen_, state_, &input_, 0, &processes_, &payload_},
-      input_event_{win32::create_tag, true, false}, stop_event_{win32::create_tag, true, false}, mailbox_{mailbox}
+window_console_session::window_console_session(win32::handle_view server, console_screen &screen)
+    : server_{server}, screen_source_{screen}, input_{}, processes_{}, io_state_{server, {}, {}, processes_},
+      payload_{server}, api_{screen_source_.buffer(), screen_source_.state(), &input_, 0, &processes_, &payload_},
+      input_event_{win32::create_tag, true, false}, stop_event_{win32::create_tag, true, false}
 {
-    state_.output_mode = 0x0001 | 0x0002 | 0x0004;
-    state_.measurement = screen::text_measurement::graphemes;
-    state_.ambiguous_is_wide = true;
+    auto &state = screen_source_.state();
+    state.output_mode = 0x0001 | 0x0002 | 0x0004;
+    state.measurement = screen::text_measurement::graphemes;
+    state.ambiguous_is_wide = true;
 }
 
 window_console_session::~window_console_session()
@@ -46,62 +45,6 @@ void window_console_session::stop()
     thread_ = {};
 }
 
-void window_console_session::publish_screen_updates()
-{
-    std::vector<screen_row_update> updates;
-    if (screen_.has_damage())
-    {
-
-        for (std::size_t y = 0; y < screen_.height(); ++y)
-        {
-            auto begin = screen_.damage_begin(y);
-            auto end = screen_.damage_end(y);
-            if (begin >= end)
-            {
-                continue;
-            }
-
-            while (begin > 0 && screen_.at(begin, y).is_continuation())
-            {
-                --begin;
-            }
-            if (end > 0 && end < screen_.width() && screen_.at(end - 1, y).is_wide())
-            {
-                ++end;
-            }
-
-            screen_row_update row{};
-            row.y = y;
-            row.begin = begin;
-            row.end = end;
-            row.cells.reserve(end - begin);
-
-            for (std::size_t x = begin; x < end; ++x)
-            {
-                std::u16string glyph;
-                screen_.glyph_at_into(x, y, glyph);
-                const auto offset = row.text.size();
-                row.text.append(glyph);
-                const auto &value = screen_.at(x, y);
-                row.cells.push_back(screen_cell_update{
-                    .style = value.style(),
-                    .width = value.width(),
-                    .flags = value.flags(),
-                    .hyperlink = value.hyperlink(),
-                    .text_offset = offset,
-                    .text_length = glyph.size(),
-                });
-            }
-
-            updates.push_back(std::move(row));
-        }
-
-        screen_.clear_damage();
-    }
-
-    mailbox_.publish(std::move(updates));
-}
-
 DWORD WINAPI window_console_session::thread_entry(LPVOID self)
 {
     static_cast<window_console_session *>(self)->run();
@@ -110,7 +53,8 @@ DWORD WINAPI window_console_session::thread_entry(LPVOID self)
 
 bool window_console_session::handle(coreio::io_msg &message)
 {
-    api_.set_window_handle(reinterpret_cast<std::uintptr_t>(mailbox_.window()));
+    console_screen::write_lock lock{screen_source_};
+    api_.set_window_handle(reinterpret_cast<std::uintptr_t>(screen_source_.window()));
 
     switch (message.descriptor.Function)
     {
