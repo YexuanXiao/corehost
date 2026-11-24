@@ -328,6 +328,21 @@ static int run_console_api_output_tests(console_api_fixture &fixture)
         return EXIT_FAILURE;
     }
 
+    code_page_request->CodePage = 850;
+    code_page_request->Output = TRUE;
+    if (!api.handle(code_page_message) || state.output_code_page != 850)
+    {
+        std::fprintf(stderr, "set output code page failed\n");
+        return EXIT_FAILURE;
+    }
+
+    get_code_page_request->Output = TRUE;
+    if (!api.handle(get_code_page_message) || get_code_page_request->CodePage != 850)
+    {
+        std::fprintf(stderr, "get output code page failed\n");
+        return EXIT_FAILURE;
+    }
+
     constexpr char16_t title_text[]{u'C', u'H'};
     corehost::coreio::io_msg title_message{};
     title_message.descriptor.InputSize = sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_SETTITLE_MSG) + sizeof(title_text);
