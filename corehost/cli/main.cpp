@@ -75,7 +75,9 @@ int __stdcall wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     }
     else
     {
-        corehost::window::window_entry({}, std::wstring(cmdline.data(), cmdline.size()));
+        auto shell_info = shell::get_shell();
+        corehost::window::window_entry({shell_info.name.data(), shell_info.name.size()},
+                                       std::wstring(cmdline.data(), cmdline.size()));
     }
 #else
     auto cmdline = args.client_command_line();
