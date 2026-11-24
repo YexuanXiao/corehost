@@ -546,6 +546,7 @@ class screen_buffer final
     cell_style default_style_id_{};
     hyperlink_table hyperlinks_;
     image_table images_;
+    grapheme_store grapheme_scratch_;
 };
 
 inline page::page(std::size_t width, std::size_t height, cell_style fill_style) : width_{width}, height_{height}
@@ -2101,19 +2102,18 @@ inline bool rebuild_page_graphemes(page &target, grapheme_store &scratch)
 
 inline bool screen_buffer::rebuild_graphemes()
 {
-    grapheme_store scratch;
-    if (!rebuild_page_graphemes(main_, scratch))
+    if (!rebuild_page_graphemes(main_, grapheme_scratch_))
     {
         return false;
     }
-    if (alternate_ && !rebuild_page_graphemes(*alternate_, scratch))
+    if (alternate_ && !rebuild_page_graphemes(*alternate_, grapheme_scratch_))
     {
         return false;
     }
 
     for (auto &entry : history_)
     {
-        scratch.clear();
+        grapheme_scratch_.clear();
         auto &old_store = entry.graphemes;
         for (auto &value : entry.cells)
         {
@@ -2122,14 +2122,14 @@ inline bool screen_buffer::rebuild_graphemes()
                 continue;
             }
             const auto source = old_store.view(grapheme_store::ref{value.offset(), value.length()});
-            if (source.empty() || !scratch.can_append(source.size()))
+            if (source.empty() || !grapheme_scratch_.can_append(source.size()))
             {
                 return false;
             }
-            const auto ref = scratch.append(source);
+            const auto ref = grapheme_scratch_.append(source);
             value = value.with_cluster_ref(ref.offset, ref.length);
         }
-        std::swap(old_store, scratch);
+        std::swap(old_store, grapheme_scratch_);
     }
     return true;
 }
