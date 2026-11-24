@@ -96,16 +96,15 @@ class text_engine final
         regions_.clear();
         alpha_storage_.clear();
 
-        if (!text.empty())
-        {
-            winrt::com_ptr<IDWriteTextLayout> layout;
-            winrt::check_hresult(factory_->CreateTextLayout(
-                reinterpret_cast<const WCHAR *>(text.data()), static_cast<UINT32>(text.size()), text_format_.get(),
-                100000.0f, 100000.0f, layout.put()));
+        assert(!text.empty());
 
-            run_renderer renderer{*this};
-            winrt::check_hresult(layout->Draw(nullptr, &renderer, 0.0f, 0.0f));
-        }
+        winrt::com_ptr<IDWriteTextLayout> layout;
+        winrt::check_hresult(factory_->CreateTextLayout(
+            reinterpret_cast<const WCHAR *>(text.data()), static_cast<UINT32>(text.size()), text_format_.get(),
+            100000.0f, 100000.0f, layout.put()));
+
+        run_renderer renderer{*this};
+        winrt::check_hresult(layout->Draw(nullptr, &renderer, 0.0f, 0.0f));
 
         out.reserve(regions_.size());
         for (const auto &region : regions_)
