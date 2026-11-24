@@ -7,6 +7,7 @@ target_include_directories(libd3d12ui INTERFACE
 target_link_libraries(libd3d12ui INTERFACE
     common
     d3d12
+    d3dcompiler
     dcomp
     dxgi
     user32

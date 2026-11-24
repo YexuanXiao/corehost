@@ -2,13 +2,19 @@
 
 #include <Windows.h>
 #include <d3d12.h>
+#include <d3dcompiler.h>
 #include <dcomp.h>
 #include <dxgi1_6.h>
 #include <winrt/base.h>
 #include "win32/event.hpp"
 
+#include <array>
 #include <cassert>
 #include <cstdint>
+#include <cstring>
+#include <span>
+#include <string_view>
+#include <vector>
 
 namespace corehost::d3d12ui
 {
@@ -51,6 +57,7 @@ class d3d12_window_renderer final
         height_ = static_cast<UINT>(client.bottom - client.top);
 
         create_device();
+        create_text_pipeline();
         create_swapchain();
         create_rtvs();
         initialized_ = true;
@@ -65,6 +72,12 @@ class d3d12_window_renderer final
         allocator_ = {};
         fence_ = {};
         rtv_heap_ = {};
+        texture_srv_heap_ = {};
+        text_pipeline_ = {};
+        root_signature_ = {};
+        text_texture_ = {};
+        texture_width_ = 0;
+        texture_height_ = 0;
         composition_visual_ = {};
         composition_target_ = {};
         composition_device_ = {};
@@ -79,6 +92,103 @@ class d3d12_window_renderer final
     [[nodiscard]] bool initialized() const noexcept
     {
         return initialized_;
+    }
+
+    void set_text_texture(std::span<const std::uint8_t> alpha, UINT width, UINT height)
+    {
+        if (!initialized_)
+        {
+            return;
+        }
+        assert(width > 0 && height > 0);
+        assert(alpha.size() == static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
+
+        wait_for_gpu();
+        text_texture_ = {};
+
+        D3D12_HEAP_PROPERTIES heap{};
+        heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+        D3D12_RESOURCE_DESC desc{};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Width = width;
+        desc.Height = height;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels = 1;
+        desc.Format = DXGI_FORMAT_R8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        winrt::check_hresult(device_->CreateCommittedResource(
+            &heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(text_texture_.put())));
+
+        const auto row_pitch = (width + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1) &
+                               ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1);
+        const auto upload_size = static_cast<UINT64>(row_pitch) * height;
+
+        D3D12_HEAP_PROPERTIES upload_heap{};
+        upload_heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+        D3D12_RESOURCE_DESC upload_desc{};
+        upload_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        upload_desc.Width = upload_size;
+        upload_desc.Height = 1;
+        upload_desc.DepthOrArraySize = 1;
+        upload_desc.MipLevels = 1;
+        upload_desc.Format = DXGI_FORMAT_UNKNOWN;
+        upload_desc.SampleDesc.Count = 1;
+        upload_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        winrt::com_ptr<ID3D12Resource> upload;
+        winrt::check_hresult(device_->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &upload_desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(upload.put())));
+
+        void *mapped = nullptr;
+        winrt::check_hresult(upload->Map(0, nullptr, &mapped));
+        for (UINT row = 0; row < height; ++row)
+        {
+            std::memcpy(static_cast<std::uint8_t *>(mapped) + static_cast<std::size_t>(row) * row_pitch,
+                        alpha.data() + static_cast<std::size_t>(row) * width, width);
+        }
+        upload->Unmap(0, nullptr);
+
+        winrt::check_hresult(allocator_->Reset());
+        winrt::check_hresult(command_list_->Reset(allocator_.get(), nullptr));
+
+        D3D12_TEXTURE_COPY_LOCATION destination{};
+        destination.pResource = text_texture_.get();
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        destination.SubresourceIndex = 0;
+        D3D12_TEXTURE_COPY_LOCATION source{};
+        source.pResource = upload.get();
+        source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        source.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8_UNORM;
+        source.PlacedFootprint.Footprint.Width = width;
+        source.PlacedFootprint.Footprint.Height = height;
+        source.PlacedFootprint.Footprint.Depth = 1;
+        source.PlacedFootprint.Footprint.RowPitch = row_pitch;
+        command_list_->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = text_texture_.get();
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        command_list_->ResourceBarrier(1, &barrier);
+        winrt::check_hresult(command_list_->Close());
+        ID3D12CommandList *lists[] = {command_list_.get()};
+        queue_->ExecuteCommandLists(1, lists);
+        wait_for_gpu();
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+        srv.Format = DXGI_FORMAT_R8_UNORM;
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv.Texture2D.MipLevels = 1;
+        device_->CreateShaderResourceView(text_texture_.get(), &srv,
+                                          texture_srv_heap_->GetCPUDescriptorHandleForHeapStart());
+        texture_width_ = width;
+        texture_height_ = height;
     }
 
     void resize(UINT width, UINT height)
@@ -125,6 +235,30 @@ class d3d12_window_renderer final
         constexpr float clear_color[4] = {0.015f, 0.015f, 0.02f, 1.0f};
         command_list_->ClearRenderTargetView(rtv, clear_color, 0, nullptr);
 
+        if (text_texture_ && texture_width_ != 0 && texture_height_ != 0)
+        {
+            D3D12_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width_), static_cast<float>(height_), 0.0f, 1.0f};
+            D3D12_RECT scissor{0, 0, static_cast<LONG>(width_), static_cast<LONG>(height_)};
+            command_list_->RSSetViewports(1, &viewport);
+            command_list_->RSSetScissorRects(1, &scissor);
+            command_list_->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+            ID3D12DescriptorHeap *heaps[] = {texture_srv_heap_.get()};
+            command_list_->SetDescriptorHeaps(1, heaps);
+            command_list_->SetGraphicsRootSignature(root_signature_.get());
+            command_list_->SetPipelineState(text_pipeline_.get());
+            command_list_->SetGraphicsRootDescriptorTable(1, texture_srv_heap_->GetGPUDescriptorHandleForHeapStart());
+
+            const auto left = 20.0f / static_cast<float>(width_);
+            const auto top = 1.0f - 20.0f / static_cast<float>(height_);
+            const auto right = (20.0f + static_cast<float>(texture_width_)) / static_cast<float>(width_);
+            const auto bottom = 1.0f - (20.0f + static_cast<float>(texture_height_)) /
+                                           static_cast<float>(height_);
+            const float rect[4] = {left * 2.0f - 1.0f, top, (right - left) * 2.0f, bottom - top};
+            command_list_->SetGraphicsRoot32BitConstants(0, 4, rect, 0);
+            command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+            command_list_->DrawInstanced(4, 1, 0, 0);
+        }
+
         D3D12_RESOURCE_BARRIER to_present = to_target;
         to_present.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
         to_present.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
@@ -153,6 +287,112 @@ class d3d12_window_renderer final
         winrt::check_hresult(command_list_->Close());
 
         winrt::check_hresult(device_->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(fence_.put())));
+    }
+
+    void create_text_pipeline()
+    {
+        constexpr std::string_view shader_source = R"(
+cbuffer Rect : register(b0) { float4 rect; };
+struct VSOut { float4 position : SV_Position; float2 uv : TEXCOORD0; };
+VSOut VSMain(uint vertex : SV_VertexID)
+{
+    float2 corners[4] = { float2(0, 0), float2(1, 0), float2(0, 1), float2(1, 1) };
+    float2 corner = corners[vertex];
+    VSOut result;
+    result.position = float4(rect.x + corner.x * rect.z, rect.y + corner.y * rect.w, 0.0f, 1.0f);
+    result.uv = corner;
+    return result;
+}
+Texture2D<float> glyphs : register(t0);
+SamplerState linear_sampler : register(s0);
+float4 PSMain(VSOut input) : SV_Target
+{
+    return float4(1.0f, 1.0f, 1.0f, glyphs.Sample(linear_sampler, input.uv));
+}
+)";
+
+        winrt::com_ptr<ID3DBlob> vertex_shader;
+        winrt::com_ptr<ID3DBlob> pixel_shader;
+        winrt::com_ptr<ID3DBlob> error;
+        winrt::check_hresult(::D3DCompile(shader_source.data(), shader_source.size(), nullptr, nullptr, nullptr,
+                                          "VSMain", "vs_5_0", 0, 0, vertex_shader.put(), error.put()));
+        winrt::check_hresult(::D3DCompile(shader_source.data(), shader_source.size(), nullptr, nullptr, nullptr,
+                                          "PSMain", "ps_5_0", 0, 0, pixel_shader.put(), error.put()));
+
+        D3D12_DESCRIPTOR_RANGE srv_range{};
+        srv_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        srv_range.NumDescriptors = 1;
+        srv_range.BaseShaderRegister = 0;
+        srv_range.RegisterSpace = 0;
+        srv_range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+        D3D12_ROOT_PARAMETER parameters[2]{};
+        parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        parameters[0].Constants.ShaderRegister = 0;
+        parameters[0].Constants.RegisterSpace = 0;
+        parameters[0].Constants.Num32BitValues = 4;
+        parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        parameters[1].DescriptorTable.NumDescriptorRanges = 1;
+        parameters[1].DescriptorTable.pDescriptorRanges = &srv_range;
+        parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        D3D12_STATIC_SAMPLER_DESC sampler{};
+        sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+        sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+        sampler.MinLOD = 0.0f;
+        sampler.MaxLOD = 3.402823466e+38f;
+        sampler.ShaderRegister = 0;
+        sampler.RegisterSpace = 0;
+        sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        D3D12_ROOT_SIGNATURE_DESC signature_desc{};
+        signature_desc.NumParameters = 2;
+        signature_desc.pParameters = parameters;
+        signature_desc.NumStaticSamplers = 1;
+        signature_desc.pStaticSamplers = &sampler;
+        signature_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+        winrt::com_ptr<ID3DBlob> signature;
+        winrt::check_hresult(::D3D12SerializeRootSignature(&signature_desc, D3D_ROOT_SIGNATURE_VERSION_1,
+                                                           signature.put(), error.put()));
+        winrt::check_hresult(device_->CreateRootSignature(0, signature->GetBufferPointer(),
+                                                          signature->GetBufferSize(),
+                                                          IID_PPV_ARGS(root_signature_.put())));
+
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC pipeline_desc{};
+        pipeline_desc.pRootSignature = root_signature_.get();
+        pipeline_desc.VS = {vertex_shader->GetBufferPointer(), vertex_shader->GetBufferSize()};
+        pipeline_desc.PS = {pixel_shader->GetBufferPointer(), pixel_shader->GetBufferSize()};
+        pipeline_desc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+        pipeline_desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+        pipeline_desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+        pipeline_desc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+        pipeline_desc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+        pipeline_desc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+        pipeline_desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+        pipeline_desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        pipeline_desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+        pipeline_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+        pipeline_desc.RasterizerState.DepthClipEnable = TRUE;
+        pipeline_desc.DepthStencilState.DepthEnable = FALSE;
+        pipeline_desc.DepthStencilState.StencilEnable = FALSE;
+        pipeline_desc.SampleMask = UINT_MAX;
+        pipeline_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        pipeline_desc.NumRenderTargets = 1;
+        pipeline_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        pipeline_desc.SampleDesc.Count = 1;
+        winrt::check_hresult(device_->CreateGraphicsPipelineState(&pipeline_desc, IID_PPV_ARGS(text_pipeline_.put())));
+
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
+        heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        heap_desc.NumDescriptors = 1;
+        heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        winrt::check_hresult(device_->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(texture_srv_heap_.put())));
     }
 
     void create_swapchain()
@@ -236,6 +476,12 @@ class d3d12_window_renderer final
     winrt::com_ptr<ID3D12GraphicsCommandList> command_list_;
     winrt::com_ptr<ID3D12Fence> fence_;
     winrt::com_ptr<ID3D12Resource> backbuffers_[2];
+    winrt::com_ptr<ID3D12RootSignature> root_signature_;
+    winrt::com_ptr<ID3D12PipelineState> text_pipeline_;
+    winrt::com_ptr<ID3D12DescriptorHeap> texture_srv_heap_;
+    winrt::com_ptr<ID3D12Resource> text_texture_;
+    UINT texture_width_{};
+    UINT texture_height_{};
     win32::event fence_event_;
     std::uint64_t fence_value_{};
     UINT rtv_size_{};

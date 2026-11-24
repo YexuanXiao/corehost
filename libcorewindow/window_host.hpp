@@ -1,13 +1,16 @@
 #pragma once
 
 #include "d3d12_window_renderer.hpp"
+#include "text_engine.hpp"
 
 #include "win32/error.hpp"
 #include "win32/string.hpp"
 
 #include <Windows.h>
 
+#include <array>
 #include <cassert>
+#include <vector>
 
 namespace corehost::window
 {
@@ -56,6 +59,15 @@ class window_host final
         renderer_.initialize(window);
         ::ShowWindow(window, SW_SHOWDEFAULT);
         ::UpdateWindow(window);
+
+        std::vector<uitext::glyph_bitmap> glyphs;
+        text_.rasterize(u"CoreHost", glyphs);
+        if (!glyphs.empty() && !glyphs.front().alpha.empty())
+        {
+            renderer_.set_text_texture(glyphs.front().alpha, static_cast<UINT>(glyphs.front().width),
+                                       static_cast<UINT>(glyphs.front().height));
+            ::InvalidateRect(window, nullptr, FALSE);
+        }
 
         MSG message{};
         for (;;)
@@ -129,6 +141,12 @@ class window_host final
 
     win32::wcstring_view title_;
     d3d12ui::d3d12_window_renderer renderer_;
+    uitext::text_engine text_{fallback_families(), 32.0f};
+
+    static std::array<uitext::font_fallback_entry, 1> fallback_families()
+    {
+        return {uitext::font_fallback_entry{L"Consolas"}};
+    }
 };
 
 } // namespace corehost::window
