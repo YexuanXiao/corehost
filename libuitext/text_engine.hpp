@@ -34,6 +34,8 @@ struct glyph_bitmap final
     std::span<const std::uint8_t> alpha;
 };
 
+// The family name is borrowed. text_engine consumes the entries synchronously
+// while building its DirectWrite fallback chain and does not retain any view.
 struct font_fallback_entry final
 {
     win32::wcstring_view family;
@@ -48,6 +50,7 @@ struct font_fallback_entry final
 class text_engine final
 {
   public:
+    // families and their string views are only borrowed for this constructor.
     explicit text_engine(std::span<const font_fallback_entry> families, float size) : size_{size}
     {
         assert(!families.empty());
