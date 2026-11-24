@@ -30,6 +30,10 @@ struct text_quad final
     float v0{};
     float u1{};
     float v1{};
+    float r{1.0f};
+    float g{1.0f};
+    float b{1.0f};
+    float a{1.0f};
 };
 
 // Header-only owner of the top-level window's D3D12 device and composition
@@ -205,6 +209,14 @@ class d3d12_window_renderer final
         texture_height_ = height;
     }
 
+    void set_clear_color(float r, float g, float b, float a) noexcept
+    {
+        clear_color_[0] = r;
+        clear_color_[1] = g;
+        clear_color_[2] = b;
+        clear_color_[3] = a;
+    }
+
     void set_text_quads(std::span<const text_quad> quads)
     {
         text_quads_.assign(quads.begin(), quads.end());
@@ -251,8 +263,7 @@ class d3d12_window_renderer final
 
         auto rtv = rtv_heap_->GetCPUDescriptorHandleForHeapStart();
         rtv.ptr += static_cast<SIZE_T>(index) * rtv_size_;
-        constexpr float clear_color[4] = {0.015f, 0.015f, 0.02f, 1.0f};
-        command_list_->ClearRenderTargetView(rtv, clear_color, 0, nullptr);
+        command_list_->ClearRenderTargetView(rtv, clear_color_, 0, nullptr);
 
         if (text_texture_ && texture_width_ != 0 && texture_height_ != 0)
         {
@@ -270,7 +281,7 @@ class d3d12_window_renderer final
             command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
             for (const auto &quad : text_quads_)
             {
-                const float constants[8] = {
+                const float constants[12] = {
                     (quad.x / static_cast<float>(width_)) * 2.0f - 1.0f,
                     1.0f - (quad.y / static_cast<float>(height_)) * 2.0f,
                     (quad.width / static_cast<float>(width_)) * 2.0f,
@@ -279,8 +290,12 @@ class d3d12_window_renderer final
                     quad.v0,
                     quad.u1,
                     quad.v1,
+                    quad.r,
+                    quad.g,
+                    quad.b,
+                    quad.a,
                 };
-                command_list_->SetGraphicsRoot32BitConstants(0, 8, constants, 0);
+                command_list_->SetGraphicsRoot32BitConstants(0, 12, constants, 0);
                 command_list_->DrawInstanced(4, 1, 0, 0);
             }
         }
@@ -328,7 +343,7 @@ class d3d12_window_renderer final
         parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         parameters[0].Constants.ShaderRegister = 0;
         parameters[0].Constants.RegisterSpace = 0;
-        parameters[0].Constants.Num32BitValues = 8;
+        parameters[0].Constants.Num32BitValues = 12;
         parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
         parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         parameters[1].DescriptorTable.NumDescriptorRanges = 1;
@@ -481,6 +496,7 @@ class d3d12_window_renderer final
     winrt::com_ptr<ID3D12Resource> text_texture_;
     UINT texture_width_{};
     UINT texture_height_{};
+    float clear_color_[4]{0.015f, 0.015f, 0.02f, 1.0f};
     std::vector<text_quad> text_quads_;
     win32::event fence_event_;
     std::uint64_t fence_value_{};

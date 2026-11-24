@@ -55,7 +55,7 @@ class console final
         input_event_.set();
     }
 
-    bool copy_updates(std::vector<screen::row_block> &rows)
+    bool copy_updates(std::vector<screen::row_block> &rows, screen::style_table &styles)
     {
         rows.clear();
         if (!screen_.has_damage())
@@ -64,6 +64,7 @@ class console final
         }
 
         rows.resize(screen_.height());
+        styles = screen_.styles();
         for (std::size_t y = 0; y < screen_.height(); ++y)
         {
             auto begin = screen_.damage_begin(y);

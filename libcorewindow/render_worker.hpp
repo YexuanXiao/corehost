@@ -2,6 +2,7 @@
 
 #include "cell_atlas.hpp"
 #include "console.hpp"
+#include "console_theme.hpp"
 #include "d3d12_window_renderer.hpp"
 #include "text_engine.hpp"
 #include "win32/event.hpp"
@@ -27,8 +28,9 @@ namespace corehost::window
 class render_worker final
 {
   public:
-    render_worker(console &console, win32::srwlock &console_mutex)
-        : console_{console}, console_mutex_{console_mutex}
+    render_worker(console &console, win32::srwlock &console_mutex,
+                  console_palette palette = console_palette::campbell())
+        : console_{console}, console_mutex_{console_mutex}, palette_{palette}
     {
     }
 
@@ -108,6 +110,14 @@ class render_worker final
         }
     }
 
+    static void set_tint(d3d12ui::text_quad &quad, console_color color) noexcept
+    {
+        quad.r = static_cast<float>(color.r) / 255.0f;
+        quad.g = static_cast<float>(color.g) / 255.0f;
+        quad.b = static_cast<float>(color.b) / 255.0f;
+        quad.a = 1.0f;
+    }
+
     static bool same_cursor(const screen::cursor_state &left, const screen::cursor_state &right) noexcept
     {
         return left.x == right.x && left.y == right.y && left.visible == right.visible &&
@@ -131,6 +141,28 @@ class render_worker final
                 if (cell.is_continuation())
                 {
                     continue;
+                }
+
+                const auto &style = styles_.at(cell.style());
+                const auto foreground = foreground_color(style, palette_);
+                const auto background = background_color(style, palette_);
+                const auto sample = 0.5f / static_cast<float>(atlas_.size());
+                if (background.r != palette_.default_background.r ||
+                    background.g != palette_.default_background.g ||
+                    background.b != palette_.default_background.b)
+                {
+                    d3d12ui::text_quad background_quad{
+                        .x = static_cast<float>(x) * cell_width,
+                        .y = static_cast<float>(y) * cell_height,
+                        .width = cell_width,
+                        .height = cell_height,
+                        .u0 = sample,
+                        .v0 = sample,
+                        .u1 = sample,
+                        .v1 = sample,
+                    };
+                    set_tint(background_quad, background);
+                    quads_.push_back(background_quad);
                 }
 
                 std::u16string_view text;
@@ -159,7 +191,7 @@ class render_worker final
                 const auto left = static_cast<float>(x) * cell_width + static_cast<float>(region->left);
                 const auto top =
                     static_cast<float>(y) * cell_height + metrics.ascent + static_cast<float>(region->top);
-                quads_.push_back(d3d12ui::text_quad{
+                d3d12ui::text_quad text_quad{
                     .x = left,
                     .y = top,
                     .width = static_cast<float>(region->width),
@@ -168,7 +200,9 @@ class render_worker final
                     .v0 = static_cast<float>(region->y) * atlas_scale,
                     .u1 = static_cast<float>(region->x + region->width) * atlas_scale,
                     .v1 = static_cast<float>(region->y + region->height) * atlas_scale,
-                });
+                };
+                set_tint(text_quad, foreground);
+                quads_.push_back(text_quad);
             }
         }
 
@@ -178,7 +212,14 @@ class render_worker final
             const auto cursor_left = static_cast<float>(cursor_.x) * cell_width;
             const auto cursor_top = static_cast<float>(cursor_.y) * cell_height + cell_height - cursor_height;
             const auto sample = 0.5f / static_cast<float>(atlas_.size());
-            quads_.push_back(d3d12ui::text_quad{
+            console_color cursor_color = palette_.default_foreground;
+            if (cursor_.x < columns && cursor_.y < rows)
+            {
+                cursor_color = foreground_color(styles_.at(cell_state_[cursor_.y * columns + cursor_.x].style()),
+                                                palette_);
+            }
+
+            d3d12ui::text_quad cursor_quad{
                 .x = cursor_left,
                 .y = cursor_top,
                 .width = cell_width,
@@ -187,7 +228,9 @@ class render_worker final
                 .v0 = sample,
                 .u1 = sample,
                 .v1 = sample,
-            });
+            };
+            set_tint(cursor_quad, cursor_color);
+            quads_.push_back(cursor_quad);
         }
 
         if (atlas_.dirty())
@@ -201,6 +244,9 @@ class render_worker final
     void run()
     {
         renderer_.initialize(window_);
+        const auto &clear = palette_.default_background;
+        renderer_.set_clear_color(static_cast<float>(clear.r) / 255.0f, static_cast<float>(clear.g) / 255.0f,
+                                  static_cast<float>(clear.b) / 255.0f, 1.0f);
         renderer_.render();
         bool cursor_dirty = true;
 
@@ -234,7 +280,7 @@ class render_worker final
 
             {
                 std::unique_lock<win32::srwlock> lock{console_mutex_};
-                changed = console_.copy_updates(updates_);
+                changed = console_.copy_updates(updates_, styles_);
                 cursor = console_.state().cursor();
             }
 
@@ -267,6 +313,8 @@ class render_worker final
     uitext::text_engine text_{fallback_families(), 16.0f};
     uitext::cell_atlas atlas_{text_};
     std::vector<screen::cell> cell_state_ = std::vector<screen::cell>(columns * rows);
+    screen::style_table styles_;
+    console_palette palette_;
     screen::cursor_state cursor_{};
     screen::grapheme_store graphemes_;
     std::vector<d3d12ui::text_quad> quads_;

@@ -2,6 +2,7 @@ cbuffer Rect : register(b0)
 {
     float4 rect;
     float4 uv_rect;
+    float4 tint;
 };
 
 struct VSOut
@@ -27,5 +28,6 @@ SamplerState linear_sampler : register(s0);
 
 float4 PSMain(VSOut input) : SV_Target
 {
-    return float4(1.0f, 1.0f, 1.0f, glyphs.Sample(linear_sampler, input.uv));
+    const float alpha = glyphs.Sample(linear_sampler, input.uv);
+    return float4(tint.rgb, tint.a * alpha);
 }
