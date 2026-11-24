@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace corehost::window
@@ -67,6 +68,8 @@ class window_console_session final
     void run();
     void run_input();
     bool handle(coreio::io_msg &message);
+    bool handle_write_console(coreio::io_msg &message);
+    void apply_vt(std::u16string_view text);
     void complete_pending();
 
     win32::handle_view server_;
@@ -79,9 +82,10 @@ class window_console_session final
     coreio::io_state io_state_;
     coreio::input_payload_reader payload_;
     consoleapi::console_api api_;
-    vtparser::raw_u16buffer raw_vt_raw_;
-    vtparser::vt_parser raw_vt_parser_{raw_vt_raw_};
+    vtparser::raw_u16buffer vt_raw_;
+    vtparser::vt_parser vt_parser_{vt_raw_};
     vtstate::state_applier vt_applier_{};
+    vtparser::raw_u16buffer vt_text_;
     win32::event input_event_;
     win32::event stop_event_;
     win32::basic_thread thread_;

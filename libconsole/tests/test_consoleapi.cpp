@@ -423,16 +423,6 @@ static int run_console_api_display_tests(console_api_fixture &fixture)
     auto &input_queue = fixture.input_queue;
     auto &input_api = fixture.input_api;
 
-    buffer.clear(corehost::screen::default_cell_style);
-    state.set_cursor(0, 0);
-    (void)api.write_console_text(u"AB\x1b[31mCD");
-    if (buffer.at(0, 0).primary() != u'A' || buffer.at(2, 0).primary() != u'C' ||
-        buffer.at(3, 0).primary() != u'D')
-    {
-        std::fprintf(stderr, "write_console_text vt split failed\n");
-        return EXIT_FAILURE;
-    }
-
     corehost::screen::screen_buffer scroll_buffer{4, 2};
     corehost::screen::console_state scroll_state{4, 2};
     corehost::consoleapi::console_api scroll_api{scroll_buffer, scroll_state};

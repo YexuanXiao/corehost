@@ -96,6 +96,66 @@ void window_console_session::run_input()
     }
 }
 
+void window_console_session::apply_vt(std::u16string_view text)
+{
+    while (!text.empty())
+    {
+        const auto result = vt_parser_.parse(text);
+        if (result.consumed == 0)
+        {
+            break;
+        }
+        text.remove_prefix(result.consumed);
+        if (result.id == vtparser::vt_message_id::continue_)
+        {
+            break;
+        }
+        if ((result.id == vtparser::vt_message_id::apc_sequence ||
+             result.id == vtparser::vt_message_id::dcs_sequence) &&
+            vt_applier_.apply_image(result.raw_sequence, console_.buffer(), console_.state()))
+        {
+            vt_parser_.reset();
+            continue;
+        }
+        (void)vtstate::apply(result.id, result.message, console_.buffer(), console_.state(), vt_applier_);
+        vt_parser_.reset();
+    }
+}
+
+bool window_console_session::handle_write_console(coreio::io_msg &message)
+{
+    if (message.descriptor.InputSize < sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG))
+    {
+        coreio::prepare_completion(message, coreio::error::status_invalid_parameter);
+        return true;
+    }
+
+    auto *request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+    const auto payload = payload_.read(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG));
+    if (request->Unicode != FALSE)
+    {
+        apply_vt(std::u16string_view{reinterpret_cast<const char16_t *>(payload.data()),
+                                     payload.size() / sizeof(char16_t)});
+    }
+    else
+    {
+        const auto code_page = console_.state().output_code_page;
+        vt_text_.resize(payload.size());
+        const auto units = ::MultiByteToWideChar(
+            code_page, 0, reinterpret_cast<const char *>(payload.data()), static_cast<int>(payload.size()),
+            reinterpret_cast<LPWSTR>(vt_text_.data()), static_cast<int>(vt_text_.size()));
+        if (units > 0)
+        {
+            apply_vt(std::u16string_view{vt_text_.data(), static_cast<std::size_t>(units)});
+        }
+    }
+
+    request->NumBytes = static_cast<ULONG>(payload.size());
+    coreio::prepare_completion(message, 0, sizeof(CONSOLE_WRITECONSOLE_MSG), message.body + sizeof(CONSOLE_MSG_HEADER),
+                               sizeof(CONSOLE_WRITECONSOLE_MSG));
+    return true;
+}
+
 bool window_console_session::handle(coreio::io_msg &message)
 {
     std::unique_lock<win32::srwlock> lock{console_mutex_};
@@ -134,34 +194,14 @@ bool window_console_session::handle(coreio::io_msg &message)
         return false;
     case CONSOLE_IO_RAW_WRITE: {
         const auto payload = payload_.read(message, 0);
-        std::u16string text(payload.size(), u'\0');
         const auto code_page = console_.state().output_code_page;
-        const auto units = ::MultiByteToWideChar(code_page, 0, reinterpret_cast<const char *>(payload.data()),
-                                                 static_cast<int>(payload.size()),
-                                                 reinterpret_cast<LPWSTR>(text.data()),
-                                                 static_cast<int>(text.size()));
-        if (units <= 0)
+        vt_text_.resize(payload.size());
+        const auto units = ::MultiByteToWideChar(
+            code_page, 0, reinterpret_cast<const char *>(payload.data()), static_cast<int>(payload.size()),
+            reinterpret_cast<LPWSTR>(vt_text_.data()), static_cast<int>(vt_text_.size()));
+        if (units > 0)
         {
-            coreio::prepare_completion(message, 0, payload.size());
-            coreio::complete_io(server_, message.complete);
-            return false;
-        }
-        text.resize(static_cast<std::size_t>(units));
-        auto input = std::u16string_view{text};
-        while (!input.empty())
-        {
-            const auto result = raw_vt_parser_.parse(input);
-            if (result.consumed == 0)
-            {
-                break;
-            }
-            input.remove_prefix(result.consumed);
-            if (result.id == vtparser::vt_message_id::continue_)
-            {
-                break;
-            }
-            (void)vtstate::apply(result.id, result.message, console_.buffer(), console_.state(), vt_applier_);
-            raw_vt_parser_.reset();
+            apply_vt(std::u16string_view{vt_text_.data(), static_cast<std::size_t>(units)});
         }
         coreio::prepare_completion(message, 0, payload.size());
         coreio::complete_io(server_, message.complete);
@@ -170,6 +210,13 @@ bool window_console_session::handle(coreio::io_msg &message)
     case CONSOLE_IO_RAW_READ:
         return false;
     case CONSOLE_IO_USER_DEFINED: {
+        const auto *header = reinterpret_cast<const CONSOLE_MSG_HEADER *>(message.body);
+        if (header->ApiNumber == ConsolepWriteConsole)
+        {
+            handle_write_console(message);
+            coreio::complete_io(server_, message.complete);
+            return false;
+        }
         const bool handled = api_.handle(message);
         if (api_.took_input())
         {
