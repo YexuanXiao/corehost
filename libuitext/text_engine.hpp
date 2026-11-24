@@ -9,6 +9,7 @@
 #include <cassert>
 #include <cstdint>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -51,8 +52,6 @@ class text_engine final
     {
         assert(!families.empty());
         assert(size_ > 0.0f);
-        families_.assign(families.begin(), families.end());
-
         winrt::com_ptr<IUnknown> unknown;
         winrt::check_hresult(
             ::DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), unknown.put()));
@@ -77,10 +76,8 @@ class text_engine final
         winrt::check_hresult(factory2->GetSystemFontFallback(system_fallback.put()));
         winrt::check_hresult(builder->AddMappings(system_fallback.get()));
 
-        winrt::com_ptr<IDWriteFontFallback> fallback;
-        winrt::check_hresult(builder->CreateFontFallback(fallback.put()));
-        fallback_ = fallback;
-        metrics_ = resolve_base_family(families_, fallback_.get());
+        winrt::check_hresult(builder->CreateFontFallback(fallback_.put()));
+        metrics_ = resolve_base_family(families, fallback_.get());
     }
 
     text_engine(const text_engine &) = delete;
@@ -98,8 +95,29 @@ class text_engine final
         {
             return;
         }
+        const auto scale = size / size_;
         size_ = size;
-        metrics_ = resolve_base_family(families_, fallback_.get());
+
+        winrt::com_ptr<IDWriteTextFormat> normal;
+        winrt::check_hresult(factory_->CreateTextFormat(
+            base_family_.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, size_, L"", normal.put()));
+        winrt::check_hresult(normal->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
+        winrt::check_hresult(normal.as<IDWriteTextFormat1>()->SetFontFallback(fallback_.get()));
+
+        winrt::com_ptr<IDWriteTextFormat> bold;
+        winrt::check_hresult(factory_->CreateTextFormat(
+            base_family_.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, size_, L"", bold.put()));
+        winrt::check_hresult(bold->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
+        winrt::check_hresult(bold.as<IDWriteTextFormat1>()->SetFontFallback(fallback_.get()));
+        text_format_ = std::move(normal);
+        bold_format_ = std::move(bold);
+
+        metrics_.ascent *= scale;
+        metrics_.descent *= scale;
+        metrics_.line_gap *= scale;
+        metrics_.advance *= scale;
     }
 
     void rasterize(std::u16string_view text, std::vector<glyph_bitmap> &out, bool bold = false)
@@ -210,8 +228,9 @@ class text_engine final
                 continue;
             }
 
+            base_family_.assign(family.family.data(), family.family.size());
             winrt::check_hresult(factory_->CreateTextFormat(
-                family.family.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                base_family_.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
                 DWRITE_FONT_STRETCH_NORMAL, size_, L"", text_format_.put()));
             winrt::check_hresult(text_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
             auto format1 = text_format_.as<IDWriteTextFormat1>();
@@ -294,7 +313,7 @@ class text_engine final
 
     winrt::com_ptr<IDWriteFactory> factory_;
     winrt::com_ptr<IDWriteFontCollection> collection_;
-    std::vector<font_fallback_entry> families_;
+    std::wstring base_family_;
     winrt::com_ptr<IDWriteFontFallback> fallback_;
     winrt::com_ptr<IDWriteTextFormat> text_format_;
     winrt::com_ptr<IDWriteTextFormat> bold_format_;
