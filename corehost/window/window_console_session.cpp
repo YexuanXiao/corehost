@@ -1,6 +1,7 @@
 #include "window_console_session.hpp"
 
 #include <cassert>
+#include <utility>
 
 namespace corehost::window
 {
@@ -47,7 +48,18 @@ void window_console_session::stop()
 
 void window_console_session::set_window_handle(HWND window) noexcept
 {
+    std::scoped_lock lock{screen_mutex_};
+    window_ = window;
     api_.set_window_handle(reinterpret_cast<std::uintptr_t>(window));
+}
+
+void window_console_session::notify_damage() noexcept
+{
+    std::scoped_lock lock{screen_mutex_};
+    if (window_ != nullptr && screen_.has_damage())
+    {
+        (void)::PostMessageW(window_, screen_update_message, 0, 0);
+    }
 }
 
 DWORD WINAPI window_console_session::thread_entry(LPVOID self)
@@ -56,8 +68,54 @@ DWORD WINAPI window_console_session::thread_entry(LPVOID self)
     return 0;
 }
 
+bool window_console_session::take_screen_updates(std::vector<screen_row_update> &updates)
+{
+    std::scoped_lock lock{screen_mutex_};
+    updates.clear();
+    if (!screen_.has_damage())
+    {
+        return false;
+    }
+
+    for (std::size_t y = 0; y < screen_.height(); ++y)
+    {
+        const auto begin = screen_.damage_begin(y);
+        const auto end = screen_.damage_end(y);
+        if (begin >= end)
+        {
+            continue;
+        }
+
+        screen_row_update row{};
+        row.y = y;
+        row.begin = begin;
+        row.end = end;
+        row.cells.reserve(end - begin);
+
+        for (std::size_t x = begin; x < end; ++x)
+        {
+            std::u16string glyph;
+            screen_.glyph_at_into(x, y, glyph);
+            const auto offset = row.text.size();
+            row.text.append(glyph);
+            row.cells.push_back(screen_cell_update{
+                .cell = screen_.at(x, y),
+                .text_offset = offset,
+                .text_length = glyph.size(),
+            });
+        }
+
+        updates.push_back(std::move(row));
+    }
+
+    screen_.clear_damage();
+    return !updates.empty();
+}
+
 bool window_console_session::handle(coreio::io_msg &message)
 {
+    std::scoped_lock lock{screen_mutex_};
+
     switch (message.descriptor.Function)
     {
     case CONSOLE_IO_CONNECT:

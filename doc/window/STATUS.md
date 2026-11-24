@@ -16,11 +16,12 @@
 - 已加入 D3D12 文本 pass：构建期用 fxc 预编译 VS/PS 并嵌入字节数组，运行期创建根签名、PSO、上传 R8 alpha 纹理并绘制混合 quad；
 - 默认字体 fallback 列表为 `Cascadia Code`、`Cascadia Mono`、`Consolas`，与 Windows Terminal 的字体选择方向一致；
 - `window_host` 当前用 `CoreHost` 调试字符串验证文本纹理到窗口的完整路径；
-- `libuitext` 已建立 header-only DirectWrite 文本度量与 UTF-16 grapheme cluster alpha 光栅化，使用 `libscreen::grapheme_range`；
+- `libuitext` 已建立 header-only DirectWrite 文本度量与完整字符串 layout/alpha 光栅化；
 - 字体 fallback 项由 `font_fallback_entry{family, range}` 组成，每个字体项只有一个 Unicode 范围，默认全范围；同一字体可重复出现并指定不同范围；
 - 该列表交给 `IDWriteFontFallbackBuilder`，并追加 `IDWriteFactory2::GetSystemFontFallback()`；整个字符串直接交给 `IDWriteTextLayout`，由其完成 fallback、cluster 和 shaping，不手工切分字符串也不逐字符探测；
 - glyph 输出使用可复用的 alpha/region 缓冲区，`glyph_bitmap` 只持有 span，不逐 glyph 分配 vector；
 - `window_console_session` 已实现 CONNECT、CREATE_OBJECT、CLOSE_OBJECT、DISCONNECT、RAW_FLUSH、RAW_WRITE、RAW_READ、USER_DEFINED 的基础分派；
+- IO 线程只在 screen buffer 产生 damage 时 PostMessage；UI 线程在渲染前加锁复制 damage 区域后立即解锁，只复制变化行/列；
 - 实测 `corehostw cmd.exe` 可以保持 client 运行，关闭窗口后 corehostw 与 cmd 均退出。
 
 ## 未完成
@@ -32,7 +33,7 @@
 ## 已知问题
 
 - `CONSOLE_IO_RAW_WRITE` 当前只完成写入，不解析 VT，也不进入渲染；
-- 文本 pass 目前只显示固定调试字符串，尚未绑定 `window_console_session` 的 screen buffer；
+- 文本 pass 目前只显示固定调试字符串；damage snapshot 已在 UI 线程复制，但还没有把 snapshot 转成文本纹理；
 - 当前只上传第一个 glyph run，还没有 glyph atlas / 多 run 布局；
 - `console_api` 的完整 API 覆盖仍待验证；
 - 窗口关闭时直接终止 client，尚未实现完整的 console close 事件语义。

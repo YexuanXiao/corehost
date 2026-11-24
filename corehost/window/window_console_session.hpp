@@ -1,6 +1,7 @@
 #pragma once
 
 #include "console_api.hpp"
+#include "screen_updates.hpp"
 #include "console_state.hpp"
 #include "input.hpp"
 #include "input_payload.hpp"
@@ -14,7 +15,11 @@
 #include "win32/thread.hpp"
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
+#include <mutex>
+#include <string>
+#include <vector>
 
 namespace corehost::window
 {
@@ -36,6 +41,10 @@ class window_console_session final
 
     void set_window_handle(HWND window) noexcept;
 
+    // Copies only damaged row regions. The UI thread calls this before
+    // rendering; the lock is held only while copying.
+    bool take_screen_updates(std::vector<screen_row_update> &updates);
+
   private:
     struct message_handler final
     {
@@ -43,7 +52,9 @@ class window_console_session final
 
         [[nodiscard]] bool handle(coreio::io_msg &message)
         {
-            return owner.handle(message);
+            const auto result = owner.handle(message);
+            owner.notify_damage();
+            return result;
         }
 
         void flush() const noexcept
@@ -59,6 +70,7 @@ class window_console_session final
     static DWORD WINAPI thread_entry(LPVOID self);
     void run();
     bool handle(coreio::io_msg &message);
+    void notify_damage() noexcept;
 
     win32::handle_view server_;
     screen::screen_buffer screen_;
@@ -72,6 +84,8 @@ class window_console_session final
     win32::event stop_event_;
     win32::basic_thread thread_;
     std::atomic_bool stop_{};
+    std::mutex screen_mutex_;
+    HWND window_{};
 };
 
 } // namespace corehost::window

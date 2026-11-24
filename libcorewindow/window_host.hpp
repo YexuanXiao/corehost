@@ -1,6 +1,7 @@
 #pragma once
 
 #include "d3d12_window_renderer.hpp"
+#include "screen_updates.hpp"
 #include "text_engine.hpp"
 
 #include "win32/error.hpp"
@@ -20,9 +21,11 @@ namespace corehost::window
 class window_host final
 {
   public:
-    explicit window_host(win32::wcstring_view title) : title_{title}
+    window_host(win32::wcstring_view title, screen_update_source source) : title_{title}, source_{source}
     {
         assert(!title_.empty());
+        assert(source_.take != nullptr);
+        assert(source_.attach != nullptr);
     }
 
     window_host(const window_host &) = delete;
@@ -56,6 +59,7 @@ class window_host final
             win32::throw_last_error();
         }
 
+        source_.attach(source_.context, window);
         renderer_.initialize(window);
         ::ShowWindow(window, SW_SHOWDEFAULT);
         ::UpdateWindow(window);
@@ -110,6 +114,9 @@ class window_host final
                            suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
             return 0;
         }
+        case screen_update_message:
+            ::InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
         case WM_CLOSE:
             ::DestroyWindow(hwnd);
             return 0;
@@ -122,6 +129,7 @@ class window_host final
         case WM_PAINT:
             if (self != nullptr)
             {
+                (void)self->source_.take(self->source_.context, self->updates_);
                 self->renderer_.render();
             }
             ::ValidateRect(hwnd, nullptr);
@@ -131,6 +139,7 @@ class window_host final
         case WM_DESTROY:
             if (self != nullptr)
             {
+                self->source_.attach(self->source_.context, nullptr);
                 self->renderer_.reset();
             }
             ::PostQuitMessage(0);
@@ -142,6 +151,8 @@ class window_host final
 
     win32::wcstring_view title_;
     d3d12ui::d3d12_window_renderer renderer_;
+    screen_update_source source_;
+    std::vector<screen_row_update> updates_;
     uitext::text_engine text_{fallback_families(), 32.0f};
 
     static std::array<uitext::font_fallback_entry, 3> fallback_families()
