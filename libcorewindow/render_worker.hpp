@@ -151,10 +151,11 @@ class render_worker final
                     background.g != palette_.default_background.g ||
                     background.b != palette_.default_background.b)
                 {
+                    const auto background_cells = cell.is_wide() ? 2.0f : 1.0f;
                     d3d12ui::text_quad background_quad{
                         .x = static_cast<float>(x) * cell_width,
                         .y = static_cast<float>(y) * cell_height,
-                        .width = cell_width,
+                        .width = cell_width * background_cells,
                         .height = cell_height,
                         .u0 = sample,
                         .v0 = sample,
