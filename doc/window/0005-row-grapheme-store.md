@@ -26,7 +26,7 @@ struct history_row final
 `page` 仍持有 `bizwen::deque<row_block>`；row scroll 时整个 `row_block`
 移动，store 跟着移动。
 
-`screen_buffer` 删除全局 `graphemes_` 和 `std::optional<page> alternate_`；不支持 Win32 多个 screen buffer 的持久内容。这里只有 main page 和 VT alternate page；alternate 只在活跃时存在（`std::optional<page>`），进入时创建空页，离开时销毁，resize 后重建为空页。\n\n访问变为 row-aware：
+`screen_buffer` 删除全局 `graphemes_` 和 `std::optional<page> alternate_`；不支持 Win32 多个 screen buffer 的持久内容。这里只有 main page 和 VT alternate page；alternate 是直接成员，不使用 optional，但每次离开、重新进入和 resize 都会清空其 cells/grapheme store，因此 inactive 时没有有效内容。\n\n访问变为 row-aware：
 
 ```cpp
 std::span<const char16_t> cluster_of(std::size_t y, const cell &value) const;

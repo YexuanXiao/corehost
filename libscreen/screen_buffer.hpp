@@ -214,6 +214,17 @@ class page final
         return rows_[y].graphemes;
     }
 
+    void clear(cell_style fill_style)
+    {
+        for (auto &row : rows_)
+        {
+            row.cells.assign(width_, cell::blank(fill_style));
+            row.state = {};
+            row.graphemes.clear();
+        }
+        mark_all_dirty();
+    }
+
     void erase_front() noexcept
     {
         assert(rows_.size() == height_);
@@ -537,8 +548,8 @@ class screen_buffer final
     page main_;
     viewport view_;
     // Win32 multiple screen buffers are not modeled. This is the VT alternate
-    // screen: it exists only while active and is discarded on leave.
-    std::optional<page> alternate_;
+    // screen. Its storage is cleared on every leave and re-entry.
+    page alternate_;
     bool alternate_active_{};
     bizwen::deque<history_row> history_;
     std::vector<cell_vector> spare_rows_;
@@ -616,7 +627,7 @@ inline void page::mark_all_dirty() noexcept
 
 inline screen_buffer::screen_buffer(std::size_t width, std::size_t height, std::size_t history_limit)
     : width_{width}, height_{height}, history_limit_{history_limit}, main_(width, height),
-      view_(coord{static_cast<std::int32_t>(width), static_cast<std::int32_t>(height)})
+      view_(coord{static_cast<std::int32_t>(width), static_cast<std::int32_t>(height)}), alternate_(width, height)
 {
     assert(width != 0 && height != 0);
     default_style_id_ = styles_.intern(text_style{.legacy_attributes = 0x0007});
@@ -1967,11 +1978,7 @@ inline void screen_buffer::resize(std::size_t width, std::size_t height, cell_st
         resized_main.row(target_y).command_exit_code = main_.row(source_y).command_exit_code;
     }
 
-    alternate_.reset();
-    if (alternate_active_)
-    {
-        alternate_.emplace(width, height, fill_style);
-    }
+    alternate_ = page(width, height, fill_style);
 
     main_ = std::move(resized_main);
     width_ = width;
@@ -1986,13 +1993,13 @@ inline void screen_buffer::set_alternate(bool enabled)
     {
         if (!alternate_active_)
         {
-            alternate_.emplace(width_, height_);
+            alternate_.clear(default_cell_style);
             alternate_active_ = true;
         }
         return;
     }
 
-    alternate_.reset();
+    alternate_.clear(default_cell_style);
     alternate_active_ = false;
 }
 
@@ -2105,7 +2112,7 @@ inline bool screen_buffer::rebuild_graphemes()
     {
         return false;
     }
-    if (alternate_ && !rebuild_page_graphemes(*alternate_, grapheme_scratch_))
+    if (!rebuild_page_graphemes(alternate_, grapheme_scratch_))
     {
         return false;
     }
@@ -2151,18 +2158,18 @@ inline void screen_buffer::clear_damage() noexcept
 
 inline page &screen_buffer::active_page() noexcept
 {
-    if (alternate_active_ && alternate_)
+    if (alternate_active_)
     {
-        return *alternate_;
+        return alternate_;
     }
     return main_;
 }
 
 inline const page &screen_buffer::active_page() const noexcept
 {
-    if (alternate_active_ && alternate_)
+    if (alternate_active_)
     {
-        return *alternate_;
+        return alternate_;
     }
     return main_;
 }
