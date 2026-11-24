@@ -62,7 +62,9 @@ class window_console_session final
     };
 
     static DWORD WINAPI thread_entry(LPVOID self);
+    static DWORD WINAPI input_thread_entry(LPVOID self);
     void run();
+    void run_input();
     bool handle(coreio::io_msg &message);
     void complete_pending();
 
@@ -79,6 +81,7 @@ class window_console_session final
     win32::event input_event_;
     win32::event stop_event_;
     win32::basic_thread thread_;
+    win32::basic_thread input_thread_;
     std::atomic_bool stop_{};
 };
 

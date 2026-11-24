@@ -50,18 +50,10 @@ class console final
         return input_event_;
     }
 
-    void set_worker(win32::handle_view worker) noexcept
-    {
-        worker_ = worker;
-    }
-
     void push_input(consoleinput::input_event event)
     {
         input_.push(std::move(event));
         input_event_.set();
-
-        assert(worker_.valid());
-        (void)::CancelSynchronousIo(worker_.get());
     }
 
     bool copy_updates(std::vector<screen_row_update> &updates)
@@ -125,7 +117,6 @@ class console final
     screen::console_state state_;
     consoleinput::input_queue input_;
     win32::event input_event_{win32::create_tag, true, false};
-    win32::handle_view worker_;
 };
 
 } // namespace corehost::window

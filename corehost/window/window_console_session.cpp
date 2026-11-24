@@ -33,7 +33,8 @@ void window_console_session::start()
 
     coreio::set_server_info(server_, input_event_.view());
     thread_ = win32::basic_thread{&window_console_session::thread_entry, this, {.name = L"corehost-window-console"}};
-    console_.set_worker(thread_.view());
+    input_thread_ =
+        win32::basic_thread{&window_console_session::input_thread_entry, this, {.name = L"corehost-window-input"}};
 }
 
 void window_console_session::stop()
@@ -45,16 +46,52 @@ void window_console_session::stop()
 
     stop_.store(true, std::memory_order_relaxed);
     stop_event_.set();
+    console_.input_event().set();
+    if (input_thread_.valid())
+    {
+        input_thread_.join();
+        input_thread_ = {};
+    }
     (void)::CancelSynchronousIo(thread_.get());
     thread_.join();
     thread_ = {};
-    console_.set_worker({});
 }
 
 DWORD WINAPI window_console_session::thread_entry(LPVOID self)
 {
     static_cast<window_console_session *>(self)->run();
     return 0;
+}
+
+DWORD WINAPI window_console_session::input_thread_entry(LPVOID self)
+{
+    static_cast<window_console_session *>(self)->run_input();
+    return 0;
+}
+
+void window_console_session::run_input()
+{
+    HANDLE waits[] = {console_.input_event().get(), stop_event_.get()};
+    for (;;)
+    {
+        const auto wait = ::WaitForMultipleObjects(2, waits, FALSE, INFINITE);
+        if (wait == WAIT_OBJECT_0 + 1)
+        {
+            return;
+        }
+        if (wait == WAIT_FAILED)
+        {
+            win32::throw_last_error();
+        }
+
+        complete_pending();
+
+        std::unique_lock<win32::srwlock> lock{console_mutex_};
+        if (console_.input().empty())
+        {
+            console_.input_event().reset();
+        }
+    }
 }
 
 bool window_console_session::handle(coreio::io_msg &message)
@@ -153,52 +190,9 @@ void window_console_session::complete_pending()
 
 void window_console_session::run()
 {
-    coreio::io_msg message{};
-    CD_IO_COMPLETE *previous = nullptr;
-
-    for (;;)
-    {
-        if (stop_.load(std::memory_order_relaxed))
-        {
-            return;
-        }
-
-        if (pending_active_)
-        {
-            complete_pending();
-        }
-
-        const auto result = coreio::read_io_try(server_, previous, message);
-        if (result == coreio::read_io_result::got_message)
-        {
-            previous = handle(message) ? &message.complete : nullptr;
-            continue;
-        }
-        if (result == coreio::read_io_result::disconnected)
-        {
-            return;
-        }
-
-        previous = nullptr;
-        HANDLE waits[] = {input_event_.get(), console_.input_event().get(), stop_event_.get()};
-        const auto wait = ::WaitForMultipleObjects(3, waits, FALSE, INFINITE);
-        if (wait == WAIT_FAILED)
-        {
-            win32::throw_last_error();
-        }
-        if (wait == WAIT_OBJECT_0 + 2)
-        {
-            return;
-        }
-        if (wait == WAIT_OBJECT_0 + 1)
-        {
-            std::unique_lock<win32::srwlock> lock{console_mutex_};
-            if (console_.input().empty())
-            {
-                console_.input_event().reset();
-            }
-        }
-    }
+    coreio::win32_transport transport{server_, input_event_.view(), stop_event_.view()};
+    message_handler handler{*this};
+    coreio::run_server(transport, handler, stop_);
 }
 
 } // namespace corehost::window
