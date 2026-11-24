@@ -30,7 +30,7 @@ namespace corehost::window
 class window_console_session final
 {
   public:
-    window_console_session(win32::handle_view server, short width, short height);
+    window_console_session(win32::handle_view server, screen_update_mailbox &mailbox, short width, short height);
     ~window_console_session();
 
     window_console_session(const window_console_session &) = delete;
@@ -39,11 +39,7 @@ class window_console_session final
     void start();
     void stop();
 
-    void set_window_handle(HWND window) noexcept;
 
-    // Copies only damaged row regions. The UI thread calls this before
-    // rendering; the lock is held only while copying.
-    bool take_screen_updates(std::vector<screen_row_update> &updates);
 
   private:
     struct message_handler final
@@ -53,7 +49,7 @@ class window_console_session final
         [[nodiscard]] bool handle(coreio::io_msg &message)
         {
             const auto result = owner.handle(message);
-            owner.notify_damage();
+            owner.publish_screen_updates();
             return result;
         }
 
@@ -70,7 +66,7 @@ class window_console_session final
     static DWORD WINAPI thread_entry(LPVOID self);
     void run();
     bool handle(coreio::io_msg &message);
-    void notify_damage() noexcept;
+    void publish_screen_updates();
 
     win32::handle_view server_;
     screen::screen_buffer screen_;
@@ -85,7 +81,7 @@ class window_console_session final
     win32::basic_thread thread_;
     std::atomic_bool stop_{};
     std::mutex screen_mutex_;
-    HWND window_{};
+    screen_update_mailbox &mailbox_;
 };
 
 } // namespace corehost::window

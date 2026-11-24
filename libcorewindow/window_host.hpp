@@ -22,11 +22,9 @@ namespace corehost::window
 class window_host final
 {
   public:
-    window_host(win32::wcstring_view title, screen_update_source source) : title_{title}, source_{source}
+    window_host(win32::wcstring_view title, screen_update_mailbox &mailbox) : title_{title}, mailbox_{mailbox}
     {
         assert(!title_.empty());
-        assert(source_.take != nullptr);
-        assert(source_.attach != nullptr);
     }
 
     window_host(const window_host &) = delete;
@@ -60,7 +58,7 @@ class window_host final
             win32::throw_last_error();
         }
 
-        source_.attach(source_.context, window);
+        mailbox_.attach(window);
         renderer_.initialize(window);
         ::ShowWindow(window, SW_SHOWDEFAULT);
         ::UpdateWindow(window);
@@ -105,7 +103,9 @@ class window_host final
                 {
                     break;
                 }
-                cells_[row.y * columns + x] = row.text.substr(cell.text_offset, cell.text_length);
+                const auto index = row.y * columns + x;
+                cells_[index] = row.text.substr(cell.text_offset, cell.text_length);
+                cell_state_[index] = cell;
                 ++x;
             }
         }
@@ -123,7 +123,12 @@ class window_host final
         {
             for (std::size_t x = 0; x < columns; ++x)
             {
-                const auto &text = cells_[y * columns + x];
+                const auto index = y * columns + x;
+                if (screen::cell_width_ops::is_tail(cell_state_[index].width))
+                {
+                    continue;
+                }
+                const auto &text = cells_[index];
                 const auto *region = atlas_.find_or_add(text);
                 if (region == nullptr)
                 {
@@ -187,7 +192,7 @@ class window_host final
         case WM_PAINT:
             if (self != nullptr)
             {
-                (void)self->source_.take(self->source_.context, self->updates_);
+                (void)self->mailbox_.take(self->updates_);
                 self->apply_screen_updates();
                 self->build_quads();
                 self->renderer_.render();
@@ -199,7 +204,7 @@ class window_host final
         case WM_DESTROY:
             if (self != nullptr)
             {
-                self->source_.attach(self->source_.context, nullptr);
+                self->mailbox_.detach();
                 self->renderer_.reset();
             }
             ::PostQuitMessage(0);
@@ -211,11 +216,12 @@ class window_host final
 
     win32::wcstring_view title_;
     d3d12ui::d3d12_window_renderer renderer_;
-    screen_update_source source_;
+    screen_update_mailbox &mailbox_;
     std::vector<screen_row_update> updates_;
     uitext::text_engine text_{fallback_families(), 16.0f};
     uitext::cell_atlas atlas_{text_};
     std::vector<std::u16string> cells_ = std::vector<std::u16string>(120u * 30u);
+    std::vector<screen_cell_update> cell_state_ = std::vector<screen_cell_update>(120u * 30u);
     std::vector<d3d12ui::text_quad> quads_;
 
     static std::array<uitext::font_fallback_entry, 3> fallback_families()
