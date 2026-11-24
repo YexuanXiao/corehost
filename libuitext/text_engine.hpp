@@ -50,11 +50,11 @@ struct font_fallback_entry final
 class text_engine final
 {
   public:
-    explicit text_engine(std::span<const font_fallback_entry> families, float size) : size_{size}
+    explicit text_engine(std::span<const font_fallback_entry> families, float size)
+        : size_{size}, families_{families}
     {
-        assert(!families.empty());
+        assert(!families_.empty());
         assert(size_ > 0.0f);
-        families_.assign(families.begin(), families.end());
         winrt::com_ptr<IUnknown> unknown;
         winrt::check_hresult(
             ::DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), unknown.put()));
@@ -294,7 +294,7 @@ class text_engine final
 
     winrt::com_ptr<IDWriteFactory> factory_;
     winrt::com_ptr<IDWriteFontCollection> collection_;
-    std::vector<font_fallback_entry> families_;
+    std::span<const font_fallback_entry> families_;
     winrt::com_ptr<IDWriteFontFallback> fallback_;
     winrt::com_ptr<IDWriteTextFormat> text_format_;
     winrt::com_ptr<IDWriteTextFormat> bold_format_;
