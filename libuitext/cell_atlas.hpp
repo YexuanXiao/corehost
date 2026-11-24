@@ -51,10 +51,7 @@ class cell_atlas final
 
     [[nodiscard]] const atlas_region *find_or_add(char16_t scalar)
     {
-        if (scalar >= 0xD800 && scalar <= 0xDFFF)
-        {
-            return nullptr;
-        }
+        assert(scalar < 0xD800 || scalar > 0xDFFF);
 
         const auto found = entries_.find(scalar);
         if (found != entries_.end())

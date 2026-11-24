@@ -63,10 +63,6 @@ console_palette palette = console_palette::campbell()
 - 非 scalar（surrogate pair、多 code unit grapheme cluster）和 bold scalar 每帧直接栅格化到 transient 区域，不做字符串 key 缓存；
 - 这样避免为组合序列和非 BMP 字符建立无界持久缓存。
 
-## Locale
-
-`CreateTextFormat` 使用 `GetUserDefaultLocaleName`，不再写死 `en-us`。
-
 ## 待扩展
 
 - italic / overline / double underline；
