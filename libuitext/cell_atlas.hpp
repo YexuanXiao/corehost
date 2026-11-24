@@ -32,6 +32,8 @@ class cell_atlas final
         : engine_{engine}, size_{size}, pixels_(static_cast<std::size_t>(size) * size, 0)
     {
         assert(size_ > 0);
+        pixels_.front() = 0xFF;
+        dirty_ = true;
     }
 
     [[nodiscard]] const atlas_region *find_or_add(std::u16string_view text)

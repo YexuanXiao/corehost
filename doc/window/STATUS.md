@@ -34,7 +34,7 @@
 ## 已知问题
 
 - `CONSOLE_IO_RAW_WRITE` 当前只完成写入，不解析 VT，也不进入渲染；
-- damage snapshot 已转成 per-cell quad；尚无光标、颜色、选择、滚动条；
+- damage snapshot 已转成 per-cell quad；已按 cursor_state 的 visible/size 显示前景色块状光标；尚无颜色、选择、滚动条；
 - 渲染线程按合成帧时钟唤醒，即使无 damage 也会被唤醒；尚未实现完全 idle 阻塞策略；
 - 独立渲染线程已接入：DCompositionWaitForCompositorClock 驱动，damage 时取 screen 并 Present，UI 线程不渲染；
 - 键盘输入已接入 WM_CHAR -> shared input queue；独立 input thread 等待 input event 并完成 pending read，不使用 CancelSynchronousIo；实测 echo 输入可自动显示；
