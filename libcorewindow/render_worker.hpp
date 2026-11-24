@@ -343,6 +343,8 @@ class render_worker final
                 1, static_cast<std::size_t>(static_cast<float>(height) / (metrics.ascent + metrics.descent + metrics.line_gap)));
             bool changed = false;
             bool focused = false;
+            bool title_changed = false;
+            std::wstring window_title;
             screen::cursor_state cursor{};
 
             {
@@ -357,6 +359,17 @@ class render_worker final
                 changed = console_.copy_updates(updates_, styles_);
                 cursor = console_.state().cursor();
                 focused = console_.has_focus();
+                if (console_.state().take_title_changed())
+                {
+                    const auto &title = console_.state().title;
+                    window_title.assign(reinterpret_cast<const wchar_t *>(title.data()), title.size());
+                    title_changed = true;
+                }
+            }
+
+            if (title_changed)
+            {
+                ::SetWindowTextW(window_, window_title.c_str());
             }
 
             const bool cursor_changed = cursor_dirty || !same_cursor(cursor_, cursor);

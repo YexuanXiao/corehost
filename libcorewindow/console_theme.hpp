@@ -66,8 +66,25 @@ struct console_palette final
     {
     case screen::color_kind::default_color:
         return foreground ? palette.default_foreground : palette.default_background;
-    case screen::color_kind::indexed:
-        return palette.indexed[value.value & 0x0F];
+    case screen::color_kind::indexed: {
+        const auto index = value.value & 0xFFu;
+        if (index < 16)
+        {
+            return palette.indexed[index];
+        }
+        if (index < 232)
+        {
+            const auto cube = index - 16;
+            constexpr std::uint8_t levels[6] = {0, 95, 135, 175, 215, 255};
+            return console_color{levels[(cube / 36) % 6], levels[(cube / 6) % 6], levels[cube % 6]};
+        }
+        if (index < 256)
+        {
+            const auto level = static_cast<std::uint8_t>(8 + 10 * (index - 232));
+            return console_color{level, level, level};
+        }
+        return foreground ? palette.default_foreground : palette.default_background;
+    }
     case screen::color_kind::rgb:
         return console_color{static_cast<std::uint8_t>((value.value >> 16) & 0xFF),
                              static_cast<std::uint8_t>((value.value >> 8) & 0xFF),

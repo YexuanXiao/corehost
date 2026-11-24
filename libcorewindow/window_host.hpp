@@ -127,6 +127,54 @@ class window_host final
     }
 
   private:
+    static std::uint32_t control_state() noexcept
+    {
+        std::uint32_t state = 0;
+        if ((::GetKeyState(VK_SHIFT) & 0x8000) != 0)
+        {
+            state |= 0x0010;
+        }
+        if ((::GetKeyState(VK_CONTROL) & 0x8000) != 0)
+        {
+            state |= 0x0008;
+        }
+        if ((::GetKeyState(VK_MENU) & 0x8000) != 0)
+        {
+            state |= 0x0004;
+        }
+        return state;
+    }
+
+    static consoleinput::key_event character_key(char16_t character) noexcept
+    {
+        auto event = consoleinput::key_from_character(character);
+        event.control_state |= control_state();
+        switch (character)
+        {
+        case u'\r':
+        case u'\n':
+            event.key = static_cast<consoleinput::virtual_key>(VK_RETURN);
+            break;
+        case u'\b':
+            event.key = static_cast<consoleinput::virtual_key>(VK_BACK);
+            break;
+        case u'\t':
+            event.key = static_cast<consoleinput::virtual_key>(VK_TAB);
+            break;
+        case 0x1B:
+            event.key = static_cast<consoleinput::virtual_key>(VK_ESCAPE);
+            break;
+        default:
+            if (character >= 1 && character <= 26)
+            {
+                event.key = static_cast<consoleinput::virtual_key>(u'A' + character - 1);
+                event.control_state |= 0x0008;
+            }
+            break;
+        }
+        return event;
+    }
+
     static DWORD WINAPI process_thread_entry(LPVOID self)
     {
         static_cast<window_host *>(self)->monitor_process();
@@ -206,16 +254,108 @@ class window_host final
                 self->console_.set_focused(false);
             }
             return 0;
+        case WM_KEYDOWN:
+            if (self != nullptr)
+            {
+                auto key = consoleinput::virtual_key{};
+                bool handled = true;
+                switch (wparam)
+                {
+                case VK_UP:
+                    key = consoleinput::virtual_key::up;
+                    break;
+                case VK_DOWN:
+                    key = consoleinput::virtual_key::down;
+                    break;
+                case VK_LEFT:
+                    key = consoleinput::virtual_key::left;
+                    break;
+                case VK_RIGHT:
+                    key = consoleinput::virtual_key::right;
+                    break;
+                case VK_HOME:
+                    key = consoleinput::virtual_key::home;
+                    break;
+                case VK_END:
+                    key = consoleinput::virtual_key::end;
+                    break;
+                case VK_INSERT:
+                    key = consoleinput::virtual_key::insert;
+                    break;
+                case VK_DELETE:
+                    key = consoleinput::virtual_key::del;
+                    break;
+                case VK_PRIOR:
+                    key = consoleinput::virtual_key::page_up;
+                    break;
+                case VK_NEXT:
+                    key = consoleinput::virtual_key::page_down;
+                    break;
+                case VK_F1:
+                case VK_F2:
+                case VK_F3:
+                case VK_F4:
+                case VK_F5:
+                case VK_F6:
+                case VK_F7:
+                case VK_F8:
+                case VK_F9:
+                case VK_F10:
+                case VK_F11:
+                case VK_F12:
+                    key = static_cast<consoleinput::virtual_key>(wparam);
+                    break;
+                default:
+                    handled = false;
+                    break;
+                }
+
+                if (handled)
+                {
+                    auto event = consoleinput::input_event{
+                        .type = consoleinput::input_event_type::key,
+                        .key =
+                            consoleinput::key_event{
+                                .character = 0,
+                                .key = key,
+                                .scan_code = static_cast<std::uint16_t>(LOBYTE(lparam)),
+                                .control_state = control_state(),
+                            },
+                    };
+                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                    self->console_.push_input(std::move(event));
+                    return 0;
+                }
+            }
+            return ::DefWindowProcW(hwnd, message, wparam, lparam);
+        case WM_KEYUP:
+            if (self != nullptr)
+            {
+                auto event = consoleinput::input_event{
+                    .type = consoleinput::input_event_type::key,
+                    .key =
+                        consoleinput::key_event{
+                            .character = 0,
+                            .key = static_cast<consoleinput::virtual_key>(wparam),
+                            .scan_code = static_cast<std::uint16_t>(LOBYTE(lparam)),
+                            .control_state = control_state(),
+                        },
+                };
+                event.key.key_down = false;
+                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                self->console_.push_input(std::move(event));
+            }
+            return 0;
         case WM_CHAR:
             if (self != nullptr)
             {
                 const auto character = static_cast<char16_t>(wparam);
                 if (character >= 0x20 || character == u'\r' || character == u'\n' || character == u'\b' ||
-                    character == u'\t')
+                    character == u'\t' || character == 0x1B || (character >= 1 && character <= 26))
                 {
                     auto event = consoleinput::input_event{
                         .type = consoleinput::input_event_type::key,
-                        .key = consoleinput::key_from_character(character),
+                        .key = character_key(character),
                     };
                     std::unique_lock<win32::srwlock> lock{self->console_mutex_};
                     self->console_.push_input(std::move(event));
