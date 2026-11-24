@@ -1,5 +1,36 @@
 # Window Mode 启动契约
 
+## 最终决策
+
+采用与 `conhost.exe cmd.exe` 等价的启动方式：
+
+```text
+corehostw title client-command-line
+    ↓
+window_entry(title, client_command_line)
+    ↓
+NtCreateFile(\Device\ConDrv\Server)
+    ↓
+创建 \Reference、\Input、\Output 客户端句柄
+    ↓
+建立进程内控制台会话和窗口
+    ↓
+CreateProcess(client, PROC_THREAD_ATTRIBUTE_CONSOLE_REFERENCE)
+```
+
+`window_entry` 保持 `client_entry` 的参数形式，但不再只是启动 client；它先创建 ConDrv 服务器，建立自己的控制台会话和窗口，再把控制台客户端句柄交给子进程。
+
+这与原始 conhost 的 `Entrypoints::StartConsoleForCmdLine` 路径一致：
+
+1. `DeviceHandle::CreateServerHandle` 创建 `\Device\ConDrv\Server`；
+2. `DeviceHandle::CreateClientHandle(..., \Reference, ...)`；
+3. `StartConsoleForServerHandle` 建立控制台；
+4. 创建 `\Input`、`\Output` 和复制出的 Error 句柄；
+5. `CreateProcessW` 通过 `PROC_THREAD_ATTRIBUTE_CONSOLE_REFERENCE` 和 `STARTF_USESTDHANDLES` 启动 client；
+6. corehost 自己成为该 client 的 console host。
+
+不启动系统 conhost，不启动第三方终端，不使用 ConPTY。
+
 ## 现有启动方式
 
 `corehost/cli/main.cpp` 当前有三种主要路径：
