@@ -1,5 +1,6 @@
 #include "window_console_session.hpp"
 
+#include "utility/log.hpp"
 #include "win32/error.hpp"
 
 #include <cassert>
@@ -132,10 +133,12 @@ bool window_console_session::handle_write_console(coreio::io_msg &message)
 
     auto *request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
     const auto payload = payload_.read(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG));
+    LOG2_HEX("write console", payload.data(), payload.size());
     if (request->Unicode != FALSE)
     {
-        apply_vt(std::u16string_view{reinterpret_cast<const char16_t *>(payload.data()),
-                                     payload.size() / sizeof(char16_t)});
+        const auto units = payload.size() / sizeof(char16_t);
+        const auto *data = reinterpret_cast<const char16_t *>(payload.data());
+        apply_vt(std::u16string_view{data, units});
     }
     else
     {
@@ -194,6 +197,7 @@ bool window_console_session::handle(coreio::io_msg &message)
         return false;
     case CONSOLE_IO_RAW_WRITE: {
         const auto payload = payload_.read(message, 0);
+        LOG2_HEX("raw output", payload.data(), payload.size());
         const auto code_page = console_.state().output_code_page;
         vt_text_.resize(payload.size());
         const auto units = ::MultiByteToWideChar(
