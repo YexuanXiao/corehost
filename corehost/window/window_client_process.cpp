@@ -6,6 +6,7 @@
 #include <Windows.h>
 
 #include <array>
+#include <cassert>
 #include <cstddef>
 #include <vector>
 
@@ -13,8 +14,10 @@ namespace corehost::window
 {
 
 window_client_process::window_client_process(win32::handle_view server, win32::wcstring_view title,
-                                             const std::wstring &command_line)
+                                             win32::wcstring_view command_line)
 {
+    assert(!command_line.empty());
+
     auto reference = condrv::create_client_handle(server, L"\\Reference");
     auto input = condrv::create_client_handle(server, L"\\Input", true);
     auto output = condrv::create_client_handle(server, L"\\Output", true);
@@ -26,7 +29,7 @@ window_client_process::window_client_process(win32::handle_view server, win32::w
         win32::throw_last_error();
     }
 
-    auto mutable_command_line = command_line;
+    auto mutable_command_line = std::wstring{command_line.c_str(), command_line.size()};
 
     STARTUPINFOEXW startup{};
     startup.StartupInfo.cb = sizeof(startup);
