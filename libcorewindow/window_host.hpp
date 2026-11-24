@@ -233,7 +233,7 @@ class window_host final
         const auto height = static_cast<float>(client.bottom - client.top);
         const auto rows = console_.buffer().height();
         const auto history = console_.history_size();
-        const auto offset = std::min(console_.scroll_offset(), history);
+        const auto offset = std::min(console_.scroll_offset(), static_cast<double>(history));
         const scrollbar::state state{history + rows, rows, history - offset};
         const auto bar_width = scrollbar::default_width * scale;
         return scrollbar::compute(width - bar_width, 0.0f, bar_width, height, state);
@@ -245,7 +245,8 @@ class window_host final
         const auto y = static_cast<float>(GET_Y_LPARAM(lparam));
         std::unique_lock<win32::srwlock> lock{console_mutex_};
         const auto geometry = scrollbar_geometry(hwnd);
-        console_.set_scrollbar_hovered(scrollbar::hit_test(geometry, x, y) != scrollbar::hit_target::none);
+        console_.set_scrollbar_hovered(scrollbar_dragging_ ||
+                                       scrollbar::hit_test(geometry, x, y) != scrollbar::hit_target::none);
         if (!tracking_mouse_leave_)
         {
             TRACKMOUSEEVENT track{.cbSize = sizeof(TRACKMOUSEEVENT),
@@ -268,7 +269,15 @@ class window_host final
         const auto target = scrollbar::hit_test(geometry, x, y);
         const auto rows = console_.buffer().height();
         const auto history = console_.history_size();
-        if (target == scrollbar::hit_target::thumb)
+        if (target == scrollbar::hit_target::arrow_up)
+        {
+            console_.scroll_by(1);
+        }
+        else if (target == scrollbar::hit_target::arrow_down)
+        {
+            console_.scroll_by(-1);
+        }
+        else if (target == scrollbar::hit_target::thumb)
         {
             scrollbar_dragging_ = true;
             scrollbar_grab_offset_ = scrollbar::grab_offset(geometry, y);
@@ -279,11 +288,11 @@ class window_host final
             if ((::GetKeyState(VK_SHIFT) & 0x8000) != 0)
             {
                 const scrollbar::state state{history + rows, rows,
-                                             history - std::min(console_.scroll_offset(), history)};
+                                             static_cast<double>(history) -
+                                                 std::min(console_.scroll_offset(), static_cast<double>(history))};
                 const auto top = scrollbar::top_from_pointer(geometry, y, 0.0f, state);
-                const auto desired = history - top;
-                console_.scroll_by(static_cast<std::ptrdiff_t>(desired) -
-                                   static_cast<std::ptrdiff_t>(console_.scroll_offset()));
+                const auto desired = static_cast<double>(history) - top;
+                console_.scroll_by(desired - console_.scroll_offset());
             }
             else if (target == scrollbar::hit_target::above_thumb)
             {
@@ -308,11 +317,11 @@ class window_host final
         const auto rows = console_.buffer().height();
         const auto history = console_.history_size();
         const scrollbar::state state{history + rows, rows,
-                                     history - std::min(console_.scroll_offset(), history)};
+                                     static_cast<double>(history) -
+                                         std::min(console_.scroll_offset(), static_cast<double>(history))};
         const auto top = scrollbar::top_from_pointer(geometry, y, scrollbar_grab_offset_, state);
-        const auto desired = history - top;
-        console_.scroll_by(static_cast<std::ptrdiff_t>(desired) -
-                           static_cast<std::ptrdiff_t>(console_.scroll_offset()));
+        const auto desired = static_cast<double>(history) - top;
+        console_.scroll_by(desired - console_.scroll_offset());
     }
 
     static LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
@@ -358,8 +367,7 @@ class window_host final
                 if (delta != 0)
                 {
                     std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                    self->console_.scroll_by(static_cast<std::ptrdiff_t>(delta) * 3 /
-                                             static_cast<std::ptrdiff_t>(WHEEL_DELTA));
+                    self->console_.scroll_by(static_cast<double>(delta) * 3.0 / static_cast<double>(WHEEL_DELTA));
                 }
             }
             return 0;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 
@@ -13,6 +14,8 @@ struct geometry final
     float y{};
     float width{};
     float height{};
+    float track_y{};
+    float track_height{};
     float thumb_y{};
     float thumb_height{};
     bool visible{};
@@ -21,19 +24,22 @@ struct geometry final
 enum class hit_target : std::uint8_t
 {
     none,
+    arrow_up,
     above_thumb,
     thumb,
     below_thumb,
+    arrow_down,
 };
 
 struct state final
 {
     std::size_t total_rows{};
     std::size_t visible_rows{};
-    std::size_t top_row{};
+    double top_row{};
 };
 
 inline constexpr float default_width = 16.0f;
+inline constexpr float arrow_height = 26.0f;
 inline constexpr float minimum_thumb_height = 24.0f;
 
 [[nodiscard]] inline std::size_t max_top(const state &value) noexcept
@@ -44,22 +50,25 @@ inline constexpr float minimum_thumb_height = 24.0f;
 [[nodiscard]] inline geometry compute(float x, float y, float width, float height, const state &value) noexcept
 {
     geometry result{.x = x, .y = y, .width = width, .height = height};
-    if (value.visible_rows == 0 || value.total_rows <= value.visible_rows || height <= 0.0f)
+    const auto track_y = y + arrow_height;
+    const auto track_height = height - 2.0f * arrow_height;
+    result.track_y = track_y;
+    result.track_height = track_height;
+    if (value.visible_rows == 0 || value.total_rows <= value.visible_rows || track_height <= 0.0f)
     {
         return result;
     }
 
     result.visible = true;
-    const auto track = std::max(0.0f, height - 2.0f);
-    const auto thumb = std::clamp(track * static_cast<float>(value.visible_rows) /
+    const auto thumb = std::clamp(track_height * static_cast<float>(value.visible_rows) /
                                       static_cast<float>(value.total_rows),
-                                  std::min(minimum_thumb_height, track), track);
-    const auto top = std::min(value.top_row, max_top(value));
+                                  std::min(minimum_thumb_height, track_height), track_height);
+    const auto top = std::min(value.top_row, static_cast<double>(max_top(value)));
     const auto fraction = max_top(value) == 0
                               ? 0.0f
-                              : static_cast<float>(top) / static_cast<float>(max_top(value));
+                              : static_cast<float>(top / static_cast<double>(max_top(value)));
     result.thumb_height = thumb;
-    result.thumb_y = y + 1.0f + (track - thumb) * fraction;
+    result.thumb_y = track_y + (track_height - thumb) * fraction;
     return result;
 }
 
@@ -68,6 +77,14 @@ inline constexpr float minimum_thumb_height = 24.0f;
     if (!value.visible || x < value.x || x >= value.x + value.width || y < value.y || y >= value.y + value.height)
     {
         return hit_target::none;
+    }
+    if (y < value.track_y)
+    {
+        return hit_target::arrow_up;
+    }
+    if (y >= value.track_y + value.track_height)
+    {
+        return hit_target::arrow_down;
     }
     if (y < value.thumb_y)
     {
@@ -80,19 +97,17 @@ inline constexpr float minimum_thumb_height = 24.0f;
     return hit_target::thumb;
 }
 
-[[nodiscard]] inline std::size_t top_from_pointer(const geometry &value, float pointer_y, float grab_offset,
-                                                   const state &scroll) noexcept
+[[nodiscard]] inline double top_from_pointer(const geometry &value, float pointer_y, float grab_offset,
+                                                const state &scroll) noexcept
 {
-    const auto track = std::max(0.0f, value.height - 2.0f);
-    const auto travel = std::max(0.0f, track - value.thumb_height);
+    const auto travel = std::max(0.0f, value.track_height - value.thumb_height);
     if (travel <= 0.0f || max_top(scroll) == 0)
     {
-        return 0;
+        return 0.0;
     }
 
-    const auto position = std::clamp(pointer_y - value.y - 1.0f - grab_offset, 0.0f, travel);
-    return static_cast<std::size_t>(
-        static_cast<float>(max_top(scroll)) * (position / travel) + 0.5f);
+    const auto position = std::clamp(pointer_y - value.track_y - grab_offset, 0.0f, travel);
+    return static_cast<double>(max_top(scroll)) * (position / travel);
 }
 
 [[nodiscard]] inline float grab_offset(const geometry &value, float pointer_y) noexcept

@@ -519,11 +519,11 @@ class console_state final
     [[nodiscard]] std::span<const rectangle> search_matches() const noexcept;
     [[nodiscard]] bool is_search_match(std::size_t x, std::size_t y) const noexcept;
 
-    [[nodiscard]] std::size_t scroll_offset() const noexcept
+    [[nodiscard]] double scroll_offset() const noexcept
     {
         return scroll_offset_;
     }
-    void set_scroll_offset(std::size_t value) noexcept
+    void set_scroll_offset(double value) noexcept
     {
         scroll_offset_ = value;
     }
@@ -544,7 +544,7 @@ class console_state final
     std::size_t scroll_bottom_{};
     tab_stop_table tabs_;
     selection_range selection_;
-    std::size_t scroll_offset_{};
+    double scroll_offset_{};
     bool scroll_locked_{};
     std::vector<rectangle> search_matches_;
 };

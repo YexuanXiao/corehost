@@ -42,12 +42,14 @@ snap_to_bottom_if_unlocked()
 
 ## 交互
 
-- 滚轮：3 行/notch；
+- 滚轮：每 120 delta 滚 3 行，保留高精度滚轮的小数增量；
 - 右侧 16 DIP overlay scrollbar；
-- 普通状态 2 DIP thumb，右侧 4 DIP；hover 展开为 8 DIP thumb + 淡 track；
-- 顶部/底部上下箭头；
-- 280ms Fluent 风格展开动画，按帧推进；
-- thumb 拖动；
+- thumb 只在上/下 26 DIP 箭头区域之间移动；
+- 普通状态 2 DIP thumb，右侧 4 DIP；hover 展开为 8 DIP 圆角 thumb + 淡 track；
+- 顶部/底部上下箭头，点击滚动 1 行；
+- 展开动画在约 8 帧内完成，按现有 compositor frame loop 推进；
+- thumb 拖动为连续小数偏移；
+- 内容滚动支持小数 offset，不是整行跳变。
 - 轨道点击：上/下翻一页；
 - Shift + 轨道点击：跳到点击位置；
 - `Ctrl+Shift+S` / `ScrollLock`：切换 scroll lock；

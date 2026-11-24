@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <string>
 #include <utility>
@@ -137,10 +138,10 @@ class console final
     void set_history_limit(std::size_t limit)
     {
         screen_.set_history_limit(limit);
-        state_.set_scroll_offset(std::min(state_.scroll_offset(), screen_.history_size()));
+        state_.set_scroll_offset(std::min(state_.scroll_offset(), static_cast<double>(screen_.history_size())));
     }
 
-    [[nodiscard]] std::size_t scroll_offset() const noexcept
+    [[nodiscard]] double scroll_offset() const noexcept
     {
         return state_.scroll_offset();
     }
@@ -165,12 +166,11 @@ class console final
         state_.set_scroll_locked(!state_.scroll_locked());
     }
 
-    void scroll_by(std::ptrdiff_t lines) noexcept
+    void scroll_by(double lines) noexcept
     {
-        const auto history = screen_.history_size();
-        const auto current = static_cast<std::ptrdiff_t>(std::min(state_.scroll_offset(), history));
-        const auto next = std::clamp<std::ptrdiff_t>(current + lines, 0, static_cast<std::ptrdiff_t>(history));
-        state_.set_scroll_offset(static_cast<std::size_t>(next));
+        const auto history = static_cast<double>(screen_.history_size());
+        const auto next = std::clamp(state_.scroll_offset() + lines, 0.0, history);
+        state_.set_scroll_offset(next);
     }
 
     void scroll_to_bottom() noexcept
@@ -191,15 +191,17 @@ class console final
         }
     }
 
-    void copy_scrolled_rows(std::size_t offset, std::vector<screen::row_block> &rows, screen::style_table &styles)
+    void copy_scrolled_rows(double offset, std::vector<screen::row_block> &rows, screen::style_table &styles,
+                            double &fraction)
     {
         rows.clear();
         styles = screen_.styles();
         const auto height = screen_.height();
         const auto width = screen_.width();
-        rows.reserve(height);
+        fraction = 0.0;
+        rows.reserve(height + 1);
 
-        if (screen_.alternate_active() || offset == 0)
+        if (screen_.alternate_active() || offset <= 0.0)
         {
             rows.resize(height);
             for (std::size_t y = 0; y < height; ++y)
@@ -210,9 +212,12 @@ class console final
         }
 
         const auto history = screen_.history_size();
-        offset = std::min(offset, history);
-        const auto top = history - offset;
-        for (std::size_t y = 0; y < height; ++y)
+        offset = std::min(offset, static_cast<double>(history));
+        const auto whole = static_cast<std::size_t>(std::floor(offset));
+        fraction = offset - static_cast<double>(whole);
+        const auto top = history - std::min(history, whole + (fraction > 0.0 ? 1U : 0U));
+        const auto count = height + (fraction > 0.0 ? 1U : 0U);
+        for (std::size_t y = 0; y < count; ++y)
         {
             const auto virtual_row = top + y;
             if (virtual_row < history)

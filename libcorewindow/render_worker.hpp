@@ -157,6 +157,29 @@ class render_worker final
         quads.push_back(quad);
     }
 
+    static void add_rounded_quad(std::vector<d3d12ui::text_quad> &quads, float x, float y, float width,
+                                 float height, float radius, float sample, console_color color, float alpha)
+    {
+        if (radius <= 0.0f || width <= radius * 2.0f || height <= radius * 2.0f)
+        {
+            add_line_quad(quads, x, y, width, height, color, sample, alpha);
+            return;
+        }
+
+        constexpr int steps = 8;
+        const auto slice = radius / static_cast<float>(steps);
+        for (int i = 0; i < steps; ++i)
+        {
+            const auto dy = radius - (static_cast<float>(i) + 0.5f) * slice;
+            const auto inset = radius - std::sqrt(std::max(0.0f, radius * radius - dy * dy));
+            add_line_quad(quads, x + inset, y + static_cast<float>(i) * slice, width - inset * 2.0f,
+                          slice + 0.5f, color, sample, alpha);
+            add_line_quad(quads, x + inset, y + height - static_cast<float>(i + 1) * slice,
+                          width - inset * 2.0f, slice + 0.5f, color, sample, alpha);
+        }
+        add_line_quad(quads, x, y + radius, width, height - radius * 2.0f, color, sample, alpha);
+    }
+
     static bool same_cursor(const screen::cursor_state &left, const screen::cursor_state &right) noexcept
     {
         return left.x == right.x && left.y == right.y && left.visible == right.visible &&
@@ -173,8 +196,9 @@ class render_worker final
         const auto cell_width = metrics.advance;
         const auto cell_height = metrics.ascent + metrics.descent + metrics.line_gap;
         const auto atlas_scale = 1.0f / static_cast<float>(atlas_.size());
+        const auto scroll_shift = -static_cast<float>(scroll_fraction_) * cell_height;
 
-        for (std::size_t y = 0; y < rows; ++y)
+        for (std::size_t y = 0; y < display_rows_; ++y)
         {
             for (std::size_t x = 0; x < columns; ++x)
             {
@@ -211,7 +235,7 @@ class render_worker final
                 {
                     d3d12ui::text_quad background_quad{
                         .x = static_cast<float>(x) * cell_width,
-                        .y = static_cast<float>(y) * cell_height,
+                        .y = static_cast<float>(y) * cell_height + scroll_shift,
                         .width = cell_width * cell_span,
                         .height = cell_height,
                         .u0 = sample,
@@ -233,13 +257,13 @@ class render_worker final
                 if (has_attribute(style, screen::text_style_attribute::underline))
                 {
                     add_line_quad(quads_, static_cast<float>(x) * cell_width,
-                                  static_cast<float>(y) * cell_height + metrics.ascent + 1.0f,
+                                  static_cast<float>(y) * cell_height + metrics.ascent + 1.0f + scroll_shift,
                                   cell_width * cell_span, 1.0f, line_color, sample, text_alpha);
                 }
                 if (has_attribute(style, screen::text_style_attribute::strikethrough))
                 {
                     add_line_quad(quads_, static_cast<float>(x) * cell_width,
-                                  static_cast<float>(y) * cell_height + metrics.ascent * 0.5f,
+                                  static_cast<float>(y) * cell_height + metrics.ascent * 0.5f + scroll_shift,
                                   cell_width * cell_span, 1.0f, line_color, sample, text_alpha);
                 }
 
@@ -267,7 +291,7 @@ class render_worker final
                     {
                         d3d12ui::text_quad color_quad{
                             .x = static_cast<float>(x) * cell_width + static_cast<float>(region.left),
-                            .y = static_cast<float>(y) * cell_height + metrics.ascent +
+                            .y = static_cast<float>(y) * cell_height + metrics.ascent + scroll_shift +
                                  static_cast<float>(region.top),
                             .width = static_cast<float>(region.width),
                             .height = static_cast<float>(region.height),
@@ -293,7 +317,7 @@ class render_worker final
 
                 const auto left = static_cast<float>(x) * cell_width + static_cast<float>(region->left);
                 const auto top =
-                    static_cast<float>(y) * cell_height + metrics.ascent + static_cast<float>(region->top);
+                    static_cast<float>(y) * cell_height + metrics.ascent + static_cast<float>(region->top) + scroll_shift;
                 d3d12ui::text_quad text_quad{
                     .x = left,
                     .y = top,
@@ -376,22 +400,35 @@ class render_worker final
                     add_line_quad(quads_, client_width - scrollbar_width, 0.0f, scrollbar_width, client_height,
                                   thumb_color, sample, 0.055f * expand);
                 }
-                add_line_quad(quads_, thumb_x, geometry.thumb_y, thumb_width, geometry.thumb_height, thumb_color,
-                              sample, 0.54f);
+                add_rounded_quad(quads_, thumb_x, geometry.thumb_y, thumb_width, geometry.thumb_height,
+                                 std::min(4.0f * scale, thumb_width * 0.5f), sample, thumb_color, 0.54f);
                 if (expand > 0.01f)
                 {
                     const auto arrow_center = client_width - 8.0f * scale;
                     const auto arrow_width = 10.0f * scale;
-                    const auto bar_height = std::max(1.0f, 9.0f * scale / 5.0f);
-                    for (int i = 0; i < 5; ++i)
+                    const auto arrow_height = 9.0f * scale;
+                    for (int i = 0; i < 2; ++i)
                     {
-                        const auto width = arrow_width * static_cast<float>(i + 1) / 5.0f;
-                        const auto y = 8.5f * scale + static_cast<float>(i) * bar_height;
-                        add_line_quad(quads_, arrow_center - width * 0.5f, y, width, bar_height, thumb_color, sample,
-                                      0.54f * expand);
-                        add_line_quad(quads_, arrow_center - width * 0.5f,
-                                      client_height - 8.5f * scale - static_cast<float>(i + 1) * bar_height, width,
-                                      bar_height, thumb_color, sample, 0.54f * expand);
+                        const auto scalar = i == 0 ? u'\u25B2' : u'\u25BC';
+                        const auto y = i == 0 ? 8.5f * scale
+                                              : client_height - 8.5f * scale - arrow_height;
+                        const auto *region = atlas_.find_or_add(scalar);
+                        if (region == nullptr)
+                        {
+                            continue;
+                        }
+                        d3d12ui::text_quad arrow{
+                            .x = arrow_center - arrow_width * 0.5f,
+                            .y = y,
+                            .width = arrow_width,
+                            .height = arrow_height,
+                            .u0 = static_cast<float>(region->x) * atlas_scale,
+                            .v0 = static_cast<float>(region->y) * atlas_scale,
+                            .u1 = static_cast<float>(region->x + region->width) * atlas_scale,
+                            .v1 = static_cast<float>(region->y + region->height) * atlas_scale,
+                        };
+                        set_tint(arrow, thumb_color, 0.54f * expand);
+                        quads_.push_back(arrow);
                     }
                 }
             }
@@ -476,24 +513,26 @@ class render_worker final
                     console_.resize(desired_columns, desired_rows);
                     columns = desired_columns;
                     rows = desired_rows;
-                    cell_state_.assign(columns * rows, screen::cell{});
+                    cell_state_.assign(columns * (rows + 1), screen::cell{});
                     resized = true;
                 }
 
                 const auto history = console_.history_size();
                 auto offset = console_.scroll_offset();
-                if (offset != 0 && history > history_size_)
+                if (offset > 0.0 && history > history_size_)
                 {
                     // Keep the viewed history row fixed when new output is appended.
-                    console_.scroll_by(static_cast<std::ptrdiff_t>(history - history_size_));
+                    console_.scroll_by(static_cast<double>(history - history_size_));
                     offset = console_.scroll_offset();
                 }
-                scroll_changed = resized || offset != scroll_offset_ || history != history_size_;
+                scroll_changed = resized || std::abs(offset - scroll_offset_) > 0.0001 ||
+                                 history != history_size_;
                 if (scroll_changed)
                 {
-                    console_.copy_scrolled_rows(offset, scroll_rows_, styles_);
+                    console_.copy_scrolled_rows(offset, scroll_rows_, styles_, scroll_fraction_);
                     scroll_offset_ = offset;
                     history_size_ = history;
+                    display_rows_ = scroll_rows_.size();
                     changed = true;
                 }
                 else
@@ -532,7 +571,7 @@ class render_worker final
                 const auto target = scrollbar_hovered_ ? 1.0f : 0.0f;
                 if (scrollbar_expand_ != target)
                 {
-                    constexpr float step = 1.0f / 17.0f;
+                    constexpr float step = 1.0f / 8.0f;
                     scrollbar_expand_ = target > scrollbar_expand_ ? std::min(target, scrollbar_expand_ + step)
                                                                    : std::max(target, scrollbar_expand_ - step);
                     scrollbar_animating = true;
@@ -581,7 +620,7 @@ class render_worker final
     static constexpr ULONGLONG blink_interval_ms = 530;
     UINT dpi_ = 96;
 
-    std::vector<screen::cell> cell_state_ = std::vector<screen::cell>(columns * rows);
+    std::vector<screen::cell> cell_state_ = std::vector<screen::cell>(columns * (rows + 1));
     screen::style_table styles_;
     console_palette palette_;
     screen::cursor_state cursor_{};
@@ -595,7 +634,9 @@ class render_worker final
     std::vector<d3d12ui::text_quad> color_quads_;
     std::vector<screen::row_block> updates_;
     std::vector<screen::row_block> scroll_rows_;
-    std::size_t scroll_offset_{};
+    double scroll_offset_{};
+    double scroll_fraction_{};
+    std::size_t display_rows_{};
     std::size_t history_size_{};
     win32::basic_thread thread_;
     win32::event stop_event_{win32::create_tag, true, false};
