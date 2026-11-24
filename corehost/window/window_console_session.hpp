@@ -12,6 +12,7 @@
 #include "screen_buffer.hpp"
 #include "win32/event.hpp"
 #include "win32/handle.hpp"
+#include "win32/srwlock.hpp"
 #include "win32/thread.hpp"
 
 #include <atomic>
@@ -29,7 +30,7 @@ namespace corehost::window
 class window_console_session final
 {
   public:
-    window_console_session(win32::handle_view server, console &console);
+    window_console_session(win32::handle_view server, console &console, win32::srwlock &console_mutex);
     ~window_console_session();
 
     window_console_session(const window_console_session &) = delete;
@@ -67,6 +68,7 @@ class window_console_session final
 
     win32::handle_view server_;
     console &console_;
+    win32::srwlock &console_mutex_;
     coreio::io_msg pending_message_{};
     consoleapi::console_api::pending_read_kind pending_kind_{};
     bool pending_active_{};

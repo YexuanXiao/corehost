@@ -5,12 +5,10 @@
 #include "screen_buffer.hpp"
 #include "screen_updates.hpp"
 #include "win32/event.hpp"
-#include "win32/srwlock.hpp"
 
 #include <Windows.h>
 
 #include <cstddef>
-#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -30,11 +28,6 @@ class console final
 
     console(const console &) = delete;
     console &operator=(const console &) = delete;
-
-    [[nodiscard]] win32::srwlock &mutex() noexcept
-    {
-        return mutex_;
-    }
 
     [[nodiscard]] screen::screen_buffer &buffer() noexcept
     {
@@ -63,11 +56,8 @@ class console final
 
     void push_input(consoleinput::input_event event)
     {
-        {
-            std::unique_lock<win32::srwlock> lock{mutex_};
-            input_.push(std::move(event));
-            input_event_.set();
-        }
+        input_.push(std::move(event));
+        input_event_.set();
 
         if (worker_ != nullptr)
         {
@@ -77,7 +67,6 @@ class console final
 
     bool copy_updates(std::vector<screen_row_update> &updates)
     {
-        std::unique_lock<win32::srwlock> lock{mutex_};
         updates.clear();
         if (!screen_.has_damage())
         {
@@ -133,7 +122,6 @@ class console final
     }
 
   private:
-    win32::srwlock mutex_;
     screen::screen_buffer screen_;
     screen::console_state state_;
     consoleinput::input_queue input_;

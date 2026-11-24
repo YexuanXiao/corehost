@@ -8,8 +8,9 @@
 namespace corehost::window
 {
 
-window_console_session::window_console_session(win32::handle_view server, console &console)
-    : server_{server}, console_{console}, processes_{}, io_state_{server, {}, {}, processes_},
+window_console_session::window_console_session(win32::handle_view server, console &console,
+                                                     win32::srwlock &console_mutex)
+    : server_{server}, console_{console}, console_mutex_{console_mutex}, processes_{}, io_state_{server, {}, {}, processes_},
       payload_{server}, api_{console_.buffer(), console_.state(), &console_.input(), 0, &processes_,
                         &payload_},
       input_event_{win32::create_tag, true, false}, stop_event_{win32::create_tag, true, false}
@@ -58,7 +59,7 @@ DWORD WINAPI window_console_session::thread_entry(LPVOID self)
 
 bool window_console_session::handle(coreio::io_msg &message)
 {
-    std::unique_lock<win32::srwlock> lock{console_.mutex()};
+    std::unique_lock<win32::srwlock> lock{console_mutex_};
 
     switch (message.descriptor.Function)
     {
@@ -131,7 +132,7 @@ void window_console_session::complete_pending()
         return;
     }
 
-    std::unique_lock<win32::srwlock> lock{console_.mutex()};
+    std::unique_lock<win32::srwlock> lock{console_mutex_};
     bool completed = false;
     if (pending_kind_ == consoleapi::console_api::pending_read_kind::console_input)
     {
@@ -191,7 +192,7 @@ void window_console_session::run()
         }
         if (wait == WAIT_OBJECT_0 + 1)
         {
-            std::unique_lock<win32::srwlock> lock{console_.mutex()};
+            std::unique_lock<win32::srwlock> lock{console_mutex_};
             if (console_.input().empty())
             {
                 console_.input_event().reset();

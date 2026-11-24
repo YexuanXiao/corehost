@@ -2,6 +2,7 @@
 
 #include "d3d12_window_renderer.hpp"
 #include "console.hpp"
+#include "win32/srwlock.hpp"
 #include "cell_atlas.hpp"
 #include "text_engine.hpp"
 
@@ -12,6 +13,7 @@
 
 #include <array>
 #include <cassert>
+#include <mutex>
 #include <vector>
 
 namespace corehost::window
@@ -22,7 +24,8 @@ namespace corehost::window
 class window_host final
 {
   public:
-    window_host(win32::wcstring_view title, console &console) : title_{title}, console_{console}
+    window_host(win32::wcstring_view title, console &console, win32::srwlock &console_mutex)
+        : title_{title}, console_{console}, console_mutex_{console_mutex}
     {
         assert(!title_.empty());
     }
@@ -187,6 +190,7 @@ class window_host final
                         .type = consoleinput::input_event_type::key,
                         .key = consoleinput::key_from_character(character),
                     };
+                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
                     self->console_.push_input(std::move(event));
                 }
             }
@@ -204,7 +208,10 @@ class window_host final
             if (self != nullptr)
             {
                 self->updates_.clear();
-                (void)self->console_.copy_updates(self->updates_);
+                {
+                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                    (void)self->console_.copy_updates(self->updates_);
+                }
                 self->apply_screen_updates();
                 self->build_quads();
                 self->renderer_.render();
@@ -228,6 +235,7 @@ class window_host final
     win32::wcstring_view title_;
     d3d12ui::d3d12_window_renderer renderer_;
     console &console_;
+    win32::srwlock &console_mutex_;
     std::vector<screen_row_update> updates_;
     uitext::text_engine text_{fallback_families(), 16.0f};
     uitext::cell_atlas atlas_{text_};
