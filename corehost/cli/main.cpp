@@ -8,6 +8,9 @@
 
 #include "condrv_io.hpp"
 #include "shell/shell.hpp"
+#ifdef COREHOST_WINDOW
+#include "window/window_entry.hpp"
+#endif
 #include "utility/crtdbg.hpp"
 #include "utility/log.hpp"
 #include "win32/event.hpp"
@@ -85,6 +88,19 @@ int __stdcall wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
         return run_headless(args);
     }
 
+#ifdef COREHOST_WINDOW
+    auto cmdline = args.client_command_line();
+    if (cmdline.empty())
+    {
+        auto shell_info = shell::get_shell();
+        corehost::window::window_entry({shell_info.name.data(), shell_info.name.size()},
+                                              std::move(shell_info.path));
+    }
+    else
+    {
+        corehost::window::window_entry({}, std::wstring(cmdline.data(), cmdline.size()));
+    }
+#else
     auto cmdline = args.client_command_line();
     if (cmdline.empty())
     {
@@ -95,5 +111,6 @@ int __stdcall wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     {
         corehost::client::client_entry({}, std::wstring(cmdline.data(), cmdline.size()));
     }
+#endif
     return 0;
 }

@@ -104,7 +104,7 @@
 - completion；
 - 进程注册。
 
-该层应放入独立模块，例如 `libwindowconsole`，避免把服务器逻辑塞进 `corehost/window`。它是对现有模块的组装，不复制 parser 或 screen model。
+该层放在 `corehost/window/window_console_session.{hpp,cpp}`，与 defterm 的 `console_session` 同级；它是对现有模块的组装，不复制 parser 或 screen model。
 
 ## 依赖关系
 
@@ -114,7 +114,7 @@ libcorewindow
     ├── libcoreui
     ├── libuiinput
     ├── libime
-    └── libwindowconsole
+    └── corehost/window/window_console_session
 
 libcoreui
     ├── libuitext

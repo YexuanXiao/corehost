@@ -92,6 +92,7 @@ add_subdirectory(libvtstate)
 
 # ── libpseudowindow (shared hidden console window) ─────
 add_subdirectory(libpseudowindow)
+add_subdirectory(libcorewindow)
 
 # ── libcorepty (new modular host assembly) ───────────
 add_subdirectory(libcorepty)
