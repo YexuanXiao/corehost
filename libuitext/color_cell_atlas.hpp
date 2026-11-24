@@ -5,9 +5,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <span>
-#include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 namespace corehost::uitext
@@ -19,14 +17,16 @@ struct color_atlas_region final
     std::uint32_t y{};
     std::uint32_t width{};
     std::uint32_t height{};
-    int left{};
-    int top{};
-    bool colored{};
+    std::int16_t left{};
+    std::int16_t top{};
+    glyph_color_kind kind{glyph_color_kind::monochrome};
 };
 
+static_assert(sizeof(color_atlas_region) <= 24);
+
 // RGBA atlas for color glyph layers. This atlas is intentionally separate from
-// cell_atlas: it never stores monochrome cell glyphs and has no persistent
-// entries. Entries and shelf allocation are reset every frame.
+// cell_atlas: it never stores monochrome cell glyphs and does not cache
+// clusters. Region storage and shelf allocation are reset every frame.
 class color_cell_atlas final
 {
   public:
@@ -43,7 +43,7 @@ class color_cell_atlas final
 
     void begin_frame() noexcept
     {
-        entries_.clear();
+        regions_.clear();
         shelf_x_ = 0;
         shelf_y_ = 1;
         shelf_height_ = 0;
@@ -57,15 +57,8 @@ class color_cell_atlas final
             return {};
         }
 
-        auto key = std::u16string{text};
-        const auto found = entries_.find(key);
-        if (found != entries_.end())
-        {
-            return found->second;
-        }
-
         engine_.rasterize_color(text, scratch_);
-        auto &regions = entries_[std::move(key)];
+        auto &regions = regions_;
         for (const auto &layer : scratch_)
         {
             const auto width = static_cast<std::uint32_t>(layer.width);
@@ -86,7 +79,9 @@ class color_cell_atlas final
                 break;
             }
 
-            color_atlas_region region{shelf_x_ + 1, shelf_y_ + 1, width, height, layer.left, layer.top, layer.colored};
+            color_atlas_region region{shelf_x_ + 1, shelf_y_ + 1, width, height,
+                                      static_cast<std::int16_t>(layer.left), static_cast<std::int16_t>(layer.top),
+                                      layer.kind};
             const auto red = static_cast<std::uint8_t>((layer.rgb >> 16) & 0xFF);
             const auto green = static_cast<std::uint8_t>((layer.rgb >> 8) & 0xFF);
             const auto blue = static_cast<std::uint8_t>(layer.rgb & 0xFF);
@@ -139,7 +134,7 @@ class color_cell_atlas final
     text_engine &engine_;
     std::uint32_t size_{};
     std::vector<std::uint8_t> pixels_;
-    std::unordered_map<std::u16string, std::vector<color_atlas_region>> entries_;
+    std::vector<color_atlas_region> regions_;
     std::vector<color_glyph_bitmap> scratch_;
     std::uint32_t shelf_x_{};
     std::uint32_t shelf_y_{1};

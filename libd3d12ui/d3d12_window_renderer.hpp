@@ -118,10 +118,7 @@ class d3d12_window_renderer final
 
     void set_text_texture(std::span<const std::uint8_t> alpha, UINT width, UINT height)
     {
-        if (!initialized_)
-        {
-            return;
-        }
+        assert(initialized_);
         assert(width > 0 && height > 0);
         assert(alpha.size() == static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
 
@@ -215,10 +212,7 @@ class d3d12_window_renderer final
 
     void set_color_text_texture(std::span<const std::uint8_t> rgba, UINT width, UINT height)
     {
-        if (!initialized_)
-        {
-            return;
-        }
+        assert(initialized_);
         assert(width > 0 && height > 0);
         assert(rgba.size() == static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
 

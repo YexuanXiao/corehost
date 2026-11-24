@@ -251,7 +251,7 @@ class render_worker final
                             .u1 = static_cast<float>(region.x + region.width) * color_scale,
                             .v1 = static_cast<float>(region.y + region.height) * color_scale,
                         };
-                        set_tint(color_quad, region.colored ? console_color{255, 255, 255} : foreground,
+                        set_tint(color_quad, region.kind == uitext::glyph_color_kind::color ? console_color{255, 255, 255} : foreground,
                                  text_alpha);
                         color_quads_.push_back(color_quad);
                     }

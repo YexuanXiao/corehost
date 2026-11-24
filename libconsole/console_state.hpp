@@ -76,7 +76,7 @@ struct cursor_state final
     // DECSCUSR 0 表示“恢复终端 profile 的默认光标”，不能折叠成 block/bar。
     bool default_shape{};
     std::uint32_t size{25};
-    cursor_style style{cursor_style::block};
+    cursor_style style{cursor_style::bar};
 };
 
 class tab_stop_table final
