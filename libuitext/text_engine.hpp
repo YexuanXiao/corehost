@@ -219,7 +219,7 @@ class text_engine final
                 }
                 else
                 {
-                    owner_.rasterize_run(*glyph_run, baseline_x, baseline_y);
+                    owner_.rasterize_run(*glyph_run);
                 }
             }
             return S_OK;
@@ -357,8 +357,8 @@ class text_engine final
                 winrt::check_hresult(layers->GetCurrentRun(&layer));
                 if (layer != nullptr)
                 {
-                    rasterize_color_layer(layer->glyphRun, layer->baselineOriginX, layer->baselineOriginY,
-                                          layer->runColor, layer->paletteIndex);
+                    rasterize_color_layer(layer->glyphRun, layer->baselineOriginX - origin_x,
+                                          layer->baselineOriginY - origin_y, layer->runColor, layer->paletteIndex);
                     any = true;
                 }
             }
