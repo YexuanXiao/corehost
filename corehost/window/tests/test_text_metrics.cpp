@@ -9,7 +9,7 @@ int main()
     {
         const corehost::uitext::text_engine engine{L"Consolas", 16.0f};
         const auto metrics = engine.metrics();
-        const auto glyphs = engine.rasterize(L"M");
+        const auto glyphs = engine.rasterize(u"M");
         if (glyphs.size() != 1)
         {
             std::fprintf(stderr, "expected one glyph cluster\n");
@@ -37,14 +37,14 @@ int main()
             return EXIT_FAILURE;
         }
 
-        const auto clusters = engine.rasterize(L"e\u0301");
+        const auto clusters = engine.rasterize(u"e\u0301");
         if (clusters.size() != 1)
         {
             std::fprintf(stderr, "combining sequence was not one grapheme cluster\n");
             return EXIT_FAILURE;
         }
 
-        const auto letters = engine.rasterize(L"ab");
+        const auto letters = engine.rasterize(u"ab");
         if (letters.size() != 2)
         {
             std::fprintf(stderr, "expected two grapheme clusters\n");

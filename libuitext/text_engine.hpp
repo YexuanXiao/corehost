@@ -1,12 +1,14 @@
 #pragma once
 
+#include "text_writer.hpp"
+
 #include <dwrite.h>
 #include <dwrite_2.h>
-#include <libunicode/grapheme_segmenter.h>
 #include <winrt/base.h>
 
 #include <cassert>
 #include <cstdint>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -30,9 +32,8 @@ struct glyph_bitmap final
     std::vector<std::uint8_t> alpha;
 };
 
-// Header-only DirectWrite metrics and grapheme-cluster rasterization. The
-// input is a UTF-16 string; every output bitmap corresponds to one extended
-// grapheme cluster, never to a single UTF-16 code unit.
+// Header-only DirectWrite metrics and grapheme-cluster rasterization. Text
+// stays UTF-16 throughout; clusters come from libscreen's grapheme range.
 class text_engine final
 {
   public:
@@ -91,74 +92,50 @@ class text_engine final
         return metrics_;
     }
 
-    [[nodiscard]] std::vector<glyph_bitmap> rasterize(std::wstring_view text) const
+    [[nodiscard]] std::vector<glyph_bitmap> rasterize(std::u16string_view text) const
     {
-        const auto codepoints = to_codepoints(text);
         std::vector<glyph_bitmap> result;
-        if (codepoints.empty())
+        for (const auto cluster : screen::grapheme_range<screen::text_measurement::graphemes>{text})
         {
-            return result;
-        }
-
-        unicode::grapheme_segmenter segmenter{codepoints.data(), codepoints.data() + codepoints.size()};
-        for (;;)
-        {
-            result.push_back(rasterize_cluster(*segmenter));
-            if (!segmenter.codepointsAvailable())
-            {
-                break;
-            }
-            ++segmenter;
+            result.push_back(rasterize_cluster(cluster.text));
         }
         return result;
     }
 
   private:
-    static std::vector<char32_t> to_codepoints(std::wstring_view text)
-    {
-        std::vector<char32_t> result;
-        result.reserve(text.size());
-        for (std::size_t index = 0; index < text.size(); ++index)
-        {
-            const auto first = static_cast<char32_t>(text[index]);
-            if (first >= 0xD800 && first <= 0xDBFF && index + 1 < text.size())
-            {
-                const auto second = static_cast<char32_t>(text[index + 1]);
-                if (second >= 0xDC00 && second <= 0xDFFF)
-                {
-                    result.push_back(0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00));
-                    ++index;
-                    continue;
-                }
-            }
-            if ((first >= 0xD800 && first <= 0xDFFF) || first > 0x10FFFF)
-            {
-                result.push_back(0xFFFD);
-            }
-            else
-            {
-                result.push_back(first);
-            }
-        }
-        return result;
-    }
-
-    [[nodiscard]] glyph_bitmap rasterize_cluster(std::u32string_view cluster) const
+    [[nodiscard]] glyph_bitmap rasterize_cluster(std::span<const char16_t> cluster) const
     {
         assert(!cluster.empty());
-        assert(cluster.size() <= 0xFFFF);
 
-        std::vector<UINT16> glyph_indices(cluster.size());
-        winrt::check_hresult(font_face_->GetGlyphIndices(
-            reinterpret_cast<const UINT32 *>(cluster.data()), static_cast<UINT32>(cluster.size()),
-            glyph_indices.data()));
+        std::vector<UINT16> glyph_indices;
+        std::vector<FLOAT> advances;
+        glyph_indices.reserve(cluster.size());
+        advances.reserve(cluster.size());
 
-        std::vector<FLOAT> advances(cluster.size());
-        for (std::size_t index = 0; index < glyph_indices.size(); ++index)
+        const std::u16string_view view{cluster.data(), cluster.size()};
+        std::size_t offset = 0;
+        while (offset < view.size())
         {
+            const auto decoded = screen::next_codepoint(view, offset);
+            offset += decoded.units;
+            const UINT32 codepoint = decoded.value;
+
+            UINT16 glyph_index = 0;
+            winrt::check_hresult(font_face_->GetGlyphIndices(&codepoint, 1, &glyph_index));
+            if (glyph_index == 0)
+            {
+                continue;
+            }
+
             DWRITE_GLYPH_METRICS metrics{};
-            winrt::check_hresult(font_face_->GetDesignGlyphMetrics(&glyph_indices[index], 1, &metrics, FALSE));
-            advances[index] = size_ * static_cast<float>(metrics.advanceWidth) / units_per_em_;
+            winrt::check_hresult(font_face_->GetDesignGlyphMetrics(&glyph_index, 1, &metrics, FALSE));
+            glyph_indices.push_back(glyph_index);
+            advances.push_back(size_ * static_cast<float>(metrics.advanceWidth) / units_per_em_);
+        }
+
+        if (glyph_indices.empty())
+        {
+            return {};
         }
 
         DWRITE_GLYPH_RUN run{};

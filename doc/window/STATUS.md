@@ -11,7 +11,7 @@
 - `window_client_process` 已通过 `PROC_THREAD_ATTRIBUTE_CONSOLE_REFERENCE` 和继承的 console 句柄启动 client；
 - `window_entry` 当前顺序：server、console session、client、window；
 - `libd3d12ui` 已建立 D3D12 device/queue、composition swapchain、DirectComposition visual、clear pass 和 resize；
-- `libuitext` 已建立 header-only DirectWrite 文本度量与 grapheme cluster alpha 光栅化，使用断言校验字体族，不提供隐式 fallback；
+- `libuitext` 已建立 header-only DirectWrite 文本度量与 UTF-16 grapheme cluster alpha 光栅化，使用 `libscreen::grapheme_range`，不引入 UTF-32 字符串或 UINT32 codepoint 容器；
 - `window_console_session` 已实现 CONNECT、CREATE_OBJECT、CLOSE_OBJECT、DISCONNECT、RAW_FLUSH、RAW_WRITE、RAW_READ、USER_DEFINED 的基础分派；
 - 实测 `corehostw cmd.exe` 可以保持 client 运行，关闭窗口后 corehostw 与 cmd 均退出。
 
