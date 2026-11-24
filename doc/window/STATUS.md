@@ -44,7 +44,7 @@
 
 ## 下一步
 
-1. 从 `window_console_session` 暴露 screen buffer 快照；
+1. 实现 530ms 光标闪烁，失焦时停止闪烁并隐藏；
 2. 将 screen rows 交给 `IDWriteTextLayout`，按 cell metrics 放置；
 3. 接入光标、选择、颜色；
 4. 增加输入路径；
