@@ -5,6 +5,7 @@
 #include <dcomp.h>
 #include <dxgi1_6.h>
 #include <winrt/base.h>
+#include "win32/event.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -39,11 +40,7 @@ class d3d12_window_renderer final
         assert(!initialized_);
 
         window_ = window;
-        fence_event_ = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        if (fence_event_ == nullptr)
-        {
-            winrt::throw_last_error();
-        }
+        fence_event_ = win32::event{win32::create_tag, false, false};
 
         RECT client{};
         if (::GetClientRect(window_, &client) == FALSE)
@@ -74,11 +71,7 @@ class d3d12_window_renderer final
         swapchain_ = {};
         queue_ = {};
         device_ = {};
-        if (fence_event_ != nullptr)
-        {
-            ::CloseHandle(fence_event_);
-            fence_event_ = nullptr;
-        }
+        fence_event_.clear();
         width_ = 0;
         height_ = 0;
     }
@@ -221,8 +214,8 @@ class d3d12_window_renderer final
         winrt::check_hresult(queue_->Signal(fence_.get(), value));
         if (fence_->GetCompletedValue() < value)
         {
-            winrt::check_hresult(fence_->SetEventOnCompletion(value, fence_event_));
-            (void)::WaitForSingleObject(fence_event_, INFINITE);
+            winrt::check_hresult(fence_->SetEventOnCompletion(value, fence_event_.get()));
+            fence_event_.wait();
         }
     }
 
@@ -243,7 +236,7 @@ class d3d12_window_renderer final
     winrt::com_ptr<ID3D12GraphicsCommandList> command_list_;
     winrt::com_ptr<ID3D12Fence> fence_;
     winrt::com_ptr<ID3D12Resource> backbuffers_[2];
-    HANDLE fence_event_{};
+    win32::event fence_event_;
     std::uint64_t fence_value_{};
     UINT rtv_size_{};
 };
