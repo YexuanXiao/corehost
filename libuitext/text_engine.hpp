@@ -170,17 +170,11 @@ class text_engine final
         run.isSideways = FALSE;
         run.bidiLevel = 0;
 
-        DWRITE_RENDERING_MODE rendering_mode = DWRITE_RENDERING_MODE_ALIASED;
-        auto face1 = font_face_.as<IDWriteFontFace1>();
-        winrt::check_hresult(face1->GetRecommendedRenderingMode(
-            size_, 1.0f, 1.0f, nullptr, FALSE, DWRITE_OUTLINE_THRESHOLD_ALIASED, DWRITE_MEASURING_MODE_NATURAL,
-            &rendering_mode));
-
         winrt::com_ptr<IDWriteGlyphRunAnalysis> analysis;
         auto factory = factory_.as<IDWriteFactory2>();
         winrt::check_hresult(factory->CreateGlyphRunAnalysis(
-            &run, nullptr, rendering_mode, DWRITE_MEASURING_MODE_NATURAL, DWRITE_GRID_FIT_MODE_DEFAULT,
-            DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE, 0.0f, 0.0f, analysis.put()));
+            &run, nullptr, DWRITE_RENDERING_MODE_NATURAL, DWRITE_MEASURING_MODE_NATURAL,
+            DWRITE_GRID_FIT_MODE_DEFAULT, DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE, 0.0f, 0.0f, analysis.put()));
 
         RECT bounds{};
         winrt::check_hresult(analysis->GetAlphaTextureBounds(DWRITE_TEXTURE_ALIASED_1x1, &bounds));
