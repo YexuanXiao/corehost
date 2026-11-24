@@ -34,8 +34,8 @@ struct glyph_bitmap final
     std::span<const std::uint8_t> alpha;
 };
 
-// The family name is borrowed. text_engine consumes the entries synchronously
-// while building its DirectWrite fallback chain and does not retain any view.
+// family is a borrowed view. The caller must keep the backing string alive
+// for the entire lifetime of text_engine.
 struct font_fallback_entry final
 {
     win32::wcstring_view family;
@@ -50,11 +50,11 @@ struct font_fallback_entry final
 class text_engine final
 {
   public:
-    // families and their string views are only borrowed for this constructor.
     explicit text_engine(std::span<const font_fallback_entry> families, float size) : size_{size}
     {
         assert(!families.empty());
         assert(size_ > 0.0f);
+        families_.assign(families.begin(), families.end());
         winrt::com_ptr<IUnknown> unknown;
         winrt::check_hresult(
             ::DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), unknown.put()));
@@ -80,7 +80,7 @@ class text_engine final
         winrt::check_hresult(builder->AddMappings(system_fallback.get()));
 
         winrt::check_hresult(builder->CreateFontFallback(fallback_.put()));
-        metrics_ = resolve_base_family(families, fallback_.get());
+        metrics_ = resolve_base_family(families_, fallback_.get());
     }
 
     text_engine(const text_engine &) = delete;
@@ -98,29 +98,8 @@ class text_engine final
         {
             return;
         }
-        const auto scale = size / size_;
         size_ = size;
-
-        winrt::com_ptr<IDWriteTextFormat> normal;
-        winrt::check_hresult(factory_->CreateTextFormat(
-            base_family_.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, size_, L"", normal.put()));
-        winrt::check_hresult(normal->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
-        winrt::check_hresult(normal.as<IDWriteTextFormat1>()->SetFontFallback(fallback_.get()));
-
-        winrt::com_ptr<IDWriteTextFormat> bold;
-        winrt::check_hresult(factory_->CreateTextFormat(
-            base_family_.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, size_, L"", bold.put()));
-        winrt::check_hresult(bold->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
-        winrt::check_hresult(bold.as<IDWriteTextFormat1>()->SetFontFallback(fallback_.get()));
-        text_format_ = std::move(normal);
-        bold_format_ = std::move(bold);
-
-        metrics_.ascent *= scale;
-        metrics_.descent *= scale;
-        metrics_.line_gap *= scale;
-        metrics_.advance *= scale;
+        metrics_ = resolve_base_family(families_, fallback_.get());
     }
 
     void rasterize(std::u16string_view text, std::vector<glyph_bitmap> &out, bool bold = false)
@@ -231,9 +210,8 @@ class text_engine final
                 continue;
             }
 
-            base_family_.assign(family.family.data(), family.family.size());
             winrt::check_hresult(factory_->CreateTextFormat(
-                base_family_.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                family.family.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
                 DWRITE_FONT_STRETCH_NORMAL, size_, L"", text_format_.put()));
             winrt::check_hresult(text_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
             auto format1 = text_format_.as<IDWriteTextFormat1>();
@@ -316,7 +294,7 @@ class text_engine final
 
     winrt::com_ptr<IDWriteFactory> factory_;
     winrt::com_ptr<IDWriteFontCollection> collection_;
-    std::wstring base_family_;
+    std::vector<font_fallback_entry> families_;
     winrt::com_ptr<IDWriteFontFallback> fallback_;
     winrt::com_ptr<IDWriteTextFormat> text_format_;
     winrt::com_ptr<IDWriteTextFormat> bold_format_;
