@@ -39,11 +39,11 @@ class window_console_session final
   private:
     struct message_handler final
     {
-        consoleapi::console_api &api;
+        window_console_session &owner;
 
         [[nodiscard]] bool handle(coreio::io_msg &message)
         {
-            return api.handle(message);
+            return owner.handle(message);
         }
 
         void flush() const noexcept
@@ -58,12 +58,14 @@ class window_console_session final
 
     static DWORD WINAPI thread_entry(LPVOID self);
     void run();
+    bool handle(coreio::io_msg &message);
 
     win32::handle_view server_;
     screen::screen_buffer screen_;
     screen::console_state state_;
     consoleinput::input_queue input_;
     coreio::process_registry processes_;
+    coreio::io_state io_state_;
     coreio::input_payload_reader payload_;
     consoleapi::console_api api_;
     win32::event input_event_;
