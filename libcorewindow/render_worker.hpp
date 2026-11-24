@@ -299,7 +299,8 @@ class render_worker final
                 cursor_top = cell_top + cell_height - cursor_height;
                 break;
             case screen::cursor_style::bar:
-                cursor_width = std::max(1.0f, cell_width * static_cast<float>(cursor_.size) / 100.0f);
+                cursor_width =
+                    std::max(1.0f, std::floor(cell_width * static_cast<float>(cursor_.size) / 200.0f));
                 break;
             case screen::cursor_style::block:
             default:
