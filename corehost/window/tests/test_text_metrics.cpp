@@ -9,7 +9,12 @@ int main()
 {
     try
     {
-        const std::array<win32::wcstring_view, 3> families{L"Consolas", L"Segoe UI Symbol", L"Segoe UI Emoji"};
+        constexpr DWRITE_UNICODE_RANGE latin{0x20, 0x7E};
+        constexpr DWRITE_UNICODE_RANGE emoji{0x1F300, 0x1FAFF};
+        const std::array<corehost::uitext::font_fallback_entry, 2> families{
+            corehost::uitext::font_fallback_entry{L"Consolas", {&latin, 1}},
+            corehost::uitext::font_fallback_entry{L"Segoe UI Emoji", {&emoji, 1}},
+        };
         corehost::uitext::text_engine engine{families, 16.0f};
         const auto metrics = engine.metrics();
         if (metrics.advance <= 0.0f || metrics.ascent <= 0.0f || metrics.descent < 0.0f)

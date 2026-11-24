@@ -34,6 +34,13 @@ struct glyph_bitmap final
     std::span<const std::uint8_t> alpha;
 };
 
+struct font_fallback_entry final
+{
+    win32::wcstring_view family;
+    // Empty means the full Unicode range.
+    std::span<const DWRITE_UNICODE_RANGE> ranges;
+};
+
 // Header-only DirectWrite text layout and grapheme-cluster rasterization.
 //
 // The family list is registered as DirectWrite's fallback chain, followed by
@@ -42,7 +49,7 @@ struct glyph_bitmap final
 class text_engine final
 {
   public:
-    explicit text_engine(std::span<const win32::wcstring_view> families, float size) : size_{size}
+    explicit text_engine(std::span<const font_fallback_entry> families, float size) : size_{size}
     {
         assert(!families.empty());
         assert(size_ > 0.0f);
@@ -54,21 +61,21 @@ class text_engine final
 
         winrt::check_hresult(factory_->GetSystemFontCollection(collection_.put(), FALSE));
 
-        std::vector<const WCHAR *> target_names;
-        target_names.reserve(families.size());
-        for (const auto family : families)
-        {
-            assert(!family.empty());
-            target_names.push_back(family.c_str());
-        }
-
         auto factory2 = factory_.as<IDWriteFactory2>();
         winrt::com_ptr<IDWriteFontFallbackBuilder> builder;
         winrt::check_hresult(factory2->CreateFontFallbackBuilder(builder.put()));
 
-        const DWRITE_UNICODE_RANGE all_unicode{0, 0x10FFFF};
-        winrt::check_hresult(builder->AddMapping(&all_unicode, 1, target_names.data(),
-                                                  static_cast<UINT32>(target_names.size()), collection_.get()));
+        constexpr DWRITE_UNICODE_RANGE all_unicode{0, 0x10FFFF};
+        for (const auto &entry : families)
+        {
+            assert(!entry.family.empty());
+            const auto ranges = entry.ranges.empty()
+                                    ? std::span<const DWRITE_UNICODE_RANGE>{&all_unicode, 1}
+                                    : entry.ranges;
+            const WCHAR *name = entry.family.c_str();
+            winrt::check_hresult(builder->AddMapping(ranges.data(), static_cast<UINT32>(ranges.size()), &name, 1,
+                                                      collection_.get()));
+        }
 
         winrt::com_ptr<IDWriteFontFallback> system_fallback;
         winrt::check_hresult(factory2->GetSystemFontFallback(system_fallback.put()));
@@ -177,19 +184,19 @@ class text_engine final
         std::size_t size{};
     };
 
-    void resolve_base_family(std::span<const win32::wcstring_view> families)
+    void resolve_base_family(std::span<const font_fallback_entry> families)
     {
-        for (const auto family : families)
+        for (const auto &family : families)
         {
             UINT32 family_index = 0;
             BOOL exists = FALSE;
-            winrt::check_hresult(collection_->FindFamilyName(family.c_str(), &family_index, &exists));
+            winrt::check_hresult(collection_->FindFamilyName(family.family.c_str(), &family_index, &exists));
             if (exists == FALSE)
             {
                 continue;
             }
 
-            base_family_ = family;
+            base_family_ = family.family;
             winrt::check_hresult(factory_->CreateTextFormat(
                 base_family_.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
                 DWRITE_FONT_STRETCH_NORMAL, size_, L"en-us", text_format_.put()));
