@@ -10,6 +10,7 @@
 - 公共 ConDrv `\Server` 创建辅助函数已添加；
 - `window_client_process` 已通过 `PROC_THREAD_ATTRIBUTE_CONSOLE_REFERENCE` 和继承的 console 句柄启动 client；
 - `window_entry` 当前顺序：server、console session、client、window；
+- `libd3d12ui` 已建立 D3D12 device/queue、composition swapchain、DirectComposition visual、clear pass 和 resize；
 - `window_console_session` 已实现 CONNECT、CREATE_OBJECT、CLOSE_OBJECT、DISCONNECT、RAW_FLUSH、RAW_WRITE、RAW_READ、USER_DEFINED 的基础分派；
 - 实测 `corehostw cmd.exe` 可以保持 client 运行，关闭窗口后 corehostw 与 cmd 均退出。
 
@@ -22,7 +23,7 @@
 ## 已知问题
 
 - `CONSOLE_IO_RAW_WRITE` 当前只完成写入，不解析 VT，也不进入渲染；
-- 窗口目前只有空白 Win32 宿主，没有 D3D12/文本渲染；
+- 窗口目前由 D3D12 清屏，但没有文本渲染；
 - `console_api` 的完整 API 覆盖仍待验证；
 - 窗口关闭时直接终止 client，尚未实现完整的 console close 事件语义。
 

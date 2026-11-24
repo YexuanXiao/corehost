@@ -8,6 +8,7 @@ target_include_directories(libcorewindow PUBLIC
 )
 
 target_link_libraries(libcorewindow PUBLIC
+    libd3d12ui
     common
     user32
 )
