@@ -15,7 +15,7 @@
 - GPU fence 使用 `win32::event`，不暴露裸 `HANDLE`；
 - 已加入 D3D12 文本 pass：构建期用 DXC 预编译 VS/PS（Shader Model 6.0 / DXIL） 并嵌入字节数组，运行期创建根签名、PSO、上传 R8 alpha 纹理并绘制混合 quad；
 - 默认字体 fallback 列表为 `Cascadia Code`、`Cascadia Mono`、`Consolas`，与 Windows Terminal 的字体选择方向一致；
-- `window_host` 当前用 `CoreHost` 调试字符串验证文本纹理到窗口的完整路径；
+- `window_host` 已用 glyph atlas + per-cell quad 显示真实控制台内容；120x30 网格、Cascadia Code 16px；
 - `libuitext` 已建立 header-only DirectWrite 文本度量与完整字符串 layout/alpha 光栅化；
 - 字体 fallback 项由 `font_fallback_entry{family, range}` 组成，每个字体项只有一个 Unicode 范围，默认全范围；同一字体可重复出现并指定不同范围；
 - 该列表交给 `IDWriteFontFallbackBuilder`，并追加 `IDWriteFactory2::GetSystemFontFallback()`；整个字符串直接交给 `IDWriteTextLayout`，由其完成 fallback、cluster 和 shaping，不手工切分字符串也不逐字符探测；
@@ -34,8 +34,7 @@
 ## 已知问题
 
 - `CONSOLE_IO_RAW_WRITE` 当前只完成写入，不解析 VT，也不进入渲染；
-- 文本 pass 目前只显示固定调试字符串；damage snapshot 已在 UI 线程复制，但还没有把 snapshot 转成文本纹理；
-- 当前只上传第一个 glyph run，还没有 glyph atlas / 多 run 布局；
+- damage snapshot 已转成 per-cell quad；尚无光标、颜色、选择、滚动条；
 - `console_api` 的完整 API 覆盖仍待验证；
 - 窗口关闭时直接终止 client，尚未实现完整的 console close 事件语义。
 
@@ -43,6 +42,6 @@
 
 1. 从 `window_console_session` 暴露 screen buffer 快照；
 2. 将 screen rows 交给 `IDWriteTextLayout`，按 cell metrics 放置；
-3. 改为 glyph atlas / 多 run 绘制；
-4. 接入光标、选择、颜色；
+3. 接入光标、选择、颜色；
+4. 增加输入路径；
 5. 完成关闭语义与自动化 smoke test。

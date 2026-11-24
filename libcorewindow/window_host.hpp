@@ -2,6 +2,7 @@
 
 #include "d3d12_window_renderer.hpp"
 #include "screen_updates.hpp"
+#include "cell_atlas.hpp"
 #include "text_engine.hpp"
 
 #include "win32/error.hpp"
@@ -53,7 +54,7 @@ class window_host final
 
         const HWND window =
             ::CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, class_name, title_.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
-                              CW_USEDEFAULT, 800, 500, nullptr, nullptr, instance, this);
+                              CW_USEDEFAULT, 1200, 720, nullptr, nullptr, instance, this);
         if (window == nullptr)
         {
             win32::throw_last_error();
@@ -63,16 +64,6 @@ class window_host final
         renderer_.initialize(window);
         ::ShowWindow(window, SW_SHOWDEFAULT);
         ::UpdateWindow(window);
-
-        std::vector<uitext::glyph_bitmap> glyphs;
-        text_.rasterize(u"CoreHost", glyphs);
-        if (!glyphs.empty() && !glyphs.front().alpha.empty())
-        {
-            renderer_.set_text_texture(glyphs.front().alpha, static_cast<UINT>(glyphs.front().width),
-                                       static_cast<UINT>(glyphs.front().height));
-            ::InvalidateRect(window, nullptr, FALSE);
-            renderer_.render();
-        }
 
         MSG message{};
         for (;;)
@@ -95,6 +86,73 @@ class window_host final
     }
 
   private:
+    static constexpr std::size_t columns = 120;
+    static constexpr std::size_t rows = 30;
+
+    void apply_screen_updates()
+    {
+        for (const auto &row : updates_)
+        {
+            if (row.y >= rows)
+            {
+                continue;
+            }
+
+            auto x = row.begin;
+            for (const auto &cell : row.cells)
+            {
+                if (x >= columns)
+                {
+                    break;
+                }
+                cells_[row.y * columns + x] = row.text.substr(cell.text_offset, cell.text_length);
+                ++x;
+            }
+        }
+    }
+
+    void build_quads()
+    {
+        quads_.clear();
+        const auto metrics = text_.metrics();
+        const auto cell_width = metrics.advance;
+        const auto cell_height = metrics.ascent + metrics.descent + metrics.line_gap;
+        const auto atlas_scale = 1.0f / static_cast<float>(atlas_.size());
+
+        for (std::size_t y = 0; y < rows; ++y)
+        {
+            for (std::size_t x = 0; x < columns; ++x)
+            {
+                const auto &text = cells_[y * columns + x];
+                const auto *region = atlas_.find_or_add(text);
+                if (region == nullptr)
+                {
+                    continue;
+                }
+
+                const auto left = static_cast<float>(x) * cell_width + static_cast<float>(region->left);
+                const auto top = static_cast<float>(y) * cell_height + metrics.ascent + static_cast<float>(region->top);
+                quads_.push_back(d3d12ui::text_quad{
+                    .x = left,
+                    .y = top,
+                    .width = static_cast<float>(region->width),
+                    .height = static_cast<float>(region->height),
+                    .u0 = static_cast<float>(region->x) * atlas_scale,
+                    .v0 = static_cast<float>(region->y) * atlas_scale,
+                    .u1 = static_cast<float>(region->x + region->width) * atlas_scale,
+                    .v1 = static_cast<float>(region->y + region->height) * atlas_scale,
+                });
+            }
+        }
+
+        if (atlas_.dirty())
+        {
+            renderer_.set_text_texture(atlas_.pixels(), atlas_.size(), atlas_.size());
+            atlas_.clear_dirty();
+        }
+        renderer_.set_text_quads(quads_);
+    }
+
     static LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     {
         auto *self = reinterpret_cast<window_host *>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -130,6 +188,8 @@ class window_host final
             if (self != nullptr)
             {
                 (void)self->source_.take(self->source_.context, self->updates_);
+                self->apply_screen_updates();
+                self->build_quads();
                 self->renderer_.render();
             }
             ::ValidateRect(hwnd, nullptr);
@@ -153,7 +213,10 @@ class window_host final
     d3d12ui::d3d12_window_renderer renderer_;
     screen_update_source source_;
     std::vector<screen_row_update> updates_;
-    uitext::text_engine text_{fallback_families(), 32.0f};
+    uitext::text_engine text_{fallback_families(), 16.0f};
+    uitext::cell_atlas atlas_{text_};
+    std::vector<std::u16string> cells_ = std::vector<std::u16string>(120u * 30u);
+    std::vector<d3d12ui::text_quad> quads_;
 
     static std::array<uitext::font_fallback_entry, 3> fallback_families()
     {

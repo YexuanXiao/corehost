@@ -20,6 +20,18 @@
 namespace corehost::d3d12ui
 {
 
+struct text_quad final
+{
+    float x{};
+    float y{};
+    float width{};
+    float height{};
+    float u0{};
+    float v0{};
+    float u1{};
+    float v1{};
+};
+
 // Header-only owner of the top-level window's D3D12 device and composition
 // swapchain. The renderer is stored directly in the window host; it is never
 // heap allocated.
@@ -77,6 +89,7 @@ class d3d12_window_renderer final
         text_pipeline_ = {};
         root_signature_ = {};
         text_texture_ = {};
+        text_quads_.clear();
         texture_width_ = 0;
         texture_height_ = 0;
         composition_visual_ = {};
@@ -192,6 +205,11 @@ class d3d12_window_renderer final
         texture_height_ = height;
     }
 
+    void set_text_quads(std::span<const text_quad> quads)
+    {
+        text_quads_.assign(quads.begin(), quads.end());
+    }
+
     void resize(UINT width, UINT height)
     {
         if (!initialized_ || width == 0 || height == 0 || (width == width_ && height == height_))
@@ -249,15 +267,22 @@ class d3d12_window_renderer final
             command_list_->SetPipelineState(text_pipeline_.get());
             command_list_->SetGraphicsRootDescriptorTable(1, texture_srv_heap_->GetGPUDescriptorHandleForHeapStart());
 
-            const auto left = 20.0f / static_cast<float>(width_);
-            const auto top = 1.0f - 20.0f / static_cast<float>(height_);
-            const auto right = (20.0f + static_cast<float>(texture_width_)) / static_cast<float>(width_);
-            const auto bottom = 1.0f - (20.0f + static_cast<float>(texture_height_)) /
-                                           static_cast<float>(height_);
-            const float rect[4] = {left * 2.0f - 1.0f, top, (right - left) * 2.0f, bottom - top};
-            command_list_->SetGraphicsRoot32BitConstants(0, 4, rect, 0);
             command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-            command_list_->DrawInstanced(4, 1, 0, 0);
+            for (const auto &quad : text_quads_)
+            {
+                const float constants[8] = {
+                    (quad.x / static_cast<float>(width_)) * 2.0f - 1.0f,
+                    1.0f - (quad.y / static_cast<float>(height_)) * 2.0f,
+                    (quad.width / static_cast<float>(width_)) * 2.0f,
+                    -(quad.height / static_cast<float>(height_)) * 2.0f,
+                    quad.u0,
+                    quad.v0,
+                    quad.u1,
+                    quad.v1,
+                };
+                command_list_->SetGraphicsRoot32BitConstants(0, 8, constants, 0);
+                command_list_->DrawInstanced(4, 1, 0, 0);
+            }
         }
 
         D3D12_RESOURCE_BARRIER to_present = to_target;
@@ -303,7 +328,7 @@ class d3d12_window_renderer final
         parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         parameters[0].Constants.ShaderRegister = 0;
         parameters[0].Constants.RegisterSpace = 0;
-        parameters[0].Constants.Num32BitValues = 4;
+        parameters[0].Constants.Num32BitValues = 8;
         parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
         parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         parameters[1].DescriptorTable.NumDescriptorRanges = 1;
@@ -456,6 +481,7 @@ class d3d12_window_renderer final
     winrt::com_ptr<ID3D12Resource> text_texture_;
     UINT texture_width_{};
     UINT texture_height_{};
+    std::vector<text_quad> text_quads_;
     win32::event fence_event_;
     std::uint64_t fence_value_{};
     UINT rtv_size_{};

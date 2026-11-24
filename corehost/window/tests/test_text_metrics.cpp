@@ -1,3 +1,4 @@
+#include "cell_atlas.hpp"
 #include "text_engine.hpp"
 
 #include <array>
@@ -24,6 +25,16 @@ int main()
             std::fprintf(stderr, "invalid text metrics\n");
             return EXIT_FAILURE;
         }
+
+        corehost::uitext::cell_atlas atlas{engine};
+        const auto *first = atlas.find_or_add(u"M");
+        const auto *second = atlas.find_or_add(u"M");
+        if (first == nullptr || first != second || first->width == 0 || first->height == 0 || !atlas.dirty())
+        {
+            std::fprintf(stderr, "cell atlas cache failed\n");
+            return EXIT_FAILURE;
+        }
+        atlas.clear_dirty();
 
         std::vector<corehost::uitext::glyph_bitmap> glyphs;
         engine.rasterize(u"M", glyphs);

@@ -1,6 +1,7 @@
 cbuffer Rect : register(b0)
 {
     float4 rect;
+    float4 uv_rect;
 };
 
 struct VSOut
@@ -16,7 +17,8 @@ VSOut VSMain(uint vertex : SV_VertexID)
 
     VSOut result;
     result.position = float4(rect.x + corner.x * rect.z, rect.y + corner.y * rect.w, 0.0f, 1.0f);
-    result.uv = corner;
+    result.uv = float2(uv_rect.x + corner.x * (uv_rect.z - uv_rect.x),
+                       uv_rect.y + corner.y * (uv_rect.w - uv_rect.y));
     return result;
 }
 
