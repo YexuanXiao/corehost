@@ -312,6 +312,7 @@ class screen_buffer final
     [[nodiscard]] char_info char_info_at(coord position) const noexcept;
     [[nodiscard]] std::span<cell> row_cells(std::size_t y) noexcept;
     [[nodiscard]] std::span<const cell> row_cells(std::size_t y) const noexcept;
+    [[nodiscard]] const row_block &block(std::size_t y) const noexcept;
     [[nodiscard]] row_state &row(std::size_t y) noexcept;
     [[nodiscard]] const row_state &row(std::size_t y) const noexcept;
 
@@ -636,6 +637,11 @@ inline screen_buffer::screen_buffer(std::size_t width, std::size_t height, std::
 inline const cell &screen_buffer::at(std::size_t x, std::size_t y) const noexcept
 {
     return active_page().at(x, y);
+}
+
+inline const row_block &screen_buffer::block(std::size_t y) const noexcept
+{
+    return active_page().block(y);
 }
 
 inline std::optional<cell> screen_buffer::try_at(coord position) const noexcept

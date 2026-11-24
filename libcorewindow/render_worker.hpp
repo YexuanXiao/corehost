@@ -10,6 +10,7 @@
 
 #include <Windows.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <mutex>
@@ -76,24 +77,21 @@ class render_worker final
         };
     }
 
-    void apply_screen_updates()
+    void apply_updates()
     {
-        for (const auto &row : updates_.rows)
+        for (std::size_t y = 0; y < rows && y < updates_.size(); ++y)
         {
-            if (row.y >= rows)
+            const auto &row = updates_[y];
+            if (row.cells.empty())
             {
                 continue;
             }
 
-            auto x = row.begin;
-            for (const auto &entry : row.cells)
+            const auto begin = std::min<std::size_t>(row.state.dirty_begin, columns);
+            const auto end = std::min<std::size_t>(row.state.dirty_end, columns);
+            for (auto x = begin; x < end; ++x)
             {
-                if (x >= columns)
-                {
-                    break;
-                }
-
-                auto value = entry.cell;
+                auto value = row.cells[x];
                 if (value.has_cluster())
                 {
                     const auto source =
@@ -105,9 +103,7 @@ class render_worker final
                     }
                 }
 
-                const auto index = row.y * columns + x;
-                cell_state_[index] = value;
-                ++x;
+                cell_state_[y * columns + x] = value;
             }
         }
     }
@@ -219,7 +215,7 @@ class render_worker final
 
             if (changed)
             {
-                apply_screen_updates();
+                apply_updates();
                 build_quads();
                 renderer_.render();
             }
@@ -240,7 +236,7 @@ class render_worker final
     std::vector<screen::cell> cell_state_ = std::vector<screen::cell>(columns * rows);
     screen::grapheme_store graphemes_;
     std::vector<d3d12ui::text_quad> quads_;
-    screen_snapshot updates_;
+    std::vector<screen::row_block> updates_;
     win32::basic_thread thread_;
     win32::event stop_event_{win32::create_tag, true, false};
     std::atomic_bool stop_{};

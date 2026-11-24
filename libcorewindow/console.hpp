@@ -3,7 +3,6 @@
 #include "console_state.hpp"
 #include "input.hpp"
 #include "screen_buffer.hpp"
-#include "screen_updates.hpp"
 #include "win32/event.hpp"
 
 #include <Windows.h>
@@ -56,15 +55,15 @@ class console final
         input_event_.set();
     }
 
-    bool copy_updates(screen_snapshot &snapshot)
+    bool copy_updates(std::vector<screen::row_block> &rows)
     {
-        snapshot.rows.clear();
+        rows.clear();
         if (!screen_.has_damage())
         {
             return false;
         }
 
-
+        rows.resize(screen_.height());
         for (std::size_t y = 0; y < screen_.height(); ++y)
         {
             auto begin = screen_.damage_begin(y);
@@ -83,25 +82,13 @@ class console final
                 ++end;
             }
 
-            screen_row_update row{};
-            row.y = y;
-            row.begin = begin;
-            row.end = end;
-            row.graphemes = screen_.row_graphemes(y);
-            row.cells.reserve(end - begin);
-
-            for (std::size_t x = begin; x < end; ++x)
-            {
-                row.cells.push_back(screen_cell_update{
-                    .cell = screen_.at(x, y),
-                });
-            }
-
-            snapshot.rows.push_back(std::move(row));
+            rows[y] = screen_.block(y);
+            rows[y].state.dirty_begin = static_cast<std::uint32_t>(begin);
+            rows[y].state.dirty_end = static_cast<std::uint32_t>(end);
         }
 
         screen_.clear_damage();
-        return !snapshot.rows.empty();
+        return true;
     }
 
   private:
