@@ -55,6 +55,13 @@
 - 增量构建后曾出现空白，clean rebuild 后恢复为提示符，说明跨层移动 `console_state` 时存在 stale object/ABI 问题，不能只做增量验证；
 - 直接 parser 路径不是唯一问题，仍需检查 PowerShell 的 `WriteConsoleOutput`/脚本启动路径。
 
+补充控制实验（临时 `test_console_client`，未提交）：
+
+- `WriteConsoleW` 普通文本：正常显示；
+- `WriteConsoleW` 带 ESC 序列：baseline 下按字面显示 `[31m...`；
+- `WriteConsoleOutputW` 的 CHAR_INFO：正常显示绿色 `OUTPUT`；
+- 因此 WriteConsole/WriteConsoleOutput 的 plain 路径本身可用，PSReadLine 不回显不是这两个最基础路径失效。
+
 正确做法需要把普通文本与 ESC 序列切分、确保 `continue_text` 文本被完整 flush，并 clean rebuild 后验证。
 
 ### 其他
