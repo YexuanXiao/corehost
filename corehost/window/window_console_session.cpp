@@ -33,7 +33,7 @@ void window_console_session::start()
 
     coreio::set_server_info(server_, input_event_.view());
     thread_ = win32::basic_thread{&window_console_session::thread_entry, this, {.name = L"corehost-window-console"}};
-    console_.set_worker(thread_.get());
+    console_.set_worker(thread_.view());
 }
 
 void window_console_session::stop()
@@ -48,7 +48,7 @@ void window_console_session::stop()
     (void)::CancelSynchronousIo(thread_.get());
     thread_.join();
     thread_ = {};
-    console_.set_worker(nullptr);
+    console_.set_worker({});
 }
 
 DWORD WINAPI window_console_session::thread_entry(LPVOID self)

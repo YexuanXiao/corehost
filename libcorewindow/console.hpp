@@ -8,6 +8,7 @@
 
 #include <Windows.h>
 
+#include <cassert>
 #include <cstddef>
 #include <string>
 #include <utility>
@@ -49,7 +50,7 @@ class console final
         return input_event_;
     }
 
-    void set_worker(HANDLE worker) noexcept
+    void set_worker(win32::handle_view worker) noexcept
     {
         worker_ = worker;
     }
@@ -59,10 +60,8 @@ class console final
         input_.push(std::move(event));
         input_event_.set();
 
-        if (worker_ != nullptr)
-        {
-            (void)::CancelSynchronousIo(worker_);
-        }
+        assert(worker_.valid());
+        (void)::CancelSynchronousIo(worker_.get());
     }
 
     bool copy_updates(std::vector<screen_row_update> &updates)
@@ -126,7 +125,7 @@ class console final
     screen::console_state state_;
     consoleinput::input_queue input_;
     win32::event input_event_{win32::create_tag, true, false};
-    HANDLE worker_{};
+    win32::handle_view worker_;
 };
 
 } // namespace corehost::window
