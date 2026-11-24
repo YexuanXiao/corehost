@@ -392,6 +392,11 @@ struct cell
         return cell_type_ops::is_complex(type_);
     }
 
+    [[nodiscard]] constexpr bool is_scalar() const noexcept
+    {
+        return cell_type_ops::is_scalar(type_);
+    }
+
     [[nodiscard]] constexpr bool has_image() const noexcept
     {
         return cell_type_ops::is_image(type_);

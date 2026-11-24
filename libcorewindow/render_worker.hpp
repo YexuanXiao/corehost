@@ -241,7 +241,9 @@ class render_worker final
                     text = std::u16string_view{scalar.data(), scalar.size()};
                 }
 
-                const auto *region = atlas_.find_or_add(text, bold);
+                const auto *region = cell.is_scalar() && !bold
+                                         ? atlas_.find_or_add(cell.primary())
+                                         : atlas_.find_or_add_transient(text, bold);
                 if (region == nullptr)
                 {
                     continue;

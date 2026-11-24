@@ -3,6 +3,7 @@
 #include "text_engine.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -23,8 +24,8 @@ struct atlas_region final
     int top{};
 };
 
-// Alpha-only atlas. Only a single BMP code unit is cached persistently.
-// Bold glyphs, non-BMP scalars and grapheme clusters are rasterized into the
+// Alpha-only atlas. Persistent entries are keyed by a single BMP scalar.
+// Bold scalars, non-BMP scalars and grapheme clusters are rasterized into the
 // transient top region and are rebuilt for every frame that uses them.
 class cell_atlas final
 {
@@ -47,30 +48,59 @@ class cell_atlas final
         transient_height_ = 0;
     }
 
-    [[nodiscard]] const atlas_region *find_or_add(std::u16string_view text, bool bold = false)
+    [[nodiscard]] const atlas_region *find_or_add(char16_t scalar)
+    {
+        if (scalar >= 0xD800 && scalar <= 0xDFFF)
+        {
+            return nullptr;
+        }
+
+        const auto found = entries_.find(scalar);
+        if (found != entries_.end())
+        {
+            return &found->second;
+        }
+
+        const std::array<char16_t, 1> text{scalar};
+        engine_.rasterize(std::u16string_view{text.data(), text.size()}, scratch_, false);
+        if (scratch_.empty() || scratch_.front().alpha.empty())
+        {
+            return nullptr;
+        }
+
+        const auto &glyph = scratch_.front();
+        const auto width = static_cast<std::uint32_t>(glyph.width);
+        const auto height = static_cast<std::uint32_t>(glyph.height);
+        if (width + 2 > size_ || height + 2 > size_)
+        {
+            return nullptr;
+        }
+
+        atlas_region region{};
+        if (!allocate(width, height, shelf_x_, shelf_y_, shelf_height_, size_, region))
+        {
+            return nullptr;
+        }
+
+        region.left = glyph.left;
+        region.top = glyph.top;
+        write(region, glyph);
+        dirty_ = true;
+        return &entries_.emplace(scalar, region).first->second;
+    }
+
+    [[nodiscard]] const atlas_region *find_or_add_transient(std::u16string_view text, bool bold = false)
     {
         if (text.empty())
         {
             return nullptr;
         }
 
-        const bool cacheable = is_cacheable(text, bold);
         auto key = std::u16string{text};
-        if (cacheable)
+        const auto found = transient_entries_.find(key);
+        if (found != transient_entries_.end())
         {
-            const auto found = entries_.find(key);
-            if (found != entries_.end())
-            {
-                return &found->second;
-            }
-        }
-        else
-        {
-            const auto found = transient_entries_.find(key);
-            if (found != transient_entries_.end())
-            {
-                return &found->second;
-            }
+            return &found->second;
         }
 
         engine_.rasterize(text, scratch_, bold);
@@ -88,31 +118,16 @@ class cell_atlas final
         }
 
         atlas_region region{};
-        if (!cacheable)
+        if (!allocate(width, height, transient_x_, transient_y_, transient_height_, transient_rows_, region))
         {
-            if (!allocate(width, height, transient_x_, transient_y_, transient_height_, transient_rows_, region))
-            {
-                return nullptr;
-            }
-        }
-        else
-        {
-            if (!allocate(width, height, shelf_x_, shelf_y_, shelf_height_, size_, region))
-            {
-                return nullptr;
-            }
+            return nullptr;
         }
 
         region.left = glyph.left;
         region.top = glyph.top;
         write(region, glyph);
         dirty_ = true;
-
-        if (!cacheable)
-        {
-            return &transient_entries_.emplace(std::move(key), region).first->second;
-        }
-        return &entries_.emplace(std::move(key), region).first->second;
+        return &transient_entries_.emplace(std::move(key), region).first->second;
     }
 
     [[nodiscard]] std::span<const std::uint8_t> pixels() const noexcept
@@ -136,16 +151,6 @@ class cell_atlas final
     }
 
   private:
-    [[nodiscard]] static bool is_cacheable(std::u16string_view text, bool bold) noexcept
-    {
-        if (bold || text.size() != 1)
-        {
-            return false;
-        }
-        const auto value = text.front();
-        return value < 0xD800 || value > 0xDFFF;
-    }
-
     [[nodiscard]] bool allocate(std::uint32_t width, std::uint32_t height, std::uint32_t &x, std::uint32_t &y,
                                 std::uint32_t &shelf_height, std::uint32_t limit, atlas_region &region) noexcept
     {
@@ -181,7 +186,7 @@ class cell_atlas final
     std::uint32_t size_{};
     std::vector<std::uint8_t> pixels_;
     std::uint32_t transient_rows_{};
-    std::unordered_map<std::u16string, atlas_region> entries_;
+    std::unordered_map<char16_t, atlas_region> entries_;
     std::unordered_map<std::u16string, atlas_region> transient_entries_;
     std::vector<glyph_bitmap> scratch_;
     std::uint32_t shelf_x_{};

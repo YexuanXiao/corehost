@@ -27,8 +27,8 @@ int main()
         }
 
         corehost::uitext::cell_atlas atlas{engine};
-        const auto *first = atlas.find_or_add(u"M");
-        const auto *second = atlas.find_or_add(u"M");
+        const auto *first = atlas.find_or_add(u'M');
+        const auto *second = atlas.find_or_add(u'M');
         if (first == nullptr || first != second || first->width == 0 || first->height == 0 || !atlas.dirty())
         {
             std::fprintf(stderr, "cell atlas cache failed\n");
@@ -37,14 +37,14 @@ int main()
         atlas.clear_dirty();
 
         std::vector<corehost::uitext::glyph_bitmap> glyphs;
-        const auto *bold = atlas.find_or_add(u"M", true);
+        const auto *bold = atlas.find_or_add_transient(u"M", true);
         if (bold == nullptr || bold->width == 0 || bold->height == 0)
         {
             std::fprintf(stderr, "bold cell atlas failed\n");
             return EXIT_FAILURE;
         }
 
-        const auto *non_bmp = atlas.find_or_add(u"\U0001F600");
+        const auto *non_bmp = atlas.find_or_add_transient(u"\U0001F600");
         if (non_bmp == nullptr || non_bmp->width == 0)
         {
             std::fprintf(stderr, "non-BMP transient atlas failed\n");
@@ -52,7 +52,7 @@ int main()
         }
 
         atlas.begin_frame();
-        const auto *cluster = atlas.find_or_add(u"e\u0301");
+        const auto *cluster = atlas.find_or_add_transient(u"e\u0301");
         if (cluster == nullptr || cluster->width == 0)
         {
             std::fprintf(stderr, "grapheme cluster transient atlas failed\n");
