@@ -35,6 +35,8 @@
 
 - `CONSOLE_IO_RAW_WRITE` 当前只完成写入，不解析 VT，也不进入渲染；
 - damage snapshot 已转成 per-cell quad；尚无光标、颜色、选择、滚动条；
+- 已决定由独立渲染线程按 DWM 合成帧节奏主动获取 screen damage；当前仍由 UI 线程 WM_PAINT 获取，尚未接入渲染线程；
+- 键盘输入已接入 WM_CHAR -> shared input queue，但 pending read/唤醒仍待验证；
 - `console_api` 的完整 API 覆盖仍待验证；
 - 窗口关闭时直接终止 client，尚未实现完整的 console close 事件语义。
 
