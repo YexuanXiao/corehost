@@ -239,6 +239,26 @@ class window_host final
         return scrollbar::compute(width - bar_width, 0.0f, bar_width, height, state);
     }
 
+    void update_scrollbar_hover(HWND hwnd, LPARAM lparam)
+    {
+        const auto x = static_cast<float>(GET_X_LPARAM(lparam));
+        const auto y = static_cast<float>(GET_Y_LPARAM(lparam));
+        std::unique_lock<win32::srwlock> lock{console_mutex_};
+        const auto geometry = scrollbar_geometry(hwnd);
+        console_.set_scrollbar_hovered(scrollbar::hit_test(geometry, x, y) != scrollbar::hit_target::none);
+        if (!tracking_mouse_leave_)
+        {
+            TRACKMOUSEEVENT track{.cbSize = sizeof(TRACKMOUSEEVENT),
+                                  .dwFlags = TME_LEAVE,
+                                  .hwndTrack = hwnd,
+                                  .dwHoverTime = HOVER_DEFAULT};
+            if (::TrackMouseEvent(&track) != FALSE)
+            {
+                tracking_mouse_leave_ = true;
+            }
+        }
+    }
+
     void handle_scrollbar_mouse_down(HWND hwnd, LPARAM lparam)
     {
         const auto x = static_cast<float>(GET_X_LPARAM(lparam));
@@ -343,16 +363,30 @@ class window_host final
                 }
             }
             return 0;
-        case WM_LBUTTONDOWN:
-            if (self != nullptr)
-            {
-                self->handle_scrollbar_mouse_down(hwnd, lparam);
-            }
-            return 0;
         case WM_MOUSEMOVE:
             if (self != nullptr)
             {
+                self->update_scrollbar_hover(hwnd, lparam);
                 self->handle_scrollbar_mouse_move(hwnd, lparam);
+            }
+            return 0;
+        case WM_MOUSELEAVE:
+            if (self != nullptr)
+            {
+                self->tracking_mouse_leave_ = false;
+                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                self->console_.set_scrollbar_hovered(false);
+            }
+            return 0;
+        case WM_LBUTTONDOWN:
+            if (self != nullptr)
+            {
+                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                self->console_.set_scrollbar_hovered(true);
+            }
+            if (self != nullptr)
+            {
+                self->handle_scrollbar_mouse_down(hwnd, lparam);
             }
             return 0;
         case WM_LBUTTONUP:
@@ -564,6 +598,7 @@ class window_host final
     win32::basic_thread process_thread_;
     HWND window_{};
     bool scrollbar_dragging_{};
+    bool tracking_mouse_leave_{};
     float scrollbar_grab_offset_{};
     render_worker worker_;
 };

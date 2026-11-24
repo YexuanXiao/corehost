@@ -354,9 +354,11 @@ class render_worker final
             quads_.push_back(cursor_quad);
         }
 
-        if (history_size_ != 0)
+        if (focused_ && history_size_ != 0)
         {
-            const auto scrollbar_width = std::max(1.0f, 8.0f * static_cast<float>(dpi_) / 96.0f);
+            const auto sample = 0.5f / static_cast<float>(atlas_.size());
+            const auto scale = static_cast<float>(dpi_) / 96.0f;
+            const auto scrollbar_width = std::max(1.0f, 8.0f * scale);
             const auto client_width = static_cast<float>(columns) * cell_width;
             const auto client_height = static_cast<float>(rows) * cell_height;
             const auto top = history_size_ > scroll_offset_ ? history_size_ - scroll_offset_ : 0;
@@ -365,13 +367,21 @@ class render_worker final
                                                      client_height, scroll_state);
             if (geometry.visible)
             {
-                const auto sample = 0.5f / static_cast<float>(atlas_.size());
                 const auto track_color = blend_color(palette_.default_foreground, palette_.default_background, 0.75f);
                 const auto thumb_color = blend_color(palette_.default_foreground, palette_.default_background, 0.35f);
-                add_line_quad(quads_, geometry.x, geometry.y, geometry.width, geometry.height, track_color, sample,
-                              0.45f);
-                add_line_quad(quads_, geometry.x + 1.0f, geometry.thumb_y, geometry.width - 2.0f,
-                              geometry.thumb_height, thumb_color, sample, 0.95f);
+                if (scrollbar_hovered_)
+                {
+                    add_line_quad(quads_, geometry.x, geometry.y, geometry.width, geometry.height, track_color, sample,
+                                  0.45f);
+                    add_line_quad(quads_, geometry.x + 1.0f, geometry.thumb_y, geometry.width - 2.0f,
+                                  geometry.thumb_height, thumb_color, sample, 0.95f);
+                }
+                else
+                {
+                    const auto thin_width = std::max(1.0f, 2.0f * scale);
+                    add_line_quad(quads_, client_width - thin_width, geometry.thumb_y, thin_width,
+                                  geometry.thumb_height, thumb_color, sample, 0.95f);
+                }
             }
         }
 
@@ -441,6 +451,7 @@ class render_worker final
             bool changed = false;
             bool scroll_changed = false;
             bool focused = false;
+            bool scrollbar_hovered = false;
             bool title_changed = false;
             std::wstring window_title;
             screen::cursor_state cursor{};
@@ -480,6 +491,7 @@ class render_worker final
 
                 cursor = console_.state().cursor();
                 focused = console_.has_focus();
+                scrollbar_hovered = console_.scrollbar_hovered();
                 if (console_.state().take_title_changed())
                 {
                     const auto &title = console_.state().title;
@@ -494,6 +506,7 @@ class render_worker final
             }
 
             const bool cursor_changed = cursor_dirty || !same_cursor(cursor_, cursor);
+            const bool hover_changed = scrollbar_hovered != scrollbar_hovered_;
             const bool focus_changed = focused != focused_;
             const auto now = ::GetTickCount64();
             const bool blink_on = focused && ((now / blink_interval_ms) % 2 == 0);
@@ -501,13 +514,14 @@ class render_worker final
 
             cursor_ = cursor;
             focused_ = focused;
+            scrollbar_hovered_ = scrollbar_hovered;
             blink_on_ = blink_on;
             draw_cursor_ = cursor_.visible && focused_ && scroll_offset_ == 0 &&
                            (cursor_.blinking ? blink_on_ : true);
             cursor_dirty = false;
             renderer_.resize(width, height);
 
-            if (changed || cursor_changed || focus_changed || blink_changed || dpi_changed)
+            if (changed || cursor_changed || hover_changed || focus_changed || blink_changed || dpi_changed)
             {
                 if (scroll_changed)
                 {
@@ -548,6 +562,7 @@ class render_worker final
     console_palette palette_;
     screen::cursor_state cursor_{};
     bool focused_{true};
+    bool scrollbar_hovered_{};
     bool blink_on_{true};
     bool draw_cursor_{true};
     screen::grapheme_store graphemes_;

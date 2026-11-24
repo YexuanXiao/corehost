@@ -151,6 +151,16 @@ class console final
         return state_.scroll_locked();
     }
 
+    [[nodiscard]] bool scrollbar_hovered() const noexcept
+    {
+        return scrollbar_hovered_;
+    }
+
+    void set_scrollbar_hovered(bool value) noexcept
+    {
+        scrollbar_hovered_ = value;
+    }
+
     void toggle_scroll_lock() noexcept
     {
         state_.set_scroll_locked(!state_.scroll_locked());
@@ -242,6 +252,7 @@ class console final
     consoleinput::input_queue input_;
     bool input_read_{};
     bool focused_{true};
+    bool scrollbar_hovered_{};
     win32::event input_event_{win32::create_tag, true, false};
 };
 
