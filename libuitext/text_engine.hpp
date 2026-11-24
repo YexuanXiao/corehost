@@ -34,11 +34,11 @@ struct glyph_bitmap final
     std::span<const std::uint8_t> alpha;
 };
 
-// Header-only DirectWrite metrics and grapheme-cluster rasterization.
+// Header-only DirectWrite text layout and grapheme-cluster rasterization.
 //
-// The family list is handed to DirectWrite's font fallback builder. DirectWrite
-// chooses the font for each mapped range and also supplies its system fallback;
-// this code never probes individual characters.
+// The family list is registered as DirectWrite's fallback chain, followed by
+// the system fallback. IDWriteTextLayout then selects fonts and shapes the
+// text. This code never probes fonts or characters itself.
 class text_engine final
 {
   public:
@@ -75,7 +75,8 @@ class text_engine final
         winrt::check_hresult(builder->AddMappings(system_fallback.get()));
         winrt::check_hresult(builder->CreateFontFallback(fallback_.put()));
 
-        resolve_base_face(families);
+
+        resolve_base_family(families);
         metrics_ = measure_base_face();
     }
 
@@ -93,35 +94,9 @@ class text_engine final
         regions_.clear();
         alpha_storage_.clear();
 
-        analysis_source source{text};
-        UINT32 position = 0;
-        while (position < text.size())
+        for (const auto cluster : screen::grapheme_range<screen::text_measurement::graphemes>{text})
         {
-            UINT32 mapped_length = 0;
-            FLOAT scale = 1.0f;
-            winrt::com_ptr<IDWriteFont> mapped_font;
-            winrt::check_hresult(fallback_->MapCharacters(
-                &source, position, static_cast<UINT32>(text.size()) - position, collection_.get(), nullptr,
-                DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, &mapped_length,
-                mapped_font.put(), &scale));
-            assert(mapped_length > 0);
-            if (mapped_length == 0)
-            {
-                break;
-            }
-
-            winrt::com_ptr<IDWriteFontFace> face;
-            if (mapped_font)
-            {
-                winrt::check_hresult(mapped_font->CreateFontFace(face.put()));
-            }
-
-            const auto chunk = text.substr(position, mapped_length);
-            for (const auto cluster : screen::grapheme_range<screen::text_measurement::graphemes>{chunk})
-            {
-                rasterize_cluster(cluster.text, face ? face.get() : base_face_.get());
-            }
-            position += mapped_length;
+            rasterize_cluster(cluster.text);
         }
 
         out.reserve(regions_.size());
@@ -138,62 +113,58 @@ class text_engine final
     }
 
   private:
-    class analysis_source final : public winrt::implements<analysis_source, IDWriteTextAnalysisSource>
+    class run_renderer final : public winrt::implements<run_renderer, IDWriteTextRenderer>
     {
       public:
-        explicit analysis_source(std::u16string_view text) noexcept : text_{text}
+        explicit run_renderer(text_engine &owner) noexcept : owner_{owner}
         {
         }
 
-        HRESULT GetTextAtPosition(UINT32 text_position, WCHAR const **text_string, UINT32 *text_length) noexcept
+        HRESULT IsPixelSnappingDisabled(void *, BOOL *disabled) noexcept
         {
-            if (text_position >= text_.size())
+            *disabled = TRUE;
+            return S_OK;
+        }
+
+        HRESULT GetCurrentTransform(void *, DWRITE_MATRIX *transform) noexcept
+        {
+            *transform = DWRITE_MATRIX{1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
+            return S_OK;
+        }
+
+        HRESULT GetPixelsPerDip(void *, FLOAT *pixels_per_dip) noexcept
+        {
+            *pixels_per_dip = 1.0f;
+            return S_OK;
+        }
+
+        HRESULT DrawGlyphRun(void *, FLOAT, FLOAT, DWRITE_MEASURING_MODE, const DWRITE_GLYPH_RUN *glyph_run,
+                             const DWRITE_GLYPH_RUN_DESCRIPTION *, IUnknown *) noexcept
+        {
+            if (glyph_run != nullptr && glyph_run->glyphCount != 0)
             {
-                *text_string = nullptr;
-                *text_length = 0;
-                return S_OK;
+                owner_.rasterize_run(*glyph_run);
             }
-            *text_string = reinterpret_cast<WCHAR const *>(text_.data() + text_position);
-            *text_length = static_cast<UINT32>(text_.size() - text_position);
             return S_OK;
         }
 
-        HRESULT GetTextBeforePosition(UINT32 text_position, WCHAR const **text_string, UINT32 *text_length) noexcept
+        HRESULT DrawUnderline(void *, FLOAT, FLOAT, const DWRITE_UNDERLINE *, IUnknown *) noexcept
         {
-            if (text_position == 0 || text_position > text_.size())
-            {
-                *text_string = nullptr;
-                *text_length = 0;
-                return S_OK;
-            }
-            *text_string = reinterpret_cast<WCHAR const *>(text_.data());
-            *text_length = text_position;
             return S_OK;
         }
 
-        DWRITE_READING_DIRECTION GetParagraphReadingDirection() noexcept
+        HRESULT DrawStrikethrough(void *, FLOAT, FLOAT, const DWRITE_STRIKETHROUGH *, IUnknown *) noexcept
         {
-            return DWRITE_READING_DIRECTION_LEFT_TO_RIGHT;
-        }
-
-        HRESULT GetLocaleName(UINT32 text_position, UINT32 *text_length, WCHAR const **locale_name) noexcept
-        {
-            static constexpr WCHAR locale[] = L"en-us";
-            *text_length = text_position < text_.size() ? static_cast<UINT32>(text_.size() - text_position) : 0;
-            *locale_name = locale;
             return S_OK;
         }
 
-        HRESULT GetNumberSubstitution(UINT32 text_position, UINT32 *text_length,
-                                      IDWriteNumberSubstitution **number_substitution) noexcept
+        HRESULT DrawInlineObject(void *, FLOAT, FLOAT, IDWriteInlineObject *, BOOL, BOOL, IUnknown *) noexcept
         {
-            *text_length = text_position < text_.size() ? static_cast<UINT32>(text_.size() - text_position) : 0;
-            *number_substitution = nullptr;
             return S_OK;
         }
 
       private:
-        std::u16string_view text_;
+        text_engine &owner_;
     };
 
     struct glyph_region final
@@ -206,7 +177,7 @@ class text_engine final
         std::size_t size{};
     };
 
-    void resolve_base_face(std::span<const win32::wcstring_view> families)
+    void resolve_base_family(std::span<const win32::wcstring_view> families)
     {
         for (const auto family : families)
         {
@@ -218,9 +189,16 @@ class text_engine final
                 continue;
             }
 
+            base_family_ = family;
+            winrt::check_hresult(factory_->CreateTextFormat(
+                base_family_.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL, size_, L"en-us", text_format_.put()));
+            winrt::check_hresult(text_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
+            auto format1 = text_format_.as<IDWriteTextFormat1>();
+            winrt::check_hresult(format1->SetFontFallback(fallback_.get()));
+
             winrt::com_ptr<IDWriteFontFamily> font_family;
             winrt::check_hresult(collection_->GetFontFamily(family_index, font_family.put()));
-
             winrt::com_ptr<IDWriteFont> font;
             winrt::check_hresult(font_family->GetFirstMatchingFont(
                 DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, font.put()));
@@ -253,52 +231,21 @@ class text_engine final
         return metrics;
     }
 
-    bool collect_glyphs(IDWriteFontFace *face, std::span<const char16_t> cluster)
-    {
-        glyph_indices_.clear();
-        advances_.clear();
-
-        const std::u16string_view view{cluster.data(), cluster.size()};
-        std::size_t offset = 0;
-        while (offset < view.size())
-        {
-            const auto decoded = screen::next_codepoint(view, offset);
-            offset += decoded.units;
-            const UINT32 codepoint = decoded.value;
-
-            UINT16 glyph_index = 0;
-            winrt::check_hresult(face->GetGlyphIndices(&codepoint, 1, &glyph_index));
-            if (glyph_index == 0)
-            {
-                return false;
-            }
-
-            DWRITE_GLYPH_METRICS metrics{};
-            winrt::check_hresult(face->GetDesignGlyphMetrics(&glyph_index, 1, &metrics, FALSE));
-            glyph_indices_.push_back(glyph_index);
-            advances_.push_back(size_ * static_cast<float>(metrics.advanceWidth) / units_per_em_);
-        }
-
-        return !glyph_indices_.empty();
-    }
-
-    void rasterize_cluster(std::span<const char16_t> cluster, IDWriteFontFace *face)
+    void rasterize_cluster(std::span<const char16_t> cluster)
     {
         assert(!cluster.empty());
-        if (!collect_glyphs(face, cluster))
-        {
-            return;
-        }
 
-        DWRITE_GLYPH_RUN run{};
-        run.fontFace = face;
-        run.fontEmSize = size_;
-        run.glyphCount = static_cast<UINT16>(glyph_indices_.size());
-        run.glyphIndices = glyph_indices_.data();
-        run.glyphAdvances = advances_.data();
-        run.isSideways = FALSE;
-        run.bidiLevel = 0;
+        winrt::com_ptr<IDWriteTextLayout> layout;
+        winrt::check_hresult(factory_->CreateTextLayout(
+            reinterpret_cast<const WCHAR *>(cluster.data()), static_cast<UINT32>(cluster.size()),
+            text_format_.get(), 4096.0f, 4096.0f, layout.put()));
 
+        run_renderer renderer{*this};
+        winrt::check_hresult(layout->Draw(nullptr, &renderer, 0.0f, 0.0f));
+    }
+
+    void rasterize_run(const DWRITE_GLYPH_RUN &run)
+    {
         winrt::com_ptr<IDWriteGlyphRunAnalysis> analysis;
         auto factory = factory_.as<IDWriteFactory2>();
         winrt::check_hresult(factory->CreateGlyphRunAnalysis(
@@ -334,12 +281,12 @@ class text_engine final
     winrt::com_ptr<IDWriteFontCollection> collection_;
     winrt::com_ptr<IDWriteFontFallback> fallback_;
     winrt::com_ptr<IDWriteFontFace> base_face_;
+    winrt::com_ptr<IDWriteTextFormat> text_format_;
+    win32::wcstring_view base_family_;
     float size_{};
     float units_per_em_{};
     cell_metrics metrics_{};
 
-    std::vector<UINT16> glyph_indices_;
-    std::vector<FLOAT> advances_;
     std::vector<glyph_region> regions_;
     std::vector<std::uint8_t> alpha_storage_;
 };
