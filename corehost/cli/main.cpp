@@ -1,24 +1,21 @@
-#include "console_arguments.hpp"
-
-#include "client/client.hpp"
-#include "comserver/com_server.hpp"
-#include "defterm/defterm.hpp"
-#include "libcorepty/conpty.hpp"
-
-#include "condrv_io.hpp"
+#include <Windows.h>
+#include <string>
+#include <utility>
 #include "shell/shell.hpp"
-#ifdef COREHOST_WINDOW
-#include "window/window_entry.hpp"
-#endif
 #include "utility/crtdbg.hpp"
 #include "utility/log.hpp"
 #include "win32/event.hpp"
 #include "win32/handle.hpp"
-
-#include <Windows.h>
-
-#include <string>
-#include <utility>
+#include "console_arguments.hpp"
+#include "libcoreio/condrv_io.hpp"
+#include "comserver/com_server.hpp"
+#include "defterm/defterm.hpp"
+#include "libcorepty/conpty.hpp"
+#ifdef COREHOST_WINDOW
+#include "window/window_entry.hpp"
+#else
+#include "client/client.hpp"
+#endif
 
 int __stdcall wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
 {
@@ -34,7 +31,7 @@ int __stdcall wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
         if (!handoff.server.valid())
         {
             LOG("COM handoff failed");
-            return 1;
+            return 0;
         }
 
         corehost::corepty::conpty_entry(handoff.server.view(), handoff.event.view(),
@@ -42,13 +39,11 @@ int __stdcall wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
                                         handoff.vt_in.view(), handoff.vt_out.view(), std::move(handoff.signal),
                                         handoff.width, handoff.height, false,
                                         corehost::screen::text_measurement::graphemes, true);
-        return 0;
     }
 
     if (const auto handle = args.condrv_handle(); handle != 0)
     {
         corehost::defterm::defterm_entry(handle);
-        return 0;
     }
 
     if (args.is_headless())
@@ -68,7 +63,6 @@ int __stdcall wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
             server.view(), event.view(), {}, {}, win32::handle_view{::GetStdHandle(STD_INPUT_HANDLE)},
             win32::handle_view{::GetStdHandle(STD_OUTPUT_HANDLE)}, std::move(signal), args.width(), args.height(),
             args.inherit_cursor(), args.text_measurement(), args.ambiguous_is_wide());
-        return 0;
     }
 
 #ifdef COREHOST_WINDOW

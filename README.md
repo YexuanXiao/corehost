@@ -39,13 +39,12 @@ Actually, the Windows Console team also agrees that it is far from ideal; see ht
 
 ## Positioning
 
-corehost **is not a complete console / terminal**, as it does not provide a window interface.
-
 Its goal is to act as a **bridge between the Terminal GUI and the Windows console system**. To that end, corehost implements three core features:
 
 - When running as conhost.exe, dispatch the console application to the default terminal.
 - As the default console, acts as a bridge between the console application and the terminal.
 - As the implementer of the Windows system, one codebase drives both windowless console applications and pseudo console at the same time.
+- Window mode, as a full functionally terminal.
 
 corehost aims to provide **high performance** for driving:
 
