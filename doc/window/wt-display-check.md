@@ -10,6 +10,21 @@
 
 之前 `ưm` 前缀已确认是 PSReadLine 在历史文件错误时自己 `Console.Write("ưm")` 的结果；使用 `Set-PSReadLineOption -HistorySaveStyle SaveNothing` 后前缀消失，不是终端 parser 的 bug。
 
+补充验证：
+
+- B4 粗体/下划线/删除线：通过；
+- B5 SGR reset：通过；
+- B7 彩色 Emoji：通过，😀/🚀 显示为彩色；
+- B10 DEC line drawing：`ESC(0 lqqk ESC(B` 通过；
+- B11 tab/backspace/CR/LF：通过；
+- B12 CUP：通过；
+- B13 ESC 7/8 save/restore：通过；
+- B14 EL/ED：通过；
+- B16 alternate screen 1049 进入/退出：通过；
+- B22 resize 后重绘：通过。
+
+CJK 字距按用户决定暂时搁置。
+
 ## 已验证
 
 | 项 | 结果 | 说明 |
