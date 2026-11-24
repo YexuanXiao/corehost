@@ -1,7 +1,7 @@
 #pragma once
 
 #include "console_api.hpp"
-#include "screen_updates.hpp"
+#include "console.hpp"
 #include "console_state.hpp"
 #include "input.hpp"
 #include "input_payload.hpp"
@@ -29,7 +29,7 @@ namespace corehost::window
 class window_console_session final
 {
   public:
-    window_console_session(win32::handle_view server, console_screen &screen);
+    window_console_session(win32::handle_view server, console &console);
     ~window_console_session();
 
     window_console_session(const window_console_session &) = delete;
@@ -66,7 +66,7 @@ class window_console_session final
     void complete_pending();
 
     win32::handle_view server_;
-    console_screen &screen_source_;
+    console &console_;
     coreio::io_msg pending_message_{};
     consoleapi::console_api::pending_read_kind pending_kind_{};
     bool pending_active_{};

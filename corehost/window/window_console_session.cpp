@@ -8,13 +8,13 @@
 namespace corehost::window
 {
 
-window_console_session::window_console_session(win32::handle_view server, console_screen &screen)
-    : server_{server}, screen_source_{screen}, processes_{}, io_state_{server, {}, {}, processes_},
-      payload_{server}, api_{screen_source_.buffer(), screen_source_.state(), &screen_source_.input(), 0, &processes_,
+window_console_session::window_console_session(win32::handle_view server, console &console)
+    : server_{server}, console_{console}, processes_{}, io_state_{server, {}, {}, processes_},
+      payload_{server}, api_{console_.buffer(), console_.state(), &console_.input(), 0, &processes_,
                         &payload_},
       input_event_{win32::create_tag, true, false}, stop_event_{win32::create_tag, true, false}
 {
-    auto &state = screen_source_.state();
+    auto &state = console_.state();
     state.output_mode = 0x0001 | 0x0002 | 0x0004;
     state.measurement = screen::text_measurement::graphemes;
     state.ambiguous_is_wide = true;
@@ -32,7 +32,7 @@ void window_console_session::start()
 
     coreio::set_server_info(server_, input_event_.view());
     thread_ = win32::basic_thread{&window_console_session::thread_entry, this, {.name = L"corehost-window-console"}};
-    screen_source_.set_worker(thread_.get());
+    console_.set_worker(thread_.get());
 }
 
 void window_console_session::stop()
@@ -47,7 +47,7 @@ void window_console_session::stop()
     (void)::CancelSynchronousIo(thread_.get());
     thread_.join();
     thread_ = {};
-    screen_source_.set_worker(nullptr);
+    console_.set_worker(nullptr);
 }
 
 DWORD WINAPI window_console_session::thread_entry(LPVOID self)
@@ -58,7 +58,7 @@ DWORD WINAPI window_console_session::thread_entry(LPVOID self)
 
 bool window_console_session::handle(coreio::io_msg &message)
 {
-    console_screen::write_lock lock{screen_source_};
+    std::unique_lock<win32::srwlock> lock{console_.mutex()};
 
     switch (message.descriptor.Function)
     {
@@ -131,7 +131,7 @@ void window_console_session::complete_pending()
         return;
     }
 
-    console_screen::write_lock lock{screen_source_};
+    std::unique_lock<win32::srwlock> lock{console_.mutex()};
     bool completed = false;
     if (pending_kind_ == consoleapi::console_api::pending_read_kind::console_input)
     {
@@ -179,7 +179,7 @@ void window_console_session::run()
         }
 
         previous = nullptr;
-        HANDLE waits[] = {input_event_.get(), screen_source_.input_event().get(), stop_event_.get()};
+        HANDLE waits[] = {input_event_.get(), console_.input_event().get(), stop_event_.get()};
         const auto wait = ::WaitForMultipleObjects(3, waits, FALSE, INFINITE);
         if (wait == WAIT_FAILED)
         {
@@ -191,7 +191,11 @@ void window_console_session::run()
         }
         if (wait == WAIT_OBJECT_0 + 1)
         {
-            screen_source_.input_event().reset();
+            std::unique_lock<win32::srwlock> lock{console_.mutex()};
+            if (console_.input().empty())
+            {
+                console_.input_event().reset();
+            }
         }
     }
 }

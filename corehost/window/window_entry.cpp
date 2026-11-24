@@ -14,12 +14,12 @@ namespace corehost::window
 void window_entry(std::wstring title, std::wstring client_command_line)
 {
     auto server = condrv::create_server_handle();
-    console_screen screen{120, 30};
-    window_console_session console{server.view(), screen};
+    console shared_console{120, 30};
+    window_console_session console{server.view(), shared_console};
     console.start();
 
     window_client_process client{server.view(), title, client_command_line};
-    window_host host{title, screen};
+    window_host host{title, shared_console};
     host.run();
 
     client.terminate();

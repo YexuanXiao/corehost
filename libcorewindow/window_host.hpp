@@ -1,7 +1,7 @@
 #pragma once
 
 #include "d3d12_window_renderer.hpp"
-#include "screen_updates.hpp"
+#include "console.hpp"
 #include "cell_atlas.hpp"
 #include "text_engine.hpp"
 
@@ -22,7 +22,7 @@ namespace corehost::window
 class window_host final
 {
   public:
-    window_host(win32::wcstring_view title, console_screen &screen) : title_{title}, screen_{screen}
+    window_host(win32::wcstring_view title, console &console) : title_{title}, console_{console}
     {
         assert(!title_.empty());
     }
@@ -187,7 +187,7 @@ class window_host final
                         .type = consoleinput::input_event_type::key,
                         .key = consoleinput::key_from_character(character),
                     };
-                    self->screen_.push_input(std::move(event));
+                    self->console_.push_input(std::move(event));
                 }
             }
             return 0;
@@ -204,7 +204,7 @@ class window_host final
             if (self != nullptr)
             {
                 self->updates_.clear();
-                (void)self->screen_.copy_updates(self->updates_);
+                (void)self->console_.copy_updates(self->updates_);
                 self->apply_screen_updates();
                 self->build_quads();
                 self->renderer_.render();
@@ -227,7 +227,7 @@ class window_host final
 
     win32::wcstring_view title_;
     d3d12ui::d3d12_window_renderer renderer_;
-    console_screen &screen_;
+    console &console_;
     std::vector<screen_row_update> updates_;
     uitext::text_engine text_{fallback_families(), 16.0f};
     uitext::cell_atlas atlas_{text_};
