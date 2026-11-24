@@ -47,6 +47,12 @@ struct font_fallback_entry final
 // The family list is registered as DirectWrite's fallback chain, followed by
 // the system fallback. IDWriteTextLayout then selects fonts and shapes the
 // text. This code never probes fonts or characters itself.
+//
+// CJK fallback sizing is deliberately unresolved. Ghostty measures the
+// ideograph advance ("水") per face and scales fallback font sizes to match
+// the primary face's 2-cell ideograph width. Windows Terminal instead keeps
+// the fallback glyph size and forces the shaped advance to 2 cells. The
+// current implementation does neither; see doc/window/0009-cjk-font-metrics.md.
 class text_engine final
 {
   public:
