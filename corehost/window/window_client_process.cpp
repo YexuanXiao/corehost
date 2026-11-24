@@ -26,7 +26,6 @@ window_client_process::window_client_process(win32::handle_view server, std::wst
         win32::throw_last_error();
     }
 
-    auto mutable_title = std::wstring{title};
     auto mutable_command_line = command_line;
 
     STARTUPINFOEXW startup{};
@@ -35,9 +34,9 @@ window_client_process::window_client_process(win32::handle_view server, std::wst
     startup.StartupInfo.hStdInput = input.get();
     startup.StartupInfo.hStdOutput = output.get();
     startup.StartupInfo.hStdError = error.get();
-    if (!mutable_title.empty())
+    if (!title.empty())
     {
-        startup.StartupInfo.lpTitle = mutable_title.data();
+        startup.StartupInfo.lpTitle = const_cast<wchar_t *>(title.data());
     }
 
     SIZE_T attribute_size = 0;

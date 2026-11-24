@@ -18,7 +18,7 @@ void window_entry(std::wstring title, std::wstring client_command_line)
     console.start();
 
     window_client_process client{server.view(), title, client_command_line};
-    window_host host{std::move(title)};
+    window_host host{title};
     host.run();
 
     client.terminate();

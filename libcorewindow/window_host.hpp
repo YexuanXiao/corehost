@@ -6,8 +6,8 @@
 
 #include <Windows.h>
 
-#include <string>
-#include <utility>
+#include <cassert>
+#include <string_view>
 
 namespace corehost::window
 {
@@ -17,12 +17,10 @@ namespace corehost::window
 class window_host final
 {
   public:
-    explicit window_host(std::wstring title) : title_{std::move(title)}
+    explicit window_host(std::wstring_view title) : title_{title}
     {
-        if (title_.empty())
-        {
-            title_ = L"CoreHost";
-        }
+        assert(!title_.empty());
+        assert(title_.data()[title_.size()] == L'\0');
     }
 
     window_host(const window_host &) = delete;
@@ -49,7 +47,7 @@ class window_host final
         }
 
         const HWND window =
-            ::CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, class_name, title_.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
+            ::CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, class_name, title_.data(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
                               CW_USEDEFAULT, 800, 500, nullptr, nullptr, instance, this);
         if (window == nullptr)
         {
@@ -121,7 +119,7 @@ class window_host final
         }
     }
 
-    std::wstring title_;
+    std::wstring_view title_;
     d3d12ui::d3d12_window_renderer renderer_;
 };
 
