@@ -286,9 +286,26 @@ class render_worker final
 
         if (draw_cursor_)
         {
-            const auto cursor_height = std::max(1.0f, cell_height * static_cast<float>(cursor_.size) / 100.0f);
-            const auto cursor_left = static_cast<float>(cursor_.x) * cell_width;
-            const auto cursor_top = static_cast<float>(cursor_.y) * cell_height + cell_height - cursor_height;
+            const auto cell_left = static_cast<float>(cursor_.x) * cell_width;
+            const auto cell_top = static_cast<float>(cursor_.y) * cell_height;
+            auto cursor_left = cell_left;
+            auto cursor_top = cell_top;
+            auto cursor_width = cell_width;
+            auto cursor_height = cell_height;
+            switch (cursor_.style)
+            {
+            case screen::cursor_style::underline:
+                cursor_height = std::max(1.0f, cell_height * static_cast<float>(cursor_.size) / 100.0f);
+                cursor_top = cell_top + cell_height - cursor_height;
+                break;
+            case screen::cursor_style::bar:
+                cursor_width = std::max(1.0f, cell_width * static_cast<float>(cursor_.size) / 100.0f);
+                break;
+            case screen::cursor_style::block:
+            default:
+                break;
+            }
+
             const auto sample = 0.5f / static_cast<float>(atlas_.size());
             console_color cursor_color = palette_.default_foreground;
             if (cursor_.x < columns && cursor_.y < rows)
@@ -300,7 +317,7 @@ class render_worker final
             d3d12ui::text_quad cursor_quad{
                 .x = cursor_left,
                 .y = cursor_top,
-                .width = cell_width,
+                .width = cursor_width,
                 .height = cursor_height,
                 .u0 = sample,
                 .v0 = sample,
@@ -414,7 +431,7 @@ class render_worker final
             cursor_ = cursor;
             focused_ = focused;
             blink_on_ = blink_on;
-            draw_cursor_ = cursor_.visible && focused_ && blink_on_;
+            draw_cursor_ = cursor_.visible && focused_ && (cursor_.blinking ? blink_on_ : true);
             cursor_dirty = false;
             renderer_.resize(width, height);
 
