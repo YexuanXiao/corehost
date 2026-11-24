@@ -135,7 +135,7 @@ inline void render_damage(byte_buffer &output, const screen::screen_buffer &buff
 
             if (value.has_cluster())
             {
-                const auto cluster = buffer.cluster_of(value);
+                const auto cluster = buffer.cluster_of(static_cast<std::size_t>(y), value);
                 append_utf16(output, std::u16string_view{cluster.data(), cluster.size()});
             }
             else
@@ -239,7 +239,7 @@ inline void render_viewport(byte_buffer &output, const screen::screen_buffer &bu
 
             if (value.has_cluster())
             {
-                const auto cluster = buffer.cluster_of(value);
+                const auto cluster = buffer.cluster_of(static_cast<std::size_t>(y), value);
                 append_utf16(output, std::u16string_view{cluster.data(), cluster.size()});
             }
             else

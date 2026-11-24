@@ -97,7 +97,7 @@ class render_worker final
                 if (value.has_cluster())
                 {
                     const auto source =
-                        updates_.graphemes.view(screen::grapheme_store::ref{value.offset(), value.length()});
+                        row.graphemes.view(screen::grapheme_store::ref{value.offset(), value.length()});
                     if (graphemes_.can_append(source.size()))
                     {
                         const auto ref = graphemes_.append(source);

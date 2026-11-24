@@ -21,7 +21,7 @@
 - 该列表交给 `IDWriteFontFallbackBuilder`，并追加 `IDWriteFactory2::GetSystemFontFallback()`；整个字符串直接交给 `IDWriteTextLayout`，由其完成 fallback、cluster 和 shaping，不手工切分字符串也不逐字符探测；
 - glyph 输出使用可复用的 alpha/region 缓冲区，`glyph_bitmap` 只持有 span，不逐 glyph 分配 vector；
 - `window_console_session` 已实现 CONNECT、CREATE_OBJECT、CLOSE_OBJECT、DISCONNECT、RAW_FLUSH、RAW_WRITE、RAW_READ、USER_DEFINED 的基础分派；
-- 共享 `console` 只保存 screen/state/input；`win32::srwlock console_mutex` 独立于状态对象，由 `window_entry` 持有并同时传给 IO 会话和 UI，类似 libcorepty 的 `session_mutex`；IO 线程持写锁处理 console API，UI 线程渲染前主动获取同一把锁复制 damage 后立即释放；IO 线程不通知 UI、不使用回调、`std::mutex`、缓冲队列或 HWND 原子量；`screen_row_update` 的 begin/end 会对齐宽字符头/尾，cell snapshot 保存原始 `screen::cell`，快照同时复制 `screen::grapheme_store`；渲染线程把损坏 cell 的 cluster 重映射到自己的 grapheme store，不使用自造的逐 cell `u16string text`；
+- 共享 `console` 只保存 screen/state/input；`win32::srwlock console_mutex` 独立于状态对象，由 `window_entry` 持有并同时传给 IO 会话和 UI，类似 libcorepty 的 `session_mutex`；IO 线程持写锁处理 console API，UI 线程渲染前主动获取同一把锁复制 damage 后立即释放；IO 线程不通知 UI、不使用回调、`std::mutex`、缓冲队列或 HWND 原子量；`screen_row_update` 的 begin/end 会对齐宽字符头/尾，cell snapshot 保存原始 `screen::cell`；每个 row 有自己的 `screen::grapheme_store`，snapshot 按行复制该 store；渲染线程把损坏 cell 的 cluster 重映射到自己的 grapheme store，不使用自造的逐 cell `u16string text`；
 - 已决定渲染路径：glyph atlas + per-cell quads，UI 线程构建/更新 atlas 和 quad 数据，不执行 console IO；
 - 实测 `corehostw cmd.exe` 可以保持 client 运行，关闭窗口后 corehostw 与 cmd 均退出。
 

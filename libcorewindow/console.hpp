@@ -64,7 +64,6 @@ class console final
             return false;
         }
 
-        snapshot.graphemes = screen_.graphemes();
 
         for (std::size_t y = 0; y < screen_.height(); ++y)
         {
@@ -88,6 +87,7 @@ class console final
             row.y = y;
             row.begin = begin;
             row.end = end;
+            row.graphemes = screen_.row_graphemes(y);
             row.cells.reserve(end - begin);
 
             for (std::size_t x = begin; x < end; ++x)

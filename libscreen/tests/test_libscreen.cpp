@@ -247,11 +247,15 @@ void test_screen_buffer()
     check(cluster_cell.has_cluster(), "cluster cell type");
     check(cluster_cell.primary() == u'\uFFFD', "cluster primary");
     check(cluster_cell.style() == style1, "cluster style");
-    const auto cluster_view = screen.cluster_of(cluster_cell);
+    const auto cluster_view = screen.cluster_of(0, cluster_cell);
     check(cluster_view.size() == 2, "cluster view size");
     check(cluster_view[0] == 0xD83D && cluster_view[1] == 0xDE00, "cluster data");
+    screen.copy_rect(rectangle{1, 0, 1, 1}, rectangle{}, false, coord{1, 1});
+    const auto copied_cluster = screen.cluster_of(1, screen.at(1, 1));
+    check(copied_cluster.size() == 2 && copied_cluster[0] == 0xD83D, "cross-row cluster remap");
+
     check(screen.rebuild_graphemes(), "grapheme rebuild");
-    const auto rebuilt_cluster = screen.cluster_of(screen.at(1, 0));
+    const auto rebuilt_cluster = screen.cluster_of(0, screen.at(1, 0));
     check(rebuilt_cluster.size() == 2 && rebuilt_cluster[0] == 0xD83D, "cluster survives rebuild");
 
     check(screen.write_scalar(2, 1, u'\u4E2D', style0, cell_width::wide), "wide write");

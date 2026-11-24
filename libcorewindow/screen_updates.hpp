@@ -20,12 +20,12 @@ struct screen_row_update final
     std::size_t begin{};
     std::size_t end{};
     std::vector<screen_cell_update> cells;
+    screen::grapheme_store graphemes;
 };
 
 struct screen_snapshot final
 {
     std::vector<screen_row_update> rows;
-    screen::grapheme_store graphemes;
 };
 
 } // namespace corehost::window

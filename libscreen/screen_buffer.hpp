@@ -104,12 +104,14 @@ struct row_block final
 {
     cell_vector cells;
     row_state state;
+    grapheme_store graphemes;
 };
 
 struct history_row final
 {
     cell_vector cells;
     history_state state;
+    grapheme_store graphemes;
 };
 
 static_assert(sizeof(row_state) <= 24);
@@ -200,6 +202,18 @@ class page final
         return rows_[y];
     }
 
+    [[nodiscard]] grapheme_store &graphemes(std::size_t y) noexcept
+    {
+        assert(y < height_);
+        return rows_[y].graphemes;
+    }
+
+    [[nodiscard]] const grapheme_store &graphemes(std::size_t y) const noexcept
+    {
+        assert(y < height_);
+        return rows_[y].graphemes;
+    }
+
     void erase_front() noexcept
     {
         assert(rows_.size() == height_);
@@ -209,13 +223,13 @@ class page final
     void push_blank(cell_style fill_style)
     {
         assert(rows_.size() + 1 == height_);
-        rows_.push_back(row_block{cell_vector(width_, cell::blank(fill_style)), row_state{}});
+        rows_.push_back(row_block{cell_vector(width_, cell::blank(fill_style)), row_state{}, {}});
     }
 
     void push_row(cell_vector &&cells)
     {
         assert(rows_.size() + 1 == height_);
-        rows_.push_back(row_block{std::move(cells), row_state{}});
+        rows_.push_back(row_block{std::move(cells), row_state{}, {}});
     }
 
     void mark_dirty(std::size_t y, std::size_t begin, std::size_t end) noexcept;
@@ -475,17 +489,21 @@ class screen_buffer final
 
     [[nodiscard]] const image_fragment *image_of(const cell &value) const noexcept;
 
-    [[nodiscard]] grapheme_store &graphemes() noexcept
+    [[nodiscard]] grapheme_store &row_graphemes(std::size_t y) noexcept
     {
-        return graphemes_;
+        return active_page().graphemes(y);
     }
 
-    [[nodiscard]] const grapheme_store &graphemes() const noexcept
+    [[nodiscard]] const grapheme_store &row_graphemes(std::size_t y) const noexcept
     {
-        return graphemes_;
+        return active_page().graphemes(y);
     }
 
-    [[nodiscard]] std::span<const char16_t> cluster_of(const cell &value) const noexcept;
+    [[nodiscard]] grapheme_store &history_graphemes(std::size_t index) noexcept;
+    [[nodiscard]] const grapheme_store &history_graphemes(std::size_t index) const noexcept;
+
+    [[nodiscard]] std::span<const char16_t> cluster_of(std::size_t y, const cell &value) const noexcept;
+    [[nodiscard]] std::span<const char16_t> history_cluster_of(std::size_t index, const cell &value) const noexcept;
     [[nodiscard]] bool rebuild_graphemes();
     [[nodiscard]] std::size_t damage_begin(std::size_t y) const noexcept;
     [[nodiscard]] std::size_t damage_end(std::size_t y) const noexcept;
@@ -528,7 +546,6 @@ class screen_buffer final
     cell_style default_style_id_{};
     hyperlink_table hyperlinks_;
     image_table images_;
-    grapheme_store graphemes_;
 };
 
 using cluster_remap = std::flat_map<cluster_offset, grapheme_store::ref>;
@@ -591,7 +608,7 @@ inline page::page(std::size_t width, std::size_t height, cell_style fill_style) 
     assert(width != 0 && height != 0);
     for (std::size_t y = 0; y < height_; ++y)
     {
-        rows_.push_back(row_block{cell_vector(width_, cell::blank(fill_style)), row_state{}});
+        rows_.push_back(row_block{cell_vector(width_, cell::blank(fill_style)), row_state{}, {}});
     }
     mark_all_dirty();
 }
@@ -919,7 +936,7 @@ inline std::size_t screen_buffer::write_ascii(std::size_t x, std::size_t y, std:
 inline bool screen_buffer::write_cluster(std::size_t x, std::size_t y, std::span<const char16_t> cluster,
                                          cell_style style, cell_width width, cell_hyperlink hyperlink, cell_flags flags)
 {
-    if (x >= width_ || y >= height_ || cluster.empty() || !graphemes_.can_append(cluster.size()))
+    if (x >= width_ || y >= height_ || cluster.empty() || !active_page().graphemes(y).can_append(cluster.size()))
     {
         return false;
     }
@@ -929,7 +946,7 @@ inline bool screen_buffer::write_cluster(std::size_t x, std::size_t y, std::span
         return false;
     }
 
-    const auto ref = graphemes_.append(cluster);
+    const auto ref = active_page().graphemes(y).append(cluster);
     return write_cell(x, y, cell::complex(ref.offset, ref.length, style, width, hyperlink, flags));
 }
 
@@ -962,7 +979,7 @@ inline void screen_buffer::glyph_at_into(std::size_t x, std::size_t y, String &r
     const auto &value = at(x, y);
     if (value.has_cluster())
     {
-        const auto cluster = cluster_of(value);
+        const auto cluster = cluster_of(y, value);
         result.append(cluster.begin(), cluster.end());
     }
     else if (value.is_blank())
@@ -983,7 +1000,7 @@ inline char32_t screen_buffer::codepoint_at(std::size_t x, std::size_t y) const
     const auto &value = at(x, y);
     if (value.has_cluster())
     {
-        const auto cluster = cluster_of(value);
+        const auto cluster = cluster_of(y, value);
         return next_codepoint(std::u16string_view{cluster.data(), cluster.size()}, 0).value;
     }
     if (value.is_blank())
@@ -1025,7 +1042,7 @@ inline void screen_buffer::line_text_into(std::size_t y, String &result) const
         }
         if (value.has_cluster())
         {
-            const auto cluster = cluster_of(value);
+            const auto cluster = cluster_of(y, value);
             result.append(cluster.begin(), cluster.end());
         }
         else if (value.is_blank())
@@ -1256,7 +1273,7 @@ inline std::size_t screen_buffer::read_chars(coord start, std::span<char16_t> ou
             }
             else
             {
-                const auto cluster = cluster_of(value);
+                const auto cluster = cluster_of(y, value);
                 out[count++] =
                     cluster.empty() || (cluster[0] >= 0xD800 && cluster[0] <= 0xDBFF) ? u'\uFFFD' : cluster[0];
             }
@@ -1690,7 +1707,18 @@ inline void screen_buffer::copy_rect_rows(std::int32_t copy_left, std::int32_t c
                                           std::int32_t copy_bottom, std::int32_t destination_x,
                                           std::int32_t destination_y, bool descending) noexcept
 {
+    struct copy_segment final
+    {
+        std::int32_t source_y{};
+        std::int32_t dest_y{};
+        std::size_t dest_x{};
+        std::vector<cell> cells;
+    };
+
     auto &target = active_page();
+    std::vector<copy_segment> segments;
+    segments.reserve(static_cast<std::size_t>(copy_bottom - copy_top));
+
     for (auto row = 0; row < (copy_bottom - copy_top); ++row)
     {
         const auto source_y = descending ? copy_bottom - 1 - row : copy_top + row;
@@ -1700,31 +1728,59 @@ inline void screen_buffer::copy_rect_rows(std::int32_t copy_left, std::int32_t c
             continue;
         }
 
-        auto source_begin = std::max(copy_left, copy_left - destination_x);
-        auto source_end = std::min(copy_right, copy_left + static_cast<std::int32_t>(width_) - destination_x);
+        const auto source_begin = std::max(copy_left, copy_left - destination_x);
+        const auto source_end = std::min(copy_right, copy_left + static_cast<std::int32_t>(width_) - destination_x);
         if (source_begin >= source_end)
         {
             continue;
         }
-        const auto dest_x = destination_x + (source_begin - copy_left);
-        const auto count = static_cast<std::size_t>(source_end - source_begin);
-        auto source_row = row_cells(static_cast<std::size_t>(source_y));
-        auto dest_row = row_cells(static_cast<std::size_t>(dest_y));
-        const auto source_offset = static_cast<std::size_t>(source_begin);
-        const auto dest_offset = static_cast<std::size_t>(dest_x);
 
-        if (source_y == dest_y && dest_x > source_begin)
+        copy_segment segment{};
+        segment.source_y = source_y;
+        segment.dest_y = dest_y;
+        segment.dest_x = static_cast<std::size_t>(destination_x + (source_begin - copy_left));
+        const auto source_row = row_cells(static_cast<std::size_t>(source_y));
+        segment.cells.assign(source_row.begin() + source_begin, source_row.begin() + source_end);
+        segments.push_back(std::move(segment));
+    }
+
+    for (auto &segment : segments)
+    {
+        auto dest_row = row_cells(static_cast<std::size_t>(segment.dest_y));
+        const auto dest_offset = segment.dest_x;
+        const auto count = segment.cells.size();
+
+        if (segment.source_y == segment.dest_y)
         {
-            std::copy_backward(source_row.begin() + static_cast<std::ptrdiff_t>(source_offset),
-                               source_row.begin() + static_cast<std::ptrdiff_t>(source_offset + count),
-                               dest_row.begin() + static_cast<std::ptrdiff_t>(dest_offset + count));
+            std::copy_n(segment.cells.begin(), count,
+                        dest_row.begin() + static_cast<std::ptrdiff_t>(dest_offset));
         }
         else
         {
-            std::copy_n(source_row.begin() + static_cast<std::ptrdiff_t>(source_offset), count,
-                        dest_row.begin() + static_cast<std::ptrdiff_t>(dest_offset));
+            const auto &source_store = target.graphemes(static_cast<std::size_t>(segment.source_y));
+            auto &dest_store = target.graphemes(static_cast<std::size_t>(segment.dest_y));
+            for (std::size_t index = 0; index < count; ++index)
+            {
+                auto value = segment.cells[index];
+                if (value.has_cluster())
+                {
+                    const auto source = source_store.view(
+                        grapheme_store::ref{value.offset(), value.length()});
+                    if (!source.empty() && dest_store.can_append(source.size()))
+                    {
+                        const auto ref = dest_store.append(source);
+                        value = value.with_cluster_ref(ref.offset, ref.length);
+                    }
+                    else
+                    {
+                        value = cell::blank(value.style(), value.hyperlink());
+                    }
+                }
+                dest_row[dest_offset + index] = value;
+            }
         }
-        target.mark_dirty(static_cast<std::size_t>(dest_y), dest_offset, dest_offset + count);
+
+        target.mark_dirty(static_cast<std::size_t>(segment.dest_y), dest_offset, dest_offset + count);
     }
 }
 
@@ -1811,6 +1867,7 @@ inline void screen_buffer::scroll_up(std::size_t lines, cell_style fill_style)
             history_.push_back(history_row{
                 std::move(front.cells),
                 history_state{front.state.flags, front.state.command_exit_code},
+                std::move(front.graphemes),
             });
         }
         else if (!front.cells.empty())
@@ -1993,39 +2050,79 @@ inline void screen_buffer::trim_history()
     }
 }
 
-inline std::span<const char16_t> screen_buffer::cluster_of(const cell &value) const noexcept
+inline grapheme_store &screen_buffer::history_graphemes(std::size_t index) noexcept
+{
+    assert(index < history_.size());
+    return history_[index].graphemes;
+}
+
+inline const grapheme_store &screen_buffer::history_graphemes(std::size_t index) const noexcept
+{
+    assert(index < history_.size());
+    return history_[index].graphemes;
+}
+
+inline std::span<const char16_t> screen_buffer::cluster_of(std::size_t y, const cell &value) const noexcept
 {
     if (!value.has_cluster())
     {
         return {};
     }
-    return graphemes_.view(grapheme_store::ref{value.offset(), value.length()});
+    return active_page().graphemes(y).view(grapheme_store::ref{value.offset(), value.length()});
+}
+
+inline std::span<const char16_t> screen_buffer::history_cluster_of(std::size_t index,
+                                                                    const cell &value) const noexcept
+{
+    if (!value.has_cluster() || index >= history_.size())
+    {
+        return {};
+    }
+    return history_[index].graphemes.view(grapheme_store::ref{value.offset(), value.length()});
+}
+
+inline bool rebuild_page_graphemes(page &target)
+{
+    for (std::size_t y = 0; y < target.height(); ++y)
+    {
+        grapheme_store rebuilt;
+        cluster_remap map;
+        for (auto &value : target.row_cells(y))
+        {
+            if (!remap_cell(value, target.graphemes(y), rebuilt, map))
+            {
+                return false;
+            }
+        }
+        target.graphemes(y) = std::move(rebuilt);
+    }
+    return true;
 }
 
 inline bool screen_buffer::rebuild_graphemes()
 {
-    grapheme_store rebuilt;
-    cluster_remap map;
-
-    if (!remap_page(main_, graphemes_, rebuilt, map))
+    if (!rebuild_page_graphemes(main_))
     {
         return false;
     }
-
-    if (alternate_ && !remap_page(*alternate_, graphemes_, rebuilt, map))
+    if (alternate_ && !rebuild_page_graphemes(*alternate_))
     {
         return false;
     }
 
     for (auto &entry : history_)
     {
-        if (!remap_line(entry.cells, graphemes_, rebuilt, map))
+        grapheme_store rebuilt;
+        cluster_remap map;
+        for (auto &value : entry.cells)
         {
-            return false;
+            if (!remap_cell(value, entry.graphemes, rebuilt, map))
+            {
+                return false;
+            }
         }
+        entry.graphemes = std::move(rebuilt);
     }
-
-    graphemes_ = std::move(rebuilt);
     return true;
 }
 
