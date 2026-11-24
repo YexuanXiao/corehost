@@ -5,6 +5,7 @@
 - W0.1：计划、模块边界、状态文档已建立；
 - W0.2：启动契约已确定。`window_entry(title, command_line)` 先创建 ConDrv `\Server`，建立进程内控制台会话和窗口，再启动 client；等价于 `conhost.exe cmd.exe`，不使用 ConPTY/defterm/libcorepty。
 - W1：`corehostw` target、共享 `main.cpp`、`COREHOST_WINDOW` 宏切换已建立；defterm/comserver/headless 路径仍完整保留，仅普通 client 启动路径切换为 `window_entry`；
+- `run_com_handoff`、`run_headless` 和 `com_handoff_bridge` 已删除，逻辑直接内联在 `wWinMain`；
 - W2.1：`libcorewindow` 最小 top-level Win32 窗口和消息循环已建立；
 - 公共 ConDrv `\Server` 创建辅助函数已添加。
 

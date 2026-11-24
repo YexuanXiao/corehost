@@ -11,7 +11,6 @@ add_executable(corehost WIN32
     defterm/defterm.cpp
     defterm/signal.cpp
     comserver/com_server.cpp
-    comserver/com_handoff_bridge.cpp
 )
 
 target_sources(corehost
@@ -27,7 +26,6 @@ target_sources(corehost
                 defterm/terminal_handoff.hpp
                 client/client.hpp
                 comserver/com_server.hpp
-                comserver/com_handoff_bridge.hpp
 )
 
 target_include_directories(corehost PRIVATE
@@ -63,7 +61,6 @@ add_executable(corehostw WIN32
     defterm/defterm.cpp
     defterm/signal.cpp
     comserver/com_server.cpp
-    comserver/com_handoff_bridge.cpp
     window/window_console_session.cpp
     window/window_entry.cpp
 )
