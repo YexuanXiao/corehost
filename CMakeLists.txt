@@ -110,6 +110,7 @@ add_subdirectory(bench)
 
 # Current corepty tests only; legacy corehost/libcorepty1 tests were removed.
 enable_testing()
+add_subdirectory(libscrollbar)
 add_subdirectory(libcorepty/tests)
 add_subdirectory(libconsole/tests)
 add_subdirectory(libcoreio/tests)

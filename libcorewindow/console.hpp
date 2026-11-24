@@ -7,6 +7,7 @@
 
 #include <Windows.h>
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <string>
@@ -22,7 +23,8 @@ namespace corehost::window
 class console final
 {
   public:
-    console(std::size_t width, std::size_t height) : screen_{width, height}, state_{width, height}
+    console(std::size_t width, std::size_t height, std::size_t history_limit = 1000)
+        : screen_{width, height, history_limit}, state_{width, height}
     {
     }
 
@@ -72,6 +74,7 @@ class console final
     void mark_input_read() noexcept
     {
         input_read_ = true;
+        snap_to_bottom_if_unlocked();
     }
 
     [[nodiscard]] bool has_read_input() const noexcept
@@ -120,6 +123,117 @@ class console final
 
         screen_.clear_damage();
         return true;
+    }
+
+    [[nodiscard]] std::size_t history_size() const noexcept
+    {
+        return screen_.history_size();
+    }
+
+    [[nodiscard]] std::size_t history_limit() const noexcept
+    {
+        return screen_.history_limit();
+    }
+
+    void set_history_limit(std::size_t limit)
+    {
+        screen_.set_history_limit(limit);
+        state_.set_scroll_offset(std::min(state_.scroll_offset(), screen_.history_size()));
+    }
+
+    [[nodiscard]] std::size_t scroll_offset() const noexcept
+    {
+        return state_.scroll_offset();
+    }
+
+    [[nodiscard]] bool scroll_locked() const noexcept
+    {
+        return state_.scroll_locked();
+    }
+
+    void toggle_scroll_lock() noexcept
+    {
+        state_.set_scroll_locked(!state_.scroll_locked());
+    }
+
+    void scroll_by(std::ptrdiff_t lines) noexcept
+    {
+        const auto history = screen_.history_size();
+        const auto current = static_cast<std::ptrdiff_t>(std::min(state_.scroll_offset(), history));
+        const auto next = std::clamp<std::ptrdiff_t>(current + lines, 0, static_cast<std::ptrdiff_t>(history));
+        state_.set_scroll_offset(static_cast<std::size_t>(next));
+    }
+
+    void scroll_to_bottom() noexcept
+    {
+        state_.set_scroll_offset(0);
+    }
+
+    void scroll_to_top() noexcept
+    {
+        state_.set_scroll_offset(screen_.history_size());
+    }
+
+    void snap_to_bottom_if_unlocked() noexcept
+    {
+        if (!state_.scroll_locked())
+        {
+            scroll_to_bottom();
+        }
+    }
+
+    void copy_scrolled_rows(std::size_t offset, std::vector<screen::row_block> &rows, screen::style_table &styles)
+    {
+        rows.clear();
+        styles = screen_.styles();
+        const auto height = screen_.height();
+        const auto width = screen_.width();
+        rows.reserve(height);
+
+        if (screen_.alternate_active() || offset == 0)
+        {
+            rows.resize(height);
+            for (std::size_t y = 0; y < height; ++y)
+            {
+                rows[y] = screen_.block(y);
+            }
+            return;
+        }
+
+        const auto history = screen_.history_size();
+        offset = std::min(offset, history);
+        const auto top = history - offset;
+        for (std::size_t y = 0; y < height; ++y)
+        {
+            const auto virtual_row = top + y;
+            if (virtual_row < history)
+            {
+                screen::row_block row;
+                const auto line = screen_.history_line(virtual_row);
+                row.cells.assign(line.begin(), line.end());
+                row.state.used_columns = static_cast<std::uint32_t>(width);
+                row.state.flags = screen_.history_flags(virtual_row);
+                if (const auto exit_code = screen_.history_command_exit_code(virtual_row))
+                {
+                    row.state.command_exit_code = *exit_code;
+                }
+                row.graphemes = screen_.history_graphemes(virtual_row);
+                rows.push_back(std::move(row));
+            }
+            else
+            {
+                const auto active_row = virtual_row - history;
+                if (active_row < height)
+                {
+                    rows.push_back(screen_.block(active_row));
+                }
+                else
+                {
+                    rows.emplace_back(screen::cell_vector(width, screen::cell::blank(screen::default_cell_style)),
+                                      screen::row_state{}, screen::grapheme_store{});
+                }
+            }
+        }
     }
 
   private:

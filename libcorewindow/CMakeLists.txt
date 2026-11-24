@@ -9,6 +9,7 @@ target_link_libraries(libcorewindow INTERFACE
     libd3d12ui
     libscreen
     libuitext
+    libscrollbar
     common
     user32
 )

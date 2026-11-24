@@ -4,9 +4,11 @@
 #include "render_worker.hpp"
 #include "win32/error.hpp"
 #include "win32/srwlock.hpp"
+#include "scrollbar.hpp"
 #include "win32/string.hpp"
 
 #include <Windows.h>
+#include <windowsx.h>
 
 #include <cassert>
 #include <cstdint>
@@ -218,6 +220,81 @@ class window_host final
         (void)::PostMessageW(window_, close_window ? WM_CLOSE : client_exit_message, 0, 0);
     }
 
+    [[nodiscard]] scrollbar::geometry scrollbar_geometry(HWND hwnd) const noexcept
+    {
+        RECT client{};
+        if (::GetClientRect(hwnd, &client) == FALSE)
+        {
+            return {};
+        }
+        const auto dpi = std::max<UINT>(96, ::GetDpiForWindow(hwnd));
+        const auto scale = static_cast<float>(dpi) / 96.0f;
+        const auto width = static_cast<float>(client.right - client.left);
+        const auto height = static_cast<float>(client.bottom - client.top);
+        const auto rows = console_.buffer().height();
+        const auto history = console_.history_size();
+        const auto offset = std::min(console_.scroll_offset(), history);
+        const scrollbar::state state{history + rows, rows, history - offset};
+        const auto bar_width = scrollbar::default_width * scale;
+        return scrollbar::compute(width - bar_width, 0.0f, bar_width, height, state);
+    }
+
+    void handle_scrollbar_mouse_down(HWND hwnd, LPARAM lparam)
+    {
+        const auto x = static_cast<float>(GET_X_LPARAM(lparam));
+        const auto y = static_cast<float>(GET_Y_LPARAM(lparam));
+        std::unique_lock<win32::srwlock> lock{console_mutex_};
+        const auto geometry = scrollbar_geometry(hwnd);
+        const auto target = scrollbar::hit_test(geometry, x, y);
+        const auto rows = console_.buffer().height();
+        const auto history = console_.history_size();
+        if (target == scrollbar::hit_target::thumb)
+        {
+            scrollbar_dragging_ = true;
+            scrollbar_grab_offset_ = scrollbar::grab_offset(geometry, y);
+            ::SetCapture(hwnd);
+        }
+        else if (target != scrollbar::hit_target::none)
+        {
+            if ((::GetKeyState(VK_SHIFT) & 0x8000) != 0)
+            {
+                const scrollbar::state state{history + rows, rows,
+                                             history - std::min(console_.scroll_offset(), history)};
+                const auto top = scrollbar::top_from_pointer(geometry, y, 0.0f, state);
+                const auto desired = history - top;
+                console_.scroll_by(static_cast<std::ptrdiff_t>(desired) -
+                                   static_cast<std::ptrdiff_t>(console_.scroll_offset()));
+            }
+            else if (target == scrollbar::hit_target::above_thumb)
+            {
+                console_.scroll_by(static_cast<std::ptrdiff_t>(rows));
+            }
+            else
+            {
+                console_.scroll_by(-static_cast<std::ptrdiff_t>(rows));
+            }
+        }
+    }
+
+    void handle_scrollbar_mouse_move(HWND hwnd, LPARAM lparam)
+    {
+        if (!scrollbar_dragging_)
+        {
+            return;
+        }
+        const auto y = static_cast<float>(GET_Y_LPARAM(lparam));
+        std::unique_lock<win32::srwlock> lock{console_mutex_};
+        const auto geometry = scrollbar_geometry(hwnd);
+        const auto rows = console_.buffer().height();
+        const auto history = console_.history_size();
+        const scrollbar::state state{history + rows, rows,
+                                     history - std::min(console_.scroll_offset(), history)};
+        const auto top = scrollbar::top_from_pointer(geometry, y, scrollbar_grab_offset_, state);
+        const auto desired = history - top;
+        console_.scroll_by(static_cast<std::ptrdiff_t>(desired) -
+                           static_cast<std::ptrdiff_t>(console_.scroll_offset()));
+    }
+
     static LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
     {
         auto *self = reinterpret_cast<window_host *>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
@@ -254,9 +331,85 @@ class window_host final
                 self->console_.set_focused(false);
             }
             return 0;
+        case WM_MOUSEWHEEL:
+            if (self != nullptr)
+            {
+                const auto delta = GET_WHEEL_DELTA_WPARAM(wparam);
+                if (delta != 0)
+                {
+                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                    self->console_.scroll_by(static_cast<std::ptrdiff_t>(delta) * 3 /
+                                             static_cast<std::ptrdiff_t>(WHEEL_DELTA));
+                }
+            }
+            return 0;
+        case WM_LBUTTONDOWN:
+            if (self != nullptr)
+            {
+                self->handle_scrollbar_mouse_down(hwnd, lparam);
+            }
+            return 0;
+        case WM_MOUSEMOVE:
+            if (self != nullptr)
+            {
+                self->handle_scrollbar_mouse_move(hwnd, lparam);
+            }
+            return 0;
+        case WM_LBUTTONUP:
+            if (self != nullptr && self->scrollbar_dragging_)
+            {
+                self->scrollbar_dragging_ = false;
+                ::ReleaseCapture();
+            }
+            return 0;
         case WM_KEYDOWN:
             if (self != nullptr)
             {
+                const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                const bool control = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                if (wparam == VK_SCROLL || (control && shift && wparam == 'S'))
+                {
+                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                    self->console_.toggle_scroll_lock();
+                    return 0;
+                }
+
+                {
+                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                    const auto offset = self->console_.scroll_offset();
+                    const auto page = self->console_.buffer().height();
+                    std::ptrdiff_t lines = 0;
+                    switch (wparam)
+                    {
+                    case VK_HOME:
+                        lines = static_cast<std::ptrdiff_t>(self->console_.history_size());
+                        break;
+                    case VK_END:
+                        lines = -static_cast<std::ptrdiff_t>(self->console_.history_size());
+                        break;
+                    case VK_PRIOR:
+                        lines = static_cast<std::ptrdiff_t>(page);
+                        break;
+                    case VK_NEXT:
+                        lines = -static_cast<std::ptrdiff_t>(page);
+                        break;
+                    case VK_UP:
+                        lines = 1;
+                        break;
+                    case VK_DOWN:
+                        lines = -1;
+                        break;
+                    default:
+                        break;
+                    }
+
+                    if (lines != 0 && (offset != 0 || shift))
+                    {
+                        self->console_.scroll_by(lines);
+                        return 0;
+                    }
+                }
+
                 auto key = consoleinput::virtual_key{};
                 bool handled = true;
                 switch (wparam)
@@ -350,6 +503,11 @@ class window_host final
             if (self != nullptr)
             {
                 const auto character = static_cast<char16_t>(wparam);
+                if (character == 0x13 && (::GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                    (::GetKeyState(VK_SHIFT) & 0x8000) != 0)
+                {
+                    return 0;
+                }
                 if (character >= 0x20 || character == u'\r' || character == u'\n' || character == u'\b' ||
                     character == u'\t' || character == 0x1B || (character >= 1 && character <= 26))
                 {
@@ -358,6 +516,7 @@ class window_host final
                         .key = character_key(character),
                     };
                     std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                    self->console_.snap_to_bottom_if_unlocked();
                     self->console_.push_input(std::move(event));
                 }
             }
@@ -404,6 +563,8 @@ class window_host final
     win32::event process_stop_event_{win32::create_tag, true, false};
     win32::basic_thread process_thread_;
     HWND window_{};
+    bool scrollbar_dragging_{};
+    float scrollbar_grab_offset_{};
     render_worker worker_;
 };
 

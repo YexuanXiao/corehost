@@ -4,6 +4,7 @@
 #include "color_cell_atlas.hpp"
 #include "console.hpp"
 #include "console_theme.hpp"
+#include "scrollbar.hpp"
 #include "d3d12_window_renderer.hpp"
 #include "text_engine.hpp"
 #include "win32/event.hpp"
@@ -69,6 +70,30 @@ class render_worker final
     {
         static_cast<render_worker *>(self)->run();
         return 0;
+    }
+
+    void apply_scrolled_rows()
+    {
+        graphemes_.clear();
+        for (std::size_t y = 0; y < rows; ++y)
+        {
+            const auto &row = scroll_rows_[y];
+            for (std::size_t x = 0; x < columns; ++x)
+            {
+                auto value = row.cells[x];
+                if (value.has_cluster())
+                {
+                    const auto source =
+                        row.graphemes.view(screen::grapheme_store::ref{value.offset(), value.length()});
+                    if (graphemes_.can_append(source.size()))
+                    {
+                        const auto ref = graphemes_.append(source);
+                        value = value.with_cluster_ref(ref.offset, ref.length);
+                    }
+                }
+                cell_state_[y * columns + x] = value;
+            }
+        }
     }
 
     void apply_updates()
@@ -329,6 +354,27 @@ class render_worker final
             quads_.push_back(cursor_quad);
         }
 
+        if (history_size_ != 0)
+        {
+            const auto scrollbar_width = std::max(1.0f, 8.0f * static_cast<float>(dpi_) / 96.0f);
+            const auto client_width = static_cast<float>(columns) * cell_width;
+            const auto client_height = static_cast<float>(rows) * cell_height;
+            const auto top = history_size_ > scroll_offset_ ? history_size_ - scroll_offset_ : 0;
+            const scrollbar::state scroll_state{history_size_ + rows, rows, top};
+            const auto geometry = scrollbar::compute(client_width - scrollbar_width, 0.0f, scrollbar_width,
+                                                     client_height, scroll_state);
+            if (geometry.visible)
+            {
+                const auto sample = 0.5f / static_cast<float>(atlas_.size());
+                const auto track_color = blend_color(palette_.default_foreground, palette_.default_background, 0.75f);
+                const auto thumb_color = blend_color(palette_.default_foreground, palette_.default_background, 0.35f);
+                add_line_quad(quads_, geometry.x, geometry.y, geometry.width, geometry.height, track_color, sample,
+                              0.45f);
+                add_line_quad(quads_, geometry.x + 1.0f, geometry.thumb_y, geometry.width - 2.0f,
+                              geometry.thumb_height, thumb_color, sample, 0.95f);
+            }
+        }
+
         if (atlas_.dirty())
         {
             renderer_.set_text_texture(atlas_.pixels(), atlas_.size(), atlas_.size());
@@ -393,6 +439,7 @@ class render_worker final
             const auto desired_rows = std::max<std::size_t>(
                 1, static_cast<std::size_t>(static_cast<float>(height) / (metrics.ascent + metrics.descent + metrics.line_gap)));
             bool changed = false;
+            bool scroll_changed = false;
             bool focused = false;
             bool title_changed = false;
             std::wstring window_title;
@@ -400,14 +447,37 @@ class render_worker final
 
             {
                 std::unique_lock<win32::srwlock> lock{console_mutex_};
+                bool resized = false;
                 if (desired_columns != columns || desired_rows != rows)
                 {
                     console_.resize(desired_columns, desired_rows);
                     columns = desired_columns;
                     rows = desired_rows;
                     cell_state_.assign(columns * rows, screen::cell{});
+                    resized = true;
                 }
-                changed = console_.copy_updates(updates_, styles_);
+
+                const auto history = console_.history_size();
+                auto offset = console_.scroll_offset();
+                if (offset != 0 && history > history_size_)
+                {
+                    // Keep the viewed history row fixed when new output is appended.
+                    console_.scroll_by(static_cast<std::ptrdiff_t>(history - history_size_));
+                    offset = console_.scroll_offset();
+                }
+                scroll_changed = resized || offset != scroll_offset_ || history != history_size_;
+                if (scroll_changed)
+                {
+                    console_.copy_scrolled_rows(offset, scroll_rows_, styles_);
+                    scroll_offset_ = offset;
+                    history_size_ = history;
+                    changed = true;
+                }
+                else
+                {
+                    changed = console_.copy_updates(updates_, styles_);
+                }
+
                 cursor = console_.state().cursor();
                 focused = console_.has_focus();
                 if (console_.state().take_title_changed())
@@ -432,13 +502,18 @@ class render_worker final
             cursor_ = cursor;
             focused_ = focused;
             blink_on_ = blink_on;
-            draw_cursor_ = cursor_.visible && focused_ && (cursor_.blinking ? blink_on_ : true);
+            draw_cursor_ = cursor_.visible && focused_ && scroll_offset_ == 0 &&
+                           (cursor_.blinking ? blink_on_ : true);
             cursor_dirty = false;
             renderer_.resize(width, height);
 
             if (changed || cursor_changed || focus_changed || blink_changed || dpi_changed)
             {
-                if (changed)
+                if (scroll_changed)
+                {
+                    apply_scrolled_rows();
+                }
+                else if (changed)
                 {
                     apply_updates();
                 }
@@ -479,6 +554,9 @@ class render_worker final
     std::vector<d3d12ui::text_quad> quads_;
     std::vector<d3d12ui::text_quad> color_quads_;
     std::vector<screen::row_block> updates_;
+    std::vector<screen::row_block> scroll_rows_;
+    std::size_t scroll_offset_{};
+    std::size_t history_size_{};
     win32::basic_thread thread_;
     win32::event stop_event_{win32::create_tag, true, false};
     std::atomic_bool stop_{};

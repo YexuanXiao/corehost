@@ -464,6 +464,17 @@ class screen_buffer final
         return history_.size();
     }
 
+    [[nodiscard]] std::size_t history_limit() const noexcept
+    {
+        return history_limit_;
+    }
+
+    void set_history_limit(std::size_t limit)
+    {
+        history_limit_ = limit;
+        trim_history();
+    }
+
     [[nodiscard]] std::span<const cell> history_line(std::size_t index) const;
     [[nodiscard]] line_flags history_flags(std::size_t index) const noexcept;
     [[nodiscard]] std::optional<std::int32_t> history_command_exit_code(std::size_t index) const noexcept;
