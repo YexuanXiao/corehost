@@ -16,9 +16,25 @@
 | C2 方向键编辑 | 通过 | 输入 `abc`，Left，`X`，回车，执行 `abXc` |
 | D4 自动换行 | 通过 | 长错误行在窗口右边缘折行 |
 
-## 失败/阻塞
+## 已定位并修复的根因
 
-### PSReadLine 输入不回显
+`window_console_session` 原来直接丢弃 `CONSOLE_IO_RAW_WRITE`。  
+PowerShell/PSReadLine 通过 raw write 输出 ANSI 渲染输入行，因此字符和 cursor 控制被丢弃。
+
+修复：
+
+- `CONSOLE_IO_RAW_WRITE` 按 `state.output_code_page` 解码为 UTF-16；
+- 交给独立的 `vtparser`/`vtstate` applier；
+- `console_api::write_console_text` 切分 plain text 与 ESC 序列；
+- 跨 WriteConsole 调用的未完成 ESC 序列保留在 pending buffer。
+
+修复后 PSReadLine 输入已可见。
+
+## 仍存在的显示问题
+
+输入行最左侧仍有一个异常前缀字符（raw payload 中存在 `C6 B0 6D` 等非预期字节），需要继续定位 PSReadLine 该 raw write 的语义。
+
+### PSReadLine 输入不回显（已修复）
 
 现象：
 
