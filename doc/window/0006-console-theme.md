@@ -52,10 +52,14 @@ console_palette palette = console_palette::campbell()
 
 ## 文本属性
 
-- `bold`：text_engine 创建 `DWRITE_FONT_WEIGHT_BOLD` 的 format，由 DirectWrite 选择/合成粗体；
+- `bold`：text_engine 创建 `DWRITE_FONT_WEIGHT_BOLD` 的 format，由 DirectWrite 选择/合成粗体；bold glyph 只写入当前帧的 transient atlas，不进入持久缓存；
 - `underline` / `strikethrough`：用白色 atlas 采样点绘制 1px quad；
 - `faint`：`console_palette::faint` 可选 `blend_background`（默认）或 `alpha`；
 - `underline` 颜色优先使用 `text_style::underline`，否则使用 foreground。
+
+## Locale
+
+`CreateTextFormat` 使用 `GetUserDefaultLocaleName`，不再写死 `en-us`。
 
 ## 待扩展
 

@@ -148,6 +148,7 @@ class render_worker final
 
     void build_quads()
     {
+        atlas_.begin_frame();
         quads_.clear();
         const auto metrics = text_.metrics();
         const auto cell_width = metrics.advance;

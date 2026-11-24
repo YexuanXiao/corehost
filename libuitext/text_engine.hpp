@@ -6,6 +6,7 @@
 #include <dwrite_2.h>
 #include <winrt/base.h>
 
+#include <array>
 #include <cassert>
 #include <cstdint>
 #include <span>
@@ -51,6 +52,8 @@ class text_engine final
     {
         assert(!families.empty());
         assert(size_ > 0.0f);
+
+        ::GetUserDefaultLocaleName(locale_.data(), static_cast<int>(locale_.size()));
 
         winrt::com_ptr<IUnknown> unknown;
         winrt::check_hresult(
@@ -199,14 +202,14 @@ class text_engine final
 
             winrt::check_hresult(factory_->CreateTextFormat(
                 family.family.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL, size_, L"en-us", text_format_.put()));
+                DWRITE_FONT_STRETCH_NORMAL, size_, locale_.data(), text_format_.put()));
             winrt::check_hresult(text_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
             auto format1 = text_format_.as<IDWriteTextFormat1>();
             winrt::check_hresult(format1->SetFontFallback(fallback));
 
             winrt::check_hresult(factory_->CreateTextFormat(
                 family.family.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL, size_, L"en-us", bold_format_.put()));
+                DWRITE_FONT_STRETCH_NORMAL, size_, locale_.data(), bold_format_.put()));
             winrt::check_hresult(bold_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
             auto bold_format1 = bold_format_.as<IDWriteTextFormat1>();
             winrt::check_hresult(bold_format1->SetFontFallback(fallback));
@@ -281,6 +284,7 @@ class text_engine final
 
     winrt::com_ptr<IDWriteFactory> factory_;
     winrt::com_ptr<IDWriteFontCollection> collection_;
+    std::array<wchar_t, LOCALE_NAME_MAX_LENGTH> locale_{};
     winrt::com_ptr<IDWriteTextFormat> text_format_;
     winrt::com_ptr<IDWriteTextFormat> bold_format_;
     float size_{};
