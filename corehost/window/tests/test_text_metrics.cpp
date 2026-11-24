@@ -16,6 +16,16 @@ int main()
             return EXIT_FAILURE;
         }
         const auto &glyph = glyphs.front();
+        bool has_grayscale = false;
+        for (const auto value : glyph.alpha)
+        {
+            has_grayscale |= value != 0 && value != 255;
+        }
+        if (!has_grayscale)
+        {
+            std::fprintf(stderr, "glyph is not grayscale antialiased\n");
+            return EXIT_FAILURE;
+        }
         if (glyph.width <= 0 || glyph.height <= 0 || glyph.alpha.empty())
         {
             std::fprintf(stderr, "glyph rasterization failed: %d x %d\n", glyph.width, glyph.height);
