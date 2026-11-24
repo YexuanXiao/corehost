@@ -3,6 +3,7 @@
 #include "console_api.hpp"
 #include "console.hpp"
 #include "console_state.hpp"
+#include "apply.hpp"
 #include "input.hpp"
 #include "input_payload.hpp"
 #include "io_state.hpp"
@@ -78,6 +79,9 @@ class window_console_session final
     coreio::io_state io_state_;
     coreio::input_payload_reader payload_;
     consoleapi::console_api api_;
+    vtparser::raw_u16buffer raw_vt_raw_;
+    vtparser::vt_parser raw_vt_parser_{raw_vt_raw_};
+    vtstate::state_applier vt_applier_{};
     win32::event input_event_;
     win32::event stop_event_;
     win32::basic_thread thread_;

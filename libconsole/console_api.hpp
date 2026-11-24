@@ -2,6 +2,7 @@
 
 #include "console_state.hpp"
 #include "screen_buffer.hpp"
+#include "apply.hpp"
 
 #include "win32_types.hpp"
 #include "input.hpp"
@@ -18,6 +19,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstdio>
 #include <cstring>
 #include <span>
 #include <string>
@@ -215,6 +217,11 @@ class console_api final
         }
 
         const auto *header = reinterpret_cast<const CONSOLE_MSG_HEADER *>(message.body);
+        if (FILE *log = std::fopen("C:\\Users\\xyx\\Documents\\corehost\\api.log", "a"))
+        {
+            std::fprintf(log, "api=%u\n", static_cast<unsigned>(header->ApiNumber));
+            std::fclose(log);
+        }
         const auto body_size = static_cast<std::size_t>(message.descriptor.InputSize - sizeof(CONSOLE_MSG_HEADER));
         if (header->ApiDescriptorSize != 0 &&
             (header->ApiDescriptorSize > sizeof(message.body) || header->ApiDescriptorSize > body_size))
@@ -2585,7 +2592,7 @@ class console_api final
         return buffer_.read_char_info_abi(area, output);
     }
 
-    std::size_t write_console_text(std::u16string_view text) noexcept
+    std::size_t write_plain_console_text(std::u16string_view text) noexcept
     {
         screen::coord cursor{static_cast<std::int32_t>(state_.cursor().x),
                              static_cast<std::int32_t>(state_.cursor().y)};
@@ -2633,6 +2640,97 @@ class console_api final
             offset = segment_end;
         }
         state_.set_cursor(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y));
+        return written;
+    }
+
+    std::size_t write_console_text(std::u16string_view text) noexcept
+    {
+        std::u16string combined;
+        if (!vt_pending_.empty())
+        {
+            combined = std::move(vt_pending_);
+            combined.append(text);
+            text = combined;
+        }
+        std::size_t offset = 0;
+        std::size_t written = 0;
+        while (offset < text.size())
+        {
+            const auto escape = text.find(u'\x1b', offset);
+            if (escape == std::u16string_view::npos)
+            {
+                written += write_plain_console_text(text.substr(offset));
+                break;
+            }
+
+            if (escape > offset)
+            {
+                written += write_plain_console_text(text.substr(offset, escape - offset));
+            }
+
+            auto end = escape + 1;
+            if (end >= text.size())
+            {
+                vt_pending_.assign(text.substr(escape));
+                break;
+            }
+
+            if (text[end] == u'[')
+            {
+                ++end;
+                while (end < text.size() && !(text[end] >= 0x40 && text[end] <= 0x7E))
+                {
+                    ++end;
+                }
+                if (end < text.size())
+                {
+                    ++end;
+                }
+            }
+            else if (text[end] == u']')
+            {
+                ++end;
+                while (end < text.size() && text[end] != 0x07 &&
+                       !(text[end] == 0x1B && end + 1 < text.size() && text[end + 1] == u'\\'))
+                {
+                    ++end;
+                }
+                if (end < text.size())
+                {
+                    if (text[end] == 0x1B && end + 1 < text.size())
+                    {
+                        end += 2;
+                    }
+                    else
+                    {
+                        ++end;
+                    }
+                }
+            }
+            else
+            {
+                ++end;
+            }
+
+            const auto sequence = text.substr(escape, end - escape);
+            const auto result = vt_parser_.parse(sequence);
+            if (result.id != vtparser::vt_message_id::continue_)
+            {
+                if ((result.id == vtparser::vt_message_id::apc_sequence ||
+                     result.id == vtparser::vt_message_id::dcs_sequence) &&
+                    vt_applier_.apply_image(result.raw_sequence, buffer_, state_))
+                {
+                    vt_parser_.reset();
+                }
+                else
+                {
+                    (void)vtstate::apply(result.id, result.message, buffer_, state_, vt_applier_);
+                    vt_parser_.reset();
+                }
+            }
+            written += sequence.size();
+            offset = end;
+        }
         return written;
     }
 
@@ -2911,6 +3009,10 @@ class console_api final
     coreio::process_registry *processes_{};
     coreio::input_payload_reader *payload_{};
     vtparser::raw_u16string text_buffer_;
+    std::u16string vt_pending_;
+    vtparser::raw_u16buffer vt_raw_;
+    vtparser::vt_parser vt_parser_{vt_raw_};
+    vtstate::state_applier vt_applier_{state_.measurement, state_.ambiguous_is_wide};
     vtparser::raw_u16string alias_exe_scratch_;
     vtparser::raw_u16string history_selection_;
     std::vector<std::u16string_view> alias_exes_seen_;

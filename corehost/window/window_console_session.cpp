@@ -3,6 +3,7 @@
 #include "win32/error.hpp"
 
 #include <cassert>
+#include <string_view>
 #include <utility>
 
 namespace corehost::window
@@ -19,6 +20,7 @@ window_console_session::window_console_session(win32::handle_view server, consol
     state.output_mode = 0x0001 | 0x0002 | 0x0004;
     state.measurement = screen::text_measurement::graphemes;
     state.ambiguous_is_wide = true;
+    vt_applier_ = vtstate::state_applier{state.measurement, state.ambiguous_is_wide};
 }
 
 window_console_session::~window_console_session()
@@ -132,6 +134,35 @@ bool window_console_session::handle(coreio::io_msg &message)
         return false;
     case CONSOLE_IO_RAW_WRITE: {
         const auto payload = payload_.read(message, 0);
+        std::u16string text(payload.size(), u'\0');
+        const auto code_page = console_.state().output_code_page;
+        const auto units = ::MultiByteToWideChar(code_page, 0, reinterpret_cast<const char *>(payload.data()),
+                                                 static_cast<int>(payload.size()),
+                                                 reinterpret_cast<LPWSTR>(text.data()),
+                                                 static_cast<int>(text.size()));
+        if (units <= 0)
+        {
+            coreio::prepare_completion(message, 0, payload.size());
+            coreio::complete_io(server_, message.complete);
+            return false;
+        }
+        text.resize(static_cast<std::size_t>(units));
+        auto input = std::u16string_view{text};
+        while (!input.empty())
+        {
+            const auto result = raw_vt_parser_.parse(input);
+            if (result.consumed == 0)
+            {
+                break;
+            }
+            input.remove_prefix(result.consumed);
+            if (result.id == vtparser::vt_message_id::continue_)
+            {
+                break;
+            }
+            (void)vtstate::apply(result.id, result.message, console_.buffer(), console_.state(), vt_applier_);
+            raw_vt_parser_.reset();
+        }
         coreio::prepare_completion(message, 0, payload.size());
         coreio::complete_io(server_, message.complete);
         return false;

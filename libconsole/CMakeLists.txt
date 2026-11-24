@@ -11,6 +11,7 @@ target_link_libraries(libconsole INTERFACE
     libinterop
     libcoreio
     libvtparser
+    libvtstate
     common
 )
 
