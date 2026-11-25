@@ -369,13 +369,20 @@ class render_worker final
                     quads_.push_back(background_quad);
                 }
 
-                if (selection_.active && scroll_pixels_ == 0.0 && selection_.contains(x, y))
+                if (selection_.active)
                 {
-                    const auto selection_color =
-                        blend_color(palette_.default_foreground, palette_.default_background, 0.35f);
-                    add_line_quad(quads_, static_cast<float>(x) * cell_width,
-                                  static_cast<float>(y) * cell_height + scroll_shift, cell_width * cell_span,
-                                  cell_height, selection_color, sample, 1.0f);
+                    const auto view_top = static_cast<double>(history_size_) -
+                                          scroll_pixels_ / static_cast<double>(cell_height);
+                    const auto virtual_row =
+                        static_cast<std::size_t>(std::max(0.0, std::floor(view_top + static_cast<double>(y))));
+                    if (selection_.contains(x, virtual_row))
+                    {
+                        const auto selection_color =
+                            blend_color(palette_.default_foreground, palette_.default_background, 0.35f);
+                        add_line_quad(quads_, static_cast<float>(x) * cell_width,
+                                      static_cast<float>(y) * cell_height + scroll_shift, cell_width * cell_span,
+                                      cell_height, selection_color, sample, 1.0f);
+                    }
                 }
 
                 auto line_color = style.underline.kind == screen::color_kind::default_color
@@ -709,7 +716,7 @@ class render_worker final
                 }
 
                 cursor = console_.state().cursor();
-                selection = console_.state().selection();
+                selection = console_.selection();
                 focused = console_.has_focus();
                 scrollbar_hovered = console_.scrollbar_hovered();
                 if (console_.state().take_title_changed())

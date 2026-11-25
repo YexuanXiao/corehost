@@ -37,6 +37,7 @@
 
 ## 当前限制
 
-- 选择范围目前对应 active page；scrollback 选择/复制尚未接入；
+- 选择坐标使用 virtual row，可跨 history + active page；
+- 尚未实现拖动到窗口边缘时自动滚动；
 - VT SGR mouse 输入编码仍依赖应用读取 console input event 的路径；
 - 未实现双击选词的自定义词边界配置。

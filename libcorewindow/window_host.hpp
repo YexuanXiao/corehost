@@ -228,9 +228,21 @@ class window_host final
                 console_.cell_row(static_cast<float>(point.y), console_.buffer().height() - 1)};
     }
 
+    [[nodiscard]] std::pair<std::size_t, std::size_t> view_cell_at(HWND hwnd, LPARAM lparam) const
+    {
+        POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+        const auto display_row = console_.cell_row(static_cast<float>(point.y), console_.buffer().height() - 1);
+        const auto history = console_.history_size();
+        const auto offset_rows = console_.scroll_pixels() / static_cast<double>(console_.cell_height());
+        const auto top = static_cast<double>(history) - offset_rows;
+        const auto virtual_row = static_cast<std::size_t>(std::max(0.0, top + static_cast<double>(display_row)));
+        return {console_.cell_column(static_cast<float>(point.x), console_.buffer().width() - 1),
+                std::min(virtual_row, console_.virtual_rows() - 1)};
+    }
+
     void begin_selection(HWND hwnd, LPARAM lparam)
     {
-        auto [x, y] = cell_at(hwnd, lparam);
+        auto [x, y] = view_cell_at(hwnd, lparam);
         x = console_.snap_selection_column(x, y);
         const auto now = ::GetTickCount64();
         const bool same_cell = x == last_click_x_ && y == last_click_y_;
@@ -277,7 +289,7 @@ class window_host final
         {
             return;
         }
-        auto [x, y] = cell_at(hwnd, lparam);
+        auto [x, y] = view_cell_at(hwnd, lparam);
         x = console_.snap_selection_column(x, y);
         console_.set_selection(selection_anchor_x_, selection_anchor_y_, x, y);
     }

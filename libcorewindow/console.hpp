@@ -176,9 +176,9 @@ class console final
         return std::min<std::size_t>(static_cast<std::size_t>(std::max(0.0f, y) / cell_height()), max_row);
     }
 
-    [[nodiscard]] std::size_t snap_selection_column(std::size_t x, std::size_t y) const noexcept
+    [[nodiscard]] std::size_t snap_selection_column(std::size_t x, std::size_t y) const
     {
-        while (x > 0 && screen_.at(x, y).is_continuation())
+        while (x > 0 && cell_at_virtual(y, x).is_continuation())
         {
             --x;
         }
@@ -186,46 +186,90 @@ class console final
     }
 
     void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y,
-                       screen::selection_mode mode = screen::selection_mode::block) noexcept
+                       screen::selection_mode mode = screen::selection_mode::block)
     {
-        state_.set_selection(anchor_x, anchor_y, caret_x, caret_y, mode);
+        set_view_selection(anchor_x, anchor_y, caret_x, caret_y, mode);
+        if (anchor_y >= screen_.history_size() && caret_y >= screen_.history_size())
+        {
+            state_.set_selection(anchor_x, anchor_y - screen_.history_size(), caret_x,
+                                 caret_y - screen_.history_size(), mode);
+        }
+        else
+        {
+            state_.clear_selection();
+        }
     }
 
     void clear_selection() noexcept
     {
+        view_selection_ = {};
         state_.clear_selection();
+    }
+
+    [[nodiscard]] std::size_t virtual_rows() const noexcept
+    {
+        return screen_.history_size() + screen_.height();
+    }
+
+    [[nodiscard]] screen::cell cell_at_virtual(std::size_t y, std::size_t x) const
+    {
+        if (y < screen_.history_size())
+        {
+            const auto line = screen_.history_line(y);
+            return x < line.size() ? line[x] : screen::cell::blank(screen::default_cell_style);
+        }
+        return screen_.at(x, y - screen_.history_size());
+    }
+
+    [[nodiscard]] std::span<const char16_t> cluster_at_virtual(std::size_t y, const screen::cell &value) const
+    {
+        if (y < screen_.history_size())
+        {
+            return screen_.history_cluster_of(y, value);
+        }
+        return screen_.cluster_of(y - screen_.history_size(), value);
     }
 
     [[nodiscard]] bool has_selection() const noexcept
     {
-        return state_.has_selection();
+        return view_selection_.active;
     }
 
     [[nodiscard]] const screen::selection_range &selection() const noexcept
     {
-        return state_.selection();
+        return view_selection_;
+    }
+
+    void set_view_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y,
+                            screen::selection_mode mode)
+    {
+        view_selection_.active = true;
+        view_selection_.mode = mode;
+        view_selection_.anchor_x = std::min(anchor_x, screen_.width() - 1);
+        view_selection_.caret_x = std::min(caret_x, screen_.width() - 1);
+        view_selection_.anchor_y = std::min(anchor_y, virtual_rows() - 1);
+        view_selection_.caret_y = std::min(caret_y, virtual_rows() - 1);
     }
 
     void select_line(std::size_t y) noexcept
     {
-        state_.set_selection(0, y, screen_.width() - 1, y, screen::selection_mode::line);
+        set_view_selection(0, y, screen_.width() - 1, y, screen::selection_mode::line);
     }
 
     void select_word(std::size_t x, std::size_t y)
     {
-        auto &buffer = screen_;
-        auto &state = state_;
-        x = std::min(x, buffer.width() - 1);
-        if (buffer.at(x, y).is_continuation() && x > 0)
+        x = std::min(x, screen_.width() - 1);
+        y = std::min(y, virtual_rows() - 1);
+        if (cell_at_virtual(y, x).is_continuation() && x > 0)
         {
             --x;
         }
 
         std::u32string text;
         std::vector<std::size_t> cells;
-        for (std::size_t column = 0; column < buffer.width(); ++column)
+        for (std::size_t column = 0; column < screen_.width(); ++column)
         {
-            const auto &cell = buffer.at(column, y);
+            const auto cell = cell_at_virtual(y, column);
             if (cell.is_continuation())
             {
                 continue;
@@ -236,7 +280,7 @@ class console final
                 cells.push_back(column);
                 continue;
             }
-            const auto cluster = buffer.cluster_of(y, cell);
+            const auto cluster = cluster_at_virtual(y, cell);
             const auto converted = unicode::convert_to<char32_t>(
                 std::u16string_view{cluster.data(), cluster.size()});
             for (const auto codepoint : converted)
@@ -261,13 +305,13 @@ class console final
             {
                 const auto start_cell = cells[offset];
                 auto end_cell = cells[end - 1];
-                if (buffer.at(end_cell, y).is_wide() && end_cell + 1 < buffer.width())
+                if (cell_at_virtual(y, end_cell).is_wide() && end_cell + 1 < screen_.width())
                 {
                     ++end_cell;
                 }
                 if (x >= start_cell && x <= end_cell)
                 {
-                    state.set_selection(start_cell, y, end_cell, y);
+                    set_view_selection(start_cell, y, end_cell, y, screen::selection_mode::block);
                     return;
                 }
             }
@@ -279,7 +323,73 @@ class console final
     [[nodiscard]] std::u16string selected_text()
     {
         std::u16string result;
-        state_.selected_text_into(screen_, result);
+        if (!view_selection_.active)
+        {
+            return result;
+        }
+
+        const auto left = std::min(view_selection_.anchor_x, view_selection_.caret_x);
+        const auto right = std::max(view_selection_.anchor_x, view_selection_.caret_x);
+        const auto top = std::min(view_selection_.anchor_y, view_selection_.caret_y);
+        const auto bottom = std::max(view_selection_.anchor_y, view_selection_.caret_y);
+        const auto width = screen_.width();
+
+        for (auto y = top; y <= bottom; ++y)
+        {
+            if (y > top)
+            {
+                result.append(u"\r\n");
+            }
+            if (view_selection_.mode == screen::selection_mode::line)
+            {
+                std::u16string line;
+                for (std::size_t column = 0; column < width; ++column)
+                {
+                    const auto cell = cell_at_virtual(y, column);
+                    if (cell.is_continuation())
+                    {
+                        continue;
+                    }
+                    if (cell.is_blank())
+                    {
+                        line.push_back(u' ');
+                        continue;
+                    }
+                    const auto cluster = cluster_at_virtual(y, cell);
+                    line.append(cluster.data(), cluster.size());
+                }
+                while (!line.empty() && line.back() == u' ')
+                {
+                    line.pop_back();
+                }
+                result.append(line);
+            }
+            else
+            {
+                for (std::size_t x = left; x <= right && x < width; ++x)
+                {
+                    const auto cell = cell_at_virtual(y, x);
+                    if (cell.is_continuation())
+                    {
+                        continue;
+                    }
+                    if (cell.is_blank())
+                    {
+                        result.push_back(u' ');
+                        continue;
+                    }
+                    const auto cluster = cluster_at_virtual(y, cell);
+                    if (cluster.empty())
+                    {
+                        result.push_back(cell.primary());
+                    }
+                    else
+                    {
+                        result.append(cluster.data(), cluster.size());
+                    }
+                }
+            }
+        }
         return result;
     }
 
@@ -420,6 +530,7 @@ class console final
   private:
     screen::screen_buffer screen_;
     screen::console_state state_;
+    screen::selection_range view_selection_;
     consoleinput::input_queue input_;
     bool input_read_{};
     bool focused_{true};
