@@ -73,6 +73,8 @@ snap_to_bottom_if_unlocked()
 ```text
 COREHOST_SCROLLBAR_THUMB_MASK_SIZE       16 / 32 / 64
 COREHOST_SCROLLBAR_THUMB_MASK_SAMPLES    1 / 4
+
+默认选择：32x32, 1x（thumb32_hard）。
 ```
 
 已构建的测试二进制：
@@ -82,7 +84,7 @@ C:\1\corehostbinary\thumb16_hard.exe   16x16, 1x
 C:\1\corehostbinary\thumb16_ss.exe     16x16, 4x
 C:\1\corehostbinary\thumb32_hard.exe   32x32, 1x
 C:\1\corehostbinary\thumb64_ss.exe     64x64, 4x
-C:\1\corehostbinary\corehostw.exe      32x32, 4x (默认)
+C:\1\corehostbinary\corehostw.exe      32x32, 1x (默认)
 ```
 
 ## 当前限制
