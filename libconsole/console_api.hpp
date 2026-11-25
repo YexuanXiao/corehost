@@ -494,6 +494,8 @@ class console_api final
             count = (request->Flags & CONSOLE_READ_NOREMOVE) != 0
                         ? input_->peek(std::span<consoleinput::input_event>{events.data(), requested})
                         : input_->read(std::span<consoleinput::input_event>{events.data(), requested});
+            LOG2("get_input out=%u max=%zu count=%zu flags=%u", static_cast<unsigned>(message.descriptor.OutputSize),
+                 max_records, count, static_cast<unsigned>(request->Flags));
             for (std::size_t i = 0; i < count; ++i)
             {
                 auto &record = output[i];
@@ -2144,6 +2146,7 @@ class console_api final
         }
         auto *info = reinterpret_cast<CONSOLE_GETNUMBEROFINPUTEVENTS_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
         info->ReadyEvents = has_input() ? static_cast<ULONG>(input_->record_count()) : 0;
+        LOG2("get_number ready=%u has=%d", static_cast<unsigned>(info->ReadyEvents), has_input() ? 1 : 0);
         coreio::prepare_completion(message, 0, sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG),
                                    message.body + sizeof(CONSOLE_MSG_HEADER),
                                    sizeof(CONSOLE_GETNUMBEROFINPUTEVENTS_MSG));

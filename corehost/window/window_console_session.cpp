@@ -34,7 +34,7 @@ void window_console_session::start()
     assert(server_.valid());
     assert(!thread_.valid());
 
-    coreio::set_server_info(server_, input_event_.view());
+    coreio::set_server_info(server_, console_.input_event().view());
     thread_ = win32::basic_thread{&window_console_session::thread_entry, this, {.name = L"corehost-window-console"}};
     input_thread_ =
         win32::basic_thread{&window_console_session::input_thread_entry, this, {.name = L"corehost-window-input"}};
@@ -235,6 +235,7 @@ bool window_console_session::handle(coreio::io_msg &message)
             const auto kind = api_.take_pending_read_kind();
             if (kind != consoleapi::console_api::pending_read_kind::none)
             {
+                LOG2("pending read kind=%d", static_cast<int>(kind));
                 pending_message_ = message;
                 pending_kind_ = kind;
                 pending_active_ = true;
@@ -255,6 +256,7 @@ void window_console_session::complete_pending()
         return;
     }
 
+    LOG2("complete pending kind=%d", static_cast<int>(pending_kind_));
     std::unique_lock<win32::srwlock> lock{console_mutex_};
     bool completed = false;
     if (pending_kind_ == consoleapi::console_api::pending_read_kind::console_input)

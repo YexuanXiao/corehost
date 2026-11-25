@@ -1,6 +1,7 @@
 #pragma once
 
 #include "console.hpp"
+#include "utility/log.hpp"
 #include "render_worker.hpp"
 #include "win32/error.hpp"
 #include "win32/srwlock.hpp"
@@ -337,6 +338,7 @@ class window_host final
                                                .event_flags = event_flags},
         };
         console_.push_input(std::move(event));
+        LOG2("push_mouse queued=%zu", console_.input().record_count());
         worker_.request_redraw();
     }
 
