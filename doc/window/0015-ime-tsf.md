@@ -16,7 +16,7 @@
 - 为满足候选窗视觉位置，`GetTextExt` 的 `left/right` 统一左移：
 
 ```text
-10 * DPI / 96
+4 * cell_width（约两个汉字）
 ```
 
 ## 如何判断 composition
@@ -34,4 +34,5 @@
 - 还没有自绘 inline composition；
 - 当前依赖系统 IME 的候选/组合窗口；
 - TSF message pump 当前禁用，使用窗口消息和 TSF association；
+- composition 结束的 edit session 使用 TF_ES_ASYNC，避免 OnEndComposition 内同步 edit session 使 TSF 停止工作；
 - 未实现 `ITextStoreACP`。
