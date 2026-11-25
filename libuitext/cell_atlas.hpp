@@ -186,6 +186,11 @@ class cell_atlas final
         dirty_ = false;
     }
 
+    void mark_dirty() noexcept
+    {
+        dirty_ = true;
+    }
+
   private:
     [[nodiscard]] bool allocate(std::uint32_t width, std::uint32_t height, std::uint32_t &x, std::uint32_t &y,
                                 std::uint32_t &shelf_height, std::uint32_t limit, atlas_region &region) noexcept

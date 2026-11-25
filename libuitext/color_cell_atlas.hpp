@@ -130,6 +130,11 @@ class color_cell_atlas final
         dirty_ = false;
     }
 
+    void mark_dirty() noexcept
+    {
+        dirty_ = true;
+    }
+
   private:
     text_engine &engine_;
     std::uint32_t size_{};

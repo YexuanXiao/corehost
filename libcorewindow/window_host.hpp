@@ -608,6 +608,7 @@ class window_host final
         case WM_LBUTTONDOWN:
             if (self != nullptr)
             {
+                self->worker_.request_atlas_upload();
                 const auto x = static_cast<float>(GET_X_LPARAM(lparam));
                 const auto y = static_cast<float>(GET_Y_LPARAM(lparam));
                 bool over_scrollbar = false;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cell_atlas.hpp"
+#include "utility/log.hpp"
 #include "color_cell_atlas.hpp"
 #include "console.hpp"
 #include "console_theme.hpp"
@@ -47,6 +48,11 @@ class render_worker final
     void request_redraw() noexcept
     {
         redraw_requested_.store(true, std::memory_order_relaxed);
+    }
+
+    void request_atlas_upload() noexcept
+    {
+        atlas_upload_requested_.store(true, std::memory_order_relaxed);
     }
 
     void start(HWND window)
@@ -309,6 +315,20 @@ class render_worker final
     {
         return left.x == right.x && left.y == right.y && left.visible == right.visible &&
                left.size == right.size && left.style == right.style;
+    }
+
+    std::size_t row_nonspace(std::size_t y) const noexcept
+    {
+        std::size_t count = 0;
+        for (std::size_t x = 0; x < columns; ++x)
+        {
+            const auto &cell = cell_state_[y * columns + x];
+            if (cell.primary() != 0 && cell.primary() != u' ')
+            {
+                ++count;
+            }
+        }
+        return count;
     }
 
     void build_quads()
@@ -780,6 +800,16 @@ class render_worker final
                 {
                     apply_updates();
                 }
+                if (atlas_upload_requested_.exchange(false, std::memory_order_relaxed))
+                {
+                    atlas_.mark_dirty();
+                    color_atlas_.mark_dirty();
+                }
+                if (redraw_requested)
+                {
+                    LOG2("redraw rows: %zu %zu %zu %zu %zu", row_nonspace(0), row_nonspace(1), row_nonspace(2),
+                         row_nonspace(3), row_nonspace(rows - 1));
+                }
                 build_quads();
                 renderer_.render();
             }
@@ -831,6 +861,7 @@ class render_worker final
     win32::event stop_event_{win32::create_tag, true, false};
     std::atomic_bool stop_{};
     std::atomic_bool redraw_requested_{};
+    std::atomic_bool atlas_upload_requested_{};
 };
 
 } // namespace corehost::window
