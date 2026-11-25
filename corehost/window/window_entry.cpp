@@ -8,7 +8,6 @@
 #include "ntapi/condrv.hpp"
 #include "win32/srwlock.hpp"
 
-#include <cstdlib>
 #include <utility>
 
 namespace corehost::window
@@ -27,17 +26,12 @@ void window_entry(win32::wcstring_view title, std::wstring client_command_line)
     window_ui ui{shared_console, console_mutex, client.process(), title, client_exit_policy::keep_open,
                  console_palette::campbell()};
     ui.start();
-    const bool ui_fatal = ui.wait();
+    ui.wait();
 
     coreio::ctrl_delivery delivery;
     delivery.deliver(client.process_id(), CTRL_CLOSE_EVENT);
     client.wait();
     console.stop();
-
-    if (ui_fatal)
-    {
-        std::exit(EXIT_FAILURE);
-    }
 }
 
 } // namespace corehost::window

@@ -45,9 +45,9 @@ class window_ui final
         ready_.wait();
     }
 
-    // Waits for the UI event channel. Returns true if the UI terminated
-    // because of a fatal error; normal window close returns false.
-    [[nodiscard]] bool wait()
+    // Waits for the UI event channel. Fatal errors also exit normally;
+    // the caller only needs to know that the UI has finished.
+    void wait()
     {
         assert(thread_.valid());
         HANDLE events[] = {close_requested_.get(), fatal_.get()};
@@ -58,7 +58,6 @@ class window_ui final
         }
         thread_.join();
         thread_ = {};
-        return result == WAIT_OBJECT_0 + 1;
     }
 
     void stop_and_join()
