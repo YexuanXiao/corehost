@@ -129,10 +129,7 @@ namespace corehost::window
             assert(callbacks_.composition);
             if (composition_active_ && composition_services_)
             {
-                if (FAILED(composition_services_->TerminateComposition(nullptr)))
-                {
-                    return;
-                }
+                (void)composition_services_->TerminateComposition(nullptr);
                 composition_active_ = false;
             }
             callbacks_.composition(callbacks_.context, {});
