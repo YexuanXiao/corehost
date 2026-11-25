@@ -240,7 +240,7 @@ class state_applier final
             const auto first = text[consumed];
             if (first < 0xD800 || first > 0xDFFF)
             {
-                auto columns = screen::char_width_for_mode<Mode, Ambiguous>(first);
+                auto columns = state.line_drawing_charset ? 1 : screen::char_width_for_mode<Mode, Ambiguous>(first);
                 if (columns > 0)
                 {
                     if (columns > 2)

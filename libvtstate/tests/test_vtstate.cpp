@@ -44,6 +44,32 @@ int main()
         return EXIT_FAILURE;
     }
 
+    // DEC special graphics are single-cell even when ambiguous-width
+    // characters are configured as wide.
+    buffer.clear();
+    state.set_cursor(0, 0);
+    state.ambiguous_is_wide = true;
+    applier.apply_charset(true, state);
+    parser.reset();
+    result = parser.parse(u"lqkx");
+    applier.apply_text(result.message, buffer, state);
+    if (buffer.at(0, 0).primary() != u'\u250C' || buffer.at(1, 0).primary() != u'\u2500' ||
+        buffer.at(2, 0).primary() != u'\u2510' || buffer.at(3, 0).primary() != u'\u2502')
+    {
+        std::fprintf(stderr, "line drawing glyphs wrong: %04x %04x %04x %04x\n",
+                     static_cast<unsigned>(buffer.at(0, 0).primary()),
+                     static_cast<unsigned>(buffer.at(1, 0).primary()),
+                     static_cast<unsigned>(buffer.at(2, 0).primary()),
+                     static_cast<unsigned>(buffer.at(3, 0).primary()));
+        return EXIT_FAILURE;
+    }
+    if (buffer.at(1, 0).is_continuation() || buffer.at(3, 0).is_continuation() || state.cursor().x != 4)
+    {
+        std::fprintf(stderr, "line drawing width wrong\n");
+        return EXIT_FAILURE;
+    }
+    applier.apply_charset(false, state);
+
     parser.reset();
     result = parser.parse(u"\x1b#6");
     if (result.id != vtparser::vt_message_id::set_line_rendition)
