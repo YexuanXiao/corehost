@@ -1,14 +1,12 @@
 #pragma once
 
-// Minimal TSF client for the windowed console. The context is a transitory
-// TSF document. Composition ranges are inspected through a read/write edit
-// session and finalized text is forwarded to the console input queue.
+// Minimal TSF client for the windowed console. COM apartment lifetime belongs
+// to the caller; this class only owns TSF objects and its edit-session buffers.
 
 #include <Windows.h>
 #include <msctf.h>
 #include <winrt/base.h>
 
-#include <functional>
 #include <string>
 #include <string_view>
 
@@ -17,74 +15,29 @@ namespace corehost::window
     class tsf_host final : public ITfContextOwner, public ITfContextOwnerCompositionSink, public ITfTextEditSink
     {
       public:
-        using text_sink = std::function<void(std::wstring_view)>;
-        using rect_provider = std::function<RECT()>;
+        using text_callback = void (*)(void *context, std::wstring_view text) noexcept;
+        using caret_callback = RECT (*)(void *context) noexcept;
 
-        tsf_host(HWND window, text_sink commit, text_sink composition, rect_provider caret)
-            : window_{window}, commit_{std::move(commit)}, composition_{std::move(composition)},
-              caret_{std::move(caret)}, edit_session_{*this}
+        struct callbacks final
         {
+            void *context{};
+            text_callback commit{};
+            text_callback composition{};
+            caret_callback caret{};
+        };
+
+        tsf_host(HWND window, callbacks callbacks) try : window_{window}, callbacks_{callbacks},
+                                                         edit_session_{*this}
+        {
+            initialize();
+        }
+        catch (const winrt::hresult_error &error)
+        {
+            LOG2("tsf initialize failed hr=%08x", static_cast<unsigned>(error.code()));
+            throw;
         }
 
-        ~tsf_host() = default;
-
-        HRESULT initialize()
-        {
-            const auto com_result = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-            com_initialized_ = SUCCEEDED(com_result);
-            if (FAILED(com_result) && com_result != RPC_E_CHANGED_MODE)
-            {
-                return com_result;
-            }
-
-            try
-            {
-                winrt::check_hresult(::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER,
-                                                        IID_PPV_ARGS(thread_mgr_.put())));
-
-                thread_ex_ = thread_mgr_.try_as<ITfThreadMgrEx>();
-                if (thread_ex_)
-                {
-                    winrt::check_hresult(thread_ex_->ActivateEx(
-                        &client_id_, TF_TMAE_NOACTIVATETIP | TF_TMAE_NOACTIVATEKEYBOARDLAYOUT | TF_TMAE_CONSOLE));
-                }
-                else
-                {
-                    winrt::check_hresult(thread_mgr_->Activate(&client_id_));
-                }
-
-                winrt::check_hresult(thread_mgr_->CreateDocumentMgr(document_mgr_.put()));
-                winrt::check_hresult(document_mgr_->CreateContext(
-                    client_id_, 0, static_cast<ITfContextOwnerCompositionSink *>(this), context_.put(), &edit_cookie_));
-
-                auto source = context_.try_as<ITfSource>();
-                winrt::check_hresult(source ? S_OK : E_NOINTERFACE);
-                winrt::check_hresult(source->AdviseSink(IID_ITfContextOwner, static_cast<ITfContextOwner *>(this),
-                                                        &owner_cookie_));
-                winrt::check_hresult(source->AdviseSink(IID_ITfTextEditSink, static_cast<ITfTextEditSink *>(this),
-                                                        &edit_sink_cookie_));
-
-                winrt::check_hresult(document_mgr_->Push(context_.get()));
-
-                if (thread_ex_)
-                {
-                    winrt::com_ptr<ITfDocumentMgr> previous;
-                    winrt::check_hresult(
-                        thread_ex_->AssociateFocus(window_, document_mgr_.get(), previous.put()));
-                }
-
-                winrt::check_hresult(thread_mgr_->SetFocus(document_mgr_.get()));
-            }
-            catch (const winrt::hresult_error &error)
-            {
-                LOG2("tsf initialize failed hr=%08x", static_cast<unsigned>(error.code()));
-                return error.code();
-            }
-
-            LOG2("tsf initialized client=%u context=%p", static_cast<unsigned>(client_id_), context_.get());
-            return S_OK;
-        }
-        void shutdown() noexcept
+        ~tsf_host() noexcept
         {
             if (thread_mgr_)
             {
@@ -100,7 +53,6 @@ namespace corehost::window
                 {
                     (void)source->UnadviseSink(owner_cookie_);
                 }
-                owner_cookie_ = TF_INVALID_COOKIE;
             }
             if (context_ && edit_sink_cookie_ != TF_INVALID_COOKIE)
             {
@@ -108,22 +60,15 @@ namespace corehost::window
                 {
                     (void)source->UnadviseSink(edit_sink_cookie_);
                 }
-                edit_sink_cookie_ = TF_INVALID_COOKIE;
             }
             if (thread_mgr_)
             {
                 (void)thread_mgr_->Deactivate();
             }
-            context_ = nullptr;
-            document_mgr_ = nullptr;
-            thread_ex_ = nullptr;
-            thread_mgr_ = nullptr;
-            if (com_initialized_)
-            {
-                ::CoUninitialize();
-                com_initialized_ = false;
-            }
         }
+
+        tsf_host(const tsf_host &) = delete;
+        tsf_host &operator=(const tsf_host &) = delete;
 
         void focus() noexcept
         {
@@ -151,7 +96,7 @@ namespace corehost::window
         {
             if (rect)
             {
-                *rect = caret_ ? caret_() : RECT{};
+                *rect = callbacks_.caret ? callbacks_.caret(callbacks_.context) : RECT{};
                 const auto shift = (rect->right - rect->left) * 2;
                 rect->left -= shift;
                 rect->right -= shift;
@@ -316,6 +261,45 @@ namespace corehost::window
             ULONG references_{1};
         };
 
+        void initialize()
+        {
+            winrt::check_hresult(::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER,
+                                                    IID_PPV_ARGS(thread_mgr_.put())));
+
+            thread_ex_ = thread_mgr_.try_as<ITfThreadMgrEx>();
+            if (thread_ex_)
+            {
+                winrt::check_hresult(thread_ex_->ActivateEx(
+                    &client_id_, TF_TMAE_NOACTIVATETIP | TF_TMAE_NOACTIVATEKEYBOARDLAYOUT | TF_TMAE_CONSOLE));
+            }
+            else
+            {
+                winrt::check_hresult(thread_mgr_->Activate(&client_id_));
+            }
+
+            winrt::check_hresult(thread_mgr_->CreateDocumentMgr(document_mgr_.put()));
+            winrt::check_hresult(document_mgr_->CreateContext(
+                client_id_, 0, static_cast<ITfContextOwnerCompositionSink *>(this), context_.put(), &edit_cookie_));
+
+            auto source = context_.try_as<ITfSource>();
+            winrt::check_hresult(source ? S_OK : E_NOINTERFACE);
+            winrt::check_hresult(source->AdviseSink(IID_ITfContextOwner, static_cast<ITfContextOwner *>(this),
+                                                    &owner_cookie_));
+            winrt::check_hresult(source->AdviseSink(IID_ITfTextEditSink, static_cast<ITfTextEditSink *>(this),
+                                                    &edit_sink_cookie_));
+
+            winrt::check_hresult(document_mgr_->Push(context_.get()));
+
+            if (thread_ex_)
+            {
+                winrt::com_ptr<ITfDocumentMgr> previous;
+                winrt::check_hresult(thread_ex_->AssociateFocus(window_, document_mgr_.get(), previous.put()));
+            }
+
+            winrt::check_hresult(thread_mgr_->SetFocus(document_mgr_.get()));
+            LOG2("tsf initialized client=%u context=%p", static_cast<unsigned>(client_id_), context_.get());
+        }
+
         void request_update() noexcept
         {
             if (!context_)
@@ -453,9 +437,9 @@ namespace corehost::window
                     {
                         pending = std::wstring_view{finalized_buffer_}.substr(committed_text_.size());
                     }
-                    if (!pending.empty() && commit_)
+                    if (!pending.empty() && callbacks_.commit)
                     {
-                        commit_(pending);
+                        callbacks_.commit(callbacks_.context, pending);
                     }
                     committed_text_ = finalized_buffer_;
 
@@ -472,9 +456,9 @@ namespace corehost::window
                     committed_text_.clear();
                 }
 
-                if (composition_)
+                if (callbacks_.composition)
                 {
-                    composition_(composing_buffer_);
+                    callbacks_.composition(callbacks_.context, composing_buffer_);
                 }
             }
             catch (const winrt::hresult_error &error)
@@ -482,6 +466,7 @@ namespace corehost::window
                 LOG2("tsf read context failed hr=%08x", static_cast<unsigned>(error.code()));
             }
         }
+
         [[nodiscard]] RECT screen_rect() const noexcept
         {
             RECT client{};
@@ -498,9 +483,7 @@ namespace corehost::window
         }
 
         HWND window_{};
-        text_sink commit_;
-        text_sink composition_;
-        rect_provider caret_;
+        callbacks callbacks_{};
         winrt::com_ptr<ITfThreadMgr> thread_mgr_;
         winrt::com_ptr<ITfThreadMgrEx> thread_ex_;
         winrt::com_ptr<ITfDocumentMgr> document_mgr_;
@@ -514,6 +497,5 @@ namespace corehost::window
         std::wstring finalized_buffer_;
         std::wstring composing_buffer_;
         ULONG references_{1};
-        bool com_initialized_{};
     };
 }

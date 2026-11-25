@@ -6,6 +6,7 @@
 
 #include "console_ctrl.hpp"
 #include "ntapi/condrv.hpp"
+#include "win32/com_apartment.hpp"
 #include "win32/srwlock.hpp"
 
 #include <utility>
@@ -15,6 +16,7 @@ namespace corehost::window
 
 void window_entry(std::wstring title, std::wstring client_command_line)
 {
+    win32::com_apartment apartment{COINIT_APARTMENTTHREADED};
     auto server = condrv::create_server_handle();
     win32::srwlock console_mutex;
     const auto [initial_columns, initial_rows] = window_host::initial_cell_size();

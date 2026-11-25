@@ -135,43 +135,19 @@ class window_host final
         }
 
         start_process_monitor(window);
-        tsf_ = std::make_unique<tsf_host>(
-            window,
-            [this](std::wstring_view text) {
-                std::unique_lock<win32::srwlock> lock{console_mutex_};
-                console_.clear_selection();
-                console_.set_ime_composition({});
-                for (const auto character : text)
-                {
-                    console_.push_input(consoleinput::input_event{
-                        .type = consoleinput::input_event_type::key,
-                        .key = consoleinput::key_from_text_character(character),
-                    });
-                }
-                worker_.request_redraw();
-            },
-            [this](std::wstring_view text) {
-                std::unique_lock<win32::srwlock> lock{console_mutex_};
-                console_.set_ime_composition(
-                    std::u16string_view{reinterpret_cast<const char16_t *>(text.data()), text.size()});
-                LOG2("tsf composition length=%zu", text.size());
-                worker_.request_redraw();
-            },
-            [this]() {
-                RECT rect{};
-                std::unique_lock<win32::srwlock> lock{console_mutex_};
-                POINT origin{0, 0};
-                ::ClientToScreen(window_, &origin);
-                const auto cursor = console_.state().cursor();
-                rect.left = origin.x + static_cast<LONG>(static_cast<float>(cursor.x) * console_.cell_width());
-                rect.top = origin.y + static_cast<LONG>(static_cast<float>(cursor.y) * console_.cell_height());
-                rect.right = rect.left + static_cast<LONG>(console_.cell_width());
-                rect.bottom = rect.top + static_cast<LONG>(console_.cell_height());
-                return rect;
-            });
-        if (const auto hr = tsf_->initialize(); FAILED(hr))
+        try
         {
-            LOG2("tsf initialize failed %08x", static_cast<unsigned>(hr));
+            tsf_ = std::make_unique<tsf_host>(
+                window, tsf_host::callbacks{
+                            .context = this,
+                            .commit = &window_host::tsf_commit_callback,
+                            .composition = &window_host::tsf_composition_callback,
+                            .caret = &window_host::tsf_caret_callback,
+                        });
+        }
+        catch (const winrt::hresult_error &error)
+        {
+            LOG2("tsf initialize failed %08x", static_cast<unsigned>(error.code()));
         }
         worker_.start(window);
         ::ShowWindow(window, SW_SHOWDEFAULT);
@@ -193,16 +169,64 @@ class window_host final
             ::DispatchMessageW(&message);
         }
 
-        if (tsf_)
-        {
-            tsf_->shutdown();
-            tsf_.reset();
-        }
         worker_.stop();
         return static_cast<int>(message.wParam);
     }
 
   private:
+    static void tsf_commit_callback(void *context, std::wstring_view text) noexcept
+    {
+        static_cast<window_host *>(context)->handle_tsf_commit(text);
+    }
+
+    static void tsf_composition_callback(void *context, std::wstring_view text) noexcept
+    {
+        static_cast<window_host *>(context)->handle_tsf_composition(text);
+    }
+
+    static RECT tsf_caret_callback(void *context) noexcept
+    {
+        return static_cast<window_host *>(context)->tsf_caret_rect();
+    }
+
+    void handle_tsf_commit(std::wstring_view text) noexcept
+    {
+        std::unique_lock<win32::srwlock> lock{console_mutex_};
+        console_.clear_selection();
+        console_.set_ime_composition({});
+        for (const auto character : text)
+        {
+            console_.push_input(consoleinput::input_event{
+                .type = consoleinput::input_event_type::key,
+                .key = consoleinput::key_from_text_character(character),
+            });
+        }
+        worker_.request_redraw();
+    }
+
+    void handle_tsf_composition(std::wstring_view text) noexcept
+    {
+        std::unique_lock<win32::srwlock> lock{console_mutex_};
+        console_.set_ime_composition(
+            std::u16string_view{reinterpret_cast<const char16_t *>(text.data()), text.size()});
+        LOG2("tsf composition length=%zu", text.size());
+        worker_.request_redraw();
+    }
+
+    [[nodiscard]] RECT tsf_caret_rect() const noexcept
+    {
+        std::unique_lock<win32::srwlock> lock{console_mutex_};
+        POINT origin{0, 0};
+        ::ClientToScreen(window_, &origin);
+        const auto cursor = console_.state().cursor();
+        RECT rect{};
+        rect.left = origin.x + static_cast<LONG>(static_cast<float>(cursor.x) * console_.cell_width());
+        rect.top = origin.y + static_cast<LONG>(static_cast<float>(cursor.y) * console_.cell_height());
+        rect.right = rect.left + static_cast<LONG>(console_.cell_width());
+        rect.bottom = rect.top + static_cast<LONG>(console_.cell_height());
+        return rect;
+    }
+
     static std::uint32_t control_state() noexcept
     {
         std::uint32_t state = 0;

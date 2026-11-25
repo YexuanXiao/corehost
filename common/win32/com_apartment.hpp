@@ -24,16 +24,27 @@ class com_apartment
     // 调用 CoInitializeEx，失败时抛出 win32::hresult
     explicit com_apartment(DWORD coinit_flags)
     {
-        auto hr = ::CoInitializeEx(nullptr, coinit_flags);
+        const auto hr = ::CoInitializeEx(nullptr, coinit_flags);
+        if (FAILED(hr) && hr != RPC_E_CHANGED_MODE)
+        {
+            throw hresult{static_cast<hresult>(hr)};
+        }
+        initialized_ = SUCCEEDED(hr);
     }
 
     ~com_apartment()
     {
-        ::CoUninitialize();
+        if (initialized_)
+        {
+            ::CoUninitialize();
+        }
     }
 
     com_apartment(const com_apartment &) = delete;
     com_apartment &operator=(const com_apartment &) = delete;
+
+  private:
+    bool initialized_{};
 };
 
 } // namespace win32
