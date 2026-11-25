@@ -33,16 +33,10 @@ namespace corehost::window
             winrt::check_hresult(::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER,
                                                     IID_PPV_ARGS(thread_mgr_.put())));
 
-            thread_ex_ = thread_mgr_.try_as<ITfThreadMgrEx>();
-            if (thread_ex_)
-            {
-                winrt::check_hresult(thread_ex_->ActivateEx(
-                    &client_id_, TF_TMAE_NOACTIVATETIP | TF_TMAE_NOACTIVATEKEYBOARDLAYOUT | TF_TMAE_CONSOLE));
-            }
-            else
-            {
-                winrt::check_hresult(thread_mgr_->Activate(&client_id_));
-            }
+            thread_ex_ = thread_mgr_.as<ITfThreadMgrEx>();
+            assert(thread_ex_);
+            winrt::check_hresult(thread_ex_->ActivateEx(
+                &client_id_, TF_TMAE_NOACTIVATETIP | TF_TMAE_NOACTIVATEKEYBOARDLAYOUT | TF_TMAE_CONSOLE));
 
             winrt::check_hresult(thread_mgr_->CreateDocumentMgr(document_mgr_.put()));
             winrt::check_hresult(document_mgr_->CreateContext(
@@ -57,11 +51,9 @@ namespace corehost::window
 
             winrt::check_hresult(document_mgr_->Push(context_.get()));
 
-            if (thread_ex_)
-            {
-                winrt::com_ptr<ITfDocumentMgr> previous;
-                winrt::check_hresult(thread_ex_->AssociateFocus(window_, document_mgr_.get(), previous.put()));
-            }
+            assert(thread_ex_);
+            winrt::com_ptr<ITfDocumentMgr> previous;
+            winrt::check_hresult(thread_ex_->AssociateFocus(window_, document_mgr_.get(), previous.put()));
 
             winrt::check_hresult(thread_mgr_->SetFocus(document_mgr_.get()));
             LOG2("tsf initialized client=%u context=%p", static_cast<unsigned>(client_id_), context_.get());
