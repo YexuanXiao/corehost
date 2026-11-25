@@ -2571,6 +2571,9 @@ class console_api final
         info->MaximumWindowSize =
             COORD{static_cast<SHORT>(state_.max_window_size.x), static_cast<SHORT>(state_.max_window_size.y)};
         info->PopupAttributes = state_.popup_attributes;
+        LOG2("screen_info size=%dx%d window=%dx%d origin=%d,%d cursor=%d,%d", info->Size.X, info->Size.Y,
+             info->CurrentWindowSize.X, info->CurrentWindowSize.Y, info->ScrollPosition.X, info->ScrollPosition.Y,
+             info->CursorPosition.X, info->CursorPosition.Y);
         info->FullscreenSupported = FALSE;
         const auto color_count = state_.color_table.size();
         for (std::size_t i = 0; i < color_count; ++i)

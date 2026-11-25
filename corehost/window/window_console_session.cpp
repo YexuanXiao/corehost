@@ -215,6 +215,7 @@ bool window_console_session::handle(coreio::io_msg &message)
         return false;
     case CONSOLE_IO_USER_DEFINED: {
         const auto *header = reinterpret_cast<const CONSOLE_MSG_HEADER *>(message.body);
+        LOG2("api=%u size=%u", static_cast<unsigned>(header->ApiNumber), static_cast<unsigned>(message.descriptor.InputSize));
         if (header->ApiNumber == ConsolepWriteConsole)
         {
             handle_write_console(message);
