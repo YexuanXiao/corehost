@@ -168,111 +168,27 @@ class state_applier final
         const auto hyperlink = state.default_hyperlink;
         assert(cursor.x >= 0 && cursor.y >= 0);
 
-        if (!state.line_drawing_charset && (message.text_is_ascii || screen::all_printable_ascii(text)))
-        {
-            std::size_t consumed = 0;
-            while (consumed < text_size)
-            {
-                if (static_cast<std::size_t>(cursor.x) >= width)
-                {
-                    buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
-                    cursor.x = 0;
-                    ++cursor.y;
-                }
-                if (static_cast<std::size_t>(cursor.y) >= height)
-                {
-                    scroll_text_row(buffer, state, style);
-                    cursor.y = static_cast<std::int32_t>(state.scroll_bottom());
-                }
-
-                const auto count =
-                    buffer.write_ascii(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y),
-                                       text.substr(consumed), style, hyperlink);
-                if (count == 0)
-                {
-                    break;
-                }
-                consumed += count;
-                cursor.x += static_cast<std::int32_t>(count);
-            }
-            state.set_cursor(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y));
-            last_consumed_ = consumed;
-            return;
-        }
-
         std::size_t consumed = 0;
         while (consumed < text_size)
         {
-            if (!state.line_drawing_charset && text[consumed] >= u' ' && text[consumed] < u'\x7f')
-            {
-                auto end = consumed;
-                while (end < text_size && text[end] >= u' ' && text[end] < u'\x7f')
-                    ++end;
-
-                auto remaining = end - consumed;
-                while (remaining != 0)
-                {
-                    if (static_cast<std::size_t>(cursor.x) >= width)
-                    {
-                        buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
-                        cursor.x = 0;
-                        ++cursor.y;
-                    }
-                    if (static_cast<std::size_t>(cursor.y) >= height)
-                    {
-                        scroll_text_row(buffer, state, style);
-                        cursor.y = static_cast<std::int32_t>(state.scroll_bottom());
-                    }
-                    const auto count =
-                        buffer.write_ascii(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y),
-                                           text.substr(consumed, remaining), style, hyperlink);
-                    if (count == 0)
-                        break;
-                    cursor.x += static_cast<std::int32_t>(count);
-                    consumed += count;
-                    remaining -= count;
-                }
-                if (remaining != 0)
-                    break;
-                continue;
-            }
-
-            const auto first = text[consumed];
-            if (first < 0xD800 || first > 0xDFFF)
-            {
-                auto columns = state.line_drawing_charset ? 1 : screen::char_width_for_mode<Mode, Ambiguous>(first);
-                if (columns > 0)
-                {
-                    if (columns > 2)
-                        columns = 2;
-                    if (static_cast<std::size_t>(cursor.x) + static_cast<std::size_t>(columns) > width)
-                    {
-                        buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
-                        cursor.x = 0;
-                        ++cursor.y;
-                    }
-                    if (static_cast<std::size_t>(cursor.y) >= height)
-                    {
-                        scroll_text_row(buffer, state, style);
-                        cursor.y = static_cast<std::int32_t>(state.scroll_bottom());
-                    }
-                    if (!buffer.write_codepoint(
-                            static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y), first, style,
-                            columns >= 2 ? screen::cell_width::wide : screen::cell_width::narrow, hyperlink))
-                    {
-                        break;
-                    }
-                    cursor.x += columns;
-                    ++consumed;
-                    continue;
-                }
-            }
-
             const auto cluster = *screen::grapheme_range<Mode, Ambiguous>{text.substr(consumed)}.begin();
+            if (cluster.text.empty())
+            {
+                break;
+            }
+
             auto columns = cluster.width;
-            if (columns <= 0)
+            if (state.line_drawing_charset)
             {
                 columns = 1;
+            }
+            else if (columns <= 0)
+            {
+                columns = 1;
+            }
+            else if (columns > 2)
+            {
+                columns = 2;
             }
             if (static_cast<std::size_t>(cursor.x) + static_cast<std::size_t>(columns) > width)
             {
@@ -290,7 +206,7 @@ class state_applier final
             {
                 break;
             }
-            cursor.x += columns;
+            cursor.x += static_cast<std::int32_t>(columns);
             consumed += cluster.text.size();
         }
         state.set_cursor(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y));
