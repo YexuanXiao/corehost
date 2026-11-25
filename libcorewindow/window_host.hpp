@@ -242,29 +242,23 @@ class window_host final
         }
 
         const auto caret = ime_caret_rect();
+        POINT origin{0, 0};
+        ::ClientToScreen(window_, &origin);
+        const POINT client_caret{caret.left - origin.x, caret.top - origin.y};
+
         COMPOSITIONFORM composition{};
         composition.dwStyle = CFS_POINT;
-        composition.ptCurrentPos = POINT{caret.left, caret.top};
-        LOG2("ime set composition"); 
+        composition.ptCurrentPos = client_caret;
+        LOG2("ime set composition client=%ld,%ld", client_caret.x, client_caret.y);
         (void)::ImmSetCompositionWindow(context, &composition);
 
         CANDIDATEFORM candidate{};
         candidate.dwIndex = 0;
         candidate.dwStyle = CFS_CANDIDATEPOS;
-        candidate.ptCurrentPos = POINT{caret.left, caret.bottom};
-        LOG2("ime set candidate"); 
+        candidate.ptCurrentPos = POINT{client_caret.x, client_caret.y + (caret.bottom - caret.top)};
+        LOG2("ime set candidate client=%ld,%ld", candidate.ptCurrentPos.x, candidate.ptCurrentPos.y);
         (void)::ImmSetCandidateWindow(context, &candidate);
 
-        LOGFONTW font{};
-        font.lfHeight = -::MulDiv(16, static_cast<int>(::GetDpiForWindow(window_)), 96);
-        font.lfWeight = FW_NORMAL;
-        font.lfCharSet = DEFAULT_CHARSET;
-        wcscpy_s(font.lfFaceName, L"Cascadia Code");
-        LOG2("ime set font"); 
-        (void)::ImmSetCompositionFontW(context, &font);
-
-        LOG2("ime positions composition=%ld,%ld candidate=%ld,%ld", caret.left, caret.top, caret.left,
-             caret.bottom);
         ::ImmReleaseContext(window_, context);
     }
 
