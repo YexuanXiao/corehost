@@ -217,51 +217,6 @@ class window_host final
     }
 
   private:
-    [[nodiscard]] RECT ime_caret_rect() const
-    {
-        RECT rect{};
-        std::unique_lock<win32::srwlock> lock{console_mutex_};
-        POINT origin{0, 0};
-        ::ClientToScreen(window_, &origin);
-        const auto cursor = console_.state().cursor();
-        const auto width = console_.cell_width();
-        const auto height = console_.cell_height();
-        rect.left = origin.x + static_cast<LONG>(static_cast<float>(cursor.x) * width);
-        rect.top = origin.y + static_cast<LONG>(static_cast<float>(cursor.y) * height);
-        rect.right = rect.left + static_cast<LONG>(width);
-        rect.bottom = rect.top + static_cast<LONG>(height);
-        return rect;
-    }
-
-    void update_ime_positions() const
-    {
-        const auto context = ::ImmGetContext(window_);
-        if (context == nullptr)
-        {
-            return;
-        }
-
-        const auto caret = ime_caret_rect();
-        POINT origin{0, 0};
-        ::ClientToScreen(window_, &origin);
-        const POINT client_caret{caret.left - origin.x, caret.top - origin.y};
-
-        COMPOSITIONFORM composition{};
-        composition.dwStyle = CFS_POINT;
-        composition.ptCurrentPos = client_caret;
-        LOG2("ime set composition client=%ld,%ld", client_caret.x, client_caret.y);
-        (void)::ImmSetCompositionWindow(context, &composition);
-
-        CANDIDATEFORM candidate{};
-        candidate.dwIndex = 0;
-        candidate.dwStyle = CFS_CANDIDATEPOS;
-        candidate.ptCurrentPos = POINT{client_caret.x, client_caret.y + (caret.bottom - caret.top)};
-        LOG2("ime set candidate client=%ld,%ld", candidate.ptCurrentPos.x, candidate.ptCurrentPos.y);
-        (void)::ImmSetCandidateWindow(context, &candidate);
-
-        ::ImmReleaseContext(window_, context);
-    }
-
     static std::uint32_t control_state() noexcept
     {
         std::uint32_t state = 0;
@@ -641,31 +596,6 @@ class window_host final
                            suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
             return 0;
         }
-        case WM_IME_SETCONTEXT:
-            if (self != nullptr && wparam != FALSE)
-            {
-                self->update_ime_positions();
-            }
-            return ::DefWindowProcW(hwnd, message, wparam, lparam);
-        case WM_IME_STARTCOMPOSITION:
-            if (self != nullptr)
-            {
-                self->update_ime_positions();
-            }
-            return ::DefWindowProcW(hwnd, message, wparam, lparam);
-        case WM_IME_COMPOSITION:
-            if (self != nullptr)
-            {
-                self->update_ime_positions();
-            }
-            return ::DefWindowProcW(hwnd, message, wparam, lparam);
-        case WM_IME_NOTIFY:
-            if (self != nullptr &&
-                (wparam == IMN_OPENCANDIDATE || wparam == IMN_CHANGECANDIDATE))
-            {
-                self->update_ime_positions();
-            }
-            return ::DefWindowProcW(hwnd, message, wparam, lparam);
         case WM_SETFOCUS:
             if (self != nullptr)
             {

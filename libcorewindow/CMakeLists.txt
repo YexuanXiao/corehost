@@ -17,7 +17,6 @@ target_link_libraries(libcorewindow INTERFACE
     user32
     ole32
     oleaut32
-    imm32
 )
 
 target_compile_features(libcorewindow INTERFACE cxx_std_23)

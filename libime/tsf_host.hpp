@@ -189,6 +189,12 @@ namespace corehost::window
             if (rect)
             {
                 *rect = caret_ ? caret_() : RECT{};
+                const auto dpi = window_ ? ::GetDpiForWindow(window_) : 96;
+                const auto shift = ::MulDiv(10, static_cast<int>(dpi), 96);
+                rect->left -= shift;
+                rect->right -= shift;
+                LOG2("tsf caret rect=%ld,%ld,%ld,%ld shift=%ld", rect->left, rect->top, rect->right, rect->bottom,
+                     shift);
             }
             if (clipped)
             {
