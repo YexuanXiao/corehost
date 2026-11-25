@@ -69,11 +69,20 @@ namespace corehost::window
         catch (const winrt::hresult_error &error)
         {
             LOG2("tsf initialize failed hr=%08x", static_cast<unsigned>(error.code()));
-            throw;
+            window_ = nullptr;
+            thread_mgr_ = nullptr;
+            thread_ex_ = nullptr;
+            document_mgr_ = nullptr;
+            context_ = nullptr;
         }
 
         ~tsf_host() noexcept
         {
+            if (window_ == nullptr)
+            {
+                return;
+            }
+
             assert(thread_mgr_);
             assert(document_mgr_);
             assert(context_);
@@ -94,6 +103,10 @@ namespace corehost::window
 
         void focus() noexcept
         {
+            if (window_ == nullptr)
+            {
+                return;
+            }
             assert(thread_mgr_);
             assert(document_mgr_);
             (void)thread_mgr_->SetFocus(document_mgr_.get());
@@ -101,6 +114,10 @@ namespace corehost::window
 
         void unfocus() noexcept
         {
+            if (window_ == nullptr)
+            {
+                return;
+            }
             assert(thread_mgr_);
             (void)thread_mgr_->SetFocus(nullptr);
         }
@@ -180,14 +197,28 @@ namespace corehost::window
 
         STDMETHODIMP OnUpdateComposition(ITfCompositionView *, ITfRange *) noexcept override
         {
-            request_update();
+            try
+            {
+                request_update();
+            }
+            catch (const winrt::hresult_error &error)
+            {
+                LOG2("tsf update composition failed hr=%08x", static_cast<unsigned>(error.code()));
+            }
             return S_OK;
         }
 
         STDMETHODIMP OnEndComposition(ITfCompositionView *) noexcept override
         {
             LOG2("tsf composition end");
-            request_update();
+            try
+            {
+                request_update();
+            }
+            catch (const winrt::hresult_error &error)
+            {
+                LOG2("tsf end composition failed hr=%08x", static_cast<unsigned>(error.code()));
+            }
             return S_OK;
         }
 
@@ -195,7 +226,14 @@ namespace corehost::window
         STDMETHODIMP OnEndEdit(ITfContext *, TfEditCookie, ITfEditRecord *) noexcept override
         {
             LOG2("tsf end edit");
-            request_update();
+            try
+            {
+                request_update();
+            }
+            catch (const winrt::hresult_error &error)
+            {
+                LOG2("tsf end edit failed hr=%08x", static_cast<unsigned>(error.code()));
+            }
             return S_OK;
         }
 
@@ -273,7 +311,14 @@ namespace corehost::window
 
             STDMETHODIMP DoEditSession(TfEditCookie cookie) noexcept override
             {
-                host_.read_context(cookie);
+                try
+                {
+                    host_.read_context(cookie);
+                }
+                catch (const winrt::hresult_error &error)
+                {
+                    LOG2("tsf read session failed hr=%08x", static_cast<unsigned>(error.code()));
+                }
                 return S_OK;
             }
 
@@ -281,21 +326,14 @@ namespace corehost::window
             ULONG references_{1};
         };
 
-        void request_update() noexcept
+        void request_update()
         {
             assert(context_);
             HRESULT session_result = S_OK;
-            try
-            {
-                winrt::check_hresult(context_->RequestEditSession(client_id_, &edit_session_,
-                                                                  TF_ES_ASYNC | TF_ES_READWRITE,
-                                                                  &session_result));
-                winrt::check_hresult(session_result);
-            }
-            catch (const winrt::hresult_error &error)
-            {
-                LOG2("tsf edit session failed hr=%08x", static_cast<unsigned>(error.code()));
-            }
+            winrt::check_hresult(context_->RequestEditSession(client_id_, &edit_session_,
+                                                              TF_ES_ASYNC | TF_ES_READWRITE,
+                                                              &session_result));
+            winrt::check_hresult(session_result);
         }
 
         static void append_range_text(TfEditCookie cookie, ITfRange *range, std::wstring &target)
@@ -360,12 +398,10 @@ namespace corehost::window
             return composing;
         }
 
-        void read_context(TfEditCookie cookie) noexcept
+        void read_context(TfEditCookie cookie)
         {
             assert(context_);
 
-            try
-            {
                 winrt::com_ptr<ITfRange> full;
                 winrt::check_hresult(context_->GetStart(cookie, full.put()));
                 LONG full_length = 0;
@@ -435,11 +471,6 @@ namespace corehost::window
                 assert(callbacks_.composition);
                 callbacks_.composition(callbacks_.context, composing_buffer_);
             }
-            catch (const winrt::hresult_error &error)
-            {
-                LOG2("tsf read context failed hr=%08x", static_cast<unsigned>(error.code()));
-            }
-        }
 
         [[nodiscard]] RECT screen_rect() const noexcept
         {

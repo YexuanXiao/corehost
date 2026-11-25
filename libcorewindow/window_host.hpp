@@ -68,7 +68,13 @@ class window_host final
                 win32::handle_view client_process, client_exit_policy policy = client_exit_policy::keep_open,
                 console_palette palette = console_palette::campbell())
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
-          client_policy_{policy}, worker_{console, console_mutex, palette}
+          client_policy_{policy}, worker_{console, console_mutex, palette}, window_{create_window()},
+          tsf_{window_, tsf_host::callbacks{
+                            .context = this,
+                            .commit = &window_host::tsf_commit_callback,
+                            .composition = &window_host::tsf_composition_callback,
+                            .caret = &window_host::tsf_caret_callback,
+                        }}
     {
         assert(!title_.empty());
         assert(client_process_.valid());
@@ -78,6 +84,33 @@ class window_host final
     window_host &operator=(const window_host &) = delete;
 
     [[nodiscard]] int run()
+    {
+        start_process_monitor(window_);
+        worker_.start(window_);
+        ::ShowWindow(window_, SW_SHOWDEFAULT);
+        ::UpdateWindow(window_);
+
+        MSG message{};
+        for (;;)
+        {
+            const auto result = ::GetMessageW(&message, nullptr, 0, 0);
+            if (result == 0)
+            {
+                break;
+            }
+            if (result == -1)
+            {
+                win32::throw_last_error();
+            }
+            ::TranslateMessage(&message);
+            ::DispatchMessageW(&message);
+        }
+
+        worker_.stop();
+        return static_cast<int>(message.wParam);
+    }
+  private:
+    [[nodiscard]] HWND create_window()
     {
         const auto instance = ::GetModuleHandleW(nullptr);
         constexpr const wchar_t *class_name = L"CoreHostWindow";
@@ -108,7 +141,7 @@ class window_host final
         const auto initial_width = initial_rect.right - initial_rect.left;
         const auto initial_height = initial_rect.bottom - initial_rect.top;
 
-        const HWND window = ::CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, class_name, title_.c_str(),
+        const auto window = ::CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, class_name, title_.c_str(),
                                               WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, initial_width,
                                               initial_height, nullptr, nullptr, instance, this);
         if (window == nullptr)
@@ -133,47 +166,9 @@ class window_host final
                 win32::throw_last_error();
             }
         }
-
-        start_process_monitor(window);
-        try
-        {
-            tsf_ = std::make_unique<tsf_host>(
-                window, tsf_host::callbacks{
-                            .context = this,
-                            .commit = &window_host::tsf_commit_callback,
-                            .composition = &window_host::tsf_composition_callback,
-                            .caret = &window_host::tsf_caret_callback,
-                        });
-        }
-        catch (const winrt::hresult_error &error)
-        {
-            LOG2("tsf initialize failed %08x", static_cast<unsigned>(error.code()));
-        }
-        worker_.start(window);
-        ::ShowWindow(window, SW_SHOWDEFAULT);
-        ::UpdateWindow(window);
-
-        MSG message{};
-        for (;;)
-        {
-            const auto result = ::GetMessageW(&message, nullptr, 0, 0);
-            if (result == 0)
-            {
-                break;
-            }
-            if (result == -1)
-            {
-                win32::throw_last_error();
-            }
-            ::TranslateMessage(&message);
-            ::DispatchMessageW(&message);
-        }
-
-        worker_.stop();
-        return static_cast<int>(message.wParam);
+        return window;
     }
 
-  private:
     static void tsf_commit_callback(void *context, std::wstring_view text) noexcept
     {
         static_cast<window_host *>(context)->handle_tsf_commit(text);
@@ -612,10 +607,7 @@ class window_host final
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
                 self->console_.set_focused(true);
                 lock.unlock();
-                if (self->tsf_)
-                {
-                    self->tsf_->focus();
-                }
+                self->tsf_.focus();
             }
             return 0;
         case WM_KILLFOCUS:
@@ -624,10 +616,7 @@ class window_host final
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
                 self->console_.set_focused(false);
                 lock.unlock();
-                if (self->tsf_)
-                {
-                    self->tsf_->unfocus();
-                }
+                self->tsf_.unfocus();
             }
             return 0;
         case WM_MOUSEWHEEL:
@@ -993,12 +982,12 @@ class window_host final
     console &console_;
     win32::srwlock &console_mutex_;
     win32::handle_view client_process_;
-    std::unique_ptr<tsf_host> tsf_;
-    bool ime_ready_{};
+    render_worker worker_;
+    HWND window_;
+    tsf_host tsf_;
     client_exit_policy client_policy_{};
     win32::event process_stop_event_{win32::create_tag, true, false};
     win32::basic_thread process_thread_;
-    HWND window_{};
     bool scrollbar_dragging_{};
     bool selection_dragging_{};
     std::size_t selection_anchor_x_{};
@@ -1009,7 +998,6 @@ class window_host final
     int click_count_{};
     bool tracking_mouse_leave_{};
     float scrollbar_grab_offset_{};
-    render_worker worker_;
 };
 
 } // namespace corehost::window
