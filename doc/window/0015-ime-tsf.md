@@ -37,3 +37,11 @@
 - TSF message pump 当前禁用，使用窗口消息和 TSF association；
 - OnEndComposition 只请求一次异步 edit session，由 OnEndEdit 完成 finalized 文本提交；
 - 未实现 `ITextStoreACP`。
+
+## 所有权与生命周期
+
+- COM apartment 由 `window_entry` 持有，TSF 模块不调用 `CoInitializeEx/CoUninitialize`；
+- `tsf_host` 构造时完成 TSF 初始化，析构时清理，失败通过 function-try-block 记录并抛出；
+- 回调使用函数指针 + `void* context`，不使用 `std::function`；
+- COM 调用使用 `winrt::check_hresult` / `winrt::hresult_error`；
+- `winrt::com_ptr` 析构自动释放，析构函数不手工置空成员。
