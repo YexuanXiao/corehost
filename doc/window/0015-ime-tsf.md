@@ -41,7 +41,7 @@
 ## 所有权与生命周期
 
 - COM apartment 由 `window_entry` 持有，TSF 模块不调用 `CoInitializeEx/CoUninitialize`；
-- `tsf_host` 构造时完成 TSF 初始化，析构时清理，失败通过 function-try-block 记录并抛出；
+- `tsf_host` 是 `window_host` 的直接成员，不使用 unique_ptr/optional；\n- 构造时完成 TSF 初始化；失败时把自身 HWND 置空，析构只检查这个空状态；\n- 非析构路径使用断言；\n- hresult 只在 COM 回调和 edit session 边界捕获；
 - 回调使用函数指针 + `void* context`，不使用 `std::function`；
 - COM 调用使用 `winrt::check_hresult` / `winrt::hresult_error`；
 - `winrt::com_ptr` 析构自动释放，析构函数不手工置空成员。
