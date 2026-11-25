@@ -10,6 +10,7 @@
 #include "win32/string.hpp"
 
 #include <Windows.h>
+#include <imm.h>
 #include <windowsx.h>
 
 #include <algorithm>
@@ -216,6 +217,57 @@ class window_host final
     }
 
   private:
+    [[nodiscard]] RECT ime_caret_rect() const
+    {
+        RECT rect{};
+        std::unique_lock<win32::srwlock> lock{console_mutex_};
+        POINT origin{0, 0};
+        ::ClientToScreen(window_, &origin);
+        const auto cursor = console_.state().cursor();
+        const auto width = console_.cell_width();
+        const auto height = console_.cell_height();
+        rect.left = origin.x + static_cast<LONG>(static_cast<float>(cursor.x) * width);
+        rect.top = origin.y + static_cast<LONG>(static_cast<float>(cursor.y) * height);
+        rect.right = rect.left + static_cast<LONG>(width);
+        rect.bottom = rect.top + static_cast<LONG>(height);
+        return rect;
+    }
+
+    void update_ime_positions() const
+    {
+        const auto context = ::ImmGetContext(window_);
+        if (context == nullptr)
+        {
+            return;
+        }
+
+        const auto caret = ime_caret_rect();
+        COMPOSITIONFORM composition{};
+        composition.dwStyle = CFS_POINT;
+        composition.ptCurrentPos = POINT{caret.left, caret.top};
+        LOG2("ime set composition"); 
+        (void)::ImmSetCompositionWindow(context, &composition);
+
+        CANDIDATEFORM candidate{};
+        candidate.dwIndex = 0;
+        candidate.dwStyle = CFS_CANDIDATEPOS;
+        candidate.ptCurrentPos = POINT{caret.left, caret.bottom};
+        LOG2("ime set candidate"); 
+        (void)::ImmSetCandidateWindow(context, &candidate);
+
+        LOGFONTW font{};
+        font.lfHeight = -::MulDiv(16, static_cast<int>(::GetDpiForWindow(window_)), 96);
+        font.lfWeight = FW_NORMAL;
+        font.lfCharSet = DEFAULT_CHARSET;
+        wcscpy_s(font.lfFaceName, L"Cascadia Code");
+        LOG2("ime set font"); 
+        (void)::ImmSetCompositionFontW(context, &font);
+
+        LOG2("ime positions composition=%ld,%ld candidate=%ld,%ld", caret.left, caret.top, caret.left,
+             caret.bottom);
+        ::ImmReleaseContext(window_, context);
+    }
+
     static std::uint32_t control_state() noexcept
     {
         std::uint32_t state = 0;
@@ -595,6 +647,31 @@ class window_host final
                            suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
             return 0;
         }
+        case WM_IME_SETCONTEXT:
+            if (self != nullptr && wparam != FALSE)
+            {
+                self->update_ime_positions();
+            }
+            return ::DefWindowProcW(hwnd, message, wparam, lparam);
+        case WM_IME_STARTCOMPOSITION:
+            if (self != nullptr)
+            {
+                self->update_ime_positions();
+            }
+            return ::DefWindowProcW(hwnd, message, wparam, lparam);
+        case WM_IME_COMPOSITION:
+            if (self != nullptr)
+            {
+                self->update_ime_positions();
+            }
+            return ::DefWindowProcW(hwnd, message, wparam, lparam);
+        case WM_IME_NOTIFY:
+            if (self != nullptr &&
+                (wparam == IMN_OPENCANDIDATE || wparam == IMN_CHANGECANDIDATE))
+            {
+                self->update_ime_positions();
+            }
+            return ::DefWindowProcW(hwnd, message, wparam, lparam);
         case WM_SETFOCUS:
             if (self != nullptr)
             {
@@ -983,6 +1060,7 @@ class window_host final
     win32::srwlock &console_mutex_;
     win32::handle_view client_process_;
     std::unique_ptr<tsf_host> tsf_;
+    bool ime_ready_{};
     client_exit_policy client_policy_{};
     win32::event process_stop_event_{win32::create_tag, true, false};
     win32::basic_thread process_thread_;
