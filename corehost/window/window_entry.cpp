@@ -17,7 +17,8 @@ void window_entry(std::wstring title, std::wstring client_command_line)
 {
     auto server = condrv::create_server_handle();
     win32::srwlock console_mutex;
-    console shared_console{120, 30};
+    const auto [initial_columns, initial_rows] = window_host::initial_cell_size();
+    console shared_console{initial_columns, initial_rows};
     window_console_session console{server.view(), shared_console, console_mutex};
     console.start();
 

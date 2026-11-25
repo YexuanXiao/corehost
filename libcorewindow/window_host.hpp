@@ -34,6 +34,32 @@ inline constexpr UINT client_exit_message = WM_APP + 2;
 class window_host final
 {
   public:
+    static constexpr int default_client_width = 1200;
+    static constexpr int default_client_height = 720;
+
+    // Computes the initial cell grid from the same font metrics and default
+    // client size that run() uses. The console must have this size before the
+    // client process starts; otherwise the first window frame resizes it and
+    // discards output that a TUI has already painted (notably the alternate
+    // screen used by vim/edit).
+    [[nodiscard]] static std::pair<std::size_t, std::size_t> initial_cell_size()
+    {
+        const std::array<uitext::font_fallback_entry, 3> families{
+            uitext::font_fallback_entry{L"Cascadia Code"},
+            uitext::font_fallback_entry{L"Cascadia Mono"},
+            uitext::font_fallback_entry{L"Consolas"},
+        };
+        const auto dpi = std::max<UINT>(96, ::GetDpiForSystem());
+        const auto scale = static_cast<float>(dpi) / 96.0f;
+        uitext::text_engine text{families, 16.0f * scale};
+        const auto metrics = text.metrics();
+        const auto width = static_cast<float>(default_client_width) * scale;
+        const auto height = static_cast<float>(default_client_height) * scale;
+        const auto row_height = metrics.ascent + metrics.descent + metrics.line_gap;
+        return {std::max<std::size_t>(1, static_cast<std::size_t>(width / metrics.advance)),
+                std::max<std::size_t>(1, static_cast<std::size_t>(height / row_height))};
+    }
+
     window_host(win32::wcstring_view title, console &console, win32::srwlock &console_mutex,
                 win32::handle_view client_process, client_exit_policy policy = client_exit_policy::keep_open,
                 console_palette palette = console_palette::campbell())
@@ -68,8 +94,8 @@ class window_host final
         }
 
         const auto initial_dpi = std::max<UINT>(96, ::GetDpiForSystem());
-        RECT initial_rect{0, 0, ::MulDiv(1200, static_cast<int>(initial_dpi), 96),
-                          ::MulDiv(720, static_cast<int>(initial_dpi), 96)};
+        RECT initial_rect{0, 0, ::MulDiv(default_client_width, static_cast<int>(initial_dpi), 96),
+                          ::MulDiv(default_client_height, static_cast<int>(initial_dpi), 96)};
         if (::AdjustWindowRectExForDpi(&initial_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
                                        initial_dpi) == FALSE)
         {
@@ -89,8 +115,8 @@ class window_host final
         const auto window_dpi = std::max<UINT>(96, ::GetDpiForWindow(window));
         if (window_dpi != initial_dpi)
         {
-            RECT target_rect{0, 0, ::MulDiv(1200, static_cast<int>(window_dpi), 96),
-                             ::MulDiv(720, static_cast<int>(window_dpi), 96)};
+            RECT target_rect{0, 0, ::MulDiv(default_client_width, static_cast<int>(window_dpi), 96),
+                             ::MulDiv(default_client_height, static_cast<int>(window_dpi), 96)};
             if (::AdjustWindowRectExForDpi(&target_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
                                            window_dpi) == FALSE)
             {
