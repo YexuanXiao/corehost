@@ -26,14 +26,15 @@ void window_entry(win32::wcstring_view title, std::wstring client_command_line)
     window_client_process client{server.view(), title, client_command_line};
     window_ui ui{shared_console, console_mutex, client.process(), title, client_exit_policy::keep_open,
                  console_palette::campbell()};
-    const bool ui_ok = ui.run();
+    ui.start();
+    const bool ui_fatal = ui.wait();
 
     coreio::ctrl_delivery delivery;
     delivery.deliver(client.process_id(), CTRL_CLOSE_EVENT);
     client.wait();
     console.stop();
 
-    if (!ui_ok)
+    if (ui_fatal)
     {
         std::exit(EXIT_FAILURE);
     }

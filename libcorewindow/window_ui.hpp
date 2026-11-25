@@ -38,22 +38,27 @@ class window_ui final
     window_ui(const window_ui &) = delete;
     window_ui &operator=(const window_ui &) = delete;
 
-    // Returns true when the UI closed normally. A fatal UI/window error
-    // returns false; the caller owns process shutdown and cleanup.
-    [[nodiscard]] bool run()
+    void start()
     {
         assert(!thread_.valid());
         thread_ = win32::basic_thread{&window_ui::thread_entry, this, {.name = L"corehost-window-ui"}};
         ready_.wait();
-        if (failed_.load(std::memory_order_relaxed))
+    }
+
+    // Waits for the UI event channel. Returns true if the UI terminated
+    // because of a fatal error; normal window close returns false.
+    [[nodiscard]] bool wait()
+    {
+        assert(thread_.valid());
+        HANDLE events[] = {close_requested_.get(), fatal_.get()};
+        const auto result = ::WaitForMultipleObjects(2, events, FALSE, INFINITE);
+        if (result == WAIT_FAILED)
         {
-            stop_and_join();
-            return false;
+            win32::throw_last_error();
         }
-        stopped_.wait();
         thread_.join();
         thread_ = {};
-        return !failed_.load(std::memory_order_relaxed);
+        return result == WAIT_OBJECT_0 + 1;
     }
 
     void stop_and_join()
@@ -86,14 +91,14 @@ class window_ui final
             hwnd_.store(host.window(), std::memory_order_release);
             ready_.set();
             host.run();
+            close_requested_.set();
         }
         catch (...)
         {
-            failed_.store(true, std::memory_order_relaxed);
+            fatal_.set();
             ready_.set();
         }
         hwnd_.store(nullptr, std::memory_order_release);
-        stopped_.set();
     }
 
     console &console_;
@@ -104,8 +109,8 @@ class window_ui final
     console_palette palette_;
 
     win32::event ready_{win32::create_tag, true, false};
-    win32::event stopped_{win32::create_tag, true, false};
-    std::atomic_bool failed_{};
+    win32::event close_requested_{win32::create_tag, true, false};
+    win32::event fatal_{win32::create_tag, true, false};
     std::atomic<HWND> hwnd_{};
     win32::basic_thread thread_;
 };
