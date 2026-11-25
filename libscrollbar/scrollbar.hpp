@@ -40,6 +40,10 @@ struct state final
 
 inline constexpr float default_width = 16.0f;
 inline constexpr float arrow_height = 26.0f;
+inline constexpr float arrow_visual_margin = 6.4f;
+inline constexpr float arrow_visual_width = 11.5f;
+inline constexpr float arrow_visual_height = 8.25f;
+inline constexpr float track_inset = 21.0f;
 inline constexpr float minimum_thumb_height = 24.0f;
 
 [[nodiscard]] inline std::size_t max_top(const state &value) noexcept

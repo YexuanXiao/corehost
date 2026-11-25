@@ -193,7 +193,7 @@ class render_worker final
         const auto h = static_cast<float>(height);
         // Rounded corners: 18% of the short side. The arrow is later scaled
         // from the fixed 32x32 mask to its 10x7.2 DIP visual size.
-        const auto radius = std::min(w, h) * 0.18f;
+        const auto radius = std::min(w, h) * 0.28f;
         const mask_point vertices[3]{
             {w * 0.5f, h * 0.06f},
             {w * 0.94f, h * 0.94f},
@@ -533,7 +533,7 @@ class render_worker final
             const scrollbar::state scroll_state{history_size_ + rows, rows, top};
             const auto geometry = scrollbar::compute(client_width - scrollbar_width, 0.0f, scrollbar_width,
                                                      client_height, scroll_state,
-                                                     scrollbar::arrow_height * scale);
+                                                     scrollbar::track_inset * scale);
             if (geometry.visible)
             {
                 const auto expand = scrollbar_expand_;
@@ -574,11 +574,9 @@ class render_worker final
                     static const auto up_mask = make_arrow_mask(false);
                     static const auto down_mask = make_arrow_mask(true);
                     const auto arrow_center = client_width - 8.0f * scale;
-                    const auto arrow_width = 10.0f * scale;
-                    // Flatten the 9 DIP arrow by 1/5 -> 7.2 DIP, and move it
-                    // 1/4 closer to the top/bottom edge (8.5 -> 6.375 DIP).
-                    const auto arrow_height = 7.2f * scale;
-                    const auto arrow_margin = 6.375f * scale;
+                    const auto arrow_width = scrollbar::arrow_visual_width * scale;
+                    const auto arrow_height = scrollbar::arrow_visual_height * scale;
+                    const auto arrow_margin = scrollbar::arrow_visual_margin * scale;
                     const auto *up = atlas_.find_or_add_mask(0x534255, scrollbar_mask_size, scrollbar_mask_size,
                                                              up_mask);
                     const auto *down = atlas_.find_or_add_mask(0x534144, scrollbar_mask_size, scrollbar_mask_size,

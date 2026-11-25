@@ -395,7 +395,7 @@ class window_host final
         const scrollbar::state state{history + rows, rows, static_cast<double>(history) - offset};
         const auto bar_width = scrollbar::default_width * scale;
         return scrollbar::compute(width - bar_width, 0.0f, bar_width, height, state,
-                                   scrollbar::arrow_height * scale);
+                                   scrollbar::track_inset * scale);
     }
 
     void update_scrollbar_hover(HWND hwnd, LPARAM lparam)
