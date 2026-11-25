@@ -1425,33 +1425,6 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
 
     if constexpr (Mode == text_measurement::graphemes || Mode == text_measurement::console)
     {
-        if (widths.empty() && all_printable_ascii(text) &&
-            (!wrap_at_eol ||
-             (cursor.x >= 0 && cursor.y >= 0 && static_cast<std::size_t>(cursor.x) + text.size() <= width_)))
-        {
-            if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.x) >= width_ ||
-                static_cast<std::size_t>(cursor.y) >= height_)
-            {
-                result.row_end = true;
-                return result;
-            }
-
-            const auto available = width_ - static_cast<std::size_t>(cursor.x);
-            const auto count = std::min(text.size(), available);
-            for (std::size_t index = 0; index < count; ++index)
-            {
-                (void)write_scalar(static_cast<std::size_t>(cursor.x), static_cast<std::size_t>(cursor.y), text[index],
-                                   style, cell_width::narrow, hyperlink);
-                ++cursor.x;
-                ++result.consumed;
-            }
-            if (count < text.size() || cursor.x >= static_cast<std::int32_t>(width_))
-            {
-                result.row_end = true;
-            }
-            return result;
-        }
-
         for (const auto cluster : grapheme_range<Mode, AmbiguousIsWide>{text})
         {
             if (cursor.x < 0 || cursor.y < 0 || static_cast<std::size_t>(cursor.y) >= height_)
