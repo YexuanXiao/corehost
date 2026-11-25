@@ -14,7 +14,7 @@
 namespace corehost::window
 {
 
-void window_entry(std::wstring title, std::wstring client_command_line)
+void window_entry(win32::wcstring_view title, std::wstring client_command_line)
 {
     win32::com_apartment apartment{COINIT_APARTMENTTHREADED};
     auto server = condrv::create_server_handle();

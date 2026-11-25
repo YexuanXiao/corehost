@@ -14,15 +14,16 @@
 #include <windows.h>
 #include <string>
 #include "win32/error.hpp"
+#include "win32/string.hpp"
 #include "win32/process_information.hpp"
 
 namespace corehost::client
 {
 
-inline void client_entry(std::wstring title, std::wstring client_command_line)
+inline void client_entry(win32::wcstring_view title, std::wstring client_command_line)
 {
     STARTUPINFOW si{sizeof(si)};
-    si.lpTitle = title.empty() ? nullptr : title.data();
+    si.lpTitle = title.empty() ? nullptr : const_cast<LPWSTR>(title.data());
     // 返回后 pi 析构 → CloseHandle(hThread) + CloseHandle(hProcess) → 进程退出
     win32::process_information pi{};
     // lpApplicationName=NULL, lpCommandLine=full command line
