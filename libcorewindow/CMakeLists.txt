@@ -6,10 +6,12 @@ target_include_directories(libcorewindow INTERFACE
 )
 
 target_link_libraries(libcorewindow INTERFACE
+    libcoreui
     libd3d12ui
     libscreen
     libuitext
     libscrollbar
+    libime
     unicode::unicode
     common
     user32
