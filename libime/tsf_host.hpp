@@ -103,10 +103,7 @@ namespace corehost::window
 
         void focus() noexcept
         {
-            if (window_ == nullptr)
-            {
-                return;
-            }
+            assert(window_);
             assert(thread_mgr_);
             assert(document_mgr_);
             (void)thread_mgr_->SetFocus(document_mgr_.get());
@@ -114,10 +111,7 @@ namespace corehost::window
 
         void unfocus() noexcept
         {
-            if (window_ == nullptr)
-            {
-                return;
-            }
+            assert(window_);
             assert(thread_mgr_);
             (void)thread_mgr_->SetFocus(nullptr);
         }
@@ -470,16 +464,17 @@ namespace corehost::window
 
         [[nodiscard]] RECT screen_rect() const noexcept
         {
+            assert(window_);
             RECT client{};
-            if (window_ && ::GetClientRect(window_, &client))
-            {
-                POINT origin{0, 0};
-                ::ClientToScreen(window_, &origin);
-                client.left += origin.x;
-                client.right += origin.x;
-                client.top += origin.y;
-                client.bottom += origin.y;
-            }
+            const auto got_client = ::GetClientRect(window_, &client);
+            assert(got_client);
+            POINT origin{0, 0};
+            const auto got_origin = ::ClientToScreen(window_, &origin);
+            assert(got_origin);
+            client.left += origin.x;
+            client.right += origin.x;
+            client.top += origin.y;
+            client.bottom += origin.y;
             return client;
         }
 
