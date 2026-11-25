@@ -227,7 +227,6 @@ namespace corehost::window
             {
                 *ok = TRUE;
             }
-            request_update();
             return S_OK;
         }
 
