@@ -236,7 +236,8 @@ class window_host final
         const auto offset = console_.scroll_pixels() / static_cast<double>(console_.scroll_row_height());
         const scrollbar::state state{history + rows, rows, static_cast<double>(history) - offset};
         const auto bar_width = scrollbar::default_width * scale;
-        return scrollbar::compute(width - bar_width, 0.0f, bar_width, height, state);
+        return scrollbar::compute(width - bar_width, 0.0f, bar_width, height, state,
+                                   scrollbar::arrow_height * scale);
     }
 
     void update_scrollbar_hover(HWND hwnd, LPARAM lparam)
@@ -292,7 +293,8 @@ class window_host final
                                                  std::min(static_cast<double>(console_.scroll_offset()), static_cast<double>(history))};
                 const auto top = scrollbar::top_from_pointer(geometry, y, 0.0f, state);
                 const auto desired = static_cast<double>(history) - top;
-                console_.scroll_by(desired - console_.scroll_offset());
+                const auto row_height = static_cast<double>(console_.scroll_row_height());
+                console_.scroll_by_pixels(desired * row_height - console_.scroll_pixels());
             }
             else if (target == scrollbar::hit_target::above_thumb)
             {
@@ -321,7 +323,8 @@ class window_host final
                                          std::min(static_cast<double>(console_.scroll_offset()), static_cast<double>(history))};
         const auto top = scrollbar::top_from_pointer(geometry, y, scrollbar_grab_offset_, state);
         const auto desired = static_cast<double>(history) - top;
-        console_.scroll_by(desired - console_.scroll_offset());
+        const auto row_height = static_cast<double>(console_.scroll_row_height());
+        console_.scroll_by_pixels(desired * row_height - console_.scroll_pixels());
     }
 
     static LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)

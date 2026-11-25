@@ -245,20 +245,30 @@ class render_worker final
         return down;
     }
 
-    static std::array<std::uint8_t, 64> make_thumb_mask() noexcept
+    static std::array<std::uint8_t, 1024> make_thumb_mask() noexcept
     {
-        std::array<std::uint8_t, 64> mask{};
-        constexpr float radius = 4.0f;
-        for (int y = 0; y < 8; ++y)
+        constexpr int size = 32;
+        constexpr float radius = 16.0f;
+        constexpr int samples = 4;
+        std::array<std::uint8_t, 1024> mask{};
+        for (int y = 0; y < size; ++y)
         {
-            for (int x = 0; x < 8; ++x)
+            for (int x = 0; x < size; ++x)
             {
-                const auto px = static_cast<float>(x) + 0.5f;
-                const auto py = static_cast<float>(y) + 0.5f;
-                const auto cx = std::clamp(px, radius, 8.0f - radius);
-                const auto cy = std::clamp(py, radius, 8.0f - radius);
-                mask[static_cast<std::size_t>(y) * 8 + x] =
-                    std::hypot(px - cx, py - cy) <= radius ? 255 : 0;
+                int covered = 0;
+                for (int sy = 0; sy < samples; ++sy)
+                {
+                    for (int sx = 0; sx < samples; ++sx)
+                    {
+                        const auto px = static_cast<float>(x) + (static_cast<float>(sx) + 0.5f) / samples;
+                        const auto py = static_cast<float>(y) + (static_cast<float>(sy) + 0.5f) / samples;
+                        const auto cx = std::clamp(px, radius, static_cast<float>(size) - radius);
+                        const auto cy = std::clamp(py, radius, static_cast<float>(size) - radius);
+                        covered += std::hypot(px - cx, py - cy) <= radius ? 1 : 0;
+                    }
+                }
+                mask[static_cast<std::size_t>(y) * size + x] =
+                    static_cast<std::uint8_t>(covered * 255 / (samples * samples));
             }
         }
         return mask;
@@ -493,7 +503,8 @@ class render_worker final
             const auto top = std::max(0.0, fractional_top);
             const scrollbar::state scroll_state{history_size_ + rows, rows, top};
             const auto geometry = scrollbar::compute(client_width - scrollbar_width, 0.0f, scrollbar_width,
-                                                     client_height, scroll_state);
+                                                     client_height, scroll_state,
+                                                     scrollbar::arrow_height * scale);
             if (geometry.visible)
             {
                 const auto expand = scrollbar_expand_;
@@ -508,7 +519,7 @@ class render_worker final
                 static const auto thumb_mask = make_thumb_mask();
                 static const auto up_mask = make_arrow_mask();
                 static const auto down_mask = make_down_arrow_mask();
-                const auto *thumb_region = atlas_.find_or_add_mask(0x53424D, 8, 8, thumb_mask);
+                const auto *thumb_region = atlas_.find_or_add_mask(0x53424D, 32, 32, thumb_mask);
                 if (thumb_region == nullptr)
                 {
                     add_line_quad(quads_, thumb_x, geometry.thumb_y, thumb_width, geometry.thumb_height, thumb_color,
@@ -518,10 +529,10 @@ class render_worker final
                 {
                     const auto cap = std::min(4.0f * scale, geometry.thumb_height * 0.5f);
                     const auto u0 = static_cast<float>(thumb_region->x) * atlas_scale;
-                    const auto u1 = static_cast<float>(thumb_region->x + 8) * atlas_scale;
+                    const auto u1 = static_cast<float>(thumb_region->x + 32) * atlas_scale;
                     const auto v0 = static_cast<float>(thumb_region->y) * atlas_scale;
-                    const auto v1 = static_cast<float>(thumb_region->y + 8) * atlas_scale;
-                    const auto vm = static_cast<float>(thumb_region->y + 4) * atlas_scale;
+                    const auto v1 = static_cast<float>(thumb_region->y + 32) * atlas_scale;
+                    const auto vm = static_cast<float>(thumb_region->y + 16) * atlas_scale;
                     add_mask_quad(quads_, thumb_x, geometry.thumb_y, thumb_width, cap, u0, v0, u1, vm, thumb_color,
                                   0.54f);
                     add_mask_quad(quads_, thumb_x, geometry.thumb_y + cap, thumb_width,

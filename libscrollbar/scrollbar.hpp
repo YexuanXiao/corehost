@@ -47,11 +47,12 @@ inline constexpr float minimum_thumb_height = 24.0f;
     return value.total_rows > value.visible_rows ? value.total_rows - value.visible_rows : 0;
 }
 
-[[nodiscard]] inline geometry compute(float x, float y, float width, float height, const state &value) noexcept
+[[nodiscard]] inline geometry compute(float x, float y, float width, float height, const state &value,
+                                      float arrow_size = arrow_height) noexcept
 {
     geometry result{.x = x, .y = y, .width = width, .height = height};
-    const auto track_y = y + arrow_height;
-    const auto track_height = height - 2.0f * arrow_height;
+    const auto track_y = y + arrow_size;
+    const auto track_height = height - 2.0f * arrow_size;
     result.track_y = track_y;
     result.track_height = track_height;
     if (value.visible_rows == 0 || value.total_rows <= value.visible_rows || track_height <= 0.0f)

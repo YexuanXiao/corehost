@@ -48,11 +48,11 @@ snap_to_bottom_if_unlocked()
 - 右侧 16 DIP overlay scrollbar；
 - thumb 只在上/下 26 DIP 箭头区域之间移动；
 - 普通状态 2 DIP thumb，右侧 4 DIP；hover 展开为 8 DIP 圆角 thumb + 淡 track；
-- 顶部/底部上下圆角箭头，点击滚动 1 行；
-- 箭头/thumb 圆角用预生成 alpha mask 缓存在现有 R8 atlas 中，thumb 用 9-slice；
+- 顶部/底部上下圆角箭头，点击滚动 1 行；箭头区域随 DPI 缩放；
+- 箭头/thumb 圆角用预生成 alpha mask 缓存在现有 R8 atlas 中；thumb 用 32×32 超采样 mask + 9-slice；
 - 使用真实 client 尺寸，track 紧贴窗口右边缘；
 - 展开动画在约 8 帧内完成，按现有 compositor frame loop 推进；
-- thumb 拖动为连续像素偏移；
+- thumb 拖动按像素更新，避免行量化抖动；
 - 内容按像素 offset 渲染，不是整行跳变。
 - 轨道点击：上/下翻一页；
 - Shift + 轨道点击：跳到点击位置；
