@@ -48,6 +48,7 @@ namespace corehost::window
             winrt::check_hresult(document_mgr_->CreateContext(
                 client_id_, 0, static_cast<ITfContextOwnerCompositionSink *>(this), context_.put(), &edit_cookie_));
 
+            composition_services_ = context_.try_as<ITfContextOwnerCompositionServices>();
             auto source = context_.try_as<ITfSource>();
             winrt::check_hresult(source ? S_OK : E_NOINTERFACE);
             winrt::check_hresult(source->AdviseSink(IID_ITfContextOwner, static_cast<ITfContextOwner *>(this),
@@ -86,7 +87,10 @@ namespace corehost::window
             assert(thread_mgr_);
             assert(document_mgr_);
             assert(context_);
-            (void)thread_mgr_->SetFocus(nullptr);
+            if (composition_active_ && composition_services_)
+            {
+                (void)composition_services_->TerminateComposition(nullptr);
+            }
 
             auto source = context_.try_as<ITfSource>();
             assert(source);
@@ -121,11 +125,17 @@ namespace corehost::window
             {
                 return;
             }
-            assert(thread_mgr_);
-            if (FAILED(thread_mgr_->SetFocus(nullptr)))
+            assert(context_);
+            assert(callbacks_.composition);
+            if (composition_active_ && composition_services_)
             {
-                return;
+                if (FAILED(composition_services_->TerminateComposition(nullptr)))
+                {
+                    return;
+                }
+                composition_active_ = false;
             }
+            callbacks_.composition(callbacks_.context, {});
         }
 
         // ITfContextOwner
@@ -194,6 +204,7 @@ namespace corehost::window
         STDMETHODIMP OnStartComposition(ITfCompositionView *, BOOL *ok) noexcept override
         {
             LOG2("tsf composition start");
+            composition_active_ = true;
             if (ok)
             {
                 *ok = TRUE;
@@ -217,6 +228,7 @@ namespace corehost::window
         try
         {
             LOG2("tsf composition end");
+            composition_active_ = false;
             request_update();
             return S_OK;
         }
@@ -501,9 +513,11 @@ namespace corehost::window
         DWORD owner_cookie_{TF_INVALID_COOKIE};
         DWORD edit_sink_cookie_{TF_INVALID_COOKIE};
         read_session edit_session_;
+        winrt::com_ptr<ITfContextOwnerCompositionServices> composition_services_;
         std::wstring committed_text_;
         std::wstring finalized_buffer_;
         std::wstring composing_buffer_;
         ULONG references_{1};
+        bool composition_active_{};
     };
 }
