@@ -233,8 +233,8 @@ class window_host final
         const auto height = static_cast<float>(client.bottom - client.top);
         const auto rows = console_.buffer().height();
         const auto history = console_.history_size();
-        const auto offset = std::min(console_.scroll_offset(), static_cast<double>(history));
-        const scrollbar::state state{history + rows, rows, history - offset};
+        const auto offset = console_.scroll_pixels() / static_cast<double>(console_.scroll_row_height());
+        const scrollbar::state state{history + rows, rows, static_cast<double>(history) - offset};
         const auto bar_width = scrollbar::default_width * scale;
         return scrollbar::compute(width - bar_width, 0.0f, bar_width, height, state);
     }
@@ -289,7 +289,7 @@ class window_host final
             {
                 const scrollbar::state state{history + rows, rows,
                                              static_cast<double>(history) -
-                                                 std::min(console_.scroll_offset(), static_cast<double>(history))};
+                                                 std::min(static_cast<double>(console_.scroll_offset()), static_cast<double>(history))};
                 const auto top = scrollbar::top_from_pointer(geometry, y, 0.0f, state);
                 const auto desired = static_cast<double>(history) - top;
                 console_.scroll_by(desired - console_.scroll_offset());
@@ -318,7 +318,7 @@ class window_host final
         const auto history = console_.history_size();
         const scrollbar::state state{history + rows, rows,
                                      static_cast<double>(history) -
-                                         std::min(console_.scroll_offset(), static_cast<double>(history))};
+                                         std::min(static_cast<double>(console_.scroll_offset()), static_cast<double>(history))};
         const auto top = scrollbar::top_from_pointer(geometry, y, scrollbar_grab_offset_, state);
         const auto desired = static_cast<double>(history) - top;
         console_.scroll_by(desired - console_.scroll_offset());

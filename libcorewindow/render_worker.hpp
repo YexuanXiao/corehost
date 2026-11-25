@@ -488,7 +488,9 @@ class render_worker final
                                                              : static_cast<float>(columns) * cell_width;
             const auto client_height = client_height_px_ > 0.0f ? client_height_px_
                                                                : static_cast<float>(rows) * cell_height;
-            const auto top = history_size_ > scroll_offset_ ? history_size_ - scroll_offset_ : 0;
+            const auto fractional_top = static_cast<double>(history_size_) -
+                                        scroll_pixels_ / static_cast<double>(cell_height);
+            const auto top = std::max(0.0, fractional_top);
             const scrollbar::state scroll_state{history_size_ + rows, rows, top};
             const auto geometry = scrollbar::compute(client_width - scrollbar_width, 0.0f, scrollbar_width,
                                                      client_height, scroll_state);
@@ -617,6 +619,7 @@ class render_worker final
             const auto metrics = text_.metrics();
             const auto desired_columns =
                 std::max<std::size_t>(1, static_cast<std::size_t>(static_cast<float>(width) / metrics.advance));
+            const auto row_height_px = static_cast<double>(metrics.ascent + metrics.descent + metrics.line_gap);
             const auto desired_rows = std::max<std::size_t>(
                 1, static_cast<std::size_t>(static_cast<float>(height) / (metrics.ascent + metrics.descent + metrics.line_gap)));
             bool changed = false;
@@ -639,20 +642,27 @@ class render_worker final
                     resized = true;
                 }
 
+                console_.set_scroll_row_height(static_cast<float>(row_height_px));
                 const auto history = console_.history_size();
-                auto offset = console_.scroll_offset();
-                if (offset > 0.0 && history > history_size_)
+                auto pixels = console_.scroll_pixels();
+                if (pixels > 0.0 && history > history_size_)
                 {
                     // Keep the viewed history row fixed when new output is appended.
-                    console_.scroll_by(static_cast<double>(history - history_size_));
-                    offset = console_.scroll_offset();
+                    console_.scroll_by_pixels(static_cast<double>(history - history_size_) *
+                                              row_height_px);
+                    pixels = console_.scroll_pixels();
                 }
-                scroll_changed = resized || std::abs(offset - scroll_offset_) > 0.0001 ||
+                scroll_changed = resized || std::abs(pixels - scroll_pixels_) > 0.01 ||
                                  history != history_size_;
                 if (scroll_changed)
                 {
-                    console_.copy_scrolled_rows(offset, scroll_rows_, styles_, scroll_fraction_);
-                    scroll_offset_ = offset;
+                    const auto whole = static_cast<std::size_t>(pixels / row_height_px);
+                    const auto fraction_pixels =
+                        pixels - static_cast<double>(whole) * row_height_px;
+                    const bool extra = fraction_pixels > 0.01;
+                    console_.copy_scrolled_rows(whole + (extra ? 1U : 0U), scroll_rows_, styles_, extra ? 1U : 0U);
+                    scroll_pixels_ = pixels;
+                    scroll_fraction_ = extra ? 1.0 - fraction_pixels / row_height_px : 0.0;
                     history_size_ = history;
                     display_rows_ = scroll_rows_.size();
                     changed = true;
@@ -700,7 +710,7 @@ class render_worker final
                 }
             }
             blink_on_ = blink_on;
-            draw_cursor_ = cursor_.visible && focused_ && scroll_offset_ == 0 &&
+            draw_cursor_ = cursor_.visible && focused_ && scroll_pixels_ == 0.0 &&
                            (cursor_.blinking ? blink_on_ : true);
             cursor_dirty = false;
             renderer_.resize(width, height);
@@ -758,7 +768,7 @@ class render_worker final
     std::vector<d3d12ui::text_quad> color_quads_;
     std::vector<screen::row_block> updates_;
     std::vector<screen::row_block> scroll_rows_;
-    double scroll_offset_{};
+    double scroll_pixels_{};
     double scroll_fraction_{};
     float client_width_px_{};
     float client_height_px_{};
