@@ -527,8 +527,19 @@ class console final
         }
     }
 
+    void set_ime_composition(std::u16string_view text)
+    {
+        ime_composition_.assign(text);
+    }
+
+    [[nodiscard]] std::u16string_view ime_composition() const noexcept
+    {
+        return ime_composition_;
+    }
+
   private:
     screen::screen_buffer screen_;
+    std::u16string ime_composition_;
     screen::console_state state_;
     screen::selection_range view_selection_;
     consoleinput::input_queue input_;

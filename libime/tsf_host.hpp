@@ -71,6 +71,16 @@ namespace corehost::window
                 return hr;
             }
 
+            if (auto source = context_.try_as<ITfSource>(); source)
+            {
+                const auto owner_advise =
+                    source->AdviseSink(IID_ITfContextOwner, static_cast<ITfContextOwner *>(this), &owner_cookie_);
+                const auto edit_advise =
+                    source->AdviseSink(IID_ITfTextEditSink, static_cast<ITfTextEditSink *>(this), &edit_sink_cookie_);
+                LOG2("tsf advise owner=%08x edit=%08x", static_cast<unsigned>(owner_advise),
+                     static_cast<unsigned>(edit_advise));
+            }
+
             hr = document_mgr_->Push(context_.get());
             if (FAILED(hr))
             {
@@ -83,15 +93,10 @@ namespace corehost::window
                 const auto associate = thread_ex_->AssociateFocus(window_, document_mgr_.get(), previous.put());
                 LOG2("tsf associate focus hr=%08x", static_cast<unsigned>(associate));
             }
-            if (auto source = context_.try_as<ITfSource>(); source)
-            {
-                (void)source->AdviseSink(IID_ITfContextOwner, static_cast<ITfContextOwner *>(this), &owner_cookie_);
-                (void)source->AdviseSink(IID_ITfTextEditSink, static_cast<ITfTextEditSink *>(this), &edit_sink_cookie_);
-            }
 
             LOG2("tsf initialized client=%u context=%p", static_cast<unsigned>(client_id_), context_.get());
-            pump_ = thread_mgr_.try_as<ITfMessagePump>();
-            LOG2("tsf pump=%p", pump_.get());
+            pump_ = nullptr;
+            LOG2("tsf pump disabled");
             (void)thread_mgr_->SetFocus(document_mgr_.get());
             return S_OK;
         }
@@ -268,6 +273,10 @@ namespace corehost::window
         STDMETHODIMP OnEndComposition(ITfCompositionView *view) noexcept override
         {
             LOG2("tsf composition end");
+            if (composition_)
+            {
+                composition_({});
+            }
             retain_range(view, nullptr);
             request_read(true);
             return S_OK;

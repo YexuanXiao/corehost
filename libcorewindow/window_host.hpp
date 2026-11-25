@@ -135,13 +135,12 @@ class window_host final
         }
 
         start_process_monitor(window);
-        if (_wgetenv(L"COREHOST_TSF") != nullptr)
-        {
-            tsf_ = std::make_unique<tsf_host>(
-                window,
+        tsf_ = std::make_unique<tsf_host>(
+            window,
             [this](std::wstring_view text) {
                 std::unique_lock<win32::srwlock> lock{console_mutex_};
                 console_.clear_selection();
+                console_.set_ime_composition({});
                 for (const auto character : text)
                 {
                     console_.push_input(consoleinput::input_event{
@@ -152,7 +151,11 @@ class window_host final
                 worker_.request_redraw();
             },
             [this](std::wstring_view text) {
+                std::unique_lock<win32::srwlock> lock{console_mutex_};
+                console_.set_ime_composition(
+                    std::u16string_view{reinterpret_cast<const char16_t *>(text.data()), text.size()});
                 LOG2("tsf composition length=%zu", text.size());
+                worker_.request_redraw();
             },
             [this]() {
                 RECT rect{};
@@ -166,10 +169,9 @@ class window_host final
                 rect.bottom = rect.top + static_cast<LONG>(console_.cell_height());
                 return rect;
             });
-            if (const auto hr = tsf_->initialize(); FAILED(hr))
-            {
-                LOG2("tsf initialize failed %08x", static_cast<unsigned>(hr));
-            }
+        if (const auto hr = tsf_->initialize(); FAILED(hr))
+        {
+            LOG2("tsf initialize failed %08x", static_cast<unsigned>(hr));
         }
         worker_.start(window);
         ::ShowWindow(window, SW_SHOWDEFAULT);

@@ -343,12 +343,48 @@ class render_worker final
         const auto atlas_scale = 1.0f / static_cast<float>(atlas_.size());
         const auto scroll_shift = -static_cast<float>(scroll_fraction_) * cell_height;
 
+        std::vector<screen::cell> composition_cells;
+        if (!composition_.empty())
+        {
+            composition_cells.reserve(composition_.size());
+            for (const auto character : composition_)
+            {
+                auto width = screen::char_width_for_mode<screen::text_measurement::graphemes, true>(character);
+                if (width <= 0)
+                {
+                    continue;
+                }
+                if (width > 2)
+                {
+                    width = 2;
+                }
+                composition_cells.push_back(
+                    screen::cell::scalar(character, screen::default_cell_style,
+                                         width == 2 ? screen::cell_width::wide : screen::cell_width::narrow));
+                if (width == 2)
+                {
+                    composition_cells.push_back(screen::cell::tail(screen::default_cell_style));
+                }
+            }
+        }
+
         for (std::size_t y = 0; y < display_rows_; ++y)
         {
             for (std::size_t x = 0; x < columns; ++x)
             {
                 const auto index = y * columns + x;
-                const auto &cell = cell_state_[index];
+                const screen::cell *cell_pointer = &cell_state_[index];
+                bool composition_cell = false;
+                if (!composition_cells.empty() && y == composition_y_ && x >= composition_x_)
+                {
+                    const auto offset = x - composition_x_;
+                    if (offset < composition_cells.size())
+                    {
+                        cell_pointer = &composition_cells[offset];
+                        composition_cell = true;
+                    }
+                }
+                const auto &cell = *cell_pointer;
                 if (cell.is_continuation())
                 {
                     continue;
@@ -390,6 +426,15 @@ class render_worker final
                     };
                     set_tint(background_quad, background);
                     quads_.push_back(background_quad);
+                }
+
+                if (composition_cell)
+                {
+                    const auto composition_color =
+                        blend_color(palette_.default_foreground, palette_.default_background, 0.25f);
+                    add_line_quad(quads_, static_cast<float>(x) * cell_width,
+                                  static_cast<float>(y) * cell_height + scroll_shift, cell_width * cell_span,
+                                  cell_height, composition_color, sample, 1.0f);
                 }
 
                 if (selection_.active)
@@ -696,6 +741,9 @@ class render_worker final
             std::wstring window_title;
             screen::cursor_state cursor{};
             screen::selection_range selection{};
+            std::u16string ime_composition;
+            std::size_t ime_composition_x{};
+            std::size_t ime_composition_y{};
 
             {
                 std::unique_lock<win32::srwlock> lock{console_mutex_};
@@ -742,6 +790,9 @@ class render_worker final
 
                 cursor = console_.state().cursor();
                 selection = console_.selection();
+                ime_composition = console_.ime_composition();
+                ime_composition_x = cursor.x;
+                ime_composition_y = cursor.y;
                 focused = console_.has_focus();
                 scrollbar_hovered = console_.scrollbar_hovered();
                 if (console_.state().take_title_changed())
@@ -768,6 +819,9 @@ class render_worker final
 
             cursor_ = cursor;
             selection_ = selection;
+            composition_ = std::move(ime_composition);
+            composition_x_ = ime_composition_x;
+            composition_y_ = ime_composition_y;
             focused_ = focused;
             scrollbar_hovered_ = scrollbar_hovered;
             bool scrollbar_animating = false;
@@ -782,7 +836,7 @@ class render_worker final
                 }
             }
             blink_on_ = blink_on;
-            draw_cursor_ = cursor_.visible && focused_ && scroll_pixels_ == 0.0 && !selection_.active &&
+            draw_cursor_ = cursor_.visible && focused_ && scroll_pixels_ == 0.0 && !selection_.active && composition_.empty() &&
                            (cursor_.blinking ? blink_on_ : true);
             cursor_dirty = false;
             renderer_.resize(width, height);
@@ -841,6 +895,9 @@ class render_worker final
     console_palette palette_;
     screen::cursor_state cursor_{};
     screen::selection_range selection_{};
+    std::u16string composition_;
+    std::size_t composition_x_{};
+    std::size_t composition_y_{};
     bool focused_{true};
     bool scrollbar_hovered_{};
     float scrollbar_expand_{};

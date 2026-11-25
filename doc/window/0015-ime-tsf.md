@@ -10,6 +10,8 @@
 - `ITfContextOwner`、`ITfContextOwnerCompositionSink`、`ITfTextEditSink`；
 - `AssociateFocus` + `SetFocus`；
 - composition range 读取，提交到 console input queue；
+- composition 文本通过 `console::set_ime_composition` 自绘在光标处；
+- 先 advise `ITfContextOwner` 再 Push context；
 - candidate/composition 位置来自 `ITfContextOwner::GetTextExt`；
 - 为满足候选窗视觉位置，`GetTextExt` 的 `left/right` 统一左移：
 
