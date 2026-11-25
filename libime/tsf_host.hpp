@@ -195,45 +195,42 @@ namespace corehost::window
             return S_OK;
         }
 
-        STDMETHODIMP OnUpdateComposition(ITfCompositionView *, ITfRange *) noexcept override
+        STDMETHODIMP OnUpdateComposition(ITfCompositionView *, ITfRange *) noexcept
+        try
         {
-            try
-            {
-                request_update();
-            }
-            catch (const winrt::hresult_error &error)
-            {
-                LOG2("tsf update composition failed hr=%08x", static_cast<unsigned>(error.code()));
-            }
+            request_update();
+            return S_OK;
+        }
+        catch (const winrt::hresult_error &error)
+        {
+            LOG2("tsf update composition failed hr=%08x", static_cast<unsigned>(error.code()));
             return S_OK;
         }
 
-        STDMETHODIMP OnEndComposition(ITfCompositionView *) noexcept override
+        STDMETHODIMP OnEndComposition(ITfCompositionView *) noexcept
+        try
         {
             LOG2("tsf composition end");
-            try
-            {
-                request_update();
-            }
-            catch (const winrt::hresult_error &error)
-            {
-                LOG2("tsf end composition failed hr=%08x", static_cast<unsigned>(error.code()));
-            }
+            request_update();
+            return S_OK;
+        }
+        catch (const winrt::hresult_error &error)
+        {
+            LOG2("tsf end composition failed hr=%08x", static_cast<unsigned>(error.code()));
             return S_OK;
         }
 
         // ITfTextEditSink
-        STDMETHODIMP OnEndEdit(ITfContext *, TfEditCookie, ITfEditRecord *) noexcept override
+        STDMETHODIMP OnEndEdit(ITfContext *, TfEditCookie, ITfEditRecord *) noexcept
+        try
         {
             LOG2("tsf end edit");
-            try
-            {
-                request_update();
-            }
-            catch (const winrt::hresult_error &error)
-            {
-                LOG2("tsf end edit failed hr=%08x", static_cast<unsigned>(error.code()));
-            }
+            request_update();
+            return S_OK;
+        }
+        catch (const winrt::hresult_error &error)
+        {
+            LOG2("tsf end edit failed hr=%08x", static_cast<unsigned>(error.code()));
             return S_OK;
         }
 
@@ -309,16 +306,15 @@ namespace corehost::window
                 return --references_;
             }
 
-            STDMETHODIMP DoEditSession(TfEditCookie cookie) noexcept override
+            STDMETHODIMP DoEditSession(TfEditCookie cookie) noexcept
+            try
             {
-                try
-                {
-                    host_.read_context(cookie);
-                }
-                catch (const winrt::hresult_error &error)
-                {
-                    LOG2("tsf read session failed hr=%08x", static_cast<unsigned>(error.code()));
-                }
+                host_.read_context(cookie);
+                return S_OK;
+            }
+            catch (const winrt::hresult_error &error)
+            {
+                LOG2("tsf read session failed hr=%08x", static_cast<unsigned>(error.code()));
                 return S_OK;
             }
 
