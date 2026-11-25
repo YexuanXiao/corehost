@@ -180,33 +180,17 @@ class window_host final
         MSG message{};
         for (;;)
         {
-            bool eaten = false;
-            bool pumped = false;
-            if (tsf_)
-            {
-                pumped = tsf_->pump_message(message, eaten);
-            }
-            if (!pumped)
-            {
-                const auto result = ::GetMessageW(&message, nullptr, 0, 0);
-                if (result == 0)
-                {
-                    break;
-                }
-                if (result == -1)
-                {
-                    win32::throw_last_error();
-                }
-            }
-            else if (message.message == WM_QUIT)
+            const auto result = ::GetMessageW(&message, nullptr, 0, 0);
+            if (result == 0)
             {
                 break;
             }
-            if (!eaten)
+            if (result == -1)
             {
-                ::TranslateMessage(&message);
-                ::DispatchMessageW(&message);
+                win32::throw_last_error();
             }
+            ::TranslateMessage(&message);
+            ::DispatchMessageW(&message);
         }
 
         if (tsf_)

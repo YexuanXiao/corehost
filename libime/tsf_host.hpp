@@ -1,17 +1,18 @@
 #pragma once
 
-// Minimal TSF client for the windowed console. The TSF transparency context
-// owns the composition ranges; committed composition text is forwarded to the
-// console input queue by the provider callback.
+// Minimal TSF client for the windowed console. The context is a transitory
+// TSF document. Composition ranges are inspected through a read/write edit
+// session and finalized text is forwarded to the console input queue.
 
 #include <Windows.h>
 #include <msctf.h>
 #include <winrt/base.h>
-#include "utility/log.hpp"
 
+#include <algorithm>
 #include <functional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace corehost::window
 {
@@ -23,7 +24,7 @@ namespace corehost::window
 
         tsf_host(HWND window, text_sink commit, text_sink composition, rect_provider caret)
             : window_{window}, commit_{std::move(commit)}, composition_{std::move(composition)},
-              caret_{std::move(caret)}
+              caret_{std::move(caret)}, edit_session_{*this}
         {
         }
 
@@ -37,8 +38,9 @@ namespace corehost::window
             {
                 return hr;
             }
+
             hr = ::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER,
-                                         IID_PPV_ARGS(thread_mgr_.put()));
+                                    IID_PPV_ARGS(thread_mgr_.put()));
             if (FAILED(hr))
             {
                 return hr;
@@ -95,8 +97,6 @@ namespace corehost::window
             }
 
             LOG2("tsf initialized client=%u context=%p", static_cast<unsigned>(client_id_), context_.get());
-            pump_ = nullptr;
-            LOG2("tsf pump disabled");
             (void)thread_mgr_->SetFocus(document_mgr_.get());
             return S_OK;
         }
@@ -105,30 +105,27 @@ namespace corehost::window
         {
             if (thread_mgr_)
             {
-                if (pump_)
-                {
-                    pump_ = nullptr;
-                }
                 (void)thread_mgr_->SetFocus(nullptr);
             }
-            release_range();
             if (document_mgr_ && context_)
             {
                 (void)document_mgr_->Pop(TF_POPF_ALL);
             }
             if (context_ && owner_cookie_ != TF_INVALID_COOKIE)
             {
-                if (thread_ex_)
-            {
-                winrt::com_ptr<ITfDocumentMgr> previous;
-                const auto associate = thread_ex_->AssociateFocus(window_, document_mgr_.get(), previous.put());
-                LOG2("tsf associate focus hr=%08x", static_cast<unsigned>(associate));
-            }
-            if (auto source = context_.try_as<ITfSource>(); source)
+                if (auto source = context_.try_as<ITfSource>(); source)
                 {
                     (void)source->UnadviseSink(owner_cookie_);
                 }
                 owner_cookie_ = TF_INVALID_COOKIE;
+            }
+            if (context_ && edit_sink_cookie_ != TF_INVALID_COOKIE)
+            {
+                if (auto source = context_.try_as<ITfSource>(); source)
+                {
+                    (void)source->UnadviseSink(edit_sink_cookie_);
+                }
+                edit_sink_cookie_ = TF_INVALID_COOKIE;
             }
             if (thread_mgr_)
             {
@@ -136,7 +133,6 @@ namespace corehost::window
             }
             context_ = nullptr;
             document_mgr_ = nullptr;
-            pump_ = nullptr;
             thread_ex_ = nullptr;
             thread_mgr_ = nullptr;
             if (com_initialized_)
@@ -160,27 +156,6 @@ namespace corehost::window
             {
                 (void)thread_mgr_->SetFocus(nullptr);
             }
-        }
-
-        [[nodiscard]] bool pump_message(MSG &message, bool &eaten) noexcept
-        {
-            if (!pump_)
-            {
-                return false;
-            }
-            BOOL was_eaten = FALSE;
-            const auto hr = pump_->GetMessageW(&message, window_, 0, 0, &was_eaten);
-            if (FAILED(hr))
-            {
-                return false;
-            }
-            eaten = was_eaten != FALSE;
-            if (message.message == WM_KEYDOWN || message.message == WM_CHAR || message.message == WM_IME_COMPOSITION ||
-                message.message == WM_IME_STARTCOMPOSITION || message.message == WM_IME_ENDCOMPOSITION)
-            {
-                LOG2("tsf pump msg=%04x eaten=%d", message.message, eaten ? 1 : 0);
-            }
-            return true;
         }
 
         // ITfContextOwner
@@ -244,45 +219,36 @@ namespace corehost::window
             return S_OK;
         }
 
-        // ITfTextEditSink
-        STDMETHODIMP OnEndEdit(ITfContext *, TfEditCookie, ITfEditRecord *) noexcept override
-        {
-            return S_OK;
-        }
-
         // ITfContextOwnerCompositionSink
-        STDMETHODIMP OnStartComposition(ITfCompositionView *view, BOOL *ok) noexcept override
+        STDMETHODIMP OnStartComposition(ITfCompositionView *, BOOL *ok) noexcept override
         {
             LOG2("tsf composition start");
-            last_composition_.clear();
             if (ok)
             {
                 *ok = TRUE;
             }
-            retain_range(view, nullptr);
+            request_update();
             return S_OK;
         }
 
-        STDMETHODIMP OnUpdateComposition(ITfCompositionView *view, ITfRange *range) noexcept override
+        STDMETHODIMP OnUpdateComposition(ITfCompositionView *, ITfRange *) noexcept override
         {
-            retain_range(view, range);
-            request_read(false);
+            request_update();
             return S_OK;
         }
 
-        STDMETHODIMP OnEndComposition(ITfCompositionView *view) noexcept override
+        STDMETHODIMP OnEndComposition(ITfCompositionView *) noexcept override
         {
-            LOG2("tsf composition end cached=%zu", last_composition_.size());
-            if (composition_)
-            {
-                composition_({});
-            }
-            if (commit_ && !last_composition_.empty())
-            {
-                commit_(last_composition_);
-            }
-            last_composition_.clear();
-            release_range();
+            LOG2("tsf composition end");
+            request_update();
+            return S_OK;
+        }
+
+        // ITfTextEditSink
+        STDMETHODIMP OnEndEdit(ITfContext *, TfEditCookie, ITfEditRecord *) noexcept override
+        {
+            LOG2("tsf end edit");
+            request_update();
             return S_OK;
         }
 
@@ -322,18 +288,13 @@ namespace corehost::window
 
         STDMETHODIMP_(ULONG) Release() noexcept override
         {
-            const auto value = --references_;
-            if (value == 0)
-            {
-                // Owned by window_host; do not delete through COM.
-            }
-            return value;
+            return --references_;
         }
 
       private:
         struct read_session final : ITfEditSession
         {
-            explicit read_session(tsf_host &host, bool commit) noexcept : host_{host}, commit_{commit}
+            explicit read_session(tsf_host &host) noexcept : host_{host}
             {
             }
 
@@ -360,114 +321,178 @@ namespace corehost::window
 
             STDMETHODIMP_(ULONG) Release() noexcept override
             {
-                const auto value = --references_;
-                if (value == 0)
-                {
-                    delete this;
-                }
-                return value;
+                return --references_;
             }
 
             STDMETHODIMP DoEditSession(TfEditCookie cookie) noexcept override
             {
-                host_.read_composition(cookie, commit_);
+                host_.read_context(cookie);
                 return S_OK;
             }
 
             tsf_host &host_;
-            bool commit_{};
             ULONG references_{1};
         };
 
-        void retain_range(ITfCompositionView *view, ITfRange *range) noexcept
+        void request_update() noexcept
         {
-            release_range();
-            if (range)
-            {
-                range_ = range;
-                range_->AddRef();
-                return;
-            }
-            if (view && SUCCEEDED(view->GetRange(&range_)))
-            {
-                // GetRange already returns a referenced range.
-            }
-        }
-
-        void release_range() noexcept
-        {
-            if (range_)
-            {
-                range_->Release();
-                range_ = nullptr;
-            }
-        }
-
-        void request_read(bool commit) noexcept
-        {
-            if (!context_ || !range_)
-            {
-                return;
-            }
-            auto session = new (std::nothrow) read_session{*this, commit};
-            if (session == nullptr)
+            if (!context_)
             {
                 return;
             }
             HRESULT session_result = S_OK;
-            const auto hr = context_->RequestEditSession(client_id_, session, TF_ES_ASYNC | TF_ES_READWRITE,
-                                                         &session_result);
-            session->Release();
+            const auto hr = context_->RequestEditSession(client_id_, &edit_session_,
+                                                         TF_ES_ASYNC | TF_ES_READWRITE, &session_result);
             if (FAILED(hr) || FAILED(session_result))
             {
-                if (commit)
-                {
-                    release_range();
-                }
+                LOG2("tsf edit session failed hr=%08x result=%08x", static_cast<unsigned>(hr),
+                     static_cast<unsigned>(session_result));
             }
         }
 
-        void read_composition(TfEditCookie cookie, bool commit) noexcept
+        [[nodiscard]] static std::wstring range_text(TfEditCookie cookie, ITfRange *range)
         {
-            if (!range_)
-            {
-                return;
-            }
-
-            std::wstring text;
+            std::wstring result;
             wchar_t buffer[128]{};
             for (;;)
             {
                 ULONG length = 0;
-                const auto hr = range_->GetText(cookie, TF_TF_MOVESTART, buffer,
-                                                static_cast<ULONG>(std::size(buffer)), &length);
+                const auto hr = range->GetText(cookie, TF_TF_MOVESTART, buffer,
+                                               static_cast<ULONG>(std::size(buffer)), &length);
                 if (FAILED(hr) || length == 0)
                 {
                     break;
                 }
-                text.append(buffer, length);
+                result.append(buffer, length);
                 if (length < std::size(buffer))
                 {
                     break;
                 }
             }
+            return result;
+        }
 
-            LOG2("tsf composition text length=%zu commit=%d", text.size(), commit ? 1 : 0);
-            if (commit)
+        [[nodiscard]] static bool range_is_composing(TfEditCookie cookie, ITfReadOnlyProperty *properties,
+                                                     ITfRange *range)
+        {
+            VARIANT value;
+            VariantInit(&value);
+            if (FAILED(properties->GetValue(cookie, range, &value)))
             {
-                if (!text.empty() && commit_)
-                {
-                    commit_(text);
-                }
-                release_range();
+                return false;
             }
-            else
+
+            bool composing = false;
+            if (V_VT(&value) == VT_UNKNOWN && V_UNKNOWN(&value) != nullptr)
             {
-                last_composition_ = text;
-                if (composition_)
+                winrt::com_ptr<IEnumTfPropertyValue> values;
+                if (SUCCEEDED(V_UNKNOWN(&value)->QueryInterface(IID_PPV_ARGS(values.put()))))
                 {
-                    composition_(text);
+                    for (;;)
+                    {
+                        TF_PROPERTYVAL item{};
+                        ULONG fetched = 0;
+                        if (values->Next(1, &item, &fetched) != S_OK || fetched == 0)
+                        {
+                            break;
+                        }
+                        if (IsEqualGUID(item.guidId, GUID_PROP_COMPOSING) && item.varValue.vt == VT_I4)
+                        {
+                            composing = item.varValue.lVal != 0;
+                        }
+                        VariantClear(&item.varValue);
+                    }
                 }
+            }
+            else if (V_VT(&value) == VT_I4)
+            {
+                composing = V_I4(&value) != 0;
+            }
+            VariantClear(&value);
+            return composing;
+        }
+
+        void read_context(TfEditCookie cookie) noexcept
+        {
+            if (!context_)
+            {
+                return;
+            }
+
+            winrt::com_ptr<ITfRange> full;
+            if (FAILED(context_->GetStart(cookie, full.put())))
+            {
+                return;
+            }
+            LONG full_length = 0;
+            if (FAILED(full->ShiftEnd(cookie, LONG_MAX, &full_length, nullptr)))
+            {
+                return;
+            }
+
+            const GUID *properties_list[]{&GUID_PROP_COMPOSING};
+            winrt::com_ptr<ITfReadOnlyProperty> properties;
+            if (FAILED(context_->TrackProperties(properties_list, 1, nullptr, 0, properties.put())))
+            {
+                return;
+            }
+
+            winrt::com_ptr<IEnumTfRanges> ranges;
+            if (FAILED(properties->EnumRanges(cookie, ranges.put(), full.get())))
+            {
+                return;
+            }
+
+            std::wstring finalized;
+            std::wstring composing;
+            for (;;)
+            {
+                ITfRange *items[8]{};
+                ULONG count = 0;
+                const auto next = ranges->Next(8, items, &count);
+                for (ULONG i = 0; i < count; ++i)
+                {
+                    auto *range = items[i];
+                    auto text = range_text(cookie, range);
+                    if (range_is_composing(cookie, properties.get(), range))
+                    {
+                        composing.append(text);
+                    }
+                    else
+                    {
+                        finalized.append(text);
+                    }
+                    range->Release();
+                }
+                if (next != S_OK)
+                {
+                    break;
+                }
+            }
+
+            LOG2("tsf context finalized=%zu composing=%zu", finalized.size(), composing.size());
+
+            if (!finalized.empty())
+            {
+                if (commit_)
+                {
+                    commit_(finalized);
+                }
+
+                winrt::com_ptr<ITfRange> start;
+                if (SUCCEEDED(context_->GetStart(cookie, start.put())))
+                {
+                    LONG shifted = 0;
+                    if (SUCCEEDED(start->ShiftEnd(cookie, static_cast<LONG>(finalized.size()), &shifted, nullptr)))
+                    {
+                        (void)start->SetText(cookie, 0, nullptr, 0);
+                    }
+                }
+            }
+
+            if (composition_)
+            {
+                composition_(composing);
             }
         }
 
@@ -494,13 +519,11 @@ namespace corehost::window
         winrt::com_ptr<ITfThreadMgrEx> thread_ex_;
         winrt::com_ptr<ITfDocumentMgr> document_mgr_;
         winrt::com_ptr<ITfContext> context_;
-        winrt::com_ptr<ITfMessagePump> pump_;
-        ITfRange *range_{};
-        std::wstring last_composition_;
         TfClientId client_id_{TF_CLIENTID_NULL};
         TfEditCookie edit_cookie_{TF_INVALID_EDIT_COOKIE};
         DWORD owner_cookie_{TF_INVALID_COOKIE};
         DWORD edit_sink_cookie_{TF_INVALID_COOKIE};
+        read_session edit_session_;
         ULONG references_{1};
         bool com_initialized_{};
     };
