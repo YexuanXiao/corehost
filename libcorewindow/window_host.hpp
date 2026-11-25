@@ -83,6 +83,11 @@ class window_host final
     window_host(const window_host &) = delete;
     window_host &operator=(const window_host &) = delete;
 
+    [[nodiscard]] HWND window() const noexcept
+    {
+        return window_;
+    }
+
     [[nodiscard]] int run()
     {
         start_process_monitor(window_);
