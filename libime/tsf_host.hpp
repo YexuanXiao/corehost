@@ -48,13 +48,12 @@ namespace corehost::window
             winrt::check_hresult(document_mgr_->CreateContext(
                 client_id_, 0, static_cast<ITfContextOwnerCompositionSink *>(this), context_.put(), &edit_cookie_));
 
-            composition_services_ = context_.try_as<ITfContextOwnerCompositionServices>();
-            auto source = context_.try_as<ITfSource>();
-            winrt::check_hresult(source ? S_OK : E_NOINTERFACE);
-            winrt::check_hresult(source->AdviseSink(IID_ITfContextOwner, static_cast<ITfContextOwner *>(this),
-                                                    &owner_cookie_));
-            winrt::check_hresult(source->AdviseSink(IID_ITfTextEditSink, static_cast<ITfTextEditSink *>(this),
-                                                    &edit_sink_cookie_));
+            composition_services_ = context_.as<ITfContextOwnerCompositionServices>();
+            context_source_ = context_.as<ITfSource>();
+            winrt::check_hresult(context_source_->AdviseSink(IID_ITfContextOwner, static_cast<ITfContextOwner *>(this),
+                                                             &owner_cookie_));
+            winrt::check_hresult(context_source_->AdviseSink(IID_ITfTextEditSink, static_cast<ITfTextEditSink *>(this),
+                                                             &edit_sink_cookie_));
 
             winrt::check_hresult(document_mgr_->Push(context_.get()));
 
@@ -71,10 +70,6 @@ namespace corehost::window
         {
             LOG2("tsf initialize failed hr=%08x", static_cast<unsigned>(error.code()));
             window_ = nullptr;
-            thread_mgr_ = nullptr;
-            thread_ex_ = nullptr;
-            document_mgr_ = nullptr;
-            context_ = nullptr;
         }
 
         ~tsf_host() noexcept
@@ -87,17 +82,17 @@ namespace corehost::window
             assert(thread_mgr_);
             assert(document_mgr_);
             assert(context_);
-            if (composition_active_ && composition_services_)
+            assert(composition_services_);
+            if (composition_active_)
             {
                 (void)composition_services_->TerminateComposition(nullptr);
             }
 
-            auto source = context_.try_as<ITfSource>();
-            assert(source);
+            assert(context_source_);
             assert(owner_cookie_ != TF_INVALID_COOKIE);
             assert(edit_sink_cookie_ != TF_INVALID_COOKIE);
-            (void)source->UnadviseSink(owner_cookie_);
-            (void)source->UnadviseSink(edit_sink_cookie_);
+            (void)context_source_->UnadviseSink(owner_cookie_);
+            (void)context_source_->UnadviseSink(edit_sink_cookie_);
 
             (void)document_mgr_->Pop(TF_POPF_ALL);
             (void)thread_mgr_->Deactivate();
@@ -127,7 +122,8 @@ namespace corehost::window
             }
             assert(context_);
             assert(callbacks_.composition);
-            if (composition_active_ && composition_services_)
+            assert(composition_services_);
+            if (composition_active_)
             {
                 (void)composition_services_->TerminateComposition(nullptr);
                 composition_active_ = false;
@@ -511,6 +507,7 @@ namespace corehost::window
         DWORD edit_sink_cookie_{TF_INVALID_COOKIE};
         read_session edit_session_;
         winrt::com_ptr<ITfContextOwnerCompositionServices> composition_services_;
+        winrt::com_ptr<ITfSource> context_source_;
         std::wstring committed_text_;
         std::wstring finalized_buffer_;
         std::wstring composing_buffer_;
