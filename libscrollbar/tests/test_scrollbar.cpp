@@ -30,7 +30,7 @@ int main()
     check(full.thumb_y >= full.track_y, "thumb starts inside arrow area");
 
     const auto top = compute(0.0f, 0.0f, default_width, 200.0f, state{100, 20, static_cast<double>(max_top(bottom))});
-    check(top.thumb_y + top.thumb_height <= 200.0f - 26.0f, "thumb stays inside arrow area");
+    check(top.thumb_y + top.thumb_height <= 200.0f - arrow_height, "thumb stays inside arrow area");
 
     check(hit_test(full, 4.0f, 2.0f) == hit_target::arrow_up, "hit up arrow");
     check(hit_test(full, 4.0f, 197.0f) == hit_target::arrow_down, "hit down arrow");
@@ -43,8 +43,8 @@ int main()
     check(top_from_pointer(full, 0.0f, 0.0f, bottom) == 0, "pointer at top maps to zero");
 
     const auto scaled = compute(0.0f, 0.0f, default_width * 1.5f, 300.0f, bottom, arrow_height * 1.5f);
-    check(scaled.thumb_y >= 39.0f, "scaled thumb starts after arrows");
-    check(scaled.thumb_y + scaled.thumb_height <= 300.0f - 39.0f, "scaled thumb ends before arrows");
+    check(scaled.thumb_y >= arrow_height * 1.5f, "scaled thumb starts after arrows");
+    check(scaled.thumb_y + scaled.thumb_height <= 300.0f - arrow_height * 1.5f, "scaled thumb ends before arrows");
     const auto hidden = compute(0.0f, 0.0f, default_width, 200.0f, state{20, 20, 0});
     check(!hidden.visible, "hidden without scrollback");
     check(hit_test(hidden, 4.0f, 50.0f) == hit_target::none, "hidden scrollbar ignores hit");

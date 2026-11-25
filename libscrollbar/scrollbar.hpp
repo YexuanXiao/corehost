@@ -38,13 +38,36 @@ struct state final
     double top_row{};
 };
 
-inline constexpr float default_width = 16.0f;
-inline constexpr float arrow_height = 26.0f;
-inline constexpr float arrow_visual_margin = 6.4f;
-inline constexpr float arrow_visual_width = 11.5f;
-inline constexpr float arrow_visual_height = 8.25f;
-inline constexpr float track_inset = 21.0f;
-inline constexpr float minimum_thumb_height = 24.0f;
+// Geometry constants.
+inline constexpr float default_width = 16.f;
+inline constexpr float arrow_height = 24.f;
+inline constexpr float arrow_visual_margin = 8.f;
+inline constexpr float arrow_visual_width = 14.f;
+inline constexpr float arrow_visual_height = 14.f;
+inline constexpr float track_inset = 24.f;
+inline constexpr float minimum_thumb_height = 24.f;
+
+// Fixed mask constants. The masks are deliberately fixed at 32x32 with no
+// supersampling: generation happens once, atlas usage is bounded, and the
+// slight blur from scaling arrows to 14x14 DIP is accepted.
+inline constexpr int mask_size = 32;
+inline constexpr int mask_samples = 1;
+inline constexpr float arrow_radius_ratio = 0.2f;
+inline constexpr float arrow_top = 0.06f;
+inline constexpr float arrow_side = 0.94f;
+
+// Drawing constants.
+inline constexpr float thin_thumb_width = 2.f;
+inline constexpr float expanded_thumb_width = 8.f;
+inline constexpr float thumb_right_margin = 4.f;
+inline constexpr float arrow_center_from_right = 8.f;
+inline constexpr float thumb_cap_ratio = 0.5f;
+inline constexpr std::uint32_t thumb_mask_key = 0x53424Du;
+inline constexpr std::uint32_t arrow_up_mask_key = 0x534255u;
+inline constexpr std::uint32_t arrow_down_mask_key = 0x534144u;
+inline constexpr float track_alpha = 0.055f;
+inline constexpr float thumb_alpha = 0.54f;
+inline constexpr int expand_frames = 8;
 
 [[nodiscard]] inline std::size_t max_top(const state &value) noexcept
 {

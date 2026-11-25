@@ -183,21 +183,20 @@ class render_worker final
     // deliberate performance/quality tradeoff: generation happens once, the
     // thumb uses 9-slice, and arrows are scaled to their 10x9 DIP visual size.
     // No per-DPI mask regeneration or runtime configuration.
-    static constexpr int scrollbar_mask_size = 32;
 
     static std::vector<std::uint8_t> make_arrow_mask(bool down) noexcept
     {
-        constexpr int width = scrollbar_mask_size;
-        constexpr int height = scrollbar_mask_size;
+        constexpr int width = scrollbar::mask_size;
+        constexpr int height = scrollbar::mask_size;
         const auto w = static_cast<float>(width);
         const auto h = static_cast<float>(height);
-        // Rounded corners: 18% of the short side. The arrow is later scaled
-        // from the fixed 32x32 mask to its 10x7.2 DIP visual size.
-        const auto radius = std::min(w, h) * 0.28f;
+        // Rounded corners: 20% of the short side. The arrow is later scaled
+        // from the fixed 32x32 mask to its 14x14 DIP visual size.
+        const auto radius = std::min(w, h) * scrollbar::arrow_radius_ratio;
         const mask_point vertices[3]{
             {w * 0.5f, h * 0.06f},
-            {w * 0.94f, h * 0.94f},
-            {w * 0.06f, h * 0.94f},
+            {w * scrollbar::arrow_side, h * scrollbar::arrow_side},
+            {w * scrollbar::arrow_top, h * scrollbar::arrow_side},
         };
         std::array<mask_point, 64> polygon{};
         int count = 0;
@@ -248,14 +247,11 @@ class render_worker final
         }
         return mask;
     }
-    static constexpr int thumb_mask_size = scrollbar_mask_size;
-    static constexpr int thumb_mask_samples = 1;
-
-    static std::array<std::uint8_t, thumb_mask_size * thumb_mask_size> make_thumb_mask() noexcept
+    static std::array<std::uint8_t, scrollbar::mask_size * scrollbar::mask_size> make_thumb_mask() noexcept
     {
-        constexpr int size = thumb_mask_size;
-        constexpr float radius = static_cast<float>(size) * 0.5f;
-        constexpr int samples = thumb_mask_samples;
+        constexpr int size = scrollbar::mask_size;
+        constexpr float radius = static_cast<float>(size) * scrollbar::thumb_cap_ratio;
+        constexpr int samples = scrollbar::mask_samples;
         std::array<std::uint8_t, size * size> mask{};
         for (int y = 0; y < size; ++y)
         {
@@ -538,48 +534,49 @@ class render_worker final
             {
                 const auto expand = scrollbar_expand_;
                 const console_color thumb_color{255, 255, 255};
-                const auto thumb_width = (2.0f + 6.0f * expand) * scale;
-                const auto thumb_x = client_width - 4.0f * scale - thumb_width;
+                const auto thumb_width = (scrollbar::thin_thumb_width + (scrollbar::expanded_thumb_width - scrollbar::thin_thumb_width) * expand) * scale;
+                const auto thumb_x = client_width - scrollbar::thumb_right_margin * scale - thumb_width;
                 if (expand > 0.0f)
                 {
                     add_line_quad(quads_, client_width - scrollbar_width, 0.0f, scrollbar_width, client_height,
-                                  thumb_color, sample, 0.055f * expand);
+                                  thumb_color, sample, scrollbar::track_alpha * expand);
                 }
                 static const auto thumb_mask = make_thumb_mask();
-                const auto *thumb_region = atlas_.find_or_add_mask(0x53424D, static_cast<std::uint32_t>(thumb_mask_size), static_cast<std::uint32_t>(thumb_mask_size), thumb_mask);
+                const auto *thumb_region = atlas_.find_or_add_mask(scrollbar::thumb_mask_key, static_cast<std::uint32_t>(scrollbar::mask_size), static_cast<std::uint32_t>(scrollbar::mask_size), thumb_mask);
                 if (thumb_region == nullptr)
                 {
                     add_line_quad(quads_, thumb_x, geometry.thumb_y, thumb_width, geometry.thumb_height, thumb_color,
-                                  sample, 0.54f);
+                                  sample, scrollbar::thumb_alpha);
                 }
                 else
                 {
-                    const auto cap = std::min(4.0f * scale, geometry.thumb_height * 0.5f);
+                    const auto cap = std::min(scrollbar::expanded_thumb_width * scrollbar::thumb_cap_ratio * scale,
+                                             geometry.thumb_height * 0.5f);
                     const auto u0 = static_cast<float>(thumb_region->x) * atlas_scale;
-                    const auto u1 = static_cast<float>(thumb_region->x + thumb_mask_size) * atlas_scale;
+                    const auto u1 = static_cast<float>(thumb_region->x + scrollbar::mask_size) * atlas_scale;
                     const auto v0 = static_cast<float>(thumb_region->y) * atlas_scale;
-                    const auto v1 = static_cast<float>(thumb_region->y + thumb_mask_size) * atlas_scale;
-                    const auto vm = static_cast<float>(thumb_region->y + thumb_mask_size / 2) * atlas_scale;
+                    const auto v1 = static_cast<float>(thumb_region->y + scrollbar::mask_size) * atlas_scale;
+                    const auto vm = static_cast<float>(thumb_region->y + scrollbar::mask_size / 2) * atlas_scale;
                     add_mask_quad(quads_, thumb_x, geometry.thumb_y, thumb_width, cap, u0, v0, u1, vm, thumb_color,
-                                  0.54f);
+                                  scrollbar::thumb_alpha);
                     add_mask_quad(quads_, thumb_x, geometry.thumb_y + cap, thumb_width,
                                   std::max(0.0f, geometry.thumb_height - cap * 2.0f), u0, vm, u1, vm, thumb_color,
-                                  0.54f);
+                                  scrollbar::thumb_alpha);
                     add_mask_quad(quads_, thumb_x, geometry.thumb_y + geometry.thumb_height - cap, thumb_width, cap,
-                                  u0, vm, u1, v1, thumb_color, 0.54f);
+                                  u0, vm, u1, v1, thumb_color, scrollbar::thumb_alpha);
                 }
 
                 if (expand > 0.01f)
                 {
                     static const auto up_mask = make_arrow_mask(false);
                     static const auto down_mask = make_arrow_mask(true);
-                    const auto arrow_center = client_width - 8.0f * scale;
+                    const auto arrow_center = client_width - scrollbar::arrow_center_from_right * scale;
                     const auto arrow_width = scrollbar::arrow_visual_width * scale;
                     const auto arrow_height = scrollbar::arrow_visual_height * scale;
                     const auto arrow_margin = scrollbar::arrow_visual_margin * scale;
-                    const auto *up = atlas_.find_or_add_mask(0x534255, scrollbar_mask_size, scrollbar_mask_size,
+                    const auto *up = atlas_.find_or_add_mask(scrollbar::arrow_up_mask_key, scrollbar::mask_size, scrollbar::mask_size,
                                                              up_mask);
-                    const auto *down = atlas_.find_or_add_mask(0x534144, scrollbar_mask_size, scrollbar_mask_size,
+                    const auto *down = atlas_.find_or_add_mask(scrollbar::arrow_down_mask_key, scrollbar::mask_size, scrollbar::mask_size,
                                                                down_mask);
                     for (int i = 0; i < 2; ++i)
                     {
@@ -594,9 +591,9 @@ class render_worker final
                                                    : client_height - arrow_margin - arrow_height;
                         add_mask_quad(quads_, std::round(arrow_center - arrow_width * 0.5f),
                                       std::round(arrow_y), arrow_width, arrow_height, u0, v0,
-                                      static_cast<float>(region->x + scrollbar_mask_size) * atlas_scale,
-                                      static_cast<float>(region->y + scrollbar_mask_size) * atlas_scale, thumb_color,
-                                      0.54f * expand);
+                                      static_cast<float>(region->x + scrollbar::mask_size) * atlas_scale,
+                                      static_cast<float>(region->y + scrollbar::mask_size) * atlas_scale, thumb_color,
+                                      scrollbar::thumb_alpha * expand);
                     }
                 }
             }
@@ -752,7 +749,7 @@ class render_worker final
                 const auto target = scrollbar_hovered_ ? 1.0f : 0.0f;
                 if (scrollbar_expand_ != target)
                 {
-                    constexpr float step = 1.0f / 8.0f;
+                    constexpr float step = 1.0f / static_cast<float>(scrollbar::expand_frames);
                     scrollbar_expand_ = target > scrollbar_expand_ ? std::min(target, scrollbar_expand_ + step)
                                                                    : std::max(target, scrollbar_expand_ - step);
                     scrollbar_animating = true;
