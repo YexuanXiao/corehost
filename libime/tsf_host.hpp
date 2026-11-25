@@ -194,7 +194,7 @@ namespace corehost::window
             if (rect)
             {
                 *rect = caret_ ? caret_() : RECT{};
-                const auto shift = (rect->right - rect->left) * 4;
+                const auto shift = (rect->right - rect->left) * 2;
                 rect->left -= shift;
                 rect->right -= shift;
                 LOG2("tsf caret rect=%ld,%ld,%ld,%ld shift=%ld", rect->left, rect->top, rect->right, rect->bottom,
@@ -254,6 +254,7 @@ namespace corehost::window
         STDMETHODIMP OnStartComposition(ITfCompositionView *view, BOOL *ok) noexcept override
         {
             LOG2("tsf composition start");
+            last_composition_.clear();
             if (ok)
             {
                 *ok = TRUE;
@@ -271,13 +272,17 @@ namespace corehost::window
 
         STDMETHODIMP OnEndComposition(ITfCompositionView *view) noexcept override
         {
-            LOG2("tsf composition end");
+            LOG2("tsf composition end cached=%zu", last_composition_.size());
             if (composition_)
             {
                 composition_({});
             }
-            retain_range(view, nullptr);
-            request_read(true);
+            if (commit_ && !last_composition_.empty())
+            {
+                commit_(last_composition_);
+            }
+            last_composition_.clear();
+            release_range();
             return S_OK;
         }
 
@@ -456,9 +461,13 @@ namespace corehost::window
                 }
                 release_range();
             }
-            else if (composition_)
+            else
             {
-                composition_(text);
+                last_composition_ = text;
+                if (composition_)
+                {
+                    composition_(text);
+                }
             }
         }
 
@@ -487,6 +496,7 @@ namespace corehost::window
         winrt::com_ptr<ITfContext> context_;
         winrt::com_ptr<ITfMessagePump> pump_;
         ITfRange *range_{};
+        std::wstring last_composition_;
         TfClientId client_id_{TF_CLIENTID_NULL};
         TfEditCookie edit_cookie_{TF_INVALID_EDIT_COOKIE};
         DWORD owner_cookie_{TF_INVALID_COOKIE};
