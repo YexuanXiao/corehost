@@ -49,7 +49,7 @@ namespace corehost::window
             thread_ex_ = thread_mgr_.try_as<ITfThreadMgrEx>();
             if (thread_ex_)
             {
-                hr = thread_ex_->ActivateEx(&client_id_, TF_TMAE_NOACTIVATETIP | TF_TMAE_CONSOLE);
+                hr = thread_ex_->ActivateEx(&client_id_, TF_TMAE_NOACTIVATETIP | TF_TMAE_NOACTIVATEKEYBOARDLAYOUT | TF_TMAE_CONSOLE);
             }
             else
             {
@@ -473,20 +473,21 @@ namespace corehost::window
 
             if (!finalized.empty())
             {
-                if (commit_)
+                std::wstring_view pending = finalized;
+                if (finalized.size() > committed_text_.size() &&
+                    finalized.compare(0, committed_text_.size(), committed_text_) == 0)
                 {
-                    commit_(finalized);
+                    pending = std::wstring_view{finalized}.substr(committed_text_.size());
                 }
-
-                winrt::com_ptr<ITfRange> start;
-                if (SUCCEEDED(context_->GetStart(cookie, start.put())))
+                if (!pending.empty() && commit_)
                 {
-                    LONG shifted = 0;
-                    if (SUCCEEDED(start->ShiftEnd(cookie, static_cast<LONG>(finalized.size()), &shifted, nullptr)))
-                    {
-                        (void)start->SetText(cookie, 0, nullptr, 0);
-                    }
+                    commit_(pending);
                 }
+                committed_text_ = finalized;
+            }
+            else
+            {
+                committed_text_.clear();
             }
 
             if (composition_)
@@ -523,6 +524,7 @@ namespace corehost::window
         DWORD owner_cookie_{TF_INVALID_COOKIE};
         DWORD edit_sink_cookie_{TF_INVALID_COOKIE};
         read_session edit_session_;
+        std::wstring committed_text_;
         ULONG references_{1};
         bool com_initialized_{};
     };
