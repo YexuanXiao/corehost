@@ -9,7 +9,6 @@
 
 #include <Windows.h>
 
-#include <atomic>
 #include <cassert>
 
 namespace corehost::window
@@ -66,9 +65,9 @@ class window_ui final
         {
             return;
         }
-        if (const auto window = hwnd_.load(std::memory_order_acquire); window != nullptr)
+        if (hwnd_ != nullptr)
         {
-            (void)::PostMessageW(window, WM_CLOSE, 0, 0);
+            (void)::PostMessageW(hwnd_, WM_CLOSE, 0, 0);
         }
         thread_.join();
         thread_ = {};
@@ -87,7 +86,7 @@ class window_ui final
         {
             win32::com_apartment apartment{COINIT_APARTMENTTHREADED};
             window_host host{title_, console_, console_mutex_, client_process_, policy_, palette_};
-            hwnd_.store(host.window(), std::memory_order_release);
+            hwnd_ = host.window();
             ready_.set();
             host.run();
             close_requested_.set();
@@ -97,7 +96,6 @@ class window_ui final
             fatal_.set();
             ready_.set();
         }
-        hwnd_.store(nullptr, std::memory_order_release);
     }
 
     console &console_;
@@ -110,7 +108,7 @@ class window_ui final
     win32::event ready_{win32::create_tag, true, false};
     win32::event close_requested_{win32::create_tag, true, false};
     win32::event fatal_{win32::create_tag, true, false};
-    std::atomic<HWND> hwnd_{};
+    HWND hwnd_{};
     win32::basic_thread thread_;
 };
 
