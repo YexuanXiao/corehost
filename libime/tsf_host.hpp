@@ -90,8 +90,8 @@ namespace corehost::window
             }
 
             LOG2("tsf initialized client=%u context=%p", static_cast<unsigned>(client_id_), context_.get());
-            pump_ = nullptr;
-            LOG2("tsf pump disabled");
+            pump_ = thread_mgr_.try_as<ITfMessagePump>();
+            LOG2("tsf pump=%p", pump_.get());
             (void)thread_mgr_->SetFocus(document_mgr_.get());
             return S_OK;
         }
