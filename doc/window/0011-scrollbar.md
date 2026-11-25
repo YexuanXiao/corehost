@@ -34,6 +34,8 @@ history_size()
 history_limit()
 set_history_limit(limit)   # 默认 1000
 scroll_offset()
+scroll_pixels()
+scroll_by_pixels(pixels)
 scroll_by(lines)
 scroll_to_top()
 scroll_to_bottom()
@@ -49,7 +51,9 @@ snap_to_bottom_if_unlocked()
 - thumb 只在上/下 26 DIP 箭头区域之间移动；
 - 普通状态 2 DIP thumb，右侧 4 DIP；hover 展开为 8 DIP 圆角 thumb + 淡 track；
 - 顶部/底部上下圆角箭头，点击滚动 1 行；箭头区域随 DPI 缩放；
-- 箭头/thumb 圆角用预生成 alpha mask 缓存在现有 R8 atlas 中；thumb 用 32×32 超采样 mask + 9-slice；
+- 箭头 mask 按实际物理尺寸生成并 1:1 绘制，避免缩放模糊；
+- thumb 圆角用预生成 alpha mask 缓存在现有 R8 atlas 中，9-slice 绘制；
+- thumb mask 提供 16/32/64、1x/4x 超采样编译变体测试；
 - 使用真实 client 尺寸，track 紧贴窗口右边缘；
 - 展开动画在约 8 帧内完成，按现有 compositor frame loop 推进；
 - thumb 拖动按像素更新，避免行量化抖动；
@@ -61,6 +65,25 @@ snap_to_bottom_if_unlocked()
   - `Home` / `End` / `PgUp` / `PgDn` / `Up` / `Down` 滚动；
   - 未 lock 时输入自动回到底部；
   - lock 时输入和输出都保持当前查看位置。
+
+## Thumb mask 测试变体
+
+编译期参数：
+
+```text
+COREHOST_SCROLLBAR_THUMB_MASK_SIZE       16 / 32 / 64
+COREHOST_SCROLLBAR_THUMB_MASK_SAMPLES    1 / 4
+```
+
+已构建的测试二进制：
+
+```text
+C:\1\corehostbinary\thumb16_hard.exe   16x16, 1x
+C:\1\corehostbinary\thumb16_ss.exe     16x16, 4x
+C:\1\corehostbinary\thumb32_hard.exe   32x32, 1x
+C:\1\corehostbinary\thumb64_ss.exe     64x64, 4x
+C:\1\corehostbinary\corehostw.exe      32x32, 4x (默认)
+```
 
 ## 当前限制
 

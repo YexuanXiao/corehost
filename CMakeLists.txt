@@ -29,6 +29,13 @@ add_compile_definitions($<$<BOOL:${COREHOST_DISABLE_LOG}>:COREHOST_DISABLE_LOG>)
 set(COREHOST_LOG_LEVEL "1" CACHE STRING "CoreHost log level by frequency: 1=low, 2=medium, 3=high")
 add_compile_definitions(COREHOST_LOG_LEVEL=${COREHOST_LOG_LEVEL})
 
+set(COREHOST_SCROLLBAR_THUMB_MASK_SIZE "32" CACHE STRING "Scrollbar thumb mask resolution")
+set(COREHOST_SCROLLBAR_THUMB_MASK_SAMPLES "4" CACHE STRING "Scrollbar thumb mask supersampling")
+add_compile_definitions(
+    COREHOST_SCROLLBAR_THUMB_MASK_SIZE=${COREHOST_SCROLLBAR_THUMB_MASK_SIZE}
+    COREHOST_SCROLLBAR_THUMB_MASK_SAMPLES=${COREHOST_SCROLLBAR_THUMB_MASK_SAMPLES}
+)
+
 option(COREHOST_PERF_DIAG "Enable aggregated CoreHost performance diagnostics" OFF)
 add_compile_definitions($<$<BOOL:${COREHOST_PERF_DIAG}>:COREHOST_PERF_DIAG>)
 
