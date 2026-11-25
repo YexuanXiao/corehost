@@ -191,7 +191,9 @@ class render_worker final
         constexpr int height = scrollbar_mask_size;
         const auto w = static_cast<float>(width);
         const auto h = static_cast<float>(height);
-        const auto radius = std::min(w, h) * 0.09f;
+        // Rounded corners: 18% of the short side. The arrow is later scaled
+        // from the fixed 32x32 mask to its 10x7.2 DIP visual size.
+        const auto radius = std::min(w, h) * 0.18f;
         const mask_point vertices[3]{
             {w * 0.5f, h * 0.06f},
             {w * 0.94f, h * 0.94f},
@@ -573,7 +575,10 @@ class render_worker final
                     static const auto down_mask = make_arrow_mask(true);
                     const auto arrow_center = client_width - 8.0f * scale;
                     const auto arrow_width = 10.0f * scale;
-                    const auto arrow_height = 9.0f * scale;
+                    // Flatten the 9 DIP arrow by 1/5 -> 7.2 DIP, and move it
+                    // 1/4 closer to the top/bottom edge (8.5 -> 6.375 DIP).
+                    const auto arrow_height = 7.2f * scale;
+                    const auto arrow_margin = 6.375f * scale;
                     const auto *up = atlas_.find_or_add_mask(0x534255, scrollbar_mask_size, scrollbar_mask_size,
                                                              up_mask);
                     const auto *down = atlas_.find_or_add_mask(0x534144, scrollbar_mask_size, scrollbar_mask_size,
@@ -587,8 +592,8 @@ class render_worker final
                         }
                         const auto u0 = static_cast<float>(region->x) * atlas_scale;
                         const auto v0 = static_cast<float>(region->y) * atlas_scale;
-                        const auto arrow_y = i == 0 ? 8.5f * scale
-                                                   : client_height - 8.5f * scale - arrow_height;
+                        const auto arrow_y = i == 0 ? arrow_margin
+                                                   : client_height - arrow_margin - arrow_height;
                         add_mask_quad(quads_, std::round(arrow_center - arrow_width * 0.5f),
                                       std::round(arrow_y), arrow_width, arrow_height, u0, v0,
                                       static_cast<float>(region->x + scrollbar_mask_size) * atlas_scale,
