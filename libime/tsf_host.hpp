@@ -103,17 +103,29 @@ namespace corehost::window
 
         void focus() noexcept
         {
-            assert(window_);
+            if (window_ == nullptr)
+            {
+                return;
+            }
             assert(thread_mgr_);
             assert(document_mgr_);
-            (void)thread_mgr_->SetFocus(document_mgr_.get());
+            if (FAILED(thread_mgr_->SetFocus(document_mgr_.get())))
+            {
+                return;
+            }
         }
 
         void unfocus() noexcept
         {
-            assert(window_);
+            if (window_ == nullptr)
+            {
+                return;
+            }
             assert(thread_mgr_);
-            (void)thread_mgr_->SetFocus(nullptr);
+            if (FAILED(thread_mgr_->SetFocus(nullptr)))
+            {
+                return;
+            }
         }
 
         // ITfContextOwner
