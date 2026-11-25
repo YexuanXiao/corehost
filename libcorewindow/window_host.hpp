@@ -337,6 +337,7 @@ class window_host final
                                                .event_flags = event_flags},
         };
         console_.push_input(std::move(event));
+        worker_.request_redraw();
     }
 
     void copy_selection(HWND hwnd)

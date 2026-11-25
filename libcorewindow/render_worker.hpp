@@ -44,6 +44,11 @@ class render_worker final
     render_worker(const render_worker &) = delete;
     render_worker &operator=(const render_worker &) = delete;
 
+    void request_redraw() noexcept
+    {
+        redraw_requested_.store(true, std::memory_order_relaxed);
+    }
+
     void start(HWND window)
     {
         assert(window != nullptr);
@@ -737,6 +742,7 @@ class render_worker final
             const bool hover_changed = scrollbar_hovered != scrollbar_hovered_;
             const bool focus_changed = focused != focused_;
             const auto now = ::GetTickCount64();
+            const bool redraw_requested = redraw_requested_.exchange(false, std::memory_order_relaxed);
             const bool blink_on = focused && ((now / blink_interval_ms) % 2 == 0);
             const bool blink_changed = blink_on != blink_on_;
 
@@ -763,8 +769,8 @@ class render_worker final
             client_width_px_ = static_cast<float>(width);
             client_height_px_ = static_cast<float>(height);
 
-            if (changed || cursor_changed || hover_changed || scrollbar_animating || focus_changed || blink_changed ||
-                dpi_changed)
+            if (changed || cursor_changed || selection_changed || hover_changed || scrollbar_animating ||
+                focus_changed || blink_changed || redraw_requested || dpi_changed)
             {
                 if (scroll_changed)
                 {
@@ -824,6 +830,7 @@ class render_worker final
     win32::basic_thread thread_;
     win32::event stop_event_{win32::create_tag, true, false};
     std::atomic_bool stop_{};
+    std::atomic_bool redraw_requested_{};
 };
 
 } // namespace corehost::window
