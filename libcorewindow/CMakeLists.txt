@@ -10,6 +10,7 @@ target_link_libraries(libcorewindow INTERFACE
     libscreen
     libuitext
     libscrollbar
+    unicode::unicode
     common
     user32
 )

@@ -2,6 +2,8 @@
 
 #include "console_state.hpp"
 #include "input.hpp"
+#include "libunicode/convert.h"
+#include "libunicode/word_segmenter.h"
 #include "screen_buffer.hpp"
 #include "win32/event.hpp"
 
@@ -148,6 +150,139 @@ class console final
         return state_.scroll_offset();
     }
 
+    void set_cell_metrics(float width, float height) noexcept
+    {
+        cell_width_ = width;
+        cell_height_ = height;
+    }
+
+    [[nodiscard]] float cell_width() const noexcept
+    {
+        return cell_width_ > 0.0f ? cell_width_ : 1.0f;
+    }
+
+    [[nodiscard]] float cell_height() const noexcept
+    {
+        return cell_height_ > 0.0f ? cell_height_ : 1.0f;
+    }
+
+    [[nodiscard]] std::size_t cell_column(float x, std::size_t max_column) const noexcept
+    {
+        return std::min<std::size_t>(static_cast<std::size_t>(std::max(0.0f, x) / cell_width()), max_column);
+    }
+
+    [[nodiscard]] std::size_t cell_row(float y, std::size_t max_row) const noexcept
+    {
+        return std::min<std::size_t>(static_cast<std::size_t>(std::max(0.0f, y) / cell_height()), max_row);
+    }
+
+    [[nodiscard]] std::size_t snap_selection_column(std::size_t x, std::size_t y) const noexcept
+    {
+        while (x > 0 && screen_.at(x, y).is_continuation())
+        {
+            --x;
+        }
+        return x;
+    }
+
+    void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y,
+                       screen::selection_mode mode = screen::selection_mode::block) noexcept
+    {
+        state_.set_selection(anchor_x, anchor_y, caret_x, caret_y, mode);
+    }
+
+    void clear_selection() noexcept
+    {
+        state_.clear_selection();
+    }
+
+    [[nodiscard]] bool has_selection() const noexcept
+    {
+        return state_.has_selection();
+    }
+
+    [[nodiscard]] const screen::selection_range &selection() const noexcept
+    {
+        return state_.selection();
+    }
+
+    void select_line(std::size_t y) noexcept
+    {
+        state_.set_selection(0, y, screen_.width() - 1, y, screen::selection_mode::line);
+    }
+
+    void select_word(std::size_t x, std::size_t y)
+    {
+        auto &buffer = screen_;
+        auto &state = state_;
+        x = std::min(x, buffer.width() - 1);
+        if (buffer.at(x, y).is_continuation() && x > 0)
+        {
+            --x;
+        }
+
+        std::u32string text;
+        std::vector<std::size_t> cells;
+        for (std::size_t column = 0; column < buffer.width(); ++column)
+        {
+            const auto &cell = buffer.at(column, y);
+            if (cell.is_continuation())
+            {
+                continue;
+            }
+            if (cell.is_blank())
+            {
+                text.push_back(U' ');
+                cells.push_back(column);
+                continue;
+            }
+            const auto cluster = buffer.cluster_of(y, cell);
+            const auto converted = unicode::convert_to<char32_t>(
+                std::u16string_view{cluster.data(), cluster.size()});
+            for (const auto codepoint : converted)
+            {
+                text.push_back(codepoint);
+                cells.push_back(column);
+            }
+        }
+
+        if (text.empty())
+        {
+            return;
+        }
+
+        unicode::word_segmenter segmenter{std::u32string_view{text}};
+        std::size_t offset = 0;
+        while (segmenter)
+        {
+            const auto segment = *segmenter;
+            const auto end = offset + segment.size();
+            if (end > offset)
+            {
+                const auto start_cell = cells[offset];
+                auto end_cell = cells[end - 1];
+                if (buffer.at(end_cell, y).is_wide() && end_cell + 1 < buffer.width())
+                {
+                    ++end_cell;
+                }
+                if (x >= start_cell && x <= end_cell)
+                {
+                    state.set_selection(start_cell, y, end_cell, y);
+                    return;
+                }
+            }
+            offset = end;
+            ++segmenter;
+        }
+    }
+
+    [[nodiscard]] std::u16string selected_text()
+    {
+        std::u16string result;
+        state_.selected_text_into(screen_, result);
+        return result;
+    }
+
     [[nodiscard]] double scroll_pixels() const noexcept
     {
         return scroll_pixels_;
@@ -291,6 +426,8 @@ class console final
     bool scrollbar_hovered_{};
     double scroll_pixels_{};
     float scroll_row_height_{1.0f};
+    float cell_width_{1.0f};
+    float cell_height_{1.0f};
     win32::event input_event_{win32::create_tag, true, false};
 };
 

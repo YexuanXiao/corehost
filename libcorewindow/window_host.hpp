@@ -10,6 +10,7 @@
 #include <Windows.h>
 #include <windowsx.h>
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <mutex>
@@ -220,6 +221,151 @@ class window_host final
         (void)::PostMessageW(window_, close_window ? WM_CLOSE : client_exit_message, 0, 0);
     }
 
+    [[nodiscard]] std::pair<std::size_t, std::size_t> cell_at(HWND hwnd, LPARAM lparam) const noexcept
+    {
+        POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+        return {console_.cell_column(static_cast<float>(point.x), console_.buffer().width() - 1),
+                console_.cell_row(static_cast<float>(point.y), console_.buffer().height() - 1)};
+    }
+
+    void begin_selection(HWND hwnd, LPARAM lparam)
+    {
+        auto [x, y] = cell_at(hwnd, lparam);
+        x = console_.snap_selection_column(x, y);
+        const auto now = ::GetTickCount64();
+        const bool same_cell = x == last_click_x_ && y == last_click_y_;
+        click_count_ = same_cell && now - last_click_time_ <= ::GetDoubleClickTime()
+                           ? std::min(click_count_ + 1, 3)
+                           : 1;
+        last_click_time_ = now;
+        last_click_x_ = x;
+        last_click_y_ = y;
+
+        const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        if (click_count_ >= 3)
+        {
+            console_.select_line(y);
+            selection_anchor_x_ = 0;
+            selection_anchor_y_ = y;
+        }
+        else if (click_count_ == 2)
+        {
+            console_.select_word(x, y);
+            selection_anchor_x_ = console_.selection().anchor_x;
+            selection_anchor_y_ = console_.selection().anchor_y;
+        }
+        else if (shift && console_.has_selection())
+        {
+            const auto &selection = console_.selection();
+            selection_anchor_x_ = selection.anchor_x;
+            selection_anchor_y_ = selection.anchor_y;
+            console_.set_selection(selection_anchor_x_, selection_anchor_y_, x, y);
+        }
+        else
+        {
+            selection_anchor_x_ = x;
+            selection_anchor_y_ = y;
+            console_.set_selection(x, y, x, y);
+        }
+        selection_dragging_ = click_count_ == 1 || shift;
+        ::SetCapture(hwnd);
+    }
+
+    void update_selection(HWND hwnd, LPARAM lparam)
+    {
+        if (!selection_dragging_)
+        {
+            return;
+        }
+        auto [x, y] = cell_at(hwnd, lparam);
+        x = console_.snap_selection_column(x, y);
+        console_.set_selection(selection_anchor_x_, selection_anchor_y_, x, y);
+    }
+
+    [[nodiscard]] bool mouse_tracking() const noexcept
+    {
+        return console_.state().mouse_tracking();
+    }
+
+    void push_mouse(LPARAM lparam, std::uint32_t button_state, std::uint32_t event_flags)
+    {
+        const auto [x, y] = cell_at(window_, lparam);
+        consoleinput::input_event event{
+            .type = consoleinput::input_event_type::mouse,
+            .mouse = consoleinput::mouse_event{.x = static_cast<std::int32_t>(x),
+                                               .y = static_cast<std::int32_t>(y),
+                                               .button_state = button_state,
+                                               .control_state = control_state(),
+                                               .event_flags = event_flags},
+        };
+        console_.push_input(std::move(event));
+    }
+
+    void copy_selection(HWND hwnd)
+    {
+        auto text = console_.selected_text();
+        if (text.empty() || ::OpenClipboard(hwnd) == FALSE)
+        {
+            return;
+        }
+        ::EmptyClipboard();
+        const auto bytes = (text.size() + 1) * sizeof(char16_t);
+        if (auto *memory = ::GlobalAlloc(GMEM_MOVEABLE, bytes); memory != nullptr)
+        {
+            if (auto *destination = static_cast<char16_t *>(::GlobalLock(memory)); destination != nullptr)
+            {
+                std::copy(text.begin(), text.end(), destination);
+                destination[text.size()] = 0;
+                ::GlobalUnlock(memory);
+                if (::SetClipboardData(CF_UNICODETEXT, memory) == nullptr)
+                {
+                    ::GlobalFree(memory);
+                }
+            }
+            else
+            {
+                ::GlobalFree(memory);
+            }
+        }
+        ::CloseClipboard();
+    }
+
+    void paste_clipboard(HWND hwnd)
+    {
+        console_.clear_selection();
+        if (::OpenClipboard(hwnd) == FALSE)
+        {
+            return;
+        }
+        if (auto *data = ::GetClipboardData(CF_UNICODETEXT); data != nullptr)
+        {
+            if (auto *text = static_cast<const char16_t *>(::GlobalLock(data)); text != nullptr)
+            {
+                bool previous_was_cr = false;
+                for (const auto *cursor = text; *cursor != 0; ++cursor)
+                {
+                    auto character = *cursor;
+                    if (character == u'\n')
+                    {
+                        if (previous_was_cr)
+                        {
+                            previous_was_cr = false;
+                            continue;
+                        }
+                        character = u'\r';
+                    }
+                    previous_was_cr = character == u'\r';
+                    console_.push_input(consoleinput::input_event{
+                        .type = consoleinput::input_event_type::key,
+                        .key = consoleinput::key_from_text_character(character),
+                    });
+                }
+                ::GlobalUnlock(data);
+            }
+        }
+        ::CloseClipboard();
+    }
+
     [[nodiscard]] scrollbar::geometry scrollbar_geometry(HWND hwnd) const noexcept
     {
         RECT client{};
@@ -369,8 +515,21 @@ class window_host final
                 const auto delta = GET_WHEEL_DELTA_WPARAM(wparam);
                 if (delta != 0)
                 {
+                    const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
                     std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                    self->console_.scroll_by(static_cast<double>(delta) * 3.0 / static_cast<double>(WHEEL_DELTA));
+                    if (!shift && self->console_.state().mouse_tracking())
+                    {
+                        POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+                        ::ScreenToClient(hwnd, &point);
+                        const auto packed = static_cast<LPARAM>((point.y << 16) | (point.x & 0xFFFF));
+                        self->push_mouse(packed, static_cast<std::uint32_t>(static_cast<std::uint16_t>(delta)) << 16,
+                                         MOUSE_WHEELED);
+                    }
+                    else
+                    {
+                        self->console_.scroll_by(static_cast<double>(delta) * 3.0 /
+                                                 static_cast<double>(WHEEL_DELTA));
+                    }
                 }
             }
             return 0;
@@ -378,7 +537,23 @@ class window_host final
             if (self != nullptr)
             {
                 self->update_scrollbar_hover(hwnd, lparam);
-                self->handle_scrollbar_mouse_move(hwnd, lparam);
+                if (self->scrollbar_dragging_)
+                {
+                    self->handle_scrollbar_mouse_move(hwnd, lparam);
+                    return 0;
+                }
+                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                if (self->selection_dragging_)
+                {
+                    self->update_selection(hwnd, lparam);
+                }
+                else if (self->console_.state().mouse_tracking())
+                {
+                    self->push_mouse(lparam, (::GetKeyState(VK_LBUTTON) & 0x8000) != 0
+                                                   ? FROM_LEFT_1ST_BUTTON_PRESSED
+                                                   : 0,
+                                       MOUSE_MOVED);
+                }
             }
             return 0;
         case WM_MOUSELEAVE:
@@ -392,19 +567,94 @@ class window_host final
         case WM_LBUTTONDOWN:
             if (self != nullptr)
             {
+                const auto x = static_cast<float>(GET_X_LPARAM(lparam));
+                const auto y = static_cast<float>(GET_Y_LPARAM(lparam));
+                bool over_scrollbar = false;
+                {
+                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                    const auto geometry = self->scrollbar_geometry(hwnd);
+                    over_scrollbar =
+                        scrollbar::hit_test(geometry, x, y) != scrollbar::hit_target::none;
+                }
+                if (over_scrollbar)
+                {
+                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                    self->console_.set_scrollbar_hovered(true);
+                    lock.unlock();
+                    self->handle_scrollbar_mouse_down(hwnd, lparam);
+                    return 0;
+                }
+
+                const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                self->console_.set_scrollbar_hovered(true);
+                if (!shift && self->console_.state().mouse_tracking())
+                {
+                    self->push_mouse(lparam, FROM_LEFT_1ST_BUTTON_PRESSED, 0);
+                    return 0;
+                }
+                self->begin_selection(hwnd, lparam);
             }
+            return 0;
+        case WM_RBUTTONDOWN:
             if (self != nullptr)
             {
-                self->handle_scrollbar_mouse_down(hwnd, lparam);
+                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                if (self->console_.state().mouse_tracking())
+                {
+                    self->push_mouse(lparam, RIGHTMOST_BUTTON_PRESSED, 0);
+                }
+            }
+            return 0;
+        case WM_RBUTTONUP:
+            if (self != nullptr)
+            {
+                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                if (self->console_.state().mouse_tracking())
+                {
+                    self->push_mouse(lparam, 0, 0);
+                }
+            }
+            return 0;
+        case WM_MBUTTONDOWN:
+            if (self != nullptr)
+            {
+                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                if (self->console_.state().mouse_tracking())
+                {
+                    self->push_mouse(lparam, FROM_LEFT_2ND_BUTTON_PRESSED, 0);
+                }
+            }
+            return 0;
+        case WM_MBUTTONUP:
+            if (self != nullptr)
+            {
+                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                if (self->console_.state().mouse_tracking())
+                {
+                    self->push_mouse(lparam, 0, 0);
+                }
             }
             return 0;
         case WM_LBUTTONUP:
-            if (self != nullptr && self->scrollbar_dragging_)
+            if (self != nullptr)
             {
-                self->scrollbar_dragging_ = false;
-                ::ReleaseCapture();
+                if (self->selection_dragging_)
+                {
+                    self->selection_dragging_ = false;
+                    ::ReleaseCapture();
+                    return 0;
+                }
+                if (self->scrollbar_dragging_)
+                {
+                    self->scrollbar_dragging_ = false;
+                    ::ReleaseCapture();
+                    return 0;
+                }
+                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                if (self->console_.state().mouse_tracking())
+                {
+                    self->push_mouse(lparam, 0, 0);
+                }
             }
             return 0;
         case WM_KEYDOWN:
@@ -412,6 +662,19 @@ class window_host final
             {
                 const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
                 const bool control = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                if (control && shift && (wparam == 'C' || wparam == 'V'))
+                {
+                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                    if (wparam == 'C')
+                    {
+                        self->copy_selection(hwnd);
+                    }
+                    else
+                    {
+                        self->paste_clipboard(hwnd);
+                    }
+                    return 0;
+                }
                 if (wparam == VK_SCROLL || (control && shift && wparam == 'S'))
                 {
                     std::unique_lock<win32::srwlock> lock{self->console_mutex_};
@@ -521,6 +784,7 @@ class window_host final
                             },
                     };
                     std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                    self->console_.clear_selection();
                     self->console_.snap_to_bottom_if_unlocked();
                     self->console_.push_input(std::move(event));
                     return 0;
@@ -549,7 +813,8 @@ class window_host final
             if (self != nullptr)
             {
                 const auto character = static_cast<char16_t>(wparam);
-                if (character == 0x13 && (::GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                if ((character == 0x03 || character == 0x16 || character == 0x13) &&
+                    (::GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
                     (::GetKeyState(VK_SHIFT) & 0x8000) != 0)
                 {
                     return 0;
@@ -562,6 +827,7 @@ class window_host final
                         .key = character_key(character),
                     };
                     std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                    self->console_.clear_selection();
                     self->console_.snap_to_bottom_if_unlocked();
                     self->console_.push_input(std::move(event));
                 }
@@ -610,6 +876,13 @@ class window_host final
     win32::basic_thread process_thread_;
     HWND window_{};
     bool scrollbar_dragging_{};
+    bool selection_dragging_{};
+    std::size_t selection_anchor_x_{};
+    std::size_t selection_anchor_y_{};
+    std::size_t last_click_x_{};
+    std::size_t last_click_y_{};
+    ULONGLONG last_click_time_{};
+    int click_count_{};
     bool tracking_mouse_leave_{};
     float scrollbar_grab_offset_{};
     render_worker worker_;

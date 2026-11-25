@@ -295,6 +295,13 @@ class render_worker final
         quads.push_back(quad);
     }
 
+    static bool same_selection(const screen::selection_range &left, const screen::selection_range &right) noexcept
+    {
+        return left.active == right.active && left.anchor_x == right.anchor_x &&
+               left.anchor_y == right.anchor_y && left.caret_x == right.caret_x &&
+               left.caret_y == right.caret_y && left.mode == right.mode;
+    }
+
     static bool same_cursor(const screen::cursor_state &left, const screen::cursor_state &right) noexcept
     {
         return left.x == right.x && left.y == right.y && left.visible == right.visible &&
@@ -360,6 +367,15 @@ class render_worker final
                     };
                     set_tint(background_quad, background);
                     quads_.push_back(background_quad);
+                }
+
+                if (selection_.active && scroll_pixels_ == 0.0 && selection_.contains(x, y))
+                {
+                    const auto selection_color =
+                        blend_color(palette_.default_foreground, palette_.default_background, 0.35f);
+                    add_line_quad(quads_, static_cast<float>(x) * cell_width,
+                                  static_cast<float>(y) * cell_height + scroll_shift, cell_width * cell_span,
+                                  cell_height, selection_color, sample, 1.0f);
                 }
 
                 auto line_color = style.underline.kind == screen::color_kind::default_color
@@ -647,6 +663,7 @@ class render_worker final
             bool title_changed = false;
             std::wstring window_title;
             screen::cursor_state cursor{};
+            screen::selection_range selection{};
 
             {
                 std::unique_lock<win32::srwlock> lock{console_mutex_};
@@ -661,6 +678,7 @@ class render_worker final
                 }
 
                 console_.set_scroll_row_height(static_cast<float>(row_height_px));
+                console_.set_cell_metrics(metrics.advance, static_cast<float>(row_height_px));
                 const auto history = console_.history_size();
                 auto pixels = console_.scroll_pixels();
                 if (pixels > 0.0 && history > history_size_)
@@ -691,6 +709,7 @@ class render_worker final
                 }
 
                 cursor = console_.state().cursor();
+                selection = console_.state().selection();
                 focused = console_.has_focus();
                 scrollbar_hovered = console_.scrollbar_hovered();
                 if (console_.state().take_title_changed())
@@ -707,6 +726,7 @@ class render_worker final
             }
 
             const bool cursor_changed = cursor_dirty || !same_cursor(cursor_, cursor);
+            const bool selection_changed = !same_selection(selection_, selection);
             const bool hover_changed = scrollbar_hovered != scrollbar_hovered_;
             const bool focus_changed = focused != focused_;
             const auto now = ::GetTickCount64();
@@ -714,6 +734,7 @@ class render_worker final
             const bool blink_changed = blink_on != blink_on_;
 
             cursor_ = cursor;
+            selection_ = selection;
             focused_ = focused;
             scrollbar_hovered_ = scrollbar_hovered;
             bool scrollbar_animating = false;
@@ -728,7 +749,7 @@ class render_worker final
                 }
             }
             blink_on_ = blink_on;
-            draw_cursor_ = cursor_.visible && focused_ && scroll_pixels_ == 0.0 &&
+            draw_cursor_ = cursor_.visible && focused_ && scroll_pixels_ == 0.0 && !selection_.active &&
                            (cursor_.blinking ? blink_on_ : true);
             cursor_dirty = false;
             renderer_.resize(width, height);
@@ -776,6 +797,7 @@ class render_worker final
     screen::style_table styles_;
     console_palette palette_;
     screen::cursor_state cursor_{};
+    screen::selection_range selection_{};
     bool focused_{true};
     bool scrollbar_hovered_{};
     float scrollbar_expand_{};
