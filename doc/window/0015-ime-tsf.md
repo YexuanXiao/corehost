@@ -11,7 +11,7 @@
 - `AssociateFocus` + `SetFocus`；
 - 通过 `ITfReadOnlyProperty::EnumRanges` 枚举 context ranges；
 - 按 `GUID_PROP_COMPOSING` 区分 finalized 与 composing 文本；
-- finalized 文本提交到 console input queue，composing 文本用于自绘；
+- finalized 文本提交到 console input queue，然后从 context 删除；\n- composing 文本用于自绘；
 - composition 文本通过 `console::set_ime_composition` 自绘在光标处；
 - 先 advise `ITfContextOwner` 再 Push context；
 - candidate/composition 位置来自 `ITfContextOwner::GetTextExt`；

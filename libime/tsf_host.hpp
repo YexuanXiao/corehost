@@ -452,8 +452,9 @@ namespace corehost::window
                 for (ULONG i = 0; i < count; ++i)
                 {
                     auto *range = items[i];
+                    const auto is_composing = range_is_composing(cookie, properties.get(), range);
                     auto text = range_text(cookie, range);
-                    if (range_is_composing(cookie, properties.get(), range))
+                    if (is_composing)
                     {
                         composing.append(text);
                     }
@@ -484,6 +485,19 @@ namespace corehost::window
                     commit_(pending);
                 }
                 committed_text_ = finalized;
+
+                winrt::com_ptr<ITfRange> start;
+                if (SUCCEEDED(context_->GetStart(cookie, start.put())))
+                {
+                    LONG shifted = 0;
+                    if (SUCCEEDED(start->ShiftEnd(cookie, static_cast<LONG>(finalized.size()), &shifted, nullptr)))
+                    {
+                        if (SUCCEEDED(start->SetText(cookie, 0, nullptr, 0)))
+                        {
+                            committed_text_.clear();
+                        }
+                    }
+                }
             }
             else
             {
