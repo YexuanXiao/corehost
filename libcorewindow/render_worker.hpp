@@ -11,13 +11,6 @@
 #include "win32/srwlock.hpp"
 #include "win32/thread.hpp"
 
-#ifndef COREHOST_SCROLLBAR_THUMB_MASK_SIZE
-#define COREHOST_SCROLLBAR_THUMB_MASK_SIZE 32
-#endif
-#ifndef COREHOST_SCROLLBAR_THUMB_MASK_SAMPLES
-#define COREHOST_SCROLLBAR_THUMB_MASK_SAMPLES 4
-#endif
-
 #include <Windows.h>
 
 #include <algorithm>
@@ -186,16 +179,23 @@ class render_worker final
         return inside;
     }
 
-    static std::vector<std::uint8_t> make_arrow_mask(int width, int height, bool down) noexcept
+    // Scrollbar masks are fixed at 32x32 with no supersampling. This is a
+    // deliberate performance/quality tradeoff: generation happens once, the
+    // thumb uses 9-slice, and arrows are scaled to their 10x9 DIP visual size.
+    // No per-DPI mask regeneration or runtime configuration.
+    static constexpr int scrollbar_mask_size = 32;
+
+    static std::vector<std::uint8_t> make_arrow_mask(bool down) noexcept
     {
+        constexpr int width = scrollbar_mask_size;
+        constexpr int height = scrollbar_mask_size;
         const auto w = static_cast<float>(width);
         const auto h = static_cast<float>(height);
-        const auto radius = std::min(w, h) * 0.15f;
-        constexpr int samples = 4;
+        const auto radius = std::min(w, h) * 0.09f;
         const mask_point vertices[3]{
-            {w * 0.5f, h * 0.09f},
-            {w * 0.92f, h * 0.91f},
-            {w * 0.08f, h * 0.91f},
+            {w * 0.5f, h * 0.06f},
+            {w * 0.94f, h * 0.94f},
+            {w * 0.06f, h * 0.94f},
         };
         std::array<mask_point, 64> polygon{};
         int count = 0;
@@ -227,18 +227,10 @@ class render_worker final
         {
             for (int x = 0; x < width; ++x)
             {
-                int covered = 0;
-                for (int sy = 0; sy < samples; ++sy)
-                {
-                    for (int sx = 0; sx < samples; ++sx)
-                    {
-                        const auto sample_x = static_cast<float>(x) + (static_cast<float>(sx) + 0.5f) / samples;
-                        const auto sample_y = static_cast<float>(y) + (static_cast<float>(sy) + 0.5f) / samples;
-                        covered += point_in_polygon(polygon, count, sample_x, sample_y) ? 1 : 0;
-                    }
-                }
+                const auto px = static_cast<float>(x) + 0.5f;
+                const auto py = static_cast<float>(y) + 0.5f;
                 mask[static_cast<std::size_t>(y) * width + x] =
-                    static_cast<std::uint8_t>(covered * 255 / (samples * samples));
+                    point_in_polygon(polygon, count, px, py) ? 255 : 0;
             }
         }
         if (down)
@@ -254,8 +246,8 @@ class render_worker final
         }
         return mask;
     }
-    static constexpr int thumb_mask_size = COREHOST_SCROLLBAR_THUMB_MASK_SIZE;
-    static constexpr int thumb_mask_samples = COREHOST_SCROLLBAR_THUMB_MASK_SAMPLES;
+    static constexpr int thumb_mask_size = scrollbar_mask_size;
+    static constexpr int thumb_mask_samples = 1;
 
     static std::array<std::uint8_t, thumb_mask_size * thumb_mask_size> make_thumb_mask() noexcept
     {
@@ -284,18 +276,6 @@ class render_worker final
             }
         }
         return mask;
-    }
-
-    void ensure_arrow_masks(int width, int height)
-    {
-        if (width == arrow_mask_width_ && height == arrow_mask_height_)
-        {
-            return;
-        }
-        arrow_mask_width_ = width;
-        arrow_mask_height_ = height;
-        arrow_up_mask_ = make_arrow_mask(width, height, false);
-        arrow_down_mask_ = make_arrow_mask(width, height, true);
     }
 
     static void add_mask_quad(std::vector<d3d12ui::text_quad> &quads, float x, float y, float width, float height,
@@ -566,19 +546,15 @@ class render_worker final
 
                 if (expand > 0.01f)
                 {
-                    ensure_arrow_masks(std::max(1, static_cast<int>(std::lround(10.0f * scale))),
-                                       std::max(1, static_cast<int>(std::lround(9.0f * scale))));
+                    static const auto up_mask = make_arrow_mask(false);
+                    static const auto down_mask = make_arrow_mask(true);
                     const auto arrow_center = client_width - 8.0f * scale;
-                    const auto *up = atlas_.find_or_add_mask(
-                        0x534255u ^ (static_cast<std::uint32_t>(arrow_mask_width_) << 16) ^
-                            static_cast<std::uint32_t>(arrow_mask_height_),
-                        static_cast<std::uint32_t>(arrow_mask_width_),
-                        static_cast<std::uint32_t>(arrow_mask_height_), arrow_up_mask_);
-                    const auto *down = atlas_.find_or_add_mask(
-                        0x534144u ^ (static_cast<std::uint32_t>(arrow_mask_width_) << 16) ^
-                            static_cast<std::uint32_t>(arrow_mask_height_),
-                        static_cast<std::uint32_t>(arrow_mask_width_),
-                        static_cast<std::uint32_t>(arrow_mask_height_), arrow_down_mask_);
+                    const auto arrow_width = 10.0f * scale;
+                    const auto arrow_height = 9.0f * scale;
+                    const auto *up = atlas_.find_or_add_mask(0x534255, scrollbar_mask_size, scrollbar_mask_size,
+                                                             up_mask);
+                    const auto *down = atlas_.find_or_add_mask(0x534144, scrollbar_mask_size, scrollbar_mask_size,
+                                                               down_mask);
                     for (int i = 0; i < 2; ++i)
                     {
                         const auto *region = i == 0 ? up : down;
@@ -588,14 +564,12 @@ class render_worker final
                         }
                         const auto u0 = static_cast<float>(region->x) * atlas_scale;
                         const auto v0 = static_cast<float>(region->y) * atlas_scale;
-                        const auto arrow_width = static_cast<float>(arrow_mask_width_);
-                        const auto arrow_height = static_cast<float>(arrow_mask_height_);
                         const auto arrow_y = i == 0 ? 8.5f * scale
                                                    : client_height - 8.5f * scale - arrow_height;
                         add_mask_quad(quads_, std::round(arrow_center - arrow_width * 0.5f),
                                       std::round(arrow_y), arrow_width, arrow_height, u0, v0,
-                                      static_cast<float>(region->x + arrow_mask_width_) * atlas_scale,
-                                      static_cast<float>(region->y + arrow_mask_height_) * atlas_scale, thumb_color,
+                                      static_cast<float>(region->x + scrollbar_mask_size) * atlas_scale,
+                                      static_cast<float>(region->y + scrollbar_mask_size) * atlas_scale, thumb_color,
                                       0.54f * expand);
                     }
                 }
@@ -812,10 +786,6 @@ class render_worker final
     std::vector<d3d12ui::text_quad> color_quads_;
     std::vector<screen::row_block> updates_;
     std::vector<screen::row_block> scroll_rows_;
-    std::vector<std::uint8_t> arrow_up_mask_;
-    std::vector<std::uint8_t> arrow_down_mask_;
-    int arrow_mask_width_{};
-    int arrow_mask_height_{};
     double scroll_pixels_{};
     double scroll_fraction_{};
     float client_width_px_{};

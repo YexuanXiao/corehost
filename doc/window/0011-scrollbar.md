@@ -51,9 +51,8 @@ snap_to_bottom_if_unlocked()
 - thumb 只在上/下 26 DIP 箭头区域之间移动；
 - 普通状态 2 DIP thumb，右侧 4 DIP；hover 展开为 8 DIP 圆角 thumb + 淡 track；
 - 顶部/底部上下圆角箭头，点击滚动 1 行；箭头区域随 DPI 缩放；
-- 箭头 mask 按实际物理尺寸生成并 1:1 绘制，避免缩放模糊；
+- 箭头 mask 固定 32×32，绘制时缩放到 10×9 DIP；
 - thumb 圆角用预生成 alpha mask 缓存在现有 R8 atlas 中，9-slice 绘制；
-- thumb mask 提供 16/32/64、1x/4x 超采样编译变体测试；
 - 使用真实 client 尺寸，track 紧贴窗口右边缘；
 - 展开动画在约 8 帧内完成，按现有 compositor frame loop 推进；
 - thumb 拖动按像素更新，避免行量化抖动；
@@ -66,27 +65,17 @@ snap_to_bottom_if_unlocked()
   - 未 lock 时输入自动回到底部；
   - lock 时输入和输出都保持当前查看位置。
 
-## Thumb mask 测试变体
+## Fixed mask 决策
 
-编译期参数：
+滚动条相关的两个 mask 固定为 **32×32，无 supersampling**：
 
-```text
-COREHOST_SCROLLBAR_THUMB_MASK_SIZE       16 / 32 / 64
-COREHOST_SCROLLBAR_THUMB_MASK_SAMPLES    1 / 4
+- thumb：32×32，9-slice；
+- 箭头：32×32，绘制时缩放到 10×9 DIP；
+- 不再按 DPI 重新生成，也不提供运行时/编译期变体；
+- 选择原因：生成开销低、atlas 占用稳定、高 DPI 下仍能接受；
+- 代价：箭头从 32×32 缩到 10×9 时边缘会有轻微缩放模糊，这是有意接受的质量/性能权衡。
 
-默认选择：32x32, 1x（thumb32_hard）。
-```
-
-已构建的测试二进制：
-
-```text
-C:\1\corehostbinary\thumb16_hard.exe   16x16, 1x
-C:\1\corehostbinary\thumb16_ss.exe     16x16, 4x
-C:\1\corehostbinary\thumb32_hard.exe   32x32, 1x
-C:\1\corehostbinary\thumb64_ss.exe     64x64, 4x
-C:\1\corehostbinary\corehostw.exe      32x32, 1x (默认)
-```
-
+之前的 16/32/64 与 1x/4x 变体仅用于测试，当前源码不再提供这些配置项。
 ## 当前限制
 
 - hover 动画已实现，但还没有独立的动画 timer，依赖现有 compositor frame loop；
