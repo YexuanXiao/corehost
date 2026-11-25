@@ -3,6 +3,7 @@
 #include "console.hpp"
 #include "utility/log.hpp"
 #include "render_worker.hpp"
+#include "tsf_host.hpp"
 #include "win32/error.hpp"
 #include "win32/srwlock.hpp"
 #include "scrollbar.hpp"
@@ -14,6 +15,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -132,6 +134,42 @@ class window_host final
         }
 
         start_process_monitor(window);
+        if (_wgetenv(L"COREHOST_TSF") != nullptr)
+        {
+            tsf_ = std::make_unique<tsf_host>(
+                window,
+            [this](std::wstring_view text) {
+                std::unique_lock<win32::srwlock> lock{console_mutex_};
+                console_.clear_selection();
+                for (const auto character : text)
+                {
+                    console_.push_input(consoleinput::input_event{
+                        .type = consoleinput::input_event_type::key,
+                        .key = consoleinput::key_from_text_character(character),
+                    });
+                }
+                worker_.request_redraw();
+            },
+            [this](std::wstring_view text) {
+                LOG2("tsf composition length=%zu", text.size());
+            },
+            [this]() {
+                RECT rect{};
+                std::unique_lock<win32::srwlock> lock{console_mutex_};
+                POINT origin{0, 0};
+                ::ClientToScreen(window_, &origin);
+                const auto cursor = console_.state().cursor();
+                rect.left = origin.x + static_cast<LONG>(static_cast<float>(cursor.x) * console_.cell_width());
+                rect.top = origin.y + static_cast<LONG>(static_cast<float>(cursor.y) * console_.cell_height());
+                rect.right = rect.left + static_cast<LONG>(console_.cell_width());
+                rect.bottom = rect.top + static_cast<LONG>(console_.cell_height());
+                return rect;
+            });
+            if (const auto hr = tsf_->initialize(); FAILED(hr))
+            {
+                LOG2("tsf initialize failed %08x", static_cast<unsigned>(hr));
+            }
+        }
         worker_.start(window);
         ::ShowWindow(window, SW_SHOWDEFAULT);
         ::UpdateWindow(window);
@@ -139,19 +177,40 @@ class window_host final
         MSG message{};
         for (;;)
         {
-            const auto result = ::GetMessageW(&message, nullptr, 0, 0);
-            if (result == 0)
+            bool eaten = false;
+            bool pumped = false;
+            if (tsf_)
+            {
+                pumped = tsf_->pump_message(message, eaten);
+            }
+            if (!pumped)
+            {
+                const auto result = ::GetMessageW(&message, nullptr, 0, 0);
+                if (result == 0)
+                {
+                    break;
+                }
+                if (result == -1)
+                {
+                    win32::throw_last_error();
+                }
+            }
+            else if (message.message == WM_QUIT)
             {
                 break;
             }
-            if (result == -1)
+            if (!eaten)
             {
-                win32::throw_last_error();
+                ::TranslateMessage(&message);
+                ::DispatchMessageW(&message);
             }
-            ::TranslateMessage(&message);
-            ::DispatchMessageW(&message);
         }
 
+        if (tsf_)
+        {
+            tsf_->shutdown();
+            tsf_.reset();
+        }
         worker_.stop();
         return static_cast<int>(message.wParam);
     }
@@ -541,6 +600,11 @@ class window_host final
             {
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
                 self->console_.set_focused(true);
+                lock.unlock();
+                if (self->tsf_)
+                {
+                    self->tsf_->focus();
+                }
             }
             return 0;
         case WM_KILLFOCUS:
@@ -548,6 +612,11 @@ class window_host final
             {
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
                 self->console_.set_focused(false);
+                lock.unlock();
+                if (self->tsf_)
+                {
+                    self->tsf_->unfocus();
+                }
             }
             return 0;
         case WM_MOUSEWHEEL:
@@ -913,6 +982,7 @@ class window_host final
     console &console_;
     win32::srwlock &console_mutex_;
     win32::handle_view client_process_;
+    std::unique_ptr<tsf_host> tsf_;
     client_exit_policy client_policy_{};
     win32::event process_stop_event_{win32::create_tag, true, false};
     win32::basic_thread process_thread_;
