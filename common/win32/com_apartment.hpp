@@ -12,8 +12,7 @@
 #pragma once
 #include <windows.h>
 #include <objbase.h>
-#include <utility>
-#include "hresult.hpp"
+#include <winrt/base.h>
 
 namespace win32
 {
@@ -21,30 +20,18 @@ namespace win32
 class com_apartment
 {
   public:
-    // 调用 CoInitializeEx，失败时抛出 win32::hresult
     explicit com_apartment(DWORD coinit_flags)
     {
-        const auto hr = ::CoInitializeEx(nullptr, coinit_flags);
-        if (FAILED(hr) && hr != RPC_E_CHANGED_MODE)
-        {
-            throw hresult{static_cast<hresult>(hr)};
-        }
-        initialized_ = SUCCEEDED(hr);
+        winrt::check_hresult(::CoInitializeEx(nullptr, coinit_flags));
     }
 
     ~com_apartment()
     {
-        if (initialized_)
-        {
-            ::CoUninitialize();
-        }
+        ::CoUninitialize();
     }
 
     com_apartment(const com_apartment &) = delete;
     com_apartment &operator=(const com_apartment &) = delete;
-
-  private:
-    bool initialized_{};
 };
 
 } // namespace win32

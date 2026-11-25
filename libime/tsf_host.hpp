@@ -4,6 +4,7 @@
 // to the caller; this class only owns TSF objects and its edit-session buffers.
 
 #include <Windows.h>
+#include <cassert>
 #include <msctf.h>
 #include <winrt/base.h>
 
@@ -29,7 +30,41 @@ namespace corehost::window
         tsf_host(HWND window, callbacks callbacks) try : window_{window}, callbacks_{callbacks},
                                                          edit_session_{*this}
         {
-            initialize();
+            winrt::check_hresult(::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER,
+                                                    IID_PPV_ARGS(thread_mgr_.put())));
+
+            thread_ex_ = thread_mgr_.try_as<ITfThreadMgrEx>();
+            if (thread_ex_)
+            {
+                winrt::check_hresult(thread_ex_->ActivateEx(
+                    &client_id_, TF_TMAE_NOACTIVATETIP | TF_TMAE_NOACTIVATEKEYBOARDLAYOUT | TF_TMAE_CONSOLE));
+            }
+            else
+            {
+                winrt::check_hresult(thread_mgr_->Activate(&client_id_));
+            }
+
+            winrt::check_hresult(thread_mgr_->CreateDocumentMgr(document_mgr_.put()));
+            winrt::check_hresult(document_mgr_->CreateContext(
+                client_id_, 0, static_cast<ITfContextOwnerCompositionSink *>(this), context_.put(), &edit_cookie_));
+
+            auto source = context_.try_as<ITfSource>();
+            winrt::check_hresult(source ? S_OK : E_NOINTERFACE);
+            winrt::check_hresult(source->AdviseSink(IID_ITfContextOwner, static_cast<ITfContextOwner *>(this),
+                                                    &owner_cookie_));
+            winrt::check_hresult(source->AdviseSink(IID_ITfTextEditSink, static_cast<ITfTextEditSink *>(this),
+                                                    &edit_sink_cookie_));
+
+            winrt::check_hresult(document_mgr_->Push(context_.get()));
+
+            if (thread_ex_)
+            {
+                winrt::com_ptr<ITfDocumentMgr> previous;
+                winrt::check_hresult(thread_ex_->AssociateFocus(window_, document_mgr_.get(), previous.put()));
+            }
+
+            winrt::check_hresult(thread_mgr_->SetFocus(document_mgr_.get()));
+            LOG2("tsf initialized client=%u context=%p", static_cast<unsigned>(client_id_), context_.get());
         }
         catch (const winrt::hresult_error &error)
         {
@@ -39,51 +74,35 @@ namespace corehost::window
 
         ~tsf_host() noexcept
         {
-            if (thread_mgr_)
-            {
-                (void)thread_mgr_->SetFocus(nullptr);
-            }
-            if (document_mgr_ && context_)
-            {
-                (void)document_mgr_->Pop(TF_POPF_ALL);
-            }
-            if (context_ && owner_cookie_ != TF_INVALID_COOKIE)
-            {
-                if (auto source = context_.try_as<ITfSource>(); source)
-                {
-                    (void)source->UnadviseSink(owner_cookie_);
-                }
-            }
-            if (context_ && edit_sink_cookie_ != TF_INVALID_COOKIE)
-            {
-                if (auto source = context_.try_as<ITfSource>(); source)
-                {
-                    (void)source->UnadviseSink(edit_sink_cookie_);
-                }
-            }
-            if (thread_mgr_)
-            {
-                (void)thread_mgr_->Deactivate();
-            }
-        }
+            assert(thread_mgr_);
+            assert(document_mgr_);
+            assert(context_);
+            (void)thread_mgr_->SetFocus(nullptr);
 
+            auto source = context_.try_as<ITfSource>();
+            assert(source);
+            assert(owner_cookie_ != TF_INVALID_COOKIE);
+            assert(edit_sink_cookie_ != TF_INVALID_COOKIE);
+            (void)source->UnadviseSink(owner_cookie_);
+            (void)source->UnadviseSink(edit_sink_cookie_);
+
+            (void)document_mgr_->Pop(TF_POPF_ALL);
+            (void)thread_mgr_->Deactivate();
+        }
         tsf_host(const tsf_host &) = delete;
         tsf_host &operator=(const tsf_host &) = delete;
 
         void focus() noexcept
         {
-            if (thread_mgr_ && document_mgr_)
-            {
-                (void)thread_mgr_->SetFocus(document_mgr_.get());
-            }
+            assert(thread_mgr_);
+            assert(document_mgr_);
+            (void)thread_mgr_->SetFocus(document_mgr_.get());
         }
 
         void unfocus() noexcept
         {
-            if (thread_mgr_)
-            {
-                (void)thread_mgr_->SetFocus(nullptr);
-            }
+            assert(thread_mgr_);
+            (void)thread_mgr_->SetFocus(nullptr);
         }
 
         // ITfContextOwner
@@ -96,7 +115,8 @@ namespace corehost::window
         {
             if (rect)
             {
-                *rect = callbacks_.caret ? callbacks_.caret(callbacks_.context) : RECT{};
+                assert(callbacks_.caret);
+                *rect = callbacks_.caret(callbacks_.context);
                 const auto shift = (rect->right - rect->left) * 2;
                 rect->left -= shift;
                 rect->right -= shift;
@@ -261,51 +281,9 @@ namespace corehost::window
             ULONG references_{1};
         };
 
-        void initialize()
-        {
-            winrt::check_hresult(::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER,
-                                                    IID_PPV_ARGS(thread_mgr_.put())));
-
-            thread_ex_ = thread_mgr_.try_as<ITfThreadMgrEx>();
-            if (thread_ex_)
-            {
-                winrt::check_hresult(thread_ex_->ActivateEx(
-                    &client_id_, TF_TMAE_NOACTIVATETIP | TF_TMAE_NOACTIVATEKEYBOARDLAYOUT | TF_TMAE_CONSOLE));
-            }
-            else
-            {
-                winrt::check_hresult(thread_mgr_->Activate(&client_id_));
-            }
-
-            winrt::check_hresult(thread_mgr_->CreateDocumentMgr(document_mgr_.put()));
-            winrt::check_hresult(document_mgr_->CreateContext(
-                client_id_, 0, static_cast<ITfContextOwnerCompositionSink *>(this), context_.put(), &edit_cookie_));
-
-            auto source = context_.try_as<ITfSource>();
-            winrt::check_hresult(source ? S_OK : E_NOINTERFACE);
-            winrt::check_hresult(source->AdviseSink(IID_ITfContextOwner, static_cast<ITfContextOwner *>(this),
-                                                    &owner_cookie_));
-            winrt::check_hresult(source->AdviseSink(IID_ITfTextEditSink, static_cast<ITfTextEditSink *>(this),
-                                                    &edit_sink_cookie_));
-
-            winrt::check_hresult(document_mgr_->Push(context_.get()));
-
-            if (thread_ex_)
-            {
-                winrt::com_ptr<ITfDocumentMgr> previous;
-                winrt::check_hresult(thread_ex_->AssociateFocus(window_, document_mgr_.get(), previous.put()));
-            }
-
-            winrt::check_hresult(thread_mgr_->SetFocus(document_mgr_.get()));
-            LOG2("tsf initialized client=%u context=%p", static_cast<unsigned>(client_id_), context_.get());
-        }
-
         void request_update() noexcept
         {
-            if (!context_)
-            {
-                return;
-            }
+            assert(context_);
             HRESULT session_result = S_OK;
             try
             {
@@ -384,10 +362,7 @@ namespace corehost::window
 
         void read_context(TfEditCookie cookie) noexcept
         {
-            if (!context_)
-            {
-                return;
-            }
+            assert(context_);
 
             try
             {
@@ -437,7 +412,8 @@ namespace corehost::window
                     {
                         pending = std::wstring_view{finalized_buffer_}.substr(committed_text_.size());
                     }
-                    if (!pending.empty() && callbacks_.commit)
+                    assert(callbacks_.commit);
+                    if (!pending.empty())
                     {
                         callbacks_.commit(callbacks_.context, pending);
                     }
@@ -456,10 +432,8 @@ namespace corehost::window
                     committed_text_.clear();
                 }
 
-                if (callbacks_.composition)
-                {
-                    callbacks_.composition(callbacks_.context, composing_buffer_);
-                }
+                assert(callbacks_.composition);
+                callbacks_.composition(callbacks_.context, composing_buffer_);
             }
             catch (const winrt::hresult_error &error)
             {
