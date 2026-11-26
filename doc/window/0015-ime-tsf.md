@@ -21,6 +21,21 @@
 - 左移量由 `window_config::candidate_offset_cells` 控制，默认 `2`，单位是 cell；
 - 不再在 `tsf_host` 中硬编码 `2 * cell_width`。
 
+## TSF message pump 决策
+
+**不需要独立的 TSF message pump，标记为不需要。**
+
+理由：
+
+- corehostw 有标准 Win32 消息循环，`GetMessageW`/`DispatchMessageW` 会分发 TSF 的
+  hidden window 消息；
+- `ITfMessagePump` 面向没有标准消息循环或需要在模态循环中 pump 的宿主；
+- 当前 composition/candidate 路径由窗口消息、`AssociateFocus` 和 edit session 驱动，
+  微软拼音基础输入已验证；
+- 增加 pump 不会解决第三方 TIP 的文本存储/重组问题，反而增加重入风险。
+
+只有未来引入模态 TSF UI 或自建消息循环时才重新评估。
+
 ## 如何判断 composition
 
 1. 微软拼音出现候选窗，说明 TSF composition 已开始；
@@ -34,10 +49,10 @@
 ## 当前限制
 
 - 当前依赖系统 IME 的候选/组合窗口；
-- TSF message pump 当前禁用，使用窗口消息和 TSF association；
+- 使用标准窗口消息循环，不需要 TSF message pump；
 - OnEndComposition 只请求一次异步 edit session，由 OnEndEdit 完成 finalized 文本提交；
 - 未实现 `ITextStoreACP`；
-- TSF message pump 没有完整启用，部分第三方 TIP/复杂重组行为未验收；
+- 第三方 TIP/复杂重组行为仍未验收；
 - 日文/韩文输入法仍需硬件验收。
 
 ## 是否实现 `ITextStoreACP`

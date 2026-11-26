@@ -104,6 +104,12 @@ inline constexpr bool default_alpha_correction = true;
 | Sixel 最大尺寸 | 不配置 | 不设限 | 不增加宽高/像素上限 |
 | Sixel 纹理缓存 | 不配置 | 仅屏幕内 | 内容 generation 不变不重传；屏幕外释放 |
 
+## TSF message pump
+
+不需要，也不作为配置项。corehostw 使用标准 Win32 消息循环，TSF hidden window 消息由
+`GetMessageW`/`DispatchMessageW` 分发；`ITfMessagePump` 只用于没有标准消息循环或需要
+在模态循环中 pump 的宿主。只有在未来引入模态 TSF UI 或自建消息循环时才重新评估。
+
 ## frame_latency / vsync 说明
 
 这两个是 DXGI 呈现策略，不是终端语义：
@@ -166,6 +172,9 @@ struct font_fallback_list final
 | cursor style | profile default | console/window | block/underline/bar |
 
 | scrollbar width | `scrollbar::default_width` | window | 影响 grid 计算 |
+| mouse wheel lines | 3 | window | `WM_MOUSEWHEEL` 当前固定 3 行 |
+| right-click action | paste/copy | window | 当前按选区和 VT mouse tracking 决定 |
+| copy line ending | CRLF | console | `selected_text_into` |
 | scrollbar auto hide | true | window | 失焦隐藏 |
 | scrollbar animation frames | `expand_frames` | window | 与 DComp 时钟配合 |
 
@@ -174,7 +183,7 @@ struct font_fallback_list final
 | hyperlink modifier | control | window | 已接入 |
 
 | UIA ScrollPattern | true | window | 需要产品开关 |
-| tsf message pump | false | window/ime | 当前禁用，需硬件验收 |
+
 | Sixel visible texture capacity | 1024 | renderer | 内部实现，不暴露 |
 | frame latency | DXGI default | window | 见上文，未决定 |
 | vsync | true | window | 见上文，未决定 |
@@ -193,4 +202,4 @@ struct font_fallback_list final
 
 - 自定义字体 family / weight / italic 的 API；
 - cursor 样式/闪烁、scrollbar 尺寸、selection 参数是否公开；
-- `tsf_message_pump` 是否作为用户配置。
+- TSF message pump 已决定不需要；不要再加入配置。

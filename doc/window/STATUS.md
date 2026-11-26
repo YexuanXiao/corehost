@@ -26,7 +26,7 @@
 - 垂直滚动条：hover、thumb 拖拽、轨道点击、滚轮、键盘滚动；
 - 线性文本选择、Shift 扩展、双击选词、三击选行、边缘自动滚动；
 - 纯文本剪贴板、右键粘贴、VT SGR mouse；
-- TSF composition 自绘、candidate 定位（`ITextStoreACP` 已决定不实现）；
+- TSF composition 自绘、candidate 定位（`ITextStoreACP` 已决定不实现；不需要独立 message pump）；
 - Sixel 解码、HSB/RGB 调色板、RGBA 渲染；屏幕内图像纹理缓存，内容不变不重传；
 - hyperlink hover/Ctrl+click、visual bell；
 - `window_config`（C++ 构造）：palette、字体、backdrop、opacity、dark mode、exit policy；

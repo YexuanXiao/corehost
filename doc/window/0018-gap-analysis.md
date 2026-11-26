@@ -84,7 +84,7 @@ Sixel 验证：屏幕内图像仅首次上传纹理，后续光标闪烁/文字�
 
 ### 已决定的 TSF 范围
 
-TSF `ITextStoreACP` 已决定不实现。
+TSF `ITextStoreACP` 已决定不实现；TSF message pump 也决定不需要。
 
 当前窗口是 TUI 宿主，文本编辑仍属于 client；corehost 只负责 console input 和
 composition 自绘。`ITfContextOwner` + `ITfContextOwnerCompositionSink` + `ITfTextEditSink`
