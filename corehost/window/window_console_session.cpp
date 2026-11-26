@@ -121,39 +121,44 @@ void window_console_session::apply_vt(std::u16string_view text)
         if (result.id == vtparser::vt_message_id::report_cursor_position ||
             result.id == vtparser::vt_message_id::device_attributes)
         {
-            std::u16string response;
+            consoleinput::input_event event{};
+            event.type = consoleinput::input_event_type::text;
             if (result.id == vtparser::vt_message_id::device_attributes)
             {
-                response = u"\x1b[?1;2c";
+                for (const auto character : u"\x1b[?1;2c")
+                {
+                    event.text.push_back(character);
+                }
             }
             else
             {
+                for (const auto character : u"\x1b[")
+                {
+                    event.text.push_back(character);
+                }
+
+                char digits[16]{};
                 const auto cursor = console_.state().cursor();
-                response = u"\x1b[";
-                for (const auto character : std::to_string(cursor.y + 1))
+                auto [end, error] = std::to_chars(digits, digits + sizeof(digits), static_cast<unsigned>(cursor.y + 1));
+                for (auto *digit = digits; digit != end; ++digit)
                 {
-                    response.push_back(static_cast<char16_t>(character));
+                    event.text.push_back(static_cast<char16_t>(*digit));
                 }
-                response += u";";
-                for (const auto character : std::to_string(cursor.x + 1))
+                event.text.push_back(u';');
+                const auto second = std::to_chars(digits, digits + sizeof(digits),
+                                                   static_cast<unsigned>(cursor.x + 1));
+                for (auto *digit = digits; digit != second.ptr; ++digit)
                 {
-                    response.push_back(static_cast<char16_t>(character));
+                    event.text.push_back(static_cast<char16_t>(*digit));
                 }
-                response += u"R";
+                event.text.push_back(u'R');
             }
 
-            consoleinput::input_event event{};
-            event.type = consoleinput::input_event_type::text;
-            for (const auto character : response)
-            {
-                event.text.push_back(character);
-            }
             LOG2("terminal response size=%zu", event.text.size());
             console_.push_input(std::move(event));
             vt_parser_.reset();
             continue;
-        }
-        if ((result.id == vtparser::vt_message_id::apc_sequence ||
+        }        if ((result.id == vtparser::vt_message_id::apc_sequence ||
              result.id == vtparser::vt_message_id::dcs_sequence) &&
             vt_applier_.apply_image(result.raw_sequence, console_.buffer(), console_.state()))
         {
