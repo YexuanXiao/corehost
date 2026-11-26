@@ -14,13 +14,6 @@
 
 #include <Windows.h>
 
-#ifndef COREHOST_TEXT_CONTRAST
-#define COREHOST_TEXT_CONTRAST 1
-#endif
-#ifndef COREHOST_TEXT_ALPHA_CORRECTION
-#define COREHOST_TEXT_ALPHA_CORRECTION 1
-#endif
-
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -39,8 +32,9 @@ class render_worker final
 {
   public:
     render_worker(console &console, win32::srwlock &console_mutex,
-                  console_palette palette = console_palette::campbell())
-        : console_{console}, console_mutex_{console_mutex}, palette_{palette}
+                  console_palette palette = console_palette::campbell(),
+                  uitext::text_options text_options = {})
+        : console_{console}, console_mutex_{console_mutex}, text_options_{text_options}, palette_{palette}
     {
     }
 
@@ -696,12 +690,14 @@ class render_worker final
     {
         float contrast = 0.0f;
         std::array<float, 4> gamma_ratios{};
-#if COREHOST_TEXT_CONTRAST
-        contrast = text_.grayscale_enhanced_contrast();
-#endif
-#if COREHOST_TEXT_ALPHA_CORRECTION
-        gamma_ratios = text_.gamma_ratios();
-#endif
+        if (text_options_.contrast)
+        {
+            contrast = text_.grayscale_enhanced_contrast();
+        }
+        if (text_options_.alpha_correction)
+        {
+            gamma_ratios = text_.gamma_ratios();
+        }
         renderer_.set_text_correction(contrast, gamma_ratios);
     }
 
@@ -903,7 +899,8 @@ class render_worker final
     win32::srwlock &console_mutex_;
     HWND window_{};
     d3d12ui::d3d12_window_renderer renderer_;
-    std::array<uitext::font_fallback_entry, 3> fallback_families_{uitext::default_font_families()};
+    uitext::text_options text_options_{};
+    std::array<uitext::font_fallback_entry, 3> fallback_families_{uitext::default_font_families(text_options_.font)};
     uitext::text_engine text_{fallback_families_, 16.0f};
     uitext::cell_atlas atlas_{text_};
     uitext::color_cell_atlas color_atlas_{text_};

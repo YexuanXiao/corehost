@@ -13,7 +13,8 @@
 namespace corehost::window
 {
 
-void window_entry(win32::wcstring_view title, std::wstring client_command_line)
+void window_entry(win32::wcstring_view title, std::wstring client_command_line,
+                  uitext::text_options text_options)
 {
     auto server = condrv::create_server_handle();
     win32::srwlock console_mutex;
@@ -24,7 +25,7 @@ void window_entry(win32::wcstring_view title, std::wstring client_command_line)
 
     window_client_process client{server.view(), title, client_command_line};
     window_ui ui{shared_console, console_mutex, client.process(), title, client_exit_policy::keep_open,
-                 console_palette::campbell()};
+                 console_palette::campbell(), text_options};
     ui.start();
     ui.wait();
 

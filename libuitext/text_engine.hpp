@@ -1,5 +1,6 @@
 #pragma once
 
+#include "text_options.hpp"
 #include "win32/string.hpp"
 
 #include <dwrite.h>
@@ -15,10 +16,6 @@
 #include <string_view>
 #include <utility>
 #include <vector>
-
-#ifndef COREHOST_FONT_MONO
-#define COREHOST_FONT_MONO 0
-#endif
 
 namespace corehost::uitext
 {
@@ -70,15 +67,15 @@ struct font_fallback_entry final
 
 // Test-build switch: Cascadia Mono instead of Cascadia Code as the primary
 // face. Both lists keep the same fallback order.
-[[nodiscard]] inline std::array<font_fallback_entry, 3> default_font_families() noexcept
+[[nodiscard]] inline std::array<font_fallback_entry, 3> default_font_families(font_family font) noexcept
 {
-#if COREHOST_FONT_MONO
-    return {font_fallback_entry{L"Cascadia Mono"}, font_fallback_entry{L"Cascadia Code"},
-            font_fallback_entry{L"Consolas"}};
-#else
+    if (font == font_family::cascadia_mono)
+    {
+        return {font_fallback_entry{L"Cascadia Mono"}, font_fallback_entry{L"Cascadia Code"},
+                font_fallback_entry{L"Consolas"}};
+    }
     return {font_fallback_entry{L"Cascadia Code"}, font_fallback_entry{L"Cascadia Mono"},
             font_fallback_entry{L"Consolas"}};
-#endif
 }
 
 // Header-only DirectWrite text layout and glyph-run rasterization.
