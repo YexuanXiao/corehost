@@ -230,6 +230,11 @@ class console final
         return screen_.cluster_of(y - screen_.history_size(), value);
     }
 
+    [[nodiscard]] bool alternate_active() const noexcept
+    {
+        return screen_.alternate_active();
+    }
+
     [[nodiscard]] bool vt_mouse_tracking() const noexcept
     {
         return state_.mouse_tracking();

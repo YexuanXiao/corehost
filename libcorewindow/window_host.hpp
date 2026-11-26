@@ -636,19 +636,32 @@ class window_host final
                 if (delta != 0)
                 {
                     const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                    POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+                    ::ScreenToClient(hwnd, &point);
                     std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                    if (!shift && self->console_.mouse_reporting())
+                    const auto geometry = self->scrollbar_geometry(hwnd);
+                    const bool over_scrollbar =
+                        scrollbar::hit_test(geometry, static_cast<float>(point.x), static_cast<float>(point.y)) !=
+                        scrollbar::hit_target::none;
+                    LOG2("wheel point=%ld,%ld bar=%f,%f delta=%d over=%d vt=%d offset=%zu", point.x, point.y,
+                         geometry.x, geometry.y, delta, over_scrollbar ? 1 : 0,
+                         self->console_.vt_mouse_tracking() ? 1 : 0, self->console_.scroll_offset(),
+                         self->console_.history_size());
+                    if (!over_scrollbar && !shift && self->console_.alternate_active() &&
+                        self->console_.vt_mouse_tracking())
                     {
-                        POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-                        ::ScreenToClient(hwnd, &point);
-                        const auto packed = static_cast<LPARAM>((point.y << 16) | (point.x & 0xFFFF));
-                        self->push_mouse(packed, static_cast<std::uint32_t>(static_cast<std::uint16_t>(delta)) << 16,
+                        const auto packed =
+                            static_cast<LPARAM>((point.y << 16) | (point.x & 0xFFFF));
+                        self->push_mouse(packed,
+                                         static_cast<std::uint32_t>(static_cast<std::uint16_t>(delta)) << 16,
                                          MOUSE_WHEELED);
                     }
                     else
                     {
                         self->console_.scroll_by(static_cast<double>(delta) * 3.0 /
                                                  static_cast<double>(WHEEL_DELTA));
+                        LOG2("wheel after offset=%zu pixels=%f", self->console_.scroll_offset(),
+                             self->console_.scroll_pixels());
                     }
                 }
             }

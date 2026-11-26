@@ -46,6 +46,9 @@ snap_to_bottom_if_unlocked()
 ## 交互
 
 - 滚轮：每 120 delta 滚 3 行，保留高精度滚轮的小数增量；
+- 主屏滚轮始终滚动本地 scrollback，即使应用启用了 Win32 ENABLE_MOUSE_INPUT；
+- 只有 alternate screen + VT mouse tracking 的应用才接收滚轮事件；
+- 指针位于 scrollbar 区域时始终本地滚动；
 - console_state 只保存行数，UI 保存像素偏移，render 时换算；
 - 右侧 16 DIP overlay scrollbar；
 - thumb 只在上/下 26 DIP 箭头区域之间移动；
