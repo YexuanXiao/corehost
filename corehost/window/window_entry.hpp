@@ -11,6 +11,6 @@ namespace corehost::window
 // Window-mode entry point. It creates the ConDrv server, then the in-process
 // console session, and finally starts the top-level window.
 void window_entry(win32::wcstring_view title, std::wstring client_command_line,
-                  console_config console_config = {}, window_config window_config = {});
+                  const console_config &console_config, const window_config &window_config);
 
 } // namespace corehost::window

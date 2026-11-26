@@ -33,12 +33,11 @@ namespace corehost::window
 class render_worker final
 {
   public:
-    render_worker(console &console, win32::srwlock &console_mutex,
-                  console_palette palette = console_palette::campbell(),
-                  uitext::text_options text_options = {}, bool transparent_background = false,
-                  win32::handle_view damage_event = {}, bell_mode bell = bell_mode::visual)
-        : console_{console}, console_mutex_{console_mutex}, text_options_{text_options}, palette_{palette},
-          transparent_background_{transparent_background}, damage_event_{damage_event}, bell_{bell}
+    render_worker(console &console, win32::srwlock &console_mutex, const window_config &config,
+                  win32::handle_view damage_event = {})
+        : console_{console}, console_mutex_{console_mutex}, config_{config},
+          fallback_families_{uitext::default_font_families(config_.text_options.font)},
+          damage_event_{damage_event}
     {
     }
 
@@ -396,8 +395,8 @@ class render_worker final
                 }
 
                 const auto &style = styles_.at(cell.style());
-                auto foreground = foreground_color(style, palette_);
-                const auto background = background_color(style, palette_);
+                auto foreground = foreground_color(style, config_.palette);
+                const auto background = background_color(style, config_.palette);
                 const auto sample = 0.5f / static_cast<float>(atlas_.size());
                 const auto cell_span = cell.is_wide() ? 2.0f : 1.0f;
                 const auto bold = has_attribute(style, screen::text_style_attribute::bold);
@@ -405,7 +404,7 @@ class render_worker final
                 auto text_alpha = 1.0f;
                 if (faint)
                 {
-                    if (palette_.faint == faint_mode::alpha)
+                    if (config_.palette.faint == faint_mode::alpha)
                     {
                         text_alpha = 0.5f;
                     }
@@ -415,9 +414,9 @@ class render_worker final
                     }
                 }
 
-                if (background.r != palette_.default_background.r ||
-                    background.g != palette_.default_background.g ||
-                    background.b != palette_.default_background.b)
+                if (background.r != config_.palette.default_background.r ||
+                    background.g != config_.palette.default_background.g ||
+                    background.b != config_.palette.default_background.b)
                 {
                     d3d12ui::text_quad background_quad{
                         .x = static_cast<float>(x) * cell_width,
@@ -436,7 +435,7 @@ class render_worker final
                 if (composition_cell)
                 {
                     const auto composition_color =
-                        blend_color(palette_.default_foreground, palette_.default_background, 0.25f);
+                        blend_color(config_.palette.default_foreground, config_.palette.default_background, 0.25f);
                     add_line_quad(quads_, static_cast<float>(x) * cell_width,
                                   static_cast<float>(y) * cell_height + scroll_shift, cell_width * cell_span,
                                   cell_height, composition_color, sample, 1.0f);
@@ -451,7 +450,7 @@ class render_worker final
                     if (selection_.contains(x, virtual_row))
                     {
                         const auto selection_color =
-                            blend_color(palette_.default_foreground, palette_.default_background, 0.35f);
+                            blend_color(config_.palette.default_foreground, config_.palette.default_background, 0.35f);
                         add_line_quad(quads_, static_cast<float>(x) * cell_width,
                                       static_cast<float>(y) * cell_height + scroll_shift, cell_width * cell_span,
                                       cell_height, selection_color, sample, 1.0f);
@@ -460,8 +459,8 @@ class render_worker final
 
                 auto line_color = style.underline.kind == screen::color_kind::default_color
                                       ? foreground
-                                      : resolve_color(style.underline, palette_, true);
-                if (faint && palette_.faint == faint_mode::blend_background)
+                                      : resolve_color(style.underline, config_.palette, true);
+                if (faint && config_.palette.faint == faint_mode::blend_background)
                 {
                     line_color = blend_color(line_color, background, 0.5f);
                 }
@@ -576,11 +575,11 @@ class render_worker final
             }
 
             const auto sample = 0.5f / static_cast<float>(atlas_.size());
-            console_color cursor_color = palette_.default_foreground;
+            console_color cursor_color = config_.palette.default_foreground;
             if (cursor_.x < columns && cursor_.y < rows)
             {
                 cursor_color = foreground_color(styles_.at(cell_state_[cursor_.y * columns + cursor_.x].style()),
-                                                palette_);
+                                                config_.palette);
             }
 
             d3d12ui::text_quad cursor_quad{
@@ -701,11 +700,11 @@ class render_worker final
     {
         float contrast = 0.0f;
         std::array<float, 4> gamma_ratios{};
-        if (text_options_.contrast)
+        if (config_.text_options.contrast)
         {
             contrast = text_.grayscale_enhanced_contrast();
         }
-        if (text_options_.alpha_correction)
+        if (config_.text_options.alpha_correction)
         {
             gamma_ratios = text_.gamma_ratios();
         }
@@ -716,9 +715,9 @@ class render_worker final
     {
         renderer_.initialize(window_);
         apply_text_correction();
-        const auto &clear = palette_.default_background;
+        const auto &clear = config_.palette.default_background;
         renderer_.set_clear_color(static_cast<float>(clear.r) / 255.0f, static_cast<float>(clear.g) / 255.0f,
-                                  static_cast<float>(clear.b) / 255.0f, transparent_background_ ? 0.0f : 1.0f);
+                                  static_cast<float>(clear.b) / 255.0f, (config_.backdrop != backdrop_mode::none) ? 0.0f : 1.0f);
         renderer_.render();
         bool cursor_dirty = true;
 
@@ -910,8 +909,8 @@ class render_worker final
     win32::srwlock &console_mutex_;
     HWND window_{};
     d3d12ui::d3d12_window_renderer renderer_;
-    uitext::text_options text_options_{};
-    std::array<uitext::font_fallback_entry, 3> fallback_families_{uitext::default_font_families(text_options_.font)};
+    const window_config &config_;
+    std::array<uitext::font_fallback_entry, 3> fallback_families_{uitext::default_font_families(config_.text_options.font)};
     uitext::text_engine text_{fallback_families_, 16.0f};
     uitext::cell_atlas atlas_{text_};
     uitext::color_cell_atlas color_atlas_{text_};
@@ -920,10 +919,7 @@ class render_worker final
 
     std::vector<screen::cell> cell_state_ = std::vector<screen::cell>(columns * (rows + 1));
     screen::style_table styles_;
-    console_palette palette_;
-    bool transparent_background_{};
     win32::handle_view damage_event_{};
-    bell_mode bell_{bell_mode::visual};
     std::uint64_t bell_count_{};
     screen::cursor_state cursor_{};
     screen::selection_range selection_{};

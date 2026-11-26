@@ -50,12 +50,11 @@ class window_host final
     }
 
     window_host(win32::wcstring_view title, console &console, win32::srwlock &console_mutex,
-                win32::handle_view client_process, console_config console_config, window_config window_config,
+                win32::handle_view client_process, const console_config &console_config, const window_config &window_config,
                 win32::handle_view damage_event)
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
           console_config_{console_config}, window_config_{window_config}, damage_event_{damage_event},
-          worker_{console, console_mutex, console_config_.palette, window_config_.text_options,
-                  window_config_.backdrop != backdrop_mode::none, damage_event_, console_config_.bell},
+          worker_{console, console_mutex, window_config_, damage_event_},
           window_{create_window()},
           tsf_{window_, tsf_host::callbacks{
                             .context = this,
@@ -1242,8 +1241,8 @@ class window_host final
     console &console_;
     win32::srwlock &console_mutex_;
     win32::handle_view client_process_;
-    console_config console_config_;
-    window_config window_config_;
+    const console_config &console_config_;
+    const window_config &window_config_;
     win32::handle_view damage_event_;
     render_worker worker_;
     HWND window_;

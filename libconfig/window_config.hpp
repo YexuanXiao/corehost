@@ -1,11 +1,18 @@
 #pragma once
 
+#include "console_theme.hpp"
 #include "text_options.hpp"
 
 #include <cstdint>
 
 namespace corehost::window
 {
+    enum class bell_mode : unsigned char
+    {
+        off,
+        visual,
+    };
+
     enum class client_exit_policy : unsigned char
     {
         keep_open,
@@ -23,6 +30,8 @@ namespace corehost::window
     // Window/display behavior. File loading is intentionally not implemented.
     struct window_config final
     {
+        console_palette palette{console_palette::campbell()};
+        bell_mode bell{bell_mode::visual};
         uitext::text_options text_options{};
         backdrop_mode backdrop{backdrop_mode::none};
         std::uint8_t opacity{255};

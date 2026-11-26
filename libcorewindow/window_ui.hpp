@@ -24,7 +24,7 @@ class window_ui final
 {
   public:
     window_ui(console &console, win32::srwlock &console_mutex, win32::handle_view client_process,
-              win32::wcstring_view title, console_config console_config, window_config window_config,
+              win32::wcstring_view title, const console_config &console_config, const window_config &window_config,
               win32::handle_view damage_event)
         : console_{console}, console_mutex_{console_mutex}, client_process_{client_process}, title_{title},
           console_config_{console_config}, window_config_{window_config}, damage_event_{damage_event}
@@ -107,8 +107,8 @@ class window_ui final
     win32::srwlock &console_mutex_;
     win32::handle_view client_process_;
     win32::wcstring_view title_;
-    console_config console_config_;
-    window_config window_config_;
+    const console_config &console_config_;
+    const window_config &window_config_;
     win32::handle_view damage_event_{};
 
     win32::event ready_{win32::create_tag, true, false};
