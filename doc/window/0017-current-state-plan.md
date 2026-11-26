@@ -1,0 +1,143 @@
+# Window Mode 当前状态与实施计划（2026-11-26）
+
+## 范围修正
+
+明确不做：
+
+- 分屏、多窗格；
+- 多标签页；
+- child HWND 嵌入；
+- HTML/RTF 剪贴板；
+- 搜索/查找；
+- 非纯文本剪贴板；
+- 当前阶段不验证完整 console API 覆盖；
+- 不集中补测试，测试跟随功能点；
+- CJK/Emoji/grapheme 验收保持低优先级。
+
+## 当前状态
+
+已完成：
+
+- `window_ui` 独立 UI 线程；
+- D3D12 + DirectComposition 渲染；
+- DirectWrite 字体 fallback、glyph atlas、颜色 emoji；
+- DPI、resize/reflow、光标形状/闪烁；
+- Campbell 主题、SGR 16/256/RGB、粗斜体/下划线/反显/删除线；
+- 滚动条拖动、轨道点击、滚轮、hover；
+- grapheme cluster 选择、Shift 单击、双击选词、三击选行；
+- scrollback 选择、复制、右键粘贴；
+- TSF IME：composition 自绘、candidate、finalized/composing 分离；
+- IMM32 `WM_IME_REQUEST` 兼容；
+- 窗口图标、标题；
+- 字体选项 C++ 接口。
+
+已知缺口：
+
+- 文本选择回归；
+- 选择拖动到窗口边缘没有自动滚动；
+- 没有配置类；
+- 没有 Mica/亚克力/自定义透明度；
+- 没有 Sixel；
+- hyperlink 只有元数据，没有 hover/Ctrl+click/下划线；
+- 没有 bell；
+- 空闲时渲染线程仍按合成帧时钟唤醒；
+- `window_host` 仍包含输入/选择/IME 消息，模块边界可继续整理。
+
+## 计划
+
+### 1. window_config
+
+新增 `corehost::window::window_config`：
+
+```cpp
+struct window_config
+{
+    console_palette palette = console_palette::campbell();
+    uitext::text_options text_options{};
+    backdrop_mode backdrop = backdrop_mode::none;
+    std::uint8_t opacity = 255;
+    bool dark_mode = true;
+};
+```
+
+- 先只由 C++ 构造，不读取配置文件；
+- `window_entry(title, command_line, window_config)`；
+- `window_ui` 和 `window_host` 接收同一份配置；
+- 默认值保持当前行为。
+
+验收：修改配置可改变字体、主题、backdrop、透明度，不需要改窗口代码。
+
+### 2. DWM 外观
+
+- `DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE)`；
+- Mica：`DWMSBT_MAINWINDOW`；
+- 亚克力：`DWMSBT_TRANSIENTWINDOW`；
+- `DWMWA_USE_IMMERSIVE_DARK_MODE`；
+- 自定义透明度：`WS_EX_LAYERED` + `SetLayeredWindowAttributes`；
+- Mica/亚克力时默认背景 cell 透明，保留 ANSI 背景色。
+
+验收：三种模式可切换，无黑边，窗口仍可交互。
+
+### 3. 文本选择修复与边缘自动滚动
+
+- 复现并修复当前选择回归；
+- 拖动到 client 上/下边缘时按行自动滚动；
+- 水平越界时 clamp 到首/末列；
+- 自动滚动只在拖动期间运行，停止后释放 timer。
+
+验收：backwards/forwards、多行、scrollback、边缘拖动均可选择。
+
+### 4. Hyperlink
+
+- 从 cell hyperlink 元数据解析 URL；
+- hover 时记录鼠标下 cell 的 hyperlink；
+- Ctrl+click 使用 `ShellExecuteW` 打开；
+- hover 时在 cell 下方绘制下划线；
+- 不改变选择/鼠标 reporting 行为。
+
+### 5. Bell
+
+- 解析 BEL 后在 UI 线程触发；
+- 默认 visual bell：窗口边框/标题短暂提示或闪烁；
+- 不做音频前先确认行为；
+- 限频，避免高频 BEL 卡顿。
+
+### 6. Sixel
+
+- 新增 `libuisixel`：Sixel 解码为 RGBA8；
+- palette 解码、raster attributes、repeat；
+- `libscreen::image_fragment` 保存像素数据或句柄；
+- render_worker 创建/更新图片纹理；
+- 支持 image_fragment 的 below/replace/above 层。
+
+验收：`\x1bPq...` sixel 图片显示，滚动/resize/销毁正确。
+
+### 7. 渲染空闲
+
+- 渲染线程不再固定等 `DCompositionWaitForCompositorClock`；
+- 增加 wake event；
+- 无 damage、无动画、无光标闪烁时阻塞在 wake event；
+- 有 damage 时主动唤醒并 present；
+- 光标闪烁使用 timer，只在需要时唤醒；
+- 目标：窗口无消息时 GPU 不提交、线程 CPU 0%。
+
+### 8. IME 复审
+
+- 基于当前 TSF 实现重新核对：
+  - candidate 位置；
+  - composition 生命周期；
+  - `IMR_QUERYCHARPOSITION`/`IMR_RECONVERTSTRING`；
+  - InputScope；
+  - 日文/韩文行为。
+- 只补实际缺口，不为了“完整”添加无用代码。
+
+## 顺序
+
+1. window_config；
+2. DWM 外观；
+3. 选择修复 + 自动滚动；
+4. hyperlink；
+5. bell；
+6. 渲染空闲；
+7. Sixel；
+8. IME 复审。

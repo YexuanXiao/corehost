@@ -66,18 +66,19 @@ int __stdcall wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     }
 
 #ifdef COREHOST_WINDOW
+    auto config = corehost::window::window_config{};
     auto cmdline = args.client_command_line();
     if (cmdline.empty())
     {
         auto shell_info = shell::get_shell();
         corehost::window::window_entry({shell_info.name.data(), shell_info.name.size()},
-                                              std::move(shell_info.path));
+                                              std::move(shell_info.path), config);
     }
     else
     {
         auto shell_info = shell::get_shell();
         corehost::window::window_entry({shell_info.name.data(), shell_info.name.size()},
-                                       std::wstring(cmdline.data(), cmdline.size()));
+                                       std::wstring(cmdline.data(), cmdline.size()), config);
     }
 #else
     auto cmdline = args.client_command_line();

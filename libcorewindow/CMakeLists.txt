@@ -15,6 +15,7 @@ target_link_libraries(libcorewindow INTERFACE
     unicode::unicode
     common
     user32
+    dwmapi
     ole32
     oleaut32
 )

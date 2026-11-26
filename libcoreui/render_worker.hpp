@@ -33,8 +33,9 @@ class render_worker final
   public:
     render_worker(console &console, win32::srwlock &console_mutex,
                   console_palette palette = console_palette::campbell(),
-                  uitext::text_options text_options = {})
-        : console_{console}, console_mutex_{console_mutex}, text_options_{text_options}, palette_{palette}
+                  uitext::text_options text_options = {}, bool transparent_background = false)
+        : console_{console}, console_mutex_{console_mutex}, text_options_{text_options}, palette_{palette},
+          transparent_background_{transparent_background}
     {
     }
 
@@ -707,7 +708,7 @@ class render_worker final
         apply_text_correction();
         const auto &clear = palette_.default_background;
         renderer_.set_clear_color(static_cast<float>(clear.r) / 255.0f, static_cast<float>(clear.g) / 255.0f,
-                                  static_cast<float>(clear.b) / 255.0f, 1.0f);
+                                  static_cast<float>(clear.b) / 255.0f, transparent_background_ ? 0.0f : 1.0f);
         renderer_.render();
         bool cursor_dirty = true;
 
@@ -910,6 +911,7 @@ class render_worker final
     std::vector<screen::cell> cell_state_ = std::vector<screen::cell>(columns * (rows + 1));
     screen::style_table styles_;
     console_palette palette_;
+    bool transparent_background_{};
     screen::cursor_state cursor_{};
     screen::selection_range selection_{};
     std::u16string composition_;

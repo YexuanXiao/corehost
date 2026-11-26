@@ -1,6 +1,7 @@
 #pragma once
 
 #include "console.hpp"
+#include "window_config.hpp"
 #include "utility/log.hpp"
 #include "render_worker.hpp"
 #include "tsf_host.hpp"
@@ -10,6 +11,7 @@
 #include "win32/string.hpp"
 
 #include <Windows.h>
+#include <dwmapi.h>
 #include <imm.h>
 #include <windowsx.h>
 
@@ -51,12 +53,12 @@ class window_host final
     }
 
     window_host(win32::wcstring_view title, console &console, win32::srwlock &console_mutex,
-                win32::handle_view client_process, client_exit_policy policy = client_exit_policy::keep_open,
-                console_palette palette = console_palette::campbell(),
-                uitext::text_options text_options = {})
+                win32::handle_view client_process, client_exit_policy policy, window_config config)
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
-          client_policy_{policy}, worker_{console, console_mutex, palette, text_options},
-          window_{create_window(text_options)},
+          client_policy_{policy}, config_{config},
+          worker_{console, console_mutex, config_.palette, config_.text_options,
+                  config_.backdrop != backdrop_mode::none},
+          window_{create_window()},
           tsf_{window_, tsf_host::callbacks{
                             .context = this,
                             .commit = &window_host::tsf_commit_callback,
@@ -115,7 +117,25 @@ class window_host final
                 std::max(1, static_cast<int>(std::ceil(row_height * static_cast<float>(initial_rows))))};
     }
 
-    [[nodiscard]] HWND create_window(uitext::text_options text_options)
+    void apply_appearance(HWND window)
+    {
+        const BOOL dark = config_.dark_mode ? TRUE : FALSE;
+        (void)::DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
+
+        if (config_.backdrop != backdrop_mode::none)
+        {
+            const int backdrop = config_.backdrop == backdrop_mode::mica ? 2 : 3;
+            const auto result = ::DwmSetWindowAttribute(window, 38, &backdrop, sizeof(backdrop));
+            LOG2("window backdrop mode=%d hr=%08x", backdrop, static_cast<unsigned>(result));
+        }
+
+        if (config_.opacity < 255)
+        {
+            (void)::SetLayeredWindowAttributes(window, 0, config_.opacity, LWA_ALPHA);
+        }
+    }
+
+    [[nodiscard]] HWND create_window()
     {
         const auto instance = ::GetModuleHandleW(nullptr);
         constexpr const wchar_t *class_name = L"CoreHostWindow";
@@ -142,7 +162,7 @@ class window_host final
         }
 
         const auto initial_dpi = std::max<UINT>(96, ::GetDpiForSystem());
-        const auto [client_width, client_height] = initial_client_size(initial_dpi, text_options.font);
+        const auto [client_width, client_height] = initial_client_size(initial_dpi, config_.text_options.font);
         RECT initial_rect{0, 0, client_width, client_height};
         if (::AdjustWindowRectExForDpi(&initial_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
                                        initial_dpi) == FALSE)
@@ -152,7 +172,12 @@ class window_host final
         const auto initial_width = initial_rect.right - initial_rect.left;
         const auto initial_height = initial_rect.bottom - initial_rect.top;
 
-        const auto window = ::CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, class_name, title_.c_str(),
+        auto ex_style = static_cast<DWORD>(WS_EX_NOREDIRECTIONBITMAP);
+        if (config_.opacity < 255)
+        {
+            ex_style |= WS_EX_LAYERED;
+        }
+        const auto window = ::CreateWindowExW(ex_style, class_name, title_.c_str(),
                                               WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, initial_width,
                                               initial_height, nullptr, nullptr, instance, this);
         if (window == nullptr)
@@ -160,10 +185,11 @@ class window_host final
             win32::throw_last_error();
         }
 
+        apply_appearance(window);
         const auto window_dpi = std::max<UINT>(96, ::GetDpiForWindow(window));
         if (window_dpi != initial_dpi)
         {
-            const auto [target_width, target_height] = initial_client_size(window_dpi, text_options.font);
+            const auto [target_width, target_height] = initial_client_size(window_dpi, config_.text_options.font);
             RECT target_rect{0, 0, target_width, target_height};
             if (::AdjustWindowRectExForDpi(&target_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
                                            window_dpi) == FALSE)
@@ -354,6 +380,9 @@ class window_host final
         return rect;
     }
 
+    static constexpr UINT_PTR selection_scroll_timer = 1;
+    static constexpr UINT selection_scroll_interval_ms = 40;
+
     static std::uint32_t control_state() noexcept
     {
         std::uint32_t state = 0;
@@ -504,7 +533,9 @@ class window_host final
             console_.set_selection(x, y, x, y);
         }
         selection_dragging_ = click_count_ == 1 || shift;
+        selection_drag_point_ = POINT{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
         ::SetCapture(hwnd);
+        ::SetTimer(hwnd, selection_scroll_timer, selection_scroll_interval_ms, nullptr);
     }
 
     void update_selection(HWND hwnd, LPARAM lparam)
@@ -513,9 +544,42 @@ class window_host final
         {
             return;
         }
+        selection_drag_point_ = POINT{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
         auto [x, y] = view_cell_at(hwnd, lparam);
         x = console_.snap_selection_column(x, y);
         console_.set_selection(selection_anchor_x_, selection_anchor_y_, x, y);
+    }
+
+    void auto_scroll_selection(HWND hwnd)
+    {
+        if (!selection_dragging_)
+        {
+            ::KillTimer(hwnd, selection_scroll_timer);
+            return;
+        }
+
+        RECT client{};
+        if (::GetClientRect(hwnd, &client) == FALSE)
+        {
+            return;
+        }
+
+        const bool scroll_up = selection_drag_point_.y < 0;
+        const bool scroll_down = selection_drag_point_.y >= client.bottom;
+        if (!scroll_up && !scroll_down)
+        {
+            return;
+        }
+
+        const auto row_height = static_cast<double>(console_.cell_height());
+        console_.scroll_by_pixels(scroll_up ? row_height : -row_height);
+
+        const auto x = std::clamp<LONG>(selection_drag_point_.x, 0, std::max<LONG>(0, client.right - 1));
+        const auto y = scroll_up ? 0 : std::max<LONG>(0, client.bottom - 1);
+        const auto cell = view_cell_at(hwnd, MAKELPARAM(x, y));
+        console_.set_selection(selection_anchor_x_, selection_anchor_y_,
+                               console_.snap_selection_column(cell.first, cell.second), cell.second);
+        worker_.request_redraw();
     }
 
     [[nodiscard]] bool mouse_tracking() const noexcept
@@ -1135,6 +1199,7 @@ class window_host final
     console &console_;
     win32::srwlock &console_mutex_;
     win32::handle_view client_process_;
+    window_config config_;
     render_worker worker_;
     HWND window_;
     tsf_host tsf_;
@@ -1143,6 +1208,7 @@ class window_host final
     win32::basic_thread process_thread_;
     bool scrollbar_dragging_{};
     bool selection_dragging_{};
+    POINT selection_drag_point_{};
     std::size_t selection_anchor_x_{};
     std::size_t selection_anchor_y_{};
     std::size_t last_click_x_{};
