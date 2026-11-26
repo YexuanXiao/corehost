@@ -140,8 +140,8 @@ Shift + 单击滚动条：滑块直接跳到单击的位置
 
 只负责配置对象：
 
-- `console_config`：scrollback 上限（默认 3000）、初始 grid、cursor 等；
-- `window_config`：窗口、显示、主题、输入相关配置；`bell` 和 `candidate_offset_cells`（默认 2）都在这里；
+- `console_config`：scrollback 上限（默认 3000）；
+- `window_config`：窗口、显示、主题、输入相关配置；启动 120x30、最小 36x2、`bell`、`candidate_offset_cells` 默认 2、hyperlink modifier 都在这里；
 - 配置清单见 [doc/window/0019-config-inventory.md](doc/window/0019-config-inventory.md)；
 - 输入仍由 `libcorewindow` 处理，不再单独建立 `libuiinput` 模块。
 
@@ -713,7 +713,7 @@ Child：
 - 使用私有窗口消息切换（不受 Windows 影响）；
 - 支持亮/暗、高对比度黑/高对比度白；
 - 动态切换；
-- 配置字段见 [doc/window/0019-config-inventory.md](doc/window/0019-config-inventory.md)。
+- 配置字段见 [doc/window/0019-config-inventory.md](doc/window/0019-config-inventory.md)；字体 fallback 列表、字号、frame latency/vsync 仍待决策。
 
 ### 5.11 UI Automation
 
