@@ -54,7 +54,7 @@
 - `window_config`、DWM 外观、选择/自动滚动、hyperlink、bell、Sixel 已完成基础路径；
 - 渲染空闲已完成（验收口径见 0018）；
 - IME 复审仅完成 TSF 基础路径；
-- 配置文件和主题切换仍不做；
+- 配置文件和主题切换仍不做；`scrollback_lines`/`candidate_offset_cells` 已接入；
 - UIA 是计划外新增能力，见 [0018-gap-analysis.md](0018-gap-analysis.md)。
 
 ## 原计划（历史）

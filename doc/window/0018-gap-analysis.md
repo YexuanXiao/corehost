@@ -105,7 +105,7 @@ TSF 文本存储耦合起来。
 
 #### 2. 主题与配置
 
-- 配置项清单见 `0019-config-inventory.md`：`scrollback_lines` 默认 3000，`bell_mode` 归 window，`candidate_offset_cells` 归 window/default 2，Sixel 不设上限且只缓存屏幕内图像；
+- `scrollback_lines` 默认 3000、`candidate_offset_cells` 默认 2 已接入；`bell_mode` 归 window；Sixel 不设上限且只缓存屏幕内图像；
 - `window_config` 只有 C++ 构造，明确未实现配置文件加载；
 - 只有 Campbell 调色板和深色标题；没有亮/暗主题切换、高对比度、系统主题跟随；
 - `0001-plan.md` W8.5/W8.6 仍未完成。

@@ -3,7 +3,7 @@
 目的：把散落在 `window_host`、`render_worker`、`console`、`tsf_host` 中的策略常量
 收敛到 `libconfig` 的配置对象。
 
-当前状态：**只做清单和设计，尚未把新字段接入代码**。已确认项不再标 `TBD`。
+当前状态：`scrollback_lines` 和 `candidate_offset_cells` 已接入代码；其余为清单和设计。已确认项不再标 `TBD`。
 
 ## 已确认
 
@@ -21,6 +21,7 @@
 ```cpp
 struct console_config
 {
+    std::size_t scrollback_lines{3000};
 };
 ```
 
@@ -34,6 +35,7 @@ struct window_config
     std::uint8_t opacity{255};
     bool dark_mode{true};
     client_exit_policy exit_policy{client_exit_policy::always_exit};
+    std::int32_t candidate_offset_cells{2};
 };
 ```
 
@@ -50,7 +52,7 @@ struct text_options
 
 | 字段 | 类型 | 默认 | 当前来源 | 备注 |
 |---|---|---:|---|---|
-| `scrollback_lines` | `std::size_t` | **3000** | `console` 构造/`history_limit` | 已确认；当前硬编码 1000 |
+| `scrollback_lines` | `std::size_t` | **3000** | `console_config` → `console` 构造 | 已接入；window 模式使用 3000 |
 | `initial_columns` | `std::size_t` | 120 | `window_host::initial_columns` | 初始 grid |
 | `initial_rows` | `std::size_t` | 30 | `window_host::initial_rows` | 初始 grid |
 | `cursor_style` | enum | profile default | `screen::cursor_state` | block/underline/bar |
@@ -65,7 +67,7 @@ struct text_options
 | 字段 | 类型 | 默认 | 当前来源 | 备注 |
 |---|---|---:|---|---|
 | `bell` | `bell_mode` | visual | `window_config` | 已确认归 window |
-| `candidate_offset_cells` | `std::int32_t` | **2** | `tsf_host::GetTextExt` | 已确认；按 cell 计算 |
+| `candidate_offset_cells` | `std::int32_t` | **2** | `window_config` → `tsf_host::callbacks` | 已接入；按 cell 计算 |
 | `initial_client_columns/rows` | `std::size_t` | 120/30 | `initial_client_size` | 和 console 初始尺寸同步 |
 | `min_columns/min_rows` | `std::size_t` | TBD | `WM_GETMINMAXINFO` | 最小窗口 |
 | `scrollbar_width` | `float` | `scrollbar::default_width` | `libscrollbar` | 滚动条宽度 |

@@ -30,7 +30,7 @@
 - Sixel 解码、HSB/RGB 调色板、RGBA 渲染；屏幕内图像纹理缓存，内容不变不重传；
 - hyperlink hover/Ctrl+click、visual bell；
 - `window_config`（C++ 构造）：palette、字体、backdrop、opacity、dark mode、exit policy；
-- 配置决定：scrollback 默认 3000、bell 归 window、candidate_offset_cells 默认 2、Sixel 不设尺寸上限且只缓存屏幕内图像；
+- 配置决定/接入：scrollback 默认 3000、candidate_offset_cells 默认 2 已接入；bell 归 window；Sixel 不设尺寸上限且只缓存屏幕内图像；
 - Mica/Acrylic、layered opacity（实现完成，待用户手动验收）；
 - UI Automation：Document/TextPattern/TextRange/ScrollPattern，文本变化和选择变化事件；
 - `ambiguous_is_wide` 默认 narrow；不提供 wide 反馈二进制；
