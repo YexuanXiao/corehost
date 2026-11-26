@@ -218,6 +218,126 @@ class window_host final
         worker_.request_redraw();
     }
 
+    // Chromium's InputMethodWinBase deliberately keeps handling these IMM32
+    // requests even when TSF is the active input path. Some TSF-native TIPs
+    // still send WM_IME_REQUEST for reverse conversion and for querying the
+    // candidate position, so dropping these messages would break reconversion
+    // and IME UI placement. See chromium_ime_src/ui/base/ime/win/
+    // input_method_win_base.cc and input_method_win_tsf.cc.
+    LRESULT handle_ime_request(WPARAM request, LPARAM data) const
+    {
+        if (window_ == nullptr)
+        {
+            return 0;
+        }
+
+        switch (request)
+        {
+        case IMR_RECONVERTSTRING:
+            return handle_reconvert_string(reinterpret_cast<RECONVERTSTRING *>(data), false);
+        case IMR_DOCUMENTFEED:
+            return handle_reconvert_string(reinterpret_cast<RECONVERTSTRING *>(data), true);
+        case IMR_QUERYCHARPOSITION:
+            return handle_query_char_position(reinterpret_cast<IMECHARPOSITION *>(data));
+        default:
+            return 0;
+        }
+    }
+
+    LRESULT handle_query_char_position(IMECHARPOSITION *position) const
+    {
+        if (position == nullptr || position->dwSize < sizeof(IMECHARPOSITION))
+        {
+            return 0;
+        }
+
+        const auto caret = tsf_caret_rect();
+        position->pt = POINT{caret.left, caret.top};
+        position->cLineHeight = static_cast<DWORD>(std::max<LONG>(1, caret.bottom - caret.top));
+        position->rcDocument = client_rect_screen();
+        return 1;
+    }
+
+    LRESULT handle_reconvert_string(RECONVERTSTRING *reconvert, bool include_context) const
+    {
+        std::unique_lock<win32::srwlock> lock{console_mutex_};
+        std::u16string text;
+        std::size_t target_offset = 0;
+        std::size_t target_length = 0;
+
+        // If TSF has an active composition, expose that as the conversion
+        // target. Otherwise use a local selection, then fall back to the
+        // current console row around the caret.
+        if (!console_.ime_composition().empty())
+        {
+            text.assign(console_.ime_composition());
+            target_length = text.size();
+        }
+        else if (console_.selection().active)
+        {
+            text = console_.selected_text();
+            target_length = text.size();
+        }
+        else
+        {
+            const auto cursor = console_.state().cursor();
+            if (cursor.y < console_.buffer().height())
+            {
+                console_.buffer().line_text_into(static_cast<std::size_t>(cursor.y), text);
+            }
+            while (!text.empty() && text.back() == u' ')
+            {
+                text.pop_back();
+            }
+            target_offset = std::min<std::size_t>(cursor.x, text.size());
+            target_length = 0;
+        }
+
+        if (text.empty())
+        {
+            return 0;
+        }
+
+        const auto bytes = sizeof(RECONVERTSTRING) + text.size() * sizeof(char16_t);
+        if (reconvert == nullptr)
+        {
+            return static_cast<LRESULT>(bytes);
+        }
+        if (reconvert->dwSize < bytes)
+        {
+            return 0;
+        }
+
+        reconvert->dwVersion = 0;
+        reconvert->dwStrLen = static_cast<DWORD>(text.size());
+        reconvert->dwStrOffset = sizeof(RECONVERTSTRING);
+        reconvert->dwCompStrLen = include_context ? static_cast<DWORD>(target_length) : 0;
+        reconvert->dwCompStrOffset = static_cast<DWORD>(target_offset * sizeof(char16_t));
+        reconvert->dwTargetStrLen = static_cast<DWORD>(target_length);
+        reconvert->dwTargetStrOffset = reconvert->dwCompStrOffset;
+
+        auto *destination = reinterpret_cast<char *>(reconvert) + sizeof(RECONVERTSTRING);
+        std::memcpy(destination, text.data(), text.size() * sizeof(char16_t));
+        LOG2("ime request reconvert len=%zu target=%zu context=%d", text.size(), target_length,
+             include_context ? 1 : 0);
+        return reinterpret_cast<LRESULT>(reconvert);
+    }
+
+    [[nodiscard]] RECT client_rect_screen() const
+    {
+        RECT client{};
+        if (window_ != nullptr && ::GetClientRect(window_, &client))
+        {
+            POINT origin{0, 0};
+            ::ClientToScreen(window_, &origin);
+            client.left += origin.x;
+            client.right += origin.x;
+            client.top += origin.y;
+            client.bottom += origin.y;
+        }
+        return client;
+    }
+
     [[nodiscard]] RECT tsf_caret_rect() const noexcept
     {
         std::unique_lock<win32::srwlock> lock{console_mutex_};
@@ -611,6 +731,12 @@ class window_host final
                            suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
             return 0;
         }
+        case WM_IME_REQUEST:
+            if (self != nullptr)
+            {
+                return self->handle_ime_request(wparam, lparam);
+            }
+            return 0;
         case WM_SETFOCUS:
             if (self != nullptr)
             {
@@ -953,7 +1079,11 @@ class window_host final
                 self->console_.push_input(std::move(event));
             }
             return 0;
+        // Chromium's TSF path still treats WM_CHAR/WM_SYSCHAR as text input
+        // when the TIP does not consume the key, for example an inactive TIP
+        // or an English keyboard profile. Keep both paths identical here.
         case WM_CHAR:
+        case WM_SYSCHAR:
             if (self != nullptr)
             {
                 const auto character = static_cast<char16_t>(wparam);
