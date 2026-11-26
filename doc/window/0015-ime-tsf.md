@@ -2,7 +2,7 @@
 
 ## 决策
 
-`corehostw` 只走 TSF，不再维护 IMM32 兼容路径。
+`corehostw` 以 TSF 为主输入路径；为了兼容仍处理 `WM_IME_REQUEST`（反向转换/字符位置），\n不维护完整的 IMM32 输入法路径。
 
 ## 当前实现
 
@@ -36,7 +36,7 @@
 - 当前依赖系统 IME 的候选/组合窗口；
 - TSF message pump 当前禁用，使用窗口消息和 TSF association；
 - OnEndComposition 只请求一次异步 edit session，由 OnEndEdit 完成 finalized 文本提交；
-- 未实现 `ITextStoreACP`。
+- 未实现 `ITextStoreACP`；\n- TSF message pump 没有完整启用，部分第三方 TIP/复杂重组行为未验收；\n- 日文/韩文输入法仍需硬件验收。
 
 ## 所有权与生命周期
 

@@ -2,6 +2,7 @@
 
 ## Selection
 
+- `selection_mode::text` 线性文本选择，默认不是矩形块；
 - 字符级拖选；
 - Shift + 单击扩展选择；
 - 双击选词；
@@ -45,6 +46,8 @@
 ## 当前限制
 
 - 选择坐标使用 virtual row，可跨 history + active page；
-- 尚未实现拖动到窗口边缘时自动滚动；
-- VT SGR mouse 输入编码仍依赖应用读取 console input event 的路径；
+- 拖到窗口顶部/底部边缘时由 `WM_TIMER` 自动滚动；
+- 行尾空白不参与高亮/复制，复制按行裁剪并用 CRLF 连接；
+- `console_state` 仍保留 block/line 模式，窗口默认使用 text；
+- 只有 VT mouse tracking 时左键才转发给应用，普通 shell 保留本地选择；
 - 未实现双击选词的自定义词边界配置。

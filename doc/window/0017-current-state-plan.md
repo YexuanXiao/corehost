@@ -14,7 +14,13 @@
 - 不集中补测试，测试跟随功能点；
 - CJK/Emoji/grapheme 验收保持低优先级。
 
+> 2026-11-27 更新：当前完整缺口以 [0018-gap-analysis.md](0018-gap-analysis.md) 为准。
+> 本文下方“渲染改为事件驱动”“Sixel 已完成”等描述中，事件驱动部分不准确：
+> `render_worker` 仍由 `DCompositionWaitForCompositorClock` 驱动，空闲零 CPU 未完成。
+> UIA TextPattern/ScrollPattern/事件、线性选择、UIA provider 已加入；Sixel 性能问题仍存在。
+
 ## 当前状态
+
 
 已完成：
 
@@ -31,21 +37,28 @@
 - 窗口图标、标题；
 - 字体选项 C++ 接口。
 
-已知缺口：
+已知缺口（2026-11-27）：
 
-- 文本选择回归；
-- 选择拖动到窗口边缘没有自动滚动；
-- 没有配置类；
-- 没有 Mica/亚克力/自定义透明度；
-- 没有 Sixel；
-- hyperlink 只有元数据，没有 hover/Ctrl+click/下划线；
-- 没有 bell；
-- 空闲时渲染线程仍按合成帧时钟唤醒；
-- `window_host` 仍包含输入/选择/IME 消息，模块边界可继续整理。
+- 空闲零 CPU 未完成：`render_worker` 仍由合成器时钟唤醒；
+- TSF 没有 `ITextStoreACP`，复杂 IME/TIP 未验收；
+- D3D12 device lost 无恢复；
+- Sixel 图像没有持久缓存；
+- UIA 只有手动验证，没有自动化/屏幕阅读器验收；
+- 主题只有 Campbell，没有配置文件加载、亮暗切换、高对比度；
+- CJK/combining/宽字符覆盖与 checklist 大量项仍未验收；
+- `window_host` 仍包含输入/选择/IME/UIA，`libuiinput` 等计划模块未建立。
 
-## 计划
+## 计划状态
 
-### 1. window_config
+- `window_config`、DWM 外观、选择/自动滚动、hyperlink、bell、Sixel 已完成基础路径；
+- 渲染空闲未完成；
+- IME 复审仅完成 TSF 基础路径；
+- 配置文件和主题切换仍不做；
+- UIA 是计划外新增能力，见 [0018-gap-analysis.md](0018-gap-analysis.md)。
+
+## 原计划（历史）
+
+### 1. window_config（已完成）
 
 新增顶层 `libconfig/`，分为 `console_config` 和 `window_config`：
 
@@ -62,7 +75,7 @@ struct window_config
     backdrop_mode backdrop = backdrop_mode::none;
     std::uint8_t opacity = 255;
     bool dark_mode = true;
-    client_exit_policy exit_policy = client_exit_policy::keep_open;
+    client_exit_policy exit_policy = client_exit_policy::always_exit;
 };
 ```
 
@@ -73,7 +86,7 @@ struct window_config
 
 验收：修改配置可改变字体、主题、backdrop、透明度，不需要改窗口代码。
 
-### 2. DWM 外观
+### 2. DWM 外观（已完成）
 
 - `DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE)`；
 - Mica：`DWMSBT_MAINWINDOW`；
@@ -84,7 +97,7 @@ struct window_config
 
 验收：三种模式可切换，无黑边，窗口仍可交互。
 
-### 3. 文本选择修复与边缘自动滚动
+### 3. 文本选择修复与边缘自动滚动（已完成）
 
 - 复现并修复当前选择回归；
 - 拖动到 client 上/下边缘时按行自动滚动；
@@ -93,7 +106,7 @@ struct window_config
 
 验收：backwards/forwards、多行、scrollback、边缘拖动均可选择。
 
-### 4. Hyperlink
+### 4. Hyperlink（已完成）
 
 - 从 cell hyperlink 元数据解析 URL；
 - hover 时记录鼠标下 cell 的 hyperlink；
@@ -101,14 +114,14 @@ struct window_config
 - hover 时在 cell 下方绘制下划线；
 - 不改变选择/鼠标 reporting 行为。
 
-### 5. Bell
+### 5. Bell（已完成）
 
 - 解析 BEL 后在 UI 线程触发；
 - 默认 visual bell：窗口边框/标题短暂提示或闪烁；
 - 不做音频前先确认行为；
 - 限频，避免高频 BEL 卡顿。
 
-### 6. Sixel
+### 6. Sixel（基础完成，性能未完成）
 
 - 新增 `libuisixel`：Sixel 解码为 RGBA8；
 - palette 解码、raster attributes、repeat；
@@ -118,7 +131,7 @@ struct window_config
 
 验收：`\x1bPq...` sixel 图片显示，滚动/resize/销毁正确。
 
-### 7. 渲染空闲
+### 7. 渲染空闲（未完成）
 
 - 渲染线程不再固定等 `DCompositionWaitForCompositorClock`；
 - 增加 wake event；
@@ -127,7 +140,7 @@ struct window_config
 - 光标闪烁使用 timer，只在需要时唤醒；
 - 目标：窗口无消息时 GPU 不提交、线程 CPU 0%。
 
-### 8. IME 复审
+### 8. IME 复审（部分完成）
 
 - 基于当前 TSF 实现重新核对：
   - candidate 位置；
@@ -155,8 +168,8 @@ struct window_config
 - 选择边缘自动滚动已实现。
 - hyperlink hover 下划线、Ctrl+click 打开已实现；hover 诊断日志确认命中。
 - BEL 解析、state 计数、`FlashWindowEx` visual bell 已实现。
-- 渲染改为事件驱动：console session signal output event，render 线程等待 stop/damage，不再每帧等合成器。
+- 渲染改为事件驱动的目标已提出，但当前 `render_worker` 仍使用 `DCompositionWaitForCompositorClock`，尚未完成。
 - 当前测试：`build-ninja` 12/12 通过。
 - Sixel 解码、image fragment、color atlas RGBA quad 已完成；64x64 彩色 Sixel 实测显示。
 - 已知性能问题：image 每次 render 都会重新写入 color atlas/上传纹理，后续需缓存。
-- selection 回归的用户场景仍待确认。
+- selection 已改为线性 text 模式，支持边缘自动滚动，复制按行裁剪。

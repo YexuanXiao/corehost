@@ -25,20 +25,21 @@
 
 ### `libcorewindow`
 
-职责：
+当前实际职责：
 
-- top-level Win32 宿主；
-- 窗口类注册、窗口创建、消息循环；
-- DPI、显示器、焦点；
-- 通过 `libd3d12ui` 创建交换链；
-- 调用 `libcoreui`。
+- top-level Win32 宿主、窗口类、消息循环、DPI/焦点；
+- 通过 `libd3d12ui` 创建交换链，调用 `libcoreui`；
+- 键盘/鼠标/选择/剪贴板/IME 消息；
+- UIA provider（`uia_provider.hpp`，TextPattern/ScrollPattern/事件）。
 
-不负责：
+目标职责仍按计划拆分，但 `libuiinput` 尚未建立，输入仍在 `window_host`；不包含
+文字 shaping、Sixel 解码、console API、parser。
 
-- 文字 shaping；
-- Sixel 解码；
-- 控制台 API；
-- parser。
+### `libconfig`
+
+- `console_config`：调色板、文本选项；
+- `window_config`：bell、backdrop、opacity、dark mode、exit policy；
+- 当前只允许 C++ 构造，不读取配置文件。
 
 ### `libcoreui`
 
@@ -66,16 +67,20 @@
 
 ### `libime`
 
-职责：
+当前职责：
 
-- TSF thread manager、document/context、text store、composition；
+- TSF thread manager、document/context、context owner/composition sink/text edit sink；
+- composition、candidate 定位、finalized/composing 分离；
 - 不绘制。
+
+限制：没有 `ITextStoreACP`。
 
 ### `libuisixel`
 
 职责：
 
 - 解析 Sixel，生成 RGBA8 位图；
+- 支持 RGB/HLS 调色板；
 - 不读取图片文件，不使用 WIC。
 
 ### `libscrollbar`
@@ -85,13 +90,16 @@
 - 垂直滚动条几何、状态、命中测试、动画；
 - 生成 quad 数据。
 
-### `libuiinput`
+### `libuiinput`（未建立）
 
-职责：
+计划职责：
 
 - Win32 键盘、鼠标、剪贴板消息；
 - 转交 corehost 输入路径；
 - 不实现终端键盘协议。
+
+当前这些消息仍在 `libcorewindow/window_host.hpp`。child 嵌入不在范围内，因此没有
+`libsubwindow`。
 
 ## 控制台会话
 
@@ -112,7 +120,7 @@
 libcorewindow
     ├── libd3d12ui
     ├── libcoreui
-    ├── libuiinput
+    ├── libuiinput（计划，当前未建立）
     ├── libime
     └── corehost/window/window_console_session
 

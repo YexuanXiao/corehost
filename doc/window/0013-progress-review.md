@@ -1,3 +1,5 @@
+> 2026-11-27：本文是历史审查，部分结论已过期。当前缺口以
+> [0018-gap-analysis.md](0018-gap-analysis.md) 为准。
 # Window Mode 进度审查（2026-11-26）
 
 > 后续更新：`libcoreui` 与 `libime` 已从 `libcorewindow` 拆出，见 [0014-module-split.md](0014-module-split.md)。本文“模块拆分未完成”部分反映审查当时状态。

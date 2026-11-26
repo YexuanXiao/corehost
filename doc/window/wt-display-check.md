@@ -1,3 +1,8 @@
+> 2026-11-27：本文大部分是历史调试记录，部分“仍存在”结论已过期。
+> 当前状态与未验收项见 [0018-gap-analysis.md](0018-gap-analysis.md)。
+> 已修复：RAW_WRITE VT 解析、PSReadLine 回显、SGR 颜色、标题、DEC line drawing、
+> alternate screen、resize、滚动条、选择、Sixel、UIA TextPattern/ScrollPattern。
+> 仍待验收：checklist 中 CJK/combining/宽字符、组合键、window event、压力测试等。
 # WT Display / Non-IME Check
 
 对照：`wt.exe` + Windows PowerShell 5.1
