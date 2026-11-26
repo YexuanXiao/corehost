@@ -66,7 +66,7 @@ class window_host final
         assert(!title_.empty());
         assert(client_process_.valid());
         window_ready_ = true;
-        worker_.set_text_changed_callback([this] { (void)::PostMessageW(window_, WM_APP + 0x101, 0, 0); });
+        worker_.set_text_changed_callback(&window_host::text_changed_notify, this);
     }
 
     ~window_host() = default;
@@ -77,6 +77,12 @@ class window_host final
     [[nodiscard]] HWND window() const noexcept
     {
         return window_;
+    }
+
+    static void text_changed_notify(void *context) noexcept
+    {
+        auto *self = static_cast<window_host *>(context);
+        (void)::PostMessageW(self->window_, WM_APP + 0x101, 0, 0);
     }
 
     IRawElementProviderSimple *ensure_uia_provider() noexcept

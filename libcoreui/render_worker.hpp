@@ -52,9 +52,11 @@ class render_worker final
     render_worker(const render_worker &) = delete;
     render_worker &operator=(const render_worker &) = delete;
 
-    void set_text_changed_callback(std::function<void()> callback)
+    using text_changed_callback = void (*)(void *);
+    void set_text_changed_callback(text_changed_callback callback, void *data) noexcept
     {
-        text_changed_callback_ = std::move(callback);
+        text_changed_callback_ = callback;
+        text_changed_callback_data_ = data;
     }
 
     void request_redraw() noexcept
@@ -970,7 +972,7 @@ class render_worker final
                 }
                 if (changed && text_changed_callback_)
                 {
-                    text_changed_callback_();
+                    text_changed_callback_(text_changed_callback_data_);
                 }
                 if (atlas_upload_requested_.exchange(false, std::memory_order_relaxed))
                 {
@@ -1041,7 +1043,8 @@ class render_worker final
     win32::basic_thread thread_;
     win32::event stop_event_{win32::create_tag, true, false};
     std::atomic_bool stop_{};
-    std::function<void()> text_changed_callback_;
+    text_changed_callback text_changed_callback_{};
+    void *text_changed_callback_data_{};
     std::atomic_bool redraw_requested_{};
     std::atomic_bool atlas_upload_requested_{};
 };
