@@ -472,14 +472,6 @@ class render_worker final
                     }
                 }
 
-                if (cell.primary() == u'\u2500')
-                {
-                    add_line_quad(quads_, static_cast<float>(x) * cell_width,
-                                  static_cast<float>(y) * cell_height + cell_height * 0.5f,
-                                  cell_width * cell_span, 1.0f, foreground, sample, text_alpha);
-                    continue;
-                }
-
                 auto line_color = style.underline.kind == screen::color_kind::default_color
                                       ? foreground
                                       : resolve_color(style.underline, config_.palette, true);
