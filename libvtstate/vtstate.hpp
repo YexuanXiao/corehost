@@ -103,6 +103,8 @@ class state_applier final
                                          screen::cell_width::narrow);
             }
         }
+        LOG2("sixel wrote x=%zu y=%zu cols=%zu rows=%zu image_table=%zu", start_x, start_y, columns, rows,
+             buffer.images().size());
         state.set_cursor(std::min<std::size_t>(start_x + columns, state.width() - 1),
                          std::min<std::size_t>(start_y + rows - 1, state.height() - 1));
         return true;
