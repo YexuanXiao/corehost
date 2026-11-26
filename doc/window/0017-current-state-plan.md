@@ -141,3 +141,14 @@ struct window_config
 6. 渲染空闲；
 7. Sixel；
 8. IME 复审。
+
+## 进展记录（2026-11-26）
+
+- `window_config` 已接入 `window_entry`、`window_ui`、`window_host`、`render_worker`。
+- DWM Mica/亚克力/自定义 layered opacity 已实现并实测 Mica、opacity。
+- 选择边缘自动滚动已实现。
+- hyperlink hover 下划线、Ctrl+click 打开已实现；hover 诊断日志确认命中。
+- BEL 解析、state 计数、`FlashWindowEx` visual bell 已实现。
+- 渲染改为事件驱动：console session signal output event，render 线程等待 stop/damage，不再每帧等合成器。
+- 当前测试：`build-ninja` 12/12 通过。
+- 尚未实现：Sixel 像素解码/纹理渲染；selection 回归的用户场景需要继续确认。
