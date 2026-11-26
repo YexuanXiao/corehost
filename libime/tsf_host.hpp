@@ -5,6 +5,7 @@
 
 #include <Windows.h>
 #include <cassert>
+#include <cstdint>
 #include <msctf.h>
 #include <winrt/base.h>
 
@@ -25,6 +26,7 @@ namespace corehost::window
             text_callback commit{};
             text_callback composition{};
             caret_callback caret{};
+            std::int32_t candidate_offset_cells{2};
         };
 
         tsf_host(HWND window, callbacks callbacks) try : window_{window}, callbacks_{callbacks},
@@ -135,7 +137,7 @@ namespace corehost::window
             {
                 assert(callbacks_.caret);
                 *rect = callbacks_.caret(callbacks_.context);
-                const auto shift = (rect->right - rect->left) * 2;
+                const auto shift = (rect->right - rect->left) * callbacks_.candidate_offset_cells;
                 rect->left -= shift;
                 rect->right -= shift;
                 LOG2("tsf caret rect=%ld,%ld,%ld,%ld shift=%ld", rect->left, rect->top, rect->right, rect->bottom,

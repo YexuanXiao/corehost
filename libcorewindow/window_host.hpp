@@ -61,6 +61,7 @@ class window_host final
                             .commit = &window_host::tsf_commit_callback,
                             .composition = &window_host::tsf_composition_callback,
                             .caret = &window_host::tsf_caret_callback,
+                            .candidate_offset_cells = window_config.candidate_offset_cells,
                         }}
     {
         assert(!title_.empty());
