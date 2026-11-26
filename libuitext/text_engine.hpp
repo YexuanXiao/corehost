@@ -172,8 +172,8 @@ class text_engine final
             bold ? bold_format_.get() : text_format_.get(),
             100000.0f, 100000.0f, layout.put()));
 
-        run_renderer renderer{*this, false};
-        winrt::check_hresult(layout->Draw(nullptr, &renderer, 0.0f, 0.0f));
+        auto renderer = winrt::make<run_renderer>(*this, false);
+        winrt::check_hresult(layout->Draw(nullptr, renderer.get(), 0.0f, 0.0f));
 
         out.reserve(regions_.size());
         for (const auto &region : regions_)
@@ -201,8 +201,8 @@ class text_engine final
             reinterpret_cast<const WCHAR *>(text.data()), static_cast<UINT32>(text.size()), text_format_.get(),
             100000.0f, 100000.0f, layout.put()));
 
-        run_renderer renderer{*this, true};
-        winrt::check_hresult(layout->Draw(nullptr, &renderer, 0.0f, 0.0f));
+        auto renderer = winrt::make<run_renderer>(*this, true);
+        winrt::check_hresult(layout->Draw(nullptr, renderer.get(), 0.0f, 0.0f));
 
         out.reserve(color_layers_.size());
         for (const auto &layer : color_layers_)
@@ -221,7 +221,7 @@ class text_engine final
     }
 
   private:
-    class run_renderer final : public winrt::implements<run_renderer, IDWriteTextRenderer>
+    class run_renderer : public winrt::implements<run_renderer, IDWriteTextRenderer>
     {
       public:
         explicit run_renderer(text_engine &owner, bool color_mode) noexcept : owner_{owner}, color_mode_{color_mode}

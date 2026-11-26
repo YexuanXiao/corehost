@@ -12,11 +12,11 @@
 #include <UIAutomationClient.h>
 #include <oleauto.h>
 
+#include <winrt/base.h>
+
 #include <algorithm>
 #include <mutex>
-#include <atomic>
 #include <cstddef>
-#include <new>
 #include <string>
 #include <utility>
 #include <vector>
@@ -26,27 +26,12 @@ namespace corehost::window
 
 class uia_provider;
 
-class uia_text_range final : public ITextRangeProvider
+class uia_text_range : public winrt::implements<uia_text_range, ITextRangeProvider>
 {
   public:
     uia_text_range(uia_provider *owner, std::size_t start, std::size_t end) noexcept
         : owner_{owner}, start_{start}, end_{end}
     {
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **object) override;
-    ULONG STDMETHODCALLTYPE AddRef() override
-    {
-        return ++references_;
-    }
-    ULONG STDMETHODCALLTYPE Release() override
-    {
-        const auto value = --references_;
-        if (value == 0)
-        {
-            delete this;
-        }
-        return value;
     }
 
     HRESULT STDMETHODCALLTYPE Clone(ITextRangeProvider **result) override;
@@ -91,36 +76,21 @@ class uia_text_range final : public ITextRangeProvider
         }
     }
 
-    std::atomic<ULONG> references_{1};
     uia_provider *owner_{};
     std::size_t start_{};
     std::size_t end_{};
 };
 
-class uia_provider final : public IRawElementProviderSimple,
-                           public IRawElementProviderFragment,
-                           public IRawElementProviderFragmentRoot,
-                           public ITextProvider
+class uia_provider : public winrt::implements<uia_provider,
+                                                    IRawElementProviderSimple,
+                                                    IRawElementProviderFragment,
+                                                    IRawElementProviderFragmentRoot,
+                                                    ITextProvider>
 {
   public:
     uia_provider(HWND window, console &console, win32::srwlock &console_mutex) noexcept
         : window_{window}, console_{console}, console_mutex_{console_mutex}
     {
-    }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **object) override;
-    ULONG STDMETHODCALLTYPE AddRef() override
-    {
-        return ++references_;
-    }
-    ULONG STDMETHODCALLTYPE Release() override
-    {
-        const auto value = --references_;
-        if (value == 0)
-        {
-            delete this;
-        }
-        return value;
     }
 
     HRESULT STDMETHODCALLTYPE get_ProviderOptions(ProviderOptions *options) override;
@@ -157,7 +127,7 @@ class uia_provider final : public IRawElementProviderSimple,
     [[nodiscard]] text_snapshot snapshot();
     [[nodiscard]] std::size_t character_offset(std::size_t row, std::size_t column, const text_snapshot &snapshot) const;
     [[nodiscard]] std::pair<std::size_t, std::size_t> selection_offsets(text_snapshot &snapshot);
-    [[nodiscard]] uia_text_range *make_range(std::size_t start, std::size_t end);
+    [[nodiscard]] winrt::com_ptr<ITextRangeProvider> make_range(std::size_t start, std::size_t end);
     void select_offsets(std::size_t start, std::size_t end);
 
     [[nodiscard]] HWND window() const noexcept
@@ -166,27 +136,10 @@ class uia_provider final : public IRawElementProviderSimple,
     }
 
   private:
-    std::atomic<ULONG> references_{1};
     HWND window_{};
     console &console_;
     win32::srwlock &console_mutex_;
 };
-
-inline HRESULT uia_text_range::QueryInterface(REFIID iid, void **object)
-{
-    if (object == nullptr)
-    {
-        return E_POINTER;
-    }
-    if (iid == __uuidof(IUnknown) || iid == __uuidof(ITextRangeProvider))
-    {
-        *object = static_cast<ITextRangeProvider *>(this);
-        AddRef();
-        return S_OK;
-    }
-    *object = nullptr;
-    return E_NOINTERFACE;
-}
 
 inline HRESULT uia_text_range::Clone(ITextRangeProvider **result)
 {
@@ -194,8 +147,9 @@ inline HRESULT uia_text_range::Clone(ITextRangeProvider **result)
     {
         return E_POINTER;
     }
-    *result = owner_->make_range(start_, end_);
-    return *result != nullptr ? S_OK : E_OUTOFMEMORY;
+    auto clone = owner_->make_range(start_, end_);
+    clone.copy_to(result);
+    return clone != nullptr ? S_OK : E_OUTOFMEMORY;
 }
 
 inline HRESULT uia_text_range::Compare(ITextRangeProvider *range, BOOL *result)
@@ -302,8 +256,9 @@ inline HRESULT uia_text_range::FindText(BSTR text, BOOL backward, BOOL ignore_ca
     {
         return S_FALSE;
     }
-    *result = owner_->make_range(found, found + search.size());
-    return *result != nullptr ? S_OK : E_OUTOFMEMORY;
+    auto found_range = owner_->make_range(found, found + search.size());
+    found_range.copy_to(result);
+    return found_range != nullptr ? S_OK : E_OUTOFMEMORY;
 }
 
 inline HRESULT uia_text_range::GetAttributeValue(TEXTATTRIBUTEID, VARIANT *value)
@@ -480,37 +435,6 @@ inline HRESULT uia_text_range::GetChildren(SAFEARRAY **children)
     }
     *children = SafeArrayCreateVector(VT_UNKNOWN, 0, 0);
     return *children != nullptr ? S_OK : E_OUTOFMEMORY;
-}
-
-inline HRESULT uia_provider::QueryInterface(REFIID iid, void **object)
-{
-    if (object == nullptr)
-    {
-        return E_POINTER;
-    }
-    if (iid == __uuidof(IUnknown) || iid == __uuidof(IRawElementProviderSimple))
-    {
-        *object = static_cast<IRawElementProviderSimple *>(this);
-    }
-    else if (iid == __uuidof(IRawElementProviderFragment))
-    {
-        *object = static_cast<IRawElementProviderFragment *>(this);
-    }
-    else if (iid == __uuidof(IRawElementProviderFragmentRoot))
-    {
-        *object = static_cast<IRawElementProviderFragmentRoot *>(this);
-    }
-    else if (iid == __uuidof(ITextProvider))
-    {
-        *object = static_cast<ITextProvider *>(this);
-    }
-    else
-    {
-        *object = nullptr;
-        return E_NOINTERFACE;
-    }
-    AddRef();
-    return S_OK;
 }
 
 inline HRESULT uia_provider::get_ProviderOptions(ProviderOptions *options)
@@ -705,13 +629,14 @@ inline HRESULT uia_provider::GetSelection(SAFEARRAY **selection)
     }
     auto snapshot = this->snapshot();
     const auto [start, end] = selection_offsets(snapshot);
-    auto *range = make_range(start, end);
+    auto range = make_range(start, end);
     if (range == nullptr)
     {
         return E_OUTOFMEMORY;
     }
     LONG index = 0;
-    SafeArrayPutElement(*selection, &index, static_cast<ITextRangeProvider *>(range));
+    SafeArrayPutElement(*selection, &index, static_cast<ITextRangeProvider *>(range.get()));
+    range.detach();
     return S_OK;
 }
 
@@ -727,13 +652,14 @@ inline HRESULT uia_provider::GetVisibleRanges(SAFEARRAY **ranges)
         return E_OUTOFMEMORY;
     }
     auto snapshot = this->snapshot();
-    auto *range = make_range(0, snapshot.text.size());
+    auto range = make_range(0, snapshot.text.size());
     if (range == nullptr)
     {
         return E_OUTOFMEMORY;
     }
     LONG index = 0;
-    SafeArrayPutElement(*ranges, &index, static_cast<ITextRangeProvider *>(range));
+    SafeArrayPutElement(*ranges, &index, static_cast<ITextRangeProvider *>(range.get()));
+    range.detach();
     return S_OK;
 }
 
@@ -754,8 +680,9 @@ inline HRESULT uia_provider::get_DocumentRange(ITextRangeProvider **range)
         return E_POINTER;
     }
     auto snapshot = this->snapshot();
-    *range = make_range(0, snapshot.text.size());
-    return *range != nullptr ? S_OK : E_OUTOFMEMORY;
+    auto document = make_range(0, snapshot.text.size());
+    document.copy_to(range);
+    return document != nullptr ? S_OK : E_OUTOFMEMORY;
 }
 
 inline HRESULT uia_provider::get_SupportedTextSelection(SupportedTextSelection *supported)
@@ -857,9 +784,9 @@ inline std::pair<std::size_t, std::size_t> uia_provider::selection_offsets(text_
     return {offset, offset};
 }
 
-inline uia_text_range *uia_provider::make_range(std::size_t start, std::size_t end)
+inline winrt::com_ptr<ITextRangeProvider> uia_provider::make_range(std::size_t start, std::size_t end)
 {
-    return new (std::nothrow) uia_text_range(this, start, end);
+    return winrt::make<uia_text_range>(this, start, end);
 }
 
 inline void uia_provider::select_offsets(std::size_t start, std::size_t end)

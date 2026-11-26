@@ -84,13 +84,13 @@ class window_host final
         return window_;
     }
 
-    uia_provider *ensure_uia_provider() noexcept
+    IRawElementProviderSimple *ensure_uia_provider() noexcept
     {
-        if (uia_provider_ == nullptr)
+        if (!uia_provider_)
         {
-            uia_provider_ = new (std::nothrow) uia_provider(window_, console_, console_mutex_);
+            uia_provider_ = winrt::make<uia_provider>(window_, console_, console_mutex_);
         }
-        return uia_provider_;
+        return uia_provider_.get();
     }
 
     void run()
@@ -1323,7 +1323,7 @@ class window_host final
     win32::wcstring_view title_;
     console &console_;
     win32::srwlock &console_mutex_;
-    uia_provider *uia_provider_{};
+    winrt::com_ptr<IRawElementProviderSimple> uia_provider_;
     win32::handle_view client_process_;
     const console_config &console_config_;
     const window_config &window_config_;
