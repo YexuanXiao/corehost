@@ -225,6 +225,9 @@ bool window_console_session::handle(coreio::io_msg &message)
         if (units > 0)
         {
             apply_vt(std::u16string_view{vt_text_.data(), static_cast<std::size_t>(units)});
+            LOG2("screen sample %04x %04x %04x %04x", console_.buffer().at(0, 0).primary(),
+                 console_.buffer().at(1, 0).primary(), console_.buffer().at(0, 2).primary(),
+                 console_.buffer().at(2, 2).primary());
         }
         coreio::prepare_completion(message, 0, payload.size());
         coreio::complete_io(server_, message.complete);

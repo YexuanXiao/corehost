@@ -37,8 +37,8 @@ class render_worker final
   public:
     render_worker(console &console, win32::srwlock &console_mutex, const window_config &config,
                   win32::handle_view damage_event)
-        : console_{console}, console_mutex_{console_mutex}, config_{config},
-          fallback_families_{uitext::default_font_families(config_.text_options.font)},
+        : columns{console.buffer().width()}, rows{console.buffer().height()}, console_{console}, console_mutex_{console_mutex},
+          config_{config}, fallback_families_{uitext::default_font_families(config_.text_options.font)},
           damage_event_{damage_event}
     {
     }
@@ -125,6 +125,10 @@ class render_worker final
 
             const auto begin = std::min<std::size_t>(row.state.dirty_begin, columns);
             const auto end = std::min<std::size_t>(row.state.dirty_end, columns);
+            if (y < 3)
+            {
+                LOG2("apply row y=%zu cells=%zu begin=%zu end=%zu", y, row.cells.size(), begin, end);
+            }
             for (auto x = begin; x < end; ++x)
             {
                 auto value = row.cells[x];
@@ -140,6 +144,13 @@ class render_worker final
                 }
 
                 cell_state_[y * columns + x] = value;
+                if (y < 4 && x < 4 && value.primary() != 0x20)
+                {
+                    const auto &style = styles_.at(value.style());
+                    LOG2("assigned y=%zu x=%zu primary=%04x fgkind=%d fg=%u bgkind=%d bg=%u", y, x,
+                         value.primary(), static_cast<int>(style.foreground.kind), style.foreground.value,
+                         static_cast<int>(style.background.kind), style.background.value);
+                }
             }
         }
     }
@@ -376,7 +387,7 @@ class render_worker final
             }
         }
 
-        for (std::size_t y = 0; y < display_rows_; ++y)
+        for (std::size_t y = 0; y < rows; ++y)
         {
             for (std::size_t x = 0; x < columns; ++x)
             {
@@ -575,6 +586,15 @@ class render_worker final
                 const auto *region = cell.is_scalar() && !bold
                                          ? atlas_.find_or_add(cell.primary())
                                          : atlas_.find_or_add_transient(text, bold);
+                if (y == 0 && x == 1)
+                {
+                    const auto pixel = region ? atlas_.pixels()[static_cast<std::size_t>(region->y) * atlas_.size() +
+                                                               region->x]
+                                              : 0;
+                    LOG2("build cell x=1 primary=%04x region=%p rxy=%u,%u wh=%u,%u pixel=%u", cell.primary(),
+                         region, region ? region->x : 0, region ? region->y : 0, region ? region->width : 0,
+                         region ? region->height : 0, pixel);
+                }
                 if (region == nullptr)
                 {
                     continue;
@@ -595,6 +615,12 @@ class render_worker final
                     .v1 = static_cast<float>(region->y + region->height) * atlas_scale,
                 };
                 set_tint(text_quad, foreground, text_alpha);
+                if (y == 0 && x == 1)
+                {
+                    LOG2("text quad x=%.1f y=%.1f w=%.1f h=%.1f u=%.3f v=%.3f fg=%u,%u,%u", text_quad.x,
+                         text_quad.y, text_quad.width, text_quad.height, text_quad.u0, text_quad.v0, foreground.r,
+                         foreground.g, foreground.b);
+                }
                 quads_.push_back(text_quad);
             }
         }
@@ -761,12 +787,15 @@ class render_worker final
 
     void run()
     {
+        LOG2("render thread start");
         renderer_.initialize(window_);
+        LOG2("render initialized");
         apply_text_correction();
         const auto &clear = config_.palette.default_background;
         renderer_.set_clear_color(static_cast<float>(clear.r) / 255.0f, static_cast<float>(clear.g) / 255.0f,
                                   static_cast<float>(clear.b) / 255.0f, (config_.backdrop != backdrop_mode::none) ? 0.0f : 1.0f);
         renderer_.render();
+        LOG2("render first frame");
         bool cursor_dirty = true;
 
         for (;;)
@@ -828,6 +857,7 @@ class render_worker final
                 bool resized = false;
                 if (desired_columns != columns || desired_rows != rows)
                 {
+                    LOG2("console resize old=%zux%zu new=%zux%zu", columns, rows, desired_columns, desired_rows);
                     console_.resize(desired_columns, desired_rows);
                     columns = desired_columns;
                     rows = desired_rows;
@@ -937,13 +967,18 @@ class render_worker final
                     atlas_.mark_dirty();
                     color_atlas_.mark_dirty();
                 }
-                if (redraw_requested)
+                if (redraw_requested || changed)
                 {
-                    LOG2("redraw rows: %zu %zu %zu %zu %zu", row_nonspace(0), row_nonspace(1), row_nonspace(2),
-                         row_nonspace(3), row_nonspace(rows - 1));
+                    LOG2("redraw rows: %zu %zu %zu %zu %zu changed=%d screen=%04x cell0=%04x", row_nonspace(0),
+                         row_nonspace(1), row_nonspace(2), row_nonspace(3), row_nonspace(rows - 1),
+                         changed ? 1 : 0, console_.buffer().at(0, 0).primary(), cell_state_[0].primary());
                 }
                 build_quads();
+                renderer_.set_text_texture(atlas_.pixels(), atlas_.size(), atlas_.size());
+                LOG2("quads=%zu colorquads=%zu scrollf=%.3f", quads_.size(), color_quads_.size(),
+                     scroll_fraction_);
                 renderer_.render();
+                LOG2("render done");
             }
         }
 
