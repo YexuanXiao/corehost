@@ -21,7 +21,7 @@
 - D3D12 + DXGI composition swapchain + DirectComposition；
 - DirectWrite fallback、glyph atlas、颜色 emoji、SGR 16/256/RGB、粗斜体/下划线/反显/删除线；
 - 光标形状/闪烁；
-- 空闲渲染改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁时允许 530ms 定时器；
+- 空闲渲染改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁时允许 530ms 定时器；滚动条动画用合成器时钟按刷新率驱动；
 - 垂直滚动条：hover、thumb 拖拽、轨道点击、滚轮、键盘滚动；
 - 线性文本选择、Shift 扩展、双击选词、三击选行、边缘自动滚动；
 - 纯文本剪贴板、右键粘贴、VT SGR mouse；

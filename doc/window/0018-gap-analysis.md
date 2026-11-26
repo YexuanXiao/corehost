@@ -1,6 +1,6 @@
 # Window Mode 功能缺口与目标状态
 
-基线提交：`793deef`（2026-11-27）；空闲渲染修复提交：`3f3bc24`。
+基线提交：`793deef`（2026-11-27）；空闲渲染修复：`3f3bc24`；动画合成器等待：`4e09ee0`。
 
 本文按 `terminal-window-code-plan.md`、`terminal-window-plan.md`、`0001-plan.md` 的 W0–W9
 阶段和 `wt_test_checklist.md` 对照当前代码，区分：
@@ -50,14 +50,14 @@ TSF 不实现 `ITextStoreACP`，原因见 `0015-ime-tsf.md`；这不是本轮阻
 
 ### 已修复：空闲渲染（验收口径已确认）
 
-`render_worker` 已改为等待 stop、damage、render wake 三个事件；首个循环强制采样一次，
-有光标闪烁/滚动条动画时才使用定时器。
+`render_worker` 已改为等待 stop、damage、render wake 三个事件；首个循环强制采样一次。
+光标闪烁使用 530ms 定时器；滚动条动画使用 `DCompositionWaitForCompositorClock`，按显示刷新率运行，支持高刷新率。
 
 验收口径（用户确认）：
 
 - **失焦**，或**光标不闪烁**时，GUI 线程应阻塞在事件上，CPU 为 0；
 - **有焦点且光标闪烁**时，530ms 光标定时器必然唤醒线程，不要求 CPU 为 0；
-- 有滚动条动画时按帧定时器运行，动画结束回到事件阻塞。
+- 有滚动条动画时由合成器时钟按显示刷新率驱动，动画结束回到事件阻塞；
 
 本地 10 秒采样中，焦点内/失焦/失焦 resize 后的进程 CPU 增量均为 0（Get-Process
 秒级精度），文本和 resize 后内容仍正常显示。

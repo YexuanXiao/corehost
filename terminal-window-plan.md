@@ -512,7 +512,7 @@ MsgWaitForMultipleObjectsEx(
 - 没有 damage 不调用 `Present`；
 - 没有待提交帧时不等待 swapchain frame-latency waitable，避免被 DWM vsync 周期唤醒；
 - `WM_PAINT` 用 `ValidateRect`/`BeginPaint`/`EndPaint` 结束，不持续 Invalidate；
-- 仅在需要光标闪烁或动画时创建定时器；
+- 仅在需要光标闪烁时创建定时器；滚动条动画使用合成器时钟等待；
 - 失焦或关闭闪烁时取消定时器，回到完全阻塞。
 
 严格满足“没有新消息就完全停止”：
@@ -551,7 +551,7 @@ ResizeBuffers / 重建 RTV / DComp visual offset
 | Sixel | `libuisixel` 解析 + D3D12 texture | 足够，无 WIC |
 | 滚动条 | Win32 鼠标消息 + `SetCapture` + quad draw | 足够 |
 | 多显示器/DPI | `WM_DPICHANGED` + `GetDpiForWindow` + `IsCurrent` | 足够 |
-| 空闲零 CPU | `GetMessageW(INFINITE)` / `MsgWaitForMultipleObjectsEx(INFINITE)` | 失焦/不闪烁时足够，无轮询；聚焦闪烁用 530ms timer |
+| 空闲零 CPU | `GetMessageW(INFINITE)` / `MsgWaitForMultipleObjectsEx(INFINITE)` | 失焦/不闪烁时足够，无轮询；聚焦闪烁用 530ms timer；动画用合成器时钟 |
 | 帧同步 | frame-latency waitable + fence | 足够 |
 | 透明 child | 宿主顶层 DComp target + `SetClip`/`SetOffset` | 明确不做 |
 
@@ -809,7 +809,7 @@ Child：
 5. TSF IME 工作；
 6. 垂直滚动条支持拖拽、轨道点击、滚轮；
 7. 失焦或光标不闪烁时 GUI 线程完全阻塞，无轮询、无持续 Present；
-8. 只有新消息、damage 或显式动画 timer 才唤醒；
+8. 只有新消息、damage 或显式动画/光标 timer 才唤醒；
 9. WARP golden、DComp、IME 硬件测试通过；
 10. UIA TextPattern/ScrollPattern/事件可自动化验证；
 11. 亮暗主题/配置文件切换（如启用）；

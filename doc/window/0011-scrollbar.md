@@ -58,7 +58,7 @@ snap_to_bottom_if_unlocked()
 - 箭头上下 margin 为 8 DIP，thumb track inset 为 24 DIP；箭头到 thumb 的间距为 2 DIP；
 - thumb 圆角用预生成 alpha mask 缓存在现有 R8 atlas 中，9-slice 绘制；
 - 使用真实 client 尺寸，track 紧贴窗口右边缘；
-- 展开动画在约 8 帧内完成，按现有 compositor frame loop 推进；
+- 展开动画在约 8 帧内完成，由 `DCompositionWaitForCompositorClock` 按显示刷新率推进；
 - thumb 拖动按像素更新，避免行量化抖动；
 - 内容按像素 offset 渲染，不是整行跳变。
 - 轨道点击：上/下翻一页；
@@ -92,7 +92,7 @@ libscrollbar/scrollbar.hpp
 之前的 16/32/64 与 1x/4x 变体仅用于测试，当前源码不再提供这些配置项。
 ## 当前限制
 
-- hover 动画已实现，但还没有独立的动画 timer，依赖现有 compositor frame loop；
+- hover 动画已实现，不使用固定 timer；渲染线程在动画期间使用合成器时钟等待；
 - 新输出保持位置的 anchor 调整在 render worker 中完成；
 - history limit 只有 C++ API，不读取配置文件；
 - 选择/复制和 mouse reporting 尚未接入。

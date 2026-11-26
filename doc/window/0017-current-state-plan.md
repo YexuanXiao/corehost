@@ -15,8 +15,8 @@
 - CJK/Emoji/grapheme 验收保持低优先级。
 
 > 2026-11-27 更新：当前完整缺口以 [0018-gap-analysis.md](0018-gap-analysis.md) 为准。
-> 本文下方“渲染改为事件驱动”“Sixel 已完成”等描述中，事件驱动部分不准确：
-> `render_worker` 已改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁允许 530ms 定时器。
+> 当前状态：
+> `render_worker` 已改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁允许 530ms 定时器；滚动条动画用合成器时钟。
 > UIA TextPattern/ScrollPattern/事件、线性选择、UIA provider 已加入；Sixel 性能问题仍存在。
 
 ## 当前状态
@@ -173,7 +173,7 @@ struct window_config
 - 选择边缘自动滚动已实现。
 - hyperlink hover 下划线、Ctrl+click 打开已实现；hover 诊断日志确认命中。
 - BEL 解析、state 计数、`FlashWindowEx` visual bell 已实现。
-- 渲染已改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁允许 530ms 定时器。
+- 渲染已改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁允许 530ms 定时器；滚动条动画用合成器时钟。
 - 当前测试：`build-ninja` 12/12 通过。
 - Sixel 解码、image fragment、color atlas RGBA quad 已完成；64x64 彩色 Sixel 实测显示。
 - 已知性能问题：image 每次 render 都会重新写入 color atlas/上传纹理，后续需缓存。
