@@ -118,6 +118,41 @@ void window_console_session::apply_vt(std::u16string_view text)
             LOG2("sequence ids apc=%d dcs=%d", static_cast<int>(vtparser::vt_message_id::apc_sequence),
                  static_cast<int>(vtparser::vt_message_id::dcs_sequence));
         }
+        if (result.id == vtparser::vt_message_id::report_cursor_position ||
+            result.id == vtparser::vt_message_id::device_attributes)
+        {
+            std::u16string response;
+            if (result.id == vtparser::vt_message_id::device_attributes)
+            {
+                response = u"\x1b[?1;2c";
+            }
+            else
+            {
+                const auto cursor = console_.state().cursor();
+                response = u"\x1b[";
+                for (const auto character : std::to_string(cursor.y + 1))
+                {
+                    response.push_back(static_cast<char16_t>(character));
+                }
+                response += u";";
+                for (const auto character : std::to_string(cursor.x + 1))
+                {
+                    response.push_back(static_cast<char16_t>(character));
+                }
+                response += u"R";
+            }
+
+            consoleinput::input_event event{};
+            event.type = consoleinput::input_event_type::text;
+            for (const auto character : response)
+            {
+                event.text.push_back(character);
+            }
+            LOG2("terminal response size=%zu", event.text.size());
+            console_.push_input(std::move(event));
+            vt_parser_.reset();
+            continue;
+        }
         if ((result.id == vtparser::vt_message_id::apc_sequence ||
              result.id == vtparser::vt_message_id::dcs_sequence) &&
             vt_applier_.apply_image(result.raw_sequence, console_.buffer(), console_.state()))
