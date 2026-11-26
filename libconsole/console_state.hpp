@@ -103,7 +103,7 @@ enum class selection_mode : std::uint8_t
 struct selection_range final
 {
     bool active{};
-    selection_mode mode{selection_mode::text};
+    selection_mode mode{selection_mode::block};
     std::size_t anchor_x{};
     std::size_t anchor_y{};
     std::size_t caret_x{};
@@ -280,6 +280,7 @@ class console_state final
     vtparser::raw_u16string title;
     vtparser::raw_u16string original_title;
     vtparser::raw_u16string selected_text_scratch_;
+    vtparser::raw_u16string selected_text_line_;
     coord max_window_size{};
     text_measurement measurement{text_measurement::console};
     bool ambiguous_is_wide{false};
@@ -792,7 +793,7 @@ inline std::size_t console_state::previous_tab_stop(std::size_t column) const no
 inline void console_state::set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x,
                                          std::size_t caret_y) noexcept
 {
-    set_selection(anchor_x, anchor_y, caret_x, caret_y, selection_mode::text);
+    set_selection(anchor_x, anchor_y, caret_x, caret_y, selection_mode::block);
 }
 
 inline void console_state::set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x,
@@ -853,25 +854,32 @@ inline void console_state::selected_text_into(const screen_buffer &buffer, Strin
                 end = std::min(end_x + 1, buffer.width());
             }
 
-            selected_text_scratch_.clear();
+            selected_text_line_.clear();
             for (auto x = begin; x < end; ++x)
             {
                 if (!buffer.is_trailing(x, y))
                 {
                     buffer.glyph_at_into(x, y, selected_text_scratch_);
+                    selected_text_line_.append(selected_text_scratch_);
                 }
             }
+            selected_text_scratch_ = std::move(selected_text_line_);
         }
         else
         {
-            selected_text_scratch_.clear();
             for (auto x = left; x <= right && x < buffer.width(); ++x)
             {
                 if (!buffer.is_trailing(x, y))
                 {
                     buffer.glyph_at_into(x, y, selected_text_scratch_);
+                    result.append(selected_text_scratch_);
                 }
             }
+            if (y != bottom)
+            {
+                result.push_back(u'\n');
+            }
+            continue;
         }
         while (!selected_text_scratch_.empty() && selected_text_scratch_.back() == u' ')
         {
