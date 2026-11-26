@@ -29,6 +29,11 @@ inline constexpr std::size_t default_initial_rows = 30;
 inline constexpr std::size_t default_min_columns = 36;
 inline constexpr std::size_t default_min_rows = 2;
 inline constexpr float default_font_size_dip = 16.0f;
+inline constexpr std::uint32_t default_cursor_blink_ms = 530;
+inline constexpr std::uint32_t default_selection_auto_scroll_interval_ms = 40;
+inline constexpr std::size_t default_selection_auto_scroll_edge_rows = 1;
+inline constexpr bool default_uia_text_changed_events = true;
+inline constexpr bool default_uia_selection_events = true;
 inline constexpr std::int32_t default_candidate_offset_cells = 2;
 inline constexpr hyperlink_modifier default_hyperlink_modifier = hyperlink_modifier::control;
 inline constexpr bell_mode default_bell_mode = bell_mode::visual;
@@ -46,6 +51,11 @@ struct window_config final
     uitext::text_options text_options{};
     float font_size_dip{default_font_size_dip};
     font_fallback_list font_fallbacks{default_font_fallbacks(text_options.font)};
+    std::uint32_t cursor_blink_ms{default_cursor_blink_ms};
+    std::uint32_t selection_auto_scroll_interval_ms{default_selection_auto_scroll_interval_ms};
+    std::size_t selection_auto_scroll_edge_rows{default_selection_auto_scroll_edge_rows};
+    bool uia_text_changed_events{default_uia_text_changed_events};
+    bool uia_selection_events{default_uia_selection_events};
     backdrop_mode backdrop{default_backdrop_mode};
     std::uint8_t opacity{default_opacity};
     bool dark_mode{default_dark_mode};
@@ -80,6 +90,11 @@ inline constexpr bool default_alpha_correction = true;
 | `hyperlink` | `window_config` | control | Ctrl/Alt/Shift/none 可配置 |
 | `font_size_dip` | `window_config` | 16.0 | 同时用于窗口度量和 renderer |
 | `font_fallbacks` | `window_config` | 3 项默认 | 最多 12 项，owning wstring + Unicode range |
+| `cursor_blink_ms` | `window_config` | 530 | 0 表示不闪 |
+| `selection_auto_scroll_interval_ms` | `window_config` | 40 | 边缘自动滚动 |
+| `selection_auto_scroll_edge_rows` | `window_config` | 1 | 边缘行数 |
+| `uia_text_changed_events` | `window_config` | true | 文本变化事件开关 |
+| `uia_selection_events` | `window_config` | true | 选择变化事件开关 |
 | `bell` | `window_config` | visual | 终端窗口专属 |
 | `palette` | `window_config` | Campbell | 当前默认调色板 |
 | `backdrop/opacity/dark_mode` | `window_config` | none/255/true | DWM 外观 |
@@ -149,15 +164,15 @@ struct font_fallback_list final
 | 行为 | 当前值 | 归属 | 备注 |
 |---|---:|---|---|
 | cursor style | profile default | console/window | block/underline/bar |
-| cursor blink | 530ms | console/window | 0 表示不闪 |
+
 | scrollbar width | `scrollbar::default_width` | window | 影响 grid 计算 |
 | scrollbar auto hide | true | window | 失焦隐藏 |
 | scrollbar animation frames | `expand_frames` | window | 与 DComp 时钟配合 |
-| selection auto-scroll interval | 40ms | window | 拖动边缘 |
-| selection auto-scroll edge | 1 row | window | 像素阈值 |
+
+
 | copy line ending | CRLF | console | 剪贴板 |
 | hyperlink modifier | control | window | 已接入 |
-| UIA text/selection events | true | window | 需要产品开关 |
+
 | UIA ScrollPattern | true | window | 需要产品开关 |
 | tsf message pump | false | window/ime | 当前禁用，需硬件验收 |
 | Sixel visible texture capacity | 1024 | renderer | 内部实现，不暴露 |
