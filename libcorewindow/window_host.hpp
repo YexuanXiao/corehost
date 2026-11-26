@@ -1,6 +1,7 @@
 #pragma once
 
 #include "console.hpp"
+#include "console_config.hpp"
 #include "window_config.hpp"
 #include "utility/log.hpp"
 #include "render_worker.hpp"
@@ -27,12 +28,7 @@
 namespace corehost::window
 {
 
-enum class client_exit_policy : std::uint8_t
-{
-    keep_open,
-    exit_if_never_read_input,
-    always_exit,
-};
+
 
 inline constexpr UINT client_exit_message = WM_APP + 2;
 
@@ -54,12 +50,12 @@ class window_host final
     }
 
     window_host(win32::wcstring_view title, console &console, win32::srwlock &console_mutex,
-                win32::handle_view client_process, client_exit_policy policy, window_config config,
-                HANDLE damage_event)
+                win32::handle_view client_process, console_config console_config, window_config window_config,
+                win32::handle_view damage_event)
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
-          client_policy_{policy}, config_{config},
-          worker_{console, console_mutex, config_.palette, config_.text_options,
-                  config_.backdrop != backdrop_mode::none, damage_event},
+          console_config_{console_config}, window_config_{window_config}, damage_event_{damage_event},
+          worker_{console, console_mutex, console_config_.palette, window_config_.text_options,
+                  window_config_.backdrop != backdrop_mode::none, damage_event_, console_config_.bell},
           window_{create_window()},
           tsf_{window_, tsf_host::callbacks{
                             .context = this,
@@ -121,19 +117,19 @@ class window_host final
 
     void apply_appearance(HWND window)
     {
-        const BOOL dark = config_.dark_mode ? TRUE : FALSE;
+        const BOOL dark = window_config_.dark_mode ? TRUE : FALSE;
         (void)::DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
 
-        if (config_.backdrop != backdrop_mode::none)
+        if (window_config_.backdrop != backdrop_mode::none)
         {
-            const int backdrop = config_.backdrop == backdrop_mode::mica ? 2 : 3;
+            const int backdrop = window_config_.backdrop == backdrop_mode::mica ? 2 : 3;
             const auto result = ::DwmSetWindowAttribute(window, 38, &backdrop, sizeof(backdrop));
             LOG2("window backdrop mode=%d hr=%08x", backdrop, static_cast<unsigned>(result));
         }
 
-        if (config_.opacity < 255)
+        if (window_config_.opacity < 255)
         {
-            (void)::SetLayeredWindowAttributes(window, 0, config_.opacity, LWA_ALPHA);
+            (void)::SetLayeredWindowAttributes(window, 0, window_config_.opacity, LWA_ALPHA);
         }
     }
 
@@ -164,7 +160,7 @@ class window_host final
         }
 
         const auto initial_dpi = std::max<UINT>(96, ::GetDpiForSystem());
-        const auto [client_width, client_height] = initial_client_size(initial_dpi, config_.text_options.font);
+        const auto [client_width, client_height] = initial_client_size(initial_dpi, window_config_.text_options.font);
         RECT initial_rect{0, 0, client_width, client_height};
         if (::AdjustWindowRectExForDpi(&initial_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
                                        initial_dpi) == FALSE)
@@ -175,7 +171,7 @@ class window_host final
         const auto initial_height = initial_rect.bottom - initial_rect.top;
 
         auto ex_style = static_cast<DWORD>(WS_EX_NOREDIRECTIONBITMAP);
-        if (config_.opacity < 255)
+        if (window_config_.opacity < 255)
         {
             ex_style |= WS_EX_LAYERED;
         }
@@ -191,7 +187,7 @@ class window_host final
         const auto window_dpi = std::max<UINT>(96, ::GetDpiForWindow(window));
         if (window_dpi != initial_dpi)
         {
-            const auto [target_width, target_height] = initial_client_size(window_dpi, config_.text_options.font);
+            const auto [target_width, target_height] = initial_client_size(window_dpi, window_config_.text_options.font);
             RECT target_rect{0, 0, target_width, target_height};
             if (::AdjustWindowRectExForDpi(&target_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
                                            window_dpi) == FALSE)
@@ -466,8 +462,8 @@ class window_host final
             return;
         }
 
-        bool close_window = client_policy_ == client_exit_policy::always_exit;
-        if (client_policy_ == client_exit_policy::exit_if_never_read_input)
+        bool close_window = window_config_.exit_policy == client_exit_policy::always_exit;
+        if (window_config_.exit_policy == client_exit_policy::exit_if_never_read_input)
         {
             std::unique_lock<win32::srwlock> lock{console_mutex_};
             close_window = !console_.has_read_input();
@@ -1246,11 +1242,12 @@ class window_host final
     console &console_;
     win32::srwlock &console_mutex_;
     win32::handle_view client_process_;
-    window_config config_;
+    console_config console_config_;
+    window_config window_config_;
+    win32::handle_view damage_event_;
     render_worker worker_;
     HWND window_;
     tsf_host tsf_;
-    client_exit_policy client_policy_{};
     win32::event process_stop_event_{win32::create_tag, true, false};
     win32::basic_thread process_thread_;
     bool scrollbar_dragging_{};

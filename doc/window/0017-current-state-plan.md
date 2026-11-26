@@ -47,21 +47,27 @@
 
 ### 1. window_config
 
-新增 `corehost::window::window_config`：
+新增顶层 `libconfig/`，分为 `console_config` 和 `window_config`：
 
 ```cpp
-struct window_config
+struct console_config
 {
     console_palette palette = console_palette::campbell();
+    bell_mode bell = bell_mode::visual;
+};
+
+struct window_config
+{
     uitext::text_options text_options{};
     backdrop_mode backdrop = backdrop_mode::none;
     std::uint8_t opacity = 255;
     bool dark_mode = true;
+    client_exit_policy exit_policy = client_exit_policy::keep_open;
 };
 ```
 
 - 先只由 C++ 构造，不读取配置文件；
-- `window_entry(title, command_line, window_config)`；
+- `window_entry(title, command_line, console_config, window_config)`；
 - `window_ui` 和 `window_host` 接收同一份配置；
 - 默认值保持当前行为。
 

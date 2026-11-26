@@ -1,6 +1,8 @@
 #pragma once
 
+#include "console_config.hpp"
 #include "window_config.hpp"
+#include "win32/handle.hpp"
 #include "window_host.hpp"
 
 #include "win32/com_apartment.hpp"
@@ -22,9 +24,10 @@ class window_ui final
 {
   public:
     window_ui(console &console, win32::srwlock &console_mutex, win32::handle_view client_process,
-              win32::wcstring_view title, client_exit_policy policy, window_config config, HANDLE damage_event)
+              win32::wcstring_view title, console_config console_config, window_config window_config,
+              win32::handle_view damage_event)
         : console_{console}, console_mutex_{console_mutex}, client_process_{client_process}, title_{title},
-          policy_{policy}, config_{config}, damage_event_{damage_event}
+          console_config_{console_config}, window_config_{window_config}, damage_event_{damage_event}
     {
         assert(!title_.empty());
         assert(client_process_.valid());
@@ -86,7 +89,8 @@ class window_ui final
         try
         {
             win32::com_apartment apartment{COINIT_APARTMENTTHREADED};
-            window_host host{title_, console_, console_mutex_, client_process_, policy_, config_, damage_event_};
+            window_host host{title_, console_, console_mutex_, client_process_, console_config_, window_config_,
+                             damage_event_};
             hwnd_ = host.window();
             ready_.set();
             host.run();
@@ -103,9 +107,9 @@ class window_ui final
     win32::srwlock &console_mutex_;
     win32::handle_view client_process_;
     win32::wcstring_view title_;
-    client_exit_policy policy_;
-    window_config config_;
-    HANDLE damage_event_{};
+    console_config console_config_;
+    window_config window_config_;
+    win32::handle_view damage_event_{};
 
     win32::event ready_{win32::create_tag, true, false};
     win32::event close_requested_{win32::create_tag, true, false};

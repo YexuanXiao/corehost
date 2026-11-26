@@ -6,6 +6,7 @@ target_include_directories(libcorewindow INTERFACE
 )
 
 target_link_libraries(libcorewindow INTERFACE
+    libconfig
     libcoreui
     libd3d12ui
     libscreen

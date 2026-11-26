@@ -4,11 +4,13 @@
 #include "utility/log.hpp"
 #include "color_cell_atlas.hpp"
 #include "console.hpp"
+#include "console_config.hpp"
 #include "console_theme.hpp"
 #include "scrollbar.hpp"
 #include "d3d12_window_renderer.hpp"
 #include "text_engine.hpp"
 #include "win32/event.hpp"
+#include "win32/handle.hpp"
 #include "win32/srwlock.hpp"
 #include "win32/thread.hpp"
 
@@ -34,9 +36,9 @@ class render_worker final
     render_worker(console &console, win32::srwlock &console_mutex,
                   console_palette palette = console_palette::campbell(),
                   uitext::text_options text_options = {}, bool transparent_background = false,
-                  HANDLE damage_event = nullptr)
+                  win32::handle_view damage_event = {}, bell_mode bell = bell_mode::visual)
         : console_{console}, console_mutex_{console_mutex}, text_options_{text_options}, palette_{palette},
-          transparent_background_{transparent_background}, damage_event_{damage_event}
+          transparent_background_{transparent_background}, damage_event_{damage_event}, bell_{bell}
     {
     }
 
@@ -920,7 +922,8 @@ class render_worker final
     screen::style_table styles_;
     console_palette palette_;
     bool transparent_background_{};
-    HANDLE damage_event_{};
+    win32::handle_view damage_event_{};
+    bell_mode bell_{bell_mode::visual};
     std::uint64_t bell_count_{};
     screen::cursor_state cursor_{};
     screen::selection_range selection_{};
