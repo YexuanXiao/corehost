@@ -4,6 +4,7 @@
 #include "kitty.hpp"
 #include "sixel.hpp"
 #include "sixel_decoder.hpp"
+#include "utility/log.hpp"
 
 #include "console_state.hpp"
 #include "raw_buffer.hpp"
@@ -51,6 +52,7 @@ class state_applier final
     }
     bool apply_image(std::u16string_view raw_sequence, screen::screen_buffer &buffer, screen::console_state &state)
     {
+        LOG2("apply_image raw=%zu", raw_sequence.size());
         screen::image_fragment fragment{};
         std::size_t columns = 1;
         std::size_t rows = 1;
@@ -67,6 +69,8 @@ class state_applier final
         else if (const auto sixel = vtparser::parse_sixel(raw_sequence); sixel.has_value())
         {
             auto decoded = uisixel::decode(sixel->data);
+            LOG2("sixel parsed w=%u h=%u decoded=%d", sixel->width, sixel->height,
+                 decoded.has_value() ? 1 : 0);
             const auto image_id = next_sixel_image_id_++;
             fragment.image_id = image_id;
             fragment.placement_id = image_id;
