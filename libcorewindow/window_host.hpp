@@ -956,7 +956,7 @@ class window_host final
         case WM_RBUTTONDOWN:
         {
             std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-            if (self->console_.vt_mouse_tracking() && (::GetKeyState(VK_SHIFT) & 0x8000) != 0)
+            if (self->console_.vt_mouse_tracking() && (::GetKeyState(VK_SHIFT) & 0x8000) == 0)
             {
                 self->push_mouse(lparam, RIGHTMOST_BUTTON_PRESSED, 0);
             }
@@ -967,7 +967,7 @@ class window_host final
             std::unique_lock<win32::srwlock> lock{self->console_mutex_};
             LOG2("rbuttonup selection=%d vt=%d", self->console_.has_selection() ? 1 : 0,
                  self->console_.vt_mouse_tracking() ? 1 : 0);
-            if (self->console_.vt_mouse_tracking() && (::GetKeyState(VK_SHIFT) & 0x8000) != 0)
+            if (self->console_.vt_mouse_tracking() && (::GetKeyState(VK_SHIFT) & 0x8000) == 0)
             {
                 self->push_mouse(lparam, 0, 0);
                 return 0;

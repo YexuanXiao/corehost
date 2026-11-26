@@ -1208,14 +1208,6 @@ class console_api final
             // structured VK/Uc/ControlKeyState records. Keep Win32Input enabled,
             // matching conhost's VtInputThread.
 
-            if ((state_.input_mode & 0x0010) != 0)
-            {
-                if (!state_.mouse_tracking())
-                {
-                    state_.set_private_mode(1000, true);
-                }
-                state_.set_private_mode(1006, true);
-            }
             // ENABLE_MOUSE_INPUT 只控制 Win32 MOUSE_EVENT 的生成。VT mouse
             // tracking（1000/1002/1003/1006）由应用自己的输出序列管理；
             // edit.exe 会在不设置 ENABLE_MOUSE_INPUT 的情况下启用 SGR
