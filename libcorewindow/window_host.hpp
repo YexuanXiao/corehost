@@ -103,11 +103,7 @@ class window_host final
   private:
     [[nodiscard]] static std::pair<int, int> initial_client_size(UINT dpi)
     {
-        const std::array<uitext::font_fallback_entry, 3> families{
-            uitext::font_fallback_entry{L"Cascadia Code"},
-            uitext::font_fallback_entry{L"Cascadia Mono"},
-            uitext::font_fallback_entry{L"Consolas"},
-        };
+        const auto families = uitext::default_font_families();
         const auto scale = static_cast<float>(dpi) / 96.0f;
         uitext::text_engine text{families, font_size_dip * scale};
         const auto metrics = text.metrics();

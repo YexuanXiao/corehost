@@ -68,9 +68,9 @@ add_executable(corehostw WIN32
 
 target_compile_definitions(corehostw PRIVATE
     COREHOST_WINDOW=1
+    COREHOST_FONT_MONO=$<BOOL:${COREHOST_FONT_MONO}>
     COREHOST_TEXT_CONTRAST=$<BOOL:${COREHOST_TEXT_CONTRAST}>
     COREHOST_TEXT_ALPHA_CORRECTION=$<BOOL:${COREHOST_TEXT_ALPHA_CORRECTION}>
-    COREHOST_TEXT_RECOMMENDED_RENDERING_MODE=$<BOOL:${COREHOST_TEXT_RECOMMENDED_RENDERING_MODE}>
 )
 add_dependencies(corehostw libd3d12ui_shaders)
 
@@ -113,7 +113,7 @@ corehost_target_msvc_linker_options(corehostw PRIVATE "/OPT:REF" "/OPT:ICF")
 corehost_target_msvc_linker_option(corehostw PRIVATE "/SUBSYSTEM:WINDOWS,10.0")
 
 if(COREHOST_BUILD_TEXT_VARIANTS)
-    function(add_corehostw_text_variant target contrast alpha_correction recommended_mode)
+    function(add_corehostw_text_variant target mono contrast alpha_correction)
         add_executable(${target} WIN32
             corehost.rc
             $<IF:$<OR:$<BOOL:${COREHOST_DEFAULT_UTF8}>,$<BOOL:${COREHOST_RUN_AS_UTF8}>>,corehost.utf8.manifest,corehost.manifest>
@@ -127,9 +127,9 @@ if(COREHOST_BUILD_TEXT_VARIANTS)
         )
         target_compile_definitions(${target} PRIVATE
             COREHOST_WINDOW=1
+            COREHOST_FONT_MONO=${mono}
             COREHOST_TEXT_CONTRAST=${contrast}
             COREHOST_TEXT_ALPHA_CORRECTION=${alpha_correction}
-            COREHOST_TEXT_RECOMMENDED_RENDERING_MODE=${recommended_mode}
         )
         add_dependencies(${target} libd3d12ui_shaders)
         target_include_directories(${target} PRIVATE
@@ -159,12 +159,17 @@ if(COREHOST_BUILD_TEXT_VARIANTS)
         corehost_target_msvc_linker_option(${target} PRIVATE "/SUBSYSTEM:WINDOWS,10.0")
     endfunction()
 
-    foreach(contrast 0 1)
-        foreach(alpha_correction 0 1)
-            foreach(recommended_mode 0 1)
+    foreach(mono 0 1)
+        foreach(contrast 0 1)
+            foreach(alpha_correction 0 1)
+                if(mono)
+                    set(font_name mono)
+                else()
+                    set(font_name code)
+                endif()
                 add_corehostw_text_variant(
-                    corehostw_tc${contrast}_ac${alpha_correction}_rm${recommended_mode}
-                    ${contrast} ${alpha_correction} ${recommended_mode})
+                    corehostw_${font_name}_tc${contrast}_ac${alpha_correction}
+                    ${mono} ${contrast} ${alpha_correction})
             endforeach()
         endforeach()
     endforeach()

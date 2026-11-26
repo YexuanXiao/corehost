@@ -23,9 +23,9 @@ corehost_configure_compiler()
 
 add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 
+option(COREHOST_FONT_MONO "Use Cascadia Mono instead of Cascadia Code" OFF)
 option(COREHOST_TEXT_CONTRAST "Apply DirectWrite grayscale contrast correction" ON)
 option(COREHOST_TEXT_ALPHA_CORRECTION "Apply DirectWrite grayscale alpha/gamma correction" ON)
-option(COREHOST_TEXT_RECOMMENDED_RENDERING_MODE "Use DirectWrite recommended rendering/grid-fit mode" ON)
 option(COREHOST_BUILD_TEXT_VARIANTS "Build all text rendering correction combinations" OFF)
 
 option(COREHOST_DISABLE_LOG "Disable CoreHost logging" ON)

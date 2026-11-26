@@ -903,11 +903,7 @@ class render_worker final
     win32::srwlock &console_mutex_;
     HWND window_{};
     d3d12ui::d3d12_window_renderer renderer_;
-    std::array<uitext::font_fallback_entry, 3> fallback_families_{
-        uitext::font_fallback_entry{L"Cascadia Code"},
-        uitext::font_fallback_entry{L"Cascadia Mono"},
-        uitext::font_fallback_entry{L"Consolas"},
-    };
+    std::array<uitext::font_fallback_entry, 3> fallback_families_{uitext::default_font_families()};
     uitext::text_engine text_{fallback_families_, 16.0f};
     uitext::cell_atlas atlas_{text_};
     uitext::color_cell_atlas color_atlas_{text_};
