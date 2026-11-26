@@ -25,7 +25,7 @@ void window_entry(win32::wcstring_view title, std::wstring client_command_line,
 
     window_client_process client{server.view(), title, client_command_line};
     window_ui ui{shared_console, console_mutex, client.process(), title, client_exit_policy::keep_open,
-                 config};
+                 config, console.output_event().get()};
     ui.start();
     ui.wait();
 

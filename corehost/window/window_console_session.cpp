@@ -162,6 +162,7 @@ bool window_console_session::handle_write_console(coreio::io_msg &message)
 bool window_console_session::handle(coreio::io_msg &message)
 {
     std::unique_lock<win32::srwlock> lock{console_mutex_};
+    output_event_.set();
 
     switch (message.descriptor.Function)
     {

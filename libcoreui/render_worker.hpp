@@ -33,9 +33,10 @@ class render_worker final
   public:
     render_worker(console &console, win32::srwlock &console_mutex,
                   console_palette palette = console_palette::campbell(),
-                  uitext::text_options text_options = {}, bool transparent_background = false)
+                  uitext::text_options text_options = {}, bool transparent_background = false,
+                  HANDLE damage_event = nullptr)
         : console_{console}, console_mutex_{console_mutex}, text_options_{text_options}, palette_{palette},
-          transparent_background_{transparent_background}
+          transparent_background_{transparent_background}, damage_event_{damage_event}
     {
     }
 
@@ -919,6 +920,7 @@ class render_worker final
     screen::style_table styles_;
     console_palette palette_;
     bool transparent_background_{};
+    HANDLE damage_event_{};
     std::uint64_t bell_count_{};
     screen::cursor_state cursor_{};
     screen::selection_range selection_{};

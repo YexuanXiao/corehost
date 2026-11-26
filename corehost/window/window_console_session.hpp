@@ -41,6 +41,11 @@ class window_console_session final
     void start();
     void stop();
 
+    [[nodiscard]] win32::event &output_event() noexcept
+    {
+        return output_event_;
+    }
+
 
 
   private:
@@ -87,6 +92,7 @@ class window_console_session final
     vtstate::state_applier vt_applier_{};
     vtparser::raw_u16buffer vt_text_;
     win32::event input_event_;
+    win32::event output_event_{win32::create_tag, false, false};
     win32::event stop_event_;
     win32::basic_thread thread_;
     win32::basic_thread input_thread_;

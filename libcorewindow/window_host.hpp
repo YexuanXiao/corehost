@@ -54,11 +54,12 @@ class window_host final
     }
 
     window_host(win32::wcstring_view title, console &console, win32::srwlock &console_mutex,
-                win32::handle_view client_process, client_exit_policy policy, window_config config)
+                win32::handle_view client_process, client_exit_policy policy, window_config config,
+                HANDLE damage_event)
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
           client_policy_{policy}, config_{config},
           worker_{console, console_mutex, config_.palette, config_.text_options,
-                  config_.backdrop != backdrop_mode::none},
+                  config_.backdrop != backdrop_mode::none, damage_event},
           window_{create_window()},
           tsf_{window_, tsf_host::callbacks{
                             .context = this,
