@@ -157,4 +157,6 @@ struct window_config
 - BEL 解析、state 计数、`FlashWindowEx` visual bell 已实现。
 - 渲染改为事件驱动：console session signal output event，render 线程等待 stop/damage，不再每帧等合成器。
 - 当前测试：`build-ninja` 12/12 通过。
-- Sixel 解码、image fragment、color atlas RGBA quad 已完成；64x64 彩色 Sixel 实测显示。\n- 已知性能问题：image 每次 render 都会重新写入 color atlas/上传纹理，后续需缓存。\n- selection 回归的用户场景仍待确认。
+- Sixel 解码、image fragment、color atlas RGBA quad 已完成；64x64 彩色 Sixel 实测显示。
+- 已知性能问题：image 每次 render 都会重新写入 color atlas/上传纹理，后续需缓存。
+- selection 回归的用户场景仍待确认。
