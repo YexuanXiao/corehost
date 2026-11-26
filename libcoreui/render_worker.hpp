@@ -795,6 +795,52 @@ class render_worker final
         renderer_.set_text_correction(contrast, gamma_ratios);
     }
 
+    static bool is_device_lost_error(const winrt::hresult_error &error) noexcept
+    {
+        const auto result = static_cast<HRESULT>(error.code());
+        return result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET;
+    }
+
+    bool recover_renderer()
+    {
+        static constexpr std::array<DWORD, 4> retry_delays{0, 500, 2000, 8000};
+        for (const auto delay : retry_delays)
+        {
+            if (delay != 0)
+            {
+                const auto wait = win32::wait_one(stop_event_, delay);
+                if (wait.signaled() || wait.abandoned())
+                {
+                    return false;
+                }
+            }
+
+            LOG2("device lost recovery attempt delay=%u", static_cast<unsigned>(delay));
+            try
+            {
+                renderer_.reset();
+                renderer_.initialize(window_);
+                apply_text_correction();
+                const auto &clear = config_.palette.default_background;
+                renderer_.set_clear_color(static_cast<float>(clear.r) / 255.0f,
+                                          static_cast<float>(clear.g) / 255.0f,
+                                          static_cast<float>(clear.b) / 255.0f,
+                                          (config_.backdrop != backdrop_mode::none) ? 0.0f : 1.0f);
+                atlas_.reset();
+                color_atlas_.mark_dirty();
+                force_full_redraw_ = true;
+                LOG2("device lost recovery succeeded delay=%u", static_cast<unsigned>(delay));
+                return true;
+            }
+            catch (const winrt::hresult_error &error)
+            {
+                LOG2("device lost recovery failed delay=%u hr=%08x", static_cast<unsigned>(delay),
+                     static_cast<unsigned>(error.code()));
+            }
+        }
+        return false;
+    }
+
     DWORD wait_timeout() const noexcept
     {
         DWORD timeout = INFINITE;
@@ -826,6 +872,14 @@ class render_worker final
             if (stop_.load(std::memory_order_relaxed))
             {
                 break;
+            }
+
+            if (force_full_redraw_)
+            {
+                columns = 0;
+                rows = 0;
+                history_size_ = 0;
+                force_full_redraw_ = false;
             }
 
             auto timeout = wait_timeout();
@@ -992,42 +1046,66 @@ class render_worker final
             draw_cursor_ = cursor_.visible && focused_ && scroll_pixels_ == 0.0 && !selection_.active && composition_.empty() &&
                            (cursor_.blinking ? blink_on_ : true);
             cursor_dirty = false;
-            renderer_.resize(width, height);
-            client_width_px_ = static_cast<float>(width);
-            client_height_px_ = static_cast<float>(height);
-
-            if (changed || cursor_changed || selection_changed || hover_changed || scrollbar_animating ||
-                focus_changed || blink_changed || redraw_requested || dpi_changed)
+            try
             {
-                if (scroll_changed)
+                renderer_.resize(width, height);
+                client_width_px_ = static_cast<float>(width);
+                client_height_px_ = static_cast<float>(height);
+
+                if (changed || cursor_changed || selection_changed || hover_changed || scrollbar_animating ||
+                    focus_changed || blink_changed || redraw_requested || dpi_changed)
                 {
-                    apply_scrolled_rows();
+                    if (scroll_changed)
+                    {
+                        apply_scrolled_rows();
+                    }
+                    else if (changed)
+                    {
+                        apply_updates();
+                    }
+                    if (changed && text_changed_callback_)
+                    {
+                        text_changed_callback_(text_changed_callback_data_);
+                    }
+                    if (atlas_upload_requested_.exchange(false, std::memory_order_relaxed))
+                    {
+                        atlas_.mark_dirty();
+                        color_atlas_.mark_dirty();
+                    }
+                    if (redraw_requested || changed)
+                    {
+                        LOG2("redraw rows: %zu %zu %zu %zu %zu changed=%d screen=%04x cell0=%04x", row_nonspace(0),
+                             row_nonspace(1), row_nonspace(2), row_nonspace(3), row_nonspace(rows - 1), changed ? 1 : 0,
+                             console_.buffer().at(0, 0).primary(), cell_state_[0].primary());
+                    }
+                    build_quads();
+                    renderer_.set_text_texture(atlas_.pixels(), atlas_.size(), atlas_.size());
+                    LOG2("quads=%zu colorquads=%zu scrollf=%.3f", quads_.size(), color_quads_.size(), scroll_fraction_);
+                    renderer_.render();
+                    if (renderer_.device_lost())
+                    {
+                        throw winrt::hresult_error{DXGI_ERROR_DEVICE_REMOVED};
+                    }
+                    LOG2("render done");
                 }
-                else if (changed)
+            }
+            catch (const winrt::hresult_error &error)
+            {
+                if (!is_device_lost_error(error))
                 {
-                    apply_updates();
+                    throw;
                 }
-                if (changed && text_changed_callback_)
+                LOG2("device lost detected hr=%08x", static_cast<unsigned>(error.code()));
+                if (!recover_renderer())
                 {
-                    text_changed_callback_(text_changed_callback_data_);
+                    LOG2("device lost recovery exhausted; closing window");
+                    stop_.store(true, std::memory_order_relaxed);
+                    stop_event_.set();
+                    (void)::PostMessageW(window_, WM_CLOSE, 0, 0);
+                    break;
                 }
-                if (atlas_upload_requested_.exchange(false, std::memory_order_relaxed))
-                {
-                    atlas_.mark_dirty();
-                    color_atlas_.mark_dirty();
-                }
-                if (redraw_requested || changed)
-                {
-                    LOG2("redraw rows: %zu %zu %zu %zu %zu changed=%d screen=%04x cell0=%04x", row_nonspace(0),
-                         row_nonspace(1), row_nonspace(2), row_nonspace(3), row_nonspace(rows - 1),
-                         changed ? 1 : 0, console_.buffer().at(0, 0).primary(), cell_state_[0].primary());
-                }
-                build_quads();
-                renderer_.set_text_texture(atlas_.pixels(), atlas_.size(), atlas_.size());
-                LOG2("quads=%zu colorquads=%zu scrollf=%.3f", quads_.size(), color_quads_.size(),
-                     scroll_fraction_);
-                renderer_.render();
-                LOG2("render done");
+                cursor_dirty = true;
+                first_frame = true;
             }
         }
 
@@ -1082,6 +1160,7 @@ class render_worker final
     win32::event wake_event_{win32::create_tag, false, false};
     std::atomic_bool stop_{};
     bool scrollbar_animation_active_{};
+    bool force_full_redraw_{};
     text_changed_callback text_changed_callback_{};
     void *text_changed_callback_data_{};
     std::atomic_bool redraw_requested_{};

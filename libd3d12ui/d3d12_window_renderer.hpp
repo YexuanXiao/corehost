@@ -116,6 +116,11 @@ class d3d12_window_renderer final
         return initialized_;
     }
 
+    [[nodiscard]] bool device_lost() const noexcept
+    {
+        return device_ != nullptr && device_->GetDeviceRemovedReason() != S_OK;
+    }
+
     void set_text_texture(std::span<const std::uint8_t> alpha, UINT width, UINT height)
     {
         assert(initialized_);
