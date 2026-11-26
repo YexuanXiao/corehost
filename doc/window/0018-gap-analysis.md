@@ -17,11 +17,10 @@
 
 最关键的未完成项：
 
-1. W3.6：没有 D3D12 device removed/lost 的检测和重建路径。
-2. Sixel 图像每次绘制都会重新写入 color atlas 并上传纹理，静态大图性能不合格。
-3. UIA 已提供 TextPattern/ScrollPattern/事件，但还没有自动化 UIA 测试和屏幕阅读器验收；
+1. Sixel 图像每次绘制都会重新写入 color atlas 并上传纹理，静态大图性能不合格。
+2. UIA 已提供 TextPattern/ScrollPattern/事件，但还没有自动化 UIA 测试和屏幕阅读器验收；
    没有 Invoke（终端窗口没有有意义的默认调用动作）。
-4. `wt_test_checklist.md` 仍大量未验收，不能把“功能存在”等同于“与 conhost/WT 行为一致”。
+3. `wt_test_checklist.md` 仍大量未验收，不能把“功能存在”等同于“与 conhost/WT 行为一致”。
 
 TSF 不实现 `ITextStoreACP`，原因见 `0015-ime-tsf.md`；这不是本轮阻塞项。
 ## 已完成
@@ -32,6 +31,7 @@ TSF 不实现 `ITextStoreACP`，原因见 `0015-ime-tsf.md`；这不是本轮阻
 | W1 `corehostw` / `window_entry` | 已完成 | 单进程 ConDrv console，不使用 ConPTY/libcorepty/defterm |
 | W2.1–W2.4 窗口/DPI/焦点/空闲 | 已完成 | `window_host`、`window_ui`；render 线程改为 damage/wake/stop 事件等待 |
 | W3.1–W3.5 D3D12/DXGI/DComp | 已完成 | `libd3d12ui`、composition swapchain、transparent path |
+| W3.6 device lost | 实现完成，待故障注入验证 | 检测 `DXGI_ERROR_DEVICE_REMOVED`/RESET；0/500/2000/8000ms 重建，失败关闭窗口 |
 | W4 基础 console 会话 | 已完成基础路径 | `window_console_session`，CONNECT/RAW_WRITE/RAW_READ/console API |
 | W5 文本显示 | 已完成基础路径 | DirectWrite fallback、glyph atlas、SGR 16/256/RGB、bold/italic/underline/strike、emoji、box drawing |
 | W6 键盘/鼠标/选择/剪贴板 | 已完成基础路径 | 键盘、SGR mouse、文本线性选择、双击/三击、复制/粘贴 |
@@ -64,12 +64,7 @@ TSF 不实现 `ITextStoreACP`，原因见 `0015-ime-tsf.md`；这不是本轮阻
 
 ### P0：剩余
 
-#### 1. D3D12 设备丢失
-
-`libd3d12ui` 没有 `GetDeviceRemovedReason`、device removed 检测、资源重建或 swapchain
-重建路径。驱动更新、TDR、显示器切换后窗口可能直接失效。
-
-#### 2. Sixel 图像缓存
+#### 1. Sixel 图像缓存
 
 要求：**当前屏幕内容中的 Sixel 图像区域没有变化时，不重新绘制、不重新上传 RGBA 纹理。**
 
@@ -82,7 +77,7 @@ TSF 不实现 `ITextStoreACP`，原因见 `0015-ime-tsf.md`；这不是本轮阻
 - 只缓存当前屏幕内可见图像，屏幕外图像不缓存；
 - Sixel 最大尺寸/像素数不设限。
 
-#### 3. UIA 验收与事件
+#### 2. UIA 验收与事件
 
 已有：
 
@@ -172,13 +167,12 @@ TSF 文本存储耦合起来。
 
 ## 建议顺序
 
-1. W3.6 device lost；
-3. Sixel 图像缓存；
-4. Mica/Acrylic/透明度手动验收；
-5. 配置项对象（见 `0019-config-inventory.md`）；
-6. UIA 自动化与屏幕阅读器验收；
-7. 宽度策略/CJK/grapheme；
-8. checklist 剩余项。
+1. Sixel 缓存；
+2. Mica/Acrylic/透明度手动验收；
+3. 配置项对象（见 `0019-config-inventory.md`）；
+4. UIA 自动化与屏幕阅读器验收；
+5. 宽度策略/CJK/grapheme；
+6. checklist 剩余项。
 
 ## 相关文件
 

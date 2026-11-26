@@ -41,7 +41,7 @@
 
 - TSF 不实现 `ITextStoreACP`（决定记录在 0015），复杂 IME/TIP 未验收；
 - TSF 不实现 `ITextStoreACP`（决定记录在 0015），复杂 IME/TIP 未验收；
-- D3D12 device lost 无恢复；
+- D3D12 device lost 已实现恢复（0/500/2000/8000ms，失败关闭窗口），待故障注入验证；
 - Sixel 图像没有持久缓存；
 - UIA 只有手动验证，没有自动化/屏幕阅读器验收；
 - 主题只有 Campbell，没有配置文件加载、亮暗切换、高对比度；

@@ -21,6 +21,7 @@
 - D3D12 + DXGI composition swapchain + DirectComposition；
 - DirectWrite fallback、glyph atlas、颜色 emoji、SGR 16/256/RGB、粗斜体/下划线/反显/删除线；
 - 光标形状/闪烁；
+- D3D12 device lost：检测、resource/swapchain 重建、0/500ms/2s/8s 重试，失败关闭窗口；
 - 空闲渲染改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁时允许 530ms 定时器；滚动条动画用合成器时钟按刷新率驱动；
 - 垂直滚动条：hover、thumb 拖拽、轨道点击、滚轮、键盘滚动；
 - 线性文本选择、Shift 扩展、双击选词、三击选行、边缘自动滚动；
@@ -38,8 +39,7 @@
 ## 关键未完成
 
 1. **TSF 范围决定**：不实现 `ITextStoreACP`；复杂 IME/TIP、日文/韩文未验收。
-2. **D3D12 device lost 未处理**：无 device removed 检测和资源重建。
-3. **Sixel 性能**：图像每次绘制重新写 color atlas/上传纹理。
+2. **Sixel 性能**：图像每次绘制重新写 color atlas/上传纹理。
 4. **UIA 自动化/屏幕阅读器验收**：仅手动 PowerShell UIA 验证；Invoke 明确不做。
 5. **CJK/combining/宽字符覆盖**：B6/B8/B9 仍未按用户要求验收。
 6. **主题/配置**：无配置文件加载、无亮暗主题切换/高对比度。
@@ -49,10 +49,9 @@
 
 按 [0018-gap-analysis.md](0018-gap-analysis.md) 的顺序：
 
-1. device lost；
-2. Sixel 缓存；
-3. Mica/Acrylic/透明度手动验收；
-4. 配置项对象；
-5. UIA 自动化；
-6. 宽度/CJK/grapheme；
-7. checklist。
+1. Sixel 缓存；
+2. Mica/Acrylic/透明度手动验收；
+3. 配置项对象；
+4. UIA 自动化；
+5. 宽度/CJK/grapheme；
+6. checklist。

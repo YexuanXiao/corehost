@@ -82,7 +82,7 @@ struct text_options
 | `selection_shift_forces_local` | `bool` | true | `window_host` | Shift 强制本地选择 |
 | `frame_latency` | `std::uint32_t` | 1 | `libd3d12ui` | DXGI frame latency |
 | `prefer_warp` | `bool` | false | `libd3d12ui` | 测试/兼容 |
-| `device_lost_policy` | enum | recreate | 无 | device lost 恢复策略 |
+| `device_lost_policy` | enum | recreate | `render_worker` | 0/500/2000/8000ms 重建，失败关闭窗口 |
 | `vsync` | `bool` | true | `libd3d12ui` | 合成器时钟/呈现 |
 
 ## Sixel / 渲染

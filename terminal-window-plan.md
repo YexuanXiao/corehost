@@ -580,6 +580,14 @@ GetDeviceRemovedReason
 - 与 resize、DPI、透明度路径共用资源重建函数；
 - 自动化测试至少能注入 fake device-removed 结果。
 
+当前实现：
+
+- `d3d12_window_renderer::device_lost()` 检查 `GetDeviceRemovedReason`；
+- `render_worker` 捕获 device-lost HRESULT；
+- 重建按 0ms、500ms、2s、8s 重试，全部失败后 `WM_CLOSE` 退出；
+- 重建后清空 atlas、强制全量 redraw；
+- 尚未加入 fake device-removed 故障注入测试。
+
 ---
 ## 5. 图形实现细节
 
