@@ -225,7 +225,7 @@ class window_host final
     // candidate position, so dropping these messages would break reconversion
     // and IME UI placement. See chromium_ime_src/ui/base/ime/win/
     // input_method_win_base.cc and input_method_win_tsf.cc.
-    LRESULT handle_ime_request(WPARAM request, LPARAM data) const
+    LRESULT handle_ime_request(WPARAM request, LPARAM data)
     {
         if (window_ == nullptr || !window_ready_)
         {
@@ -259,10 +259,11 @@ class window_host final
         return 1;
     }
 
-    LRESULT handle_reconvert_string(RECONVERTSTRING *reconvert, bool include_context) const
+    LRESULT handle_reconvert_string(RECONVERTSTRING *reconvert, bool include_context)
     {
         std::unique_lock<win32::srwlock> lock{console_mutex_};
-        std::u16string text;
+        auto &text = ime_text_buffer_;
+        text.clear();
         std::size_t target_offset = 0;
         std::size_t target_length = 0;
 
@@ -276,7 +277,7 @@ class window_host final
         }
         else if (console_.selection().active)
         {
-            text = console_.selected_text();
+            console_.selected_text_into(text);
             target_length = text.size();
         }
         else
@@ -540,7 +541,8 @@ class window_host final
 
     void copy_selection(HWND hwnd)
     {
-        auto text = console_.selected_text();
+        auto &text = copy_buffer_;
+        console_.selected_text_into(text);
         if (text.empty() || ::OpenClipboard(hwnd) == FALSE)
         {
             return;
@@ -714,414 +716,398 @@ class window_host final
     {
         auto *self = reinterpret_cast<window_host *>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
-        switch (message)
+        if (message == WM_NCCREATE)
         {
-        case WM_NCCREATE:
             ::SetWindowLongPtrW(hwnd, GWLP_USERDATA,
                                 reinterpret_cast<LONG_PTR>(reinterpret_cast<CREATESTRUCTW *>(lparam)->lpCreateParams));
             return ::DefWindowProcW(hwnd, message, wparam, lparam);
-        case WM_GETMINMAXINFO: {
+        }
+
+        // WM_NCCREATE installs the instance pointer. All other messages can
+        // return early while the window is still being created or already torn
+        // down, instead of wrapping every case in an extra null check.
+        if (self == nullptr)
+        {
+            return ::DefWindowProcW(hwnd, message, wparam, lparam);
+        }
+
+        switch (message)
+        {
+        case WM_GETMINMAXINFO:
+        {
             const auto dpi = std::max<UINT>(96, ::GetDpiForWindow(hwnd));
             reinterpret_cast<MINMAXINFO *>(lparam)->ptMinTrackSize =
                 POINT{::MulDiv(320, static_cast<int>(dpi), 96), ::MulDiv(200, static_cast<int>(dpi), 96)};
             return 0;
         }
-        case WM_DPICHANGED: {
+        case WM_DPICHANGED:
+        {
             const auto *suggested = reinterpret_cast<const RECT *>(lparam);
             ::SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
                            suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
             return 0;
         }
         case WM_IME_REQUEST:
-            if (self != nullptr)
-            {
-                return self->handle_ime_request(wparam, lparam);
-            }
-            return 0;
+            return self->handle_ime_request(wparam, lparam);
         case WM_SETFOCUS:
-            if (self != nullptr)
-            {
-                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                self->console_.set_focused(true);
-                lock.unlock();
-                self->tsf_.focus();
-            }
+        {
+            std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+            self->console_.set_focused(true);
+            lock.unlock();
+            self->tsf_.focus();
             return 0;
+        }
         case WM_KILLFOCUS:
-            if (self != nullptr)
-            {
-                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                self->console_.set_focused(false);
-                lock.unlock();
-                self->tsf_.unfocus();
-            }
+        {
+            std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+            self->console_.set_focused(false);
+            lock.unlock();
+            self->tsf_.unfocus();
             return 0;
+        }
         case WM_MOUSEWHEEL:
-            if (self != nullptr)
+        {
+            const auto delta = GET_WHEEL_DELTA_WPARAM(wparam);
+            if (delta == 0)
             {
-                const auto delta = GET_WHEEL_DELTA_WPARAM(wparam);
-                if (delta != 0)
-                {
-                    const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
-                    POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-                    ::ScreenToClient(hwnd, &point);
-                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                    const auto geometry = self->scrollbar_geometry(hwnd);
-                    const bool over_scrollbar =
-                        scrollbar::hit_test(geometry, static_cast<float>(point.x), static_cast<float>(point.y)) !=
-                        scrollbar::hit_target::none;
-                    LOG2("wheel point=%ld,%ld bar=%f,%f delta=%d over=%d vt=%d offset=%zu", point.x, point.y,
-                         geometry.x, geometry.y, delta, over_scrollbar ? 1 : 0,
-                         self->console_.vt_mouse_tracking() ? 1 : 0, self->console_.scroll_offset(),
-                         self->console_.history_size());
-                    if (!over_scrollbar && !shift && self->console_.alternate_active() &&
-                        self->console_.vt_mouse_tracking())
-                    {
-                        const auto packed =
-                            static_cast<LPARAM>((point.y << 16) | (point.x & 0xFFFF));
-                        self->push_mouse(packed,
-                                         static_cast<std::uint32_t>(static_cast<std::uint16_t>(delta)) << 16,
-                                         MOUSE_WHEELED);
-                    }
-                    else
-                    {
-                        self->console_.scroll_by(static_cast<double>(delta) * 3.0 /
-                                                 static_cast<double>(WHEEL_DELTA));
-                        LOG2("wheel after offset=%zu pixels=%f", self->console_.scroll_offset(),
-                             self->console_.scroll_pixels());
-                    }
-                }
+                return 0;
             }
+
+            POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+            ::ScreenToClient(hwnd, &point);
+            std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+            const auto geometry = self->scrollbar_geometry(hwnd);
+            const auto over_scrollbar =
+                scrollbar::hit_test(geometry, static_cast<float>(point.x), static_cast<float>(point.y)) !=
+                scrollbar::hit_target::none;
+            if (!over_scrollbar && (::GetKeyState(VK_SHIFT) & 0x8000) == 0 &&
+                self->console_.alternate_active() && self->console_.vt_mouse_tracking())
+            {
+                const auto packed = static_cast<LPARAM>((point.y << 16) | (point.x & 0xFFFF));
+                self->push_mouse(packed, static_cast<std::uint32_t>(static_cast<std::uint16_t>(delta)) << 16,
+                                 MOUSE_WHEELED);
+                return 0;
+            }
+
+            self->console_.scroll_by(static_cast<double>(delta) * 3.0 / static_cast<double>(WHEEL_DELTA));
             return 0;
+        }
         case WM_MOUSEMOVE:
-            if (self != nullptr)
+        {
+            self->update_scrollbar_hover(hwnd, lparam);
+            if (self->scrollbar_dragging_)
             {
-                self->update_scrollbar_hover(hwnd, lparam);
-                if (self->scrollbar_dragging_)
-                {
-                    self->handle_scrollbar_mouse_move(hwnd, lparam);
-                    return 0;
-                }
-                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                if (self->selection_dragging_)
-                {
-                    self->update_selection(hwnd, lparam);
-                }
-                else if (self->console_.mouse_reporting())
-                {
-                    self->push_mouse(lparam, (::GetKeyState(VK_LBUTTON) & 0x8000) != 0
-                                                   ? FROM_LEFT_1ST_BUTTON_PRESSED
-                                                   : 0,
-                                       MOUSE_MOVED);
-                }
+                self->handle_scrollbar_mouse_move(hwnd, lparam);
+                return 0;
+            }
+
+            std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+            if (self->selection_dragging_)
+            {
+                self->update_selection(hwnd, lparam);
+                return 0;
+            }
+            if (self->console_.mouse_reporting())
+            {
+                self->push_mouse(lparam, (::GetKeyState(VK_LBUTTON) & 0x8000) != 0
+                                           ? FROM_LEFT_1ST_BUTTON_PRESSED
+                                           : 0,
+                                 MOUSE_MOVED);
             }
             return 0;
+        }
         case WM_MOUSELEAVE:
-            if (self != nullptr)
-            {
-                self->tracking_mouse_leave_ = false;
-                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                self->console_.set_scrollbar_hovered(false);
-            }
+        {
+            self->tracking_mouse_leave_ = false;
+            std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+            self->console_.set_scrollbar_hovered(false);
             return 0;
+        }
         case WM_LBUTTONDOWN:
-            if (self != nullptr)
+        {
+            self->worker_.request_atlas_upload();
+            const auto x = static_cast<float>(GET_X_LPARAM(lparam));
+            const auto y = static_cast<float>(GET_Y_LPARAM(lparam));
+            bool over_scrollbar = false;
             {
-                self->worker_.request_atlas_upload();
-                const auto x = static_cast<float>(GET_X_LPARAM(lparam));
-                const auto y = static_cast<float>(GET_Y_LPARAM(lparam));
-                bool over_scrollbar = false;
-                {
-                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                    const auto geometry = self->scrollbar_geometry(hwnd);
-                    over_scrollbar =
-                        scrollbar::hit_test(geometry, x, y) != scrollbar::hit_target::none;
-                }
-                if (over_scrollbar)
+                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                const auto geometry = self->scrollbar_geometry(hwnd);
+                over_scrollbar = scrollbar::hit_test(geometry, x, y) != scrollbar::hit_target::none;
+            }
+            if (over_scrollbar)
+            {
                 {
                     std::unique_lock<win32::srwlock> lock{self->console_mutex_};
                     self->console_.set_scrollbar_hovered(true);
-                    lock.unlock();
-                    self->handle_scrollbar_mouse_down(hwnd, lparam);
-                    return 0;
                 }
+                self->handle_scrollbar_mouse_down(hwnd, lparam);
+                return 0;
+            }
 
-                const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
-                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                if (!shift && self->console_.mouse_reporting())
-                {
-                    self->push_mouse(lparam, FROM_LEFT_1ST_BUTTON_PRESSED, 0);
-                    return 0;
-                }
-                self->begin_selection(hwnd, lparam);
+            std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+            if ((::GetKeyState(VK_SHIFT) & 0x8000) == 0 && self->console_.mouse_reporting())
+            {
+                self->push_mouse(lparam, FROM_LEFT_1ST_BUTTON_PRESSED, 0);
+                return 0;
             }
+            self->begin_selection(hwnd, lparam);
             return 0;
+        }
         case WM_RBUTTONDOWN:
-            if (self != nullptr)
+        {
+            std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+            if (self->console_.vt_mouse_tracking())
             {
-                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                if (self->console_.vt_mouse_tracking())
-                {
-                    self->push_mouse(lparam, RIGHTMOST_BUTTON_PRESSED, 0);
-                }
+                self->push_mouse(lparam, RIGHTMOST_BUTTON_PRESSED, 0);
             }
             return 0;
+        }
         case WM_RBUTTONUP:
-            if (self != nullptr)
+        {
+            std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+            if (self->console_.vt_mouse_tracking())
+            {
+                self->push_mouse(lparam, 0, 0);
+                return 0;
+            }
+            if (self->console_.has_selection())
+            {
+                self->copy_selection(hwnd);
+                self->console_.clear_selection();
+                self->worker_.request_redraw();
+                return 0;
+            }
+            self->paste_clipboard(hwnd);
+            return 0;
+        }
+        case WM_MBUTTONDOWN:
+        {
+            std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+            if (self->console_.mouse_reporting())
+            {
+                self->push_mouse(lparam, FROM_LEFT_2ND_BUTTON_PRESSED, 0);
+            }
+            return 0;
+        }
+        case WM_MBUTTONUP:
+        {
+            std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+            if (self->console_.mouse_reporting())
+            {
+                self->push_mouse(lparam, 0, 0);
+            }
+            return 0;
+        }
+        case WM_LBUTTONUP:
+        {
+            if (self->selection_dragging_)
+            {
+                self->selection_dragging_ = false;
+                ::ReleaseCapture();
+                return 0;
+            }
+            if (self->scrollbar_dragging_)
+            {
+                self->scrollbar_dragging_ = false;
+                ::ReleaseCapture();
+                return 0;
+            }
+            std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+            if (self->console_.mouse_reporting())
+            {
+                self->push_mouse(lparam, 0, 0);
+            }
+            return 0;
+        }
+        case WM_KEYDOWN:
+        {
+            const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            const bool control = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            if (control && shift && (wparam == 'C' || wparam == 'V'))
             {
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                if (self->console_.vt_mouse_tracking())
-                {
-                    self->push_mouse(lparam, 0, 0);
-                }
-                else if (self->console_.has_selection())
+                if (wparam == 'C')
                 {
                     self->copy_selection(hwnd);
-                    self->console_.clear_selection();
-                    self->worker_.request_redraw();
                 }
                 else
                 {
                     self->paste_clipboard(hwnd);
                 }
+                return 0;
             }
-            return 0;
-        case WM_MBUTTONDOWN:
-            if (self != nullptr)
+            if (wparam == VK_SCROLL || (control && shift && wparam == 'S'))
             {
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                if (self->console_.mouse_reporting())
-                {
-                    self->push_mouse(lparam, FROM_LEFT_2ND_BUTTON_PRESSED, 0);
-                }
+                self->console_.toggle_scroll_lock();
+                return 0;
             }
-            return 0;
-        case WM_MBUTTONUP:
-            if (self != nullptr)
+
             {
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                if (self->console_.mouse_reporting())
-                {
-                    self->push_mouse(lparam, 0, 0);
-                }
-            }
-            return 0;
-        case WM_LBUTTONUP:
-            if (self != nullptr)
-            {
-                if (self->selection_dragging_)
-                {
-                    self->selection_dragging_ = false;
-                    ::ReleaseCapture();
-                    return 0;
-                }
-                if (self->scrollbar_dragging_)
-                {
-                    self->scrollbar_dragging_ = false;
-                    ::ReleaseCapture();
-                    return 0;
-                }
-                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                if (self->console_.mouse_reporting())
-                {
-                    self->push_mouse(lparam, 0, 0);
-                }
-            }
-            return 0;
-        case WM_KEYDOWN:
-            if (self != nullptr)
-            {
-                const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
-                const bool control = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
-                if (control && shift && (wparam == 'C' || wparam == 'V'))
-                {
-                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                    if (wparam == 'C')
-                    {
-                        self->copy_selection(hwnd);
-                    }
-                    else
-                    {
-                        self->paste_clipboard(hwnd);
-                    }
-                    return 0;
-                }
-                if (wparam == VK_SCROLL || (control && shift && wparam == 'S'))
-                {
-                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                    self->console_.toggle_scroll_lock();
-                    return 0;
-                }
-
-                {
-                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                    const auto offset = self->console_.scroll_offset();
-                    const auto page = self->console_.buffer().height();
-                    std::ptrdiff_t lines = 0;
-                    switch (wparam)
-                    {
-                    case VK_HOME:
-                        lines = static_cast<std::ptrdiff_t>(self->console_.history_size());
-                        break;
-                    case VK_END:
-                        lines = -static_cast<std::ptrdiff_t>(self->console_.history_size());
-                        break;
-                    case VK_PRIOR:
-                        lines = static_cast<std::ptrdiff_t>(page);
-                        break;
-                    case VK_NEXT:
-                        lines = -static_cast<std::ptrdiff_t>(page);
-                        break;
-                    case VK_UP:
-                        lines = 1;
-                        break;
-                    case VK_DOWN:
-                        lines = -1;
-                        break;
-                    default:
-                        break;
-                    }
-
-                    if (lines != 0 && (offset != 0 || shift))
-                    {
-                        self->console_.scroll_by(lines);
-                        return 0;
-                    }
-                }
-
-                auto key = consoleinput::virtual_key{};
-                bool handled = true;
+                const auto offset = self->console_.scroll_offset();
+                const auto page = self->console_.buffer().height();
+                std::ptrdiff_t lines = 0;
                 switch (wparam)
                 {
-                case VK_UP:
-                    key = consoleinput::virtual_key::up;
-                    break;
-                case VK_DOWN:
-                    key = consoleinput::virtual_key::down;
-                    break;
-                case VK_LEFT:
-                    key = consoleinput::virtual_key::left;
-                    break;
-                case VK_RIGHT:
-                    key = consoleinput::virtual_key::right;
-                    break;
                 case VK_HOME:
-                    key = consoleinput::virtual_key::home;
+                    lines = static_cast<std::ptrdiff_t>(self->console_.history_size());
                     break;
                 case VK_END:
-                    key = consoleinput::virtual_key::end;
-                    break;
-                case VK_INSERT:
-                    key = consoleinput::virtual_key::insert;
-                    break;
-                case VK_DELETE:
-                    key = consoleinput::virtual_key::del;
+                    lines = -static_cast<std::ptrdiff_t>(self->console_.history_size());
                     break;
                 case VK_PRIOR:
-                    key = consoleinput::virtual_key::page_up;
+                    lines = static_cast<std::ptrdiff_t>(page);
                     break;
                 case VK_NEXT:
-                    key = consoleinput::virtual_key::page_down;
+                    lines = -static_cast<std::ptrdiff_t>(page);
                     break;
-                case VK_F1:
-                case VK_F2:
-                case VK_F3:
-                case VK_F4:
-                case VK_F5:
-                case VK_F6:
-                case VK_F7:
-                case VK_F8:
-                case VK_F9:
-                case VK_F10:
-                case VK_F11:
-                case VK_F12:
-                    key = static_cast<consoleinput::virtual_key>(wparam);
+                case VK_UP:
+                    lines = 1;
+                    break;
+                case VK_DOWN:
+                    lines = -1;
                     break;
                 default:
-                    handled = false;
                     break;
                 }
 
-                if (handled)
+                if (lines != 0 && (offset != 0 || shift))
                 {
-                    auto event = consoleinput::input_event{
-                        .type = consoleinput::input_event_type::key,
-                        .key =
-                            consoleinput::key_event{
-                                .character = 0,
-                                .key = key,
-                                .scan_code = static_cast<std::uint16_t>(LOBYTE(lparam)),
-                                .control_state = control_state(),
-                            },
-                    };
-                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                    self->console_.clear_selection();
-                    self->console_.snap_to_bottom_if_unlocked();
-                    self->console_.push_input(std::move(event));
+                    self->console_.scroll_by(lines);
                     return 0;
                 }
             }
-            return ::DefWindowProcW(hwnd, message, wparam, lparam);
-        case WM_KEYUP:
-            if (self != nullptr)
+
+            auto key = consoleinput::virtual_key{};
+            bool handled = true;
+            switch (wparam)
             {
-                auto event = consoleinput::input_event{
-                    .type = consoleinput::input_event_type::key,
-                    .key =
-                        consoleinput::key_event{
-                            .character = 0,
-                            .key = static_cast<consoleinput::virtual_key>(wparam),
-                            .scan_code = static_cast<std::uint16_t>(LOBYTE(lparam)),
-                            .control_state = control_state(),
-                        },
-                };
-                event.key.key_down = false;
-                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                self->console_.push_input(std::move(event));
+            case VK_UP:
+                key = consoleinput::virtual_key::up;
+                break;
+            case VK_DOWN:
+                key = consoleinput::virtual_key::down;
+                break;
+            case VK_LEFT:
+                key = consoleinput::virtual_key::left;
+                break;
+            case VK_RIGHT:
+                key = consoleinput::virtual_key::right;
+                break;
+            case VK_HOME:
+                key = consoleinput::virtual_key::home;
+                break;
+            case VK_END:
+                key = consoleinput::virtual_key::end;
+                break;
+            case VK_INSERT:
+                key = consoleinput::virtual_key::insert;
+                break;
+            case VK_DELETE:
+                key = consoleinput::virtual_key::del;
+                break;
+            case VK_PRIOR:
+                key = consoleinput::virtual_key::page_up;
+                break;
+            case VK_NEXT:
+                key = consoleinput::virtual_key::page_down;
+                break;
+            case VK_F1:
+            case VK_F2:
+            case VK_F3:
+            case VK_F4:
+            case VK_F5:
+            case VK_F6:
+            case VK_F7:
+            case VK_F8:
+            case VK_F9:
+            case VK_F10:
+            case VK_F11:
+            case VK_F12:
+                key = static_cast<consoleinput::virtual_key>(wparam);
+                break;
+            default:
+                handled = false;
+                break;
             }
+            if (!handled)
+            {
+                return ::DefWindowProcW(hwnd, message, wparam, lparam);
+            }
+
+            auto event = consoleinput::input_event{
+                .type = consoleinput::input_event_type::key,
+                .key =
+                    consoleinput::key_event{
+                        .character = 0,
+                        .key = key,
+                        .scan_code = static_cast<std::uint16_t>(LOBYTE(lparam)),
+                        .control_state = control_state(),
+                    },
+            };
+            std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+            self->console_.clear_selection();
+            self->console_.snap_to_bottom_if_unlocked();
+            self->console_.push_input(std::move(event));
             return 0;
+        }
+        case WM_KEYUP:
+        {
+            auto event = consoleinput::input_event{
+                .type = consoleinput::input_event_type::key,
+                .key =
+                    consoleinput::key_event{
+                        .character = 0,
+                        .key = static_cast<consoleinput::virtual_key>(wparam),
+                        .scan_code = static_cast<std::uint16_t>(LOBYTE(lparam)),
+                        .control_state = control_state(),
+                    },
+            };
+            event.key.key_down = false;
+            std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+            self->console_.push_input(std::move(event));
+            return 0;
+        }
         // Chromium's TSF path still treats WM_CHAR/WM_SYSCHAR as text input
         // when the TIP does not consume the key, for example an inactive TIP
         // or an English keyboard profile. Keep both paths identical here.
         case WM_CHAR:
         case WM_SYSCHAR:
-            if (self != nullptr)
+        {
+            const auto character = static_cast<char16_t>(wparam);
+            if ((character == 0x03 || character == 0x16 || character == 0x13) &&
+                (::GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                (::GetKeyState(VK_SHIFT) & 0x8000) != 0)
             {
-                const auto character = static_cast<char16_t>(wparam);
-                if ((character == 0x03 || character == 0x16 || character == 0x13) &&
-                    (::GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
-                    (::GetKeyState(VK_SHIFT) & 0x8000) != 0)
-                {
-                    return 0;
-                }
-                if (character >= 0x20 || character == u'\r' || character == u'\n' || character == u'\b' ||
-                    character == u'\t' || character == 0x1B || (character >= 1 && character <= 26))
-                {
-                    auto event = consoleinput::input_event{
-                        .type = consoleinput::input_event_type::key,
-                        .key = character_key(character),
-                    };
-                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                    self->console_.clear_selection();
-                    self->console_.snap_to_bottom_if_unlocked();
-                    self->console_.push_input(std::move(event));
-                }
+                return 0;
             }
+            if (character < 0x20 && character != u'\r' && character != u'\n' && character != u'\b' &&
+                character != u'\t' && character != 0x1B && !(character >= 1 && character <= 26))
+            {
+                return 0;
+            }
+
+            auto event = consoleinput::input_event{
+                .type = consoleinput::input_event_type::key,
+                .key = character_key(character),
+            };
+            std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+            self->console_.clear_selection();
+            self->console_.snap_to_bottom_if_unlocked();
+            self->console_.push_input(std::move(event));
             return 0;
+        }
         case client_exit_message:
-            if (self != nullptr)
-            {
-                std::wstring status{self->title_.data(), self->title_.size()};
-                status += L" (client exited)";
-                ::SetWindowTextW(hwnd, status.c_str());
-            }
+        {
+            self->window_title_buffer_.assign(self->title_.data(), self->title_.size());
+            self->window_title_buffer_ += L" (client exited)";
+            ::SetWindowTextW(hwnd, self->window_title_buffer_.c_str());
             return 0;
+        }
         case WM_CLOSE:
-            if (self != nullptr)
-            {
-                self->stop_process_monitor();
-                self->worker_.stop();
-            }
+            self->stop_process_monitor();
+            self->worker_.stop();
             ::DestroyWindow(hwnd);
             return 0;
         case WM_PAINT:
@@ -1130,19 +1116,21 @@ class window_host final
         case WM_ERASEBKGND:
             return 1;
         case WM_DESTROY:
-            if (self != nullptr)
-            {
-                self->stop_process_monitor();
-                self->worker_.stop();
-            }
+            self->stop_process_monitor();
+            self->worker_.stop();
             ::PostQuitMessage(0);
             return 0;
         default:
             return ::DefWindowProcW(hwnd, message, wparam, lparam);
         }
     }
-
     bool window_ready_{};
+    // UI-thread scratch buffers. Keeping capacity across IME reconversion,
+    // copy, and client-exit title updates avoids a fresh allocation per
+    // message.
+    std::u16string ime_text_buffer_;
+    std::u16string copy_buffer_;
+    std::wstring window_title_buffer_;
     win32::wcstring_view title_;
     console &console_;
     win32::srwlock &console_mutex_;

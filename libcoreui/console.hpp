@@ -338,9 +338,19 @@ class console final
     [[nodiscard]] std::u16string selected_text()
     {
         std::u16string result;
+        selected_text_into(result);
+        return result;
+    }
+
+    // Appends the selected text into a caller-owned buffer. The buffer keeps
+    // its capacity across copies/pastes, so changing selections does not
+    // allocate a fresh string every time.
+    void selected_text_into(std::u16string &result)
+    {
+        result.clear();
         if (!view_selection_.active)
         {
-            return result;
+            return;
         }
 
         const auto left = std::min(view_selection_.anchor_x, view_selection_.caret_x);
@@ -348,6 +358,8 @@ class console final
         const auto top = std::min(view_selection_.anchor_y, view_selection_.caret_y);
         const auto bottom = std::max(view_selection_.anchor_y, view_selection_.caret_y);
         const auto width = screen_.width();
+        std::u16string line;
+        line.reserve(width);
 
         for (auto y = top; y <= bottom; ++y)
         {
@@ -357,7 +369,7 @@ class console final
             }
             if (view_selection_.mode == screen::selection_mode::line)
             {
-                std::u16string line;
+                line.clear();
                 for (std::size_t column = 0; column < width; ++column)
                 {
                     const auto cell = cell_at_virtual(y, column);
@@ -405,7 +417,6 @@ class console final
                 }
             }
         }
-        return result;
     }
 
     [[nodiscard]] double scroll_pixels() const noexcept
