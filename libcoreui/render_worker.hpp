@@ -798,10 +798,6 @@ class render_worker final
     DWORD wait_timeout() const noexcept
     {
         DWORD timeout = INFINITE;
-        if (scrollbar_animation_active_)
-        {
-            timeout = 16;
-        }
         if (focused_ && cursor_.visible && cursor_.blinking && !selection_.active && composition_.empty() &&
             scroll_pixels_ == 0.0)
         {
