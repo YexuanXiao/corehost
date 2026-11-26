@@ -40,7 +40,8 @@ TSF 不实现 `ITextStoreACP`，原因见 `0015-ime-tsf.md`；这不是本轮阻
 | W8.4 透明/Mica/Acrylic | 实现完成，待用户手动验收 | `window_config` + DWM |
 | 新需求：UIA TextPattern | 已完成基础路径 | Document、TextPattern、TextRange、selection、find |
 | 新需求：UIA ScrollPattern | 已完成 | 纵向滚动、百分比、view size |
-| 新需求：UIA 文本/选择事件 | 已完成接线 | render worker 文本变化投递；选择/自动滚动触发 SelectionChanged |\n| UIA 自动化 | 已完成基础验证 | `Window.UIA` 启动 corehostw，验证 Document/TextPattern 和文本内容 |
+| 新需求：UIA 文本/选择事件 | 已完成接线 | render worker 文本变化投递；选择/自动滚动触发 SelectionChanged |
+| UIA 自动化 | 已完成基础验证 | `Window.UIA` 启动 corehostw，验证 Document/TextPattern 和文本内容 |
 | 选择边缘自动滚动 | 已完成 | timer + edge test；100 行输出选择得到跨历史文本 |
 | hyperlink / bell | 已完成 | hover 下划线、Ctrl+click；`FlashWindowEx` visual bell |
 
@@ -72,11 +73,11 @@ Sixel 验证：屏幕内图像仅首次上传纹理，后续光标闪烁/文字�
 - Document/TextPattern；
 - ScrollPattern；
 - TextChanged / TextSelectionChanged 事件投递；
-- 手动 PowerShell UIA 验证。
+- 自动化 `Window.UIA` 验证 Document/TextPattern。
 
 仍缺：
 
-- UIA 自动化测试（树、TextPattern、ScrollPattern、事件）；
+- UIA 树/ScrollPattern/事件扩展测试；
 - Narrator / Accessibility Insights / NVDA 实测；
 - 文本变化事件是否需要 payload/notification 的产品决定；
 - Invoke 未实现（终端窗口没有有意义的默认调用动作）。
@@ -149,7 +150,7 @@ TSF 文本存储耦合起来。
 后续可做：
 
 - WARP golden / D3D12 自动化截图；
-- UIA 自动化；
+- UIA 树/ScrollPattern/事件扩展；
 - Sixel 滚动/resize 边界；
 - 大图/长行压力测试。
 
