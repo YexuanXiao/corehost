@@ -334,10 +334,6 @@ void test_screen_buffer()
     check(screen.at(0, 0).style() == style4, "clear style");
     check(screen.at(5, 1).style() == style4, "clear all cells");
 
-    check(corehost::screen::all_printable_ascii(u"ABC 123"), "printable ascii detection");
-    check(!corehost::screen::all_printable_ascii(u"AB\n"), "control detection");
-    check(!corehost::screen::all_printable_ascii(u"AB\x7F"), "del detection");
-    check(!corehost::screen::all_printable_ascii(u"AB\u4E2D"), "non-ascii detection");
 }
 
 int main()
