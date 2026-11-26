@@ -70,20 +70,20 @@ class state_applier final
         {
             auto decoded = uisixel::decode(sixel->data);
             LOG2("sixel parsed w=%u h=%u decoded=%d", sixel->width, sixel->height,
-                 decoded.has_value() ? 1 : 0);
+                 decoded.valid() ? 1 : 0);
             const auto image_id = next_sixel_image_id_++;
             fragment.image_id = image_id;
             fragment.placement_id = image_id;
-            fragment.source_width = decoded.has_value() ? decoded->width : sixel->width;
-            fragment.source_height = decoded.has_value() ? decoded->height : sixel->height;
+            fragment.source_width = decoded.valid() ? decoded.width : sixel->width;
+            fragment.source_height = decoded.valid() ? decoded.height : sixel->height;
             columns = std::max<std::size_t>((fragment.source_width + 7) / 8, 1);
             rows = std::max<std::size_t>((fragment.source_height + 15) / 16, 1);
-            if (decoded.has_value())
+            if (decoded.valid())
             {
                 buffer.images().set_pixels(image_id, screen::image_pixels{
-                                                       .width = decoded->width,
-                                                       .height = decoded->height,
-                                                       .rgba = std::move(decoded->rgba),
+                                                       .width = decoded.width,
+                                                       .height = decoded.height,
+                                                       .rgba = std::move(decoded.rgba),
                                                    });
             }
         }

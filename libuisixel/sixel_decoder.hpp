@@ -6,7 +6,6 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -17,6 +16,11 @@ namespace corehost::uisixel
         std::uint32_t width{};
         std::uint32_t height{};
         std::vector<std::uint8_t> rgba;
+
+        [[nodiscard]] bool valid() const noexcept
+        {
+            return width != 0 && height != 0;
+        }
     };
 
     namespace detail
@@ -125,11 +129,11 @@ namespace corehost::uisixel
     }
 
     // Decodes one Sixel DCS payload into premultiplied-free RGBA8 pixels.
-    [[nodiscard]] inline std::optional<bitmap> decode(std::u16string_view data) noexcept
+    [[nodiscard]] inline bitmap decode(std::u16string_view data) noexcept
     {
         if (data.empty())
         {
-            return std::nullopt;
+            return {};
         }
 
         std::uint32_t declared_width = 0;
@@ -270,7 +274,7 @@ namespace corehost::uisixel
         ensure_size();
         if (pixels.empty())
         {
-            return std::nullopt;
+            return {};
         }
 
         bitmap result;
