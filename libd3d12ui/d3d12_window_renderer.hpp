@@ -866,7 +866,7 @@ class d3d12_window_renderer final
     winrt::com_ptr<ID3D12Device> device_;
     winrt::com_ptr<ID3D12CommandQueue> queue_;
     winrt::com_ptr<IDXGISwapChain3> swapchain_;
-    static constexpr UINT image_srv_capacity = 256;
+    static constexpr UINT image_srv_capacity = 1024;
     winrt::com_ptr<ID3D12DescriptorHeap> image_srv_heap_;
     UINT image_srv_size_{};
     UINT image_next_descriptor_{};
