@@ -1025,6 +1025,11 @@ class render_worker final
                 ime_composition_y = cursor.y;
                 focused = console_.has_focus();
                 scrollbar_hovered = console_.scrollbar_hovered();
+                if (config_.bell != bell_mode::off && console_.state().bell_count != bell_count_)
+                {
+                    bell_count_ = console_.state().bell_count;
+                    (void)::PostMessageW(window_, WM_APP + 0x102, 0, 0);
+                }
                 if (console_.state().take_title_changed())
                 {
                     const auto &title = console_.state().title;

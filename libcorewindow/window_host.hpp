@@ -1000,6 +1000,13 @@ class window_host final
             self->worker_.request_redraw();
             return 0;
         }
+        case WM_APP + 0x102:
+        {
+            LOG2("bell flash");
+            FLASHWINFO flash{sizeof(FLASHWINFO), hwnd, FLASHW_TRAY | FLASHW_TIMERNOFG, 1, 0};
+            (void)::FlashWindowEx(&flash);
+            return 0;
+        }
         case WM_APP + 0x101:
             if (self->window_config_.uia_text_changed_events && self->uia_events_)
             {
