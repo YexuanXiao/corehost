@@ -596,14 +596,15 @@ class window_host final
             return;
         }
 
-        const bool scroll_up = selection_drag_point_.y < 0;
-        const bool scroll_down = selection_drag_point_.y >= client.bottom;
+        const auto row_height = static_cast<double>(console_.cell_height());
+        const auto edge = static_cast<LONG>(std::ceil(row_height));
+        const bool scroll_up = selection_drag_point_.y < edge;
+        const bool scroll_down = selection_drag_point_.y >= client.bottom - edge;
         if (!scroll_up && !scroll_down)
         {
             return;
         }
 
-        const auto row_height = static_cast<double>(console_.cell_height());
         console_.scroll_by_pixels(scroll_up ? row_height : -row_height);
 
         const auto x = std::clamp<LONG>(selection_drag_point_.x, 0, std::max<LONG>(0, client.right - 1));
@@ -918,6 +919,13 @@ class window_host final
             self->tsf_.unfocus();
             return 0;
         }
+        case WM_TIMER:
+            if (wparam == selection_scroll_timer)
+            {
+                self->auto_scroll_selection(hwnd);
+                return 0;
+            }
+            break;
         case WM_MOUSEWHEEL:
         {
             const auto delta = GET_WHEEL_DELTA_WPARAM(wparam);
@@ -961,7 +969,7 @@ class window_host final
                 self->update_selection(hwnd, lparam);
                 return 0;
             }
-            if (self->console_.mouse_reporting())
+            if (self->console_.vt_mouse_tracking())
             {
                 self->push_mouse(lparam, (::GetKeyState(VK_LBUTTON) & 0x8000) != 0
                                            ? FROM_LEFT_1ST_BUTTON_PRESSED
@@ -1007,7 +1015,7 @@ class window_host final
             }
 
             std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-            if ((::GetKeyState(VK_SHIFT) & 0x8000) == 0 && self->console_.mouse_reporting())
+            if ((::GetKeyState(VK_SHIFT) & 0x8000) == 0 && self->console_.vt_mouse_tracking())
             {
                 self->push_mouse(lparam, FROM_LEFT_1ST_BUTTON_PRESSED, 0);
                 return 0;
@@ -1047,7 +1055,7 @@ class window_host final
         case WM_MBUTTONDOWN:
         {
             std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-            if (self->console_.mouse_reporting())
+            if (self->console_.vt_mouse_tracking())
             {
                 self->push_mouse(lparam, FROM_LEFT_2ND_BUTTON_PRESSED, 0);
             }
@@ -1056,7 +1064,7 @@ class window_host final
         case WM_MBUTTONUP:
         {
             std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-            if (self->console_.mouse_reporting())
+            if (self->console_.vt_mouse_tracking())
             {
                 self->push_mouse(lparam, 0, 0);
             }
@@ -1067,6 +1075,7 @@ class window_host final
             if (self->selection_dragging_)
             {
                 self->selection_dragging_ = false;
+                ::KillTimer(hwnd, selection_scroll_timer);
                 ::ReleaseCapture();
                 return 0;
             }
@@ -1077,7 +1086,7 @@ class window_host final
                 return 0;
             }
             std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-            if (self->console_.mouse_reporting())
+            if (self->console_.vt_mouse_tracking())
             {
                 self->push_mouse(lparam, 0, 0);
             }

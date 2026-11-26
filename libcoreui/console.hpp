@@ -186,7 +186,7 @@ class console final
     }
 
     void set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x, std::size_t caret_y,
-                       screen::selection_mode mode = screen::selection_mode::block)
+                       screen::selection_mode mode = screen::selection_mode::text)
     {
         set_view_selection(anchor_x, anchor_y, caret_x, caret_y, mode);
         if (anchor_y >= screen_.history_size() && caret_y >= screen_.history_size())
@@ -253,6 +253,25 @@ class console final
     [[nodiscard]] bool mouse_sgr_encoding() const noexcept
     {
         return state_.private_modes.test(1006);
+    }
+
+    [[nodiscard]] bool selection_contains(std::size_t x, std::size_t y) const
+    {
+        if (!view_selection_.active || !view_selection_.contains(x, y))
+        {
+            return false;
+        }
+        if (view_selection_.mode != screen::selection_mode::text)
+        {
+            return true;
+        }
+
+        auto end = screen_.width();
+        while (end > 0 && cell_at_virtual(y, end - 1).is_blank())
+        {
+            --end;
+        }
+        return x < end;
     }
 
     [[nodiscard]] bool has_selection() const noexcept
@@ -346,7 +365,7 @@ class console final
                 }
                 if (x >= start_cell && x <= end_cell)
                 {
-                    set_view_selection(start_cell, y, end_cell, y, screen::selection_mode::block);
+                    set_view_selection(start_cell, y, end_cell, y, screen::selection_mode::text);
                     return;
                 }
             }
@@ -375,61 +394,79 @@ class console final
         line.clear();
         line.reserve(width);
 
+        const bool forward =
+            view_selection_.anchor_y < view_selection_.caret_y ||
+            (view_selection_.anchor_y == view_selection_.caret_y &&
+             view_selection_.anchor_x <= view_selection_.caret_x);
+        const auto start_x = forward ? view_selection_.anchor_x : view_selection_.caret_x;
+        const auto end_x = forward ? view_selection_.caret_x : view_selection_.anchor_x;
+
         for (auto y = top; y <= bottom; ++y)
         {
             if (y > top)
             {
                 result.append(u"\r\n");
             }
+
+            auto begin = left;
+            auto end = std::min(right + 1, width);
             if (view_selection_.mode == screen::selection_mode::line)
             {
-                line.clear();
-                for (std::size_t column = 0; column < width; ++column)
+                begin = 0;
+                end = width;
+            }
+            else if (view_selection_.mode == screen::selection_mode::text)
+            {
+                if (top == bottom)
                 {
-                    const auto cell = cell_at_virtual(y, column);
-                    if (cell.is_continuation())
-                    {
-                        continue;
-                    }
-                    if (cell.is_blank())
-                    {
-                        line.push_back(u' ');
-                        continue;
-                    }
-                    const auto cluster = cluster_at_virtual(y, cell);
+                    begin = left;
+                    end = std::min(right + 1, width);
+                }
+                else if (y == top)
+                {
+                    begin = std::min(start_x, width);
+                    end = width;
+                }
+                else if (y == bottom)
+                {
+                    begin = 0;
+                    end = std::min(end_x + 1, width);
+                }
+                else
+                {
+                    begin = 0;
+                    end = width;
+                }
+            }
+
+            line.clear();
+            for (std::size_t x = begin; x < end; ++x)
+            {
+                const auto cell = cell_at_virtual(y, x);
+                if (cell.is_continuation())
+                {
+                    continue;
+                }
+                if (cell.is_blank())
+                {
+                    line.push_back(u' ');
+                    continue;
+                }
+                const auto cluster = cluster_at_virtual(y, cell);
+                if (cluster.empty())
+                {
+                    line.push_back(cell.primary());
+                }
+                else
+                {
                     line.append(cluster.data(), cluster.size());
                 }
-                while (!line.empty() && line.back() == u' ')
-                {
-                    line.pop_back();
-                }
-                result.append(line);
             }
-            else
+            while (!line.empty() && line.back() == u' ')
             {
-                for (std::size_t x = left; x <= right && x < width; ++x)
-                {
-                    const auto cell = cell_at_virtual(y, x);
-                    if (cell.is_continuation())
-                    {
-                        continue;
-                    }
-                    if (cell.is_blank())
-                    {
-                        result.push_back(u' ');
-                        continue;
-                    }
-                    const auto cluster = cluster_at_virtual(y, cell);
-                    if (cluster.empty())
-                    {
-                        result.push_back(cell.primary());
-                    }
-                    else
-                    {
-                        result.append(cluster.data(), cluster.size());
-                    }
-                }
+                line.pop_back();
             }
+            result.append(line);
         }
     }
 

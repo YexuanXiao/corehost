@@ -97,12 +97,13 @@ enum class selection_mode : std::uint8_t
 {
     block = 0,
     line = 1,
+    text = 2,
 };
 
 struct selection_range final
 {
     bool active{};
-    selection_mode mode{selection_mode::block};
+    selection_mode mode{selection_mode::text};
     std::size_t anchor_x{};
     std::size_t anchor_y{};
     std::size_t caret_x{};
@@ -597,6 +598,25 @@ inline bool selection_range::contains(std::size_t x, std::size_t y) const noexce
     {
         return y >= top && y <= bottom;
     }
+    if (mode == selection_mode::text)
+    {
+        const bool forward = anchor_y < caret_y || (anchor_y == caret_y && anchor_x <= caret_x);
+        const auto start_x = forward ? anchor_x : caret_x;
+        const auto end_x = forward ? caret_x : anchor_x;
+        if (top == bottom)
+        {
+            return y == top && x >= left && x <= right;
+        }
+        if (y == top)
+        {
+            return x >= start_x;
+        }
+        if (y == bottom)
+        {
+            return x <= end_x;
+        }
+        return y > top && y < bottom;
+    }
     return x >= left && x <= right && y >= top && y <= bottom;
 }
 
@@ -772,7 +792,7 @@ inline std::size_t console_state::previous_tab_stop(std::size_t column) const no
 inline void console_state::set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x,
                                          std::size_t caret_y) noexcept
 {
-    set_selection(anchor_x, anchor_y, caret_x, caret_y, selection_mode::block);
+    set_selection(anchor_x, anchor_y, caret_x, caret_y, selection_mode::text);
 }
 
 inline void console_state::set_selection(std::size_t anchor_x, std::size_t anchor_y, std::size_t caret_x,
@@ -799,6 +819,11 @@ inline void console_state::selected_text_into(const screen_buffer &buffer, Strin
     const auto right = std::max(selection_.anchor_x, selection_.caret_x);
     const auto top = std::min(selection_.anchor_y, selection_.caret_y);
     const auto bottom = std::max(selection_.anchor_y, selection_.caret_y);
+    const bool forward =
+        selection_.anchor_y < selection_.caret_y ||
+        (selection_.anchor_y == selection_.caret_y && selection_.anchor_x <= selection_.caret_x);
+    const auto start_x = forward ? selection_.anchor_x : selection_.caret_x;
+    const auto end_x = forward ? selection_.caret_x : selection_.anchor_x;
 
     for (auto y = top; y <= bottom; ++y)
     {
@@ -809,23 +834,50 @@ inline void console_state::selected_text_into(const screen_buffer &buffer, Strin
         if (selection_.mode == selection_mode::line)
         {
             buffer.line_text_into(y, selected_text_scratch_);
-            while (!selected_text_scratch_.empty() && selected_text_scratch_.back() == u' ')
+        }
+        else if (selection_.mode == selection_mode::text)
+        {
+            auto begin = std::size_t{0};
+            auto end = buffer.width();
+            if (top == bottom)
             {
-                selected_text_scratch_.pop_back();
+                begin = left;
+                end = std::min(right + 1, buffer.width());
             }
-            result.append(selected_text_scratch_);
+            else if (y == top)
+            {
+                begin = std::min(start_x, buffer.width());
+            }
+            else if (y == bottom)
+            {
+                end = std::min(end_x + 1, buffer.width());
+            }
+
+            selected_text_scratch_.clear();
+            for (auto x = begin; x < end; ++x)
+            {
+                if (!buffer.is_trailing(x, y))
+                {
+                    buffer.glyph_at_into(x, y, selected_text_scratch_);
+                }
+            }
         }
         else
         {
+            selected_text_scratch_.clear();
             for (auto x = left; x <= right && x < buffer.width(); ++x)
             {
                 if (!buffer.is_trailing(x, y))
                 {
                     buffer.glyph_at_into(x, y, selected_text_scratch_);
-                    result.append(selected_text_scratch_);
                 }
             }
         }
+        while (!selected_text_scratch_.empty() && selected_text_scratch_.back() == u' ')
+        {
+            selected_text_scratch_.pop_back();
+        }
+        result.append(selected_text_scratch_);
         if (y != bottom)
         {
             result.push_back(u'\n');

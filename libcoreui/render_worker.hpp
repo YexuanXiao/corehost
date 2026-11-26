@@ -462,7 +462,7 @@ class render_worker final
                                           scroll_pixels_ / static_cast<double>(cell_height);
                     const auto virtual_row =
                         static_cast<std::size_t>(std::max(0.0, std::floor(view_top + static_cast<double>(y))));
-                    if (selection_.contains(x, virtual_row))
+                    if (console_.selection_contains(x, virtual_row))
                     {
                         const auto selection_color =
                             blend_color(config_.palette.default_foreground, config_.palette.default_background, 0.35f);
