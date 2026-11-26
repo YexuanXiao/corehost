@@ -400,7 +400,7 @@ struct vt_private_mode_payload final
 {
     unsigned short mode{};
     bool enabled{};
-    std::array<unsigned short, 16> modes{};
+    std::array<unsigned short, 4> modes{};
     unsigned char count{};
 };
 
@@ -1499,7 +1499,7 @@ class vt_parser
             default:
                 m.payload.private_mode.mode = static_cast<unsigned short>(_get_param(0));
                 m.payload.private_mode.enabled = true;
-                m.payload.private_mode.count = static_cast<unsigned char>(std::min<std::size_t>(_param_index, 16));
+                m.payload.private_mode.count = static_cast<unsigned char>(std::min<std::size_t>(_param_index, 4));
                 for (std::size_t i = 0; i < m.payload.private_mode.count; ++i)
                 {
                     m.payload.private_mode.modes[i] = static_cast<unsigned short>(_get_param(i));
@@ -1525,7 +1525,7 @@ class vt_parser
             default:
                 m.payload.private_mode.mode = static_cast<unsigned short>(_get_param(0));
                 m.payload.private_mode.enabled = false;
-                m.payload.private_mode.count = static_cast<unsigned char>(std::min<std::size_t>(_param_index, 16));
+                m.payload.private_mode.count = static_cast<unsigned char>(std::min<std::size_t>(_param_index, 4));
                 for (std::size_t i = 0; i < m.payload.private_mode.count; ++i)
                 {
                     m.payload.private_mode.modes[i] = static_cast<unsigned short>(_get_param(i));

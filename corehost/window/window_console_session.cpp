@@ -21,7 +21,7 @@ window_console_session::window_console_session(win32::handle_view server, consol
     auto &state = console_.state();
     state.output_mode = 0x0001 | 0x0002 | 0x0004;
     state.measurement = screen::text_measurement::graphemes;
-    state.ambiguous_is_wide = true;
+    state.ambiguous_is_wide = false;
     vt_applier_ = vtstate::state_applier{state.measurement, state.ambiguous_is_wide};
 }
 
