@@ -42,8 +42,13 @@ struct state final
 inline constexpr float default_width = 16.f;
 inline constexpr float arrow_height = 24.f;
 inline constexpr float arrow_visual_margin = 8.f;
-inline constexpr float arrow_visual_width = 14.f;
-inline constexpr float arrow_visual_height = 14.f;
+// Keep the arrow wider than tall. scrollbar.html specifies 10x9 DIP; a
+// previous constants refactor changed this to 14x14, which made the arrows
+// look long instead of flat. Keep the static_assert so that regression cannot
+// compile silently.
+inline constexpr float arrow_visual_width = 10.f;
+inline constexpr float arrow_visual_height = 9.f;
+static_assert(arrow_visual_width > arrow_visual_height, "scrollbar arrows must stay visually flat");
 inline constexpr float track_inset = 24.f;
 inline constexpr float minimum_thumb_height = 24.f;
 

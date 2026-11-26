@@ -51,7 +51,7 @@ snap_to_bottom_if_unlocked()
 - thumb 只在上/下 26 DIP 箭头区域之间移动；
 - 普通状态 2 DIP thumb，右侧 4 DIP；hover 展开为 8 DIP 圆角 thumb + 淡 track；
 - 顶部/底部上下圆角箭头，点击滚动 1 行；箭头区域随 DPI 缩放；
-- 箭头 mask 固定 32×32，绘制时缩放到 14×14 DIP，圆角半径为短边的 20%；
+- 箭头 mask 固定 32×32，绘制时缩放到 10×9 DIP，圆角半径为短边的 20%；
 - 箭头上下 margin 为 8 DIP，thumb track inset 为 24 DIP；箭头到 thumb 的间距为 2 DIP；
 - thumb 圆角用预生成 alpha mask 缓存在现有 R8 atlas 中，9-slice 绘制；
 - 使用真实 client 尺寸，track 紧贴窗口右边缘；
@@ -81,10 +81,10 @@ libscrollbar/scrollbar.hpp
 滚动条相关的两个 mask 固定为 **32×32，无 supersampling**：
 
 - thumb：32×32，9-slice；
-- 箭头：32×32，绘制时缩放到 14×14 DIP，圆角 20%；
+- 箭头：32×32，绘制时缩放到 10×9 DIP，圆角 20%；
 - 不再按 DPI 重新生成，也不提供运行时/编译期变体；
 - 选择原因：生成开销低、atlas 占用稳定、高 DPI 下仍能接受；
-- 代价：箭头从 32×32 缩到 14×14 时边缘会有轻微缩放模糊，这是有意接受的质量/性能权衡。
+- 代价：箭头从 32×32 缩到 10×9 时边缘会有轻微缩放模糊，这是有意接受的质量/性能权衡。
 
 之前的 16/32/64 与 1x/4x 变体仅用于测试，当前源码不再提供这些配置项。
 ## 当前限制
