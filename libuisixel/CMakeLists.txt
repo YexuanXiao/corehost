@@ -1,0 +1,4 @@
+add_library(libuisixel INTERFACE)
+target_include_directories(libuisixel INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(libuisixel INTERFACE libvtparser)
+target_compile_features(libuisixel INTERFACE cxx_std_23)

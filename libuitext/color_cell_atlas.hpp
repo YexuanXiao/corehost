@@ -115,6 +115,43 @@ class color_cell_atlas final
         return pixels_;
     }
 
+    [[nodiscard]] color_atlas_region add_image(std::span<const std::uint8_t> rgba, std::uint32_t width,
+                                               std::uint32_t height) noexcept
+    {
+        if (width == 0 || height == 0 || width + 2 > size_ || height + 2 > size_ ||
+            rgba.size() < static_cast<std::size_t>(width) * height * 4)
+        {
+            return {};
+        }
+
+        if (shelf_x_ + width + 2 > size_)
+        {
+            shelf_x_ = 0;
+            shelf_y_ += shelf_height_ + 2;
+            shelf_height_ = 0;
+        }
+        if (shelf_y_ + height + 2 > size_)
+        {
+            return {};
+        }
+
+        color_atlas_region region{shelf_x_ + 1, shelf_y_ + 1, width, height, 0, 0,
+                                  glyph_color_kind::monochrome};
+        for (std::uint32_t row = 0; row < height; ++row)
+        {
+            const auto *source = rgba.data() + static_cast<std::size_t>(row) * width * 4;
+            auto *destination = pixels_.data() +
+                                (static_cast<std::size_t>(region.y + row) * size_ + region.x) * 4;
+            std::copy_n(source, static_cast<std::size_t>(width) * 4, destination);
+        }
+
+        regions_.push_back(region);
+        shelf_x_ += width + 2;
+        shelf_height_ = std::max(shelf_height_, height);
+        dirty_ = true;
+        return region;
+    }
+
     [[nodiscard]] std::uint32_t size() const noexcept
     {
         return size_;

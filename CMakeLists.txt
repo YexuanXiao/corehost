@@ -88,6 +88,7 @@ add_subdirectory(libscreen/bench)
 add_subdirectory(libconsole)
 
 # ── libvtstate (parser messages -> libscreen state + serializer) ──
+add_subdirectory(libuisixel)
 add_subdirectory(libvtstate)
 
 # ── libpseudowindow (shared hidden console window) ─────

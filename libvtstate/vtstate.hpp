@@ -3,6 +3,7 @@
 #include "vt_parser.hpp"
 #include "kitty.hpp"
 #include "sixel.hpp"
+#include "sixel_decoder.hpp"
 
 #include "console_state.hpp"
 #include "raw_buffer.hpp"
@@ -65,12 +66,22 @@ class state_applier final
         }
         else if (const auto sixel = vtparser::parse_sixel(raw_sequence); sixel.has_value())
         {
-            fragment.image_id = 1;
-            fragment.placement_id = 1;
-            fragment.source_width = sixel->width;
-            fragment.source_height = sixel->height;
-            columns = std::max<std::size_t>((sixel->width + 7) / 8, 1);
-            rows = std::max<std::size_t>((sixel->height + 15) / 16, 1);
+            auto decoded = uisixel::decode(sixel->data);
+            const auto image_id = next_sixel_image_id_++;
+            fragment.image_id = image_id;
+            fragment.placement_id = image_id;
+            fragment.source_width = decoded.has_value() ? decoded->width : sixel->width;
+            fragment.source_height = decoded.has_value() ? decoded->height : sixel->height;
+            columns = std::max<std::size_t>((fragment.source_width + 7) / 8, 1);
+            rows = std::max<std::size_t>((fragment.source_height + 15) / 16, 1);
+            if (decoded.has_value())
+            {
+                buffer.images().set_pixels(image_id, screen::image_pixels{
+                                                       .width = decoded->width,
+                                                       .height = decoded->height,
+                                                       .rgba = std::move(decoded->rgba),
+                                                   });
+            }
         }
         else
         {
@@ -874,6 +885,7 @@ class state_applier final
     vtparser::raw_u16string text_;
     vtparser::raw_u16string uri_;
     vtparser::raw_u16string id_;
+    std::uint32_t next_sixel_image_id_{1};
 
   private:
     struct sgr_cache_entry final

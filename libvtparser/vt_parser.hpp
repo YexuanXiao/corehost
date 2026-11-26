@@ -1126,7 +1126,6 @@ class vt_parser
             _set_unknown_sequence(_seq_start);
             id = vt_message_id::unknown_sequence;
         }
-        _seq_start = 0;
         return id;
     }
 

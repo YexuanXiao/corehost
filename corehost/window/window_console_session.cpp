@@ -102,6 +102,8 @@ void window_console_session::apply_vt(std::u16string_view text)
     while (!text.empty())
     {
         const auto result = vt_parser_.parse(text);
+        LOG2("vt parse id=%d consumed=%zu raw=%zu", static_cast<int>(result.id), result.consumed,
+             result.raw_sequence.size());
         if (result.consumed == 0)
         {
             break;
@@ -110,6 +112,11 @@ void window_console_session::apply_vt(std::u16string_view text)
         if (result.id == vtparser::vt_message_id::continue_)
         {
             break;
+        }
+        if (result.raw_sequence.size() > 0)
+        {
+            LOG2("sequence ids apc=%d dcs=%d", static_cast<int>(vtparser::vt_message_id::apc_sequence),
+                 static_cast<int>(vtparser::vt_message_id::dcs_sequence));
         }
         if ((result.id == vtparser::vt_message_id::apc_sequence ||
              result.id == vtparser::vt_message_id::dcs_sequence) &&

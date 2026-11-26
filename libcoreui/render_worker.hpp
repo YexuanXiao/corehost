@@ -18,6 +18,8 @@
 
 #include <algorithm>
 #include <array>
+#include <flat_map>
+#include <flat_set>
 #include <atomic>
 #include <mutex>
 #include <string>
@@ -347,6 +349,8 @@ class render_worker final
         const auto atlas_scale = 1.0f / static_cast<float>(atlas_.size());
         const auto scroll_shift = -static_cast<float>(scroll_fraction_) * cell_height;
 
+        std::flat_map<std::uint32_t, uitext::color_atlas_region> image_regions;
+        std::flat_set<std::uint32_t> drawn_images;
         std::vector<screen::cell> composition_cells;
         if (!composition_.empty())
         {
@@ -482,6 +486,44 @@ class render_worker final
                     add_line_quad(quads_, static_cast<float>(x) * cell_width,
                                   static_cast<float>(y) * cell_height + metrics.ascent + 2.0f + scroll_shift,
                                   cell_width * cell_span, 1.0f, foreground, sample, 1.0f);
+                }
+
+                if (cell.has_image())
+                {
+                    const auto *fragment = console_.buffer().image_of(cell);
+                    const auto *pixels = fragment ? console_.buffer().images().pixels(fragment->image_id) : nullptr;
+                    if (fragment != nullptr && pixels != nullptr && pixels->width != 0 && pixels->height != 0 &&
+                        drawn_images.insert(fragment->image_id).second)
+                    {
+                        auto found = image_regions.find(fragment->image_id);
+                        if (found == image_regions.end())
+                        {
+                            const auto region = color_atlas_.add_image(pixels->rgba, pixels->width, pixels->height);
+                            if (region.width != 0 && region.height != 0)
+                            {
+                                found = image_regions.emplace(fragment->image_id, region).first;
+                            }
+                        }
+                        if (found != image_regions.end())
+                        {
+                            const auto &region = found->second;
+                            const auto color_scale = 1.0f / static_cast<float>(color_atlas_.size());
+                            const auto image_columns = std::max<std::size_t>((fragment->source_width + 7) / 8, 1);
+                            const auto image_rows = std::max<std::size_t>((fragment->source_height + 15) / 16, 1);
+                            d3d12ui::text_quad image_quad{
+                                .x = static_cast<float>(x) * cell_width,
+                                .y = static_cast<float>(y) * cell_height + scroll_shift,
+                                .width = cell_width * static_cast<float>(image_columns),
+                                .height = cell_height * static_cast<float>(image_rows),
+                                .u0 = static_cast<float>(region.x) * color_scale,
+                                .v0 = static_cast<float>(region.y) * color_scale,
+                                .u1 = static_cast<float>(region.x + region.width) * color_scale,
+                                .v1 = static_cast<float>(region.y + region.height) * color_scale,
+                            };
+                            color_quads_.push_back(image_quad);
+                        }
+                    }
+                    continue;
                 }
 
                 std::u16string_view text;

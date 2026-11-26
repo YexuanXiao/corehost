@@ -5,5 +5,5 @@ target_include_directories(libvtstate INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(libvtstate INTERFACE libvtparser libscreen libconsole unicode::unicode)
+target_link_libraries(libvtstate INTERFACE libvtparser libuisixel libscreen libconsole unicode::unicode)
 
