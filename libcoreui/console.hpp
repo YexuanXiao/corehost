@@ -358,7 +358,8 @@ class console final
         const auto top = std::min(view_selection_.anchor_y, view_selection_.caret_y);
         const auto bottom = std::max(view_selection_.anchor_y, view_selection_.caret_y);
         const auto width = screen_.width();
-        std::u16string line;
+        auto &line = selection_line_buffer_;
+        line.clear();
         line.reserve(width);
 
         for (auto y = top; y <= bottom; ++y)
@@ -566,6 +567,10 @@ class console final
   private:
     screen::screen_buffer screen_;
     std::u16string ime_composition_;
+    // UI-thread scratch for line-selection extraction. Keeping it on the
+    // console object reuses capacity across copies instead of allocating a
+    // fresh line buffer for every selected_text_into() call.
+    std::u16string selection_line_buffer_;
     screen::console_state state_;
     screen::selection_range view_selection_;
     consoleinput::input_queue input_;
