@@ -34,7 +34,7 @@ class render_worker final
 {
   public:
     render_worker(console &console, win32::srwlock &console_mutex, const window_config &config,
-                  win32::handle_view damage_event = {})
+                  win32::handle_view damage_event)
         : console_{console}, console_mutex_{console_mutex}, config_{config},
           fallback_families_{uitext::default_font_families(config_.text_options.font)},
           damage_event_{damage_event}

@@ -30,8 +30,6 @@ namespace corehost::window
 
 
 
-inline constexpr UINT client_exit_message = WM_APP + 2;
-
 // Top-level Win32 host. It owns only the window and input; all rendering and
 // console damage sampling happen on render_worker's thread.
 class window_host final
@@ -76,9 +74,8 @@ class window_host final
         return window_;
     }
 
-    [[nodiscard]] int run()
+    void run()
     {
-        start_process_monitor(window_);
         worker_.start(window_);
         ::ShowWindow(window_, SW_SHOWDEFAULT);
         ::UpdateWindow(window_);
@@ -86,21 +83,64 @@ class window_host final
         MSG message{};
         for (;;)
         {
-            const auto result = ::GetMessageW(&message, nullptr, 0, 0);
-            if (result == 0)
-            {
-                break;
-            }
-            if (result == -1)
+            HANDLE handles[]{client_process_.get()};
+            const DWORD handle_count = client_exited_ ? 0 : 1;
+            const auto wait = ::MsgWaitForMultipleObjectsEx(handle_count, handle_count ? handles : nullptr,
+                                                            INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+            if (wait == WAIT_FAILED)
             {
                 win32::throw_last_error();
             }
-            ::TranslateMessage(&message);
-            ::DispatchMessageW(&message);
+            if (handle_count != 0 && wait == WAIT_OBJECT_0)
+            {
+                handle_client_exit();
+                continue;
+            }
+
+            bool quit = false;
+            while (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE) != FALSE)
+            {
+                if (message.message == WM_QUIT)
+                {
+                    quit = true;
+                    break;
+                }
+                ::TranslateMessage(&message);
+                ::DispatchMessageW(&message);
+            }
+            if (quit)
+            {
+                break;
+            }
         }
 
         worker_.stop();
-        return static_cast<int>(message.wParam);
+    }
+
+    void handle_client_exit() noexcept
+    {
+        if (client_exited_)
+        {
+            return;
+        }
+        client_exited_ = true;
+
+        bool close_window = window_config_.exit_policy == client_exit_policy::always_exit;
+        if (window_config_.exit_policy == client_exit_policy::exit_if_never_read_input)
+        {
+            std::unique_lock<win32::srwlock> lock{console_mutex_};
+            close_window = !console_.has_read_input();
+        }
+
+        if (close_window)
+        {
+            (void)::PostMessageW(window_, WM_CLOSE, 0, 0);
+            return;
+        }
+
+        window_title_buffer_.assign(title_.data(), title_.size());
+        window_title_buffer_ += L" (client exited)";
+        ::SetWindowTextW(window_, window_title_buffer_.c_str());
     }
   private:
     [[nodiscard]] static std::pair<int, int> initial_client_size(UINT dpi, uitext::font_family font)
@@ -426,49 +466,6 @@ class window_host final
             break;
         }
         return event;
-    }
-
-    static DWORD WINAPI process_thread_entry(LPVOID self)
-    {
-        static_cast<window_host *>(self)->monitor_process();
-        return 0;
-    }
-
-    void start_process_monitor(HWND window)
-    {
-        window_ = window;
-        process_thread_ =
-            win32::basic_thread{&window_host::process_thread_entry, this, {.name = L"corehost-window-process"}};
-    }
-
-    void stop_process_monitor()
-    {
-        if (!process_thread_.valid())
-        {
-            return;
-        }
-        process_stop_event_.set();
-        process_thread_.join();
-        process_thread_ = {};
-    }
-
-    void monitor_process()
-    {
-        HANDLE waits[] = {client_process_.get(), process_stop_event_.get()};
-        const auto wait = ::WaitForMultipleObjects(2, waits, FALSE, INFINITE);
-        if (wait != WAIT_OBJECT_0)
-        {
-            return;
-        }
-
-        bool close_window = window_config_.exit_policy == client_exit_policy::always_exit;
-        if (window_config_.exit_policy == client_exit_policy::exit_if_never_read_input)
-        {
-            std::unique_lock<win32::srwlock> lock{console_mutex_};
-            close_window = !console_.has_read_input();
-        }
-
-        (void)::PostMessageW(window_, close_window ? WM_CLOSE : client_exit_message, 0, 0);
     }
 
     [[nodiscard]] std::pair<std::size_t, std::size_t> cell_at(HWND hwnd, LPARAM lparam) const noexcept
@@ -1204,15 +1201,7 @@ class window_host final
             self->console_.push_input(std::move(event));
             return 0;
         }
-        case client_exit_message:
-        {
-            self->window_title_buffer_.assign(self->title_.data(), self->title_.size());
-            self->window_title_buffer_ += L" (client exited)";
-            ::SetWindowTextW(hwnd, self->window_title_buffer_.c_str());
-            return 0;
-        }
         case WM_CLOSE:
-            self->stop_process_monitor();
             self->worker_.stop();
             ::DestroyWindow(hwnd);
             return 0;
@@ -1222,7 +1211,6 @@ class window_host final
         case WM_ERASEBKGND:
             return 1;
         case WM_DESTROY:
-            self->stop_process_monitor();
             self->worker_.stop();
             ::PostQuitMessage(0);
             return 0;
@@ -1247,8 +1235,7 @@ class window_host final
     render_worker worker_;
     HWND window_;
     tsf_host tsf_;
-    win32::event process_stop_event_{win32::create_tag, true, false};
-    win32::basic_thread process_thread_;
+    bool client_exited_{};
     bool scrollbar_dragging_{};
     bool selection_dragging_{};
     POINT selection_drag_point_{};
