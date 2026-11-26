@@ -121,8 +121,7 @@ TSF 文本存储耦合起来。
 
 #### 6. 宽度策略与 CJK/grapheme
 
-- `ambiguous_is_wide` 默认 narrow；
-- `corehostw_wide.exe` 是临时反馈构建；
+- `ambiguous_is_wide` 默认 narrow；不再提供 wide 反馈二进制；
 - WT 对 U+2500–259F 使用 terminal convention narrow，Unicode 官方 EAW 为 Ambiguous；
 - 该差异记录在 https://github.com/microsoft/terminal/issues/20980；
 - B6/B8/B9（CJK、combining、宽字符覆盖）仍未按用户要求验收。
