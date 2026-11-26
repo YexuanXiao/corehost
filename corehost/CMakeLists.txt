@@ -55,7 +55,7 @@ corehost_target_msvc_linker_options(corehost PRIVATE "/OPT:REF" "/OPT:ICF")
 corehost_target_msvc_linker_option(corehost PRIVATE "/SUBSYSTEM:WINDOWS,10.0")
 
 add_executable(corehostw WIN32
-    corehost.rc
+    corehostw.rc
     $<IF:$<OR:$<BOOL:${COREHOST_DEFAULT_UTF8}>,$<BOOL:${COREHOST_RUN_AS_UTF8}>>,corehost.utf8.manifest,corehost.manifest>
     cli/main.cpp
     defterm/defterm.cpp

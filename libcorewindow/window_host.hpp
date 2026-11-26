@@ -125,6 +125,12 @@ class window_host final
         window_class.hInstance = instance;
         window_class.lpszClassName = class_name;
         window_class.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
+        window_class.hIcon =
+            reinterpret_cast<HICON>(::LoadImageW(instance, MAKEINTRESOURCEW(1), IMAGE_ICON, 0, 0,
+                                                 LR_DEFAULTSIZE | LR_SHARED));
+        window_class.hIconSm = reinterpret_cast<HICON>(
+            ::LoadImageW(instance, MAKEINTRESOURCEW(1), IMAGE_ICON, ::GetSystemMetrics(SM_CXSMICON),
+                         ::GetSystemMetrics(SM_CYSMICON), LR_SHARED));
         if (::RegisterClassExW(&window_class) == 0)
         {
             const auto error = win32::get_last_error();

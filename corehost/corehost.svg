@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="chip" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6E8AAD"/>
+      <stop offset="1" stop-color="#151C26"/>
+    </linearGradient>
+    <linearGradient id="gold" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="64" y2="64">
+      <stop offset="0" stop-color="#FFD54F"/>
+      <stop offset="0.5" stop-color="#FFB300"/>
+      <stop offset="1" stop-color="#D47E00"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#CBD8E8"/>
+      <stop offset="0.5" stop-color="#93A7C2"/>
+      <stop offset="1" stop-color="#5E728E"/>
+    </linearGradient>
+    <linearGradient id="pin1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFB900"/>
+      <stop offset="1" stop-color="#CC7700"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 金色引脚 -->
+  <g stroke="url(#gold)" stroke-width="5" stroke-linecap="round" fill="none">
+    <path d="M22 2.5V8 M32 2.5V8 M42 2.5V8"/>
+    <path d="M22 56V61.5 M32 56V61.5 M42 56V61.5"/>
+    <path d="M2.5 22H8 M2.5 32H8 M2.5 42H8"/>
+    <path d="M56 22H61.5 M56 32H61.5 M56 42H61.5"/>
+  </g>
+
+  <!-- 芯片主体 (左上角进一步提亮至 #6E8AAD，右下角保持 #151C26) -->
+  <rect x="9" y="9" width="46" height="46" rx="8" fill="url(#chip)" stroke="url(#rim)" stroke-width="3.5"/>
+
+  <!-- 左下角 pin 定位标 -->
+  <path d="M14 50 L14 39 L25 50 Z" fill="url(#pin1)"/>
+
+  <!-- 提示符 “>_” -->
+  <g fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 21 l10 9 -10 9" stroke-width="4"/>
+    <path d="M35 39 h8" stroke-width="5"/>
+  </g>
+</svg>

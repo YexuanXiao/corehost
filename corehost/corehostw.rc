@@ -1,0 +1,2 @@
+#define COREHOST_WINDOW 1
+#include "corehost.rc"
