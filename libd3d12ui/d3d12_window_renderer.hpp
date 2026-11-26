@@ -667,7 +667,8 @@ class d3d12_window_renderer final
         winrt::check_hresult(command_list_->Close());
         ID3D12CommandList *lists[] = {command_list_.get()};
         queue_->ExecuteCommandLists(1, lists);
-        winrt::check_hresult(swapchain_->Present(1, 0));
+        DXGI_PRESENT_PARAMETERS present_parameters{};
+        winrt::check_hresult(swapchain_->Present1(1, 0, &present_parameters));
         buffer_initialized_[index] = true;
     }
 

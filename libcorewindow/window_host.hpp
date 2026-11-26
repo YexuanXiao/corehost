@@ -159,12 +159,35 @@ class window_host final
         ::SetWindowTextW(window_, window_title_buffer_.c_str());
     }
   private:
-    [[nodiscard]] static std::pair<int, int> initial_client_size(UINT dpi, uitext::font_family font,
+    struct resolved_font_families final
+    {
+        std::array<uitext::font_fallback_entry, max_font_fallbacks> entries{};
+        std::size_t count{};
+    };
+
+    [[nodiscard]] static resolved_font_families font_families_from_config(const window_config &config) noexcept
+    {
+        resolved_font_families result;
+        const auto count = std::clamp<std::size_t>(config.font_fallbacks.count, 1, max_font_fallbacks);
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            const auto &entry = config.font_fallbacks.entries[i];
+            result.entries[i] = uitext::font_fallback_entry{
+                win32::wcstring_view{entry.family},
+                DWRITE_UNICODE_RANGE{entry.range.first, entry.range.last},
+            };
+        }
+        result.count = count;
+        return result;
+    }
+
+    [[nodiscard]] static std::pair<int, int> initial_client_size(UINT dpi, const window_config &config,
                                                                  std::size_t columns, std::size_t rows)
     {
-        const auto families = uitext::default_font_families(font);
+        const auto families = font_families_from_config(config);
         const auto scale = static_cast<float>(dpi) / 96.0f;
-        uitext::text_engine text{families, font_size_dip * scale};
+        uitext::text_engine text{std::span<const uitext::font_fallback_entry>{families.entries}.first(families.count),
+                                 config.font_size_dip * scale};
         const auto metrics = text.metrics();
         const auto row_height = metrics.ascent + metrics.descent + metrics.line_gap;
         const auto scrollbar_width = static_cast<int>(std::ceil(scrollbar::default_width * scale));
@@ -218,8 +241,9 @@ class window_host final
         }
 
         const auto initial_dpi = std::max<UINT>(96, ::GetDpiForSystem());
-        const auto [client_width, client_height] = initial_client_size(initial_dpi, window_config_.text_options.font, window_config_.initial_columns,
-                                                 window_config_.initial_rows);
+        const auto [client_width, client_height] =
+            initial_client_size(initial_dpi, window_config_, window_config_.initial_columns,
+                                window_config_.initial_rows);
         RECT initial_rect{0, 0, client_width, client_height};
         if (::AdjustWindowRectExForDpi(&initial_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
                                        initial_dpi) == FALSE)
@@ -246,8 +270,9 @@ class window_host final
         const auto window_dpi = std::max<UINT>(96, ::GetDpiForWindow(window));
         if (window_dpi != initial_dpi)
         {
-            const auto [target_width, target_height] = initial_client_size(window_dpi, window_config_.text_options.font, window_config_.initial_columns,
-                                                window_config_.initial_rows);
+            const auto [target_width, target_height] =
+                initial_client_size(window_dpi, window_config_, window_config_.initial_columns,
+                                    window_config_.initial_rows);
             RECT target_rect{0, 0, target_width, target_height};
             if (::AdjustWindowRectExForDpi(&target_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
                                            window_dpi) == FALSE)
@@ -931,9 +956,8 @@ class window_host final
         case WM_GETMINMAXINFO:
         {
             const auto dpi = std::max<UINT>(96, ::GetDpiForWindow(hwnd));
-            const auto [min_width, min_height] =
-                initial_client_size(dpi, self->window_config_.text_options.font, self->window_config_.min_columns,
-                                    self->window_config_.min_rows);
+            const auto [min_width, min_height] = initial_client_size(
+                dpi, self->window_config_, self->window_config_.min_columns, self->window_config_.min_rows);
             RECT minimum{0, 0, min_width, min_height};
             ::AdjustWindowRectExForDpi(&minimum, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP, dpi);
             reinterpret_cast<MINMAXINFO *>(lparam)->ptMinTrackSize =

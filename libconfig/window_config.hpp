@@ -3,8 +3,10 @@
 #include "console_theme.hpp"
 #include "text_options.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace corehost::window
 {
@@ -33,6 +35,38 @@ namespace corehost::window
     inline constexpr std::uint8_t default_opacity = 255;
     inline constexpr bool default_dark_mode = true;
     inline constexpr client_exit_policy default_exit_policy = client_exit_policy::always_exit;
+    struct unicode_range final
+    {
+        std::uint32_t first{};
+        std::uint32_t last{};
+    };
+
+    struct font_fallback final
+    {
+        std::wstring family;
+        unicode_range range{0, 0x10FFFF};
+    };
+
+    inline constexpr std::size_t max_font_fallbacks = 12;
+
+    struct font_fallback_list final
+    {
+        std::array<font_fallback, max_font_fallbacks> entries{};
+        std::size_t count{};
+    };
+
+    inline font_fallback_list default_font_fallbacks(uitext::font_family font = uitext::default_font_family)
+    {
+        font_fallback_list list;
+        const auto mono = font == uitext::font_family::cascadia_mono;
+        list.entries[0] = font_fallback{mono ? L"Cascadia Mono" : L"Cascadia Code"};
+        list.entries[1] = font_fallback{mono ? L"Cascadia Code" : L"Cascadia Mono"};
+        list.entries[2] = font_fallback{L"Consolas"};
+        list.count = 3;
+        return list;
+    }
+
+    inline constexpr float default_font_size_dip = 16.0f;
     inline constexpr std::size_t default_initial_columns = 120;
     inline constexpr std::size_t default_initial_rows = 30;
     inline constexpr std::size_t default_min_columns = 36;
@@ -56,6 +90,8 @@ namespace corehost::window
         console_palette palette{default_palette};
         bell_mode bell{default_bell_mode};
         uitext::text_options text_options{};
+        float font_size_dip{default_font_size_dip};
+        font_fallback_list font_fallbacks{default_font_fallbacks(text_options.font)};
         backdrop_mode backdrop{default_backdrop_mode};
         std::uint8_t opacity{default_opacity};
         bool dark_mode{default_dark_mode};
