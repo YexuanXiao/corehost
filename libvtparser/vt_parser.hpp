@@ -80,6 +80,7 @@ enum class vt_message_id
 
     // C0/ESC 基础控制。输入方向用于行编辑和 RAW_READ 行终止判断；输出方向会
     // 更新本地 cursor/screen 并序列化为对应 VT。
+    bell,
     carriage_return, // \r
     line_feed,
     next_line, // \n
@@ -586,6 +587,7 @@ class vt_parser
     {
         printable,
         esc,
+        bell,
         carriage_return,
         line_feed,
         tab,
@@ -621,6 +623,8 @@ class vt_parser
         {
         case 0x00:
             return ground_char_kind::nul;
+        case 0x07:
+            return ground_char_kind::bell;
         case 0x08:
             return ground_char_kind::backspace;
         case u'\t':
@@ -646,6 +650,8 @@ class vt_parser
         {
         case ground_char_kind::nul:
             return vt_message_id::char_nul;
+        case ground_char_kind::bell:
+            return vt_message_id::bell;
         case ground_char_kind::backspace:
             return vt_message_id::char_backspace;
         case ground_char_kind::del:

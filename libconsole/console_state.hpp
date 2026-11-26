@@ -275,6 +275,7 @@ class console_state final
     std::uint32_t font_weight{400};
     vtparser::raw_u16string face_name{u"Consolas"};
     std::array<std::uint32_t, 16> color_table{};
+    std::uint64_t bell_count{};
     vtparser::raw_u16string title;
     vtparser::raw_u16string original_title;
     vtparser::raw_u16string selected_text_scratch_;

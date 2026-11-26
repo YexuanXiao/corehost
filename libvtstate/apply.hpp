@@ -19,6 +19,9 @@ namespace corehost::vtstate
     case vtparser::vt_message_id::cursor_position:
         applier.apply_cursor_position(message, state);
         return true;
+    case vtparser::vt_message_id::bell:
+        ++state.bell_count;
+        return true;
     case vtparser::vt_message_id::char_backspace:
         if (state.cursor().x > 0)
         {

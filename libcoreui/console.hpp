@@ -250,6 +250,16 @@ class console final
         return view_selection_.active;
     }
 
+    void set_hovered_hyperlink(screen::cell_hyperlink value) noexcept
+    {
+        hovered_hyperlink_ = value;
+    }
+
+    [[nodiscard]] screen::cell_hyperlink hovered_hyperlink() const noexcept
+    {
+        return hovered_hyperlink_;
+    }
+
     [[nodiscard]] const screen::selection_range &selection() const noexcept
     {
         return view_selection_;
@@ -566,6 +576,7 @@ class console final
     std::u16string selection_line_buffer_;
     screen::console_state state_;
     screen::selection_range view_selection_;
+    screen::cell_hyperlink hovered_hyperlink_{screen::no_cell_hyperlink};
     consoleinput::input_queue input_;
     bool input_read_{};
     bool focused_{true};

@@ -475,6 +475,13 @@ class render_worker final
                                   cell_width * cell_span, 1.0f, line_color, sample, text_alpha);
                 }
 
+                if (hovered_hyperlink_ != screen::no_cell_hyperlink && cell.hyperlink() == hovered_hyperlink_)
+                {
+                    add_line_quad(quads_, static_cast<float>(x) * cell_width,
+                                  static_cast<float>(y) * cell_height + metrics.ascent + 2.0f + scroll_shift,
+                                  cell_width * cell_span, 1.0f, foreground, sample, 1.0f);
+                }
+
                 std::u16string_view text;
                 std::array<char16_t, 1> scalar{};
                 if (cell.has_cluster())
@@ -912,8 +919,10 @@ class render_worker final
     screen::style_table styles_;
     console_palette palette_;
     bool transparent_background_{};
+    std::uint64_t bell_count_{};
     screen::cursor_state cursor_{};
     screen::selection_range selection_{};
+    screen::cell_hyperlink hovered_hyperlink_{screen::no_cell_hyperlink};
     std::u16string composition_;
     std::size_t composition_x_{};
     std::size_t composition_y_{};

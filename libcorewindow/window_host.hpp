@@ -12,6 +12,7 @@
 
 #include <Windows.h>
 #include <dwmapi.h>
+#include <shellapi.h>
 #include <imm.h>
 #include <windowsx.h>
 
@@ -550,6 +551,45 @@ class window_host final
         console_.set_selection(selection_anchor_x_, selection_anchor_y_, x, y);
     }
 
+    void update_hyperlink_hover(HWND hwnd, LPARAM lparam)
+    {
+        std::unique_lock<win32::srwlock> lock{console_mutex_};
+        const auto [x, y] = view_cell_at(hwnd, lparam);
+        const auto link = console_.cell_at_virtual(y, x).hyperlink();
+        if (link != console_.hovered_hyperlink())
+        {
+            LOG2("hyperlink hover x=%zu y=%zu link=%u", x, y, static_cast<unsigned>(link));
+            console_.set_hovered_hyperlink(link);
+            worker_.request_redraw();
+        }
+    }
+
+    [[nodiscard]] bool open_hyperlink(HWND hwnd, LPARAM lparam)
+    {
+        std::unique_lock<win32::srwlock> lock{console_mutex_};
+        const auto [x, y] = view_cell_at(hwnd, lparam);
+        const auto link = console_.cell_at_virtual(y, x).hyperlink();
+        if (link == screen::no_cell_hyperlink)
+        {
+            return false;
+        }
+
+        const auto &target = console_.buffer().hyperlinks().at(link);
+        if (target.uri.empty())
+        {
+            return false;
+        }
+
+        std::wstring uri;
+        uri.reserve(target.uri.size());
+        for (const auto character : target.uri)
+        {
+            uri.push_back(static_cast<wchar_t>(character));
+        }
+        (void)::ShellExecuteW(nullptr, L"open", uri.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        return true;
+    }
+
     void auto_scroll_selection(HWND hwnd)
     {
         if (!selection_dragging_)
@@ -859,6 +899,7 @@ class window_host final
         case WM_MOUSEMOVE:
         {
             self->update_scrollbar_hover(hwnd, lparam);
+            self->update_hyperlink_hover(hwnd, lparam);
             if (self->scrollbar_dragging_)
             {
                 self->handle_scrollbar_mouse_move(hwnd, lparam);
@@ -905,6 +946,11 @@ class window_host final
                     self->console_.set_scrollbar_hovered(true);
                 }
                 self->handle_scrollbar_mouse_down(hwnd, lparam);
+                return 0;
+            }
+
+            if ((::GetKeyState(VK_CONTROL) & 0x8000) != 0 && self->open_hyperlink(hwnd, lparam))
+            {
                 return 0;
             }
 

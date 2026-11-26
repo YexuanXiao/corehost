@@ -16,6 +16,7 @@ target_link_libraries(libcorewindow INTERFACE
     common
     user32
     dwmapi
+    shell32
     ole32
     oleaut32
 )
