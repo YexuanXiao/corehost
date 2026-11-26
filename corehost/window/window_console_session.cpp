@@ -21,6 +21,10 @@ window_console_session::window_console_session(win32::handle_view server, consol
     auto &state = console_.state();
     state.output_mode = 0x0001 | 0x0002 | 0x0004;
     state.measurement = screen::text_measurement::graphemes;
+    // Keep the default narrow: edit.exe's box-drawing layout assumes Box
+    // Drawing / Block Elements stay one column wide. With ambiguous wide,
+    // table borders are expanded and the menu frame breaks.
+    // Tracked upstream at https://github.com/microsoft/terminal/issues/20980.
     state.ambiguous_is_wide = false;
     vt_applier_ = vtstate::state_applier{state.measurement, state.ambiguous_is_wide};
 }
