@@ -1,6 +1,7 @@
 #pragma once
 
 #include "console.hpp"
+#include "control.hpp"
 #include "console_config.hpp"
 #include "window_config.hpp"
 #include "utility/log.hpp"
@@ -621,6 +622,62 @@ class window_host final
     void push_mouse(LPARAM lparam, std::uint32_t button_state, std::uint32_t event_flags)
     {
         const auto [x, y] = cell_at(window_, lparam);
+        if (console_.virtual_terminal_input() && console_.mouse_sgr_encoding())
+        {
+            auto button = 3;
+            if ((event_flags & MOUSE_WHEELED) != 0)
+            {
+                const auto delta = static_cast<short>(HIWORD(button_state));
+                button = delta > 0 ? 64 : 65;
+            }
+            else if ((event_flags & MOUSE_MOVED) != 0)
+            {
+                button = (button_state & FROM_LEFT_1ST_BUTTON_PRESSED) != 0
+                             ? 0
+                             : (button_state & FROM_LEFT_2ND_BUTTON_PRESSED) != 0
+                                   ? 2
+                                   : (button_state & FROM_LEFT_3RD_BUTTON_PRESSED) != 0 ? 1 : 3;
+                button += 32;
+            }
+            else if ((button_state & FROM_LEFT_1ST_BUTTON_PRESSED) != 0)
+            {
+                button = 0;
+            }
+            else if ((button_state & FROM_LEFT_2ND_BUTTON_PRESSED) != 0)
+            {
+                button = 2;
+            }
+            else if ((button_state & FROM_LEFT_3RD_BUTTON_PRESSED) != 0)
+            {
+                button = 1;
+            }
+
+            const auto modifiers = control_state();
+            if ((modifiers & SHIFT_PRESSED) != 0)
+            {
+                button += 4;
+            }
+            if ((modifiers & LEFT_ALT_PRESSED) != 0 || (modifiers & RIGHT_ALT_PRESSED) != 0)
+            {
+                button += 8;
+            }
+            if ((modifiers & LEFT_CTRL_PRESSED) != 0 || (modifiers & RIGHT_CTRL_PRESSED) != 0)
+            {
+                button += 16;
+            }
+
+            consoleinput::input_event text_event{};
+            text_event.type = consoleinput::input_event_type::text;
+            const bool release = button_state == 0 && (event_flags & MOUSE_MOVED) == 0 &&
+                                 (event_flags & MOUSE_WHEELED) == 0;
+            LOG2("push sgr mouse button=%d x=%zu y=%zu release=%d", button, x, y, release ? 1 : 0);
+            vtserializer::append_mouse_sgr(text_event.text, button, static_cast<int>(x), static_cast<int>(y),
+                                           release);
+            console_.push_input(std::move(text_event));
+            worker_.request_redraw();
+            return;
+        }
+
         consoleinput::input_event event{
             .type = consoleinput::input_event_type::mouse,
             .mouse = consoleinput::mouse_event{.x = static_cast<std::int32_t>(x),
@@ -922,6 +979,9 @@ class window_host final
         }
         case WM_LBUTTONDOWN:
         {
+            LOG2("lbutton reporting=%d vt=%d sgr=%d mode=%08x", self->console_.mouse_reporting() ? 1 : 0,
+                 self->console_.vt_mouse_tracking() ? 1 : 0, self->console_.mouse_sgr_encoding() ? 1 : 0,
+                 self->console_.state().input_mode);
             self->worker_.request_atlas_upload();
             const auto x = static_cast<float>(GET_X_LPARAM(lparam));
             const auto y = static_cast<float>(GET_Y_LPARAM(lparam));

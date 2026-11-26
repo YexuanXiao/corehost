@@ -245,6 +245,16 @@ class console final
         return state_.mouse_tracking() || (state_.input_mode & 0x0010) != 0;
     }
 
+    [[nodiscard]] bool virtual_terminal_input() const noexcept
+    {
+        return (state_.input_mode & 0x0200) != 0;
+    }
+
+    [[nodiscard]] bool mouse_sgr_encoding() const noexcept
+    {
+        return state_.private_modes.test(1006);
+    }
+
     [[nodiscard]] bool has_selection() const noexcept
     {
         return view_selection_.active;

@@ -133,6 +133,31 @@ inline void append_window_title(byte_buffer &output, std::u16string_view title)
     output.push_back(static_cast<char8_t>(0x07));
 }
 template <typename String>
+inline void append_mouse_sgr(String &output, int button, int x, int y, bool release)
+{
+    output.append(u"\x1b[<");
+    char digits[64]{};
+    auto *first = digits;
+    auto result = std::to_chars(first, digits + sizeof(digits), button);
+    for (auto *digit = digits; digit != result.ptr; ++digit)
+    {
+        output.push_back(static_cast<char16_t>(*digit));
+    }
+    output.push_back(u';');
+    result = std::to_chars(digits, digits + sizeof(digits), x + 1);
+    for (auto *digit = digits; digit != result.ptr; ++digit)
+    {
+        output.push_back(static_cast<char16_t>(*digit));
+    }
+    output.push_back(u';');
+    result = std::to_chars(digits, digits + sizeof(digits), y + 1);
+    for (auto *digit = digits; digit != result.ptr; ++digit)
+    {
+        output.push_back(static_cast<char16_t>(*digit));
+    }
+    output.push_back(release ? u'm' : u'M');
+}
+template <typename String>
 inline void append_cursor_position_response(String &output, unsigned row, unsigned column)
 {
     char digits[32]{};

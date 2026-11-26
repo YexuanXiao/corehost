@@ -34,6 +34,11 @@ class window_client_process final
         return process_.process_id;
     }
 
+    [[nodiscard]] bool wait_for(DWORD milliseconds) const noexcept
+    {
+        return ::WaitForSingleObject(process_.h_process.get(), milliseconds) == WAIT_OBJECT_0;
+    }
+
     void wait()
     {
         if (::WaitForSingleObject(process_.h_process.get(), INFINITE) == WAIT_FAILED)

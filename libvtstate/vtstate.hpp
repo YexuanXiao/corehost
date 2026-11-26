@@ -366,30 +366,36 @@ class state_applier final
     void apply_private_mode(const vtparser::vt_message &message, screen::screen_buffer &buffer,
                             screen::console_state &state)
     {
-        const auto mode = message.payload.private_mode.mode;
         const auto enabled = message.payload.private_mode.enabled;
-        state.set_private_mode(mode, enabled);
-        switch (mode)
+        const auto count = message.payload.private_mode.count == 0 ? 1 : message.payload.private_mode.count;
+        for (std::size_t index = 0; index < count; ++index)
         {
-        case 47:
-        case 1047:
-            buffer.set_alternate(enabled);
-            break;
-        case 1048:
-            if (enabled)
+            const auto mode = message.payload.private_mode.count == 0
+                                  ? message.payload.private_mode.mode
+                                  : message.payload.private_mode.modes[index];
+            state.set_private_mode(mode, enabled);
+            switch (mode)
             {
-                state.save_cursor();
+            case 47:
+            case 1047:
+                buffer.set_alternate(enabled);
+                break;
+            case 1048:
+                if (enabled)
+                {
+                    state.save_cursor();
+                }
+                else
+                {
+                    (void)state.restore_cursor();
+                }
+                break;
+            case 1049:
+                apply_alternate_buffer(enabled, buffer, state);
+                break;
+            default:
+                break;
             }
-            else
-            {
-                (void)state.restore_cursor();
-            }
-            break;
-        case 1049:
-            apply_alternate_buffer(enabled, buffer, state);
-            break;
-        default:
-            break;
         }
     }
 
