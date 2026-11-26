@@ -798,7 +798,8 @@ class render_worker final
     static bool is_device_lost_error(const winrt::hresult_error &error) noexcept
     {
         const auto result = static_cast<HRESULT>(error.code());
-        return result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET;
+        return result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET ||
+               result == DXGI_ERROR_DEVICE_HUNG || result == DXGI_ERROR_DRIVER_INTERNAL_ERROR;
     }
 
     bool recover_renderer()
