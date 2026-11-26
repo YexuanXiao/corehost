@@ -27,11 +27,18 @@ namespace corehost::window
             text_callback composition{};
             caret_callback caret{};
             std::int32_t candidate_offset_cells{2};
+            bool enabled{true};
         };
 
         tsf_host(HWND window, callbacks callbacks) try : window_{window}, callbacks_{callbacks},
                                                          edit_session_{*this}
         {
+            if (!callbacks_.enabled)
+            {
+                window_ = nullptr;
+                return;
+            }
+
             winrt::check_hresult(::CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER,
                                                     IID_PPV_ARGS(thread_mgr_.put())));
 

@@ -23,6 +23,13 @@ namespace corehost::window
         always_exit,
     };
 
+    enum class right_click_action : unsigned char
+    {
+        automatic,
+        copy,
+        paste,
+    };
+
     enum class hyperlink_modifier : unsigned char
     {
         none,
@@ -67,6 +74,10 @@ namespace corehost::window
     }
 
     inline constexpr float default_font_size_dip = 16.0f;
+    inline constexpr std::size_t default_mouse_wheel_lines = 3;
+    inline constexpr right_click_action default_right_click_action = right_click_action::automatic;
+    inline constexpr bool default_uia_enabled = true;
+    inline constexpr bool default_tsf_enabled = true;
     inline constexpr std::uint32_t default_cursor_blink_ms = 530;
     inline constexpr std::uint32_t default_selection_auto_scroll_interval_ms = 40;
     inline constexpr std::size_t default_selection_auto_scroll_edge_rows = 1;
@@ -96,6 +107,10 @@ namespace corehost::window
         bell_mode bell{default_bell_mode};
         uitext::text_options text_options{};
         float font_size_dip{default_font_size_dip};
+        std::size_t mouse_wheel_lines{default_mouse_wheel_lines};
+        right_click_action right_click{default_right_click_action};
+        bool uia_enabled{default_uia_enabled};
+        bool tsf_enabled{default_tsf_enabled};
         std::uint32_t cursor_blink_ms{default_cursor_blink_ms};
         std::uint32_t selection_auto_scroll_interval_ms{default_selection_auto_scroll_interval_ms};
         std::size_t selection_auto_scroll_edge_rows{default_selection_auto_scroll_edge_rows};

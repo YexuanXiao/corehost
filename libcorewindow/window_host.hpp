@@ -51,6 +51,7 @@ class window_host final
                             .composition = &window_host::tsf_composition_callback,
                             .caret = &window_host::tsf_caret_callback,
                             .candidate_offset_cells = window_config.candidate_offset_cells,
+                            .enabled = window_config.tsf_enabled,
                         }}
     {
         assert(!title_.empty());
@@ -77,6 +78,10 @@ class window_host final
 
     IRawElementProviderSimple *ensure_uia_provider() noexcept
     {
+        if (!window_config_.uia_enabled)
+        {
+            return nullptr;
+        }
         if (!uia_provider_)
         {
             uia_provider_ = winrt::make<uia_provider>(window_, console_, console_mutex_);
@@ -1005,7 +1010,10 @@ class window_host final
             if (static_cast<LONG>(lparam) == UiaRootObjectId)
             {
                 auto *provider = self->ensure_uia_provider();
-                return provider != nullptr ? ::UiaReturnRawElementProvider(hwnd, wparam, lparam, provider) : 0;
+                if (provider != nullptr)
+                {
+                    return ::UiaReturnRawElementProvider(hwnd, wparam, lparam, provider);
+                }
             }
             break;
         case WM_TIMER:
@@ -1039,7 +1047,9 @@ class window_host final
                 return 0;
             }
 
-            self->console_.scroll_by(static_cast<double>(delta) * 3.0 / static_cast<double>(WHEEL_DELTA));
+            self->console_.scroll_by(static_cast<double>(delta) *
+                                     static_cast<double>(self->window_config_.mouse_wheel_lines) /
+                                     static_cast<double>(WHEEL_DELTA));
             return 0;
         }
         case WM_MOUSEMOVE:
@@ -1129,6 +1139,21 @@ class window_host final
             if (self->console_.vt_mouse_tracking() && (::GetKeyState(VK_SHIFT) & 0x8000) == 0)
             {
                 self->push_mouse(lparam, 0, 0);
+                return 0;
+            }
+            if (self->window_config_.right_click == right_click_action::copy)
+            {
+                if (self->console_.has_selection())
+                {
+                    self->copy_selection(hwnd);
+                    self->console_.clear_selection();
+                    self->worker_.request_redraw();
+                }
+                return 0;
+            }
+            if (self->window_config_.right_click == right_click_action::paste)
+            {
+                self->paste_clipboard(hwnd);
                 return 0;
             }
             if (self->console_.has_selection())

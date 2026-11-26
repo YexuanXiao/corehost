@@ -374,6 +374,11 @@ class console final
         }
     }
 
+    void set_copy_crlf(bool enabled) noexcept
+    {
+        copy_crlf_ = enabled;
+    }
+
     // Appends the selected text into a caller-owned buffer. The buffer keeps
     // its capacity across copies/pastes, so changing selections does not
     // allocate a fresh string every time.
@@ -405,7 +410,7 @@ class console final
         {
             if (y > top)
             {
-                result.append(u"\r\n");
+                result.append(copy_crlf_ ? u"\r\n" : u"\n");
             }
 
             auto begin = left;
@@ -627,6 +632,7 @@ class console final
     consoleinput::input_queue input_;
     bool input_read_{};
     bool focused_{true};
+    bool copy_crlf_{true};
     bool scrollbar_hovered_{};
     double scroll_pixels_{};
     float scroll_row_height_{1.0f};

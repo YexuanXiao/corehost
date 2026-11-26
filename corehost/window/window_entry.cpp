@@ -22,6 +22,7 @@ void window_entry(win32::wcstring_view title, std::wstring client_command_line,
     const auto initial_columns = window_config.initial_columns;
     const auto initial_rows = window_config.initial_rows;
     console shared_console{initial_columns, initial_rows, console_config.scrollback_lines};
+    shared_console.set_copy_crlf(console_config.copy_ending == copy_line_ending::crlf);
     window_console_session console{server.view(), shared_console, console_mutex};
     console.start();
 
