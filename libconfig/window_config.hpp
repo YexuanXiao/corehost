@@ -36,6 +36,6 @@ namespace corehost::window
         backdrop_mode backdrop{backdrop_mode::none};
         std::uint8_t opacity{255};
         bool dark_mode{true};
-        client_exit_policy exit_policy{client_exit_policy::keep_open};
+        client_exit_policy exit_policy{client_exit_policy::always_exit};
     };
 }
