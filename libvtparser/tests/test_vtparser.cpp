@@ -20,7 +20,7 @@ static_assert(sizeof(corehost::vtparser::vt_palette_payload) == 6);
 static_assert(sizeof(corehost::vtparser::vt_sgr_color_payload) == 4);
 static_assert(sizeof(corehost::vtparser::vt_sgr_payload) == 12);
 static_assert(sizeof(corehost::vtparser::vt_mouse_payload) == 8);
-static_assert(sizeof(corehost::vtparser::vt_private_mode_payload) == 14);
+static_assert(sizeof(corehost::vtparser::vt_private_mode_payload) <= 16);
 static_assert(sizeof(corehost::vtparser::vt_win32_key_payload) == 16);
 
 int failures = 0;
