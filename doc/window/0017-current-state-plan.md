@@ -17,7 +17,7 @@
 > 2026-11-27 更新：当前完整缺口以 [0018-gap-analysis.md](0018-gap-analysis.md) 为准。
 > 当前状态：
 > `render_worker` 已改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁允许 530ms 定时器；滚动条动画用合成器时钟。
-> UIA TextPattern/ScrollPattern/事件、线性选择、UIA provider 已加入；Sixel 性能问题仍存在。
+> UIA TextPattern/ScrollPattern/事件、线性选择、UIA provider 已加入；Sixel 已改为屏幕内独立纹理缓存。
 
 ## 当前状态
 
@@ -40,9 +40,8 @@
 已知缺口（2026-11-27）：
 
 - TSF 不实现 `ITextStoreACP`（决定记录在 0015），复杂 IME/TIP 未验收；
-- TSF 不实现 `ITextStoreACP`（决定记录在 0015），复杂 IME/TIP 未验收；
 - D3D12 device lost 已实现恢复（0/500/2000/8000ms，失败关闭窗口），待故障注入验证；
-- Sixel 图像没有持久缓存；
+- Sixel 已实现屏幕内图像纹理缓存；
 - UIA 只有手动验证，没有自动化/屏幕阅读器验收；
 - 主题只有 Campbell，没有配置文件加载、亮暗切换、高对比度；
 - CJK/combining/宽字符覆盖与 checklist 大量项仍未验收；
@@ -126,7 +125,7 @@ struct window_config
 - 不做音频前先确认行为；
 - 限频，避免高频 BEL 卡顿。
 
-### 6. Sixel（基础完成，性能未完成）
+### 6. Sixel（完成）
 
 - 新增 `libuisixel`：Sixel 解码为 RGBA8；
 - palette 解码、raster attributes、repeat；
@@ -176,5 +175,5 @@ struct window_config
 - 渲染已改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁允许 530ms 定时器；滚动条动画用合成器时钟。
 - 当前测试：`build-ninja` 12/12 通过。
 - Sixel 解码、image fragment、color atlas RGBA quad 已完成；64x64 彩色 Sixel 实测显示。
-- 已知性能问题：image 每次 render 都会重新写入 color atlas/上传纹理，后续需缓存。
+- 图像纹理缓存：只缓存屏幕内图像，内容 generation 不变时不重传，离开屏幕释放。
 - selection 已改为线性 text 模式，支持边缘自动滚动，复制按行裁剪。

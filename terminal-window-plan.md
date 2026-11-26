@@ -683,6 +683,7 @@ Child：
 - 缓存键为 image id + pixel generation + source size + placement；
 - 仅图像新增、像素变化、位置/尺寸变化、滚动导致可见区域变化时失效；
 - 只缓存当前屏幕内可见图像，屏幕外图像不保留；
+- 当前实现：每个可见图像独立 D3D12 纹理；像素 generation 不变时不重传；离开屏幕释放纹理。
 - 不设 Sixel 最大尺寸/像素数上限。
 
 ### 5.9 滚动条

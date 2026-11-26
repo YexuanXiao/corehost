@@ -91,7 +91,7 @@ struct text_options
 |---|---:|---|
 | `sixel_max_width/height` | 不设限 | 已确认不设尺寸上限 |
 | `sixel_max_bytes` | 不设限 | 已确认不设像素内存上限 |
-| `sixel_cache_bytes` | 仅屏幕内 | 不缓存屏幕外图像；无离屏缓存预算 |
+| `sixel_cache_bytes` | 仅屏幕内 | 不缓存屏幕外图像；由渲染器释放屏幕外纹理 |
 | `sixel_palette_mode` | RGB/HLS | 当前支持 |
 | `atlas_size` | 1024 | glyph/color atlas |
 | `idle_render_policy` | event | 事件阻塞；失焦或光标不闪烁时 CPU 0，聚焦闪烁允许 530ms timer；动画用合成器时钟 |

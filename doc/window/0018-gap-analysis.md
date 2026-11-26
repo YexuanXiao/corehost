@@ -17,10 +17,9 @@
 
 最关键的未完成项：
 
-1. Sixel 图像每次绘制都会重新写入 color atlas 并上传纹理，静态大图性能不合格。
-2. UIA 已提供 TextPattern/ScrollPattern/事件，但还没有自动化 UIA 测试和屏幕阅读器验收；
+1. UIA 已提供 TextPattern/ScrollPattern/事件，但还没有自动化 UIA 测试和屏幕阅读器验收；
    没有 Invoke（终端窗口没有有意义的默认调用动作）。
-3. `wt_test_checklist.md` 仍大量未验收，不能把“功能存在”等同于“与 conhost/WT 行为一致”。
+2. `wt_test_checklist.md` 仍大量未验收，不能把“功能存在”等同于“与 conhost/WT 行为一致”。
 
 TSF 不实现 `ITextStoreACP`，原因见 `0015-ime-tsf.md`；这不是本轮阻塞项。
 ## 已完成
@@ -38,13 +37,16 @@ TSF 不实现 `ITextStoreACP`，原因见 `0015-ime-tsf.md`；这不是本轮阻
 | W6.4 TSF composition/candidate | 基础完成，范围已决定 | TSF context、composition 自绘、candidate 定位；`ITextStoreACP` 不实现 |
 | W7 damage/scrollback | 已完成基础路径 | damage row、history、selection virtual rows |
 | W8.1 滚动条 | 已完成 | hover/拖拽/轨道点击/滚轮/键盘滚动（用户确认当前行为可接受） |
-| W8.2–W8.3 Sixel | 已完成功能，性能待修 | 解码、HLS/RGB、image fragment、RGBA quad |
+| W8.2–W8.3 Sixel | 完成 | 解码、HLS/RGB、image fragment、独立纹理缓存；屏幕外释放 |
 | W8.4 透明/Mica/Acrylic | 实现完成，待用户手动验收 | `window_config` + DWM |
 | 新需求：UIA TextPattern | 已完成基础路径 | Document、TextPattern、TextRange、selection、find |
 | 新需求：UIA ScrollPattern | 已完成 | 纵向滚动、百分比、view size |
 | 新需求：UIA 文本/选择事件 | 已完成接线 | render worker 文本变化投递；选择/自动滚动触发 SelectionChanged |
 | 选择边缘自动滚动 | 已完成 | timer + edge test；100 行输出选择得到跨历史文本 |
 | hyperlink / bell | 已完成 | hover 下划线、Ctrl+click；`FlashWindowEx` visual bell |
+
+Sixel 验证：屏幕内图像仅首次上传纹理，后续光标闪烁/文字帧不重传；图像滚出屏幕后缓存
+纹理数为 0。颜色 emoji 仍走原有 color atlas，不与图像纹理混用。
 
 ## 部分完成或未完成
 
@@ -64,20 +66,7 @@ TSF 不实现 `ITextStoreACP`，原因见 `0015-ime-tsf.md`；这不是本轮阻
 
 ### P0：剩余
 
-#### 1. Sixel 图像缓存
-
-要求：**当前屏幕内容中的 Sixel 图像区域没有变化时，不重新绘制、不重新上传 RGBA 纹理。**
-
-当前 image fragment 每帧重新执行 `color_atlas_.add_image`，重新上传 RGBA 纹理。需要：
-
-- 以 image id + pixel generation + source size + placement 为缓存键；
-- 屏幕内该图像区域不变时复用已上传的 GPU 纹理/atlas region 和 quad；
-- 仅图像新增、像素变化、位置/尺寸变化、滚动导致可见区域变化时失效；
-- 其他文字输出不使静态 Sixel 重新上传；
-- 只缓存当前屏幕内可见图像，屏幕外图像不缓存；
-- Sixel 最大尺寸/像素数不设限。
-
-#### 2. UIA 验收与事件
+#### 1. UIA 验收与事件
 
 已有：
 
@@ -167,12 +156,11 @@ TSF 文本存储耦合起来。
 
 ## 建议顺序
 
-1. Sixel 缓存；
-2. Mica/Acrylic/透明度手动验收；
-3. 配置项对象（见 `0019-config-inventory.md`）；
-4. UIA 自动化与屏幕阅读器验收；
-5. 宽度策略/CJK/grapheme；
-6. checklist 剩余项。
+1. Mica/Acrylic/透明度手动验收；
+2. 配置项对象（见 `0019-config-inventory.md`）；
+3. UIA 自动化与屏幕阅读器验收；
+4. 宽度策略/CJK/grapheme；
+5. checklist 剩余项。
 
 ## 相关文件
 

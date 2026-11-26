@@ -27,7 +27,7 @@
 - 线性文本选择、Shift 扩展、双击选词、三击选行、边缘自动滚动；
 - 纯文本剪贴板、右键粘贴、VT SGR mouse；
 - TSF composition 自绘、candidate 定位（`ITextStoreACP` 已决定不实现）；
-- Sixel 解码、HSB/RGB 调色板、RGBA 渲染；
+- Sixel 解码、HSB/RGB 调色板、RGBA 渲染；屏幕内图像纹理缓存，内容不变不重传；
 - hyperlink hover/Ctrl+click、visual bell；
 - `window_config`（C++ 构造）：palette、字体、backdrop、opacity、dark mode、exit policy；
 - 配置决定：scrollback 默认 3000、bell 归 window、candidate_offset_cells 默认 2、Sixel 不设尺寸上限且只缓存屏幕内图像；
@@ -39,19 +39,17 @@
 ## 关键未完成
 
 1. **TSF 范围决定**：不实现 `ITextStoreACP`；复杂 IME/TIP、日文/韩文未验收。
-2. **Sixel 性能**：图像每次绘制重新写 color atlas/上传纹理。
-4. **UIA 自动化/屏幕阅读器验收**：仅手动 PowerShell UIA 验证；Invoke 明确不做。
-5. **CJK/combining/宽字符覆盖**：B6/B8/B9 仍未按用户要求验收。
-6. **主题/配置**：无配置文件加载、无亮暗主题切换/高对比度。
-7. **checklist 大量未验收**，不能等同于 WT/conhost 行为一致。
+2. **UIA 自动化/屏幕阅读器验收**：仅手动 PowerShell UIA 验证；Invoke 明确不做。
+3. **CJK/combining/宽字符覆盖**：B6/B8/B9 仍未按用户要求验收。
+4. **主题/配置**：无配置文件加载、无亮暗主题切换/高对比度。
+5. **checklist 大量未验收**，不能等同于 WT/conhost 行为一致。
 
 ## 下一步
 
 按 [0018-gap-analysis.md](0018-gap-analysis.md) 的顺序：
 
-1. Sixel 缓存；
-2. Mica/Acrylic/透明度手动验收；
-3. 配置项对象；
-4. UIA 自动化；
-5. 宽度/CJK/grapheme；
-6. checklist。
+1. Mica/Acrylic/透明度手动验收；
+2. 配置项对象；
+3. UIA 自动化；
+4. 宽度/CJK/grapheme；
+5. checklist。
