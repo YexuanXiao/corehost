@@ -151,7 +151,6 @@ class color_cell_atlas final
         dirty_ = true;
         return region;
     }
-
     [[nodiscard]] std::uint32_t size() const noexcept
     {
         return size_;
