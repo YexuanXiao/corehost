@@ -39,7 +39,10 @@ class render_worker final
     render_worker(console &console, win32::srwlock &console_mutex, const window_config &config,
                   win32::handle_view damage_event)
         : columns{console.buffer().width()}, rows{console.buffer().height()}, console_{console}, console_mutex_{console_mutex},
-          config_{config}, fallback_families_{uitext::default_font_families(config_.text_options.font)},
+          config_{config}, fallback_families_{make_fallback_families(config_)},
+          fallback_count_{make_fallback_count(config_)},
+          text_{std::span<const uitext::font_fallback_entry>{fallback_families_}.first(fallback_count_),
+                config_.font_size_dip},
           damage_event_{damage_event}
     {
     }
@@ -1142,8 +1145,29 @@ class render_worker final
     HWND window_{};
     d3d12ui::d3d12_window_renderer renderer_;
     const window_config &config_;
-    std::array<uitext::font_fallback_entry, 3> fallback_families_{uitext::default_font_families(config_.text_options.font)};
-    uitext::text_engine text_{fallback_families_, 16.0f};
+    static std::array<uitext::font_fallback_entry, max_font_fallbacks> make_fallback_families(const window_config &config) noexcept
+    {
+        std::array<uitext::font_fallback_entry, max_font_fallbacks> result{};
+        const auto count = std::min(config.font_fallbacks.count, max_font_fallbacks);
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            const auto &entry = config.font_fallbacks.entries[i];
+            result[i] = uitext::font_fallback_entry{
+                win32::wcstring_view{entry.family},
+                DWRITE_UNICODE_RANGE{entry.range.first, entry.range.last},
+            };
+        }
+        return result;
+    }
+
+    static std::size_t make_fallback_count(const window_config &config) noexcept
+    {
+        return std::clamp<std::size_t>(config.font_fallbacks.count, 1, max_font_fallbacks);
+    }
+
+    std::array<uitext::font_fallback_entry, max_font_fallbacks> fallback_families_;
+    std::size_t fallback_count_{};
+    uitext::text_engine text_;
     uitext::cell_atlas atlas_{text_};
     uitext::color_cell_atlas color_atlas_{text_};
     static constexpr ULONGLONG blink_interval_ms = 530;
