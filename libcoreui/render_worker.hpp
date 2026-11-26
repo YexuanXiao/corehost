@@ -1172,7 +1172,6 @@ class render_worker final
     uitext::text_engine text_;
     uitext::cell_atlas atlas_{text_};
     uitext::color_cell_atlas color_atlas_{text_};
-    static constexpr ULONGLONG blink_interval_ms = 530;
     UINT dpi_ = 96;
 
     std::vector<screen::cell> cell_state_ = std::vector<screen::cell>(columns * (rows + 1));

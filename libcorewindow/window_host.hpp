@@ -37,7 +37,6 @@ namespace corehost::window
 class window_host final
 {
   public:
-    static constexpr float font_size_dip = 16.0f;
 
     window_host(win32::wcstring_view title, console &console, win32::srwlock &console_mutex,
                 win32::handle_view client_process, const console_config &console_config, const window_config &window_config,
@@ -464,7 +463,6 @@ class window_host final
     }
 
     static constexpr UINT_PTR selection_scroll_timer = 1;
-    static constexpr UINT selection_scroll_interval_ms = 40;
 
     static std::uint32_t control_state() noexcept
     {
