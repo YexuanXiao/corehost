@@ -335,13 +335,6 @@ class console final
         }
     }
 
-    [[nodiscard]] std::u16string selected_text()
-    {
-        std::u16string result;
-        selected_text_into(result);
-        return result;
-    }
-
     // Appends the selected text into a caller-owned buffer. The buffer keeps
     // its capacity across copies/pastes, so changing selections does not
     // allocate a fresh string every time.

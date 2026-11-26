@@ -22,7 +22,7 @@ std::wstring window_title_buffer_;
 void selected_text_into(std::u16string &result);
 ```
 
-`selected_text()` 仍保留，内部改为调用 `selected_text_into`。`selected_text_into` 复用调用方容量，并在行选择模式复用同一个行缓冲，避免逐行分配。
+`selected_text()` 没有调用方，已删除；只保留 `selected_text_into`，复用调用方容量，并在行选择模式复用 `selection_line_buffer_`，避免逐行分配。
 
 ## 提前返回
 
