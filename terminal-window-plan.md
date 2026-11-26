@@ -724,7 +724,8 @@ Child：
 - 文本变化和 selection 变化发 UIA 事件；
 - 不实现 Invoke：终端窗口没有有意义的默认调用动作；
 - provider/range 用 `winrt::implements` + `winrt::make`；
-- UIA 调用可能来自其他线程，provider 读取 console 时必须持 `console_mutex`。
+- UIA 调用可能来自其他线程，provider 读取 console 时必须持 `console_mutex`；
+- 自动化测试 `Window.UIA` 启动 corehostw，验证 Document/TextPattern 和文本内容。
 
 ---
 

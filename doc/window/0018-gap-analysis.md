@@ -17,8 +17,7 @@
 
 最关键的未完成项：
 
-1. UIA 已提供 TextPattern/ScrollPattern/事件，但还没有自动化 UIA 测试和屏幕阅读器验收；
-   没有 Invoke（终端窗口没有有意义的默认调用动作）。
+1. UIA 自动化测试已加入；屏幕阅读器实测仍未做，Invoke 仍不实现。
 2. `wt_test_checklist.md` 仍大量未验收，不能把“功能存在”等同于“与 conhost/WT 行为一致”。
 
 TSF 不实现 `ITextStoreACP`，原因见 `0015-ime-tsf.md`；这不是本轮阻塞项。
@@ -41,7 +40,7 @@ TSF 不实现 `ITextStoreACP`，原因见 `0015-ime-tsf.md`；这不是本轮阻
 | W8.4 透明/Mica/Acrylic | 实现完成，待用户手动验收 | `window_config` + DWM |
 | 新需求：UIA TextPattern | 已完成基础路径 | Document、TextPattern、TextRange、selection、find |
 | 新需求：UIA ScrollPattern | 已完成 | 纵向滚动、百分比、view size |
-| 新需求：UIA 文本/选择事件 | 已完成接线 | render worker 文本变化投递；选择/自动滚动触发 SelectionChanged |
+| 新需求：UIA 文本/选择事件 | 已完成接线 | render worker 文本变化投递；选择/自动滚动触发 SelectionChanged |\n| UIA 自动化 | 已完成基础验证 | `Window.UIA` 启动 corehostw，验证 Document/TextPattern 和文本内容 |
 | 选择边缘自动滚动 | 已完成 | timer + edge test；100 行输出选择得到跨历史文本 |
 | hyperlink / bell | 已完成 | hover 下划线、Ctrl+click；`FlashWindowEx` visual bell |
 
@@ -158,7 +157,7 @@ TSF 文本存储耦合起来。
 
 1. Mica/Acrylic/透明度手动验收；
 2. 配置项对象（见 `0019-config-inventory.md`）；
-3. UIA 自动化与屏幕阅读器验收；
+3. UIA 屏幕阅读器验收；
 4. 宽度策略/CJK/grapheme；
 5. checklist 剩余项。
 

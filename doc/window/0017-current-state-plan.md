@@ -173,7 +173,7 @@ struct window_config
 - hyperlink hover 下划线、Ctrl+click 打开已实现；hover 诊断日志确认命中。
 - BEL 解析、state 计数、`FlashWindowEx` visual bell 已实现。
 - 渲染已改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁允许 530ms 定时器；滚动条动画用合成器时钟。
-- 当前测试：`build-ninja` 12/12 通过。
+- 当前测试：`build-check` 13/13 通过（含 `Window.UIA`）。
 - Sixel 解码、image fragment、color atlas RGBA quad 已完成；64x64 彩色 Sixel 实测显示。
 - 图像纹理缓存：只缓存屏幕内图像，内容 generation 不变时不重传，离开屏幕释放。
 - selection 已改为线性 text 模式，支持边缘自动滚动，复制按行裁剪。

@@ -32,14 +32,14 @@
 - `window_config`（C++ 构造）：palette、字体、backdrop、opacity、dark mode、exit policy；
 - 配置决定/接入：scrollback 默认 3000、启动 120x30、最小 36x2、candidate_offset_cells 默认 2、hyperlink modifier、字号/fallback、光标闪烁、选择自动滚动和 UIA 事件开关已接入；bell 归 window；Sixel 不设尺寸上限且只缓存屏幕内图像；
 - Mica/Acrylic、layered opacity（实现完成，待用户手动验收）；
-- UI Automation：Document/TextPattern/TextRange/ScrollPattern，文本变化和选择变化事件；
+- UI Automation：Document/TextPattern/TextRange/ScrollPattern，文本变化和选择变化事件；自动化测试 `Window.UIA`；
 - `ambiguous_is_wide` 默认 narrow；不提供 wide 反馈二进制；
-- 12/12 自动化测试通过。
+- 13/13 自动化测试通过，新增 `Window.UIA`。
 
 ## 关键未完成
 
 1. **TSF 范围决定**：不实现 `ITextStoreACP`；复杂 IME/TIP、日文/韩文未验收。
-2. **UIA 自动化/屏幕阅读器验收**：仅手动 PowerShell UIA 验证；Invoke 明确不做。
+2. **UIA 屏幕阅读器验收**：自动化已覆盖 Document/TextPattern，屏幕阅读器仍未实测；Invoke 明确不做。
 3. **CJK/combining/宽字符覆盖**：B6/B8/B9 仍未按用户要求验收。
 4. **主题/配置**：无配置文件加载、无亮暗主题切换/高对比度。
 5. **checklist 大量未验收**，不能等同于 WT/conhost 行为一致。
@@ -50,6 +50,6 @@
 
 1. Mica/Acrylic/透明度手动验收；
 2. 配置项对象；
-3. UIA 自动化；
+3. UIA 屏幕阅读器验收；
 4. 宽度/CJK/grapheme；
 5. checklist。
