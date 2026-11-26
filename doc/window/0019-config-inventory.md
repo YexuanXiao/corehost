@@ -13,11 +13,19 @@
 ### console_config.hpp
 
 ```cpp
+enum class copy_line_ending : unsigned char
+{
+    crlf,
+    lf,
+};
+
 inline constexpr std::size_t default_scrollback_lines = 3000;
+inline constexpr copy_line_ending default_copy_line_ending = copy_line_ending::crlf;
 
 struct console_config final
 {
     std::size_t scrollback_lines{default_scrollback_lines};
+    copy_line_ending copy_ending{default_copy_line_ending};
 };
 ```
 
@@ -34,6 +42,10 @@ inline constexpr std::uint32_t default_selection_auto_scroll_interval_ms = 40;
 inline constexpr std::size_t default_selection_auto_scroll_edge_rows = 1;
 inline constexpr bool default_uia_text_changed_events = true;
 inline constexpr bool default_uia_selection_events = true;
+inline constexpr std::size_t default_mouse_wheel_lines = 3;
+inline constexpr right_click_action default_right_click_action = right_click_action::automatic;
+inline constexpr bool default_uia_enabled = true;
+inline constexpr bool default_tsf_enabled = true;
 inline constexpr std::int32_t default_candidate_offset_cells = 2;
 inline constexpr hyperlink_modifier default_hyperlink_modifier = hyperlink_modifier::control;
 inline constexpr bell_mode default_bell_mode = bell_mode::visual;
@@ -56,6 +68,10 @@ struct window_config final
     std::size_t selection_auto_scroll_edge_rows{default_selection_auto_scroll_edge_rows};
     bool uia_text_changed_events{default_uia_text_changed_events};
     bool uia_selection_events{default_uia_selection_events};
+    bool uia_enabled{default_uia_enabled};
+    bool tsf_enabled{default_tsf_enabled};
+    std::size_t mouse_wheel_lines{default_mouse_wheel_lines};
+    right_click_action right_click{default_right_click_action};
     backdrop_mode backdrop{default_backdrop_mode};
     std::uint8_t opacity{default_opacity};
     bool dark_mode{default_dark_mode};
@@ -95,6 +111,11 @@ inline constexpr bool default_alpha_correction = true;
 | `selection_auto_scroll_edge_rows` | `window_config` | 1 | 边缘行数 |
 | `uia_text_changed_events` | `window_config` | true | 文本变化事件开关 |
 | `uia_selection_events` | `window_config` | true | 选择变化事件开关 |
+| `uia_enabled` | `window_config` | true | UIA provider 总开关 |
+| `tsf_enabled` | `window_config` | true | TSF 总开关 |
+| `mouse_wheel_lines` | `window_config` | 3 | 滚轮行数 |
+| `right_click` | `window_config` | automatic | automatic/copy/paste |
+| `copy_ending` | `console_config` | CRLF | 复制行尾 CRLF/LF |
 | `bell` | `window_config` | visual | 终端窗口专属 |
 | `palette` | `window_config` | Campbell | 当前默认调色板 |
 | `backdrop/opacity/dark_mode` | `window_config` | none/255/true | DWM 外观 |
@@ -170,24 +191,13 @@ struct font_fallback_list final
 | 行为 | 当前值 | 归属 | 备注 |
 |---|---:|---|---|
 | cursor style | profile default | console/window | block/underline/bar |
-
 | scrollbar width | `scrollbar::default_width` | window | 影响 grid 计算 |
-| mouse wheel lines | 3 | window | `WM_MOUSEWHEEL` 当前固定 3 行 |
-| right-click action | paste/copy | window | 当前按选区和 VT mouse tracking 决定 |
-| copy line ending | CRLF | console | `selected_text_into` |
 | scrollbar auto hide | true | window | 失焦隐藏 |
 | scrollbar animation frames | `expand_frames` | window | 与 DComp 时钟配合 |
-
-
-| copy line ending | CRLF | console | 剪贴板 |
-| hyperlink modifier | control | window | 已接入 |
-
 | UIA ScrollPattern | true | window | 需要产品开关 |
-
 | Sixel visible texture capacity | 1024 | renderer | 内部实现，不暴露 |
-| frame latency | DXGI default | window | 见上文，未决定 |
-| vsync | true | window | 见上文，未决定 |
-
+| frame latency | DXGI default | window | 固定不暴露 |
+| vsync | true | window | Present1(1,0) 固定 |
 ## 设计规则
 
 1. 配置对象只在 `window_entry` 构造一次，按 const 引用传递；
