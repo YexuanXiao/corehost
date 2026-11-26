@@ -40,7 +40,7 @@
 已知缺口（2026-11-27）：
 
 - 空闲零 CPU 未完成：`render_worker` 仍由合成器时钟唤醒；
-- TSF 没有 `ITextStoreACP`，复杂 IME/TIP 未验收；
+- TSF 不实现 `ITextStoreACP`（决定记录在 0015），复杂 IME/TIP 未验收；
 - D3D12 device lost 无恢复；
 - Sixel 图像没有持久缓存；
 - UIA 只有手动验证，没有自动化/屏幕阅读器验收；
@@ -49,6 +49,8 @@
 - `window_host` 仍包含输入/选择/IME/UIA，`libuiinput` 等计划模块未建立。
 
 ## 计划状态
+
+- 配置项候选清单见 [0019-config-inventory.md](0019-config-inventory.md)；
 
 - `window_config`、DWM 外观、选择/自动滚动、hyperlink、bell、Sixel 已完成基础路径；
 - 渲染空闲未完成；
@@ -80,7 +82,8 @@ struct window_config
 ```
 
 - 先只由 C++ 构造，不读取配置文件；
-- `window_entry(title, command_line, const console_config &, const window_config &)`；\n- `window_ui`、`window_host`、`render_worker` 均保存配置引用；
+- `window_entry(title, command_line, const console_config &, const window_config &)`；
+- `window_ui`、`window_host`、`render_worker` 均保存配置引用；
 - `window_ui` 和 `window_host` 接收同一份配置；
 - 默认值保持当前行为。
 

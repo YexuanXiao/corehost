@@ -30,10 +30,10 @@
 - top-level Win32 宿主、窗口类、消息循环、DPI/焦点；
 - 通过 `libd3d12ui` 创建交换链，调用 `libcoreui`；
 - 键盘/鼠标/选择/剪贴板/IME 消息；
-- UIA provider（`uia_provider.hpp`，TextPattern/ScrollPattern/事件）。
+- UIA provider（`uia_provider.hpp`，TextPattern/ScrollPattern/事件）；
+- 键盘、鼠标、剪贴板和选择由 `window_host` 直接处理，没有独立 `libuiinput` 模块。
 
-目标职责仍按计划拆分，但 `libuiinput` 尚未建立，输入仍在 `window_host`；不包含
-文字 shaping、Sixel 解码、console API、parser。
+不包含文字 shaping、Sixel 解码、console API、parser。
 
 ### `libconfig`
 
@@ -90,17 +90,6 @@
 - 垂直滚动条几何、状态、命中测试、动画；
 - 生成 quad 数据。
 
-### `libuiinput`（未建立）
-
-计划职责：
-
-- Win32 键盘、鼠标、剪贴板消息；
-- 转交 corehost 输入路径；
-- 不实现终端键盘协议。
-
-当前这些消息仍在 `libcorewindow/window_host.hpp`。child 嵌入不在范围内，因此没有
-`libsubwindow`。
-
 ## 控制台会话
 
 窗口模式需要一个**不依赖 defterm/libcorepty** 的会话层，负责：
@@ -120,7 +109,6 @@
 libcorewindow
     ├── libd3d12ui
     ├── libcoreui
-    ├── libuiinput（计划，当前未建立）
     ├── libime
     └── corehost/window/window_console_session
 

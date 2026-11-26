@@ -19,14 +19,13 @@
 
 1. W2.4/W9.1：空闲时渲染线程仍由 `DCompositionWaitForCompositorClock` 唤醒，没有达到
    “无消息时 GUI 线程完全停止、CPU 0%”的硬要求。
-2. W6.4：TSF 仍不是完整的 `ITextStoreACP` 实现，只有 context owner/read-only property
-   加 composition sink；输入法和复杂编辑行为仍需硬件验收。
-3. W3.6：没有 D3D12 device removed/lost 的检测和重建路径。
-4. Sixel 图像每次绘制都会重新写入 color atlas 并上传纹理，静态大图性能不合格。
-5. UIA 已提供 TextPattern/ScrollPattern/事件，但还没有自动化 UIA 测试和屏幕阅读器验收；
+2. W3.6：没有 D3D12 device removed/lost 的检测和重建路径。
+3. Sixel 图像每次绘制都会重新写入 color atlas 并上传纹理，静态大图性能不合格。
+4. UIA 已提供 TextPattern/ScrollPattern/事件，但还没有自动化 UIA 测试和屏幕阅读器验收；
    没有 Invoke（终端窗口没有有意义的默认调用动作）。
-6. `wt_test_checklist.md` 仍大量未验收，不能把“功能存在”等同于“与 conhost/WT 行为一致”。
+5. `wt_test_checklist.md` 仍大量未验收，不能把“功能存在”等同于“与 conhost/WT 行为一致”。
 
+TSF 不实现 `ITextStoreACP`，原因见 `0015-ime-tsf.md`；这不是本轮阻塞项。
 ## 已完成
 
 | 计划项 | 状态 | 证据 / 说明 |
@@ -38,11 +37,11 @@
 | W4 基础 console 会话 | 已完成基础路径 | `window_console_session`，CONNECT/RAW_WRITE/RAW_READ/console API |
 | W5 文本显示 | 已完成基础路径 | DirectWrite fallback、glyph atlas、SGR 16/256/RGB、bold/italic/underline/strike、emoji、box drawing |
 | W6 键盘/鼠标/选择/剪贴板 | 已完成基础路径 | 键盘、SGR mouse、文本线性选择、双击/三击、复制/粘贴 |
-| W6.4 TSF composition/candidate | 部分完成 | TSF context、composition 自绘、candidate 定位；无 `ITextStoreACP` |
+| W6.4 TSF composition/candidate | 基础完成，范围已决定 | TSF context、composition 自绘、candidate 定位；`ITextStoreACP` 不实现 |
 | W7 damage/scrollback | 已完成基础路径 | damage row、history、selection virtual rows |
-| W8.1 滚动条 | 已完成 | hover/拖拽/轨道点击/滚轮/键盘滚动 |
+| W8.1 滚动条 | 已完成 | hover/拖拽/轨道点击/滚轮/键盘滚动（用户确认当前行为可接受） |
 | W8.2–W8.3 Sixel | 已完成功能，性能待修 | 解码、HLS/RGB、image fragment、RGBA quad |
-| W8.4 透明/Mica/Acrylic | 已完成 | `window_config` + DWM |
+| W8.4 透明/Mica/Acrylic | 实现完成，待用户手动验收 | `window_config` + DWM |
 | 新需求：UIA TextPattern | 已完成基础路径 | Document、TextPattern、TextRange、selection、find |
 | 新需求：UIA ScrollPattern | 已完成 | 纵向滚动、百分比、view size |
 | 新需求：UIA 文本/选择事件 | 已完成接线 | render worker 文本变化投递；选择/自动滚动触发 SelectionChanged |
@@ -72,29 +71,23 @@ DCompositionWaitForCompositorClock(1, waits, INFINITE);
 - 光标闪烁/滚动条动画才使用定时器；
 - 无 damage、无动画时阻塞在事件上。
 
-#### 2. TSF `ITextStoreACP`
-
-当前 `libime/tsf_host.hpp` 只实现：
-
-- `ITfContextOwner`
-- `ITfContextOwnerCompositionSink`
-- `ITfTextEditSink`
-- context read-only property 枚举
-
-没有完整的 `ITextStoreACP`，也没有把 selection/文本存储暴露给 TSF。微软拼音基础输入可用，
-但复杂候选、重组、第三方 TIP、日文/韩文行为没有验收。
-
-#### 3. D3D12 设备丢失
+#### 2. D3D12 设备丢失
 
 `libd3d12ui` 没有 `GetDeviceRemovedReason`、device removed 检测、资源重建或 swapchain
 重建路径。驱动更新、TDR、显示器切换后窗口可能直接失效。
 
-#### 4. Sixel 图像缓存
+#### 3. Sixel 图像缓存
 
-当前 image fragment 每帧重新执行 `color_atlas_.add_image`，重新上传 RGBA 纹理。静态图像
-没有持久缓存，大图会持续消耗 CPU/GPU 带宽。
+要求：**当前屏幕内容中的 Sixel 图像区域没有变化时，不重新绘制、不重新上传 RGBA 纹理。**
 
-#### 5. UIA 验收与事件
+当前 image fragment 每帧重新执行 `color_atlas_.add_image`，重新上传 RGBA 纹理。需要：
+
+- 以 image id + pixel generation + source size + placement 为缓存键；
+- 屏幕内该图像区域不变时复用已上传的 GPU 纹理/atlas region 和 quad；
+- 仅图像新增、像素变化、位置/尺寸变化、滚动导致可见区域变化时失效；
+- 其他文字输出不使静态 Sixel 重新上传。
+
+#### 4. UIA 验收与事件
 
 已有：
 
@@ -109,6 +102,18 @@ DCompositionWaitForCompositorClock(1, waits, INFINITE);
 - Narrator / Accessibility Insights / NVDA 实测；
 - 文本变化事件是否需要 payload/notification 的产品决定；
 - Invoke 未实现（终端窗口没有有意义的默认调用动作）。
+
+### 已决定的 TSF 范围
+
+TSF `ITextStoreACP` 已决定不实现。
+
+当前窗口是 TUI 宿主，文本编辑仍属于 client；corehost 只负责 console input 和
+composition 自绘。`ITfContextOwner` + `ITfContextOwnerCompositionSink` + `ITfTextEditSink`
+已覆盖 Microsoft Pinyin 的基础路径，引入 `ITextStoreACP` 会把 console input、selection 和
+TSF 文本存储耦合起来。
+
+因此本轮不实现；只有需要第三方 TIP 直接编辑、复杂重组、日文/韩文 candidate 时才重新评估。
+详见 `0015-ime-tsf.md`。
 
 ### P1：功能/一致性
 
@@ -152,17 +157,6 @@ DCompositionWaitForCompositorClock(1, waits, INFINITE);
 
 `wt-display-check.md`、`STATUS.md`、`0017` 中的部分描述已过期，本文为准。
 
-#### 9. 滚动条键盘快捷键
-
-代码只有已滚动或按下 Shift 时才把 Home/End/PgUp/PgDn/方向键用于滚动：
-
-```cpp
-if (lines != 0 && (offset != 0 || shift))
-```
-
-这与 `terminal-window-plan.md` 中“Home/End/PgUp/PgDn/方向键滚动”的完整快捷键描述
-不完全一致。当前行为优先保证未滚动时按键仍交给 client，方向键不会被终端吞掉；需要
-用户确认目标快捷键语义后再调整。
 ### P2：非目标 / 后续
 
 明确不做：
@@ -185,11 +179,11 @@ if (lines != 0 && (offset != 0 || shift))
 
 1. W2.4/W9.1 空闲渲染（硬要求）；
 2. W3.6 device lost；
-3. W6.4 `ITextStoreACP` 与 IME 硬件验收；
-4. Sixel 图像缓存；
-5. UIA 自动化与屏幕阅读器验收；
-6. 宽度策略/CJK/grapheme；
-7. 主题/配置；
+3. Sixel 图像缓存；
+4. Mica/Acrylic/透明度手动验收；
+5. 配置项对象（见 `0019-config-inventory.md`）；
+6. UIA 自动化与屏幕阅读器验收；
+7. 宽度策略/CJK/grapheme；
 8. checklist 剩余项。
 
 ## 相关文件
@@ -201,5 +195,6 @@ if (lines != 0 && (offset != 0 || shift))
 - `0012-selection.md`
 - `0015-ime-tsf.md`
 - `0017-current-state-plan.md`
+- `0019-config-inventory.md`
 - `STATUS.md`
 - `wt_test_checklist.md`
