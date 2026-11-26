@@ -838,10 +838,30 @@ class render_worker final
                 timeout = 0;
                 first_frame = false;
             }
-            const auto wait = win32::wait_any(stop_event_, damage_event_, wake_event_, timeout);
-            if (wait.abandoned() || (wait.signaled() && wait.index == 0))
+
+            if (scrollbar_animation_active_)
             {
-                break;
+                // Let the compositor pace animation at the display refresh rate,
+                // including high-refresh displays. Handle indexes are
+                // WAIT_OBJECT_0 + n; a compositor tick is WAIT_OBJECT_0 + count.
+                HANDLE waits[] = {stop_event_.get(), damage_event_.get(), wake_event_.get()};
+                const auto result = ::DCompositionWaitForCompositorClock(3, waits, INFINITE);
+                if (result == WAIT_FAILED)
+                {
+                    win32::throw_last_error();
+                }
+                if (result == WAIT_OBJECT_0)
+                {
+                    break;
+                }
+            }
+            else
+            {
+                const auto wait = win32::wait_any(stop_event_, damage_event_, wake_event_, timeout);
+                if (wait.abandoned() || (wait.signaled() && wait.index == 0))
+                {
+                    break;
+                }
             }
 
             RECT client{};
