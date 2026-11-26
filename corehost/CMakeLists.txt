@@ -66,7 +66,12 @@ add_executable(corehostw WIN32
     window/window_entry.cpp
 )
 
-target_compile_definitions(corehostw PRIVATE COREHOST_WINDOW=1)
+target_compile_definitions(corehostw PRIVATE
+    COREHOST_WINDOW=1
+    COREHOST_TEXT_CONTRAST=$<BOOL:${COREHOST_TEXT_CONTRAST}>
+    COREHOST_TEXT_ALPHA_CORRECTION=$<BOOL:${COREHOST_TEXT_ALPHA_CORRECTION}>
+    COREHOST_TEXT_RECOMMENDED_RENDERING_MODE=$<BOOL:${COREHOST_TEXT_RECOMMENDED_RENDERING_MODE}>
+)
 add_dependencies(corehostw libd3d12ui_shaders)
 
 target_sources(corehostw
@@ -106,3 +111,61 @@ target_link_libraries(corehostw PRIVATE
 
 corehost_target_msvc_linker_options(corehostw PRIVATE "/OPT:REF" "/OPT:ICF")
 corehost_target_msvc_linker_option(corehostw PRIVATE "/SUBSYSTEM:WINDOWS,10.0")
+
+if(COREHOST_BUILD_TEXT_VARIANTS)
+    function(add_corehostw_text_variant target contrast alpha_correction recommended_mode)
+        add_executable(${target} WIN32
+            corehost.rc
+            $<IF:$<OR:$<BOOL:${COREHOST_DEFAULT_UTF8}>,$<BOOL:${COREHOST_RUN_AS_UTF8}>>,corehost.utf8.manifest,corehost.manifest>
+            cli/main.cpp
+            defterm/defterm.cpp
+            defterm/signal.cpp
+            comserver/com_server.cpp
+            window/window_client_process.cpp
+            window/window_console_session.cpp
+            window/window_entry.cpp
+        )
+        target_compile_definitions(${target} PRIVATE
+            COREHOST_WINDOW=1
+            COREHOST_TEXT_CONTRAST=${contrast}
+            COREHOST_TEXT_ALPHA_CORRECTION=${alpha_correction}
+            COREHOST_TEXT_RECOMMENDED_RENDERING_MODE=${recommended_mode}
+        )
+        add_dependencies(${target} libd3d12ui_shaders)
+        target_include_directories(${target} PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${CMAKE_CURRENT_SOURCE_DIR}/cli
+            ${CMAKE_CURRENT_SOURCE_DIR}/window
+            ${CMAKE_SOURCE_DIR}
+            ${CMAKE_CURRENT_BINARY_DIR}
+        )
+        target_link_libraries(${target} PRIVATE
+            libconsole
+            libcoreio
+            libcorepty
+            libcorewindow
+            libinterop
+            libpseudowindow
+            libscreen
+            libvtparser
+            libvtstate
+            conhost_proxy_headers
+            common
+            ole32
+            shell32
+            user32
+        )
+        corehost_target_msvc_linker_options(${target} PRIVATE "/OPT:REF" "/OPT:ICF")
+        corehost_target_msvc_linker_option(${target} PRIVATE "/SUBSYSTEM:WINDOWS,10.0")
+    endfunction()
+
+    foreach(contrast 0 1)
+        foreach(alpha_correction 0 1)
+            foreach(recommended_mode 0 1)
+                add_corehostw_text_variant(
+                    corehostw_tc${contrast}_ac${alpha_correction}_rm${recommended_mode}
+                    ${contrast} ${alpha_correction} ${recommended_mode})
+            endforeach()
+        endforeach()
+    endforeach()
+endif()

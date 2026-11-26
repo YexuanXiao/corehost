@@ -3,10 +3,17 @@
 #include "win32/string.hpp"
 
 #include <dwrite.h>
+#include <dwrite_1.h>
 #include <dwrite_2.h>
+#include <dwrite_3.h>
 #include <winrt/base.h>
 
+#ifndef COREHOST_TEXT_RECOMMENDED_RENDERING_MODE
+#define COREHOST_TEXT_RECOMMENDED_RENDERING_MODE 1
+#endif
+
 #include <cassert>
+#include <array>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -86,6 +93,16 @@ class text_engine final
             ::DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), unknown.put()));
         factory2_ = unknown.as<IDWriteFactory2>();
 
+        winrt::com_ptr<IDWriteRenderingParams> default_rendering_params;
+        winrt::check_hresult(factory2_->CreateRenderingParams(default_rendering_params.put()));
+        rendering_params_ = default_rendering_params.as<IDWriteRenderingParams1>();
+        grayscale_enhanced_contrast_ = rendering_params_->GetGrayscaleEnhancedContrast();
+        gamma_ratios_ = gamma_1_8_ratios();
+        winrt::check_hresult(factory2_->CreateCustomRenderingParams(
+            1.0f, 0.0f, 0.0f, default_rendering_params->GetClearTypeLevel(),
+            default_rendering_params->GetPixelGeometry(), default_rendering_params->GetRenderingMode(),
+            linear_params_.put()));
+
         winrt::check_hresult(factory2_->GetSystemFontCollection(collection_.put(), FALSE));
         winrt::com_ptr<IDWriteFontFallbackBuilder> builder;
         winrt::check_hresult(factory2_->CreateFontFallbackBuilder(builder.put()));
@@ -113,6 +130,16 @@ class text_engine final
     [[nodiscard]] const cell_metrics &metrics() const noexcept
     {
         return metrics_;
+    }
+
+    [[nodiscard]] float grayscale_enhanced_contrast() const noexcept
+    {
+        return grayscale_enhanced_contrast_;
+    }
+
+    [[nodiscard]] const std::array<float, 4> &gamma_ratios() const noexcept
+    {
+        return gamma_ratios_;
     }
 
     void set_size(float size)
@@ -317,6 +344,13 @@ class text_engine final
         winrt::throw_hresult(DWRITE_E_NOFONT);
     }
 
+    [[nodiscard]] static std::array<float, 4> gamma_1_8_ratios() noexcept
+    {
+        // Default DirectWrite grayscale gamma. The shader applies the same
+        // polynomial as WT's DWrite_ApplyAlphaCorrection.
+        return {0.148054421f, -0.894594550f, 1.47590804f, -0.324668258f};
+    }
+
     [[nodiscard]] static std::uint8_t color_byte(float value) noexcept
     {
         if (value <= 0.0f)
@@ -351,6 +385,30 @@ class text_engine final
         return metrics;
     }
 
+    void resolve_rendering_mode(const DWRITE_GLYPH_RUN &run, DWRITE_RENDERING_MODE &rendering_mode,
+                                DWRITE_GRID_FIT_MODE &grid_fit_mode) const
+    {
+#if COREHOST_TEXT_RECOMMENDED_RENDERING_MODE
+        winrt::com_ptr<IDWriteFontFace3> face3;
+        if (SUCCEEDED(run.fontFace->QueryInterface(IID_PPV_ARGS(face3.put()))))
+        {
+            DWRITE_RENDERING_MODE1 mode1{};
+            winrt::check_hresult(face3->GetRecommendedRenderingMode(
+                run.fontEmSize, 1.0f, 1.0f, nullptr, FALSE, DWRITE_OUTLINE_THRESHOLD_ANTIALIASED,
+                DWRITE_MEASURING_MODE_NATURAL, linear_params_.get(), &mode1, &grid_fit_mode));
+            rendering_mode = static_cast<DWRITE_RENDERING_MODE>(mode1);
+        }
+        else
+        {
+            rendering_mode = DWRITE_RENDERING_MODE_NATURAL;
+            grid_fit_mode = DWRITE_GRID_FIT_MODE_DEFAULT;
+        }
+#else
+        rendering_mode = DWRITE_RENDERING_MODE_NATURAL;
+        grid_fit_mode = DWRITE_GRID_FIT_MODE_DEFAULT;
+#endif
+    }
+
     void rasterize_color_run(const DWRITE_GLYPH_RUN &run, float origin_x, float origin_y)
     {
         winrt::com_ptr<IDWriteColorGlyphRunEnumerator> layers;
@@ -380,9 +438,12 @@ class text_engine final
                                UINT16 palette_index)
     {
         winrt::com_ptr<IDWriteGlyphRunAnalysis> analysis;
+        DWRITE_RENDERING_MODE rendering_mode{};
+        DWRITE_GRID_FIT_MODE grid_fit_mode{};
+        resolve_rendering_mode(run, rendering_mode, grid_fit_mode);
         winrt::check_hresult(factory2_->CreateGlyphRunAnalysis(
-            &run, nullptr, DWRITE_RENDERING_MODE_NATURAL, DWRITE_MEASURING_MODE_NATURAL,
-            DWRITE_GRID_FIT_MODE_DEFAULT, DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE, origin_x, origin_y, analysis.put()));
+            &run, nullptr, rendering_mode, DWRITE_MEASURING_MODE_NATURAL, grid_fit_mode,
+            DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE, origin_x, origin_y, analysis.put()));
 
         RECT bounds{};
         winrt::check_hresult(analysis->GetAlphaTextureBounds(DWRITE_TEXTURE_ALIASED_1x1, &bounds));
@@ -421,9 +482,12 @@ class text_engine final
     void rasterize_run(const DWRITE_GLYPH_RUN &run, float origin_x = 0.0f, float origin_y = 0.0f)
     {
         winrt::com_ptr<IDWriteGlyphRunAnalysis> analysis;
+        DWRITE_RENDERING_MODE rendering_mode{};
+        DWRITE_GRID_FIT_MODE grid_fit_mode{};
+        resolve_rendering_mode(run, rendering_mode, grid_fit_mode);
         winrt::check_hresult(factory2_->CreateGlyphRunAnalysis(
-            &run, nullptr, DWRITE_RENDERING_MODE_NATURAL, DWRITE_MEASURING_MODE_NATURAL,
-            DWRITE_GRID_FIT_MODE_DEFAULT, DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE, origin_x, origin_y, analysis.put()));
+            &run, nullptr, rendering_mode, DWRITE_MEASURING_MODE_NATURAL, grid_fit_mode,
+            DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE, origin_x, origin_y, analysis.put()));
 
         RECT bounds{};
         winrt::check_hresult(analysis->GetAlphaTextureBounds(DWRITE_TEXTURE_ALIASED_1x1, &bounds));
@@ -456,6 +520,10 @@ class text_engine final
     winrt::com_ptr<IDWriteFontFallback> fallback_;
     winrt::com_ptr<IDWriteTextFormat> text_format_;
     winrt::com_ptr<IDWriteTextFormat> bold_format_;
+    winrt::com_ptr<IDWriteRenderingParams1> rendering_params_;
+    winrt::com_ptr<IDWriteRenderingParams1> linear_params_;
+    float grayscale_enhanced_contrast_{};
+    std::array<float, 4> gamma_ratios_{};
     float size_{};
     cell_metrics metrics_{};
 

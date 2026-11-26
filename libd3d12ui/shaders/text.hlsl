@@ -5,6 +5,13 @@ cbuffer Rect : register(b0)
     float4 tint;
 };
 
+cbuffer Correction : register(b1)
+{
+    float4 gamma_ratios;
+    float grayscale_enhanced_contrast;
+    float3 correction_padding;
+};
+
 struct VSOut
 {
     float4 position : SV_Position;
@@ -29,5 +36,13 @@ SamplerState linear_sampler : register(s0);
 float4 PSMain(VSOut input) : SV_Target
 {
     const float alpha = glyphs.Sample(linear_sampler, input.uv);
-    return float4(tint.rgb, tint.a * alpha);
+    const float3 foreground = tint.rgb;
+    const float lightness = dot(foreground, float3(0.30f, 0.59f, 0.11f));
+    const float contrast = grayscale_enhanced_contrast * saturate(lightness * -4.0f + 3.0f);
+    const float contrasted = alpha * (contrast + 1.0f) / (alpha * contrast + 1.0f);
+    const float intensity = dot(foreground, float3(0.25f, 0.5f, 0.25f));
+    const float corrected = contrasted + contrasted * (1.0f - contrasted) *
+        ((gamma_ratios.x * intensity + gamma_ratios.y) * contrasted +
+         (gamma_ratios.z * intensity + gamma_ratios.w));
+    return float4(tint.rgb, tint.a * saturate(corrected));
 }

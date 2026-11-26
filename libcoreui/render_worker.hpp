@@ -14,6 +14,13 @@
 
 #include <Windows.h>
 
+#ifndef COREHOST_TEXT_CONTRAST
+#define COREHOST_TEXT_CONTRAST 1
+#endif
+#ifndef COREHOST_TEXT_ALPHA_CORRECTION
+#define COREHOST_TEXT_ALPHA_CORRECTION 1
+#endif
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -685,9 +692,23 @@ class render_worker final
         renderer_.set_color_text_quads(color_quads_);
     }
 
+    void apply_text_correction()
+    {
+        float contrast = 0.0f;
+        std::array<float, 4> gamma_ratios{};
+#if COREHOST_TEXT_CONTRAST
+        contrast = text_.grayscale_enhanced_contrast();
+#endif
+#if COREHOST_TEXT_ALPHA_CORRECTION
+        gamma_ratios = text_.gamma_ratios();
+#endif
+        renderer_.set_text_correction(contrast, gamma_ratios);
+    }
+
     void run()
     {
         renderer_.initialize(window_);
+        apply_text_correction();
         const auto &clear = palette_.default_background;
         renderer_.set_clear_color(static_cast<float>(clear.r) / 255.0f, static_cast<float>(clear.g) / 255.0f,
                                   static_cast<float>(clear.b) / 255.0f, 1.0f);

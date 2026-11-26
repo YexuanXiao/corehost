@@ -322,6 +322,12 @@ class d3d12_window_renderer final
         color_text_quads_.assign(quads.begin(), quads.end());
     }
 
+    void set_text_correction(float grayscale_enhanced_contrast, const std::array<float, 4> &gamma_ratios) noexcept
+    {
+        grayscale_enhanced_contrast_ = grayscale_enhanced_contrast;
+        gamma_ratios_ = gamma_ratios;
+    }
+
     void resize(UINT width, UINT height)
     {
         if (!initialized_ || width == 0 || height == 0 || (width == width_ && height == height_))
@@ -377,6 +383,9 @@ class d3d12_window_renderer final
             command_list_->SetGraphicsRootSignature(root_signature_.get());
             command_list_->SetPipelineState(text_pipeline_.get());
             command_list_->SetGraphicsRootDescriptorTable(1, texture_srv_heap_->GetGPUDescriptorHandleForHeapStart());
+            const float correction[8] = {gamma_ratios_[0], gamma_ratios_[1], gamma_ratios_[2], gamma_ratios_[3],
+                                          grayscale_enhanced_contrast_, 0.0f, 0.0f, 0.0f};
+            command_list_->SetGraphicsRoot32BitConstants(2, 8, correction, 0);
 
             command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
             for (const auto &quad : text_quads_)
@@ -413,6 +422,9 @@ class d3d12_window_renderer final
             command_list_->SetGraphicsRootSignature(root_signature_.get());
             command_list_->SetPipelineState(color_pipeline_.get());
             command_list_->SetGraphicsRootDescriptorTable(1, color_srv_heap_->GetGPUDescriptorHandleForHeapStart());
+            const float correction[8] = {gamma_ratios_[0], gamma_ratios_[1], gamma_ratios_[2], gamma_ratios_[3],
+                                          grayscale_enhanced_contrast_, 0.0f, 0.0f, 0.0f};
+            command_list_->SetGraphicsRoot32BitConstants(2, 8, correction, 0);
             command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
             for (const auto &quad : color_text_quads_)
@@ -474,7 +486,7 @@ class d3d12_window_renderer final
         srv_range.RegisterSpace = 0;
         srv_range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-        D3D12_ROOT_PARAMETER parameters[2]{};
+        D3D12_ROOT_PARAMETER parameters[3]{};
         parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         parameters[0].Constants.ShaderRegister = 0;
         parameters[0].Constants.RegisterSpace = 0;
@@ -484,6 +496,12 @@ class d3d12_window_renderer final
         parameters[1].DescriptorTable.NumDescriptorRanges = 1;
         parameters[1].DescriptorTable.pDescriptorRanges = &srv_range;
         parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        parameters[2].Constants.ShaderRegister = 1;
+        parameters[2].Constants.RegisterSpace = 0;
+        parameters[2].Constants.Num32BitValues = 8;
+        parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_STATIC_SAMPLER_DESC sampler{};
         sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -499,7 +517,7 @@ class d3d12_window_renderer final
         sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_ROOT_SIGNATURE_DESC signature_desc{};
-        signature_desc.NumParameters = 2;
+        signature_desc.NumParameters = 3;
         signature_desc.pParameters = parameters;
         signature_desc.NumStaticSamplers = 1;
         signature_desc.pStaticSamplers = &sampler;
@@ -648,6 +666,8 @@ class d3d12_window_renderer final
     UINT color_texture_width_{};
     UINT color_texture_height_{};
     float clear_color_[4]{0.015f, 0.015f, 0.02f, 1.0f};
+    float grayscale_enhanced_contrast_{};
+    std::array<float, 4> gamma_ratios_{};
     std::vector<text_quad> text_quads_;
     std::vector<text_quad> color_text_quads_;
     win32::event fence_event_;
