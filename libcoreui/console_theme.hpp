@@ -31,7 +31,7 @@ struct console_palette final
     faint_mode faint{faint_mode::blend_background};
 
     // Windows Terminal's Campbell scheme.
-    static console_palette campbell() noexcept
+    static constexpr console_palette campbell() noexcept
     {
         return console_palette{
             .indexed =

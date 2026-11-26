@@ -18,7 +18,9 @@ void window_entry(win32::wcstring_view title, std::wstring client_command_line,
 {
     auto server = condrv::create_server_handle();
     win32::srwlock console_mutex;
-    const auto [initial_columns, initial_rows] = window_host::initial_cell_size();
+    // The console must use the same grid size as the first window frame.
+    const auto initial_columns = window_config.initial_columns;
+    const auto initial_rows = window_config.initial_rows;
     console shared_console{initial_columns, initial_rows, console_config.scrollback_lines};
     window_console_session console{server.view(), shared_console, console_mutex};
     console.start();

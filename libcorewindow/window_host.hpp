@@ -37,17 +37,7 @@ namespace corehost::window
 class window_host final
 {
   public:
-    static constexpr std::size_t initial_columns = 120;
-    static constexpr std::size_t initial_rows = 30;
     static constexpr float font_size_dip = 16.0f;
-
-    // The console must have the same grid size as the first window frame;
-    // otherwise the first frame resizes it and discards output that a TUI has
-    // already painted (notably the alternate screen used by vim/edit).
-    [[nodiscard]] static std::pair<std::size_t, std::size_t> initial_cell_size() noexcept
-    {
-        return {initial_columns, initial_rows};
-    }
 
     window_host(win32::wcstring_view title, console &console, win32::srwlock &console_mutex,
                 win32::handle_view client_process, const console_config &console_config, const window_config &window_config,
@@ -169,7 +159,8 @@ class window_host final
         ::SetWindowTextW(window_, window_title_buffer_.c_str());
     }
   private:
-    [[nodiscard]] static std::pair<int, int> initial_client_size(UINT dpi, uitext::font_family font)
+    [[nodiscard]] static std::pair<int, int> initial_client_size(UINT dpi, uitext::font_family font,
+                                                                 std::size_t columns, std::size_t rows)
     {
         const auto families = uitext::default_font_families(font);
         const auto scale = static_cast<float>(dpi) / 96.0f;
@@ -177,9 +168,9 @@ class window_host final
         const auto metrics = text.metrics();
         const auto row_height = metrics.ascent + metrics.descent + metrics.line_gap;
         const auto scrollbar_width = static_cast<int>(std::ceil(scrollbar::default_width * scale));
-        return {std::max(1, static_cast<int>(std::ceil(metrics.advance * static_cast<float>(initial_columns))) +
+        return {std::max(1, static_cast<int>(std::ceil(metrics.advance * static_cast<float>(columns))) +
                                scrollbar_width),
-                std::max(1, static_cast<int>(std::ceil(row_height * static_cast<float>(initial_rows))))};
+                std::max(1, static_cast<int>(std::ceil(row_height * static_cast<float>(rows))))};
     }
 
     void apply_appearance(HWND window)
@@ -227,7 +218,8 @@ class window_host final
         }
 
         const auto initial_dpi = std::max<UINT>(96, ::GetDpiForSystem());
-        const auto [client_width, client_height] = initial_client_size(initial_dpi, window_config_.text_options.font);
+        const auto [client_width, client_height] = initial_client_size(initial_dpi, window_config_.text_options.font, window_config_.initial_columns,
+                                                 window_config_.initial_rows);
         RECT initial_rect{0, 0, client_width, client_height};
         if (::AdjustWindowRectExForDpi(&initial_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
                                        initial_dpi) == FALSE)
@@ -254,7 +246,8 @@ class window_host final
         const auto window_dpi = std::max<UINT>(96, ::GetDpiForWindow(window));
         if (window_dpi != initial_dpi)
         {
-            const auto [target_width, target_height] = initial_client_size(window_dpi, window_config_.text_options.font);
+            const auto [target_width, target_height] = initial_client_size(window_dpi, window_config_.text_options.font, window_config_.initial_columns,
+                                                window_config_.initial_rows);
             RECT target_rect{0, 0, target_width, target_height};
             if (::AdjustWindowRectExForDpi(&target_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
                                            window_dpi) == FALSE)
@@ -585,6 +578,22 @@ class window_host final
             console_.set_hovered_hyperlink(link);
             worker_.request_redraw();
         }
+    }
+
+    [[nodiscard]] bool hyperlink_modifier_pressed() const noexcept
+    {
+        switch (window_config_.hyperlink)
+        {
+        case hyperlink_modifier::none:
+            return true;
+        case hyperlink_modifier::control:
+            return (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        case hyperlink_modifier::alt:
+            return (::GetKeyState(VK_MENU) & 0x8000) != 0;
+        case hyperlink_modifier::shift:
+            return (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        }
+        return false;
     }
 
     [[nodiscard]] bool open_hyperlink(HWND hwnd, LPARAM lparam)
@@ -922,8 +931,13 @@ class window_host final
         case WM_GETMINMAXINFO:
         {
             const auto dpi = std::max<UINT>(96, ::GetDpiForWindow(hwnd));
+            const auto [min_width, min_height] =
+                initial_client_size(dpi, self->window_config_.text_options.font, self->window_config_.min_columns,
+                                    self->window_config_.min_rows);
+            RECT minimum{0, 0, min_width, min_height};
+            ::AdjustWindowRectExForDpi(&minimum, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP, dpi);
             reinterpret_cast<MINMAXINFO *>(lparam)->ptMinTrackSize =
-                POINT{::MulDiv(320, static_cast<int>(dpi), 96), ::MulDiv(200, static_cast<int>(dpi), 96)};
+                POINT{minimum.right - minimum.left, minimum.bottom - minimum.top};
             return 0;
         }
         case WM_SIZE:
@@ -1061,7 +1075,7 @@ class window_host final
                 return 0;
             }
 
-            if ((::GetKeyState(VK_CONTROL) & 0x8000) != 0 && self->open_hyperlink(hwnd, lparam))
+            if (self->hyperlink_modifier_pressed() && self->open_hyperlink(hwnd, lparam))
             {
                 return 0;
             }
