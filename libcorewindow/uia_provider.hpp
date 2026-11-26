@@ -24,6 +24,12 @@
 namespace corehost::window
 {
 
+struct __declspec(uuid("7f3c2f87-2d4d-4a64-9c73-8b0c3a0f6c11")) IUiaEvents : IUnknown
+{
+    virtual HRESULT STDMETHODCALLTYPE NotifyTextChanged() = 0;
+    virtual HRESULT STDMETHODCALLTYPE NotifySelectionChanged() = 0;
+};
+
 class uia_provider;
 
 class uia_text_range : public winrt::implements<uia_text_range, ITextRangeProvider>
@@ -85,7 +91,9 @@ class uia_provider : public winrt::implements<uia_provider,
                                                     IRawElementProviderSimple,
                                                     IRawElementProviderFragment,
                                                     IRawElementProviderFragmentRoot,
-                                                    ITextProvider>
+                                                    ITextProvider,
+                                                    IScrollProvider,
+                                                    IUiaEvents>
 {
   public:
     uia_provider(HWND window, console &console, win32::srwlock &console_mutex) noexcept
@@ -116,6 +124,20 @@ class uia_provider : public winrt::implements<uia_provider,
     HRESULT STDMETHODCALLTYPE RangeFromPoint(UiaPoint point, ITextRangeProvider **range) override;
     HRESULT STDMETHODCALLTYPE get_DocumentRange(ITextRangeProvider **range) override;
     HRESULT STDMETHODCALLTYPE get_SupportedTextSelection(SupportedTextSelection *supported) override;
+
+    HRESULT STDMETHODCALLTYPE Scroll(ScrollAmount horizontal, ScrollAmount vertical) override;
+    HRESULT STDMETHODCALLTYPE SetScrollPercent(double horizontal_percent, double vertical_percent) override;
+    HRESULT STDMETHODCALLTYPE get_HorizontalScrollPercent(double *percent) override;
+    HRESULT STDMETHODCALLTYPE get_VerticalScrollPercent(double *percent) override;
+    HRESULT STDMETHODCALLTYPE get_HorizontalViewSize(double *size) override;
+    HRESULT STDMETHODCALLTYPE get_VerticalViewSize(double *size) override;
+    HRESULT STDMETHODCALLTYPE get_HorizontallyScrollable(BOOL *scrollable) override;
+    HRESULT STDMETHODCALLTYPE get_VerticallyScrollable(BOOL *scrollable) override;
+
+    void notify_text_changed();
+    void notify_selection_changed();
+    HRESULT STDMETHODCALLTYPE NotifyTextChanged() override;
+    HRESULT STDMETHODCALLTYPE NotifySelectionChanged() override;
 
     struct text_snapshot final
     {
@@ -460,6 +482,12 @@ inline HRESULT uia_provider::GetPatternProvider(PATTERNID pattern, IUnknown **pr
         AddRef();
         return S_OK;
     }
+    if (pattern == UIA_ScrollPatternId)
+    {
+        *provider = static_cast<IScrollProvider *>(this);
+        AddRef();
+        return S_OK;
+    }
     return S_OK;
 }
 
@@ -695,6 +723,147 @@ inline HRESULT uia_provider::get_SupportedTextSelection(SupportedTextSelection *
     return S_OK;
 }
 
+inline HRESULT uia_provider::Scroll(ScrollAmount horizontal, ScrollAmount vertical)
+{
+    if (horizontal != ScrollAmount_NoAmount)
+    {
+        return S_FALSE;
+    }
+    std::unique_lock<win32::srwlock> lock{console_mutex_};
+    const auto page = static_cast<double>(console_.buffer().height());
+    switch (vertical)
+    {
+    case ScrollAmount_LargeDecrement:
+        console_.scroll_by(page);
+        break;
+    case ScrollAmount_SmallDecrement:
+        console_.scroll_by(1.0);
+        break;
+    case ScrollAmount_LargeIncrement:
+        console_.scroll_by(-page);
+        break;
+    case ScrollAmount_SmallIncrement:
+        console_.scroll_by(-1.0);
+        break;
+    default:
+        break;
+    }
+    return S_OK;
+}
+
+inline HRESULT uia_provider::SetScrollPercent(double horizontal_percent, double vertical_percent)
+{
+    if (horizontal_percent != UIA_ScrollPatternNoScroll)
+    {
+        return S_FALSE;
+    }
+    std::unique_lock<win32::srwlock> lock{console_mutex_};
+    const auto history = console_.history_size();
+    if (history == 0)
+    {
+        return S_OK;
+    }
+    const auto percent = std::clamp(vertical_percent, 0.0, 100.0);
+    const auto max_pixels = static_cast<double>(history) * static_cast<double>(console_.cell_height());
+    const auto target = max_pixels * (1.0 - percent / 100.0);
+    console_.scroll_by_pixels(target - console_.scroll_pixels());
+    return S_OK;
+}
+
+inline HRESULT uia_provider::get_HorizontalScrollPercent(double *percent)
+{
+    if (percent == nullptr)
+    {
+        return E_POINTER;
+    }
+    *percent = UIA_ScrollPatternNoScroll;
+    return S_OK;
+}
+
+inline HRESULT uia_provider::get_VerticalScrollPercent(double *percent)
+{
+    if (percent == nullptr)
+    {
+        return E_POINTER;
+    }
+    std::unique_lock<win32::srwlock> lock{console_mutex_};
+    const auto history = console_.history_size();
+    const auto max_pixels = static_cast<double>(history) * static_cast<double>(console_.cell_height());
+    *percent = max_pixels <= 0.0 ? 100.0 : 100.0 * (1.0 - console_.scroll_pixels() / max_pixels);
+    return S_OK;
+}
+
+inline HRESULT uia_provider::get_HorizontalViewSize(double *size)
+{
+    if (size == nullptr)
+    {
+        return E_POINTER;
+    }
+    *size = 100.0;
+    return S_OK;
+}
+
+inline HRESULT uia_provider::get_VerticalViewSize(double *size)
+{
+    if (size == nullptr)
+    {
+        return E_POINTER;
+    }
+    std::unique_lock<win32::srwlock> lock{console_mutex_};
+    const auto total = console_.history_size() + console_.buffer().height();
+    *size = total == 0 ? 100.0 : 100.0 * static_cast<double>(console_.buffer().height()) /
+                                       static_cast<double>(total);
+    return S_OK;
+}
+
+inline HRESULT uia_provider::get_HorizontallyScrollable(BOOL *scrollable)
+{
+    if (scrollable == nullptr)
+    {
+        return E_POINTER;
+    }
+    *scrollable = FALSE;
+    return S_OK;
+}
+
+inline HRESULT uia_provider::get_VerticallyScrollable(BOOL *scrollable)
+{
+    if (scrollable == nullptr)
+    {
+        return E_POINTER;
+    }
+    std::unique_lock<win32::srwlock> lock{console_mutex_};
+    *scrollable = console_.history_size() != 0 ? TRUE : FALSE;
+    return S_OK;
+}
+
+inline HRESULT STDMETHODCALLTYPE uia_provider::NotifyTextChanged()
+{
+    notify_text_changed();
+    return S_OK;
+}
+
+inline HRESULT STDMETHODCALLTYPE uia_provider::NotifySelectionChanged()
+{
+    notify_selection_changed();
+    return S_OK;
+}
+
+inline void uia_provider::notify_text_changed()
+{
+    if (::UiaClientsAreListening())
+    {
+        (void)::UiaRaiseAutomationEvent(this, UIA_Text_TextChangedEventId);
+    }
+}
+
+inline void uia_provider::notify_selection_changed()
+{
+    if (::UiaClientsAreListening())
+    {
+        (void)::UiaRaiseAutomationEvent(this, UIA_Text_TextSelectionChangedEventId);
+    }
+}
 inline uia_provider::text_snapshot uia_provider::snapshot()
 {
     std::unique_lock<win32::srwlock> lock{console_mutex_};

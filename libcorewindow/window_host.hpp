@@ -66,15 +66,10 @@ class window_host final
         assert(!title_.empty());
         assert(client_process_.valid());
         window_ready_ = true;
+        worker_.set_text_changed_callback([this] { (void)::PostMessageW(window_, WM_APP + 0x101, 0, 0); });
     }
 
-    ~window_host()
-    {
-        if (uia_provider_ != nullptr)
-        {
-            uia_provider_->Release();
-        }
-    }
+    ~window_host() = default;
 
     window_host(const window_host &) = delete;
     window_host &operator=(const window_host &) = delete;
@@ -89,8 +84,17 @@ class window_host final
         if (!uia_provider_)
         {
             uia_provider_ = winrt::make<uia_provider>(window_, console_, console_mutex_);
+            uia_events_ = uia_provider_.as<IUiaEvents>();
         }
         return uia_provider_.get();
+    }
+
+    void notify_uia_selection() noexcept
+    {
+        if (uia_events_)
+        {
+            (void)uia_events_->NotifySelectionChanged();
+        }
     }
 
     void run()
@@ -547,6 +551,7 @@ class window_host final
         selection_drag_point_ = POINT{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
         ::SetCapture(hwnd);
         ::SetTimer(hwnd, selection_scroll_timer, selection_scroll_interval_ms, nullptr);
+        notify_uia_selection();
     }
 
     void update_selection(HWND hwnd, LPARAM lparam)
@@ -559,6 +564,7 @@ class window_host final
         auto [x, y] = view_cell_at(hwnd, lparam);
         x = console_.snap_selection_column(x, y);
         console_.set_selection(selection_anchor_x_, selection_anchor_y_, x, y);
+        notify_uia_selection();
     }
 
     void update_hyperlink_hover(HWND hwnd, LPARAM lparam)
@@ -630,6 +636,7 @@ class window_host final
         const auto cell = view_cell_at(hwnd, MAKELPARAM(x, y));
         console_.set_selection(selection_anchor_x_, selection_anchor_y_,
                                console_.snap_selection_column(cell.first, cell.second), cell.second);
+        notify_uia_selection();
         worker_.request_redraw();
     }
 
@@ -937,6 +944,12 @@ class window_host final
             self->tsf_.unfocus();
             return 0;
         }
+        case WM_APP + 0x101:
+            if (self->uia_events_)
+            {
+                (void)self->uia_events_->NotifyTextChanged();
+            }
+            return 0;
         case WM_GETOBJECT:
             if (static_cast<LONG>(lparam) == UiaRootObjectId)
             {
@@ -1324,6 +1337,7 @@ class window_host final
     console &console_;
     win32::srwlock &console_mutex_;
     winrt::com_ptr<IRawElementProviderSimple> uia_provider_;
+    winrt::com_ptr<IUiaEvents> uia_events_;
     win32::handle_view client_process_;
     const console_config &console_config_;
     const window_config &window_config_;

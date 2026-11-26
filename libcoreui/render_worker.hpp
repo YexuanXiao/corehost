@@ -17,6 +17,7 @@
 #include <Windows.h>
 
 #include <algorithm>
+#include <functional>
 #include <array>
 #include <flat_map>
 #include <flat_set>
@@ -50,6 +51,11 @@ class render_worker final
 
     render_worker(const render_worker &) = delete;
     render_worker &operator=(const render_worker &) = delete;
+
+    void set_text_changed_callback(std::function<void()> callback)
+    {
+        text_changed_callback_ = std::move(callback);
+    }
 
     void request_redraw() noexcept
     {
@@ -962,6 +968,10 @@ class render_worker final
                 {
                     apply_updates();
                 }
+                if (changed && text_changed_callback_)
+                {
+                    text_changed_callback_();
+                }
                 if (atlas_upload_requested_.exchange(false, std::memory_order_relaxed))
                 {
                     atlas_.mark_dirty();
@@ -1031,6 +1041,7 @@ class render_worker final
     win32::basic_thread thread_;
     win32::event stop_event_{win32::create_tag, true, false};
     std::atomic_bool stop_{};
+    std::function<void()> text_changed_callback_;
     std::atomic_bool redraw_requested_{};
     std::atomic_bool atlas_upload_requested_{};
 };
