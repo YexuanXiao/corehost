@@ -925,11 +925,16 @@ class window_host final
                 POINT{::MulDiv(320, static_cast<int>(dpi), 96), ::MulDiv(200, static_cast<int>(dpi), 96)};
             return 0;
         }
+        case WM_SIZE:
+        case WM_DISPLAYCHANGE:
+            self->worker_.request_redraw();
+            return 0;
         case WM_DPICHANGED:
         {
             const auto *suggested = reinterpret_cast<const RECT *>(lparam);
             ::SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
                            suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+            self->worker_.request_redraw();
             return 0;
         }
         case WM_IME_REQUEST:
@@ -940,6 +945,7 @@ class window_host final
             self->console_.set_focused(true);
             lock.unlock();
             self->tsf_.focus();
+            self->worker_.request_redraw();
             return 0;
         }
         case WM_KILLFOCUS:
@@ -948,6 +954,7 @@ class window_host final
             self->console_.set_focused(false);
             lock.unlock();
             self->tsf_.unfocus();
+            self->worker_.request_redraw();
             return 0;
         }
         case WM_APP + 0x101:

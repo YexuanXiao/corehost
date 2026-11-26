@@ -62,11 +62,13 @@ class render_worker final
     void request_redraw() noexcept
     {
         redraw_requested_.store(true, std::memory_order_relaxed);
+        (void)::SetEvent(wake_event_.get());
     }
 
     void request_atlas_upload() noexcept
     {
         atlas_upload_requested_.store(true, std::memory_order_relaxed);
+        (void)::SetEvent(wake_event_.get());
     }
 
     void start(HWND window)
@@ -793,6 +795,22 @@ class render_worker final
         renderer_.set_text_correction(contrast, gamma_ratios);
     }
 
+    DWORD wait_timeout() const noexcept
+    {
+        DWORD timeout = INFINITE;
+        if (scrollbar_animation_active_)
+        {
+            timeout = 16;
+        }
+        if (focused_ && cursor_.visible && cursor_.blinking && !selection_.active && composition_.empty() &&
+            scroll_pixels_ == 0.0)
+        {
+            const auto phase = static_cast<DWORD>(::GetTickCount64() % blink_interval_ms);
+            timeout = std::min<DWORD>(timeout, blink_interval_ms - phase);
+        }
+        return timeout;
+    }
+
     void run()
     {
         LOG2("render thread start");
@@ -805,6 +823,7 @@ class render_worker final
         renderer_.render();
         LOG2("render first frame");
         bool cursor_dirty = true;
+        bool first_frame = true;
 
         for (;;)
         {
@@ -813,15 +832,16 @@ class render_worker final
                 break;
             }
 
-            HANDLE waits[] = {stop_event_.get()};
-            const auto wait = ::DCompositionWaitForCompositorClock(1, waits, INFINITE);
-            if (wait == WAIT_OBJECT_0)
+            auto timeout = wait_timeout();
+            if (first_frame)
+            {
+                timeout = 0;
+                first_frame = false;
+            }
+            const auto wait = win32::wait_any(stop_event_, damage_event_, wake_event_, timeout);
+            if (wait.abandoned() || (wait.signaled() && wait.index == 0))
             {
                 break;
-            }
-            if (wait == WAIT_FAILED)
-            {
-                win32::throw_last_error();
             }
 
             RECT client{};
@@ -951,6 +971,7 @@ class render_worker final
                     scrollbar_animating = true;
                 }
             }
+            scrollbar_animation_active_ = scrollbar_animating;
             blink_on_ = blink_on;
             draw_cursor_ = cursor_.visible && focused_ && scroll_pixels_ == 0.0 && !selection_.active && composition_.empty() &&
                            (cursor_.blinking ? blink_on_ : true);
@@ -1042,7 +1063,9 @@ class render_worker final
     std::size_t history_size_{};
     win32::basic_thread thread_;
     win32::event stop_event_{win32::create_tag, true, false};
+    win32::event wake_event_{win32::create_tag, false, false};
     std::atomic_bool stop_{};
+    bool scrollbar_animation_active_{};
     text_changed_callback text_changed_callback_{};
     void *text_changed_callback_data_{};
     std::atomic_bool redraw_requested_{};
