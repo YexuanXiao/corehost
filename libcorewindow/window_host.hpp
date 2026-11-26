@@ -38,7 +38,7 @@ inline constexpr UINT client_exit_message = WM_APP + 2;
 class window_host final
 {
   public:
-    static constexpr std::size_t initial_columns = 80;
+    static constexpr std::size_t initial_columns = 120;
     static constexpr std::size_t initial_rows = 30;
     static constexpr float font_size_dip = 16.0f;
 

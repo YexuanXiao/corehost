@@ -496,9 +496,9 @@ class render_worker final
                     for (const auto &region : color_atlas_.find_or_add(text))
                     {
                         d3d12ui::text_quad color_quad{
-                            .x = static_cast<float>(x) * cell_width + static_cast<float>(region.left),
-                            .y = static_cast<float>(y) * cell_height + metrics.ascent + scroll_shift +
-                                 static_cast<float>(region.top),
+                            .x = std::round(static_cast<float>(x) * cell_width + static_cast<float>(region.left)),
+                            .y = std::round(static_cast<float>(y) * cell_height + metrics.ascent + scroll_shift +
+                                            static_cast<float>(region.top)),
                             .width = static_cast<float>(region.width),
                             .height = static_cast<float>(region.height),
                             .u0 = static_cast<float>(region.x) * color_scale,
@@ -521,9 +521,10 @@ class render_worker final
                     continue;
                 }
 
-                const auto left = static_cast<float>(x) * cell_width + static_cast<float>(region->left);
-                const auto top =
-                    static_cast<float>(y) * cell_height + metrics.ascent + static_cast<float>(region->top) + scroll_shift;
+                const auto left =
+                    std::round(static_cast<float>(x) * cell_width + static_cast<float>(region->left));
+                const auto top = std::round(static_cast<float>(y) * cell_height + metrics.ascent +
+                                            static_cast<float>(region->top) + scroll_shift);
                 d3d12ui::text_quad text_quad{
                     .x = left,
                     .y = top,
@@ -872,8 +873,10 @@ class render_worker final
         renderer_.reset();
     }
 
-    std::size_t columns = 120;
-    std::size_t rows = 30;
+    // Zero means "not sampled yet"; the first compositor tick must perform a
+    // full row copy even when the console already has the default grid size.
+    std::size_t columns{};
+    std::size_t rows{};
 
     console &console_;
     win32::srwlock &console_mutex_;
