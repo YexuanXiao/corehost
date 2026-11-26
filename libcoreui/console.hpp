@@ -230,6 +230,16 @@ class console final
         return screen_.cluster_of(y - screen_.history_size(), value);
     }
 
+    [[nodiscard]] bool vt_mouse_tracking() const noexcept
+    {
+        return state_.mouse_tracking();
+    }
+
+    [[nodiscard]] bool mouse_reporting() const noexcept
+    {
+        return state_.mouse_tracking() || (state_.input_mode & 0x0010) != 0;
+    }
+
     [[nodiscard]] bool has_selection() const noexcept
     {
         return view_selection_.active;

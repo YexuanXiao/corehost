@@ -28,6 +28,13 @@
 - 粘贴时 `LF`/`CRLF` 统一为 `CR`；
 - 输入后清空选择。
 
+## 右键
+
+- 无 VT mouse tracking 时，右键粘贴剪贴板纯文本；
+- 有选区时，右键复制选区并清除选择；
+- 应用启用 VT mouse tracking（如 vim `set mouse=a`）时，右键转发给应用，不触发本地粘贴；
+- 默认 IMM32 输入法路径同样遵循。
+
 ## Mouse reporting
 
 - 应用启用 mouse tracking 时，鼠标事件优先转发；

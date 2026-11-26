@@ -398,7 +398,7 @@ class window_host final
 
     [[nodiscard]] bool mouse_tracking() const noexcept
     {
-        return console_.state().mouse_tracking();
+        return console_.mouse_reporting();
     }
 
     void push_mouse(LPARAM lparam, std::uint32_t button_state, std::uint32_t event_flags)
@@ -637,7 +637,7 @@ class window_host final
                 {
                     const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
                     std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                    if (!shift && self->console_.state().mouse_tracking())
+                    if (!shift && self->console_.mouse_reporting())
                     {
                         POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
                         ::ScreenToClient(hwnd, &point);
@@ -667,7 +667,7 @@ class window_host final
                 {
                     self->update_selection(hwnd, lparam);
                 }
-                else if (self->console_.state().mouse_tracking())
+                else if (self->console_.mouse_reporting())
                 {
                     self->push_mouse(lparam, (::GetKeyState(VK_LBUTTON) & 0x8000) != 0
                                                    ? FROM_LEFT_1ST_BUTTON_PRESSED
@@ -708,7 +708,7 @@ class window_host final
 
                 const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                if (!shift && self->console_.state().mouse_tracking())
+                if (!shift && self->console_.mouse_reporting())
                 {
                     self->push_mouse(lparam, FROM_LEFT_1ST_BUTTON_PRESSED, 0);
                     return 0;
@@ -720,7 +720,7 @@ class window_host final
             if (self != nullptr)
             {
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                if (self->console_.state().mouse_tracking())
+                if (self->console_.vt_mouse_tracking())
                 {
                     self->push_mouse(lparam, RIGHTMOST_BUTTON_PRESSED, 0);
                 }
@@ -730,9 +730,19 @@ class window_host final
             if (self != nullptr)
             {
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                if (self->console_.state().mouse_tracking())
+                if (self->console_.vt_mouse_tracking())
                 {
                     self->push_mouse(lparam, 0, 0);
+                }
+                else if (self->console_.has_selection())
+                {
+                    self->copy_selection(hwnd);
+                    self->console_.clear_selection();
+                    self->worker_.request_redraw();
+                }
+                else
+                {
+                    self->paste_clipboard(hwnd);
                 }
             }
             return 0;
@@ -740,7 +750,7 @@ class window_host final
             if (self != nullptr)
             {
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                if (self->console_.state().mouse_tracking())
+                if (self->console_.mouse_reporting())
                 {
                     self->push_mouse(lparam, FROM_LEFT_2ND_BUTTON_PRESSED, 0);
                 }
@@ -750,7 +760,7 @@ class window_host final
             if (self != nullptr)
             {
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                if (self->console_.state().mouse_tracking())
+                if (self->console_.mouse_reporting())
                 {
                     self->push_mouse(lparam, 0, 0);
                 }
@@ -772,7 +782,7 @@ class window_host final
                     return 0;
                 }
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                if (self->console_.state().mouse_tracking())
+                if (self->console_.mouse_reporting())
                 {
                     self->push_mouse(lparam, 0, 0);
                 }
