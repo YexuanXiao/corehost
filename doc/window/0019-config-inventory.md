@@ -3,7 +3,7 @@
 目的：把散落在 `window_host`、`render_worker`、`console`、`tsf_host` 中的策略常量
 收敛到 `libconfig` 的配置对象。
 
-当前状态：滚动条上限、启动/最小 grid、候选偏移、hyperlink modifier 已接入；
+当前状态：滚动条上限、启动/最小 grid、候选偏移、hyperlink modifier、字号和字体 fallback 列表已接入；
 配置文件加载仍未实现。
 
 ## 已接入的默认值
@@ -28,6 +28,7 @@ inline constexpr std::size_t default_initial_columns = 120;
 inline constexpr std::size_t default_initial_rows = 30;
 inline constexpr std::size_t default_min_columns = 36;
 inline constexpr std::size_t default_min_rows = 2;
+inline constexpr float default_font_size_dip = 16.0f;
 inline constexpr std::int32_t default_candidate_offset_cells = 2;
 inline constexpr hyperlink_modifier default_hyperlink_modifier = hyperlink_modifier::control;
 inline constexpr bell_mode default_bell_mode = bell_mode::visual;
@@ -43,6 +44,8 @@ struct window_config final
     console_palette palette{default_palette};
     bell_mode bell{default_bell_mode};
     uitext::text_options text_options{};
+    float font_size_dip{default_font_size_dip};
+    font_fallback_list font_fallbacks{default_font_fallbacks(text_options.font)};
     backdrop_mode backdrop{default_backdrop_mode};
     std::uint8_t opacity{default_opacity};
     bool dark_mode{default_dark_mode};
@@ -75,6 +78,8 @@ inline constexpr bool default_alpha_correction = true;
 | `min_columns/min_rows` | `window_config` | 36x2 | 按字体 cell 度量和窗口边框计算像素 |
 | `candidate_offset_cells` | `window_config` | 2 | TSF `GetTextExt` 按 cell 计算 |
 | `hyperlink` | `window_config` | control | Ctrl/Alt/Shift/none 可配置 |
+| `font_size_dip` | `window_config` | 16.0 | 同时用于窗口度量和 renderer |
+| `font_fallbacks` | `window_config` | 3 项默认 | 最多 12 项，owning wstring + Unicode range |
 | `bell` | `window_config` | visual | 终端窗口专属 |
 | `palette` | `window_config` | Campbell | 当前默认调色板 |
 | `backdrop/opacity/dark_mode` | `window_config` | none/255/true | DWM 外观 |
@@ -93,35 +98,52 @@ inline constexpr bool default_alpha_correction = true;
   `SetMaximumFrameLatency`，使用 DXGI 默认。
 - `vsync`：`Present` 的 sync interval。当前固定：
   ```cpp
-  swapchain_->Present(1, 0);
+  Present1(1, 0, &params);
   ```
   即开启 vsync，按显示器刷新率节流；若设为 0 可降低延迟/允许 tearing，但会改变
   呈现节奏和功耗。
 
-是否暴露给用户需要产品决定。暂未加入 `window_config`，避免在语义未定时增加 API。
+决定：不增加 `SetMaximumFrameLatency`/vsync 配置；使用 `Present1(1, 0, &params)`，sync interval 和 flags 固定 1/0。
 
 ## 字体 fallback 列表
 
-当前：
+已接入：
 
-- `uitext::text_options.font` 只能选 `cascadia_mono` / `cascadia_code`；
-- 实际 fallback 顺序由 `uitext::default_font_families(font)` 固定返回；
-- 字体大小硬编码为 16 DIP（`window_host::font_size_dip` 和 renderer 初始化）；
-- 字体列表不能由 `window_config` 覆盖。
+```cpp
+inline constexpr std::size_t max_font_fallbacks = 12;
 
-可配置候选：
+struct unicode_range final
+{
+    std::uint32_t first{};
+    std::uint32_t last{};
+};
 
-| 候选 | 类型 | 当前值 | 说明 |
-|---|---|---|---|
-| `font_size_dip` | `float` | 16.0 | 需要同时传给 window 度量和 renderer |
-| `font_fallbacks` | 有序 family 列表 | 固定数组 | 需要定义“显式 fallback + 系统 fallback”的边界 |
-| `font_family` | 自定义字符串 | 枚举 | 需要 DirectWrite family 名称和缺失处理 |
-| `font_weight` / `italic` | 字体属性 | 默认 | 需要重新设计 text_engine 输入 |
-| `contrast` | bool | true | 已在 text_options |
-| `alpha_correction` | bool | true | 已在 text_options |
+struct font_fallback final
+{
+    std::wstring family;
+    unicode_range range{0, 0x10FFFF};
+};
 
-这些需要用户确定默认值和 API 形态后再接入；不要在 renderer 内偷偷读取全局配置。
+struct font_fallback_list final
+{
+    std::array<font_fallback, max_font_fallbacks> entries{};
+    std::size_t count{};
+};
+```
 
+- `font_fallbacks` 位于 `window_config`；
+- 最多 12 项；
+- `std::wstring` 由 config 拥有，`text_engine` 只借用 `wcstring_view`；
+- `font_size_dip` 同时用于窗口度量和 renderer；
+- 默认列表按 `text_options.font` 选择 Cascadia Mono/Code 顺序，最后是 Consolas；
+- 空 family 不参与 fallback；`count` 至少为 1；
+- 系统 fallback 仍由 DirectWrite 追加。
+
+仍待决定：
+
+- 是否允许自定义 family 字符串作为 primary；
+- 是否公开 font weight/italic；
+- fallback 列表的 API 是直接改数组还是提供增删函数。
 ## 其他可配置行为（候选）
 
 | 行为 | 当前值 | 归属 | 备注 |
@@ -146,14 +168,14 @@ inline constexpr bool default_alpha_correction = true;
 
 1. 配置对象只在 `window_entry` 构造一次，按 const 引用传递；
 2. 默认值必须定义在 `console_config.hpp` / `window_config.hpp`（或对应
-   `text_options.hpp`）的 `constexpr` 常量中；
+   `text_options.hpp`）中；能 constexpr 的用 constexpr，字体 fallback 因为拥有
+   `std::wstring` 用同文件的 `default_font_fallbacks()` 构造函数；
 3. 实现中不新增散落的魔法常量；
 4. 配置文件加载不属于本轮；
 5. 仍未决定的默认值先询问用户，不擅自选择。
 
 ## 仍未确认
 
-- `frame_latency` / `vsync` 是否公开，以及默认值；
-- `font_size_dip`、`font_fallbacks`、自定义 family 的 API；
+- 自定义字体 family / weight / italic 的 API；
 - cursor 样式/闪烁、scrollbar 尺寸、selection 参数是否公开；
 - `tsf_message_pump` 是否作为用户配置。

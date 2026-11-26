@@ -644,7 +644,8 @@ Child：
 
 ### 5.5 字体 fallback
 
-- 显式 family 列表先加入 `IDWriteFontFallbackBuilder`；
+- 显式 family 列表来自 `window_config.font_fallbacks`（最多 12 项，owning wstring + range）；
+- fallback 列表先加入 `IDWriteFontFallbackBuilder`；
 - 系统自动 fallback 通过 `AddMappings` 追加；
 - `MapCharacters` 由 DWrite 完成实际选择；
 - 不手写 codepoint 循环；
