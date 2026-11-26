@@ -66,6 +66,7 @@ class window_host final
     {
         assert(!title_.empty());
         assert(client_process_.valid());
+        window_ready_ = true;
     }
 
     window_host(const window_host &) = delete;
@@ -226,7 +227,7 @@ class window_host final
     // input_method_win_base.cc and input_method_win_tsf.cc.
     LRESULT handle_ime_request(WPARAM request, LPARAM data) const
     {
-        if (window_ == nullptr)
+        if (window_ == nullptr || !window_ready_)
         {
             return 0;
         }
@@ -1141,6 +1142,7 @@ class window_host final
         }
     }
 
+    bool window_ready_{};
     win32::wcstring_view title_;
     console &console_;
     win32::srwlock &console_mutex_;
