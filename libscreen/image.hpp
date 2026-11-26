@@ -79,6 +79,13 @@ class image_table final
     void set_pixels(std::uint32_t image_id, image_pixels pixels)
     {
         bitmaps_.insert_or_assign(image_id, std::move(pixels));
+        ++generations_[image_id];
+    }
+
+    [[nodiscard]] std::uint64_t generation(std::uint32_t image_id) const noexcept
+    {
+        const auto found = generations_.find(image_id);
+        return found == generations_.end() ? 0 : found->second;
     }
 
     [[nodiscard]] const image_pixels *pixels(std::uint32_t image_id) const noexcept
@@ -91,6 +98,7 @@ class image_table final
     std::vector<image_fragment> fragments_{{}};
     std::flat_map<image_fragment, std::uint32_t> ids_;
     std::flat_map<std::uint32_t, image_pixels> bitmaps_;
+    std::flat_map<std::uint32_t, std::uint64_t> generations_;
 };
 
 } // namespace corehost::screen

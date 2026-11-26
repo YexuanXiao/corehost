@@ -364,14 +364,15 @@ class render_worker final
         color_atlas_.begin_frame();
         quads_.clear();
         color_quads_.clear();
+        image_quads_.clear();
         const auto metrics = text_.metrics();
         const auto cell_width = metrics.advance;
         const auto cell_height = metrics.ascent + metrics.descent + metrics.line_gap;
         const auto atlas_scale = 1.0f / static_cast<float>(atlas_.size());
         const auto scroll_shift = -static_cast<float>(scroll_fraction_) * cell_height;
 
-        std::flat_map<std::uint32_t, uitext::color_atlas_region> image_regions;
         std::flat_set<std::uint32_t> drawn_images;
+        std::flat_set<std::uint32_t> visible_images;
         std::vector<screen::cell> composition_cells;
         if (!composition_.empty())
         {
@@ -516,38 +517,41 @@ class render_worker final
                     const auto *pixels = fragment ? console_.buffer().images().pixels(fragment->image_id) : nullptr;
                     LOG2("image data fragment=%p pixels=%p id=%u", fragment, pixels,
                          fragment ? fragment->image_id : 0);
-                    if (fragment != nullptr && pixels != nullptr && pixels->width != 0 && pixels->height != 0 &&
-                        drawn_images.insert(fragment->image_id).second)
+                    if (fragment != nullptr && pixels != nullptr && pixels->width != 0 && pixels->height != 0)
                     {
-                        auto found = image_regions.find(fragment->image_id);
-                        if (found == image_regions.end())
+                        const auto image_id = fragment->image_id;
+                        visible_images.insert(image_id);
+                        if (drawn_images.insert(image_id).second)
                         {
-                            const auto region = color_atlas_.add_image(pixels->rgba, pixels->width, pixels->height);
-                            LOG2("image region x=%u y=%u w=%u h=%u first=%02x%02x%02x%02x", region.x, region.y,
-                                 region.width, region.height, pixels->rgba[0], pixels->rgba[1], pixels->rgba[2],
-                                 pixels->rgba[3]);
-                            if (region.width != 0 && region.height != 0)
+                            const auto generation = console_.buffer().images().generation(image_id);
+                            const auto cached = image_generations_.find(image_id);
+                            if (cached == image_generations_.end() || cached->second != generation)
                             {
-                                found = image_regions.emplace(fragment->image_id, region).first;
+                                if (renderer_.set_image_texture(image_id, pixels->rgba, pixels->width, pixels->height))
+                                {
+                                    LOG2("image texture upload id=%u w=%u h=%u generation=%llu", image_id,
+                                         pixels->width, pixels->height, generation);
+                                    image_generations_.insert_or_assign(image_id, generation);
+                                }
                             }
-                        }
-                        if (found != image_regions.end())
-                        {
-                            const auto &region = found->second;
-                            const auto color_scale = 1.0f / static_cast<float>(color_atlas_.size());
-                            const auto image_columns = std::max<std::size_t>((fragment->source_width + 7) / 8, 1);
-                            const auto image_rows = std::max<std::size_t>((fragment->source_height + 15) / 16, 1);
-                            d3d12ui::text_quad image_quad{
-                                .x = static_cast<float>(x) * cell_width,
-                                .y = static_cast<float>(y) * cell_height + scroll_shift,
-                                .width = cell_width * static_cast<float>(image_columns),
-                                .height = cell_height * static_cast<float>(image_rows),
-                                .u0 = static_cast<float>(region.x) * color_scale,
-                                .v0 = static_cast<float>(region.y) * color_scale,
-                                .u1 = static_cast<float>(region.x + region.width) * color_scale,
-                                .v1 = static_cast<float>(region.y + region.height) * color_scale,
-                            };
-                            color_quads_.push_back(image_quad);
+                            if (image_generations_.contains(image_id))
+                            {
+                                const auto image_columns =
+                                    std::max<std::size_t>((fragment->source_width + 7) / 8, 1);
+                                const auto image_rows =
+                                    std::max<std::size_t>((fragment->source_height + 15) / 16, 1);
+                                const d3d12ui::text_quad quad{
+                                    .x = static_cast<float>(x) * cell_width,
+                                    .y = static_cast<float>(y) * cell_height + scroll_shift,
+                                    .width = cell_width * static_cast<float>(image_columns),
+                                    .height = cell_height * static_cast<float>(image_rows),
+                                    .u0 = 0.0f,
+                                    .v0 = 0.0f,
+                                    .u1 = 1.0f,
+                                    .v1 = 1.0f,
+                                };
+                                image_quads_.push_back(d3d12ui::image_quad{image_id, quad});
+                            }
                         }
                     }
                     continue;
@@ -778,6 +782,21 @@ class render_worker final
             color_atlas_.clear_dirty();
         }
         renderer_.set_color_text_quads(color_quads_);
+
+        for (auto it = image_generations_.begin(); it != image_generations_.end();)
+        {
+            if (!visible_images.contains(it->first))
+            {
+                renderer_.remove_image_texture(it->first);
+                it = image_generations_.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+        LOG2("image cache textures=%zu quads=%zu", image_generations_.size(), image_quads_.size());
+        renderer_.set_image_quads(image_quads_);
     }
 
     void apply_text_correction()
@@ -1148,6 +1167,8 @@ class render_worker final
     screen::grapheme_store graphemes_;
     std::vector<d3d12ui::text_quad> quads_;
     std::vector<d3d12ui::text_quad> color_quads_;
+    std::vector<d3d12ui::image_quad> image_quads_;
+    std::flat_map<std::uint32_t, std::uint64_t> image_generations_;
     std::vector<screen::row_block> updates_;
     std::vector<screen::row_block> scroll_rows_;
     double scroll_pixels_{};
