@@ -756,8 +756,10 @@ class render_worker final
                 cursor_dirty = true;
             }
             const auto metrics = text_.metrics();
+            const auto scrollbar_width = scrollbar::default_width * static_cast<float>(dpi) / 96.0f;
+            const auto content_width = std::max(1.0f, static_cast<float>(width) - scrollbar_width);
             const auto desired_columns =
-                std::max<std::size_t>(1, static_cast<std::size_t>(static_cast<float>(width) / metrics.advance));
+                std::max<std::size_t>(1, static_cast<std::size_t>(content_width / metrics.advance));
             const auto row_height_px = static_cast<double>(metrics.ascent + metrics.descent + metrics.line_gap);
             const auto desired_rows = std::max<std::size_t>(
                 1, static_cast<std::size_t>(static_cast<float>(height) / (metrics.ascent + metrics.descent + metrics.line_gap)));

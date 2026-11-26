@@ -146,7 +146,9 @@ class window_host final
         uitext::text_engine text{families, font_size_dip * scale};
         const auto metrics = text.metrics();
         const auto row_height = metrics.ascent + metrics.descent + metrics.line_gap;
-        return {std::max(1, static_cast<int>(std::ceil(metrics.advance * static_cast<float>(initial_columns)))),
+        const auto scrollbar_width = static_cast<int>(std::ceil(scrollbar::default_width * scale));
+        return {std::max(1, static_cast<int>(std::ceil(metrics.advance * static_cast<float>(initial_columns))) +
+                               scrollbar_width),
                 std::max(1, static_cast<int>(std::ceil(row_height * static_cast<float>(initial_rows))))};
     }
 
