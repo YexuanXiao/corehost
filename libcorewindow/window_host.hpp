@@ -1,6 +1,7 @@
 #pragma once
 
 #include "console.hpp"
+#include "uia_provider.hpp"
 #include "control.hpp"
 #include "console_config.hpp"
 #include "window_config.hpp"
@@ -67,12 +68,29 @@ class window_host final
         window_ready_ = true;
     }
 
+    ~window_host()
+    {
+        if (uia_provider_ != nullptr)
+        {
+            uia_provider_->Release();
+        }
+    }
+
     window_host(const window_host &) = delete;
     window_host &operator=(const window_host &) = delete;
 
     [[nodiscard]] HWND window() const noexcept
     {
         return window_;
+    }
+
+    uia_provider *ensure_uia_provider() noexcept
+    {
+        if (uia_provider_ == nullptr)
+        {
+            uia_provider_ = new (std::nothrow) uia_provider(window_, console_, console_mutex_);
+        }
+        return uia_provider_;
     }
 
     void run()
@@ -919,6 +937,13 @@ class window_host final
             self->tsf_.unfocus();
             return 0;
         }
+        case WM_GETOBJECT:
+            if (static_cast<LONG>(lparam) == UiaRootObjectId)
+            {
+                auto *provider = self->ensure_uia_provider();
+                return provider != nullptr ? ::UiaReturnRawElementProvider(hwnd, wparam, lparam, provider) : 0;
+            }
+            break;
         case WM_TIMER:
             if (wparam == selection_scroll_timer)
             {
@@ -1298,6 +1323,7 @@ class window_host final
     win32::wcstring_view title_;
     console &console_;
     win32::srwlock &console_mutex_;
+    uia_provider *uia_provider_{};
     win32::handle_view client_process_;
     const console_config &console_config_;
     const window_config &window_config_;
