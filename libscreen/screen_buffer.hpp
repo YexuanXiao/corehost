@@ -2199,13 +2199,20 @@ inline void screen_buffer::set_alternate(bool enabled)
         if (!alternate_active_)
         {
             alternate_.clear(default_cell_style);
+            alternate_.mark_all_dirty();
             alternate_active_ = true;
         }
         return;
     }
 
+    if (!alternate_active_)
+    {
+        return;
+    }
+
     alternate_.clear(default_cell_style);
     alternate_active_ = false;
+    main_.mark_all_dirty();
 }
 
 inline void screen_buffer::clear_history()
