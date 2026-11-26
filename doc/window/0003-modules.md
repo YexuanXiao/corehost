@@ -37,8 +37,8 @@
 
 ### `libconfig`
 
-- `console_config`：调色板、文本选项；
-- `window_config`：bell、backdrop、opacity、dark mode、exit policy；
+- `console_config`：scrollback 上限（默认 3000）、初始 grid、cursor 等；
+- `window_config`：bell、candidate_offset_cells（默认 2）、backdrop、opacity、dark mode、exit policy；
 - 当前只允许 C++ 构造，不读取配置文件。
 
 ### `libcoreui`

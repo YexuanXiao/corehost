@@ -67,6 +67,7 @@
 ```cpp
 struct console_config
 {
+    std::size_t scrollback_lines{3000};
 };
 
 struct window_config
@@ -78,6 +79,7 @@ struct window_config
     std::uint8_t opacity = 255;
     bool dark_mode = true;
     client_exit_policy exit_policy = client_exit_policy::always_exit;
+    std::int32_t candidate_offset_cells{2};
 };
 ```
 

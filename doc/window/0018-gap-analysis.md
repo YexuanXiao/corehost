@@ -85,7 +85,9 @@ DCompositionWaitForCompositorClock(1, waits, INFINITE);
 - 以 image id + pixel generation + source size + placement 为缓存键；
 - 屏幕内该图像区域不变时复用已上传的 GPU 纹理/atlas region 和 quad；
 - 仅图像新增、像素变化、位置/尺寸变化、滚动导致可见区域变化时失效；
-- 其他文字输出不使静态 Sixel 重新上传。
+- 其他文字输出不使静态 Sixel 重新上传；
+- 只缓存当前屏幕内可见图像，屏幕外图像不缓存；
+- Sixel 最大尺寸/像素数不设限。
 
 #### 4. UIA 验收与事件
 
@@ -127,6 +129,7 @@ TSF 文本存储耦合起来。
 
 #### 7. 主题与配置
 
+- 配置项清单见 `0019-config-inventory.md`：`scrollback_lines` 默认 3000，`bell_mode` 归 window，`candidate_offset_cells` 归 window/default 2，Sixel 不设上限且只缓存屏幕内图像；
 - `window_config` 只有 C++ 构造，明确未实现配置文件加载；
 - 只有 Campbell 调色板和深色标题；没有亮/暗主题切换、高对比度、系统主题跟随；
 - `0001-plan.md` W8.5/W8.6 仍未完成。

@@ -17,11 +17,9 @@
 - composition 文本通过 `console::set_ime_composition` 自绘在光标处；
 - 先 advise `ITfContextOwner` 再 Push context；
 - candidate/composition 位置来自 `ITfContextOwner::GetTextExt`；
-- 为满足候选窗视觉位置，`GetTextExt` 的 `left/right` 统一左移：
-
-```text
-2 * cell_width（约一个汉字/两个 cell）
-```
+- 为满足候选窗视觉位置，`GetTextExt` 的 `left/right` 统一左移；
+- 左移量由 `window_config::candidate_offset_cells` 控制，默认 `2`，单位是 cell；
+- 不再在 `tsf_host` 中硬编码 `2 * cell_width`。
 
 ## 如何判断 composition
 
