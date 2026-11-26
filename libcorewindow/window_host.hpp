@@ -88,7 +88,7 @@ class window_host final
 
     void notify_uia_selection() noexcept
     {
-        if (uia_events_)
+        if (window_config_.uia_selection_events && uia_events_)
         {
             (void)uia_events_->NotifySelectionChanged();
         }
@@ -575,7 +575,7 @@ class window_host final
         selection_dragging_ = click_count_ == 1 || shift;
         selection_drag_point_ = POINT{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
         ::SetCapture(hwnd);
-        ::SetTimer(hwnd, selection_scroll_timer, selection_scroll_interval_ms, nullptr);
+        ::SetTimer(hwnd, selection_scroll_timer, window_config_.selection_auto_scroll_interval_ms, nullptr);
         notify_uia_selection();
     }
 
@@ -662,7 +662,8 @@ class window_host final
         }
 
         const auto row_height = static_cast<double>(console_.cell_height());
-        const auto edge = static_cast<LONG>(std::ceil(row_height));
+        const auto edge_rows = static_cast<double>(std::max<std::size_t>(1, window_config_.selection_auto_scroll_edge_rows));
+        const auto edge = static_cast<LONG>(std::ceil(row_height * edge_rows));
         const bool scroll_up = selection_drag_point_.y < edge;
         const bool scroll_down = selection_drag_point_.y >= client.bottom - edge;
         if (!scroll_up && !scroll_down)
@@ -997,7 +998,7 @@ class window_host final
             return 0;
         }
         case WM_APP + 0x101:
-            if (self->uia_events_)
+            if (self->window_config_.uia_text_changed_events && self->uia_events_)
             {
                 (void)self->uia_events_->NotifyTextChanged();
             }

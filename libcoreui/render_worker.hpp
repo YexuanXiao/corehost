@@ -870,8 +870,9 @@ class render_worker final
         if (focused_ && cursor_.visible && cursor_.blinking && !selection_.active && composition_.empty() &&
             scroll_pixels_ == 0.0)
         {
-            const auto phase = static_cast<DWORD>(::GetTickCount64() % blink_interval_ms);
-            timeout = std::min<DWORD>(timeout, blink_interval_ms - phase);
+            const auto blink_interval = std::max<std::uint64_t>(1, config_.cursor_blink_ms);
+            const auto phase = static_cast<DWORD>(::GetTickCount64() % blink_interval);
+            timeout = std::min<DWORD>(timeout, static_cast<DWORD>(blink_interval - phase));
         }
         return timeout;
     }
@@ -1043,7 +1044,8 @@ class render_worker final
             const bool focus_changed = focused != focused_;
             const auto now = ::GetTickCount64();
             const bool redraw_requested = redraw_requested_.exchange(false, std::memory_order_relaxed);
-            const bool blink_on = focused && ((now / blink_interval_ms) % 2 == 0);
+            const auto blink_interval = std::max<std::uint64_t>(1, config_.cursor_blink_ms);
+            const bool blink_on = focused && ((now / blink_interval) % 2 == 0);
             const bool blink_changed = blink_on != blink_on_;
 
             cursor_ = cursor;

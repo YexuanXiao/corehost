@@ -67,6 +67,11 @@ namespace corehost::window
     }
 
     inline constexpr float default_font_size_dip = 16.0f;
+    inline constexpr std::uint32_t default_cursor_blink_ms = 530;
+    inline constexpr std::uint32_t default_selection_auto_scroll_interval_ms = 40;
+    inline constexpr std::size_t default_selection_auto_scroll_edge_rows = 1;
+    inline constexpr bool default_uia_text_changed_events = true;
+    inline constexpr bool default_uia_selection_events = true;
     inline constexpr std::size_t default_initial_columns = 120;
     inline constexpr std::size_t default_initial_rows = 30;
     inline constexpr std::size_t default_min_columns = 36;
@@ -91,6 +96,11 @@ namespace corehost::window
         bell_mode bell{default_bell_mode};
         uitext::text_options text_options{};
         float font_size_dip{default_font_size_dip};
+        std::uint32_t cursor_blink_ms{default_cursor_blink_ms};
+        std::uint32_t selection_auto_scroll_interval_ms{default_selection_auto_scroll_interval_ms};
+        std::size_t selection_auto_scroll_edge_rows{default_selection_auto_scroll_edge_rows};
+        bool uia_text_changed_events{default_uia_text_changed_events};
+        bool uia_selection_events{default_uia_selection_events};
         font_fallback_list font_fallbacks{default_font_fallbacks(text_options.font)};
         backdrop_mode backdrop{default_backdrop_mode};
         std::uint8_t opacity{default_opacity};
