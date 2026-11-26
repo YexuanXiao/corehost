@@ -490,8 +490,11 @@ class render_worker final
 
                 if (cell.has_image())
                 {
+                    LOG2("image cell x=%zu y=%zu", x, y);
                     const auto *fragment = console_.buffer().image_of(cell);
                     const auto *pixels = fragment ? console_.buffer().images().pixels(fragment->image_id) : nullptr;
+                    LOG2("image data fragment=%p pixels=%p id=%u", fragment, pixels,
+                         fragment ? fragment->image_id : 0);
                     if (fragment != nullptr && pixels != nullptr && pixels->width != 0 && pixels->height != 0 &&
                         drawn_images.insert(fragment->image_id).second)
                     {
@@ -499,6 +502,9 @@ class render_worker final
                         if (found == image_regions.end())
                         {
                             const auto region = color_atlas_.add_image(pixels->rgba, pixels->width, pixels->height);
+                            LOG2("image region x=%u y=%u w=%u h=%u first=%02x%02x%02x%02x", region.x, region.y,
+                                 region.width, region.height, pixels->rgba[0], pixels->rgba[1], pixels->rgba[2],
+                                 pixels->rgba[3]);
                             if (region.width != 0 && region.height != 0)
                             {
                                 found = image_regions.emplace(fragment->image_id, region).first;

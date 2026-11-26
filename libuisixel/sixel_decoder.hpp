@@ -71,7 +71,6 @@ namespace corehost::uisixel
                 values[i] = number(data, position);
                 if (position >= data.size() || data[position] != u';')
                 {
-                    ++position;
                     break;
                 }
                 ++position;
