@@ -1,5 +1,6 @@
 #include "window_console_session.hpp"
 
+#include "terminal_response.hpp"
 #include "utility/log.hpp"
 #include "win32/error.hpp"
 
@@ -118,42 +119,10 @@ void window_console_session::apply_vt(std::u16string_view text)
             LOG2("sequence ids apc=%d dcs=%d", static_cast<int>(vtparser::vt_message_id::apc_sequence),
                  static_cast<int>(vtparser::vt_message_id::dcs_sequence));
         }
-        if (result.id == vtparser::vt_message_id::report_cursor_position ||
-            result.id == vtparser::vt_message_id::device_attributes)
+        consoleinput::input_event event{};
+        if (vtstate::append_terminal_response(result.id, console_.state(), event.text))
         {
-            consoleinput::input_event event{};
             event.type = consoleinput::input_event_type::text;
-            if (result.id == vtparser::vt_message_id::device_attributes)
-            {
-                for (const auto character : u"\x1b[?1;2c")
-                {
-                    event.text.push_back(character);
-                }
-            }
-            else
-            {
-                for (const auto character : u"\x1b[")
-                {
-                    event.text.push_back(character);
-                }
-
-                char digits[16]{};
-                const auto cursor = console_.state().cursor();
-                auto [end, error] = std::to_chars(digits, digits + sizeof(digits), static_cast<unsigned>(cursor.y + 1));
-                for (auto *digit = digits; digit != end; ++digit)
-                {
-                    event.text.push_back(static_cast<char16_t>(*digit));
-                }
-                event.text.push_back(u';');
-                const auto second = std::to_chars(digits, digits + sizeof(digits),
-                                                   static_cast<unsigned>(cursor.x + 1));
-                for (auto *digit = digits; digit != second.ptr; ++digit)
-                {
-                    event.text.push_back(static_cast<char16_t>(*digit));
-                }
-                event.text.push_back(u'R');
-            }
-
             LOG2("terminal response size=%zu", event.text.size());
             console_.push_input(std::move(event));
             vt_parser_.reset();
@@ -181,6 +150,7 @@ bool window_console_session::handle_write_console(coreio::io_msg &message)
     auto *request = reinterpret_cast<CONSOLE_WRITECONSOLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
     const auto payload = payload_.read(message, sizeof(CONSOLE_MSG_HEADER) + sizeof(CONSOLE_WRITECONSOLE_MSG));
     LOG2_HEX("write console", payload.data(), payload.size());
+    LOG2("write cp=%u unicode=%d", console_.state().output_code_page, request->Unicode);
     if (request->Unicode != FALSE)
     {
         const auto units = payload.size() / sizeof(char16_t);
@@ -247,6 +217,7 @@ bool window_console_session::handle(coreio::io_msg &message)
         const auto payload = payload_.read(message, 0);
         LOG2_HEX("raw output", payload.data(), payload.size());
         const auto code_page = console_.state().output_code_page;
+        LOG2("raw cp=%u bytes=%zu", code_page, payload.size());
         vt_text_.resize(payload.size());
         const auto units = ::MultiByteToWideChar(
             code_page, 0, reinterpret_cast<const char *>(payload.data()), static_cast<int>(payload.size()),

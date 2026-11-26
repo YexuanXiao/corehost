@@ -132,6 +132,30 @@ inline void append_window_title(byte_buffer &output, std::u16string_view title)
     append_utf16(output, title);
     output.push_back(static_cast<char8_t>(0x07));
 }
+template <typename String>
+inline void append_cursor_position_response(String &output, unsigned row, unsigned column)
+{
+    char digits[32]{};
+    output.append(u"\x1b[");
+    auto result = std::to_chars(digits, digits + sizeof(digits), row + 1);
+    for (auto *digit = digits; digit != result.ptr; ++digit)
+    {
+        output.push_back(static_cast<char16_t>(*digit));
+    }
+    output.push_back(u';');
+    result = std::to_chars(digits, digits + sizeof(digits), column + 1);
+    for (auto *digit = digits; digit != result.ptr; ++digit)
+    {
+        output.push_back(static_cast<char16_t>(*digit));
+    }
+    output.push_back(u'R');
+}
+
+template <typename String>
+inline void append_device_attributes_response(String &output)
+{
+    output.append(u"\x1b[?1;2c");
+}
 inline void append_request_cursor_position(byte_buffer &output)
 {
     output.append_text(u8"\x1b[6n");
