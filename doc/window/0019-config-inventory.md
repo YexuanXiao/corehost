@@ -116,7 +116,7 @@ inline constexpr bool default_alpha_correction = true;
 | `mouse_wheel_lines` | `window_config` | 3 | 滚轮行数 |
 | `right_click` | `window_config` | automatic | automatic/copy/paste |
 | `copy_ending` | `console_config` | CRLF | 复制行尾 CRLF/LF |
-| `bell` | `window_config` | visual | 终端窗口专属 |
+| `bell` | `window_config` | visual | `off` 不闪；`visual` 用 `FlashWindowEx`，已实际接入 |
 | `palette` | `window_config` | Campbell | 当前默认调色板 |
 | `backdrop/opacity/dark_mode` | `window_config` | none/255/true | DWM 外观 |
 | `exit_policy` | `window_config` | always_exit | client 退出行为 |
