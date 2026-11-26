@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string_view>
@@ -62,6 +63,49 @@ namespace corehost::uisixel
             return value;
         }
 
+        [[nodiscard]] inline std::uint8_t hls_channel(double p, double q, double t) noexcept
+        {
+            if (t < 0.0)
+            {
+                t += 1.0;
+            }
+            if (t > 1.0)
+            {
+                t -= 1.0;
+            }
+            if (t < 1.0 / 6.0)
+            {
+                return static_cast<std::uint8_t>(std::clamp((p + (q - p) * 6.0 * t) * 255.0, 0.0, 255.0));
+            }
+            if (t < 1.0 / 2.0)
+            {
+                return static_cast<std::uint8_t>(std::clamp(q * 255.0, 0.0, 255.0));
+            }
+            if (t < 2.0 / 3.0)
+            {
+                return static_cast<std::uint8_t>(
+                    std::clamp((p + (q - p) * (2.0 / 3.0 - t) * 6.0) * 255.0, 0.0, 255.0));
+            }
+            return static_cast<std::uint8_t>(std::clamp(p * 255.0, 0.0, 255.0));
+        }
+
+        [[nodiscard]] inline rgb hls_to_rgb(std::uint32_t hue, std::uint32_t lightness,
+                                            std::uint32_t saturation) noexcept
+        {
+            const auto h = static_cast<double>(hue % 360) / 360.0;
+            const auto l = static_cast<double>(std::min<std::uint32_t>(lightness, 100)) / 100.0;
+            const auto s = static_cast<double>(std::min<std::uint32_t>(saturation, 100)) / 100.0;
+            if (s == 0.0)
+            {
+                const auto value = static_cast<std::uint8_t>(std::clamp(l * 255.0, 0.0, 255.0));
+                return rgb{value, value, value};
+            }
+
+            const auto q = l < 0.5 ? l * (1.0 + s) : l + s - l * s;
+            const auto p = 2.0 * l - q;
+            return rgb{hls_channel(p, q, h + 1.0 / 3.0), hls_channel(p, q, h),
+                       hls_channel(p, q, h - 1.0 / 3.0)};
+        }
         inline void parse_raster(std::u16string_view data, std::size_t &position, std::uint32_t &width,
                                  std::uint32_t &height) noexcept
         {
@@ -160,6 +204,10 @@ namespace corehost::uisixel
                         static_cast<std::uint8_t>(std::min<std::uint32_t>(values[2], 100) * 255 / 100),
                         static_cast<std::uint8_t>(std::min<std::uint32_t>(values[3], 100) * 255 / 100),
                         static_cast<std::uint8_t>(std::min<std::uint32_t>(values[4], 100) * 255 / 100)};
+                }
+                else if (count >= 5 && values[1] == 1)
+                {
+                    palette[current_color] = detail::hls_to_rgb(values[2], values[3], values[4]);
                 }
                 continue;
             }
