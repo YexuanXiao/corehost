@@ -31,7 +31,7 @@ TSF 不实现 `ITextStoreACP`，原因见 `0015-ime-tsf.md`；这不是本轮阻
 | W1 `corehostw` / `window_entry` | 已完成 | 单进程 ConDrv console，不使用 ConPTY/libcorepty/defterm |
 | W2.1–W2.4 窗口/DPI/焦点/空闲 | 已完成 | `window_host`、`window_ui`；render 线程改为 damage/wake/stop 事件等待 |
 | W3.1–W3.5 D3D12/DXGI/DComp | 已完成 | `libd3d12ui`、composition swapchain、transparent path |
-| W3.6 device lost | 实现完成，待故障注入验证 | 检测 `DXGI_ERROR_DEVICE_REMOVED`/RESET；0/500/2000/8000ms 重建，失败关闭窗口 |
+| W3.6 device lost | 实现完成，待故障注入验证 | 检测 `DXGI_ERROR_DEVICE_REMOVED`/`RESET`/`HUNG`/`DRIVER_INTERNAL_ERROR`；0/500/2000/8000ms 重建，失败关闭窗口 |
 | W4 基础 console 会话 | 已完成基础路径 | `window_console_session`，CONNECT/RAW_WRITE/RAW_READ/console API |
 | W5 文本显示 | 已完成基础路径 | DirectWrite fallback、glyph atlas、SGR 16/256/RGB、bold/italic/underline/strike、emoji、box drawing |
 | W6 键盘/鼠标/选择/剪贴板 | 已完成基础路径 | 键盘、SGR mouse、文本线性选择、双击/三击、复制/粘贴 |

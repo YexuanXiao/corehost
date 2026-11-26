@@ -575,7 +575,7 @@ GetDeviceRemovedReason
 
 要求：
 
-- 检测 `DXGI_ERROR_DEVICE_REMOVED` / `DXGI_ERROR_DEVICE_RESET`；
+- 检测 `DXGI_ERROR_DEVICE_REMOVED` / `DXGI_ERROR_DEVICE_RESET` / `DXGI_ERROR_DEVICE_HUNG` / `DXGI_ERROR_DRIVER_INTERNAL_ERROR`；
 - 重建失败不能死循环，退化为错误窗口/退出；
 - 与 resize、DPI、透明度路径共用资源重建函数；
 - 自动化测试至少能注入 fake device-removed 结果。
