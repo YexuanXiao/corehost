@@ -15,7 +15,7 @@
 3. 只使用 Windows 内置核心组件：Win32、D3D12、DXGI、DirectWrite、DirectComposition、TSF；
 4. 不使用 WIC；图像只通过 sixel 协议绘制，不解码图片文件；
 5. IME 只使用 TSF，不使用 IMM32，也不存在 IMM32 fallback；
-6. 空闲状态不轮询：没有新消息、没有待处理事件、没有动画时，GUI 线程完全停止，CPU 占用为 0；
+6. 空闲状态不轮询：失焦或光标不闪烁、没有待处理事件、没有动画时，GUI 线程完全停止，CPU 占用为 0；聚焦且光标闪烁时允许 530ms 定时器；
 7. 不内置 tab、split pane 或多 session UI。
 8. 只需要支持Windows11（22000起）。
 
@@ -520,6 +520,8 @@ MsgWaitForMultipleObjectsEx(
 - 无光标闪烁、无动画时，没有任何 timer；
 - 有光标闪烁时，timer 本身就是一条新消息；关闭闪烁或失焦后立即停止。
 
+当前实现状态：`render_worker` 已改为等待 stop/damage/wake 事件，失焦或光标不闪烁时 0 CPU；聚焦闪烁允许 530ms 定时器。已用 CPU 测量和 Present 行为验收。
+
 ### 4.8 DPI 与窗口尺寸
 
 ```text
@@ -536,8 +538,6 @@ ResizeBuffers / 重建 RTV / DComp visual offset
 
 `WM_SIZE`、`WM_MOVE`、`WM_DISPLAYCHANGE` 触发相同的 swapchain/visual 更新。
 
-当前实现状态：`render_worker` 仍使用 `DCompositionWaitForCompositorClock`，上述空闲目标
-尚未完成，列为 P0；实现后必须用 CPU 测量和 Present 计数验收。
 ### 4.9 能力覆盖检查
 
 | 功能 | API 组合 | 结论 |
@@ -551,7 +551,7 @@ ResizeBuffers / 重建 RTV / DComp visual offset
 | Sixel | `libuisixel` 解析 + D3D12 texture | 足够，无 WIC |
 | 滚动条 | Win32 鼠标消息 + `SetCapture` + quad draw | 足够 |
 | 多显示器/DPI | `WM_DPICHANGED` + `GetDpiForWindow` + `IsCurrent` | 足够 |
-| 空闲零 CPU | `GetMessageW(INFINITE)` / `MsgWaitForMultipleObjectsEx(INFINITE)` | 足够，无轮询 |
+| 空闲零 CPU | `GetMessageW(INFINITE)` / `MsgWaitForMultipleObjectsEx(INFINITE)` | 失焦/不闪烁时足够，无轮询；聚焦闪烁用 530ms timer |
 | 帧同步 | frame-latency waitable + fence | 足够 |
 | 透明 child | 宿主顶层 DComp target + `SetClip`/`SetOffset` | 明确不做 |
 
@@ -729,7 +729,7 @@ Child：
 - 纯色清屏；
 - 空闲无 GPU 提交。
 
-验收：窗口打开，无输入时 GUI 线程 CPU 为 0。
+验收：窗口打开；失焦或光标不闪烁时 GUI 线程 CPU 为 0。
 
 ### 阶段 1：DirectWrite 文本
 
@@ -796,7 +796,7 @@ Child：
 - UIA TextPattern/ScrollPattern/事件自动化；
 - 60 秒空闲 CPU 测量。
 
-验收：无输入时 CPU 0%，无持续 GPU 提交；device lost 可恢复。
+验收：失焦或光标不闪烁时 CPU 0%，无持续 GPU 提交；聚焦闪烁允许 530ms 定时器；device lost 可恢复。
 
 ---
 
@@ -808,7 +808,7 @@ Child：
 4. 字体 fallback 先使用显式列表，再使用 DWrite 自动 fallback，不手写 codepoint fallback；
 5. TSF IME 工作；
 6. 垂直滚动条支持拖拽、轨道点击、滚轮；
-7. 空闲时 GUI 线程完全阻塞，无轮询、无持续 Present；
+7. 失焦或光标不闪烁时 GUI 线程完全阻塞，无轮询、无持续 Present；
 8. 只有新消息、damage 或显式动画 timer 才唤醒；
 9. WARP golden、DComp、IME 硬件测试通过；
 10. UIA TextPattern/ScrollPattern/事件可自动化验证；

@@ -94,7 +94,7 @@ struct text_options
 | `sixel_cache_bytes` | 仅屏幕内 | 不缓存屏幕外图像；无离屏缓存预算 |
 | `sixel_palette_mode` | RGB/HLS | 当前支持 |
 | `atlas_size` | 1024 | glyph/color atlas |
-| `idle_render_policy` | event | 事件阻塞，不是合成器轮询 |
+| `idle_render_policy` | event | 事件阻塞；失焦或光标不闪烁时 CPU 0，聚焦闪烁允许 530ms timer |
 | `text_antialias` | grayscale | DirectWrite 设置 |
 
 Sixel 缓存规则：

@@ -21,6 +21,7 @@
 - D3D12 + DXGI composition swapchain + DirectComposition；
 - DirectWrite fallback、glyph atlas、颜色 emoji、SGR 16/256/RGB、粗斜体/下划线/反显/删除线；
 - 光标形状/闪烁；
+- 空闲渲染改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁时允许 530ms 定时器；
 - 垂直滚动条：hover、thumb 拖拽、轨道点击、滚轮、键盘滚动；
 - 线性文本选择、Shift 扩展、双击选词、三击选行、边缘自动滚动；
 - 纯文本剪贴板、右键粘贴、VT SGR mouse；
@@ -36,25 +37,22 @@
 
 ## 关键未完成
 
-1. **空闲渲染不满足硬要求**：`render_worker` 仍使用
-   `DCompositionWaitForCompositorClock`，不是零 CPU 的 damage/stop 事件阻塞。
-2. **TSF 范围决定**：不实现 `ITextStoreACP`；复杂 IME/TIP、日文/韩文未验收。
-3. **D3D12 device lost 未处理**：无 device removed 检测和资源重建。
-4. **Sixel 性能**：图像每次绘制重新写 color atlas/上传纹理。
-5. **UIA 自动化/屏幕阅读器验收**：仅手动 PowerShell UIA 验证；Invoke 明确不做。
-6. **CJK/combining/宽字符覆盖**：B6/B8/B9 仍未按用户要求验收。
-7. **主题/配置**：无配置文件加载、无亮暗主题切换/高对比度。
-8. **checklist 大量未验收**，不能等同于 WT/conhost 行为一致。
+1. **TSF 范围决定**：不实现 `ITextStoreACP`；复杂 IME/TIP、日文/韩文未验收。
+2. **D3D12 device lost 未处理**：无 device removed 检测和资源重建。
+3. **Sixel 性能**：图像每次绘制重新写 color atlas/上传纹理。
+4. **UIA 自动化/屏幕阅读器验收**：仅手动 PowerShell UIA 验证；Invoke 明确不做。
+5. **CJK/combining/宽字符覆盖**：B6/B8/B9 仍未按用户要求验收。
+6. **主题/配置**：无配置文件加载、无亮暗主题切换/高对比度。
+7. **checklist 大量未验收**，不能等同于 WT/conhost 行为一致。
 
 ## 下一步
 
 按 [0018-gap-analysis.md](0018-gap-analysis.md) 的顺序：
 
-1. 空闲渲染；
-2. device lost；
-3. Sixel 缓存；
-4. Mica/Acrylic/透明度手动验收；
-5. 配置项对象；
-6. UIA 自动化；
-7. 宽度/CJK/grapheme；
-8. checklist。
+1. device lost；
+2. Sixel 缓存；
+3. Mica/Acrylic/透明度手动验收；
+4. 配置项对象；
+5. UIA 自动化；
+6. 宽度/CJK/grapheme；
+7. checklist。

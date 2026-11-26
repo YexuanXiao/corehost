@@ -16,7 +16,7 @@
 
 > 2026-11-27 更新：当前完整缺口以 [0018-gap-analysis.md](0018-gap-analysis.md) 为准。
 > 本文下方“渲染改为事件驱动”“Sixel 已完成”等描述中，事件驱动部分不准确：
-> `render_worker` 仍由 `DCompositionWaitForCompositorClock` 驱动，空闲零 CPU 未完成。
+> `render_worker` 已改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁允许 530ms 定时器。
 > UIA TextPattern/ScrollPattern/事件、线性选择、UIA provider 已加入；Sixel 性能问题仍存在。
 
 ## 当前状态
@@ -39,7 +39,7 @@
 
 已知缺口（2026-11-27）：
 
-- 空闲零 CPU 未完成：`render_worker` 仍由合成器时钟唤醒；
+- TSF 不实现 `ITextStoreACP`（决定记录在 0015），复杂 IME/TIP 未验收；
 - TSF 不实现 `ITextStoreACP`（决定记录在 0015），复杂 IME/TIP 未验收；
 - D3D12 device lost 无恢复；
 - Sixel 图像没有持久缓存；
@@ -53,7 +53,7 @@
 - 配置项候选清单见 [0019-config-inventory.md](0019-config-inventory.md)；
 
 - `window_config`、DWM 外观、选择/自动滚动、hyperlink、bell、Sixel 已完成基础路径；
-- 渲染空闲未完成；
+- 渲染空闲已完成（验收口径见 0018）；
 - IME 复审仅完成 TSF 基础路径；
 - 配置文件和主题切换仍不做；
 - UIA 是计划外新增能力，见 [0018-gap-analysis.md](0018-gap-analysis.md)。
@@ -136,14 +136,14 @@ struct window_config
 
 验收：`\x1bPq...` sixel 图片显示，滚动/resize/销毁正确。
 
-### 7. 渲染空闲（未完成）
+### 7. 渲染空闲（已完成）
 
 - 渲染线程不再固定等 `DCompositionWaitForCompositorClock`；
 - 增加 wake event；
 - 无 damage、无动画、无光标闪烁时阻塞在 wake event；
 - 有 damage 时主动唤醒并 present；
 - 光标闪烁使用 timer，只在需要时唤醒；
-- 目标：窗口无消息时 GPU 不提交、线程 CPU 0%。
+- 目标：失焦或光标不闪烁时 GPU 不提交、线程 CPU 0%；聚焦闪烁时允许 530ms 定时器。
 
 ### 8. IME 复审（部分完成）
 
@@ -173,7 +173,7 @@ struct window_config
 - 选择边缘自动滚动已实现。
 - hyperlink hover 下划线、Ctrl+click 打开已实现；hover 诊断日志确认命中。
 - BEL 解析、state 计数、`FlashWindowEx` visual bell 已实现。
-- 渲染改为事件驱动的目标已提出，但当前 `render_worker` 仍使用 `DCompositionWaitForCompositorClock`，尚未完成。
+- 渲染已改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁允许 530ms 定时器。
 - 当前测试：`build-ninja` 12/12 通过。
 - Sixel 解码、image fragment、color atlas RGBA quad 已完成；64x64 彩色 Sixel 实测显示。
 - 已知性能问题：image 每次 render 都会重新写入 color atlas/上传纹理，后续需缓存。
