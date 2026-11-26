@@ -97,21 +97,17 @@ class window_host final
                 continue;
             }
 
-            bool quit = false;
-            while (::PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE) != FALSE)
-            {
-                if (message.message == WM_QUIT)
-                {
-                    quit = true;
-                    break;
-                }
-                ::TranslateMessage(&message);
-                ::DispatchMessageW(&message);
-            }
-            if (quit)
+            const auto result = ::GetMessageW(&message, nullptr, 0, 0);
+            if (result == 0)
             {
                 break;
             }
+            if (result == -1)
+            {
+                win32::throw_last_error();
+            }
+            ::TranslateMessage(&message);
+            ::DispatchMessageW(&message);
         }
 
         worker_.stop();
