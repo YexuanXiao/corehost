@@ -365,6 +365,7 @@ class render_worker final
 
     void build_quads()
     {
+        has_blinking_text_ = false;
         atlas_.begin_frame();
         color_atlas_.begin_frame();
         quads_.clear();
@@ -596,6 +597,15 @@ class render_worker final
                         }
                     }
                     continue;
+                }
+
+                if (config_.text.blink_enable && has_attribute(style, screen::text_style_attribute::blink))
+                {
+                    has_blinking_text_ = true;
+                    if (!text_blink_on_)
+                    {
+                        continue;
+                    }
                 }
 
                 std::u16string_view text;
@@ -923,6 +933,13 @@ class render_worker final
     DWORD wait_timeout() const noexcept
     {
         DWORD timeout = INFINITE;
+        if (config_.text.blink_enable && config_.cursor.blink_rate != 0 && has_blinking_text_ && focused_ &&
+            !config_.accessibility.reduce_motion)
+        {
+            const auto interval = std::max<std::uint64_t>(1, config_.cursor.blink_rate);
+            const auto phase = static_cast<DWORD>(::GetTickCount64() % interval);
+            timeout = std::min<DWORD>(timeout, static_cast<DWORD>(interval - phase));
+        }
         if (config_.cursor.blink && config_.cursor.blink_rate != 0 && !config_.accessibility.reduce_motion && focused_ && cursor_.visible && cursor_.blinking &&
             !selection_.active &&
             composition_.empty() &&
@@ -1111,6 +1128,11 @@ class render_worker final
             const bool blink_on = !config_.cursor.blink || config_.cursor.blink_rate == 0 ||
                                   (focused && ((now / blink_interval) % 2 == 0));
             const bool blink_changed = blink_on != blink_on_;
+            const auto text_blink_interval = std::max<std::uint64_t>(1, config_.cursor.blink_rate);
+            const bool text_blink_on =
+                !config_.text.blink_enable || config_.cursor.blink_rate == 0 ||
+                (focused && ((now / text_blink_interval) % 2 == 0));
+            const bool text_blink_changed = text_blink_on != text_blink_on_;
 
             cursor_ = cursor;
             selection_ = selection;
@@ -1136,6 +1158,7 @@ class render_worker final
             }
             scrollbar_animation_active_ = scrollbar_animating;
             blink_on_ = blink_on;
+            text_blink_on_ = text_blink_on;
             draw_cursor_ = cursor_.visible && focused_ && scroll_pixels_ == 0.0 && !selection_.active && composition_.empty() &&
                            (cursor_.blinking ? blink_on_ : true);
             cursor_dirty = false;
@@ -1146,7 +1169,7 @@ class render_worker final
                 client_height_px_ = static_cast<float>(height);
 
                 if (changed || cursor_changed || selection_changed || hover_changed || scrollbar_animating ||
-                    focus_changed || blink_changed || redraw_requested || dpi_changed)
+                    focus_changed || blink_changed || text_blink_changed || redraw_requested || dpi_changed)
                 {
                     if (scroll_changed)
                     {
@@ -1273,6 +1296,8 @@ class render_worker final
     bool scrollbar_hovered_{};
     float scrollbar_expand_{};
     bool blink_on_{true};
+    bool text_blink_on_{true};
+    bool has_blinking_text_{};
     bool draw_cursor_{true};
     screen::grapheme_store graphemes_;
     std::vector<d3d12ui::text_quad> quads_;

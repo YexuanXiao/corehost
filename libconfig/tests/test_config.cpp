@@ -94,7 +94,7 @@ int main()
         config.mouse.selection_copy_on_select || config.mouse.selection_trim_block || config.mouse.middle_click_paste ||
         config.title.force_corehost || config.accessibility.reduce_motion ||
         config.window_behavior.launch != launch_mode::automatic ||
-        config.window_behavior.blur != backdrop_mode::none || !config.graphics.sixel || config.text.bold_is_bright || config.text.underline != text_underline_style::single ||
+        config.window_behavior.blur != backdrop_mode::none || !config.graphics.sixel || config.text.bold_is_bright || config.text.blink_enable || config.text.underline != text_underline_style::single ||
         config.text.strikethrough != text_strikethrough_style::single ||
         config.bell.mode != bell_mode_full::visual)
     {

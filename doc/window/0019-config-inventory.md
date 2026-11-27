@@ -165,7 +165,7 @@ inline constexpr bool default_alpha_correction = true;
 | `copy_ending` | `window_config` | CRLF | 复制行尾 CRLF/LF |
 | `text.bold_is_bright` | `corehost_config.text` | false | SGR bold + indexed 0–7 映射到 8–15 |
 | `graphics.sixel` | `corehost_config.graphics` | true | 关闭后不渲染 Sixel 图像 |
-| `text.underline/strikethrough` | `corehost_config.text` | single/single | single/double/dotted/dashed；curl 近似实线 |
+| `text.blink_enable` | `corehost_config.text` | false | 允许 SGR 5/6 文字闪烁 |\n| `text.underline/strikethrough` | `corehost_config.text` | single/single | single/double/dotted/dashed；curl 近似实线 |
 | `color` | `corehost_config.color` | dark/Campbell | 调色板、cursor、selection 颜色已接入；light 已定义 |
 | `background.opacity` | `corehost_config.background` | 1.0 | 已接入 layered opacity |
 | `window.shadow/always_on_top/launch/allow_move_resize` | `corehost_config.window_behavior` | true/false/automatic/true | shadow、topmost、maximized/fullscreen、禁止移动 |
