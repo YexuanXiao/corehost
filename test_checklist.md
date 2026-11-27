@@ -119,6 +119,8 @@ review 目标：修复根因，不降低性能。
 - [-] B20 focus in/out 报告：`?1004` 已转发；原版 conhost 对照未观察到 FOCUS 事件，非 corehost 回归。
 - [-] B21 mouse tracking 模式
 - [x] B22 窗口 resize 后重绘
+  - IME 输入不存在命令后连续 Enter、缩窄窗口，prompt 行尾空白不再生成下一行；
+  - 修复：VT 的 wrap 标到换行前一行，wrapped 标到续行，resize 重新生成两个标志。
   - 同一窗口 80 行输出后放大窗口，UIA 文本长度和 RESIZE-READY 保持；
   - 未保留截图，仅记录 UIA 前后长度一致。
 
