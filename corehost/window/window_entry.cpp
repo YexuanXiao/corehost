@@ -15,11 +15,13 @@ namespace corehost::window
 {
 
 void window_entry(win32::wcstring_view title, std::wstring client_command_line,
-                  const console_config &console_config, const window_config &window_config)
+                  const corehost_config &config)
 {
     auto server = condrv::create_server_handle();
     win32::srwlock console_mutex;
     // The console must use the same grid size as the first window frame.
+    const auto &console_config = config.console;
+    const auto &window_config = config.window;
     const auto initial_columns = window_config.initial_columns;
     const auto initial_rows = window_config.initial_rows;
     console shared_console{initial_columns, initial_rows, console_config.scrollback_lines};
