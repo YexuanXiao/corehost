@@ -241,6 +241,7 @@ bool window_console_session::handle(coreio::io_msg &message)
         return false;
     }
     case CONSOLE_IO_RAW_READ:
+        LOG2("raw read pending");
         return false;
     case CONSOLE_IO_USER_DEFINED: {
         const auto *header = reinterpret_cast<const CONSOLE_MSG_HEADER *>(message.body);
