@@ -1111,7 +1111,10 @@ class window_host final
                 break;
             }
             LOG2("bell flash");
-            FLASHWINFO flash{sizeof(FLASHWINFO), hwnd, FLASHW_TRAY | FLASHW_TIMERNOFG, 1, 0};
+            const auto flash_flags = self->config_.bell.mode == bell_mode_full::window
+                                         ? (FLASHW_ALL | FLASHW_TIMERNOFG)
+                                         : (FLASHW_TRAY | FLASHW_TIMERNOFG);
+            FLASHWINFO flash{sizeof(FLASHWINFO), hwnd, flash_flags, 1, 0};
             (void)::FlashWindowEx(&flash);
             return 0;
         }
