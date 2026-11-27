@@ -239,9 +239,9 @@ class window_host final
             LOG2("window backdrop mode=%d hr=%08x", backdrop, static_cast<unsigned>(result));
         }
 
-        if (window_config_.opacity < 255)
+        if (const auto opacity = static_cast<int>(std::lround(std::clamp(background_config_.opacity, 0.0f, 1.0f) * 255.0f)); opacity < 255)
         {
-            (void)::SetLayeredWindowAttributes(window, 0, window_config_.opacity, LWA_ALPHA);
+            (void)::SetLayeredWindowAttributes(window, 0, static_cast<BYTE>(opacity), LWA_ALPHA);
         }
     }
 
@@ -285,7 +285,7 @@ class window_host final
         const auto initial_height = initial_rect.bottom - initial_rect.top;
 
         auto ex_style = static_cast<DWORD>(WS_EX_NOREDIRECTIONBITMAP);
-        if (window_config_.opacity < 255)
+        if (const auto opacity = static_cast<int>(std::lround(std::clamp(background_config_.opacity, 0.0f, 1.0f) * 255.0f)); opacity < 255)
         {
             ex_style |= WS_EX_LAYERED;
         }

@@ -1060,7 +1060,7 @@ class render_worker final
                 }
             }
 
-            if (title_changed)
+            if (title_changed && !title_.force_corehost)
             {
                 ::SetWindowTextW(window_, window_title.c_str());
             }
