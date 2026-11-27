@@ -570,8 +570,18 @@ class window_host final
                 std::min(virtual_row, console_.virtual_rows() - 1)};
     }
 
+    [[nodiscard]] screen::selection_mode selection_mode() const noexcept
+    {
+        return mouse_config_.selection_mode == mouse_selection_mode::block ? screen::selection_mode::block
+                                                                            : screen::selection_mode::text;
+    }
+
     void begin_selection(HWND hwnd, LPARAM lparam)
     {
+        if (mouse_config_.selection_mode == mouse_selection_mode::disable)
+        {
+            return;
+        }
         auto [x, y] = view_cell_at(hwnd, lparam);
         x = console_.snap_selection_column(x, y);
         const auto now = ::GetTickCount64();
@@ -610,13 +620,13 @@ class window_host final
             const auto &selection = console_.selection();
             selection_anchor_x_ = selection.anchor_x;
             selection_anchor_y_ = selection.anchor_y;
-            console_.set_selection(selection_anchor_x_, selection_anchor_y_, x, y);
+            console_.set_selection(selection_anchor_x_, selection_anchor_y_, x, y, selection_mode());
         }
         else
         {
             selection_anchor_x_ = x;
             selection_anchor_y_ = y;
-            console_.set_selection(x, y, x, y);
+            console_.set_selection(x, y, x, y, selection_mode());
         }
         selection_dragging_ = click_count_ == 1 || shift;
         selection_drag_point_ = POINT{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
@@ -634,7 +644,7 @@ class window_host final
         selection_drag_point_ = POINT{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
         auto [x, y] = view_cell_at(hwnd, lparam);
         x = console_.snap_selection_column(x, y);
-        console_.set_selection(selection_anchor_x_, selection_anchor_y_, x, y);
+        console_.set_selection(selection_anchor_x_, selection_anchor_y_, x, y, selection_mode());
         notify_uia_selection();
     }
 
@@ -737,7 +747,7 @@ class window_host final
         const auto y = scroll_up ? 0 : std::max<LONG>(0, client.bottom - 1);
         const auto cell = view_cell_at(hwnd, MAKELPARAM(x, y));
         console_.set_selection(selection_anchor_x_, selection_anchor_y_,
-                               console_.snap_selection_column(cell.first, cell.second), cell.second);
+                               console_.snap_selection_column(cell.first, cell.second), cell.second, selection_mode());
         notify_uia_selection();
         worker_.request_redraw();
     }

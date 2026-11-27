@@ -141,7 +141,7 @@ inline constexpr bool default_alpha_correction = true;
 | `mouse_wheel_lines` | `window_config` | 3 | 滚轮行数 |
 | `right_click` | `window_config` | automatic | automatic/copy/paste/menu/none |
 | `cursor_shape` | `window_config` | automatic | 覆盖 VT/应用；automatic 保留应用控制；double/hollow/vintage 当前近似映射 |
-| `scrollbar` | `window_config` | auto_hide | always/auto_hide |\n| `mouse.selection_double_click/triple_click` | `corehost_config.mouse` | true | 双击/三击选择开关 |\n| `mouse.shift_capture` | `corehost_config.mouse` | shift | shift/always/never 绕过 VT mouse |
+| `scrollbar` | `window_config` | auto_hide | always/auto_hide |\n| `mouse.selection_double_click/triple_click` | `corehost_config.mouse` | true | 双击/三击选择开关 |\n| `mouse.shift_capture` | `corehost_config.mouse` | shift | shift/always/never 绕过 VT mouse |\n| `mouse.selection_mode` | `corehost_config.mouse` | line | line/block/disable |
 | `copy_ending` | `console_config` | CRLF | 复制行尾 CRLF/LF |
 | `color` | `corehost_config.color` | dark/Campbell | 调色板、cursor、selection 颜色已接入；light 已定义 |
 | `background.opacity` | `corehost_config.background` | 1.0 | 已接入 layered opacity |
