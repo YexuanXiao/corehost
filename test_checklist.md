@@ -206,7 +206,8 @@ ative_corehost_paste3.png`。
   - 80 组 `水A` 跨 3 行折行，F3-END/READY 正常；证据 `C:\\1\\wt_b11_b14_f3.png`。
 - [x] F4 alternate-screen 应用反复进出
   - 20 次进入/退出 alternate screen，主屏 F4-MAIN-READY 恢复。
-- [ ] F5 深层嵌套 shell + 退出
+- [x] F5 深层嵌套 shell + 退出
+  - cmd -> cmd -> cmd 输出 DEEP-NESTED，pause 正常。
 - [x] F6 关闭窗口时无崩溃/无残留进程
   - WM_CLOSE 后无 corehostw 残留。
 
