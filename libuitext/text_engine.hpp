@@ -9,6 +9,7 @@
 #include <dwrite_3.h>
 #include <winrt/base.h>
 
+#include <bit>
 #include <cassert>
 #include <array>
 #include <cstdint>
@@ -345,11 +346,8 @@ class text_engine final
                                                                  const std::array<font_axis, 5> &axes,
                                                                  IDWriteFontFallback *fallback)
     {
-        std::array<DWRITE_FONT_AXIS_VALUE, 5> dwrite_axes{};
-        for (std::size_t i = 0; i < axes.size(); ++i)
-        {
-            dwrite_axes[i] = DWRITE_FONT_AXIS_VALUE{static_cast<DWRITE_FONT_AXIS_TAG>(axes[i].tag), axes[i].value};
-        }
+        static_assert(sizeof(font_axis) == sizeof(DWRITE_FONT_AXIS_VALUE));
+        const auto dwrite_axes = std::bit_cast<std::array<DWRITE_FONT_AXIS_VALUE, 5>>(axes);
         winrt::com_ptr<IDWriteTextFormat3> format;
         winrt::check_hresult(factory6_->CreateTextFormat(
             family.family.c_str(), collection_.get(), dwrite_axes.data(),
