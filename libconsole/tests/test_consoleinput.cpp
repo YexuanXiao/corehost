@@ -33,6 +33,19 @@ int main()
         return EXIT_FAILURE;
     }
 
+    line_editor malformed_cluster;
+    const char16_t malformed_units[]{0xFFFD, 0xDC3B, 0x200D, 0x2744, 0xFE0F};
+    malformed_cluster.append(std::u16string_view{malformed_units, std::size(malformed_units)});
+    for (int i = 0; i < 4; ++i)
+    {
+        malformed_cluster.backspace();
+    }
+    if (!malformed_cluster.text().empty())
+    {
+        std::fprintf(stderr, "malformed surrogate cluster backspace failed\n");
+        return EXIT_FAILURE;
+    }
+
     line_editor codepoints;
     codepoints.append(u"e\u0301");
     codepoints.backspace();

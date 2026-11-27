@@ -99,7 +99,14 @@ class line_editor final
     {
         if (cursor_ == 0)
             return change::none;
-        const auto begin = previous(cursor_);
+        auto begin = previous(cursor_);
+        // A broken high surrogate may already have been normalized to U+FFFD
+        // by the client. Remove that replacement together with its low half so
+        // backspace does not need an extra key press.
+        if (cursor_ >= 2 && is_low(text_[cursor_ - 1]) && text_[cursor_ - 2] == u'\uFFFD')
+        {
+            begin = cursor_ - 2;
+        }
         text_.erase(begin, cursor_ - begin);
         cursor_ = begin;
         return change::redraw;
