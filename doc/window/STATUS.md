@@ -34,6 +34,7 @@
 - 完整配置 schema `corehost_config` 已建立并由 `window_entry` 接收；窗口/渲染层始终传递完整 config 对象，未实现项仅存储；
 - `config.hpp` 只依赖 libconfig 和标准库；颜色/字体类型已移入 libconfig；
 - `screen::text_measurement` 统一在 libconfig，console 直接使用；
+- 原生客户端只允许继承 std handles，禁止 `CONIN$`，见 `0020-native-client-testing.md`；
 - 工作目录短路径不加 `\\\\?\\` 前缀，修复 cmd.exe UNC 警告；
 - clipboard I/O 使用 RAII 对象；
 - 配置决定/接入：scrollback 默认 3000、启动 120x30（console_config）、最小 36x2、candidate_offset_cells 默认 2、hyperlink modifier、字号/fallback/可变字体轴（完整 font_config，DirectWrite typographic collection）、光标闪烁、选择自动滚动、鼠标滚轮、右击、复制换行、光标样式覆盖、dark/light 调色板、窗口 shadow/opacity/topmost/launch（含 fullscreen）、title.force_corehost、reduce_motion、color emoji、ligatures、滚动条显示模式、UIA/TSF 开关（完整 accessibility/ime 分组）和剪贴板默认 allow；bell 归 `corehost_config.bell`（visual/auditory 已接入）；Sixel 不设尺寸上限且只缓存屏幕内图像；
