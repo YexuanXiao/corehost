@@ -162,7 +162,8 @@ ative_corehost_paste3.png`。
 - [-] C11 控制台窗口大小变化事件
   - 窗口 resize 后 console log 显示 120x30 -> 132x34；
   - PowerShell ReadConsoleInput 未观察到 WINDOW_BUFFER_SIZE_EVENT，测试客户端限制，暂不判定。
-- [ ] C12 ReadConsole 行编辑
+- [x] C12 ReadConsole 行编辑
+  - cmd `set /p` 中 abc + Home + x + End + y + Backspace + Enter 得到 `xabc`。
 
 ## D. 控制台行为
 
