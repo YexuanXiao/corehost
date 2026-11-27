@@ -1292,6 +1292,14 @@ class window_host final
         {
             if (self->selection_dragging_)
             {
+                if (self->mouse_config_.selection_copy_on_select)
+                {
+                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                    if (self->console_.has_selection())
+                    {
+                        self->copy_selection(hwnd);
+                    }
+                }
                 self->selection_dragging_ = false;
                 ::KillTimer(hwnd, selection_scroll_timer);
                 ::ReleaseCapture();

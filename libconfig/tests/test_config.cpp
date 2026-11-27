@@ -89,6 +89,7 @@ int main()
         config.mouse.right_click != right_click_action::automatic || config.cursor.style != cursor_style::automatic ||
         !config.mouse.selection_double_click || !config.mouse.selection_triple_click ||
         config.mouse.shift_capture != mouse_shift_capture::shift ||
+        config.mouse.selection_copy_on_select ||
         config.title.force_corehost || config.accessibility.reduce_motion ||
         config.window_behavior.launch != launch_mode::automatic ||
         config.window_behavior.blur != backdrop_mode::none ||
