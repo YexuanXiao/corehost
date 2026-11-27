@@ -33,6 +33,8 @@ int main()
         config.window.copy_ending != copy_line_ending::crlf || config.window.font_fallbacks.count != 1 ||
         config.window.font_fallbacks.entries[0].family != L"Cascadia Mono" ||
         config.window.mouse_wheel_lines != 3 || config.window.right_click != right_click_action::automatic ||
+        config.mouse.scroll_multiplier != 3 || config.mouse.right_click != right_click_action::automatic ||
+        !config.cursor.blink || config.cursor.blink_rate != 530 ||
         config.window.cursor_shape != cursor_style::automatic)
     {
         std::fprintf(stderr, "window defaults mismatch\n");

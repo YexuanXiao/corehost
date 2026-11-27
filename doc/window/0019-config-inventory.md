@@ -27,7 +27,7 @@
 
 - dark：Campbell；
 - light：One Half Light，indexed white 改为 `B3B3B3`，bright white 改为 `DBDBDB`；
-- 主题模式默认 `auto_mode`。
+- 主题模式默认 `dark`。
 
 默认字体：只包含 `Cascadia Mono` 一项，其他字符由 DirectWrite 系统 fallback 处理。
 
@@ -145,15 +145,15 @@ inline constexpr bool default_alpha_correction = true;
 | `font.color_emoji` | `corehost_config.font` | true | 关闭后走单色 glyph 路径 |
 | `font.ligatures` | `corehost_config.font` | false | 开启标准连字 |
 | `font_fallbacks` | `window_config` | 1 项 Cascadia Mono | 兼容字段；实际使用 `corehost_config.font.family_fallback_list` |
-| `cursor_blink_ms` | `window_config` | 530 | 0 表示不闪 |
+| `cursor.blink/blink_rate` | `corehost_config.cursor` | true/530 | blink=false 或 rate=0 不闪 |
 | `selection_auto_scroll_interval_ms` | `window_config` | 40 | 边缘自动滚动 |
 | `selection_auto_scroll_edge_rows` | `window_config` | 1 | 边缘行数 |
 | `uia_text_changed_events` | `window_config` | true | 文本变化事件开关 |
 | `uia_selection_events` | `window_config` | true | 选择变化事件开关 |
 | `uia_enable` | `corehost_config.accessibility` | true | UIA provider 总开关 |
 | `tsf_enabled` | `corehost_config.ime` | true | TSF 总开关 |
-| `mouse_wheel_lines` | `window_config` | 3 | 滚轮行数 |
-| `right_click` | `window_config` | automatic | automatic/copy/paste/menu/none |
+| `mouse.scroll_multiplier` | `corehost_config.mouse` | 3 | 滚轮行数 |
+| `right_click` | `corehost_config.mouse` | automatic | automatic/copy/paste/menu/none |
 | `cursor_shape` | `window_config` | automatic | 覆盖 VT/应用；automatic 保留应用控制；double/hollow/vintage 当前近似映射 |
 | `scrollbar` | `window_config` | auto_hide | always/auto_hide |
 | `mouse.selection_double_click/triple_click` | `corehost_config.mouse` | true | 双击/三击选择开关 |

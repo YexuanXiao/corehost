@@ -200,7 +200,7 @@ struct mouse_config final
 {
     bool hide_while_typing{};
     mouse_shift_capture shift_capture{mouse_shift_capture::shift};
-    int scroll_multiplier{1};
+    int scroll_multiplier{static_cast<int>(default_mouse_wheel_lines)};
     mouse_selection_mode selection_mode{mouse_selection_mode::line};
     bool selection_copy_on_select{};
     bool selection_double_click{true};

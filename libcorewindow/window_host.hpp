@@ -1147,7 +1147,7 @@ class window_host final
             }
 
             self->console_.scroll_by(static_cast<double>(delta) *
-                                     static_cast<double>(self->config_.window.mouse_wheel_lines) /
+                                     static_cast<double>(self->config_.mouse.scroll_multiplier) /
                                      static_cast<double>(WHEEL_DELTA));
             return 0;
         }
@@ -1240,7 +1240,7 @@ class window_host final
                 self->push_mouse(lparam, 0, 0);
                 return 0;
             }
-            if (self->config_.window.right_click == right_click_action::copy)
+            if (self->config_.mouse.right_click == right_click_action::copy)
             {
                 if (self->console_.has_selection())
                 {
@@ -1250,7 +1250,7 @@ class window_host final
                 }
                 return 0;
             }
-            if (self->config_.window.right_click == right_click_action::paste)
+            if (self->config_.mouse.right_click == right_click_action::paste)
             {
                 self->paste_clipboard(hwnd);
                 return 0;
