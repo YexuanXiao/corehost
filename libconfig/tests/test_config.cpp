@@ -66,7 +66,8 @@ int main()
     if (config.font.family_fallback_list.count != 1 ||
         config.font.family_fallback_list.entries[0].family != L"Cascadia Mono" ||
         config.font.size != 16.0f || config.mouse.selection_mode != mouse_selection_mode::line ||
-        config.mouse.right_click != right_click_action::automatic || config.cursor.style != cursor_style::automatic)
+        config.mouse.right_click != right_click_action::automatic || config.cursor.style != cursor_style::automatic ||
+        config.title.force_corehost || config.accessibility.reduce_motion)
     {
         std::fprintf(stderr, "font/mouse defaults mismatch\n");
         return EXIT_FAILURE;

@@ -44,7 +44,7 @@ class window_host final
           console_config_{config.console}, window_config_{config.window}, clipboard_config_{config.clipboard},
           background_config_{config.background}, window_behavior_config_{config.window_behavior},
           title_config_{config.title}, damage_event_{damage_event},
-          worker_{console, console_mutex, window_config_, config.color, damage_event_},
+          worker_{console, console_mutex, window_config_, config.color, config.title, config.accessibility, damage_event_},
           window_{create_window()},
           tsf_{window_, tsf_host::callbacks{
                             .context = this,
@@ -270,7 +270,8 @@ class window_host final
         {
             ex_style |= WS_EX_LAYERED;
         }
-        const auto window = ::CreateWindowExW(ex_style, class_name, title_.c_str(),
+        const auto window = ::CreateWindowExW(ex_style, class_name,
+                                              (title_config_.force_corehost ? L"corehost" : title_.c_str()),
                                               WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, initial_width,
                                               initial_height, nullptr, nullptr, instance, this);
         if (window == nullptr)
