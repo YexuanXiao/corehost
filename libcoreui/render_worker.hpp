@@ -580,7 +580,7 @@ class render_worker final
                     text = std::u16string_view{scalar.data(), scalar.size()};
                 }
 
-                if (cell.has_cluster())
+                if (font_.color_emoji && cell.has_cluster())
                 {
                     const auto color_scale = 1.0f / static_cast<float>(color_atlas_.size());
                     for (const auto &region : color_atlas_.find_or_add(text))

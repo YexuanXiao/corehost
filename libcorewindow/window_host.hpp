@@ -42,7 +42,7 @@ class window_host final
                 win32::handle_view client_process, const corehost_config &config, win32::handle_view damage_event)
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
           console_config_{config.console}, window_config_{config.window}, clipboard_config_{config.clipboard},
-          background_config_{config.background}, window_behavior_config_{config.window_behavior},
+          background_config_{config.background}, color_config_{config.color}, window_behavior_config_{config.window_behavior},
           title_config_{config.title}, damage_event_{damage_event},
           worker_{console, console_mutex, window_config_, config.color, config.font, config.title, config.accessibility,
                  damage_event_},
@@ -223,7 +223,9 @@ class window_host final
 
     void apply_appearance(HWND window)
     {
-        const BOOL dark = window_config_.dark_mode ? TRUE : FALSE;
+        const bool dark_mode = color_config_.mode == theme_mode::dark ||
+                               (color_config_.mode == theme_mode::auto_mode && window_config_.dark_mode);
+        const BOOL dark = dark_mode ? TRUE : FALSE;
         (void)::DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
 
         if (!window_behavior_config_.shadow)
@@ -299,6 +301,8 @@ class window_host final
         }
 
         apply_appearance(window);
+        ::SetWindowPos(window, window_behavior_config_.always_on_top ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                       SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         const auto window_dpi = std::max<UINT>(96, ::GetDpiForWindow(window));
         if (window_dpi != initial_dpi)
         {
@@ -1479,6 +1483,7 @@ class window_host final
     win32::srwlock &console_mutex_;
     const clipboard_config &clipboard_config_;
     const background_config &background_config_;
+    const color_config &color_config_;
     const window_behavior_config &window_behavior_config_;
     const title_config &title_config_;
     winrt::com_ptr<IRawElementProviderSimple> uia_provider_;
