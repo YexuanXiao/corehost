@@ -675,7 +675,7 @@ class d3d12_window_renderer final
         queue_->ExecuteCommandLists(1, lists);
         DXGI_PRESENT_PARAMETERS present_parameters{};
         RECT dirty_rect = dirty_rect_;
-        const bool use_dirty_rect = has_dirty_rect_ && dirty_rect.left < dirty_rect.right &&
+        const bool use_dirty_rect = present_dirty_supported_ && has_dirty_rect_ && dirty_rect.left < dirty_rect.right &&
                                     dirty_rect.top < dirty_rect.bottom;
         if (use_dirty_rect)
         {
@@ -685,7 +685,8 @@ class d3d12_window_renderer final
         auto present_result = swapchain_->Present1(1, 0, &present_parameters);
         if (FAILED(present_result) && use_dirty_rect)
         {
-            LOG2("Present1 dirty rect failed hr=%08x; retry full", static_cast<unsigned>(present_result));
+            LOG2("Present1 dirty rect failed hr=%08x; disable dirty rects", static_cast<unsigned>(present_result));
+            present_dirty_supported_ = false;
             present_parameters = {};
             present_result = swapchain_->Present1(1, 0, &present_parameters);
         }
@@ -886,6 +887,7 @@ class d3d12_window_renderer final
     bool initialized_{};
     RECT dirty_rect_{};
     bool has_dirty_rect_{};
+    bool present_dirty_supported_{true};
     bool buffer_initialized_[2]{};
 
     winrt::com_ptr<ID3D12Device> device_;
