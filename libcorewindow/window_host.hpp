@@ -44,7 +44,8 @@ class window_host final
           console_config_{config.console}, window_config_{config.window}, clipboard_config_{config.clipboard},
           background_config_{config.background}, window_behavior_config_{config.window_behavior},
           title_config_{config.title}, damage_event_{damage_event},
-          worker_{console, console_mutex, window_config_, config.color, config.title, config.accessibility, damage_event_},
+          worker_{console, console_mutex, window_config_, config.color, config.font, config.title, config.accessibility,
+                 damage_event_},
           window_{create_window()},
           tsf_{window_, tsf_host::callbacks{
                             .context = this,

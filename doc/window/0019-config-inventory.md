@@ -130,7 +130,7 @@ inline constexpr bool default_alpha_correction = true;
 | `candidate_offset_cells` | `window_config` | 2 | TSF `GetTextExt` 按 cell 计算 |
 | `hyperlink` | `window_config` | control | Ctrl/Alt/Shift/none 可配置 |
 | `font_size_dip` | `window_config` | 16.0 | 同时用于窗口度量和 renderer |
-| `font_fallbacks` | `window_config` | 1 项 Cascadia Mono | 最多 12 项，owning wstring + Unicode range |
+| `font.color_emoji` | `corehost_config.font` | true | 关闭后走单色 glyph 路径 |\n| `font_fallbacks` | `window_config` | 1 项 Cascadia Mono | 最多 12 项，owning wstring + Unicode range |
 | `cursor_blink_ms` | `window_config` | 530 | 0 表示不闪 |
 | `selection_auto_scroll_interval_ms` | `window_config` | 40 | 边缘自动滚动 |
 | `selection_auto_scroll_edge_rows` | `window_config` | 1 | 边缘行数 |
@@ -254,7 +254,7 @@ struct font_fallback_list final
 ### 已建字段、尚未接入行为
 
 - background image；
-- font variation / ligatures / color emoji；
+- font variation / ligatures（color emoji 已接入）；
 - text underline/strikethrough 细节；
 - mouse hide/copy-on-select/double/triple/trim/middle；
 - clipboard format / paste limit / warnings / bracketed paste；

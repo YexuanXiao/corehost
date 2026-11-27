@@ -37,11 +37,11 @@ class render_worker final
 {
   public:
     render_worker(console &console, win32::srwlock &console_mutex, const window_config &config,
-                  const color_config &color, const title_config &title, const accessibility_config &accessibility,
-                  win32::handle_view damage_event)
+                  const color_config &color, const font_config &font, const title_config &title,
+                  const accessibility_config &accessibility, win32::handle_view damage_event)
         : columns{console.buffer().width()}, rows{console.buffer().height()}, console_{console}, console_mutex_{console_mutex},
           config_{config}, scheme_{select_scheme(color, config.dark_mode)}, palette_{make_palette(scheme_)},
-          title_{title}, accessibility_{accessibility},
+          font_{font}, title_{title}, accessibility_{accessibility},
           fallback_families_{make_fallback_families(config_)},
           fallback_count_{make_fallback_count(config_)},
           text_{std::span<const uitext::font_fallback_entry>{fallback_families_}.first(fallback_count_),
@@ -1179,6 +1179,7 @@ class render_worker final
     d3d12ui::d3d12_window_renderer renderer_;
     const window_config &config_;
     const color_scheme &scheme_;
+    const font_config &font_;
     const title_config &title_;
     const accessibility_config &accessibility_;
     console_palette palette_;
