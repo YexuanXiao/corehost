@@ -145,7 +145,10 @@ review 目标：修复根因，不降低性能。
   - raw `[Console]::ReadLine()` 按 conhost 语义 Ctrl+C 不终止，不作为失败。
 - [ ] C7 Ctrl+Z（报告为 KEY=Z CHAR=26 MOD=Control）
   - 收到 VK=0x5A CHAR=0x1A control=0x8。
-- [-] C8 多行粘贴：原生客户端 std handles 读取失败（233），禁止用 CONIN$ 绕过；见 `doc/window/0020-native-client-testing.md`。
+- [ ] C8 多行粘贴
+  - 原生客户端 `native_echo.exe` 使用继承 std handles，粘贴 3 行（末尾带换行）得到 3 条 NATIVE-LINE；
+  - 禁止 CONIN$；证据 `C:\1
+ative_corehost_paste3.png`。
 - [ ] C9 鼠标点击/拖动/滚轮
   - `ReadConsoleInputW` 收到左键 down/up、右键、中键；
   - 滚轮在普通屏幕未转发（代码要求 alternate + VT tracking），未判定；

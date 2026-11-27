@@ -52,10 +52,11 @@ ative_diag.txt`。
 
 ## 验收状态
 
-- C8 多行粘贴：阻塞，原因见上；
+- C8 多行粘贴：已验证通过；原生 `native_echo.exe` 粘贴 3 行（末尾带换行）得到 3 条 `NATIVE-LINE`；
 - 禁止用 `CONIN$` 让测试“通过”；
 - 需要修复 corehostw 的继承句柄路径，或确认客户端启动方式与 conhost 不一致的根因；
-- 修复前 C8 不得标记通过。
+- 证据：`C:\1
+ative_corehost_paste3.png`。
 
 ## conhost / OpenConsole 对比
 
