@@ -17,18 +17,18 @@ review 目标：修复根因，不降低性能。
 | 配置 | 验收区域 | 状态 |
 |---|---|---|
 | `console.text_measurement` console/graphemes/wcswidth | B6/B8 | `[x]` 默认 graphemes 已验证 |
-| `console.initial_cols/rows` | A1/A7 | `[x]` 默认 120x30，Config.Defaults 覆盖 |
+| `console.initial_cols/rows` | A1/A7 | `[x]` 默认 120x30；非默认 80x20 已验证 |
 | `window.scrollback_lines` | D1 | `[-]` 环境限制 |
 | `window.copy_ending` | C1/C8 | `[-]` |
 | `font.family_fallback_list` + system fallback | A2/B6/B7 | `[x]` 默认 Cascadia Mono + 系统 fallback 已使用 |
-| `font.size` | A2/B22 | `[x]` 默认 16，DPI 缩放改用 config.font.size |
+| `font.size` | A2/B22 | `[x]` 默认 16；非默认 24 已验证，DPI 缩放使用 config.font.size |
 | `font.variation*` normal/bold/italic/bold-italic | B4 | `[-]` 默认轴，未切换轴值 |
 | `font.ligatures` | B4 | `[-]` 默认关闭 |
 | `font.color_emoji` | B7 | `[-]` 默认开启，非 BMP 未测 |
 | `font.antialias` / `turning` / `rendering_mode` | B1-B5 | `[-]` 默认 grayscale |
-| `color.mode` dark/light/auto | B1-B5 | `[x]` 默认 dark，Config.Defaults 覆盖 |
+| `color.mode` dark/light/auto | B1-B5 | `[x]` 默认 dark；light 非默认构建已验证 |
 | `color.*` foreground/background/selection/cursor/hyperlink/scrollbar | B1-B5/C9 | `[-]` |
-| `cursor.shape` | A4/C2 | `[x]` 默认 automatic，Config.Defaults 覆盖 |
+| `cursor.shape` | A4/C2 | `[x]` 默认 automatic；block 非默认构建已验证 |
 | `cursor.blink/blink_rate` | A4 | `[-]` 测试时关闭闪烁 |
 | `scrollbar.visibility` auto_hide/always | B22/C10 | `[-]` |
 | `window.shadow/opacity/blur` | A3 | `[-]` 手动验收 |
@@ -48,12 +48,12 @@ review 目标：修复根因，不降低性能。
 | `clipboard.paste_max_size` | C8 | `[-]` |
 | `clipboard.bracketed_paste` | C8 | `[x]` VT input + 2004 时发送 `ESC[200~`/`201~` |
 | `uia_enable` / UIA events | G1 | `[x]` `Window.UIA` |
-| `ime.tsf_enabled` / `candidate_offset_cells` | G2 | `[x]` 默认 offset=2，已传入 tsf；候选窗位置未人工确认 |
+| `ime.tsf_enabled` / `candidate_offset_cells` | G2 | `[x]` 默认 2；非默认 5 构建已传入 tsf，候选窗位置未人工确认 |
 | `bell.mode` visual/auditory/window/taskbar | G3 | `[-]` |
 | `graphics.sixel` | G4 | `[x]` 默认开启，已做 smoke |
 | `accessibility.reduce_motion` | A4/C10 | `[-]` 默认关闭 |
 | `accessibility.high_contrast` | B1-B5 | `[-]` schema-only |
-| `window.dpi` / resize | B22 | `[-]` （尝试 NtUserForceWindowtoDpiForTest；当前 win32u 无该导出） |
+| `window.dpi` / resize | B22 | `[x]` 96→144 已验证，窗口/字体按 DPI 重新布局 |
 
 ## A. 启动与会话
 
@@ -258,5 +258,7 @@ Windows PowerShell 的 console 输入/输出实现不保证代理对（surrogate
 - `wt_alt.png`：alternate screen 退出后主屏恢复。
 - `wt_mouse_result.txt`：鼠标按键事件。
 - `wt_bracket_result.txt`：bracketed paste 输入序列。
+- `wt_nondefault_cursor.png`：block cursor + light theme + 24px font。
+- `wt_dpi144.png`：DPI 96→144。
 - `wt_keys_result.txt`：键盘事件。
 - `wt_b9_b15.png`：B9/B15/B18。
