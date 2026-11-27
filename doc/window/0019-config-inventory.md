@@ -175,7 +175,7 @@ inline constexpr bool default_alpha_correction = true;
 | `color` | `corehost_config.color` | dark/Campbell | 调色板、cursor、selection 颜色已接入；light 已定义 |
 | `background.opacity` | `corehost_config.background` | 1.0 | 已接入 layered opacity |
 | `window.shadow/always_on_top/launch/allow_move_resize` | `corehost_config.window_behavior` | true/false/automatic/true | shadow、topmost、maximized/fullscreen、禁止移动 |
-| `window.blur` | `corehost_config.window_behavior` | none | none/acrylic/mica |
+| `window.backdrop` | `corehost_config.window` | none | none/acrylic/mica |
 | `window.inherit_working_directory` | `corehost_config.window_behavior` | false | false 使用 USERPROFILE |
 | `title.force_corehost` | `corehost_config.title` | false | 强制窗口标题 |
 | `accessibility.reduce_motion` | `corehost_config.accessibility` | false | 禁用光标/滚动条动画 |
@@ -185,7 +185,7 @@ inline constexpr bool default_alpha_correction = true;
 | `clipboard.paste_max_size` | `corehost_config.clipboard` | 0 | 0=屏幕格子容量；超限拒绝并记录日志 |
 | `bell` | `corehost_config.bell` | visual | visual/window/taskbar 用 `FlashWindowEx`；auditory 用 `MessageBeep` |
 | `palette` | `window_config` | Campbell | 当前默认调色板 |
-| `backdrop/opacity/dark_mode` | `window_config` | none/255/true | DWM 外观 |
+| `opacity/dark_mode` | `window_config` | 255/true | DWM 外观 |
 | `exit_policy` | `window_config` | always_exit | client 退出行为 |
 | `word_separators` | 不配置 | 现有 word_segmenter | 用户确认使用现有默认 |
 | 滚动键语义 | 不配置 | 现有行为 | 用户确认不改 |

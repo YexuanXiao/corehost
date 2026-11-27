@@ -206,7 +206,6 @@ struct text_style_config final
 struct window_behavior_config final
 {
     bool shadow{true};
-    backdrop_mode blur{backdrop_mode::none};
     launch_mode launch{launch_mode::automatic};
     int position_x{};
     int position_y{};
@@ -418,10 +417,5 @@ struct corehost_config final
 };
 
 using config = corehost_config;
-
-[[nodiscard]] constexpr backdrop_mode effective_backdrop(const corehost_config &value) noexcept
-{
-    return value.window.backdrop != backdrop_mode::none ? value.window.backdrop : value.window_behavior.blur;
-}
 
 } // namespace corehost::window
