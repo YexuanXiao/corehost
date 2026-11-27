@@ -43,7 +43,7 @@ class window_host final
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
           console_config_{config.console}, window_config_{config.window}, clipboard_config_{config.clipboard},
           background_config_{config.background}, color_config_{config.color}, window_behavior_config_{config.window_behavior},
-          bell_config_{config.bell},
+          bell_config_{config.bell}, font_config_{config.font},
           title_config_{config.title}, damage_event_{damage_event},
           worker_{console, console_mutex, window_config_, config.color, config.font, config.bell, config.title, config.accessibility,
                  damage_event_},
@@ -191,13 +191,13 @@ class window_host final
         std::size_t count{};
     };
 
-    [[nodiscard]] static resolved_font_families font_families_from_config(const window_config &config) noexcept
+    [[nodiscard]] static resolved_font_families font_families_from_config(const font_config &config) noexcept
     {
         resolved_font_families result;
-        const auto count = std::clamp<std::size_t>(config.font_fallbacks.count, 1, max_font_fallbacks);
+        const auto count = std::clamp<std::size_t>(config.family_fallback_list.count, 1, max_font_fallbacks);
         for (std::size_t i = 0; i < count; ++i)
         {
-            const auto &entry = config.font_fallbacks.entries[i];
+            const auto &entry = config.family_fallback_list.entries[i];
             result.entries[i] = uitext::font_fallback_entry{
                 win32::wcstring_view{entry.family},
                 DWRITE_UNICODE_RANGE{entry.range.first, entry.range.last},
@@ -207,13 +207,13 @@ class window_host final
         return result;
     }
 
-    [[nodiscard]] static std::pair<int, int> initial_client_size(UINT dpi, const window_config &config,
+    [[nodiscard]] static std::pair<int, int> initial_client_size(UINT dpi, const font_config &config,
                                                                  std::size_t columns, std::size_t rows)
     {
         const auto families = font_families_from_config(config);
         const auto scale = static_cast<float>(dpi) / 96.0f;
         uitext::text_engine text{std::span<const uitext::font_fallback_entry>{families.entries}.first(families.count),
-                                 config.font_size_dip * scale};
+                                 config.size * scale};
         const auto metrics = text.metrics();
         const auto row_height = metrics.ascent + metrics.descent + metrics.line_gap;
         const auto scrollbar_width = static_cast<int>(std::ceil(scrollbar::default_width * scale));
@@ -276,7 +276,7 @@ class window_host final
 
         const auto initial_dpi = std::max<UINT>(96, ::GetDpiForSystem());
         const auto [client_width, client_height] =
-            initial_client_size(initial_dpi, window_config_, window_config_.initial_columns,
+            initial_client_size(initial_dpi, font_config_, window_config_.initial_columns,
                                 window_config_.initial_rows);
         RECT initial_rect{0, 0, client_width, client_height};
         if (::AdjustWindowRectExForDpi(&initial_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
@@ -308,7 +308,7 @@ class window_host final
         if (window_dpi != initial_dpi)
         {
             const auto [target_width, target_height] =
-                initial_client_size(window_dpi, window_config_, window_config_.initial_columns,
+                initial_client_size(window_dpi, font_config_, window_config_.initial_columns,
                                     window_config_.initial_rows);
             RECT target_rect{0, 0, target_width, target_height};
             if (::AdjustWindowRectExForDpi(&target_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
@@ -1024,7 +1024,7 @@ class window_host final
         {
             const auto dpi = std::max<UINT>(96, ::GetDpiForWindow(hwnd));
             const auto [min_width, min_height] = initial_client_size(
-                dpi, self->window_config_, self->window_config_.min_columns, self->window_config_.min_rows);
+                dpi, self->font_config_, self->window_config_.min_columns, self->window_config_.min_rows);
             RECT minimum{0, 0, min_width, min_height};
             ::AdjustWindowRectExForDpi(&minimum, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP, dpi);
             reinterpret_cast<MINMAXINFO *>(lparam)->ptMinTrackSize =
@@ -1486,6 +1486,7 @@ class window_host final
     const background_config &background_config_;
     const color_config &color_config_;
     const bell_config &bell_config_;
+    const font_config &font_config_;
     const window_behavior_config &window_behavior_config_;
     const title_config &title_config_;
     winrt::com_ptr<IRawElementProviderSimple> uia_provider_;

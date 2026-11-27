@@ -43,10 +43,10 @@ class render_worker final
         : columns{console.buffer().width()}, rows{console.buffer().height()}, console_{console}, console_mutex_{console_mutex},
           config_{config}, scheme_{select_scheme(color, config.dark_mode)}, palette_{make_palette(scheme_)},
           font_{font}, bell_{bell}, title_{title}, accessibility_{accessibility},
-          fallback_families_{make_fallback_families(config_)},
-          fallback_count_{make_fallback_count(config_)},
+          fallback_families_{make_fallback_families(font)},
+          fallback_count_{make_fallback_count(font)},
           text_{std::span<const uitext::font_fallback_entry>{fallback_families_}.first(fallback_count_),
-                config_.font_size_dip, font.ligatures},
+                font.size, font.ligatures},
           damage_event_{damage_event}
     {
     }
@@ -1200,13 +1200,13 @@ class render_worker final
         return result;
     }
 
-    static std::array<uitext::font_fallback_entry, max_font_fallbacks> make_fallback_families(const window_config &config) noexcept
+    static std::array<uitext::font_fallback_entry, max_font_fallbacks> make_fallback_families(const font_config &config) noexcept
     {
         std::array<uitext::font_fallback_entry, max_font_fallbacks> result{};
-        const auto count = std::min(config.font_fallbacks.count, max_font_fallbacks);
+        const auto count = std::min(config.family_fallback_list.count, max_font_fallbacks);
         for (std::size_t i = 0; i < count; ++i)
         {
-            const auto &entry = config.font_fallbacks.entries[i];
+            const auto &entry = config.family_fallback_list.entries[i];
             result[i] = uitext::font_fallback_entry{
                 win32::wcstring_view{entry.family},
                 DWRITE_UNICODE_RANGE{entry.range.first, entry.range.last},
@@ -1215,9 +1215,9 @@ class render_worker final
         return result;
     }
 
-    static std::size_t make_fallback_count(const window_config &config) noexcept
+    static std::size_t make_fallback_count(const font_config &config) noexcept
     {
-        return std::clamp<std::size_t>(config.font_fallbacks.count, 1, max_font_fallbacks);
+        return std::clamp<std::size_t>(config.family_fallback_list.count, 1, max_font_fallbacks);
     }
 
     std::array<uitext::font_fallback_entry, max_font_fallbacks> fallback_families_;
