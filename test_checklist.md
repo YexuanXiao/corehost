@@ -31,7 +31,7 @@ review 目标：修复根因，不降低性能。
 | `cursor.shape` | A4/C2 | `[x]` 默认 automatic；block 非默认构建已验证 |
 | `cursor.blink/blink_rate` | A4 | `[-]` 测试时关闭闪烁 |
 | `scrollbar.visibility` auto_hide/always | B22/C10 | `[-]` |
-| `window.shadow/opacity/blur` | A3 | `[-]` 手动验收 |
+| `window.shadow/opacity/backdrop` | A3 | `[-]` 手动验收 |
 | `window.always_on_top/launch/fullscreen` | A8 | `[-]` |
 | `window.inherit_working_directory` | A7 | `[-]` 默认 USERPROFILE |
 | `window.allow_move_resize` | A8 | `[-]` |
@@ -61,7 +61,7 @@ review 目标：修复根因，不降低性能。
   - 已测 PowerShell 启动和标题；未逐一测 pwsh/cmd。
 - [x] A2 默认字体、fallback、字号显示
   - 已用默认 Cascadia Mono 截图；系统 fallback 的 CJK 见 B6。
-- [-] A3 窗口外观：shadow / opacity / blur
+- [-] A3 窗口外观：shadow / opacity / backdrop
   - 需手动验收；默认 none/255。
   - 需手动验收；默认 none/255。
 - [-] A4 光标形态/闪烁关闭状态
