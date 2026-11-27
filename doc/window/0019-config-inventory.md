@@ -288,7 +288,8 @@ struct font_fallback_list final
 - 追加 `GetSystemFontFallback` 兜底；
 - `IDWriteTextFormat3` 使用显式 `DWRITE_FONT_AXIS_VALUE`；
 - normal/bold/italic/bold-italic 四套轴；
-- italic 同时设置 `DWRITE_FONT_STYLE_OBLIQUE` 以支持无原生斜体的字体。
+- italic 同时设置 `DWRITE_FONT_STYLE_OBLIQUE` 以支持无原生斜体的字体；
+- 不保留 `IDWriteTextFormat` legacy 回退，axis 创建失败直接失败。
 
 ### 已建字段、尚未接入行为
 

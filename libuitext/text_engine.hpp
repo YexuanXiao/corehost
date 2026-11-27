@@ -343,8 +343,7 @@ class text_engine final
 
     [[nodiscard]] winrt::com_ptr<IDWriteTextFormat3> make_format(const font_fallback_entry &family,
                                                                  const std::array<font_axis, 5> &axes,
-                                                                 IDWriteFontFallback *fallback, bool bold,
-                                                                 bool italic)
+                                                                 IDWriteFontFallback *fallback)
     {
         std::array<DWRITE_FONT_AXIS_VALUE, 5> dwrite_axes{};
         for (std::size_t i = 0; i < axes.size(); ++i)
@@ -352,17 +351,9 @@ class text_engine final
             dwrite_axes[i] = DWRITE_FONT_AXIS_VALUE{static_cast<DWRITE_FONT_AXIS_TAG>(axes[i].tag), axes[i].value};
         }
         winrt::com_ptr<IDWriteTextFormat3> format;
-        auto hr = factory6_->CreateTextFormat(family.family.c_str(), collection_.get(), dwrite_axes.data(),
-                                              static_cast<UINT32>(dwrite_axes.size()), size_, L"", format.put());
-        if (FAILED(hr))
-        {
-            winrt::com_ptr<IDWriteTextFormat> legacy;
-            winrt::check_hresult(factory2_->CreateTextFormat(
-                family.family.c_str(), collection_.get(), bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
-                italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size_, L"",
-                legacy.put()));
-            format = legacy.as<IDWriteTextFormat3>();
-        }
+        winrt::check_hresult(factory6_->CreateTextFormat(
+            family.family.c_str(), collection_.get(), dwrite_axes.data(),
+            static_cast<UINT32>(dwrite_axes.size()), size_, L"", format.put()));
         winrt::check_hresult(format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
         auto format1 = format.as<IDWriteTextFormat1>();
         winrt::check_hresult(format1->SetFontFallback(fallback));
@@ -399,10 +390,10 @@ class text_engine final
                 continue;
             }
 
-            text_format_ = make_format(family, variation_, fallback, false, false);
-            bold_format_ = make_format(family, variation_bold_, fallback, true, false);
-            italic_format_ = make_format(family, variation_italic_, fallback, false, true);
-            bold_italic_format_ = make_format(family, variation_bold_italic_, fallback, true, true);
+            text_format_ = make_format(family, variation_, fallback);
+            bold_format_ = make_format(family, variation_bold_, fallback);
+            italic_format_ = make_format(family, variation_italic_, fallback);
+            bold_italic_format_ = make_format(family, variation_bold_italic_, fallback);
 
             winrt::com_ptr<IDWriteFontFamily> font_family;
             winrt::check_hresult(collection_->GetFontFamily(family_index, font_family.put()));
