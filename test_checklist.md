@@ -131,7 +131,10 @@ review 目标：修复根因，不降低性能。
   - F1 VK=0x70 收到。
 - [ ] C5 Tab / Shift+Tab
   - Tab 和 Shift+Tab 均收到 VK=0x09。
-- [ ] C6 Ctrl+C
+- [!] C6 Ctrl+C
+  - 当前只把 Ctrl+C 作为输入字符，`ping -t` 不退出；
+  - 尝试 `ConsoleEndTask(CTRL_C_EVENT)` 会直接结束 PowerShell 客户端，不可用；
+  - 需要实现 ConDrv 控制事件投递，未完成。
 - [ ] C7 Ctrl+Z（报告为 KEY=Z CHAR=26 MOD=Control）
   - 收到 VK=0x5A CHAR=0x1A control=0x8。
 - [-] C8 多行粘贴
