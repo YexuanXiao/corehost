@@ -68,6 +68,7 @@ review 目标：修复根因，不降低性能。
 - [ ] A5 关闭窗口
   - WM_CLOSE 后 corehostw 退出，无残留进程。
 - [ ] A6 进程退出、退出码
+  - `cmd /c exit 7` 后 corehostw 返回 0；按决定 GUI 宿主保持 0。
 - [ ] A7 启动目录/命令行参数
 - [ ] A8 topmost / maximized / fullscreen / allow move
 
@@ -159,6 +160,7 @@ review 目标：修复根因，不降低性能。
   - PowerShell 内启动 cmd.exe，NESTED-CMD-OUTPUT 和 NESTED-AFTER 正常。
   - 曾因 `\\\\?\\` 前缀导致 cmd.exe UNC 警告；短路径不再加前缀，已修复。
 - [ ] D8 进程退出、关闭标签页、退出码
+  - 客户端退出码不传播，corehostw 固定返回 0。
 - [ ] D9 ReadConsoleOutput / ReadConsoleOutputCharacter 往返
 
 ## E. 第三方程序
@@ -169,6 +171,7 @@ review 目标：修复根因，不降低性能。
   - 启动 PowerShell 7.7.0，提示符正常。
 - [ ] E3 edit.exe
 - [ ] E4 vim.exe
+  - vim 启动并正确显示文件内容和 `~` 行；退出流程未判定。
 - [ ] E7 PowerShell / cmd 嵌套 shell
 - [ ] E8 长输出程序（100 行输出）
 - [ ] E9 python.exe
