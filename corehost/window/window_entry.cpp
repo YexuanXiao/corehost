@@ -30,7 +30,7 @@ void window_entry(win32::wcstring_view title, std::wstring client_command_line,
     window_console_session console{server.view(), shared_console, console_mutex};
     console.start();
 
-    window_client_process client{server.view(), title, client_command_line};
+    window_client_process client{server.view(), title, client_command_line, config};
     auto effective_config = config;
     effective_config.window.initial_columns = initial_columns;
     effective_config.window.initial_rows = initial_rows;

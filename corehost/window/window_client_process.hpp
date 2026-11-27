@@ -1,5 +1,6 @@
 #pragma once
 
+#include "config.hpp"
 #include "win32/error.hpp"
 #include "win32/handle.hpp"
 #include "win32/process_information.hpp"
@@ -16,7 +17,8 @@ namespace corehost::window
 class window_client_process final
 {
   public:
-    window_client_process(win32::handle_view server, win32::wcstring_view title, win32::wcstring_view command_line);
+    window_client_process(win32::handle_view server, win32::wcstring_view title, win32::wcstring_view command_line,
+                          const corehost_config &config);
     ~window_client_process();
 
     window_client_process(const window_client_process &) = delete;

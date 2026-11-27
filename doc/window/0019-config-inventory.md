@@ -169,7 +169,7 @@ inline constexpr bool default_alpha_correction = true;
 | `color` | `corehost_config.color` | dark/Campbell | 调色板、cursor、selection 颜色已接入；light 已定义 |
 | `background.opacity` | `corehost_config.background` | 1.0 | 已接入 layered opacity |
 | `window.shadow/always_on_top/launch/allow_move_resize` | `corehost_config.window_behavior` | true/false/automatic/true | shadow、topmost、maximized/fullscreen、禁止移动 |
-| `window.blur` | `corehost_config.window_behavior` | none | none/acrylic/mica |
+| `window.blur` | `corehost_config.window_behavior` | none | none/acrylic/mica |\n| `window.inherit_working_directory` | `corehost_config.window_behavior` | false | false 使用 USERPROFILE |
 | `title.force_corehost` | `corehost_config.title` | false | 强制窗口标题 |
 | `accessibility.reduce_motion` | `corehost_config.accessibility` | false | 禁用光标/滚动条动画 |
 | `clipboard.read_policy` | `corehost_config.clipboard` | deny | 粘贴读取策略，已接入 |
