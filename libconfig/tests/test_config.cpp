@@ -90,7 +90,9 @@ int main()
         config.font.size != 16.0f || !config.font.color_emoji || config.font.ligatures ||
         config.font.variation[0].tag != corehost::uitext::font_axis_weight || config.font.variation[0].value != 400.0f ||
         config.font.variation_bold[0].value != 700.0f || config.font.variation_italic[2].value != 1.0f ||
-        config.font.antialias != antialias_mode::aliased_contrast_alpha || config.mouse.selection_mode != mouse_selection_mode::line ||
+        config.font.turning != font_turning::gamma_contrast ||
+        config.font.anti_alias != corehost::uitext::font_anti_alias::grayscale ||
+        config.font.rendering_mode != DWRITE_RENDERING_MODE_DEFAULT || config.mouse.selection_mode != mouse_selection_mode::line ||
         config.mouse.right_click != right_click_action::automatic || config.cursor.style != cursor_style::automatic ||
         !config.mouse.selection_double_click || !config.mouse.selection_triple_click ||
         config.mouse.shift_capture != mouse_shift_capture::shift ||

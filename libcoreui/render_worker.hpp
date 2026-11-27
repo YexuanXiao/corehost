@@ -45,7 +45,8 @@ class render_worker final
           fallback_count_{make_fallback_count(config.font)},
           text_{std::span<const uitext::font_fallback_entry>{fallback_families_}.first(fallback_count_),
                 config.font.size, config.font.ligatures, config.font.variation, config.font.variation_bold,
-                config.font.variation_italic, config.font.variation_bold_italic},
+                config.font.variation_italic, config.font.variation_bold_italic, config.font.anti_alias,
+                config.font.rendering_mode},
           damage_event_{damage_event}
     {
     }
@@ -873,11 +874,11 @@ class render_worker final
     {
         float contrast = 0.0f;
         std::array<float, 4> gamma_ratios{};
-        if (antialias_contrast(config_.font.antialias))
+        if (font_turning_contrast(config_.font.turning))
         {
             contrast = text_.grayscale_enhanced_contrast();
         }
-        if (antialias_alpha_correction(config_.font.antialias))
+        if (font_turning_gamma(config_.font.turning))
         {
             gamma_ratios = text_.gamma_ratios();
         }

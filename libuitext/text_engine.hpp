@@ -98,10 +98,14 @@ class text_engine final
                          const std::array<font_axis, 5> &variation = default_font_variation(),
                          const std::array<font_axis, 5> &variation_bold = default_font_variation_bold(),
                          const std::array<font_axis, 5> &variation_italic = default_font_variation_italic(),
-                         const std::array<font_axis, 5> &variation_bold_italic = default_font_variation_bold_italic())
+                         const std::array<font_axis, 5> &variation_bold_italic = default_font_variation_bold_italic(),
+                         font_anti_alias anti_alias = font_anti_alias::grayscale,
+                         DWRITE_RENDERING_MODE rendering_mode = DWRITE_RENDERING_MODE_DEFAULT)
         : size_{size}, families_{families}, ligatures_{ligatures}, variation_{variation},
           variation_bold_{variation_bold}, variation_italic_{variation_italic},
-          variation_bold_italic_{variation_bold_italic}
+          variation_bold_italic_{variation_bold_italic}, anti_alias_{anti_alias},
+          rendering_mode_{rendering_mode == DWRITE_RENDERING_MODE_DEFAULT ? DWRITE_RENDERING_MODE_NATURAL
+                                                                         : rendering_mode}
     {
         assert(!families_.empty());
         assert(size_ > 0.0f);
@@ -485,8 +489,11 @@ class text_engine final
     {
         winrt::com_ptr<IDWriteGlyphRunAnalysis> analysis;
         winrt::check_hresult(factory2_->CreateGlyphRunAnalysis(
-            &run, nullptr, DWRITE_RENDERING_MODE_ALIASED, DWRITE_MEASURING_MODE_NATURAL,
-            DWRITE_GRID_FIT_MODE_DEFAULT, DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE, origin_x, origin_y,
+            &run, nullptr, rendering_mode_, DWRITE_MEASURING_MODE_NATURAL,
+            DWRITE_GRID_FIT_MODE_DEFAULT, anti_alias_ == font_anti_alias::cleartype
+                                                     ? DWRITE_TEXT_ANTIALIAS_MODE_CLEARTYPE
+                                                     : DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+                                              origin_x, origin_y,
             analysis.put()));
 
         RECT bounds{};
@@ -527,8 +534,11 @@ class text_engine final
     {
         winrt::com_ptr<IDWriteGlyphRunAnalysis> analysis;
         winrt::check_hresult(factory2_->CreateGlyphRunAnalysis(
-            &run, nullptr, DWRITE_RENDERING_MODE_ALIASED, DWRITE_MEASURING_MODE_NATURAL,
-            DWRITE_GRID_FIT_MODE_DEFAULT, DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE, origin_x, origin_y,
+            &run, nullptr, rendering_mode_, DWRITE_MEASURING_MODE_NATURAL,
+            DWRITE_GRID_FIT_MODE_DEFAULT, anti_alias_ == font_anti_alias::cleartype
+                                                     ? DWRITE_TEXT_ANTIALIAS_MODE_CLEARTYPE
+                                                     : DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+                                              origin_x, origin_y,
             analysis.put()));
 
         RECT bounds{};
@@ -566,6 +576,8 @@ class text_engine final
     std::array<font_axis, 5> variation_bold_{};
     std::array<font_axis, 5> variation_italic_{};
     std::array<font_axis, 5> variation_bold_italic_{};
+    font_anti_alias anti_alias_{font_anti_alias::grayscale};
+    DWRITE_RENDERING_MODE rendering_mode_{DWRITE_RENDERING_MODE_DEFAULT};
     winrt::com_ptr<IDWriteTextFormat3> text_format_;
     winrt::com_ptr<IDWriteTextFormat3> bold_format_;
     winrt::com_ptr<IDWriteTextFormat3> italic_format_;

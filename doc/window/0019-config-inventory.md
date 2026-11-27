@@ -144,7 +144,10 @@ inline constexpr bool default_alpha_correction = true;
 | `font_size_dip` | `window_config` | 16.0 | 兼容字段；实际使用 `corehost_config.font.size` |
 | `font.color_emoji` | `corehost_config.font` | true | 关闭后走单色 glyph 路径 |
 | `font.ligatures` | `corehost_config.font` | false | 开启标准连字 |
-| `font.variation*` | `corehost_config.font` | wght400/wdth100/ital0/slnt0/opsz16 | 显式 axis tag；normal/bold/italic/bold-italic 四套 |\n| `font.antialias` | `corehost_config.font` | aliased_contrast_alpha | no-AA；contrast × alpha 四组合 |
+| `font.variation*` | `corehost_config.font` | wght400/wdth100/ital0/slnt0/opsz16 | 显式 axis tag；normal/bold/italic/bold-italic 四套 |
+| `font.turning` | `corehost_config.font` | gamma_contrast | gamma × contrast 四组合 |
+| `font.anti_alias` | `corehost_config.font` | grayscale | grayscale/cleartype |
+| `font.rendering_mode` | `corehost_config.font` | DWRITE_RENDERING_MODE_DEFAULT | 直接使用 DWRITE_RENDERING_MODE |
 | `font_fallbacks` | `window_config` | 1 项 Cascadia Mono | 兼容字段；实际使用 `corehost_config.font.family_fallback_list` |
 | `cursor.blink/blink_rate` | `corehost_config.cursor` | true/530 | blink=false 或 rate=0 不闪 |
 | `selection_auto_scroll_interval_ms` | `window_config` | 40 | 边缘自动滚动 |

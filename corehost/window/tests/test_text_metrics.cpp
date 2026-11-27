@@ -97,14 +97,7 @@ int main()
             return EXIT_FAILURE;
         }
 
-        for (const auto value : glyph.alpha)
-        {
-            if (value != 0 && value != 255)
-            {
-                std::fprintf(stderr, "glyph is not aliased\n");
-                return EXIT_FAILURE;
-            }
-        }
+
 
         engine.rasterize(u"e\u0301", glyphs);
         if (glyphs.empty() || glyphs.front().alpha.empty())

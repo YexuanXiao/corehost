@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstddef>
+#include <dwrite.h>
 #include <cstdint>
 #include <string>
 
@@ -100,22 +101,22 @@ enum class hyperlink_open_policy : unsigned char
     deny,
 };
 
-enum class antialias_mode : unsigned char
+enum class font_turning : unsigned char
 {
-    aliased_contrast_alpha,
-    aliased_contrast,
-    aliased_alpha,
-    aliased_none,
+    gamma_contrast,
+    gamma,
+    contrast,
+    none,
 };
 
-inline constexpr bool antialias_contrast(antialias_mode mode) noexcept
+inline constexpr bool font_turning_gamma(font_turning mode) noexcept
 {
-    return mode == antialias_mode::aliased_contrast_alpha || mode == antialias_mode::aliased_contrast;
+    return mode == font_turning::gamma_contrast || mode == font_turning::gamma;
 }
 
-inline constexpr bool antialias_alpha_correction(antialias_mode mode) noexcept
+inline constexpr bool font_turning_contrast(font_turning mode) noexcept
 {
-    return mode == antialias_mode::aliased_contrast_alpha || mode == antialias_mode::aliased_alpha;
+    return mode == font_turning::gamma_contrast || mode == font_turning::contrast;
 }
 
 enum class colorspace_mode : unsigned char
@@ -183,7 +184,9 @@ struct font_config final
     std::array<uitext::font_axis, 5> variation_bold{uitext::default_font_variation_bold()};
     std::array<uitext::font_axis, 5> variation_italic{uitext::default_font_variation_italic()};
     std::array<uitext::font_axis, 5> variation_bold_italic{uitext::default_font_variation_bold_italic()};
-    antialias_mode antialias{antialias_mode::aliased_contrast_alpha};
+    font_turning turning{font_turning::gamma_contrast};
+    uitext::font_anti_alias anti_alias{uitext::font_anti_alias::grayscale};
+    DWRITE_RENDERING_MODE rendering_mode{DWRITE_RENDERING_MODE_DEFAULT};
     bool color_emoji{true};
 };
 

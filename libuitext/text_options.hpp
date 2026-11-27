@@ -19,6 +19,12 @@ inline constexpr font_family default_font_family = font_family::cascadia_mono;
 inline constexpr bool default_contrast = true;
 inline constexpr bool default_alpha_correction = true;
 
+enum class font_anti_alias : unsigned char
+{
+    grayscale,
+    cleartype,
+};
+
 struct font_axis final
 {
     std::uint32_t tag{};
