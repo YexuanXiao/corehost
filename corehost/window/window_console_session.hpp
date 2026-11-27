@@ -79,6 +79,8 @@ class window_console_session final
     void apply_vt(std::u16string_view text);
     void complete_pending();
     void handle_read_termination();
+    void complete_pending_raw();
+    void complete_raw_locked();
 
     win32::handle_view server_;
     console &console_;

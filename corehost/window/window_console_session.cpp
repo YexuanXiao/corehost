@@ -4,7 +4,9 @@
 #include "utility/log.hpp"
 #include "win32/error.hpp"
 
+#include <array>
 #include <cassert>
+#include <cstring>
 #include <string_view>
 #include <utility>
 
@@ -305,6 +307,68 @@ void window_console_session::complete_pending()
         pending_active_ = false;
         pending_kind_ = consoleapi::console_api::pending_read_kind::none;
     }
+}
+
+void window_console_session::complete_pending_raw()
+{
+    std::unique_lock<win32::srwlock> lock{console_mutex_};
+    complete_raw_locked();
+}
+
+void window_console_session::complete_raw_locked()
+{
+    if (!pending_raw_active_)
+    {
+        return;
+    }
+
+    const auto capacity = std::min<std::size_t>(pending_raw_message_.descriptor.OutputSize,
+                                                sizeof(pending_raw_message_.body));
+    if (capacity == 0)
+    {
+        return;
+    }
+
+    std::array<char, sizeof(pending_raw_message_.body)> bytes{};
+    std::size_t used = 0;
+    consoleinput::input_event event{};
+    while (used < capacity)
+    {
+        if (console_.input().read(std::span{&event, 1}) == 0)
+        {
+            break;
+        }
+        if (event.type != consoleinput::input_event_type::key || !event.key.key_down || event.key.character == 0)
+        {
+            continue;
+        }
+
+        char encoded[8]{};
+        const wchar_t character = static_cast<wchar_t>(event.key.character);
+        const auto encoded_size = ::WideCharToMultiByte(
+            console_.state().input_code_page, 0, &character, 1, encoded, sizeof(encoded), nullptr, nullptr);
+        if (encoded_size <= 0)
+        {
+            continue;
+        }
+        if (used + static_cast<std::size_t>(encoded_size) > capacity)
+        {
+            console_.input().push_front(std::move(event));
+            break;
+        }
+        std::memcpy(bytes.data() + used, encoded, static_cast<std::size_t>(encoded_size));
+        used += static_cast<std::size_t>(encoded_size);
+    }
+
+    if (used == 0)
+    {
+        return;
+    }
+
+    coreio::prepare_completion(pending_raw_message_, 0, used, bytes.data(), static_cast<ULONG>(used));
+    coreio::complete_io(server_, pending_raw_message_.complete);
+    pending_raw_active_ = false;
+    LOG2("raw read completed bytes=%zu", used);
 }
 
 void window_console_session::handle_read_termination()
