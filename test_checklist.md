@@ -50,7 +50,7 @@ review 目标：修复根因，不降低性能。
 | `uia_enable` / UIA events | G1 | `[x]` `Window.UIA` |
 | `ime.tsf_enabled` / `candidate_offset_cells` | G2 | `[-]` |
 | `bell.mode` visual/auditory/window/taskbar | G3 | `[-]` |
-| `graphics.sixel` | G4 | `[-]` |
+| `graphics.sixel` | G4 | `[x]` 默认开启，已做 smoke |
 | `accessibility.reduce_motion` | A4/C10 | `[-]` 默认关闭 |
 | `accessibility.high_contrast` | B1-B5 | `[-]` schema-only |
 | `window.dpi` / resize | B22 | `[-]` |
@@ -226,7 +226,10 @@ ative_corehost_paste3.png`。
   - 需手动验收；当前未接 `ITextStoreACP`。
 - [-] G3 Bell：visual/auditory/window/taskbar
   - 视觉/声音需手动验收。
-- [-] G4 Sixel：解码、颜色、屏幕内缓存、滚出释放
+- [x] G4 Sixel：解码、颜色、屏幕内缓存、滚出释放
+  - 32x6 红/绿双色 sixel 正常显示；
+  - 100 行输出滚出后无残留/崩溃；
+  - 证据：`C:\\1\\wt_sixel_multi.png`、`C:\\1\\wt_sixel_scrolled.png`。
 - [-] G5 config：dark/light 色板、font variation、ligatures、cursor shape
   - 需专门切换配置后截图。
 - [-] G6 config：clipboard deny/allow、paste limit、right/middle click
