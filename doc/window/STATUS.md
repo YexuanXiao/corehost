@@ -25,7 +25,7 @@
 - 空闲渲染改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁时允许 530ms 定时器；滚动条动画用合成器时钟按刷新率驱动；
 - 垂直滚动条：hover、thumb 拖拽、轨道点击、滚轮、键盘滚动；
 - 线性文本选择、Shift 扩展、双击选词、三击选行、边缘自动滚动；
-- 纯文本剪贴板、右键粘贴、VT SGR mouse；
+- 纯文本剪贴板、右键粘贴、VT SGR mouse；剪贴板 read/write 默认 deny，需显式 allow；
 - TSF composition 自绘、candidate 定位（`ITextStoreACP` 已决定不实现；不需要独立 message pump）；
 - Sixel 解码、HSB/RGB 调色板、RGBA 渲染；屏幕内图像纹理缓存，内容不变不重传；
 - hyperlink hover/Ctrl+click、visual bell；
