@@ -145,7 +145,7 @@ inline constexpr bool default_alpha_correction = true;
 | `copy_ending` | `console_config` | CRLF | 复制行尾 CRLF/LF |
 | `color` | `corehost_config.color` | dark/Campbell | 调色板、cursor、selection 颜色已接入；light 已定义 |
 | `background.opacity` | `corehost_config.background` | 1.0 | 已接入 layered opacity |
-| `window.shadow/always_on_top/launch/allow_move_resize` | `corehost_config.window_behavior` | true/false/automatic/true | shadow、topmost、maximized、禁止移动 |
+| `window.shadow/always_on_top/launch/allow_move_resize` | `corehost_config.window_behavior` | true/false/automatic/true | shadow、topmost、maximized/fullscreen、禁止移动 |
 | `title.force_corehost` | `corehost_config.title` | false | 强制窗口标题 |
 | `accessibility.reduce_motion` | `corehost_config.accessibility` | false | 禁用光标/滚动条动画 |
 | `clipboard.read_policy` | `corehost_config.clipboard` | deny | 粘贴读取策略，已接入 |

@@ -103,8 +103,26 @@ class window_host final
     void run()
     {
         worker_.start(window_);
-        const auto show = window_behavior_config_.launch == launch_mode::maximized ? SW_SHOWMAXIMIZED : SW_SHOWDEFAULT;
-        ::ShowWindow(window_, show);
+        if (window_behavior_config_.launch == launch_mode::fullscreen)
+        {
+            auto style = static_cast<DWORD>(::GetWindowLongPtrW(window_, GWL_STYLE));
+            style &= ~static_cast<DWORD>(WS_OVERLAPPEDWINDOW);
+            style |= WS_POPUP;
+            ::SetWindowLongPtrW(window_, GWL_STYLE, static_cast<LONG_PTR>(style));
+            MONITORINFO monitor_info{sizeof(MONITORINFO)};
+            if (::GetMonitorInfoW(::MonitorFromWindow(window_, MONITOR_DEFAULTTOPRIMARY), &monitor_info) != FALSE)
+            {
+                ::SetWindowPos(window_, HWND_TOP, monitor_info.rcMonitor.left, monitor_info.rcMonitor.top,
+                               monitor_info.rcMonitor.right - monitor_info.rcMonitor.left,
+                               monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top,
+                               SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+            }
+        }
+        else
+        {
+            const auto show = window_behavior_config_.launch == launch_mode::maximized ? SW_SHOWMAXIMIZED : SW_SHOWDEFAULT;
+            ::ShowWindow(window_, show);
+        }
         ::UpdateWindow(window_);
 
         MSG message{};

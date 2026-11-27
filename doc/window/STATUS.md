@@ -31,7 +31,7 @@
 - hyperlink hover/Ctrl+click、visual bell；
 - `window_config`（C++ 构造）：palette、字体、backdrop、opacity、dark mode、exit policy；
 - 完整配置 schema `corehost_config` 已建立并由 `window_entry` 接收，未实现项仅存储；
-- 配置决定/接入：scrollback 默认 3000、启动 120x30、最小 36x2、candidate_offset_cells 默认 2、hyperlink modifier、字号/fallback、光标闪烁、选择自动滚动、鼠标滚轮、右击、复制换行、光标样式覆盖、dark/light 调色板、窗口 shadow/opacity/topmost/launch、title.force_corehost、reduce_motion、color emoji、ligatures、滚动条显示模式、UIA/TSF 开关和剪贴板 deny/allow 策略已接入；bell 归 window；Sixel 不设尺寸上限且只缓存屏幕内图像；
+- 配置决定/接入：scrollback 默认 3000、启动 120x30、最小 36x2、candidate_offset_cells 默认 2、hyperlink modifier、字号/fallback、光标闪烁、选择自动滚动、鼠标滚轮、右击、复制换行、光标样式覆盖、dark/light 调色板、窗口 shadow/opacity/topmost/launch（含 fullscreen）、title.force_corehost、reduce_motion、color emoji、ligatures、滚动条显示模式、UIA/TSF 开关和剪贴板 deny/allow 策略已接入；bell 归 window；Sixel 不设尺寸上限且只缓存屏幕内图像；
 - Mica/Acrylic、layered opacity（实现完成，待用户手动验收）；
 - UI Automation：Document/TextPattern/TextRange/ScrollPattern，文本变化和选择变化事件；自动化测试 `Window.UIA`；
 - `ambiguous_is_wide` 默认 narrow；不提供 wide 反馈二进制；
