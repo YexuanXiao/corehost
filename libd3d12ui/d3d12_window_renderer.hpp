@@ -331,6 +331,12 @@ class d3d12_window_renderer final
         clear_color_[3] = a;
     }
 
+    void set_present_dirty_rect(const RECT &rect) noexcept
+    {
+        dirty_rect_ = rect;
+        has_dirty_rect_ = true;
+    }
+
     void set_text_quads(std::span<const text_quad> quads)
     {
         text_quads_.assign(quads.begin(), quads.end());
@@ -668,7 +674,22 @@ class d3d12_window_renderer final
         ID3D12CommandList *lists[] = {command_list_.get()};
         queue_->ExecuteCommandLists(1, lists);
         DXGI_PRESENT_PARAMETERS present_parameters{};
-        winrt::check_hresult(swapchain_->Present1(1, 0, &present_parameters));
+        RECT dirty_rect = dirty_rect_;
+        const bool use_dirty_rect = has_dirty_rect_ && dirty_rect.left < dirty_rect.right &&
+                                    dirty_rect.top < dirty_rect.bottom;
+        if (use_dirty_rect)
+        {
+            present_parameters.DirtyRectsCount = 1;
+            present_parameters.pDirtyRects = &dirty_rect;
+        }
+        auto present_result = swapchain_->Present1(1, 0, &present_parameters);
+        if (FAILED(present_result) && use_dirty_rect)
+        {
+            present_parameters = {};
+            present_result = swapchain_->Present1(1, 0, &present_parameters);
+        }
+        winrt::check_hresult(present_result);
+        has_dirty_rect_ = false;
         buffer_initialized_[index] = true;
     }
 
@@ -862,6 +883,8 @@ class d3d12_window_renderer final
     UINT width_{};
     UINT height_{};
     bool initialized_{};
+    RECT dirty_rect_{};
+    bool has_dirty_rect_{};
     bool buffer_initialized_[2]{};
 
     winrt::com_ptr<ID3D12Device> device_;

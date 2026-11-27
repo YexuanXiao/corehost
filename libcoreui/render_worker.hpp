@@ -1135,6 +1135,80 @@ class render_worker final
                 (focused && ((now / text_blink_interval) % 2 == 0));
             const bool text_blink_changed = text_blink_on != text_blink_on_;
 
+            RECT dirty_rect{};
+            bool dirty_valid = false;
+            {
+                auto include = [&](LONG left, LONG top, LONG right, LONG bottom) {
+                    left = std::clamp<LONG>(left, 0, static_cast<LONG>(width));
+                    top = std::clamp<LONG>(top, 0, static_cast<LONG>(height));
+                    right = std::clamp<LONG>(right, 0, static_cast<LONG>(width));
+                    bottom = std::clamp<LONG>(bottom, 0, static_cast<LONG>(height));
+                    if (left >= right || top >= bottom)
+                    {
+                        return;
+                    }
+                    if (!dirty_valid)
+                    {
+                        dirty_rect = RECT{left, top, right, bottom};
+                        dirty_valid = true;
+                    }
+                    else
+                    {
+                        dirty_rect.left = std::min(dirty_rect.left, left);
+                        dirty_rect.top = std::min(dirty_rect.top, top);
+                        dirty_rect.right = std::max(dirty_rect.right, right);
+                        dirty_rect.bottom = std::max(dirty_rect.bottom, bottom);
+                    }
+                };
+                const bool full_dirty = scroll_changed || dpi_changed || selection_changed || hover_changed ||
+                                        focus_changed || text_blink_changed || scrollbar_animation_active_ || redraw_requested;
+                if (full_dirty)
+                {
+                    include(0, 0, static_cast<LONG>(width), static_cast<LONG>(height));
+                }
+                else if (changed && !scroll_changed)
+                {
+                    for (std::size_t y = 0; y < updates_.size() && y < rows; ++y)
+                    {
+                        const auto &row = updates_[y];
+                        if (row.cells.empty())
+                        {
+                            continue;
+                        }
+                        for (std::size_t x = 0; x < columns; ++x)
+                        {
+                            if (row.cells[x] != cell_state_[y * columns + x])
+                            {
+                                include(0,
+                                        static_cast<LONG>(std::floor(static_cast<float>(y) * static_cast<float>(row_height_px))),
+                                        static_cast<LONG>(width),
+                                        static_cast<LONG>(std::ceil(static_cast<float>(y + 1) * static_cast<float>(row_height_px))));
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (cursor_changed || blink_changed)
+                {
+                    const auto cursor_extent = [&](const screen::cursor_state &value) {
+                        if (!value.visible || value.x >= columns || value.y >= rows)
+                        {
+                            return;
+                        }
+                        include(static_cast<LONG>(std::floor(static_cast<float>(value.x) * metrics.advance)),
+                                static_cast<LONG>(std::floor(static_cast<float>(value.y) * static_cast<float>(row_height_px))),
+                                static_cast<LONG>(std::ceil(static_cast<float>(value.x + 1) * metrics.advance)),
+                                static_cast<LONG>(std::ceil(static_cast<float>(value.y + 1) * static_cast<float>(row_height_px))));
+                    };
+                    cursor_extent(cursor_);
+                    cursor_extent(cursor);
+                }
+                if (!dirty_valid)
+                {
+                    include(0, 0, static_cast<LONG>(width), static_cast<LONG>(height));
+                }
+            }
+
             cursor_ = cursor;
             selection_ = selection;
             composition_ = std::move(ime_composition);
@@ -1195,6 +1269,11 @@ class render_worker final
                              row_nonspace(1), row_nonspace(2), row_nonspace(3), row_nonspace(rows - 1), changed ? 1 : 0,
                              console_.buffer().at(0, 0).primary(), cell_state_[0].primary());
                     }
+                    if (dirty_valid)
+                    {
+                        renderer_.set_present_dirty_rect(dirty_rect);
+                    }
+
                     build_quads();
                     renderer_.set_text_texture(atlas_.pixels(), atlas_.size(), atlas_.size());
                     LOG2("quads=%zu colorquads=%zu scrollf=%.3f", quads_.size(), color_quads_.size(), scroll_fraction_);

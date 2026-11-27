@@ -212,7 +212,7 @@ inline constexpr bool default_alpha_correction = true;
   即开启 vsync，按显示器刷新率节流；若设为 0 可降低延迟/允许 tearing，但会改变
   呈现节奏和功耗。
 
-决定：不增加 `SetMaximumFrameLatency`/vsync 配置；使用 `Present1(1, 0, &params)`，sync interval 和 flags 固定 1/0。
+决定：不增加 `SetMaximumFrameLatency`/vsync 配置；使用 `Present1(1, 0, &params)`，sync interval 和 flags 固定 1/0。`DXGI_PRESENT_PARAMETERS` 使用 `pDirtyRects`：只传 damage 行/光标变化区域；全量重绘、滚动、选择、DPI、动画等使用全窗口脏区；Present1 失败时用空参数重试。
 
 ## 字体 fallback 列表
 
