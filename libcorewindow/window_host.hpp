@@ -651,6 +651,20 @@ class window_host final
         }
     }
 
+    [[nodiscard]] bool shift_bypasses_mouse() const noexcept
+    {
+        switch (mouse_config_.shift_capture)
+        {
+        case mouse_shift_capture::always:
+            return true;
+        case mouse_shift_capture::never:
+            return false;
+        case mouse_shift_capture::shift:
+            return (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        }
+        return false;
+    }
+
     [[nodiscard]] bool hyperlink_modifier_pressed() const noexcept
     {
         switch (hyperlink_config_.modifier)
@@ -1118,7 +1132,7 @@ class window_host final
             const auto over_scrollbar =
                 scrollbar::hit_test(geometry, static_cast<float>(point.x), static_cast<float>(point.y)) !=
                 scrollbar::hit_target::none;
-            if (!over_scrollbar && (::GetKeyState(VK_SHIFT) & 0x8000) == 0 &&
+            if (!over_scrollbar && !self->shift_bypasses_mouse() &&
                 self->console_.alternate_active() && self->console_.vt_mouse_tracking())
             {
                 const auto packed = static_cast<LPARAM>((point.y << 16) | (point.x & 0xFFFF));
@@ -1194,7 +1208,7 @@ class window_host final
             }
 
             std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-            if ((::GetKeyState(VK_SHIFT) & 0x8000) == 0 && self->console_.vt_mouse_tracking())
+            if (!self->shift_bypasses_mouse() && self->console_.vt_mouse_tracking())
             {
                 self->push_mouse(lparam, FROM_LEFT_1ST_BUTTON_PRESSED, 0);
                 return 0;
@@ -1205,7 +1219,7 @@ class window_host final
         case WM_RBUTTONDOWN:
         {
             std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-            if (self->console_.vt_mouse_tracking() && (::GetKeyState(VK_SHIFT) & 0x8000) == 0)
+            if (self->console_.vt_mouse_tracking() && !self->shift_bypasses_mouse())
             {
                 self->push_mouse(lparam, RIGHTMOST_BUTTON_PRESSED, 0);
             }
@@ -1216,7 +1230,7 @@ class window_host final
             std::unique_lock<win32::srwlock> lock{self->console_mutex_};
             LOG2("rbuttonup selection=%d vt=%d", self->console_.has_selection() ? 1 : 0,
                  self->console_.vt_mouse_tracking() ? 1 : 0);
-            if (self->console_.vt_mouse_tracking() && (::GetKeyState(VK_SHIFT) & 0x8000) == 0)
+            if (self->console_.vt_mouse_tracking() && !self->shift_bypasses_mouse())
             {
                 self->push_mouse(lparam, 0, 0);
                 return 0;

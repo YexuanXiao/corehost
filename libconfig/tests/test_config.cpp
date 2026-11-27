@@ -88,6 +88,7 @@ int main()
         config.font.size != 16.0f || !config.font.color_emoji || config.font.ligatures || config.mouse.selection_mode != mouse_selection_mode::line ||
         config.mouse.right_click != right_click_action::automatic || config.cursor.style != cursor_style::automatic ||
         !config.mouse.selection_double_click || !config.mouse.selection_triple_click ||
+        config.mouse.shift_capture != mouse_shift_capture::shift ||
         config.title.force_corehost || config.accessibility.reduce_motion ||
         config.window_behavior.launch != launch_mode::automatic ||
         config.window_behavior.blur != backdrop_mode::none ||
