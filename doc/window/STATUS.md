@@ -35,7 +35,7 @@
 - Mica/Acrylic、layered opacity（实现完成，待用户手动验收）；
 - UI Automation：Document/TextPattern/TextRange/ScrollPattern，文本变化和选择变化事件；自动化测试 `Window.UIA`；
 - `ambiguous_is_wide` 默认 narrow；不提供 wide 反馈二进制；
-- 13/13 自动化测试通过，新增 `Window.UIA`。
+- 14/14 自动化测试通过，新增 `Window.UIA` 和 `Config.Defaults`。
 
 ## 关键未完成
 

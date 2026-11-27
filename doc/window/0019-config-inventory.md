@@ -19,6 +19,8 @@
 
 “先不实现”的字段也已经建入 schema，但不会改变当前运行行为；后续按行为逐项接入。
 
+`Config.Defaults` 自动验证 schema 的默认值和颜色/字体契约。
+
 完整 schema 已由 `window_entry` 接收；当前行为读取 `config.console` 和 `config.window` 兼容子集。
 
 默认颜色：
