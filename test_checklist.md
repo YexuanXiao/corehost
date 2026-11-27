@@ -103,9 +103,8 @@ review 目标：修复根因，不降低性能。
   - CUP/CUU/CUD/CUF/CUB 已做同一窗口截图，未逐项断言坐标。
 - [x] B13 save/restore cursor（ESC 7 / ESC 8）
   - `SAVE-...RESTORED` 截图通过。
-- [ ] B14 EL/ED 各模式
-  - EL0/EL1/EL2/ED0 已做可视化测试；ED1/ED2 未测。
-  - EL2 局部测试通过；其余模式未测。
+- [x] B14 EL/ED 各模式
+  - EL0/EL1/EL2/ED0 可视化通过；ED1/ED2 清屏后仅保留光标行，验证通过。
 - [x] B15 scroll region、LF/IND/RI
 - [x] B16 alternate screen 1049 进入/退出
   - MAIN-BEFORE/MAIN-AFTER 恢复，ALT 内容未残留。
