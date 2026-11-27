@@ -1286,6 +1286,10 @@ class window_host final
             {
                 self->push_mouse(lparam, 0, 0);
             }
+            else if (self->mouse_config_.middle_click_paste)
+            {
+                self->paste_clipboard(hwnd);
+            }
             return 0;
         }
         case WM_LBUTTONUP:
