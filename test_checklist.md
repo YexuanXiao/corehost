@@ -134,7 +134,7 @@ review 目标：修复根因，不降低性能。
 - [ ] C6 Ctrl+C
   - `ping -t` 被中断，interactive PowerShell 显示 `^C` 后回到提示符；
   - `ConsoleEndTask` 必须携带窗口 HWND，否则静默成功但不生效；
-  - 向客户端及其子进程投递 CTRL_C_EVENT。
+  - 按 `console_api` 的 process registry 枚举附着进程投递给 CTRL_C_EVENT；
 - [ ] C7 Ctrl+Z（报告为 KEY=Z CHAR=26 MOD=Control）
   - 收到 VK=0x5A CHAR=0x1A control=0x8。
 - [-] C8 多行粘贴

@@ -3,6 +3,7 @@
 #include "clipboard.hpp"
 #include "console.hpp"
 #include "console_ctrl.hpp"
+#include "process_registry.hpp"
 #include "uia_provider.hpp"
 #include "control.hpp"
 #include "console_config.hpp"
@@ -43,9 +44,10 @@ class window_host final
   public:
 
     window_host(win32::wcstring_view title, console &console, win32::srwlock &console_mutex,
-                win32::handle_view client_process, const corehost_config &config, win32::handle_view damage_event)
+                win32::handle_view client_process, const corehost_config &config, win32::handle_view damage_event,
+                coreio::process_registry &processes)
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
-          config_{config}, damage_event_{damage_event},
+          config_{config}, damage_event_{damage_event}, processes_{processes},
           worker_{console, console_mutex, config_, damage_event_},
           window_{create_window()},
           tsf_{window_, tsf_host::callbacks{
@@ -833,45 +835,24 @@ class window_host final
 
     void deliver_ctrl_c(HWND hwnd) const noexcept
     {
-        const auto client_id = ::GetProcessId(client_process_.get());
-        if (client_id == 0)
+        std::vector<DWORD> process_ids;
         {
-            return;
+            std::unique_lock<win32::srwlock> lock{console_mutex_};
+            process_ids.reserve(processes_.size());
+            for (const auto process : processes_.processes())
+            {
+                process_ids.push_back(static_cast<DWORD>(static_cast<std::uint32_t>(process)));
+            }
         }
 
-        std::vector<DWORD> process_ids{client_id};
-        std::vector<std::pair<DWORD, DWORD>> parents;
-        const auto snapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-        if (snapshot != INVALID_HANDLE_VALUE)
+        if (process_ids.empty())
         {
-            PROCESSENTRY32W entry{};
-            entry.dwSize = sizeof(entry);
-            if (::Process32FirstW(snapshot, &entry) != FALSE)
+            const auto client_id = ::GetProcessId(client_process_.get());
+            if (client_id == 0)
             {
-                do
-                {
-                    parents.emplace_back(entry.th32ProcessID, entry.th32ParentProcessID);
-                } while (::Process32NextW(snapshot, &entry) != FALSE);
+                return;
             }
-            ::CloseHandle(snapshot);
-        }
-
-        bool added = true;
-        while (added)
-        {
-            added = false;
-            for (const auto &[process, parent] : parents)
-            {
-                if (std::ranges::find(process_ids, process) != process_ids.end())
-                {
-                    continue;
-                }
-                if (std::ranges::find(process_ids, parent) != process_ids.end())
-                {
-                    process_ids.push_back(process);
-                    added = true;
-                }
-            }
+            process_ids.push_back(client_id);
         }
 
         coreio::ctrl_delivery delivery;
@@ -1361,7 +1342,8 @@ class window_host final
         {
             const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
             const bool control = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
-            if (control && !shift && wparam == 'C')
+            const bool alt = (::GetKeyState(VK_MENU) & 0x8000) != 0;
+            if (control && !alt && !shift && wparam == 'C' && (self->console_.state().input_mode & 0x0001) != 0)
             {
                 self->deliver_ctrl_c(hwnd);
                 return 0;
@@ -1575,6 +1557,7 @@ class window_host final
     winrt::com_ptr<IUiaEvents> uia_events_;
     win32::handle_view client_process_;
     win32::handle_view damage_event_;
+    coreio::process_registry &processes_;
     render_worker worker_;
     HWND window_;
     tsf_host tsf_;

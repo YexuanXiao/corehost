@@ -13,8 +13,10 @@ namespace corehost::window
 
 window_console_session::window_console_session(win32::handle_view server, console &console,
                                                      win32::srwlock &console_mutex,
+                                                     coreio::process_registry &processes,
                                                      const corehost_config &config)
-    : server_{server}, console_{console}, console_mutex_{console_mutex}, processes_{}, io_state_{server, {}, {}, processes_},
+    : server_{server}, console_{console}, console_mutex_{console_mutex}, processes_{processes},
+      io_state_{server, {}, {}, processes_},
       payload_{server}, api_{console_.buffer(), console_.state(), &console_.input(), 0, &processes_,
                         &payload_},
       input_event_{win32::create_tag, true, false}, stop_event_{win32::create_tag, true, false}

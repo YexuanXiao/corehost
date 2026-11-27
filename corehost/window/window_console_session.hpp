@@ -34,7 +34,7 @@ class window_console_session final
 {
   public:
     window_console_session(win32::handle_view server, console &console, win32::srwlock &console_mutex,
-                           const corehost_config &config);
+                           coreio::process_registry &processes, const corehost_config &config);
     ~window_console_session();
 
     window_console_session(const window_console_session &) = delete;
@@ -85,7 +85,7 @@ class window_console_session final
     coreio::io_msg pending_message_{};
     consoleapi::console_api::pending_read_kind pending_kind_{};
     bool pending_active_{};
-    coreio::process_registry processes_;
+    coreio::process_registry &processes_;
     coreio::io_state io_state_;
     coreio::input_payload_reader payload_;
     consoleapi::console_api api_;
