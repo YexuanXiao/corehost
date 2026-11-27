@@ -143,7 +143,7 @@ inline constexpr bool default_alpha_correction = true;
 | `cursor_shape` | `window_config` | automatic | 覆盖 VT/应用；automatic 保留应用控制；double/hollow/vintage 当前近似映射 |
 | `scrollbar` | `window_config` | auto_hide | always/auto_hide |
 | `copy_ending` | `console_config` | CRLF | 复制行尾 CRLF/LF |
-| `color` | `corehost_config.color` | dark/Campbell | 调色板已接入；light 已定义 |
+| `color` | `corehost_config.color` | dark/Campbell | 调色板、cursor、selection 颜色已接入；light 已定义 |
 | `clipboard.read_policy` | `corehost_config.clipboard` | deny | 粘贴读取策略，已接入 |
 | `clipboard.write_policy` | `corehost_config.clipboard` | deny | 复制写入策略，已接入 |
 | `clipboard.selection_policy` | `corehost_config.clipboard` | deny | PRIMARY selection，占位 |
