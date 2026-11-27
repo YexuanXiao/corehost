@@ -46,7 +46,7 @@ int main()
         return EXIT_FAILURE;
     }
 
-    if (config.color.mode != theme_mode::auto_mode ||
+    if (config.color.mode != theme_mode::dark ||
         config.color.light.ansi[7].r != 0xB3 || config.color.light.ansi[7].g != 0xB3 ||
         config.color.light.ansi[7].b != 0xB3 || config.color.light.ansi[15].r != 0xDB ||
         config.color.light.ansi[15].g != 0xDB || config.color.light.ansi[15].b != 0xDB)

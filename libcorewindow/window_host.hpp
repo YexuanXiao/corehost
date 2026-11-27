@@ -43,7 +43,7 @@ class window_host final
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
           console_config_{config.console}, window_config_{config.window}, clipboard_config_{config.clipboard},
           damage_event_{damage_event},
-          worker_{console, console_mutex, window_config_, damage_event_},
+          worker_{console, console_mutex, window_config_, config.color, damage_event_},
           window_{create_window()},
           tsf_{window_, tsf_host::callbacks{
                             .context = this,

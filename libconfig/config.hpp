@@ -347,7 +347,7 @@ inline color_scheme one_half_light_scheme()
 inline corehost::window::color_config default_color_config()
 {
     return color_config{
-        .mode = theme_mode::auto_mode,
+        .mode = theme_mode::dark,
         .light = one_half_light_scheme(),
         .dark = campbell_scheme(),
     };
