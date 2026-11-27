@@ -46,7 +46,7 @@ class window_host final
           bell_config_{config.bell}, font_config_{config.font}, accessibility_config_{config.accessibility},
           hyperlink_config_{config.hyperlink}, mouse_config_{config.mouse},
           title_config_{config.title}, damage_event_{damage_event},
-          worker_{console, console_mutex, window_config_, config.color, config.font, config.bell, config.title, config.accessibility,
+          worker_{console, console_mutex, window_config_, config.color, config.font, config.bell, config.text, config.title, config.accessibility,
                  damage_event_},
           window_{create_window()},
           tsf_{window_, tsf_host::callbacks{

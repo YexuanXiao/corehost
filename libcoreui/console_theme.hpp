@@ -94,10 +94,20 @@ struct console_palette final
 }
 
 [[nodiscard]] inline console_color foreground_color(const screen::text_style &style,
-                                                    const console_palette &palette) noexcept
+                                                    const console_palette &palette,
+                                                    bool bold_is_bright = false) noexcept
 {
-    const bool negative = (style.attributes & screen::text_style_attribute_bit(screen::text_style_attribute::negative)) != 0;
-    return negative ? resolve_color(style.background, palette, false) : resolve_color(style.foreground, palette, true);
+    auto effective = style;
+    if (bold_is_bright &&
+        (effective.attributes & screen::text_style_attribute_bit(screen::text_style_attribute::bold)) != 0 &&
+        effective.foreground.kind == screen::color_kind::indexed && effective.foreground.value < 8)
+    {
+        effective.foreground.value += 8;
+    }
+    const bool negative =
+        (effective.attributes & screen::text_style_attribute_bit(screen::text_style_attribute::negative)) != 0;
+    return negative ? resolve_color(effective.background, palette, false)
+                    : resolve_color(effective.foreground, palette, true);
 }
 
 [[nodiscard]] inline std::uint8_t blend_channel(std::uint8_t foreground, std::uint8_t background,

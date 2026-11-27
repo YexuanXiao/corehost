@@ -92,7 +92,7 @@ int main()
         config.mouse.selection_copy_on_select || config.mouse.selection_trim_block || config.mouse.middle_click_paste ||
         config.title.force_corehost || config.accessibility.reduce_motion ||
         config.window_behavior.launch != launch_mode::automatic ||
-        config.window_behavior.blur != backdrop_mode::none ||
+        config.window_behavior.blur != backdrop_mode::none || config.text.bold_is_bright ||
         config.bell.mode != bell_mode_full::visual)
     {
         std::fprintf(stderr, "font/mouse defaults mismatch\n");

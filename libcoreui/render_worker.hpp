@@ -38,11 +38,11 @@ class render_worker final
   public:
     render_worker(console &console, win32::srwlock &console_mutex, const window_config &config,
                   const color_config &color, const font_config &font, const bell_config &bell,
-                  const title_config &title, const accessibility_config &accessibility,
-                  win32::handle_view damage_event)
+                  const text_style_config &text_style, const title_config &title,
+                  const accessibility_config &accessibility, win32::handle_view damage_event)
         : columns{console.buffer().width()}, rows{console.buffer().height()}, console_{console}, console_mutex_{console_mutex},
           config_{config}, scheme_{select_scheme(color, config.dark_mode)}, palette_{make_palette(scheme_)},
-          font_{font}, bell_{bell}, title_{title}, accessibility_{accessibility},
+          font_{font}, bell_{bell}, text_style_{text_style}, title_{title}, accessibility_{accessibility},
           fallback_families_{make_fallback_families(font)},
           fallback_count_{make_fallback_count(font)},
           text_{std::span<const uitext::font_fallback_entry>{fallback_families_}.first(fallback_count_),
@@ -428,7 +428,7 @@ class render_worker final
                 }
 
                 const auto &style = styles_.at(cell.style());
-                auto foreground = foreground_color(style, palette_);
+                auto foreground = foreground_color(style, palette_, text_style_.bold_is_bright);
                 const auto background = background_color(style, palette_);
                 const auto sample = 0.5f / static_cast<float>(atlas_.size());
                 const auto cell_span = cell.is_wide() ? 2.0f : 1.0f;
@@ -1182,6 +1182,7 @@ class render_worker final
     const color_scheme &scheme_;
     const font_config &font_;
     const bell_config &bell_;
+    const text_style_config &text_style_;
     const title_config &title_;
     const accessibility_config &accessibility_;
     console_palette palette_;
