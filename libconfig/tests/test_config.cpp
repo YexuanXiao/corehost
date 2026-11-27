@@ -108,5 +108,14 @@ int main()
         return EXIT_FAILURE;
     }
 
+    auto acrylic_config = config;
+    acrylic_config.window.backdrop = backdrop_mode::acrylic;
+    if (effective_backdrop(acrylic_config) != backdrop_mode::acrylic ||
+        effective_backdrop(config) != backdrop_mode::none)
+    {
+        std::fprintf(stderr, "effective backdrop mismatch\n");
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }

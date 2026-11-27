@@ -240,9 +240,9 @@ class window_host final
             (void)::DwmSetWindowAttribute(window, DWMWA_NCRENDERING_POLICY, &policy, sizeof(policy));
         }
 
-        if (config_.window_behavior.blur != backdrop_mode::none)
+        if (effective_backdrop(config_) != backdrop_mode::none)
         {
-            const int backdrop = config_.window_behavior.blur == backdrop_mode::mica ? 2 : 3;
+            const int backdrop = effective_backdrop(config_) == backdrop_mode::mica ? 2 : 3;
             const auto result = ::DwmSetWindowAttribute(window, 38, &backdrop, sizeof(backdrop));
             LOG2("window backdrop mode=%d hr=%08x", backdrop, static_cast<unsigned>(result));
         }

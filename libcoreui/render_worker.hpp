@@ -921,7 +921,7 @@ class render_worker final
                 renderer_.set_clear_color(static_cast<float>(clear.r) / 255.0f,
                                           static_cast<float>(clear.g) / 255.0f,
                                           static_cast<float>(clear.b) / 255.0f,
-                                          (config_.window_behavior.blur != backdrop_mode::none) ? 0.0f : 1.0f);
+                                          (effective_backdrop(config_) != backdrop_mode::none) ? 0.0f : 1.0f);
                 atlas_.reset();
                 color_atlas_.mark_dirty();
                 force_full_redraw_ = true;
@@ -967,7 +967,7 @@ class render_worker final
         apply_text_correction();
         const auto &clear = palette().default_background;
         renderer_.set_clear_color(static_cast<float>(clear.r) / 255.0f, static_cast<float>(clear.g) / 255.0f,
-                                  static_cast<float>(clear.b) / 255.0f, (config_.window_behavior.blur != backdrop_mode::none) ? 0.0f : 1.0f);
+                                  static_cast<float>(clear.b) / 255.0f, (effective_backdrop(config_) != backdrop_mode::none) ? 0.0f : 1.0f);
         renderer_.render();
         LOG2("render first frame");
         bool cursor_dirty = true;
