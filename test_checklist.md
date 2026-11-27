@@ -61,9 +61,11 @@ review 目标：修复根因，不降低性能。
   - 已测 PowerShell 启动和标题；未逐一测 pwsh/cmd。
 - [x] A2 默认字体、fallback、字号显示
   - 已用默认 Cascadia Mono 截图；系统 fallback 的 CJK 见 B6。
-- [ ] A3 窗口外观：shadow / opacity / blur
+- [-] A3 窗口外观：shadow / opacity / blur
   - 需手动验收；默认 none/255。
-- [ ] A4 光标形态/闪烁关闭状态
+  - 需手动验收；默认 none/255。
+- [-] A4 光标形态/闪烁关闭状态
+  - 需手动切换 cursor.shape 后验收。
   - 测试使用不闪烁状态；cursor shape 默认 automatic 未切换。
 - [x] A5 关闭窗口
   - WM_CLOSE 后 corehostw 退出，无残留进程。
@@ -71,7 +73,8 @@ review 目标：修复根因，不降低性能。
   - `cmd /c exit 7` 后 corehostw 返回 0；按决定 GUI 宿主保持 0。
 - [x] A7 启动目录/命令行参数
   - 默认工作目录 USERPROFILE：`cmd /c cd` 输出 `C:\\Users\\xyx`；命令行参数可传。
-- [ ] A8 topmost / maximized / fullscreen / allow move
+- [-] A8 topmost / maximized / fullscreen / allow move
+  - 需手动验收窗口行为。
 
 ## B. VT 序列与渲染
 
@@ -181,7 +184,8 @@ ative_corehost_paste3.png`。
   - 曾因 `\\\\?\\` 前缀导致 cmd.exe UNC 警告；短路径不再加前缀，已修复。
 - [x] D8 进程退出、关闭标签页、退出码
   - 客户端退出码不传播，corehostw 固定返回 0。
-- [ ] D9 ReadConsoleOutput / ReadConsoleOutputCharacter 往返
+- [x] D9 ReadConsoleOutput / ReadConsoleOutputCharacter 往返
+  - `test_consoleapi` 已覆盖 ReadConsoleOutput/ReadConsoleOutputString 往返。
 
 ## E. 第三方程序
 
