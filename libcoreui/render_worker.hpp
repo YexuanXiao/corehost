@@ -39,7 +39,7 @@ class render_worker final
     render_worker(console &console, win32::srwlock &console_mutex, const window_config &config,
                   const color_config &color, win32::handle_view damage_event)
         : columns{console.buffer().width()}, rows{console.buffer().height()}, console_{console}, console_mutex_{console_mutex},
-          config_{config}, palette_{make_palette(color, config.dark_mode)},
+          config_{config}, scheme_{select_scheme(color, config.dark_mode)}, palette_{make_palette(scheme_)},
           fallback_families_{make_fallback_families(config_)},
           fallback_count_{make_fallback_count(config_)},
           text_{std::span<const uitext::font_fallback_entry>{fallback_families_}.first(fallback_count_),
@@ -685,7 +685,7 @@ class render_worker final
             }
 
             const auto sample = 0.5f / static_cast<float>(atlas_.size());
-            console_color cursor_color = palette_.default_foreground;
+            console_color cursor_color = scheme_.cursor;
             if (cursor_.x < columns && cursor_.y < rows)
             {
                 cursor_color = foreground_color(styles_.at(cell_state_[cursor_.y * columns + cursor_.x].style()),
@@ -1171,12 +1171,16 @@ class render_worker final
     HWND window_{};
     d3d12ui::d3d12_window_renderer renderer_;
     const window_config &config_;
+    const color_scheme &scheme_;
     console_palette palette_;
-    static console_palette make_palette(const color_config &color, bool dark)
+    static const color_scheme &select_scheme(const color_config &color, bool dark) noexcept
     {
-        const auto &scheme = (color.mode == theme_mode::light || (color.mode == theme_mode::auto_mode && !dark))
-                                 ? color.light
-                                 : color.dark;
+        return (color.mode == theme_mode::light || (color.mode == theme_mode::auto_mode && !dark)) ? color.light
+                                                                                                    : color.dark;
+    }
+
+    static console_palette make_palette(const color_scheme &scheme) noexcept
+    {
         console_palette result;
         result.indexed = scheme.ansi;
         result.default_foreground = scheme.foreground;
