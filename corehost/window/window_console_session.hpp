@@ -9,6 +9,7 @@
 #include "input_payload.hpp"
 #include "io_state.hpp"
 #include "process_registry.hpp"
+#include "window_ctrl.hpp"
 #include "server_loop.hpp"
 #include "win32_transport.hpp"
 #include "screen_buffer.hpp"
@@ -34,7 +35,8 @@ class window_console_session final
 {
   public:
     window_console_session(win32::handle_view server, console &console, win32::srwlock &console_mutex,
-                           coreio::process_registry &processes, const corehost_config &config);
+                           coreio::process_registry &processes, window_ctrl_state &ctrl,
+                           const corehost_config &config);
     ~window_console_session();
 
     window_console_session(const window_console_session &) = delete;
@@ -78,6 +80,7 @@ class window_console_session final
     bool handle_write_console(coreio::io_msg &message);
     void apply_vt(std::u16string_view text);
     void complete_pending();
+    void handle_ctrl_request();
 
     win32::handle_view server_;
     console &console_;
@@ -86,6 +89,7 @@ class window_console_session final
     consoleapi::console_api::pending_read_kind pending_kind_{};
     bool pending_active_{};
     coreio::process_registry &processes_;
+    window_ctrl_state &ctrl_;
     coreio::io_state io_state_;
     coreio::input_payload_reader payload_;
     consoleapi::console_api api_;

@@ -28,12 +28,13 @@ void window_entry(win32::wcstring_view title, std::wstring client_command_line,
     shared_console.set_copy_crlf(window_config.copy_ending == copy_line_ending::crlf);
     shared_console.set_trim_block(config.mouse.selection_trim_block);
     coreio::process_registry processes;
-    window_console_session console{server.view(), shared_console, console_mutex, processes, config};
+    window_ctrl_state ctrl;
+    window_console_session console{server.view(), shared_console, console_mutex, processes, ctrl, config};
     console.start();
 
     window_client_process client{server.view(), title, client_command_line, config};
     window_ui ui{shared_console, console_mutex, client.process(), title, config, console.output_event().view(),
-                 processes};
+                 ctrl};
     ui.start();
     ui.wait();
 

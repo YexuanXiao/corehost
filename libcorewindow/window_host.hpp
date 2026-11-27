@@ -3,7 +3,7 @@
 #include "clipboard.hpp"
 #include "console.hpp"
 #include "console_ctrl.hpp"
-#include "process_registry.hpp"
+#include "window_ctrl.hpp"
 #include "uia_provider.hpp"
 #include "control.hpp"
 #include "console_config.hpp"
@@ -45,9 +45,9 @@ class window_host final
 
     window_host(win32::wcstring_view title, console &console, win32::srwlock &console_mutex,
                 win32::handle_view client_process, const corehost_config &config, win32::handle_view damage_event,
-                coreio::process_registry &processes)
+                window_ctrl_state &ctrl)
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
-          config_{config}, damage_event_{damage_event}, processes_{processes},
+          config_{config}, damage_event_{damage_event}, ctrl_{ctrl},
           worker_{console, console_mutex, config_, damage_event_},
           window_{create_window()},
           tsf_{window_, tsf_host::callbacks{
@@ -833,43 +833,15 @@ class window_host final
         worker_.request_redraw();
     }
 
-    void deliver_ctrl_event(DWORD event, HWND hwnd, bool flush_input) const noexcept
+    void deliver_ctrl_event(DWORD event, HWND hwnd) const noexcept
     {
-        std::vector<DWORD> process_ids;
-        {
-            std::unique_lock<win32::srwlock> lock{console_mutex_};
-            if (flush_input)
-            {
-                console_.input().clear();
-            }
-            process_ids.reserve(processes_.size());
-            for (const auto process : processes_.processes())
-            {
-                process_ids.push_back(static_cast<DWORD>(static_cast<std::uint32_t>(process)));
-            }
-        }
-
-        if (process_ids.empty())
-        {
-            const auto client_id = ::GetProcessId(client_process_.get());
-            if (client_id == 0)
-            {
-                return;
-            }
-            process_ids.push_back(client_id);
-        }
-
-        coreio::ctrl_delivery delivery;
-        for (const auto process : process_ids)
-        {
-            delivery.deliver(process, event, hwnd);
-        }
-        LOG2("ctrl event=%lu delivered processes=%zu", event, process_ids.size());
+        ctrl_.request(event, hwnd);
+        LOG2("ctrl event=%lu requested hwnd=%p", event, hwnd);
     }
 
     void deliver_ctrl_c(HWND hwnd) const noexcept
     {
-        deliver_ctrl_event(CTRL_C_EVENT, hwnd, false);
+        deliver_ctrl_event(CTRL_C_EVENT, hwnd);
     }
 
     void copy_selection(HWND hwnd)
@@ -1359,7 +1331,7 @@ class window_host final
             }
             if (control && !alt && wparam == VK_CANCEL)
             {
-                self->deliver_ctrl_event(CTRL_BREAK_EVENT, hwnd, true);
+                self->deliver_ctrl_event(CTRL_BREAK_EVENT, hwnd);
                 return 0;
             }
             if (control && shift && (wparam == 'C' || wparam == 'V'))
@@ -1571,7 +1543,7 @@ class window_host final
     winrt::com_ptr<IUiaEvents> uia_events_;
     win32::handle_view client_process_;
     win32::handle_view damage_event_;
-    coreio::process_registry &processes_;
+    window_ctrl_state &ctrl_;
     render_worker worker_;
     HWND window_;
     tsf_host tsf_;

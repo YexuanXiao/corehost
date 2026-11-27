@@ -1,6 +1,7 @@
 #include "window_console_session.hpp"
 
 #include "terminal_response.hpp"
+#include "console_ctrl.hpp"
 #include "utility/log.hpp"
 #include "win32/error.hpp"
 
@@ -14,9 +15,10 @@ namespace corehost::window
 window_console_session::window_console_session(win32::handle_view server, console &console,
                                                      win32::srwlock &console_mutex,
                                                      coreio::process_registry &processes,
+                                                     window_ctrl_state &ctrl,
                                                      const corehost_config &config)
     : server_{server}, console_{console}, console_mutex_{console_mutex}, processes_{processes},
-      io_state_{server, {}, {}, processes_},
+      ctrl_{ctrl}, io_state_{server, {}, {}, processes_},
       payload_{server}, api_{console_.buffer(), console_.state(), &console_.input(), 0, &processes_,
                         &payload_},
       input_event_{win32::create_tag, true, false}, stop_event_{win32::create_tag, true, false}
@@ -82,17 +84,22 @@ DWORD WINAPI window_console_session::input_thread_entry(LPVOID self)
 
 void window_console_session::run_input()
 {
-    HANDLE waits[] = {console_.input_event().get(), stop_event_.get()};
+    HANDLE waits[] = {console_.input_event().get(), ctrl_.ready().get(), stop_event_.get()};
     for (;;)
     {
-        const auto wait = ::WaitForMultipleObjects(2, waits, FALSE, INFINITE);
-        if (wait == WAIT_OBJECT_0 + 1)
+        const auto wait = ::WaitForMultipleObjects(3, waits, FALSE, INFINITE);
+        if (wait == WAIT_OBJECT_0 + 2)
         {
             return;
         }
         if (wait == WAIT_FAILED)
         {
             win32::throw_last_error();
+        }
+        if (wait == WAIT_OBJECT_0 + 1)
+        {
+            handle_ctrl_request();
+            continue;
         }
 
         complete_pending();
@@ -304,6 +311,51 @@ void window_console_session::complete_pending()
         pending_active_ = false;
         pending_kind_ = consoleapi::console_api::pending_read_kind::none;
     }
+}
+
+void window_console_session::handle_ctrl_request()
+{
+    const auto event = ctrl_.take_event();
+    const auto hwnd = ctrl_.take_hwnd();
+
+    bool cancel_pending = false;
+    {
+        std::unique_lock<win32::srwlock> lock{console_mutex_};
+        if (event == CTRL_BREAK_EVENT)
+        {
+            console_.input().clear();
+        }
+        if (pending_active_)
+        {
+            console_.input().push(consoleinput::input_event{
+                .type = consoleinput::input_event_type::key,
+                .key = consoleinput::key_from_text_character(3),
+            });
+            cancel_pending = true;
+        }
+    }
+
+    if (cancel_pending)
+    {
+        complete_pending();
+    }
+
+    std::vector<DWORD> process_ids;
+    {
+        std::unique_lock<win32::srwlock> lock{console_mutex_};
+        process_ids.reserve(processes_.size());
+        for (const auto process : processes_.processes())
+        {
+            process_ids.push_back(static_cast<DWORD>(static_cast<std::uint32_t>(process)));
+        }
+    }
+
+    coreio::ctrl_delivery delivery;
+    for (const auto process : process_ids)
+    {
+        delivery.deliver(process, event, hwnd);
+    }
+    LOG2("ctrl event=%lu delivered processes=%zu pending=%d", event, process_ids.size(), cancel_pending);
 }
 
 void window_console_session::run()
