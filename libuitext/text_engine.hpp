@@ -236,14 +236,14 @@ class text_engine final
         for (const auto &layer : color_layers_)
         {
             out.push_back(color_glyph_bitmap{
+                .alpha = std::span<const std::uint8_t>{color_alpha_storage_.data() + layer.offset, layer.size},
+                .rgb = layer.rgb,
                 .width = layer.width,
                 .height = layer.height,
                 .left = layer.left,
                 .top = layer.top,
-                .rgb = layer.rgb,
                 .alpha_scale = layer.alpha_scale,
                 .kind = layer.kind,
-                .alpha = std::span<const std::uint8_t>{color_alpha_storage_.data() + layer.offset, layer.size},
             });
         }
     }

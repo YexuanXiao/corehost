@@ -1168,7 +1168,7 @@ class window_host final
             const auto flash_flags = self->config_.bell.mode == bell_mode_full::window
                                          ? (FLASHW_ALL | FLASHW_TIMERNOFG)
                                          : (FLASHW_TRAY | FLASHW_TIMERNOFG);
-            FLASHWINFO flash{sizeof(FLASHWINFO), hwnd, flash_flags, 1, 0};
+            FLASHWINFO flash{static_cast<UINT>(sizeof(FLASHWINFO)), hwnd, static_cast<DWORD>(flash_flags), 1, 0};
             (void)::FlashWindowEx(&flash);
             return 0;
         }
