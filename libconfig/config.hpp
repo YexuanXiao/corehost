@@ -28,16 +28,6 @@ enum class selection_foreground : unsigned char
     reverse,
 };
 
-enum class cursor_style : unsigned char
-{
-    beam,
-    block,
-    underline,
-    double_underline,
-    hollow_block,
-    vintage,
-};
-
 enum class cursor_text_mode : unsigned char
 {
     background,
@@ -168,7 +158,7 @@ struct background_config final
 
 struct cursor_config final
 {
-    cursor_style style{cursor_style::beam};
+    cursor_style style{cursor_style::automatic};
     bool blink{true};
     std::uint32_t blink_rate{530};
 };

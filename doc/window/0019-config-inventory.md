@@ -140,6 +140,7 @@ inline constexpr bool default_alpha_correction = true;
 | `tsf_enabled` | `window_config` | true | TSF 总开关 |
 | `mouse_wheel_lines` | `window_config` | 3 | 滚轮行数 |
 | `right_click` | `window_config` | automatic | automatic/copy/paste/menu/none |
+| `cursor_shape` | `window_config` | automatic | 覆盖 VT/应用的 cursor 样式；automatic 保留应用控制 |
 | `scrollbar` | `window_config` | auto_hide | always/auto_hide |
 | `copy_ending` | `console_config` | CRLF | 复制行尾 CRLF/LF |
 | `clipboard.read_policy` | `corehost_config.clipboard` | deny | 粘贴读取策略，已接入 |

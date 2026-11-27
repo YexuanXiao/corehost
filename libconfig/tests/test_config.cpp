@@ -32,7 +32,8 @@ int main()
         config.window.scrollbar != scrollbar_visibility::auto_hide ||
         config.window.font_fallbacks.count != 1 ||
         config.window.font_fallbacks.entries[0].family != L"Cascadia Mono" ||
-        config.window.mouse_wheel_lines != 3 || config.window.right_click != right_click_action::automatic)
+        config.window.mouse_wheel_lines != 3 || config.window.right_click != right_click_action::automatic ||
+        config.window.cursor_shape != cursor_style::automatic)
     {
         std::fprintf(stderr, "window defaults mismatch\n");
         return EXIT_FAILURE;
@@ -65,7 +66,7 @@ int main()
     if (config.font.family_fallback_list.count != 1 ||
         config.font.family_fallback_list.entries[0].family != L"Cascadia Mono" ||
         config.font.size != 16.0f || config.mouse.selection_mode != mouse_selection_mode::line ||
-        config.mouse.right_click != right_click_action::automatic)
+        config.mouse.right_click != right_click_action::automatic || config.cursor.style != cursor_style::automatic)
     {
         std::fprintf(stderr, "font/mouse defaults mismatch\n");
         return EXIT_FAILURE;

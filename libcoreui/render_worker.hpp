@@ -650,7 +650,25 @@ class render_worker final
             auto cursor_top = cell_top;
             auto cursor_width = cell_width;
             auto cursor_height = cell_height;
-            switch (cursor_.style)
+            auto cursor_style = cursor_.style;
+            switch (config_.cursor_shape)
+            {
+            case cursor_style::beam:
+                cursor_style = screen::cursor_style::bar;
+                break;
+            case cursor_style::block:
+                cursor_style = screen::cursor_style::block;
+                break;
+            case cursor_style::underline:
+            case cursor_style::double_underline:
+                cursor_style = screen::cursor_style::underline;
+                break;
+            case cursor_style::hollow_block:
+            case cursor_style::vintage:
+            case cursor_style::automatic:
+                break;
+            }
+            switch (cursor_style)
             {
             case screen::cursor_style::underline:
                 cursor_height = std::max(1.0f, cell_height * static_cast<float>(cursor_.size) / 100.0f);
