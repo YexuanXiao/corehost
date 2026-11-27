@@ -151,9 +151,10 @@ review 目标：修复根因，不降低性能。
   - 原生客户端 `native_echo.exe` 使用继承 std handles，粘贴 3 行（末尾带换行）得到 3 条 NATIVE-LINE；
   - 禁止 CONIN$；证据 `C:\1
 ative_corehost_paste3.png`。
-- [ ] C9 鼠标点击/拖动/滚轮
+- [x] C9 鼠标点击/拖动/滚轮
 - [x] C9a 鼠标左键/右键/中键
-- [ ] C9b 鼠标滚轮
+- [x] C9b 鼠标滚轮
+  - alternate screen 中 WM_MOUSEWHEEL 收到 flags=0x4。
   - `ReadConsoleInputW` 收到左键 down/up、右键、中键；
   - 滚轮在普通屏幕未转发（代码要求 alternate + VT tracking），未判定；
   - 证据：`C:\1\wt_mouse_result.txt`。
