@@ -3,6 +3,7 @@ add_library(libscreen INTERFACE)
 
 target_include_directories(libscreen INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/libconfig
     ${CMAKE_SOURCE_DIR}/third_parties/deque
 )
 

@@ -21,19 +21,7 @@ window_console_session::window_console_session(win32::handle_view server, consol
 {
     auto &state = console_.state();
     state.output_mode = 0x0001 | 0x0002 | 0x0004;
-    switch (config.console.text_measurement)
-    {
-    case text_measurement_mode::console:
-        state.measurement = screen::text_measurement::console;
-        break;
-    case text_measurement_mode::wcswidth:
-        state.measurement = screen::text_measurement::wcswidth;
-        break;
-    case text_measurement_mode::graphemes:
-    default:
-        state.measurement = screen::text_measurement::graphemes;
-        break;
-    }
+    state.measurement = config.console.text_measurement;
     // Keep the default narrow: edit.exe's box-drawing layout assumes Box
     // Drawing / Block Elements stay one column wide. With ambiguous wide,
     // table borders are expanded and the menu frame breaks.

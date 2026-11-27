@@ -137,7 +137,7 @@ inline constexpr bool default_alpha_correction = true;
 | 配置 | 归属 | 默认 | 说明 |
 |---|---|---:|---|
 | `scrollback_lines` | `window_config` | 3000 | window 模式传入 console 构造 |
-| `text_measurement_mode` | `console_config` | graphemes | console/graphemes/wcswidth |
+| `text_measurement` | `console_config` | graphemes | 单一 `screen::text_measurement`，定义在 libconfig |
 | `initial_cols/rows` | `console_config` | 120x30 | 启动 console 和初始窗口共用；窗口直接读取，不再复制 |
 | `min_columns/min_rows` | `window_config` | 36x2 | 按字体 cell 度量和窗口边框计算像素 |
 | `candidate_offset_cells` | `corehost_config.ime` | 2 | TSF `GetTextExt` 按 cell 计算 |

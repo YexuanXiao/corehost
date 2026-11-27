@@ -19,7 +19,7 @@ int main()
 
     const corehost_config config{};
 
-    if (config.console.initial_cols != 120 || config.console.text_measurement != text_measurement_mode::graphemes ||
+    if (config.console.initial_cols != 120 || config.console.text_measurement != corehost::screen::text_measurement::graphemes ||
         config.console.initial_rows != 30 || config.console.ambiguous_is_wide)
     {
         std::fprintf(stderr, "console defaults mismatch\n");

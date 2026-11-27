@@ -4,6 +4,7 @@
 #include <libunicode/codepoint_properties.h>
 #include <libunicode/grapheme_segmenter.h>
 #include <libunicode/width.h>
+#include <text_measurement.hpp>
 
 #include <algorithm>
 #include <bit>
@@ -19,15 +20,6 @@
 
 namespace corehost::screen
 {
-
-// Matches corehost::conpty::text_measurement_mode.
-enum class text_measurement
-{
-    console = 0,
-    graphemes,
-    wcswidth,
-};
-
 [[nodiscard]] constexpr int console_width(char32_t value) noexcept
 {
     if (value < 0x20 || value == 0x7F || value == 0x00AD)
