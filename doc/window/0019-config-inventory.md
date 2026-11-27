@@ -136,7 +136,8 @@ inline constexpr bool default_alpha_correction = true;
 
 | 配置 | 归属 | 默认 | 说明 |
 |---|---|---:|---|
-| `scrollback_lines` | `window_config` | 3000 | window 模式传入 console 构造 |\n| `text_measurement_mode` | `console_config` | graphemes | console/graphemes/wcswidth |
+| `scrollback_lines` | `window_config` | 3000 | window 模式传入 console 构造 |
+| `text_measurement_mode` | `console_config` | graphemes | console/graphemes/wcswidth |
 | `initial_cols/rows` | `console_config` | 120x30 | 启动 console 和初始窗口共用；窗口直接读取，不再复制 |
 | `min_columns/min_rows` | `window_config` | 36x2 | 按字体 cell 度量和窗口边框计算像素 |
 | `candidate_offset_cells` | `corehost_config.ime` | 2 | TSF `GetTextExt` 按 cell 计算 |
@@ -147,7 +148,7 @@ inline constexpr bool default_alpha_correction = true;
 | `font.variation*` | `corehost_config.font` | wght400/wdth100/ital0/slnt0/opsz16 | 显式 axis tag；normal/bold/italic/bold-italic 四套 |
 | `font.turning` | `corehost_config.font` | gamma_contrast | gamma × contrast 四组合 |
 | `font.anti_alias` | `corehost_config.font` | grayscale | grayscale/cleartype |
-| `font.rendering_mode` | `corehost_config.font` | DWRITE_RENDERING_MODE_DEFAULT | 直接使用 DWRITE_RENDERING_MODE |
+| `font.rendering_mode` | `corehost_config.font` | default_mode | ABI 兼容枚举，DWrite 边界 bit_cast |
 | `font_fallbacks` | `window_config` | 1 项 Cascadia Mono | 兼容字段；实际使用 `corehost_config.font.family_fallback_list` |
 | `cursor.blink/blink_rate` | `corehost_config.cursor` | true/530 | blink=false 或 rate=0 不闪 |
 | `selection_auto_scroll_interval_ms` | `window_config` | 40 | 边缘自动滚动 |
