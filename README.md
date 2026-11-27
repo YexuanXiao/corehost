@@ -2,6 +2,10 @@
 
 **corehost** is a reimplementation of Windows conhost.
 
+<p align="center">
+  <img src="corehost/corehost.png" alt="corehost logo" width="200">
+</p>
+
 ## Table of Contents
 
 <ul>
@@ -39,12 +43,12 @@ Actually, the Windows Console team also agrees that it is far from ideal; see ht
 
 ## Positioning
 
-Its goal is to act as a **bridge between the Terminal GUI and the Windows console system**. To that end, corehost implements three core features:
+Its goal is to act as **a A full-featured terminal built with technology that is as modern as possible, and a bridge between the Terminal GUI and the Windows console system**. To that end, corehost implements four core features:
 
 - When running as conhost.exe, dispatch the console application to the default terminal.
 - As the default console, acts as a bridge between the console application and the terminal.
 - As the implementer of the Windows system, one codebase drives both windowless console applications and pseudo console at the same time.
-- Window mode, as a full functionally terminal.
+- Window mode, as a full-featured Windows terminal.
 
 corehost aims to provide **high performance** for driving:
 
@@ -70,6 +74,8 @@ Although corehost is written using platform-neutral code and relies only on feat
 
 corehost solves the problem that the original version of conhost does not support opening the default terminal (e.g., Windows Terminal) when calling `AllocConsole`.
 
+(corehostw todo: remove the following after full implementation)
+
 When corehost runs with elevated integrity (High IL) due to sudo or runas, UIPI prevents COM activation and handle transfer to Medium IL terminals. Since no GUI is available (the only GUI available to the original conhost is itself), corehost will refuse to execute the program and send a message in the notification center about what happened.
 
 Some third-party programs incorrectly launch other programs indirectly through an administrator-mode cmd. Since cmd lacks an equivalent to PowerShell's `-WindowStyle` parameter, this typically manifests as a conhost window that flashes briefly at boot. After replacing conhost with corehost, these programs may work properly, or they may fail.
@@ -78,13 +84,15 @@ Note that since msix applications cannot run in safe mode, please backup the sys
 
 ## How to use it
 
-corehost supports three usage modes.
+corehost supports four usage modes.
 
 First, you can directly replace conhost.exe with corehost.exe, and corehost will take over all functionality of conhost, except that it does not support window mode.
 
 Then, you can use the scripts in the scripts directory to register corehost as the default console. In this mode, when you launch cmd using Run, corehost will take over the functionality of OpenConsole.
 
-Finally, corehost can also be used together with conpty.dll to provide ConPty support for third-party terminals. If you are using conpty.dll released by Microsoft, rename corehost.exe to openconsole.exe; if you are using corehost's libconpty, you can directly use corehost.exe.
+corehost can also be used together with conpty.dll to provide ConPty support for third-party terminals. If you are using conpty.dll released by Microsoft, rename corehost.exe to openconsole.exe; if you are using corehost's libconpty, you can directly use corehost.exe.
+
+Finally, corehostw.exe provides a full-featured terminal GUI based on DWrite3, DComposition3, and DirectX12. Built with the most advanced graphics technology on Windows.
 
 Additionally, corehost can be used as a C++ library by third-party terminals, as described below. In this working mode, inter-process communication is completely avoided.
 
@@ -104,7 +112,8 @@ Refer to CI for cross compilation and building with Clang.
 
 ### Build targets
 
-- `corehost`: the main executable whitch provides the functionality of conhost/OpenConsole.
+- `corehost`: the main executable which provides the functionality of conhost/OpenConsole.
+- `corehostw`: A graphical interface has been implemented on top of corehost. corehost requires a minimum of Windows 10, while corehostw requires a minimum of Windows 11.
 - `libcorepty`: The entry point of ConPTY, which assembles the console runtime and the VT input/output from the terminal GUI. Third-party terminals can link libcorepty into their programs without needing to use an external conhost process.
 - `conpty`: the shared library form of libconpty for third-party terminals that export the symbols declared by winconpty.h.
 - `conpty_static`: the static library form of libconpty.
@@ -156,6 +165,10 @@ corehost parses those arguments, adopts the inherited handles, initializes the s
 
 The terminal and corehost keep separate state for the same session. The terminal owns the visible UI and terminal-facing state, such as windows, tabs, rendering, selection, scrollback, and its VT screen model. corehost owns the Windows console-server state, including process membership, console modes, input records, code pages, API-visible cursor/attribute state, the API-readable screen buffer, pending ConDrv requests, and control-event routing. The terminal does not implement Windows Console APIs, and corehost does not own the visible UI.
 
+### Mode 4: Real terminal window
+
+(corehostw todo: fill in the content after full implementation)
+
 ### Console runtime
 
 The Console runtime is the shared implementation used by all three startup modes. It is intentionally split into a few functional areas:
@@ -178,10 +191,8 @@ corehost currently has three issues:
 1. corehost's compatibility is not yet good enough; it requires a large amount of user feedback to improve compatibility. If you care about the future of the Windows Console, please follow this project and actively try it out. All your compatibility feedback will be recorded and documented.
 2. corehost's code is not yet good enough. First, I must admit that most of the code in corehost was written by AI, but I guarantee that I participated in the design of the vast majority of functions and classes. Although I have reviewed it again and again to ensure that the AI wrote meaningful code, my energy is limited and I cannot guarantee that it is optimal.
 
-After the above issues are resolved, corehost will reach its end point, because corehost was written to demonstrate how the Windows Console works and to replace conhost under the existing design. Once that goal is achieved, corehost will enter a stable state. But this is also a new starting point for the Windows Console. The experience gained from corehost will be used to give rise to a new terminal with GUI, which should be able to independently perform all the work of conhost and use the best design we can have.
-
 ## Acknowledgement
 
 The implementation of corehost is built on the following three codebases:
 
-I thank the Windows Console team for open-sourcing [conhost](https://github.com/microsoft/terminal) and for their patient, professional responses to several questions. It was a pleasure to communicate with you. I also thank [Ghostty](https://github.com/ghostty-org/ghostty), from which corehost learned how to correctly represent the console’s internal structures. Finally, I thank Contour for providing a high-quality [C++ Unicode library](https://github.com/contour-terminal/libunicode).
+I thank the Windows Console team for open-sourcing [conhost](https://github.com/microsoft/terminal) and for their patient, professional responses to several questions. Windows Terminal's GUI code also helped corehost. It was a pleasure to communicate with you. I also thank [Ghostty](https://github.com/ghostty-org/ghostty), from which corehost learned how to correctly represent the console’s internal structures. Finally, I thank Contour for providing a high-quality [C++ Unicode library](https://github.com/contour-terminal/libunicode).
