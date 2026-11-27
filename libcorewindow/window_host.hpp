@@ -627,6 +627,10 @@ class window_host final
         selection_drag_point_ = POINT{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
         ::SetCapture(hwnd);
         ::SetTimer(hwnd, selection_scroll_timer, config_.window.selection_auto_scroll_interval_ms, nullptr);
+        if (config_.mouse.selection_copy_on_select && click_count_ >= 2 && console_.has_selection())
+        {
+            copy_selection(hwnd);
+        }
         notify_uia_selection();
     }
 
