@@ -685,6 +685,7 @@ class d3d12_window_renderer final
         auto present_result = swapchain_->Present1(1, 0, &present_parameters);
         if (FAILED(present_result) && use_dirty_rect)
         {
+            LOG2("Present1 dirty rect failed hr=%08x; retry full", static_cast<unsigned>(present_result));
             present_parameters = {};
             present_result = swapchain_->Present1(1, 0, &present_parameters);
         }
