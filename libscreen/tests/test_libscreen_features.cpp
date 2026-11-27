@@ -376,6 +376,44 @@ void test_scroll_region_preserves_cell_style()
     check(buffer.at(0, 1).style() == style1, "scroll region preserves style");
 }
 
+void test_resize_trims_trailing_spaces()
+{
+    using namespace corehost::screen;
+
+    screen_buffer buffer(10, 1);
+    (void)buffer.write_scalar(0, 0, u'A', style0);
+    (void)buffer.write_scalar(1, 0, u'B', style0);
+    (void)buffer.write_scalar(2, 0, u'C', style0);
+    for (std::size_t x = 3; x < 10; ++x)
+    {
+        (void)buffer.write_scalar(x, 0, u' ', style0);
+    }
+
+    buffer.resize(5, 1);
+    check(buffer.history_size() == 0, "resize trims trailing scalar spaces");
+    check(buffer.at(0, 0).primary() == u'A', "resize keeps content before spaces");
+
+    screen_buffer ideographic_space_buffer(10, 1);
+    (void)ideographic_space_buffer.write_scalar(0, 0, u'A', style0);
+    for (std::size_t x = 1; x < 10; ++x)
+    {
+        (void)ideographic_space_buffer.write_scalar(x, 0, u'\u3000', style0);
+    }
+    ideographic_space_buffer.resize(5, 1);
+    check(ideographic_space_buffer.history_size() == 0, "resize trims trailing ideographic spaces");
+}
+
+void test_wrap_flags()
+{
+    using namespace corehost::screen;
+
+    screen_buffer buffer(4, 2);
+    coord cursor{0, 0};
+    (void)buffer.write_text_row(cursor, u"ABCDE", {}, style0, true);
+    check(buffer.has_flag(0, line_flag::wrap), "writer marks wrapped row");
+    check(buffer.has_flag(1, line_flag::wrapped), "writer marks continuation row");
+}
+
 int main()
 {
     test_interop_abi();
@@ -388,6 +426,8 @@ int main()
     test_alt_history();
     test_alt_resize_clears();
     test_scroll_region_preserves_cell_style();
+    test_resize_trims_trailing_spaces();
+    test_wrap_flags();
 
     if (failures != 0)
     {

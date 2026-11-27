@@ -209,9 +209,13 @@ class state_applier final
             }
             if (static_cast<std::size_t>(cursor.x) + static_cast<std::size_t>(columns) > width)
             {
-                buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
+                buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrap);
                 cursor.x = 0;
                 ++cursor.y;
+                if (static_cast<std::size_t>(cursor.y) < height)
+                {
+                    buffer.add_flags(static_cast<std::size_t>(cursor.y), screen::line_flag::wrapped);
+                }
             }
             if (static_cast<std::size_t>(cursor.y) >= height)
             {

@@ -265,7 +265,9 @@ int main()
     corehost::vtstate::state_applier wrap_applier;
     wrap_applier.apply_text(result.message, wrap_buffer, wrap_state);
     if (wrap_buffer.at(0, 0).primary() != u'A' || wrap_buffer.at(3, 0).primary() != u'D' ||
-        wrap_buffer.at(0, 1).primary() != u'E' || !wrap_buffer.has_flag(0, screen::line_flag::wrapped))
+        wrap_buffer.at(0, 1).primary() != u'E' ||
+        !wrap_buffer.has_flag(1, screen::line_flag::wrapped) ||
+        !wrap_buffer.has_flag(0, screen::line_flag::wrap))
     {
         std::fprintf(stderr, "text wrap failed\n");
         return EXIT_FAILURE;

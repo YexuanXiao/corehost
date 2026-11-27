@@ -39,6 +39,7 @@ enum class line_flag : std::uint16_t
     command_end = 1u << 7,
     prompt_end = 1u << 8,
     user_mark = 1u << 9,
+    wrap = 1u << 10,
 };
 
 using line_flags = std::uint16_t;
@@ -1440,6 +1441,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                     break;
                 }
                 cursor.x = 0;
+                add_flags(static_cast<std::size_t>(cursor.y), line_flag::wrap);
                 ++cursor.y;
                 if (static_cast<std::size_t>(cursor.y) >= height_)
                 {
@@ -1466,6 +1468,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                     break;
                 }
                 cursor.x = 0;
+                add_flags(static_cast<std::size_t>(cursor.y), line_flag::wrap);
                 ++cursor.y;
                 if (static_cast<std::size_t>(cursor.y) >= height_)
                 {
@@ -1508,6 +1511,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                 break;
             }
             cursor.x = 0;
+            add_flags(static_cast<std::size_t>(cursor.y), line_flag::wrap);
             ++cursor.y;
             if (static_cast<std::size_t>(cursor.y) >= height_)
             {
@@ -1532,6 +1536,7 @@ inline screen_buffer::text_write_result screen_buffer::write_text_row(coord &cur
                 break;
             }
             cursor.x = 0;
+            add_flags(static_cast<std::size_t>(cursor.y), line_flag::wrap);
             ++cursor.y;
             if (static_cast<std::size_t>(cursor.y) < height_)
             {
@@ -2033,15 +2038,16 @@ inline void screen_buffer::resize(std::size_t width, std::size_t height, cell_st
             }
         }
 
-        while (!units.empty() && units.back().value.is_blank() &&
+        while (!units.empty() && (units.back().value.is_blank() || units.back().value.primary() == u' ' ||
+                                  units.back().value.primary() == u'\u3000') &&
                !(cursor_line && units.back().source_row == cursor_source_row &&
                  units.back().source_x == cursor_source_x))
         {
             units.pop_back();
         }
 
-        const auto base_flags =
-            sources[start].flags & ~line_flag_ops::raw(line_flag::wrapped);
+        const auto base_flags = sources[start].flags &
+                                ~(line_flag_ops::raw(line_flag::wrapped) | line_flag_ops::raw(line_flag::wrap));
         const auto base_exit = sources[start].command_exit_code;
         row_block current{cell_vector(width, cell::blank(fill_style)), row_state{}, {}};
         current.state.flags = base_flags;
@@ -2065,6 +2071,7 @@ inline void screen_buffer::resize(std::size_t width, std::size_t height, cell_st
                     current.state.used_columns = static_cast<std::uint32_t>(target_x);
                     current.state.dirty_begin = 0;
                     current.state.dirty_end = static_cast<std::uint32_t>(target_x);
+                    current.state.flags |= line_flag_ops::raw(line_flag::wrap);
                     output.push_back(std::move(current));
 
                     current = row_block{cell_vector(width, cell::blank(fill_style)), row_state{}, {}};
