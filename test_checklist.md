@@ -96,7 +96,8 @@ review 目标：修复根因，不降低性能。
 - [x] B9 宽字符覆盖与尾部清理
 - [x] B10 DEC line drawing / charset
   - `ESC(0 lqk ESC(B` 显示为线框并恢复。
-- [ ] B11 tab、backspace、CR/LF
+- [x] B11 tab、backspace、CR/LF
+  - TAB 到 8 列制表位；BS 后 Y 覆盖 X；CR 后 BBB 覆盖行首；LF 到下一行。
 - [x] B12 CUP/CUU/CUD/CUF/CUB/CHA/VPA
   - CUP/CUU/CUD/CUF/CUB 已做同一窗口截图，未逐项断言坐标。
 - [x] B13 save/restore cursor（ESC 7 / ESC 8）
@@ -147,7 +148,8 @@ review 目标：修复根因，不降低性能。
   - 收到 VK=0x5A CHAR=0x1A control=0x8。
 - [x] C8 多行粘贴
   - 原生客户端 `native_echo.exe` 使用继承 std handles，粘贴 3 行（末尾带换行）得到 3 条 NATIVE-LINE；
-  - 禁止 CONIN$；证据 `C:\1\native_corehost_paste3.png`。
+  - 禁止 CONIN$；证据 `C:\1
+ative_corehost_paste3.png`。
 - [ ] C9 鼠标点击/拖动/滚轮
 - [x] C9a 鼠标左键/右键/中键
 - [ ] C9b 鼠标滚轮
@@ -198,7 +200,8 @@ review 目标：修复根因，不降低性能。
   - 200 行连续输出后 F1-READY 正常。
 - [x] F2 连续快速 resize
   - 20 次放大/缩小后进程存活，F2-READY 保持。
-- [ ] F3 超长行/宽字符混合
+- [x] F3 超长行/宽字符混合
+  - 80 组 `水A` 跨 3 行折行，F3-END/READY 正常；证据 `C:\\1\\wt_b11_b14_f3.png`。
 - [x] F4 alternate-screen 应用反复进出
   - 20 次进入/退出 alternate screen，主屏 F4-MAIN-READY 恢复。
 - [ ] F5 深层嵌套 shell + 退出
