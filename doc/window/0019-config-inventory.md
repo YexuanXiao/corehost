@@ -127,8 +127,8 @@ inline constexpr bool default_alpha_correction = true;
 | `scrollback_lines` | `console_config` | 3000 | window 模式传入 console 构造 |
 | `initial_cols/rows` | `console_config` | 120x30 | 启动 console 和初始窗口共用；window 兼容字段同步 |
 | `min_columns/min_rows` | `window_config` | 36x2 | 按字体 cell 度量和窗口边框计算像素 |
-| `candidate_offset_cells` | `window_config` | 2 | TSF `GetTextExt` 按 cell 计算 |
-| `hyperlink` | `window_config` | control | Ctrl/Alt/Shift/none 可配置 |
+| `candidate_offset_cells` | `corehost_config.ime` | 2 | TSF `GetTextExt` 按 cell 计算 |
+| `hyperlink` | `corehost_config.hyperlink` | control | Ctrl/Alt/Shift/none 可配置 |
 | `font_size_dip` | `window_config` | 16.0 | 兼容字段；实际使用 `corehost_config.font.size` |
 | `font.color_emoji` | `corehost_config.font` | true | 关闭后走单色 glyph 路径 |\n| `font.ligatures` | `corehost_config.font` | false | 开启标准连字 |\n| `font_fallbacks` | `window_config` | 1 项 Cascadia Mono | 兼容字段；实际使用 `corehost_config.font.family_fallback_list` |
 | `cursor_blink_ms` | `window_config` | 530 | 0 表示不闪 |
@@ -136,8 +136,8 @@ inline constexpr bool default_alpha_correction = true;
 | `selection_auto_scroll_edge_rows` | `window_config` | 1 | 边缘行数 |
 | `uia_text_changed_events` | `window_config` | true | 文本变化事件开关 |
 | `uia_selection_events` | `window_config` | true | 选择变化事件开关 |
-| `uia_enabled` | `window_config` | true | UIA provider 总开关 |
-| `tsf_enabled` | `window_config` | true | TSF 总开关 |
+| `uia_enable` | `corehost_config.accessibility` | true | UIA provider 总开关 |
+| `tsf_enabled` | `corehost_config.ime` | true | TSF 总开关 |
 | `mouse_wheel_lines` | `window_config` | 3 | 滚轮行数 |
 | `right_click` | `window_config` | automatic | automatic/copy/paste/menu/none |
 | `cursor_shape` | `window_config` | automatic | 覆盖 VT/应用；automatic 保留应用控制；double/hollow/vintage 当前近似映射 |

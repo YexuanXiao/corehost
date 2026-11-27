@@ -43,7 +43,8 @@ class window_host final
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
           console_config_{config.console}, window_config_{config.window}, clipboard_config_{config.clipboard},
           background_config_{config.background}, color_config_{config.color}, window_behavior_config_{config.window_behavior},
-          bell_config_{config.bell}, font_config_{config.font},
+          bell_config_{config.bell}, font_config_{config.font}, accessibility_config_{config.accessibility},
+          hyperlink_config_{config.hyperlink},
           title_config_{config.title}, damage_event_{damage_event},
           worker_{console, console_mutex, window_config_, config.color, config.font, config.bell, config.title, config.accessibility,
                  damage_event_},
@@ -53,8 +54,8 @@ class window_host final
                             .commit = &window_host::tsf_commit_callback,
                             .composition = &window_host::tsf_composition_callback,
                             .caret = &window_host::tsf_caret_callback,
-                            .candidate_offset_cells = config.window.candidate_offset_cells,
-                            .enabled = config.window.tsf_enabled,
+                            .candidate_offset_cells = config.ime.candidate_offset_cells,
+                            .enabled = config.ime.tsf_enabled,
                         }}
     {
         assert(!title_.empty());
@@ -81,7 +82,7 @@ class window_host final
 
     IRawElementProviderSimple *ensure_uia_provider() noexcept
     {
-        if (!window_config_.uia_enabled)
+        if (!accessibility_config_.uia_enable)
         {
             return nullptr;
         }
@@ -643,7 +644,7 @@ class window_host final
 
     [[nodiscard]] bool hyperlink_modifier_pressed() const noexcept
     {
-        switch (window_config_.hyperlink)
+        switch (hyperlink_config_.modifier)
         {
         case hyperlink_modifier::none:
             return true;
@@ -1487,6 +1488,8 @@ class window_host final
     const color_config &color_config_;
     const bell_config &bell_config_;
     const font_config &font_config_;
+    const accessibility_config &accessibility_config_;
+    const hyperlink_config &hyperlink_config_;
     const window_behavior_config &window_behavior_config_;
     const title_config &title_config_;
     winrt::com_ptr<IRawElementProviderSimple> uia_provider_;
