@@ -69,7 +69,8 @@ review 目标：修复根因，不降低性能。
   - WM_CLOSE 后 corehostw 退出，无残留进程。
 - [x] A6 进程退出、退出码
   - `cmd /c exit 7` 后 corehostw 返回 0；按决定 GUI 宿主保持 0。
-- [ ] A7 启动目录/命令行参数
+- [x] A7 启动目录/命令行参数
+  - 默认工作目录 USERPROFILE：`cmd /c cd` 输出 `C:\\Users\\xyx`；命令行参数可传。
 - [ ] A8 topmost / maximized / fullscreen / allow move
 
 ## B. VT 序列与渲染
@@ -103,6 +104,7 @@ review 目标：修复根因，不降低性能。
 - [x] B13 save/restore cursor（ESC 7 / ESC 8）
   - `SAVE-...RESTORED` 截图通过。
 - [ ] B14 EL/ED 各模式
+  - EL0/EL1/EL2/ED0 已做可视化测试；ED1/ED2 未测。
   - EL2 局部测试通过；其余模式未测。
 - [x] B15 scroll region、LF/IND/RI
 - [x] B16 alternate screen 1049 进入/退出
