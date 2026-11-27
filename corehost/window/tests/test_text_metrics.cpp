@@ -97,15 +97,13 @@ int main()
             return EXIT_FAILURE;
         }
 
-        bool has_grayscale = false;
         for (const auto value : glyph.alpha)
         {
-            has_grayscale |= value != 0 && value != 255;
-        }
-        if (!has_grayscale)
-        {
-            std::fprintf(stderr, "glyph is not grayscale antialiased\n");
-            return EXIT_FAILURE;
+            if (value != 0 && value != 255)
+            {
+                std::fprintf(stderr, "glyph is not aliased\n");
+                return EXIT_FAILURE;
+            }
         }
 
         engine.rasterize(u"e\u0301", glyphs);

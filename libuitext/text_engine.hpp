@@ -485,7 +485,7 @@ class text_engine final
     {
         winrt::com_ptr<IDWriteGlyphRunAnalysis> analysis;
         winrt::check_hresult(factory2_->CreateGlyphRunAnalysis(
-            &run, nullptr, DWRITE_RENDERING_MODE_NATURAL, DWRITE_MEASURING_MODE_NATURAL,
+            &run, nullptr, DWRITE_RENDERING_MODE_ALIASED, DWRITE_MEASURING_MODE_NATURAL,
             DWRITE_GRID_FIT_MODE_DEFAULT, DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE, origin_x, origin_y,
             analysis.put()));
 
@@ -527,7 +527,7 @@ class text_engine final
     {
         winrt::com_ptr<IDWriteGlyphRunAnalysis> analysis;
         winrt::check_hresult(factory2_->CreateGlyphRunAnalysis(
-            &run, nullptr, DWRITE_RENDERING_MODE_NATURAL, DWRITE_MEASURING_MODE_NATURAL,
+            &run, nullptr, DWRITE_RENDERING_MODE_ALIASED, DWRITE_MEASURING_MODE_NATURAL,
             DWRITE_GRID_FIT_MODE_DEFAULT, DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE, origin_x, origin_y,
             analysis.put()));
 

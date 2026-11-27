@@ -873,11 +873,11 @@ class render_worker final
     {
         float contrast = 0.0f;
         std::array<float, 4> gamma_ratios{};
-        if (config_.window.text_options.contrast)
+        if (antialias_contrast(config_.font.antialias))
         {
             contrast = text_.grayscale_enhanced_contrast();
         }
-        if (config_.window.text_options.alpha_correction)
+        if (antialias_alpha_correction(config_.font.antialias))
         {
             gamma_ratios = text_.gamma_ratios();
         }

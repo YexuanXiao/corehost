@@ -89,7 +89,8 @@ int main()
         config.font.family_fallback_list.entries[0].family != L"Cascadia Mono" ||
         config.font.size != 16.0f || !config.font.color_emoji || config.font.ligatures ||
         config.font.variation[0].tag != corehost::uitext::font_axis_weight || config.font.variation[0].value != 400.0f ||
-        config.font.variation_bold[0].value != 700.0f || config.font.variation_italic[2].value != 1.0f || config.mouse.selection_mode != mouse_selection_mode::line ||
+        config.font.variation_bold[0].value != 700.0f || config.font.variation_italic[2].value != 1.0f ||
+        config.font.antialias != antialias_mode::aliased_contrast_alpha || config.mouse.selection_mode != mouse_selection_mode::line ||
         config.mouse.right_click != right_click_action::automatic || config.cursor.style != cursor_style::automatic ||
         !config.mouse.selection_double_click || !config.mouse.selection_triple_click ||
         config.mouse.shift_capture != mouse_shift_capture::shift ||

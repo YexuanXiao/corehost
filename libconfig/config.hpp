@@ -102,10 +102,21 @@ enum class hyperlink_open_policy : unsigned char
 
 enum class antialias_mode : unsigned char
 {
-    grayscale,
-    cleartype,
-    aliased,
+    aliased_contrast_alpha,
+    aliased_contrast,
+    aliased_alpha,
+    aliased_none,
 };
+
+inline constexpr bool antialias_contrast(antialias_mode mode) noexcept
+{
+    return mode == antialias_mode::aliased_contrast_alpha || mode == antialias_mode::aliased_contrast;
+}
+
+inline constexpr bool antialias_alpha_correction(antialias_mode mode) noexcept
+{
+    return mode == antialias_mode::aliased_contrast_alpha || mode == antialias_mode::aliased_alpha;
+}
 
 enum class colorspace_mode : unsigned char
 {
@@ -172,7 +183,7 @@ struct font_config final
     std::array<uitext::font_axis, 5> variation_bold{uitext::default_font_variation_bold()};
     std::array<uitext::font_axis, 5> variation_italic{uitext::default_font_variation_italic()};
     std::array<uitext::font_axis, 5> variation_bold_italic{uitext::default_font_variation_bold_italic()};
-    antialias_mode antialias{antialias_mode::grayscale};
+    antialias_mode antialias{antialias_mode::aliased_contrast_alpha};
     bool color_emoji{true};
 };
 
