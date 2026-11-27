@@ -42,7 +42,8 @@ class window_host final
                 win32::handle_view client_process, const corehost_config &config, win32::handle_view damage_event)
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
           console_config_{config.console}, window_config_{config.window}, clipboard_config_{config.clipboard},
-          damage_event_{damage_event},
+          background_config_{config.background}, window_behavior_config_{config.window_behavior},
+          title_config_{config.title}, damage_event_{damage_event},
           worker_{console, console_mutex, window_config_, config.color, damage_event_},
           window_{create_window()},
           tsf_{window_, tsf_host::callbacks{
@@ -101,7 +102,8 @@ class window_host final
     void run()
     {
         worker_.start(window_);
-        ::ShowWindow(window_, SW_SHOWDEFAULT);
+        const auto show = window_behavior_config_.launch == launch_mode::maximized ? SW_SHOWMAXIMIZED : SW_SHOWDEFAULT;
+        ::ShowWindow(window_, show);
         ::UpdateWindow(window_);
 
         MSG message{};
@@ -204,6 +206,12 @@ class window_host final
     {
         const BOOL dark = window_config_.dark_mode ? TRUE : FALSE;
         (void)::DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
+
+        if (!window_behavior_config_.shadow)
+        {
+            const int policy = DWMNCRP_DISABLED;
+            (void)::DwmSetWindowAttribute(window, DWMWA_NCRENDERING_POLICY, &policy, sizeof(policy));
+        }
 
         if (window_config_.backdrop != backdrop_mode::none)
         {
@@ -957,6 +965,13 @@ class window_host final
 
         switch (message)
         {
+        case WM_SYSCOMMAND:
+            if (!self->window_behavior_config_.allow_move_resize &&
+                ((wparam & 0xFFF0) == SC_SIZE || (wparam & 0xFFF0) == SC_MOVE))
+            {
+                return 0;
+            }
+            break;
         case WM_GETMINMAXINFO:
         {
             const auto dpi = std::max<UINT>(96, ::GetDpiForWindow(hwnd));
@@ -1420,6 +1435,9 @@ class window_host final
     console &console_;
     win32::srwlock &console_mutex_;
     const clipboard_config &clipboard_config_;
+    const background_config &background_config_;
+    const window_behavior_config &window_behavior_config_;
+    const title_config &title_config_;
     winrt::com_ptr<IRawElementProviderSimple> uia_provider_;
     winrt::com_ptr<IUiaEvents> uia_events_;
     win32::handle_view client_process_;
