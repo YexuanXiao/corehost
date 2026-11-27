@@ -125,7 +125,7 @@ inline constexpr bool default_alpha_correction = true;
 | 配置 | 归属 | 默认 | 说明 |
 |---|---|---:|---|
 | `scrollback_lines` | `console_config` | 3000 | window 模式传入 console 构造 |
-| `initial_columns/rows` | `window_config` | 120x30 | 启动 console 和初始窗口共用 |
+| `initial_cols/rows` | `console_config` | 120x30 | 启动 console 和初始窗口共用；window 兼容字段同步 |
 | `min_columns/min_rows` | `window_config` | 36x2 | 按字体 cell 度量和窗口边框计算像素 |
 | `candidate_offset_cells` | `window_config` | 2 | TSF `GetTextExt` 按 cell 计算 |
 | `hyperlink` | `window_config` | control | Ctrl/Alt/Shift/none 可配置 |
