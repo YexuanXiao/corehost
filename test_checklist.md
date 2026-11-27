@@ -193,7 +193,8 @@ ative_corehost_paste3.png`。
   - 见 D7 嵌套 cmd 测试。
 - [x] E2 pwsh.exe
   - 启动 PowerShell 7.7.0，提示符正常。
-- [ ] E3 edit.exe
+- [x] E3 edit.exe
+  - edit 启动并显示 `EDIT-TEST`，状态栏/菜单正常；证据 `C:\\1\\wt_edit.png`。
 - [x] E4 vim.exe
   - vim 启动并正确显示文件内容和 `~` 行；退出流程未判定。
 - [x] E7 PowerShell / cmd 嵌套 shell
