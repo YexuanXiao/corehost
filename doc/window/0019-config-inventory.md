@@ -31,7 +31,7 @@
 
 默认字体：只包含 `Cascadia Mono` 一项，其他字符由 DirectWrite 系统 fallback 处理。
 
-## 已接入的默认值
+## 传递规则\n\n运行时始终传递完整 `corehost_config`；`window_entry`、`window_ui`、`window_host`、`render_worker` 不再接收拆分后的子配置对象。子配置只在访问时通过 `config.window` / `config.font` 等读取。\n\n## 已接入的默认值
 
 所有默认值在各自配置头文件中用 `inline constexpr` 定义，不散落在实现里。
 
@@ -143,7 +143,7 @@ inline constexpr bool default_alpha_correction = true;
 | `cursor_shape` | `window_config` | automatic | 覆盖 VT/应用；automatic 保留应用控制；double/hollow/vintage 当前近似映射 |
 | `scrollbar` | `window_config` | auto_hide | always/auto_hide |\n| `mouse.selection_double_click/triple_click` | `corehost_config.mouse` | true | 双击/三击选择开关 |\n| `mouse.shift_capture` | `corehost_config.mouse` | shift | shift/always/never 绕过 VT mouse |\n| `mouse.selection_mode` | `corehost_config.mouse` | line | line/block/disable |\n| `mouse.selection_copy_on_select` | `corehost_config.mouse` | false | 拖选结束自动复制；受 write_policy 约束 |\n| `mouse.selection_trim_block` | `corehost_config.mouse` | false | block 复制时裁剪右侧空白 |\n| `mouse.middle_click_paste` | `corehost_config.mouse` | false | 中键粘贴，受 read_policy 约束 |
 | `copy_ending` | `console_config` | CRLF | 复制行尾 CRLF/LF |
-| `text.bold_is_bright` | `corehost_config.text` | false | SGR bold + indexed 0–7 映射到 8–15 |\n| `text.underline/strikethrough` | `corehost_config.text` | single/single | single/double/dotted/dashed；curl 近似实线 |\n| `color` | `corehost_config.color` | dark/Campbell | 调色板、cursor、selection 颜色已接入；light 已定义 |
+| `text.bold_is_bright` | `corehost_config.text` | false | SGR bold + indexed 0–7 映射到 8–15 |\n| `graphics.sixel` | `corehost_config.graphics` | true | 关闭后不渲染 Sixel 图像 |\n| `text.underline/strikethrough` | `corehost_config.text` | single/single | single/double/dotted/dashed；curl 近似实线 |\n| `color` | `corehost_config.color` | dark/Campbell | 调色板、cursor、selection 颜色已接入；light 已定义 |
 | `background.opacity` | `corehost_config.background` | 1.0 | 已接入 layered opacity |
 | `window.shadow/always_on_top/launch/allow_move_resize` | `corehost_config.window_behavior` | true/false/automatic/true | shadow、topmost、maximized/fullscreen、禁止移动 |\n| `window.blur` | `corehost_config.window_behavior` | none | none/acrylic/mica |
 | `title.force_corehost` | `corehost_config.title` | false | 强制窗口标题 |

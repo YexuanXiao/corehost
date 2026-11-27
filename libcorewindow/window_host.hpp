@@ -41,13 +41,8 @@ class window_host final
     window_host(win32::wcstring_view title, console &console, win32::srwlock &console_mutex,
                 win32::handle_view client_process, const corehost_config &config, win32::handle_view damage_event)
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
-          console_config_{config.console}, window_config_{config.window}, clipboard_config_{config.clipboard},
-          background_config_{config.background}, color_config_{config.color}, window_behavior_config_{config.window_behavior},
-          bell_config_{config.bell}, font_config_{config.font}, accessibility_config_{config.accessibility},
-          hyperlink_config_{config.hyperlink}, mouse_config_{config.mouse},
-          title_config_{config.title}, damage_event_{damage_event},
-          worker_{console, console_mutex, window_config_, config.color, config.font, config.bell, config.text, config.title, config.accessibility,
-                 damage_event_},
+          config_{config}, damage_event_{damage_event},
+          worker_{console, console_mutex, config_, damage_event_},
           window_{create_window()},
           tsf_{window_, tsf_host::callbacks{
                             .context = this,
@@ -82,7 +77,7 @@ class window_host final
 
     IRawElementProviderSimple *ensure_uia_provider() noexcept
     {
-        if (!accessibility_config_.uia_enable)
+        if (!config_.accessibility.uia_enable)
         {
             return nullptr;
         }
@@ -96,7 +91,7 @@ class window_host final
 
     void notify_uia_selection() noexcept
     {
-        if (window_config_.uia_selection_events && uia_events_)
+        if (config_.window.uia_selection_events && uia_events_)
         {
             (void)uia_events_->NotifySelectionChanged();
         }
@@ -105,7 +100,7 @@ class window_host final
     void run()
     {
         worker_.start(window_);
-        if (window_behavior_config_.launch == launch_mode::fullscreen)
+        if (config_.window_behavior.launch == launch_mode::fullscreen)
         {
             auto style = static_cast<DWORD>(::GetWindowLongPtrW(window_, GWL_STYLE));
             style &= ~static_cast<DWORD>(WS_OVERLAPPEDWINDOW);
@@ -122,7 +117,7 @@ class window_host final
         }
         else
         {
-            const auto show = window_behavior_config_.launch == launch_mode::maximized ? SW_SHOWMAXIMIZED : SW_SHOWDEFAULT;
+            const auto show = config_.window_behavior.launch == launch_mode::maximized ? SW_SHOWMAXIMIZED : SW_SHOWDEFAULT;
             ::ShowWindow(window_, show);
         }
         ::UpdateWindow(window_);
@@ -168,8 +163,8 @@ class window_host final
         }
         client_exited_ = true;
 
-        bool close_window = window_config_.exit_policy == client_exit_policy::always_exit;
-        if (window_config_.exit_policy == client_exit_policy::exit_if_never_read_input)
+        bool close_window = config_.window.exit_policy == client_exit_policy::always_exit;
+        if (config_.window.exit_policy == client_exit_policy::exit_if_never_read_input)
         {
             std::unique_lock<win32::srwlock> lock{console_mutex_};
             close_window = !console_.has_read_input();
@@ -225,25 +220,25 @@ class window_host final
 
     void apply_appearance(HWND window)
     {
-        const bool dark_mode = color_config_.mode == theme_mode::dark ||
-                               (color_config_.mode == theme_mode::auto_mode && window_config_.dark_mode);
+        const bool dark_mode = config_.color.mode == theme_mode::dark ||
+                               (config_.color.mode == theme_mode::auto_mode && config_.window.dark_mode);
         const BOOL dark = dark_mode ? TRUE : FALSE;
         (void)::DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
 
-        if (!window_behavior_config_.shadow)
+        if (!config_.window_behavior.shadow)
         {
             const int policy = DWMNCRP_DISABLED;
             (void)::DwmSetWindowAttribute(window, DWMWA_NCRENDERING_POLICY, &policy, sizeof(policy));
         }
 
-        if (window_behavior_config_.blur != backdrop_mode::none)
+        if (config_.window_behavior.blur != backdrop_mode::none)
         {
-            const int backdrop = window_behavior_config_.blur == backdrop_mode::mica ? 2 : 3;
+            const int backdrop = config_.window_behavior.blur == backdrop_mode::mica ? 2 : 3;
             const auto result = ::DwmSetWindowAttribute(window, 38, &backdrop, sizeof(backdrop));
             LOG2("window backdrop mode=%d hr=%08x", backdrop, static_cast<unsigned>(result));
         }
 
-        if (const auto opacity = static_cast<int>(std::lround(std::clamp(background_config_.opacity, 0.0f, 1.0f) * 255.0f)); opacity < 255)
+        if (const auto opacity = static_cast<int>(std::lround(std::clamp(config_.background.opacity, 0.0f, 1.0f) * 255.0f)); opacity < 255)
         {
             (void)::SetLayeredWindowAttributes(window, 0, static_cast<BYTE>(opacity), LWA_ALPHA);
         }
@@ -277,8 +272,8 @@ class window_host final
 
         const auto initial_dpi = std::max<UINT>(96, ::GetDpiForSystem());
         const auto [client_width, client_height] =
-            initial_client_size(initial_dpi, font_config_, window_config_.initial_columns,
-                                window_config_.initial_rows);
+            initial_client_size(initial_dpi, config_.font, config_.window.initial_columns,
+                                config_.window.initial_rows);
         RECT initial_rect{0, 0, client_width, client_height};
         if (::AdjustWindowRectExForDpi(&initial_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
                                        initial_dpi) == FALSE)
@@ -289,12 +284,12 @@ class window_host final
         const auto initial_height = initial_rect.bottom - initial_rect.top;
 
         auto ex_style = static_cast<DWORD>(WS_EX_NOREDIRECTIONBITMAP);
-        if (const auto opacity = static_cast<int>(std::lround(std::clamp(background_config_.opacity, 0.0f, 1.0f) * 255.0f)); opacity < 255)
+        if (const auto opacity = static_cast<int>(std::lround(std::clamp(config_.background.opacity, 0.0f, 1.0f) * 255.0f)); opacity < 255)
         {
             ex_style |= WS_EX_LAYERED;
         }
         const auto window = ::CreateWindowExW(ex_style, class_name,
-                                              (title_config_.force_corehost ? L"corehost" : title_.c_str()),
+                                              (config_.title.force_corehost ? L"corehost" : title_.c_str()),
                                               WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, initial_width,
                                               initial_height, nullptr, nullptr, instance, this);
         if (window == nullptr)
@@ -303,14 +298,14 @@ class window_host final
         }
 
         apply_appearance(window);
-        ::SetWindowPos(window, window_behavior_config_.always_on_top ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+        ::SetWindowPos(window, config_.window_behavior.always_on_top ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         const auto window_dpi = std::max<UINT>(96, ::GetDpiForWindow(window));
         if (window_dpi != initial_dpi)
         {
             const auto [target_width, target_height] =
-                initial_client_size(window_dpi, font_config_, window_config_.initial_columns,
-                                    window_config_.initial_rows);
+                initial_client_size(window_dpi, config_.font, config_.window.initial_columns,
+                                    config_.window.initial_rows);
             RECT target_rect{0, 0, target_width, target_height};
             if (::AdjustWindowRectExForDpi(&target_rect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP,
                                            window_dpi) == FALSE)
@@ -572,13 +567,13 @@ class window_host final
 
     [[nodiscard]] screen::selection_mode selection_mode() const noexcept
     {
-        return mouse_config_.selection_mode == mouse_selection_mode::block ? screen::selection_mode::block
+        return config_.mouse.selection_mode == mouse_selection_mode::block ? screen::selection_mode::block
                                                                             : screen::selection_mode::text;
     }
 
     void begin_selection(HWND hwnd, LPARAM lparam)
     {
-        if (mouse_config_.selection_mode == mouse_selection_mode::disable)
+        if (config_.mouse.selection_mode == mouse_selection_mode::disable)
         {
             return;
         }
@@ -592,24 +587,24 @@ class window_host final
         last_click_time_ = now;
         last_click_x_ = x;
         last_click_y_ = y;
-        if (click_count_ >= 3 && !mouse_config_.selection_triple_click)
+        if (click_count_ >= 3 && !config_.mouse.selection_triple_click)
         {
-            click_count_ = mouse_config_.selection_double_click ? 2 : 1;
+            click_count_ = config_.mouse.selection_double_click ? 2 : 1;
         }
-        else if (click_count_ == 2 && !mouse_config_.selection_double_click)
+        else if (click_count_ == 2 && !config_.mouse.selection_double_click)
         {
             click_count_ = 1;
         }
 
 
         const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
-        if (click_count_ >= 3 && mouse_config_.selection_triple_click)
+        if (click_count_ >= 3 && config_.mouse.selection_triple_click)
         {
             console_.select_line(y);
             selection_anchor_x_ = 0;
             selection_anchor_y_ = y;
         }
-        else if (click_count_ == 2 && mouse_config_.selection_double_click)
+        else if (click_count_ == 2 && config_.mouse.selection_double_click)
         {
             console_.select_word(x, y);
             selection_anchor_x_ = console_.selection().anchor_x;
@@ -631,7 +626,7 @@ class window_host final
         selection_dragging_ = click_count_ == 1 || shift;
         selection_drag_point_ = POINT{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
         ::SetCapture(hwnd);
-        ::SetTimer(hwnd, selection_scroll_timer, window_config_.selection_auto_scroll_interval_ms, nullptr);
+        ::SetTimer(hwnd, selection_scroll_timer, config_.window.selection_auto_scroll_interval_ms, nullptr);
         notify_uia_selection();
     }
 
@@ -663,7 +658,7 @@ class window_host final
 
     [[nodiscard]] bool shift_bypasses_mouse() const noexcept
     {
-        switch (mouse_config_.shift_capture)
+        switch (config_.mouse.shift_capture)
         {
         case mouse_shift_capture::always:
             return true;
@@ -677,7 +672,7 @@ class window_host final
 
     [[nodiscard]] bool hyperlink_modifier_pressed() const noexcept
     {
-        switch (hyperlink_config_.modifier)
+        switch (config_.hyperlink.modifier)
         {
         case hyperlink_modifier::none:
             return true;
@@ -732,7 +727,7 @@ class window_host final
         }
 
         const auto row_height = static_cast<double>(console_.cell_height());
-        const auto edge_rows = static_cast<double>(std::max<std::size_t>(1, window_config_.selection_auto_scroll_edge_rows));
+        const auto edge_rows = static_cast<double>(std::max<std::size_t>(1, config_.window.selection_auto_scroll_edge_rows));
         const auto edge = static_cast<LONG>(std::ceil(row_height * edge_rows));
         const bool scroll_up = selection_drag_point_.y < edge;
         const bool scroll_down = selection_drag_point_.y >= client.bottom - edge;
@@ -831,7 +826,7 @@ class window_host final
 
     void copy_selection(HWND hwnd)
     {
-        if (!clipboard_write_allowed(clipboard_config_))
+        if (!clipboard_write_allowed(config_.clipboard))
         {
             return;
         }
@@ -865,7 +860,7 @@ class window_host final
 
     void paste_clipboard(HWND hwnd)
     {
-        if (!clipboard_read_allowed(clipboard_config_))
+        if (!clipboard_read_allowed(config_.clipboard))
         {
             return;
         }
@@ -884,8 +879,8 @@ class window_host final
                     ++text_length;
                 }
                 const auto default_limit = console_.buffer().width() * console_.buffer().height() * sizeof(char16_t);
-                const auto limit = clipboard_config_.paste_max_size == 0 ? default_limit
-                                                                          : clipboard_config_.paste_max_size;
+                const auto limit = config_.clipboard.paste_max_size == 0 ? default_limit
+                                                                          : config_.clipboard.paste_max_size;
                 if (text_length * sizeof(char16_t) > limit)
                 {
                     LOG2("paste rejected length=%zu limit=%zu", text_length, limit);
@@ -1048,7 +1043,7 @@ class window_host final
         switch (message)
         {
         case WM_SYSCOMMAND:
-            if (!self->window_behavior_config_.allow_move_resize &&
+            if (!self->config_.window_behavior.allow_move_resize &&
                 ((wparam & 0xFFF0) == SC_SIZE || (wparam & 0xFFF0) == SC_MOVE))
             {
                 return 0;
@@ -1058,7 +1053,7 @@ class window_host final
         {
             const auto dpi = std::max<UINT>(96, ::GetDpiForWindow(hwnd));
             const auto [min_width, min_height] = initial_client_size(
-                dpi, self->font_config_, self->window_config_.min_columns, self->window_config_.min_rows);
+                dpi, self->config_.font, self->config_.window.min_columns, self->config_.window.min_rows);
             RECT minimum{0, 0, min_width, min_height};
             ::AdjustWindowRectExForDpi(&minimum, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_NOREDIRECTIONBITMAP, dpi);
             reinterpret_cast<MINMAXINFO *>(lparam)->ptMinTrackSize =
@@ -1105,7 +1100,7 @@ class window_host final
             return 0;
         }
         case WM_APP + 0x101:
-            if (self->window_config_.uia_text_changed_events && self->uia_events_)
+            if (self->config_.window.uia_text_changed_events && self->uia_events_)
             {
                 (void)self->uia_events_->NotifyTextChanged();
             }
@@ -1152,7 +1147,7 @@ class window_host final
             }
 
             self->console_.scroll_by(static_cast<double>(delta) *
-                                     static_cast<double>(self->window_config_.mouse_wheel_lines) /
+                                     static_cast<double>(self->config_.window.mouse_wheel_lines) /
                                      static_cast<double>(WHEEL_DELTA));
             return 0;
         }
@@ -1245,7 +1240,7 @@ class window_host final
                 self->push_mouse(lparam, 0, 0);
                 return 0;
             }
-            if (self->window_config_.right_click == right_click_action::copy)
+            if (self->config_.window.right_click == right_click_action::copy)
             {
                 if (self->console_.has_selection())
                 {
@@ -1255,7 +1250,7 @@ class window_host final
                 }
                 return 0;
             }
-            if (self->window_config_.right_click == right_click_action::paste)
+            if (self->config_.window.right_click == right_click_action::paste)
             {
                 self->paste_clipboard(hwnd);
                 return 0;
@@ -1286,7 +1281,7 @@ class window_host final
             {
                 self->push_mouse(lparam, 0, 0);
             }
-            else if (self->mouse_config_.middle_click_paste)
+            else if (self->config_.mouse.middle_click_paste)
             {
                 self->paste_clipboard(hwnd);
             }
@@ -1296,7 +1291,7 @@ class window_host final
         {
             if (self->selection_dragging_)
             {
-                if (self->mouse_config_.selection_copy_on_select)
+                if (self->config_.mouse.selection_copy_on_select)
                 {
                     std::unique_lock<win32::srwlock> lock{self->console_mutex_};
                     if (self->console_.has_selection())
@@ -1528,21 +1523,10 @@ class window_host final
     win32::wcstring_view title_;
     console &console_;
     win32::srwlock &console_mutex_;
-    const clipboard_config &clipboard_config_;
-    const background_config &background_config_;
-    const color_config &color_config_;
-    const bell_config &bell_config_;
-    const font_config &font_config_;
-    const accessibility_config &accessibility_config_;
-    const hyperlink_config &hyperlink_config_;
-    const mouse_config &mouse_config_;
-    const window_behavior_config &window_behavior_config_;
-    const title_config &title_config_;
+    const corehost_config &config_;
     winrt::com_ptr<IRawElementProviderSimple> uia_provider_;
     winrt::com_ptr<IUiaEvents> uia_events_;
     win32::handle_view client_process_;
-    const console_config &console_config_;
-    const window_config &window_config_;
     win32::handle_view damage_event_;
     render_worker worker_;
     HWND window_;

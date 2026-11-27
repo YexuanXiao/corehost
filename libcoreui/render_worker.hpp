@@ -36,17 +36,15 @@ namespace corehost::window
 class render_worker final
 {
   public:
-    render_worker(console &console, win32::srwlock &console_mutex, const window_config &config,
-                  const color_config &color, const font_config &font, const bell_config &bell,
-                  const text_style_config &text_style, const title_config &title,
-                  const accessibility_config &accessibility, win32::handle_view damage_event)
+    render_worker(console &console, win32::srwlock &console_mutex, const corehost_config &config,
+                  win32::handle_view damage_event)
         : columns{console.buffer().width()}, rows{console.buffer().height()}, console_{console}, console_mutex_{console_mutex},
-          config_{config}, scheme_{select_scheme(color, config.dark_mode)}, palette_{make_palette(scheme_)},
-          font_{font}, bell_{bell}, text_style_{text_style}, title_{title}, accessibility_{accessibility},
-          fallback_families_{make_fallback_families(font)},
-          fallback_count_{make_fallback_count(font)},
+          config_{config}, scheme_{select_scheme(config.color, config.window.dark_mode)},
+          palette_{make_palette(scheme_)},
+          fallback_families_{make_fallback_families(config.font)},
+          fallback_count_{make_fallback_count(config.font)},
           text_{std::span<const uitext::font_fallback_entry>{fallback_families_}.first(fallback_count_),
-                font.size, font.ligatures},
+                config.font.size, config.font.ligatures},
           damage_event_{damage_event}
     {
     }
@@ -428,7 +426,7 @@ class render_worker final
                 }
 
                 const auto &style = styles_.at(cell.style());
-                auto foreground = foreground_color(style, palette_, text_style_.bold_is_bright);
+                auto foreground = foreground_color(style, palette_, config_.text.bold_is_bright);
                 const auto background = background_color(style, palette_);
                 const auto sample = 0.5f / static_cast<float>(atlas_.size());
                 const auto cell_span = cell.is_wide() ? 2.0f : 1.0f;
@@ -498,7 +496,7 @@ class render_worker final
                     line_color = blend_color(line_color, background, 0.5f);
                 }
                 if (has_attribute(style, screen::text_style_attribute::underline) &&
-                    text_style_.underline != text_underline_style::none)
+                    config_.text.underline != text_underline_style::none)
                 {
                     const auto left = static_cast<float>(x) * cell_width;
                     const auto width = cell_width * cell_span;
@@ -506,7 +504,7 @@ class render_worker final
                     const auto solid = [&](float line_top) {
                         add_line_quad(quads_, left, line_top, width, 1.0f, line_color, sample, text_alpha);
                     };
-                    switch (text_style_.underline)
+                    switch (config_.text.underline)
                     {
                     case text_underline_style::double_underline:
                         solid(top);
@@ -534,13 +532,13 @@ class render_worker final
                     }
                 }
                 if (has_attribute(style, screen::text_style_attribute::strikethrough) &&
-                    text_style_.strikethrough != text_strikethrough_style::none)
+                    config_.text.strikethrough != text_strikethrough_style::none)
                 {
                     const auto left = static_cast<float>(x) * cell_width;
                     const auto width = cell_width * cell_span;
                     const auto top = static_cast<float>(y) * cell_height + metrics.ascent * 0.5f + scroll_shift;
                     add_line_quad(quads_, left, top, width, 1.0f, line_color, sample, text_alpha);
-                    if (text_style_.strikethrough == text_strikethrough_style::double_underline)
+                    if (config_.text.strikethrough == text_strikethrough_style::double_underline)
                     {
                         add_line_quad(quads_, left, top + 2.0f, width, 1.0f, line_color, sample, text_alpha);
                     }
@@ -560,7 +558,7 @@ class render_worker final
                     const auto *pixels = fragment ? console_.buffer().images().pixels(fragment->image_id) : nullptr;
                     LOG2("image data fragment=%p pixels=%p id=%u", fragment, pixels,
                          fragment ? fragment->image_id : 0);
-                    if (fragment != nullptr && pixels != nullptr && pixels->width != 0 && pixels->height != 0)
+                    if (config_.graphics.sixel && fragment != nullptr && pixels != nullptr && pixels->width != 0 && pixels->height != 0)
                     {
                         const auto image_id = fragment->image_id;
                         visible_images.insert(image_id);
@@ -617,7 +615,7 @@ class render_worker final
                     text = std::u16string_view{scalar.data(), scalar.size()};
                 }
 
-                if (font_.color_emoji && cell.has_cluster())
+                if (config_.font.color_emoji && cell.has_cluster())
                 {
                     const auto color_scale = 1.0f / static_cast<float>(color_atlas_.size());
                     for (const auto &region : color_atlas_.find_or_add(text))
@@ -691,7 +689,7 @@ class render_worker final
             auto cursor_width = cell_width;
             auto cursor_height = cell_height;
             auto cursor_style = cursor_.style;
-            switch (config_.cursor_shape)
+            switch (config_.window.cursor_shape)
             {
             case cursor_style::beam:
                 cursor_style = screen::cursor_style::bar;
@@ -745,7 +743,7 @@ class render_worker final
             quads_.push_back(cursor_quad);
         }
 
-        if ((focused_ || config_.scrollbar == scrollbar_visibility::always) && history_size_ != 0)
+        if ((focused_ || config_.window.scrollbar == scrollbar_visibility::always) && history_size_ != 0)
         {
             const auto sample = 0.5f / static_cast<float>(atlas_.size());
             const auto scale = static_cast<float>(dpi_) / 96.0f;
@@ -864,11 +862,11 @@ class render_worker final
     {
         float contrast = 0.0f;
         std::array<float, 4> gamma_ratios{};
-        if (config_.text_options.contrast)
+        if (config_.window.text_options.contrast)
         {
             contrast = text_.grayscale_enhanced_contrast();
         }
-        if (config_.text_options.alpha_correction)
+        if (config_.window.text_options.alpha_correction)
         {
             gamma_ratios = text_.gamma_ratios();
         }
@@ -906,7 +904,7 @@ class render_worker final
                 renderer_.set_clear_color(static_cast<float>(clear.r) / 255.0f,
                                           static_cast<float>(clear.g) / 255.0f,
                                           static_cast<float>(clear.b) / 255.0f,
-                                          (config_.backdrop != backdrop_mode::none) ? 0.0f : 1.0f);
+                                          (config_.window.backdrop != backdrop_mode::none) ? 0.0f : 1.0f);
                 atlas_.reset();
                 color_atlas_.mark_dirty();
                 force_full_redraw_ = true;
@@ -925,11 +923,11 @@ class render_worker final
     DWORD wait_timeout() const noexcept
     {
         DWORD timeout = INFINITE;
-        if (!accessibility_.reduce_motion && focused_ && cursor_.visible && cursor_.blinking && !selection_.active &&
+        if (!config_.accessibility.reduce_motion && focused_ && cursor_.visible && cursor_.blinking && !selection_.active &&
             composition_.empty() &&
             scroll_pixels_ == 0.0)
         {
-            const auto blink_interval = std::max<std::uint64_t>(1, config_.cursor_blink_ms);
+            const auto blink_interval = std::max<std::uint64_t>(1, config_.window.cursor_blink_ms);
             const auto phase = static_cast<DWORD>(::GetTickCount64() % blink_interval);
             timeout = std::min<DWORD>(timeout, static_cast<DWORD>(blink_interval - phase));
         }
@@ -944,7 +942,7 @@ class render_worker final
         apply_text_correction();
         const auto &clear = palette_.default_background;
         renderer_.set_clear_color(static_cast<float>(clear.r) / 255.0f, static_cast<float>(clear.g) / 255.0f,
-                                  static_cast<float>(clear.b) / 255.0f, (config_.backdrop != backdrop_mode::none) ? 0.0f : 1.0f);
+                                  static_cast<float>(clear.b) / 255.0f, (config_.window.backdrop != backdrop_mode::none) ? 0.0f : 1.0f);
         renderer_.render();
         LOG2("render first frame");
         bool cursor_dirty = true;
@@ -1084,7 +1082,7 @@ class render_worker final
                 ime_composition_y = cursor.y;
                 focused = console_.has_focus();
                 scrollbar_hovered = console_.scrollbar_hovered();
-                if (bell_.mode != bell_mode_full::none && console_.state().bell_count != bell_count_)
+                if (config_.bell.mode != bell_mode_full::none && console_.state().bell_count != bell_count_)
                 {
                     bell_count_ = console_.state().bell_count;
                     (void)::PostMessageW(window_, WM_APP + 0x102, 0, 0);
@@ -1097,7 +1095,7 @@ class render_worker final
                 }
             }
 
-            if (title_changed && !title_.force_corehost)
+            if (title_changed && !config_.title.force_corehost)
             {
                 ::SetWindowTextW(window_, window_title.c_str());
             }
@@ -1108,7 +1106,7 @@ class render_worker final
             const bool focus_changed = focused != focused_;
             const auto now = ::GetTickCount64();
             const bool redraw_requested = redraw_requested_.exchange(false, std::memory_order_relaxed);
-            const auto blink_interval = std::max<std::uint64_t>(1, config_.cursor_blink_ms);
+            const auto blink_interval = std::max<std::uint64_t>(1, config_.window.cursor_blink_ms);
             const bool blink_on = focused && ((now / blink_interval) % 2 == 0);
             const bool blink_changed = blink_on != blink_on_;
 
@@ -1122,7 +1120,7 @@ class render_worker final
             bool scrollbar_animating = false;
             {
                 const auto target = scrollbar_hovered_ ? 1.0f : 0.0f;
-                if (accessibility_.reduce_motion)
+                if (config_.accessibility.reduce_motion)
                 {
                     scrollbar_expand_ = target;
                 }
@@ -1214,13 +1212,8 @@ class render_worker final
     win32::srwlock &console_mutex_;
     HWND window_{};
     d3d12ui::d3d12_window_renderer renderer_;
-    const window_config &config_;
+    const corehost_config &config_;
     const color_scheme &scheme_;
-    const font_config &font_;
-    const bell_config &bell_;
-    const text_style_config &text_style_;
-    const title_config &title_;
-    const accessibility_config &accessibility_;
     console_palette palette_;
     static const color_scheme &select_scheme(const color_config &color, bool dark) noexcept
     {
