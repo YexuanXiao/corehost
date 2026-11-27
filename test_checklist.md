@@ -138,6 +138,8 @@ review 目标：修复根因，不降低性能。
   - cooked `ReadHost` / cmd `set /p` pending 通过 read termination 返回 STATUS_ALERTED；
   - raw `[Console]::ReadLine()` 按 conhost 语义 Ctrl+C 不终止；
   - Ctrl+Break 对 cooked read 返回 STATUS_ALERTED（日志 reason=2），raw read 也按 conhost 语义终止。
+  - `GenerateConsoleCtrlEvent` 已接入 session：`api ctrl events=1 hwnd=...` 并投递；
+  - raw read 有数据返回路径已实现，客户端字节往返尚未稳定验证。
   - Ctrl+Break 在 interactive PowerShell 显示 `^C`；ping 本身不支持 Ctrl+Break，不能作为失败依据。
   - cooked `Read-Host` 阻塞时 Ctrl+C 能完成 pending read 并退出；
   - raw `[Console]::ReadLine()` 按 conhost 语义 Ctrl+C 不终止，不作为失败。

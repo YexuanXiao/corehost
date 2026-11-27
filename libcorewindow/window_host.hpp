@@ -60,6 +60,10 @@ class window_host final
     {
         assert(!title_.empty());
         assert(client_process_.valid());
+        {
+            std::unique_lock<win32::srwlock> lock{console_mutex_};
+            console_.set_window_handle(window_);
+        }
         window_ready_ = true;
         worker_.set_text_changed_callback(&window_host::text_changed_notify, this);
     }

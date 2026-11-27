@@ -75,6 +75,16 @@ class console final
         return reason;
     }
 
+    void set_window_handle(HWND hwnd) noexcept
+    {
+        window_handle_ = hwnd;
+    }
+
+    [[nodiscard]] HWND window_handle() const noexcept
+    {
+        return window_handle_;
+    }
+
     void set_focused(bool focused) noexcept
     {
         focused_ = focused;
@@ -661,6 +671,7 @@ class console final
     consoleinput::input_queue input_;
     bool input_read_{};
     bool focused_{true};
+    HWND window_handle_{};
     bool copy_crlf_{true};
     bool trim_block_{false};
     bool scrollbar_hovered_{};

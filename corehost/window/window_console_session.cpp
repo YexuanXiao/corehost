@@ -1,6 +1,7 @@
 #include "window_console_session.hpp"
 
 #include "terminal_response.hpp"
+#include "console_ctrl.hpp"
 #include "utility/log.hpp"
 #include "win32/error.hpp"
 
@@ -259,6 +260,20 @@ bool window_console_session::handle(coreio::io_msg &message)
         {
             console_.mark_input_read();
         }
+
+        std::vector<std::pair<DWORD, DWORD>> ctrl_events;
+        api_.take_ctrl_events(ctrl_events);
+        if (!ctrl_events.empty())
+        {
+            const auto hwnd = console_.window_handle();
+            coreio::ctrl_delivery delivery;
+            for (const auto &[event, process] : ctrl_events)
+            {
+                delivery.deliver(process, event, hwnd);
+            }
+            LOG2("api ctrl events=%zu hwnd=%p", ctrl_events.size(), hwnd);
+        }
+
         if (handled)
         {
             coreio::complete_io(server_, message.complete);
