@@ -43,8 +43,9 @@ class window_host final
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
           console_config_{config.console}, window_config_{config.window}, clipboard_config_{config.clipboard},
           background_config_{config.background}, color_config_{config.color}, window_behavior_config_{config.window_behavior},
+          bell_config_{config.bell},
           title_config_{config.title}, damage_event_{damage_event},
-          worker_{console, console_mutex, window_config_, config.color, config.font, config.title, config.accessibility,
+          worker_{console, console_mutex, window_config_, config.color, config.font, config.bell, config.title, config.accessibility,
                  damage_event_},
           window_{create_window()},
           tsf_{window_, tsf_host::callbacks{
@@ -234,9 +235,9 @@ class window_host final
             (void)::DwmSetWindowAttribute(window, DWMWA_NCRENDERING_POLICY, &policy, sizeof(policy));
         }
 
-        if (window_config_.backdrop != backdrop_mode::none)
+        if (window_behavior_config_.blur != backdrop_mode::none)
         {
-            const int backdrop = window_config_.backdrop == backdrop_mode::mica ? 2 : 3;
+            const int backdrop = window_behavior_config_.blur == backdrop_mode::mica ? 2 : 3;
             const auto result = ::DwmSetWindowAttribute(window, 38, &backdrop, sizeof(backdrop));
             LOG2("window backdrop mode=%d hr=%08x", backdrop, static_cast<unsigned>(result));
         }
@@ -1484,6 +1485,7 @@ class window_host final
     const clipboard_config &clipboard_config_;
     const background_config &background_config_;
     const color_config &color_config_;
+    const bell_config &bell_config_;
     const window_behavior_config &window_behavior_config_;
     const title_config &title_config_;
     winrt::com_ptr<IRawElementProviderSimple> uia_provider_;
