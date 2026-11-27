@@ -131,14 +131,15 @@ class cell_atlas final
         return &mask_entries_.emplace(key, region).first->second;
     }
 
-    [[nodiscard]] const atlas_region *find_or_add_transient(std::u16string_view text, bool bold = false)
+    [[nodiscard]] const atlas_region *find_or_add_transient(std::u16string_view text, bool bold = false,
+                                                                    bool italic = false)
     {
         if (text.empty())
         {
             return nullptr;
         }
 
-        engine_.rasterize(text, scratch_, bold);
+        engine_.rasterize(text, scratch_, bold, italic);
         if (scratch_.empty() || scratch_.front().alpha.empty())
         {
             return nullptr;

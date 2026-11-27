@@ -168,10 +168,10 @@ struct font_config final
     font_fallback_list family_fallback_list{default_font_fallbacks()};
     float size{16.0f};
     bool ligatures{};
-    std::array<float, 5> variation{};
-    std::array<float, 5> variation_bold{};
-    std::array<float, 5> variation_italic{};
-    std::array<float, 5> variation_bold_italic{};
+    std::array<uitext::font_axis, 5> variation{uitext::default_font_variation()};
+    std::array<uitext::font_axis, 5> variation_bold{uitext::default_font_variation_bold()};
+    std::array<uitext::font_axis, 5> variation_italic{uitext::default_font_variation_italic()};
+    std::array<uitext::font_axis, 5> variation_bold_italic{uitext::default_font_variation_bold_italic()};
     antialias_mode antialias{antialias_mode::grayscale};
     bool color_emoji{true};
 };

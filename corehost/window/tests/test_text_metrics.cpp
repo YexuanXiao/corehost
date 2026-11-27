@@ -37,6 +37,20 @@ int main()
         }
 
         corehost::uitext::cell_atlas atlas{engine};
+        std::vector<corehost::uitext::glyph_bitmap> italic_glyphs;
+        engine.rasterize(u"i", italic_glyphs, false, true);
+        if (italic_glyphs.empty() || italic_glyphs.front().width <= 0)
+        {
+            std::fprintf(stderr, "italic rasterization failed\\n");
+            return EXIT_FAILURE;
+        }
+        auto *italic_region = atlas.find_or_add_transient(u"fi", false, true);
+        if (italic_region == nullptr)
+        {
+            std::fprintf(stderr, "italic atlas failed\\n");
+            return EXIT_FAILURE;
+        }
+
         const auto *first = atlas.find_or_add(u'M');
         const auto *second = atlas.find_or_add(u'M');
         if (first == nullptr || first != second || first->width == 0 || first->height == 0 || !atlas.dirty())

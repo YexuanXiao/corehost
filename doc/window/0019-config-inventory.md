@@ -144,6 +144,7 @@ inline constexpr bool default_alpha_correction = true;
 | `font_size_dip` | `window_config` | 16.0 | 兼容字段；实际使用 `corehost_config.font.size` |
 | `font.color_emoji` | `corehost_config.font` | true | 关闭后走单色 glyph 路径 |
 | `font.ligatures` | `corehost_config.font` | false | 开启标准连字 |
+| `font.variation*` | `corehost_config.font` | wght400/wdth100/ital0/slnt0/opsz16 | 显式 axis tag；normal/bold/italic/bold-italic 四套 |
 | `font_fallbacks` | `window_config` | 1 项 Cascadia Mono | 兼容字段；实际使用 `corehost_config.font.family_fallback_list` |
 | `cursor.blink/blink_rate` | `corehost_config.cursor` | true/530 | blink=false 或 rate=0 不闪 |
 | `selection_auto_scroll_interval_ms` | `window_config` | 40 | 边缘自动滚动 |
@@ -165,11 +166,13 @@ inline constexpr bool default_alpha_correction = true;
 | `copy_ending` | `window_config` | CRLF | 复制行尾 CRLF/LF |
 | `text.bold_is_bright` | `corehost_config.text` | false | SGR bold + indexed 0–7 映射到 8–15 |
 | `graphics.sixel` | `corehost_config.graphics` | true | 关闭后不渲染 Sixel 图像 |
-| `text.blink_enable` | `corehost_config.text` | false | 允许 SGR 5/6 文字闪烁 |\n| `text.underline/strikethrough` | `corehost_config.text` | single/single | single/double/dotted/dashed；curl 近似实线 |
+| `text.blink_enable` | `corehost_config.text` | false | 允许 SGR 5/6 文字闪烁 |
+| `text.underline/strikethrough` | `corehost_config.text` | single/single | single/double/dotted/dashed；curl 近似实线 |
 | `color` | `corehost_config.color` | dark/Campbell | 调色板、cursor、selection 颜色已接入；light 已定义 |
 | `background.opacity` | `corehost_config.background` | 1.0 | 已接入 layered opacity |
 | `window.shadow/always_on_top/launch/allow_move_resize` | `corehost_config.window_behavior` | true/false/automatic/true | shadow、topmost、maximized/fullscreen、禁止移动 |
-| `window.blur` | `corehost_config.window_behavior` | none | none/acrylic/mica |\n| `window.inherit_working_directory` | `corehost_config.window_behavior` | false | false 使用 USERPROFILE |
+| `window.blur` | `corehost_config.window_behavior` | none | none/acrylic/mica |
+| `window.inherit_working_directory` | `corehost_config.window_behavior` | false | false 使用 USERPROFILE |
 | `title.force_corehost` | `corehost_config.title` | false | 强制窗口标题 |
 | `accessibility.reduce_motion` | `corehost_config.accessibility` | false | 禁用光标/滚动条动画 |
 | `clipboard.read_policy` | `corehost_config.clipboard` | deny | 粘贴读取策略，已接入 |
@@ -244,7 +247,7 @@ struct font_fallback_list final
 仍待决定：
 
 - 是否允许自定义 family 字符串作为 primary；
-- 是否公开 font weight/italic；
+
 - fallback 列表的 API 是直接改数组还是提供增删函数。
 ## 其他可配置行为（候选）
 
@@ -276,10 +279,21 @@ struct font_fallback_list final
 - window opacity/shadow/topmost/launch/allow move；
 - title.force_corehost / accessibility.reduce_motion。
 
+### 字体路径
+
+字体统一走 DirectWrite 可变字体路径：
+
+- `IDWriteFactory6` + `DWRITE_FONT_FAMILY_MODEL_TYPOGRAPHIC`；
+- 配置 fallback 列表逐项 `AddMapping`；
+- 追加 `GetSystemFontFallback` 兜底；
+- `IDWriteTextFormat3` 使用显式 `DWRITE_FONT_AXIS_VALUE`；
+- normal/bold/italic/bold-italic 四套轴；
+- italic 同时设置 `DWRITE_FONT_STYLE_OBLIQUE` 以支持无原生斜体的字体。
+
 ### 已建字段、尚未接入行为
 
 - background image；
-- font variation（ligatures 和 color emoji 已接入）；
+
 - text underline/strikethrough 细节；
 - mouse hide/copy-on-select/double/triple/trim/middle；
 - clipboard format / paste limit / warnings / bracketed paste；

@@ -6,6 +6,7 @@
 #include <dwrite.h>
 #include <dwrite_1.h>
 #include <dwrite_2.h>
+#include <dwrite_3.h>
 #include <winrt/base.h>
 
 #include <cassert>
@@ -92,8 +93,14 @@ struct font_fallback_entry final
 class text_engine final
 {
   public:
-    explicit text_engine(std::span<const font_fallback_entry> families, float size, bool ligatures = false)
-        : size_{size}, families_{families}, ligatures_{ligatures}
+    explicit text_engine(std::span<const font_fallback_entry> families, float size, bool ligatures = false,
+                         const std::array<font_axis, 5> &variation = default_font_variation(),
+                         const std::array<font_axis, 5> &variation_bold = default_font_variation_bold(),
+                         const std::array<font_axis, 5> &variation_italic = default_font_variation_italic(),
+                         const std::array<font_axis, 5> &variation_bold_italic = default_font_variation_bold_italic())
+        : size_{size}, families_{families}, ligatures_{ligatures}, variation_{variation},
+          variation_bold_{variation_bold}, variation_italic_{variation_italic},
+          variation_bold_italic_{variation_bold_italic}
     {
         assert(!families_.empty());
         assert(size_ > 0.0f);
@@ -101,6 +108,7 @@ class text_engine final
         winrt::check_hresult(
             ::DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), unknown.put()));
         factory2_ = unknown.as<IDWriteFactory2>();
+        factory6_ = unknown.as<IDWriteFactory6>();
 
         winrt::com_ptr<IDWriteRenderingParams> default_rendering_params;
         winrt::check_hresult(factory2_->CreateRenderingParams(default_rendering_params.put()));
@@ -108,7 +116,8 @@ class text_engine final
         grayscale_enhanced_contrast_ = rendering_params_->GetGrayscaleEnhancedContrast();
         gamma_ratios_ = gamma_1_8_ratios();
 
-        winrt::check_hresult(factory2_->GetSystemFontCollection(collection_.put(), FALSE));
+        winrt::check_hresult(
+            factory6_->GetSystemFontCollection(FALSE, DWRITE_FONT_FAMILY_MODEL_TYPOGRAPHIC, collection_.put()));
         winrt::com_ptr<IDWriteFontFallbackBuilder> builder;
         winrt::check_hresult(factory2_->CreateFontFallbackBuilder(builder.put()));
 
@@ -165,7 +174,7 @@ class text_engine final
         metrics_ = resolve_base_family(families_, fallback_.get());
     }
 
-    void rasterize(std::u16string_view text, std::vector<glyph_bitmap> &out, bool bold = false)
+    void rasterize(std::u16string_view text, std::vector<glyph_bitmap> &out, bool bold = false, bool italic = false)
     {
         out.clear();
         regions_.clear();
@@ -176,9 +185,13 @@ class text_engine final
         winrt::com_ptr<IDWriteTextLayout> layout;
         winrt::check_hresult(factory2_->CreateTextLayout(
             reinterpret_cast<const WCHAR *>(text.data()), static_cast<UINT32>(text.size()),
-            bold ? bold_format_.get() : text_format_.get(),
-            100000.0f, 100000.0f, layout.put()));
+            format_for(bold, italic), 100000.0f, 100000.0f, layout.put()));
         apply_typography(layout.get());
+        if (italic)
+        {
+            winrt::check_hresult(
+                layout->SetFontStyle(DWRITE_FONT_STYLE_OBLIQUE, DWRITE_TEXT_RANGE{0, static_cast<UINT32>(text.size())}));
+        }
 
         auto renderer = winrt::make<run_renderer>(*this, false);
         winrt::check_hresult(layout->Draw(nullptr, renderer.get(), 0.0f, 0.0f));
@@ -328,6 +341,51 @@ class text_engine final
         std::size_t size{};
     };
 
+    [[nodiscard]] winrt::com_ptr<IDWriteTextFormat3> make_format(const font_fallback_entry &family,
+                                                                 const std::array<font_axis, 5> &axes,
+                                                                 IDWriteFontFallback *fallback, bool bold,
+                                                                 bool italic)
+    {
+        std::array<DWRITE_FONT_AXIS_VALUE, 5> dwrite_axes{};
+        for (std::size_t i = 0; i < axes.size(); ++i)
+        {
+            dwrite_axes[i] = DWRITE_FONT_AXIS_VALUE{static_cast<DWRITE_FONT_AXIS_TAG>(axes[i].tag), axes[i].value};
+        }
+        winrt::com_ptr<IDWriteTextFormat3> format;
+        auto hr = factory6_->CreateTextFormat(family.family.c_str(), collection_.get(), dwrite_axes.data(),
+                                              static_cast<UINT32>(dwrite_axes.size()), size_, L"", format.put());
+        if (FAILED(hr))
+        {
+            winrt::com_ptr<IDWriteTextFormat> legacy;
+            winrt::check_hresult(factory2_->CreateTextFormat(
+                family.family.c_str(), collection_.get(), bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
+                italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size_, L"",
+                legacy.put()));
+            format = legacy.as<IDWriteTextFormat3>();
+        }
+        winrt::check_hresult(format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
+        auto format1 = format.as<IDWriteTextFormat1>();
+        winrt::check_hresult(format1->SetFontFallback(fallback));
+        return format;
+    }
+
+    [[nodiscard]] IDWriteTextFormat *format_for(bool bold, bool italic) const noexcept
+    {
+        if (bold && italic)
+        {
+            return bold_italic_format_.get();
+        }
+        if (bold)
+        {
+            return bold_format_.get();
+        }
+        if (italic)
+        {
+            return italic_format_.get();
+        }
+        return text_format_.get();
+    }
+
     [[nodiscard]] cell_metrics resolve_base_family(std::span<const font_fallback_entry> families,
                                                    IDWriteFontFallback *fallback)
     {
@@ -341,19 +399,10 @@ class text_engine final
                 continue;
             }
 
-            winrt::check_hresult(factory2_->CreateTextFormat(
-                family.family.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL, size_, L"", text_format_.put()));
-            winrt::check_hresult(text_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
-            auto format1 = text_format_.as<IDWriteTextFormat1>();
-            winrt::check_hresult(format1->SetFontFallback(fallback));
-
-            winrt::check_hresult(factory2_->CreateTextFormat(
-                family.family.c_str(), collection_.get(), DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL, size_, L"", bold_format_.put()));
-            winrt::check_hresult(bold_format_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP));
-            auto bold_format1 = bold_format_.as<IDWriteTextFormat1>();
-            winrt::check_hresult(bold_format1->SetFontFallback(fallback));
+            text_format_ = make_format(family, variation_, fallback, false, false);
+            bold_format_ = make_format(family, variation_bold_, fallback, true, false);
+            italic_format_ = make_format(family, variation_italic_, fallback, false, true);
+            bold_italic_format_ = make_format(family, variation_bold_italic_, fallback, true, true);
 
             winrt::com_ptr<IDWriteFontFamily> font_family;
             winrt::check_hresult(collection_->GetFontFamily(family_index, font_family.put()));
@@ -519,12 +568,19 @@ class text_engine final
     }
 
     winrt::com_ptr<IDWriteFactory2> factory2_;
-    winrt::com_ptr<IDWriteFontCollection> collection_;
+    winrt::com_ptr<IDWriteFactory6> factory6_;
+    winrt::com_ptr<IDWriteFontCollection2> collection_;
     std::span<const font_fallback_entry> families_;
     winrt::com_ptr<IDWriteFontFallback> fallback_;
     winrt::com_ptr<IDWriteTypography> typography_;
-    winrt::com_ptr<IDWriteTextFormat> text_format_;
-    winrt::com_ptr<IDWriteTextFormat> bold_format_;
+    std::array<font_axis, 5> variation_{};
+    std::array<font_axis, 5> variation_bold_{};
+    std::array<font_axis, 5> variation_italic_{};
+    std::array<font_axis, 5> variation_bold_italic_{};
+    winrt::com_ptr<IDWriteTextFormat3> text_format_;
+    winrt::com_ptr<IDWriteTextFormat3> bold_format_;
+    winrt::com_ptr<IDWriteTextFormat3> italic_format_;
+    winrt::com_ptr<IDWriteTextFormat3> bold_italic_format_;
     winrt::com_ptr<IDWriteRenderingParams1> rendering_params_;
     float grayscale_enhanced_contrast_{};
     std::array<float, 4> gamma_ratios_{};

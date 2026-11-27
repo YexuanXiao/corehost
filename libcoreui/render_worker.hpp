@@ -44,7 +44,8 @@ class render_worker final
           fallback_families_{make_fallback_families(config.font)},
           fallback_count_{make_fallback_count(config.font)},
           text_{std::span<const uitext::font_fallback_entry>{fallback_families_}.first(fallback_count_),
-                config.font.size, config.font.ligatures},
+                config.font.size, config.font.ligatures, config.font.variation, config.font.variation_bold,
+                config.font.variation_italic, config.font.variation_bold_italic},
           damage_event_{damage_event}
     {
     }
