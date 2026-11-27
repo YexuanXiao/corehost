@@ -27,6 +27,15 @@ int main()
             return EXIT_FAILURE;
         }
 
+        corehost::uitext::text_engine ligature_engine{families, 16.0f, true};
+        std::vector<corehost::uitext::glyph_bitmap> ligature_glyphs;
+        ligature_engine.rasterize(u"fi", ligature_glyphs);
+        if (ligature_glyphs.empty() || ligature_glyphs.front().width <= 0)
+        {
+            std::fprintf(stderr, "ligature rasterization failed\\n");
+            return EXIT_FAILURE;
+        }
+
         corehost::uitext::cell_atlas atlas{engine};
         const auto *first = atlas.find_or_add(u'M');
         const auto *second = atlas.find_or_add(u'M');

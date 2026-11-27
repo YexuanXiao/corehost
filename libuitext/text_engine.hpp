@@ -92,8 +92,8 @@ struct font_fallback_entry final
 class text_engine final
 {
   public:
-    explicit text_engine(std::span<const font_fallback_entry> families, float size)
-        : size_{size}, families_{families}
+    explicit text_engine(std::span<const font_fallback_entry> families, float size, bool ligatures = false)
+        : size_{size}, families_{families}, ligatures_{ligatures}
     {
         assert(!families_.empty());
         assert(size_ > 0.0f);
@@ -111,6 +111,13 @@ class text_engine final
         winrt::check_hresult(factory2_->GetSystemFontCollection(collection_.put(), FALSE));
         winrt::com_ptr<IDWriteFontFallbackBuilder> builder;
         winrt::check_hresult(factory2_->CreateFontFallbackBuilder(builder.put()));
+
+        if (ligatures_)
+        {
+            winrt::check_hresult(factory2_->CreateTypography(typography_.put()));
+            const DWRITE_FONT_FEATURE feature{DWRITE_FONT_FEATURE_TAG_STANDARD_LIGATURES, 1};
+            winrt::check_hresult(typography_->AddFontFeature(feature));
+        }
 
         for (const auto &entry : families)
         {
@@ -171,6 +178,7 @@ class text_engine final
             reinterpret_cast<const WCHAR *>(text.data()), static_cast<UINT32>(text.size()),
             bold ? bold_format_.get() : text_format_.get(),
             100000.0f, 100000.0f, layout.put()));
+        apply_typography(layout.get());
 
         auto renderer = winrt::make<run_renderer>(*this, false);
         winrt::check_hresult(layout->Draw(nullptr, renderer.get(), 0.0f, 0.0f));
@@ -200,6 +208,7 @@ class text_engine final
         winrt::check_hresult(factory2_->CreateTextLayout(
             reinterpret_cast<const WCHAR *>(text.data()), static_cast<UINT32>(text.size()), text_format_.get(),
             100000.0f, 100000.0f, layout.put()));
+        apply_typography(layout.get());
 
         auto renderer = winrt::make<run_renderer>(*this, true);
         winrt::check_hresult(layout->Draw(nullptr, renderer.get(), 0.0f, 0.0f));
@@ -218,6 +227,17 @@ class text_engine final
                 .alpha = std::span<const std::uint8_t>{color_alpha_storage_.data() + layer.offset, layer.size},
             });
         }
+    }
+
+    void apply_typography(IDWriteTextLayout *layout) const
+    {
+        if (typography_ == nullptr || layout == nullptr)
+        {
+            return;
+        }
+        winrt::com_ptr<IDWriteTextLayout1> layout1;
+        winrt::check_hresult(layout->QueryInterface(IID_PPV_ARGS(layout1.put())));
+        winrt::check_hresult(layout1->SetTypography(typography_.get(), DWRITE_TEXT_RANGE{0, UINT32_MAX}));
     }
 
   private:
@@ -502,12 +522,14 @@ class text_engine final
     winrt::com_ptr<IDWriteFontCollection> collection_;
     std::span<const font_fallback_entry> families_;
     winrt::com_ptr<IDWriteFontFallback> fallback_;
+    winrt::com_ptr<IDWriteTypography> typography_;
     winrt::com_ptr<IDWriteTextFormat> text_format_;
     winrt::com_ptr<IDWriteTextFormat> bold_format_;
     winrt::com_ptr<IDWriteRenderingParams1> rendering_params_;
     float grayscale_enhanced_contrast_{};
     std::array<float, 4> gamma_ratios_{};
     float size_{};
+    bool ligatures_{};
     cell_metrics metrics_{};
 
     std::vector<glyph_region> regions_;
