@@ -836,9 +836,10 @@ class window_host final
         worker_.request_redraw();
     }
 
-    void deliver_ctrl_event(DWORD event, HWND hwnd, bool flush_input) const noexcept
+    void deliver_ctrl_event(DWORD event, HWND hwnd, bool flush_input) noexcept
     {
-        std::vector<DWORD> process_ids;
+        auto &process_ids = ctrl_process_ids_;
+        process_ids.clear();
         {
             std::unique_lock<win32::srwlock> lock{console_mutex_};
             if (flush_input)
@@ -873,7 +874,7 @@ class window_host final
         LOG2("ctrl event=%lu delivered processes=%zu", event, process_ids.size());
     }
 
-    void deliver_ctrl_c(HWND hwnd) const noexcept
+    void deliver_ctrl_c(HWND hwnd) noexcept
     {
         deliver_ctrl_event(CTRL_C_EVENT, hwnd, false);
     }
@@ -1583,6 +1584,7 @@ class window_host final
     win32::handle_view client_process_;
     win32::handle_view damage_event_;
     coreio::process_registry &processes_;
+    std::vector<DWORD> ctrl_process_ids_;
     render_worker worker_;
     HWND window_;
     tsf_host tsf_;

@@ -261,17 +261,17 @@ bool window_console_session::handle(coreio::io_msg &message)
             console_.mark_input_read();
         }
 
-        std::vector<std::pair<DWORD, DWORD>> ctrl_events;
-        api_.take_ctrl_events(ctrl_events);
-        if (!ctrl_events.empty())
+        ctrl_events_scratch_.clear();
+        api_.take_ctrl_events(ctrl_events_scratch_);
+        if (!ctrl_events_scratch_.empty())
         {
             const auto hwnd = console_.window_handle();
             coreio::ctrl_delivery delivery;
-            for (const auto &[event, process] : ctrl_events)
+            for (const auto &[event, process] : ctrl_events_scratch_)
             {
                 delivery.deliver(process, event, hwnd);
             }
-            LOG2("api ctrl events=%zu hwnd=%p", ctrl_events.size(), hwnd);
+            LOG2("api ctrl events=%zu hwnd=%p", ctrl_events_scratch_.size(), hwnd);
         }
 
         if (handled)

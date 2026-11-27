@@ -87,6 +87,7 @@ class window_console_session final
     win32::srwlock &console_mutex_;
     coreio::io_msg pending_message_{};
     coreio::io_msg pending_raw_message_{};
+    std::vector<std::pair<DWORD, DWORD>> ctrl_events_scratch_;
     consoleapi::console_api::pending_read_kind pending_kind_{};
     bool pending_active_{};
     bool pending_raw_active_{};
