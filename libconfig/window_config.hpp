@@ -28,6 +28,8 @@ namespace corehost::window
         automatic,
         copy,
         paste,
+        menu,
+        none,
     };
 
     enum class hyperlink_modifier : unsigned char
@@ -62,17 +64,13 @@ namespace corehost::window
         std::size_t count{};
     };
 
-    inline font_fallback_list default_font_fallbacks(uitext::font_family font = uitext::default_font_family)
+    inline font_fallback_list default_font_fallbacks()
     {
         font_fallback_list list;
-        const auto mono = font == uitext::font_family::cascadia_mono;
-        list.entries[0] = font_fallback{mono ? L"Cascadia Mono" : L"Cascadia Code"};
-        list.entries[1] = font_fallback{mono ? L"Cascadia Code" : L"Cascadia Mono"};
-        list.entries[2] = font_fallback{L"Consolas"};
-        list.count = 3;
+        list.entries[0] = font_fallback{L"Cascadia Mono"};
+        list.count = 1;
         return list;
     }
-
     inline constexpr float default_font_size_dip = 16.0f;
     inline constexpr std::size_t default_mouse_wheel_lines = 3;
     inline constexpr right_click_action default_right_click_action = right_click_action::automatic;
@@ -83,8 +81,6 @@ namespace corehost::window
     inline constexpr std::size_t default_selection_auto_scroll_edge_rows = 1;
     inline constexpr bool default_uia_text_changed_events = true;
     inline constexpr bool default_uia_selection_events = true;
-    inline constexpr std::size_t default_initial_columns = 120;
-    inline constexpr std::size_t default_initial_rows = 30;
     inline constexpr std::size_t default_min_columns = 36;
     inline constexpr std::size_t default_min_rows = 2;
     inline constexpr std::int32_t default_candidate_offset_cells = 2;
@@ -116,7 +112,7 @@ namespace corehost::window
         std::size_t selection_auto_scroll_edge_rows{default_selection_auto_scroll_edge_rows};
         bool uia_text_changed_events{default_uia_text_changed_events};
         bool uia_selection_events{default_uia_selection_events};
-        font_fallback_list font_fallbacks{default_font_fallbacks(text_options.font)};
+        font_fallback_list font_fallbacks{default_font_fallbacks()};
         backdrop_mode backdrop{default_backdrop_mode};
         std::uint8_t opacity{default_opacity};
         bool dark_mode{default_dark_mode};

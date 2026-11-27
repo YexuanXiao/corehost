@@ -714,6 +714,7 @@ Child：
 - 使用私有窗口消息切换（不受 Windows 影响）；
 - 支持亮/暗、高对比度黑/高对比度白；
 - 动态切换；
+- 完整 schema 在 `libconfig/config.hpp`，当前行为仍使用兼容子集；
 - 配置字段见 [doc/window/0019-config-inventory.md](doc/window/0019-config-inventory.md)；字体 fallback 列表、字号、frame latency/vsync 仍待决策。
 
 ### 5.11 UI Automation

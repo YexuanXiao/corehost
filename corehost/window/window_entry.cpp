@@ -1,4 +1,5 @@
 #include "window_entry.hpp"
+#include "config.hpp"
 
 #include "libcorewindow/window_ui.hpp"
 #include "window_client_process.hpp"

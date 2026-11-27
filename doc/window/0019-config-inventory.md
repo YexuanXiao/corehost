@@ -6,6 +6,19 @@
 当前状态：滚动条上限、启动/最小 grid、候选偏移、hyperlink modifier、字号和字体 fallback 列表已接入；
 配置文件加载仍未实现。
 
+## 完整 schema
+
+新增 `libconfig/config.hpp`（文档路径以仓库根为准），提供
+`corehost_config`/`config`，按 `配置.txt` 合并现有对象：
+
+- `console` / `window`：现有兼容对象；
+- `color`、`background`、`cursor`、`font`、`text`；
+- `window_behavior`、`mouse`、`clipboard`、`hyperlink`、`title`；
+- `scrollback`、`bell`、`notification`、`progress`；
+- `term`、`graphics`、`render`、`ime`、`accessibility`。
+
+“先不实现”的字段也已经建入 schema，但不会改变当前运行行为；后续按行为逐项接入。
+
 ## 已接入的默认值
 
 所有默认值在各自配置头文件中用 `inline constexpr` 定义，不散落在实现里。
@@ -105,7 +118,7 @@ inline constexpr bool default_alpha_correction = true;
 | `candidate_offset_cells` | `window_config` | 2 | TSF `GetTextExt` 按 cell 计算 |
 | `hyperlink` | `window_config` | control | Ctrl/Alt/Shift/none 可配置 |
 | `font_size_dip` | `window_config` | 16.0 | 同时用于窗口度量和 renderer |
-| `font_fallbacks` | `window_config` | 3 项默认 | 最多 12 项，owning wstring + Unicode range |
+| `font_fallbacks` | `window_config` | 1 项 Cascadia Mono | 最多 12 项，owning wstring + Unicode range |
 | `cursor_blink_ms` | `window_config` | 530 | 0 表示不闪 |
 | `selection_auto_scroll_interval_ms` | `window_config` | 40 | 边缘自动滚动 |
 | `selection_auto_scroll_edge_rows` | `window_config` | 1 | 边缘行数 |
@@ -114,7 +127,7 @@ inline constexpr bool default_alpha_correction = true;
 | `uia_enabled` | `window_config` | true | UIA provider 总开关 |
 | `tsf_enabled` | `window_config` | true | TSF 总开关 |
 | `mouse_wheel_lines` | `window_config` | 3 | 滚轮行数 |
-| `right_click` | `window_config` | automatic | automatic/copy/paste |
+| `right_click` | `window_config` | automatic | automatic/copy/paste/menu/none |
 | `copy_ending` | `console_config` | CRLF | 复制行尾 CRLF/LF |
 | `bell` | `window_config` | visual | `off` 不闪；`visual` 用 `FlashWindowEx`，已实际接入 |
 | `palette` | `window_config` | Campbell | 当前默认调色板 |
@@ -177,7 +190,7 @@ struct font_fallback_list final
 - 最多 12 项；
 - `std::wstring` 由 config 拥有，`text_engine` 只借用 `wcstring_view`；
 - `font_size_dip` 同时用于窗口度量和 renderer；
-- 默认列表按 `text_options.font` 选择 Cascadia Mono/Code 顺序，最后是 Consolas；
+- 默认列表只有一项 Cascadia Mono；后续 fallback 由 DirectWrite 系统 fallback 处理；
 - 空 family 不参与 fallback；`count` 至少为 1；
 - 系统 fallback 仍由 DirectWrite 追加。
 
