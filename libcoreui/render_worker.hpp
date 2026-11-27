@@ -687,7 +687,7 @@ class render_worker final
             quads_.push_back(cursor_quad);
         }
 
-        if (focused_ && history_size_ != 0)
+        if ((focused_ || config_.scrollbar == scrollbar_visibility::always) && history_size_ != 0)
         {
             const auto sample = 0.5f / static_cast<float>(atlas_.size());
             const auto scale = static_cast<float>(dpi_) / 96.0f;

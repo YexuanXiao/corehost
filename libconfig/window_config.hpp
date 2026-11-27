@@ -23,6 +23,12 @@ namespace corehost::window
         always_exit,
     };
 
+    enum class scrollbar_visibility : unsigned char
+    {
+        auto_hide,
+        always,
+    };
+
     enum class right_click_action : unsigned char
     {
         automatic,
@@ -72,6 +78,7 @@ namespace corehost::window
         return list;
     }
     inline constexpr float default_font_size_dip = 16.0f;
+    inline constexpr scrollbar_visibility default_scrollbar_visibility = scrollbar_visibility::auto_hide;
     inline constexpr std::size_t default_mouse_wheel_lines = 3;
     inline constexpr right_click_action default_right_click_action = right_click_action::automatic;
     inline constexpr bool default_uia_enabled = true;
@@ -103,6 +110,7 @@ namespace corehost::window
         bell_mode bell{default_bell_mode};
         uitext::text_options text_options{};
         float font_size_dip{default_font_size_dip};
+        scrollbar_visibility scrollbar{default_scrollbar_visibility};
         std::size_t mouse_wheel_lines{default_mouse_wheel_lines};
         right_click_action right_click{default_right_click_action};
         bool uia_enabled{default_uia_enabled};

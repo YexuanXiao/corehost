@@ -138,6 +138,7 @@ inline constexpr bool default_alpha_correction = true;
 | `tsf_enabled` | `window_config` | true | TSF 总开关 |
 | `mouse_wheel_lines` | `window_config` | 3 | 滚轮行数 |
 | `right_click` | `window_config` | automatic | automatic/copy/paste/menu/none |
+| `scrollbar` | `window_config` | auto_hide | always/auto_hide |
 | `copy_ending` | `console_config` | CRLF | 复制行尾 CRLF/LF |
 | `bell` | `window_config` | visual | `off` 不闪；`visual` 用 `FlashWindowEx`，已实际接入 |
 | `palette` | `window_config` | Campbell | 当前默认调色板 |
@@ -215,7 +216,7 @@ struct font_fallback_list final
 |---|---:|---|---|
 | cursor style | profile default | console/window | block/underline/bar |
 | scrollbar width | `scrollbar::default_width` | window | 影响 grid 计算 |
-| scrollbar auto hide | true | window | 失焦隐藏 |
+
 | scrollbar animation frames | `expand_frames` | window | 与 DComp 时钟配合 |
 | UIA ScrollPattern | true | window | 需要产品开关 |
 | Sixel visible texture capacity | 1024 | renderer | 内部实现，不暴露 |
