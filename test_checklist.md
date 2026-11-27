@@ -136,6 +136,8 @@ review 目标：修复根因，不降低性能。
   - `ConsoleEndTask` 必须携带窗口 HWND，否则静默成功但不生效；
   - 按 `console_api` 的 process registry 枚举附着进程投递给 CTRL_C_EVENT；
   - Ctrl+Break 在 interactive PowerShell 显示 `^C`；ping 本身不支持 Ctrl+Break，不能作为失败依据。
+  - cooked `Read-Host` 阻塞时 Ctrl+C 能完成 pending read 并退出；
+  - raw `[Console]::ReadLine()` 按 conhost 语义 Ctrl+C 不终止，不作为失败。
 - [ ] C7 Ctrl+Z（报告为 KEY=Z CHAR=26 MOD=Control）
   - 收到 VK=0x5A CHAR=0x1A control=0x8。
 - [-] C8 多行粘贴

@@ -54,6 +54,16 @@ class console final
         return input_event_;
     }
 
+    void set_cooked_read_pending(bool pending) noexcept
+    {
+        cooked_read_pending_ = pending;
+    }
+
+    [[nodiscard]] bool cooked_read_pending() const noexcept
+    {
+        return cooked_read_pending_;
+    }
+
     void set_focused(bool focused) noexcept
     {
         focused_ = focused;
@@ -648,6 +658,7 @@ class console final
     float cell_width_{1.0f};
     float cell_height_{1.0f};
     win32::event input_event_{win32::create_tag, true, false};
+    bool cooked_read_pending_{};
 };
 
 } // namespace corehost::window

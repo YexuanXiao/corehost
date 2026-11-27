@@ -842,6 +842,13 @@ class window_host final
             {
                 console_.input().clear();
             }
+            if (console_.cooked_read_pending())
+            {
+                console_.push_input(consoleinput::input_event{
+                    .type = consoleinput::input_event_type::key,
+                    .key = consoleinput::key_from_text_character(3),
+                });
+            }
             process_ids.reserve(processes_.size());
             for (const auto process : processes_.processes())
             {

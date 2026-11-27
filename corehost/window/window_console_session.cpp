@@ -270,6 +270,7 @@ bool window_console_session::handle(coreio::io_msg &message)
                 pending_message_ = message;
                 pending_kind_ = kind;
                 pending_active_ = true;
+                console_.set_cooked_read_pending(kind == consoleapi::console_api::pending_read_kind::console_read);
             }
         }
         return false;
@@ -304,6 +305,7 @@ void window_console_session::complete_pending()
         coreio::complete_io(server_, pending_message_.complete);
         pending_active_ = false;
         pending_kind_ = consoleapi::console_api::pending_read_kind::none;
+        console_.set_cooked_read_pending(false);
     }
 }
 
