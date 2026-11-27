@@ -497,17 +497,53 @@ class render_worker final
                 {
                     line_color = blend_color(line_color, background, 0.5f);
                 }
-                if (has_attribute(style, screen::text_style_attribute::underline))
+                if (has_attribute(style, screen::text_style_attribute::underline) &&
+                    text_style_.underline != text_underline_style::none)
                 {
-                    add_line_quad(quads_, static_cast<float>(x) * cell_width,
-                                  static_cast<float>(y) * cell_height + metrics.ascent + 1.0f + scroll_shift,
-                                  cell_width * cell_span, 1.0f, line_color, sample, text_alpha);
+                    const auto left = static_cast<float>(x) * cell_width;
+                    const auto width = cell_width * cell_span;
+                    const auto top = static_cast<float>(y) * cell_height + metrics.ascent + 1.0f + scroll_shift;
+                    const auto solid = [&](float line_top) {
+                        add_line_quad(quads_, left, line_top, width, 1.0f, line_color, sample, text_alpha);
+                    };
+                    switch (text_style_.underline)
+                    {
+                    case text_underline_style::double_underline:
+                        solid(top);
+                        solid(top + 2.0f);
+                        break;
+                    case text_underline_style::dotted:
+                        for (float offset = 0.0f; offset < width; offset += 4.0f)
+                        {
+                            add_line_quad(quads_, left + offset, top, std::min(2.0f, width - offset), 1.0f,
+                                          line_color, sample, text_alpha);
+                        }
+                        break;
+                    case text_underline_style::dashed:
+                        for (float offset = 0.0f; offset < width; offset += 7.0f)
+                        {
+                            add_line_quad(quads_, left + offset, top, std::min(4.0f, width - offset), 1.0f,
+                                          line_color, sample, text_alpha);
+                        }
+                        break;
+                    case text_underline_style::single:
+                    case text_underline_style::curl:
+                    default:
+                        solid(top);
+                        break;
+                    }
                 }
-                if (has_attribute(style, screen::text_style_attribute::strikethrough))
+                if (has_attribute(style, screen::text_style_attribute::strikethrough) &&
+                    text_style_.strikethrough != text_strikethrough_style::none)
                 {
-                    add_line_quad(quads_, static_cast<float>(x) * cell_width,
-                                  static_cast<float>(y) * cell_height + metrics.ascent * 0.5f + scroll_shift,
-                                  cell_width * cell_span, 1.0f, line_color, sample, text_alpha);
+                    const auto left = static_cast<float>(x) * cell_width;
+                    const auto width = cell_width * cell_span;
+                    const auto top = static_cast<float>(y) * cell_height + metrics.ascent * 0.5f + scroll_shift;
+                    add_line_quad(quads_, left, top, width, 1.0f, line_color, sample, text_alpha);
+                    if (text_style_.strikethrough == text_strikethrough_style::double_underline)
+                    {
+                        add_line_quad(quads_, left, top + 2.0f, width, 1.0f, line_color, sample, text_alpha);
+                    }
                 }
 
                 if (hovered_hyperlink_ != screen::no_cell_hyperlink && cell.hyperlink() == hovered_hyperlink_)
