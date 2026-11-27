@@ -57,6 +57,14 @@ namespace corehost::window
         shift,
     };
 
+    enum class copy_line_ending : unsigned char
+    {
+        crlf,
+        lf,
+    };
+
+    inline constexpr std::size_t default_scrollback_lines = 3000;
+    inline constexpr copy_line_ending default_copy_line_ending = copy_line_ending::crlf;
     inline constexpr bell_mode default_bell_mode = bell_mode::visual;
     inline constexpr std::uint8_t default_opacity = 255;
     inline constexpr bool default_dark_mode = true;
@@ -124,6 +132,8 @@ namespace corehost::window
         float font_size_dip{default_font_size_dip};
         cursor_style cursor_shape{default_cursor_style};
         scrollbar_visibility scrollbar{default_scrollbar_visibility};
+        std::size_t scrollback_lines{default_scrollback_lines};
+        copy_line_ending copy_ending{default_copy_line_ending};
         std::size_t mouse_wheel_lines{default_mouse_wheel_lines};
         right_click_action right_click{default_right_click_action};
         bool uia_enabled{default_uia_enabled};

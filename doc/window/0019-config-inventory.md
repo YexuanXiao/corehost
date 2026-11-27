@@ -31,11 +31,32 @@
 
 默认字体：只包含 `Cascadia Mono` 一项，其他字符由 DirectWrite 系统 fallback 处理。
 
-## 传递规则\n\n运行时始终传递完整 `corehost_config`；`window_entry`、`window_ui`、`window_host`、`render_worker` 不再接收拆分后的子配置对象。子配置只在访问时通过 `config.window` / `config.font` 等读取。\n\n## 已接入的默认值
+## 传递规则
+
+运行时始终传递完整 `corehost_config`；`window_entry`、`window_ui`、`window_host`、`render_worker` 不再接收拆分后的子配置对象。子配置只在访问时通过 `config.window` / `config.font` 等读取。
+
+## 已接入的默认值
 
 所有默认值在各自配置头文件中用 `inline constexpr` 定义，不散落在实现里。
 
 ### console_config.hpp
+
+```cpp
+inline constexpr int default_start_acp = 65001;
+inline constexpr std::size_t default_initial_columns = 120;
+inline constexpr std::size_t default_initial_rows = 30;
+inline constexpr bool default_ambiguous_is_wide = false;
+
+struct console_config final
+{
+    int start_acp{default_start_acp};
+    std::size_t initial_cols{default_initial_columns};
+    std::size_t initial_rows{default_initial_rows};
+    bool ambiguous_is_wide{default_ambiguous_is_wide};
+};
+```
+
+### window_config.hpp
 
 ```cpp
 enum class copy_line_ending : unsigned char
@@ -46,17 +67,6 @@ enum class copy_line_ending : unsigned char
 
 inline constexpr std::size_t default_scrollback_lines = 3000;
 inline constexpr copy_line_ending default_copy_line_ending = copy_line_ending::crlf;
-
-struct console_config final
-{
-    std::size_t scrollback_lines{default_scrollback_lines};
-    copy_line_ending copy_ending{default_copy_line_ending};
-};
-```
-
-### window_config.hpp
-
-```cpp
 inline constexpr std::size_t default_initial_columns = 120;
 inline constexpr std::size_t default_initial_rows = 30;
 inline constexpr std::size_t default_min_columns = 36;
@@ -87,7 +97,9 @@ struct window_config final
     bell_mode bell{default_bell_mode};
     uitext::text_options text_options{};
     float font_size_dip{default_font_size_dip};
-    font_fallback_list font_fallbacks{default_font_fallbacks(text_options.font)};
+    font_fallback_list font_fallbacks{default_font_fallbacks()};
+    std::size_t scrollback_lines{default_scrollback_lines};
+    copy_line_ending copy_ending{default_copy_line_ending};
     std::uint32_t cursor_blink_ms{default_cursor_blink_ms};
     std::uint32_t selection_auto_scroll_interval_ms{default_selection_auto_scroll_interval_ms};
     std::size_t selection_auto_scroll_edge_rows{default_selection_auto_scroll_edge_rows};
@@ -124,13 +136,15 @@ inline constexpr bool default_alpha_correction = true;
 
 | 配置 | 归属 | 默认 | 说明 |
 |---|---|---:|---|
-| `scrollback_lines` | `console_config` | 3000 | window 模式传入 console 构造 |
+| `scrollback_lines` | `window_config` | 3000 | window 模式传入 console 构造 |
 | `initial_cols/rows` | `console_config` | 120x30 | 启动 console 和初始窗口共用；window 兼容字段同步 |
 | `min_columns/min_rows` | `window_config` | 36x2 | 按字体 cell 度量和窗口边框计算像素 |
 | `candidate_offset_cells` | `corehost_config.ime` | 2 | TSF `GetTextExt` 按 cell 计算 |
 | `hyperlink` | `corehost_config.hyperlink` | control | Ctrl/Alt/Shift/none 可配置 |
 | `font_size_dip` | `window_config` | 16.0 | 兼容字段；实际使用 `corehost_config.font.size` |
-| `font.color_emoji` | `corehost_config.font` | true | 关闭后走单色 glyph 路径 |\n| `font.ligatures` | `corehost_config.font` | false | 开启标准连字 |\n| `font_fallbacks` | `window_config` | 1 项 Cascadia Mono | 兼容字段；实际使用 `corehost_config.font.family_fallback_list` |
+| `font.color_emoji` | `corehost_config.font` | true | 关闭后走单色 glyph 路径 |
+| `font.ligatures` | `corehost_config.font` | false | 开启标准连字 |
+| `font_fallbacks` | `window_config` | 1 项 Cascadia Mono | 兼容字段；实际使用 `corehost_config.font.family_fallback_list` |
 | `cursor_blink_ms` | `window_config` | 530 | 0 表示不闪 |
 | `selection_auto_scroll_interval_ms` | `window_config` | 40 | 边缘自动滚动 |
 | `selection_auto_scroll_edge_rows` | `window_config` | 1 | 边缘行数 |
@@ -141,16 +155,27 @@ inline constexpr bool default_alpha_correction = true;
 | `mouse_wheel_lines` | `window_config` | 3 | 滚轮行数 |
 | `right_click` | `window_config` | automatic | automatic/copy/paste/menu/none |
 | `cursor_shape` | `window_config` | automatic | 覆盖 VT/应用；automatic 保留应用控制；double/hollow/vintage 当前近似映射 |
-| `scrollbar` | `window_config` | auto_hide | always/auto_hide |\n| `mouse.selection_double_click/triple_click` | `corehost_config.mouse` | true | 双击/三击选择开关 |\n| `mouse.shift_capture` | `corehost_config.mouse` | shift | shift/always/never 绕过 VT mouse |\n| `mouse.selection_mode` | `corehost_config.mouse` | line | line/block/disable |\n| `mouse.selection_copy_on_select` | `corehost_config.mouse` | false | 拖选结束自动复制；受 write_policy 约束 |\n| `mouse.selection_trim_block` | `corehost_config.mouse` | false | block 复制时裁剪右侧空白 |\n| `mouse.middle_click_paste` | `corehost_config.mouse` | false | 中键粘贴，受 read_policy 约束 |
-| `copy_ending` | `console_config` | CRLF | 复制行尾 CRLF/LF |
-| `text.bold_is_bright` | `corehost_config.text` | false | SGR bold + indexed 0–7 映射到 8–15 |\n| `graphics.sixel` | `corehost_config.graphics` | true | 关闭后不渲染 Sixel 图像 |\n| `text.underline/strikethrough` | `corehost_config.text` | single/single | single/double/dotted/dashed；curl 近似实线 |\n| `color` | `corehost_config.color` | dark/Campbell | 调色板、cursor、selection 颜色已接入；light 已定义 |
+| `scrollbar` | `window_config` | auto_hide | always/auto_hide |
+| `mouse.selection_double_click/triple_click` | `corehost_config.mouse` | true | 双击/三击选择开关 |
+| `mouse.shift_capture` | `corehost_config.mouse` | shift | shift/always/never 绕过 VT mouse |
+| `mouse.selection_mode` | `corehost_config.mouse` | line | line/block/disable |
+| `mouse.selection_copy_on_select` | `corehost_config.mouse` | false | 拖选结束自动复制；受 write_policy 约束 |
+| `mouse.selection_trim_block` | `corehost_config.mouse` | false | block 复制时裁剪右侧空白 |
+| `mouse.middle_click_paste` | `corehost_config.mouse` | false | 中键粘贴，受 read_policy 约束 |
+| `copy_ending` | `window_config` | CRLF | 复制行尾 CRLF/LF |
+| `text.bold_is_bright` | `corehost_config.text` | false | SGR bold + indexed 0–7 映射到 8–15 |
+| `graphics.sixel` | `corehost_config.graphics` | true | 关闭后不渲染 Sixel 图像 |
+| `text.underline/strikethrough` | `corehost_config.text` | single/single | single/double/dotted/dashed；curl 近似实线 |
+| `color` | `corehost_config.color` | dark/Campbell | 调色板、cursor、selection 颜色已接入；light 已定义 |
 | `background.opacity` | `corehost_config.background` | 1.0 | 已接入 layered opacity |
-| `window.shadow/always_on_top/launch/allow_move_resize` | `corehost_config.window_behavior` | true/false/automatic/true | shadow、topmost、maximized/fullscreen、禁止移动 |\n| `window.blur` | `corehost_config.window_behavior` | none | none/acrylic/mica |
+| `window.shadow/always_on_top/launch/allow_move_resize` | `corehost_config.window_behavior` | true/false/automatic/true | shadow、topmost、maximized/fullscreen、禁止移动 |
+| `window.blur` | `corehost_config.window_behavior` | none | none/acrylic/mica |
 | `title.force_corehost` | `corehost_config.title` | false | 强制窗口标题 |
 | `accessibility.reduce_motion` | `corehost_config.accessibility` | false | 禁用光标/滚动条动画 |
 | `clipboard.read_policy` | `corehost_config.clipboard` | deny | 粘贴读取策略，已接入 |
 | `clipboard.write_policy` | `corehost_config.clipboard` | deny | 复制写入策略，已接入 |
-| `clipboard.selection_policy` | `corehost_config.clipboard` | deny | PRIMARY selection，占位 |\n| `clipboard.paste_max_size` | `corehost_config.clipboard` | 0 | 0=屏幕格子容量；超限拒绝并记录日志 |
+| `clipboard.selection_policy` | `corehost_config.clipboard` | deny | PRIMARY selection，占位 |
+| `clipboard.paste_max_size` | `corehost_config.clipboard` | 0 | 0=屏幕格子容量；超限拒绝并记录日志 |
 | `bell` | `corehost_config.bell` | visual | visual 用 `FlashWindowEx`；auditory 暂不发声 |
 | `palette` | `window_config` | Campbell | 当前默认调色板 |
 | `backdrop/opacity/dark_mode` | `window_config` | none/255/true | DWM 外观 |

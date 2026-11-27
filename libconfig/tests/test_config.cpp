@@ -19,8 +19,7 @@ int main()
 
     const corehost_config config{};
 
-    if (config.console.scrollback_lines != default_scrollback_lines ||
-        config.console.copy_ending != copy_line_ending::crlf || config.console.initial_cols != 120 ||
+    if (config.console.initial_cols != 120 ||
         config.console.initial_rows != 30 || config.console.ambiguous_is_wide)
     {
         std::fprintf(stderr, "console defaults mismatch\n");
@@ -30,7 +29,8 @@ int main()
     if (config.window.initial_columns != 120 || config.window.initial_rows != 30 ||
         config.window.min_columns != 36 || config.window.min_rows != 2 ||
         config.window.scrollbar != scrollbar_visibility::auto_hide ||
-        config.window.font_fallbacks.count != 1 ||
+        config.window.scrollback_lines != default_scrollback_lines ||
+        config.window.copy_ending != copy_line_ending::crlf || config.window.font_fallbacks.count != 1 ||
         config.window.font_fallbacks.entries[0].family != L"Cascadia Mono" ||
         config.window.mouse_wheel_lines != 3 || config.window.right_click != right_click_action::automatic ||
         config.window.cursor_shape != cursor_style::automatic)
