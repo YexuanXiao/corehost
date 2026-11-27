@@ -1516,6 +1516,8 @@ class window_host final
         default:
             return ::DefWindowProcW(hwnd, message, wparam, lparam);
         }
+
+        return ::DefWindowProcW(hwnd, message, wparam, lparam);
     }
     bool window_ready_{};
     // UI-thread scratch buffers. Keeping capacity across IME reconversion,
