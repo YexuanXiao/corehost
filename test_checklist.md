@@ -166,11 +166,13 @@ review 目标：修复根因，不降低性能。
 - [ ] E1 cmd.exe
   - 见 D7 嵌套 cmd 测试。
 - [ ] E2 pwsh.exe
+  - 启动 PowerShell 7.7.0，提示符正常。
 - [ ] E3 edit.exe
 - [ ] E4 vim.exe
 - [ ] E7 PowerShell / cmd 嵌套 shell
 - [ ] E8 长输出程序（100 行输出）
 - [ ] E9 python.exe
+  - Python 3.15.0 REPL 启动正常。
 
 ## F. 压力与回归
 
