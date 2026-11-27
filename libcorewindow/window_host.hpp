@@ -582,15 +582,24 @@ class window_host final
         last_click_time_ = now;
         last_click_x_ = x;
         last_click_y_ = y;
+        if (click_count_ >= 3 && !mouse_config_.selection_triple_click)
+        {
+            click_count_ = mouse_config_.selection_double_click ? 2 : 1;
+        }
+        else if (click_count_ == 2 && !mouse_config_.selection_double_click)
+        {
+            click_count_ = 1;
+        }
+
 
         const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
-        if (click_count_ >= 3)
+        if (click_count_ >= 3 && mouse_config_.selection_triple_click)
         {
             console_.select_line(y);
             selection_anchor_x_ = 0;
             selection_anchor_y_ = y;
         }
-        else if (click_count_ == 2)
+        else if (click_count_ == 2 && mouse_config_.selection_double_click)
         {
             console_.select_word(x, y);
             selection_anchor_x_ = console_.selection().anchor_x;
