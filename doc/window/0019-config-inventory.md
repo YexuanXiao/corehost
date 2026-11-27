@@ -19,6 +19,16 @@
 
 “先不实现”的字段也已经建入 schema，但不会改变当前运行行为；后续按行为逐项接入。
 
+完整 schema 已由 `window_entry` 接收；当前行为读取 `config.console` 和 `config.window` 兼容子集。
+
+默认颜色：
+
+- dark：Campbell；
+- light：One Half Light，indexed white 改为 `B3B3B3`，bright white 改为 `DBDBDB`；
+- 主题模式默认 `auto_mode`。
+
+默认字体：只包含 `Cascadia Mono` 一项，其他字符由 DirectWrite 系统 fallback 处理。
+
 ## 已接入的默认值
 
 所有默认值在各自配置头文件中用 `inline constexpr` 定义，不散落在实现里。
