@@ -674,6 +674,8 @@ class console_api final
                 continue;
             }
             const auto character = event.key.character;
+            LOG2("cooked event char=%04x key=%04x down=%d", static_cast<unsigned>(character),
+                 static_cast<unsigned>(event.key.key), event.key.key_down);
             if (event.key.repeat_count > 1)
             {
                 auto remaining = event;
