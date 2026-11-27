@@ -32,15 +32,19 @@ PowerShell、cmd.exe、vim 在同一 corehostw 窗口中可以正常工作。因
 
 ## 复现
 
-测试程序：`C:\1\native_diag.cpp`、`C:\1\native_diag.exe`
+测试程序：`C:\1
+ative_diag.cpp`、`C:\1
+ative_diag.exe`
 
 启动：
 
 ```powershell
-Start-Process C:\1\corehostbinary\corehostw.exe -ArgumentList 'C:\1\native_diag.exe'
+Start-Process C:\1\corehostbinary\corehostw.exe -ArgumentList 'C:\1
+ative_diag.exe'
 ```
 
-观察 `C:\1\native_diag.txt`。
+观察 `C:\1
+ative_diag.txt`。
 
 期望：继承 stdin 的 `ReadConsoleW` / `ReadConsoleInputW` 正常返回。
 
@@ -52,3 +56,31 @@ Start-Process C:\1\corehostbinary\corehostw.exe -ArgumentList 'C:\1\native_diag.
 - 禁止用 `CONIN$` 让测试“通过”；
 - 需要修复 corehostw 的继承句柄路径，或确认客户端启动方式与 conhost 不一致的根因；
 - 修复前 C8 不得标记通过。
+
+## conhost / OpenConsole 对比
+
+同一个原生客户端 `native_echo.exe`，相同输入序列（A/Enter/B/Enter/C/Enter）：
+
+- OpenConsole：`C:\1
+ative_openconsole_after.png`
+- corehostw：`C:\1
+ative_corehost_after.png`
+
+两者输出一致：
+
+```text
+NATIVE-READY
+A
+NATIVE-LINE:A
+B
+NATIVE-LINE:B
+C
+NATIVE-LINE:C
+NATIVE-DONE
+```
+
+说明：使用继承的 std handles、通过正常 `WM_CHAR` 输入时，原生客户端在 corehostw 和 OpenConsole 下都能工作；禁止用 `CONIN$` 绕过。
+
+![OpenConsole native client](C:/1/native_openconsole_after.png)
+
+![corehostw native client](C:/1/native_corehost_after.png)
