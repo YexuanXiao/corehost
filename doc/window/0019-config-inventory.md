@@ -179,8 +179,8 @@ inline constexpr bool default_alpha_correction = true;
 | `window.inherit_working_directory` | `corehost_config.window_behavior` | false | false 使用 USERPROFILE |
 | `title.force_corehost` | `corehost_config.title` | false | 强制窗口标题 |
 | `accessibility.reduce_motion` | `corehost_config.accessibility` | false | 禁用光标/滚动条动画 |
-| `clipboard.read_policy` | `corehost_config.clipboard` | deny | 粘贴读取策略，已接入 |
-| `clipboard.write_policy` | `corehost_config.clipboard` | deny | 复制写入策略，已接入 |
+| `clipboard.read_policy` | `corehost_config.clipboard` | allow | 粘贴读取策略，已接入 |
+| `clipboard.write_policy` | `corehost_config.clipboard` | allow | 复制写入策略，已接入 |
 | `clipboard.selection_policy` | `corehost_config.clipboard` | deny | PRIMARY selection，占位 |
 | `clipboard.paste_max_size` | `corehost_config.clipboard` | 0 | 0=屏幕格子容量；超限拒绝并记录日志 |
 | `bell` | `corehost_config.bell` | visual | visual/window/taskbar 用 `FlashWindowEx`；auditory 用 `MessageBeep` |

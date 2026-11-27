@@ -57,15 +57,15 @@ int main()
         return EXIT_FAILURE;
     }
 
-    if (config.clipboard.read_policy != clipboard_policy::deny ||
-        config.clipboard.write_policy != clipboard_policy::deny ||
+    if (config.clipboard.read_policy != clipboard_policy::allow ||
+        config.clipboard.write_policy != clipboard_policy::allow ||
         config.clipboard.selection_policy != clipboard_policy::deny || config.clipboard.paste_max_size != 0)
     {
         std::fprintf(stderr, "clipboard defaults mismatch\\n");
         return EXIT_FAILURE;
     }
 
-    if (clipboard_read_allowed(config.clipboard) || clipboard_write_allowed(config.clipboard) ||
+    if (!clipboard_read_allowed(config.clipboard) || !clipboard_write_allowed(config.clipboard) ||
         !clipboard_paste_fits(config.clipboard, 20, 10) ||
         clipboard_paste_fits(config.clipboard, 21, 10))
     {

@@ -231,8 +231,8 @@ struct mouse_config final
 
 struct clipboard_config final
 {
-    clipboard_policy read_policy{clipboard_policy::deny};
-    clipboard_policy write_policy{clipboard_policy::deny};
+    clipboard_policy read_policy{clipboard_policy::allow};
+    clipboard_policy write_policy{clipboard_policy::allow};
     clipboard_policy selection_policy{clipboard_policy::deny};
     std::size_t paste_max_size{};
     clipboard_format copy_format{clipboard_format::text};

@@ -44,7 +44,7 @@ review 目标：修复根因，不降低性能。
 | `mouse.selection_copy_on_select` | C1/C9 | `[-]` 默认关闭 |
 | `mouse.selection_trim_block` | C1/C9 | `[-]` 默认关闭 |
 | `mouse.selection_double_click/triple_click` | C9 | `[-]` |
-| `clipboard.read/write_policy` | C1/C8 | `[-]` 默认 deny |
+| `clipboard.read/write_policy` | C1/C8 | `[ ]` 默认 allow |
 | `clipboard.paste_max_size` | C8 | `[-]` |
 | `clipboard.bracketed_paste` | C8 | `[-]` 未接入 |
 | `uia_enable` / UIA events | G1 | `[ ]` `Window.UIA` |
@@ -119,6 +119,9 @@ review 目标：修复根因，不降低性能。
 ## C. Win32 控制台输入
 
 - [ ] C1 可打印字符、Unicode 粘贴
+  - 复制选中 `COPY-TARGET-中文-END` 成功写入剪贴板；
+  - cmd 的 `set /p` 可粘贴 `PASTE-中文-LINE`；
+  - 默认 clipboard read/write 已改为 allow。
 - [ ] C2 方向键/Home/End/Insert/Delete/PgUp/PgDn
 - [ ] C3 Ctrl/Alt/Shift 组合
 - [ ] C4 F1–F12（测试 F1）

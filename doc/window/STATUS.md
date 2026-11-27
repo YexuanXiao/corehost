@@ -26,7 +26,7 @@
 - 空闲渲染改为 stop/damage/wake 事件等待；失焦或光标不闪烁时 0 CPU，聚焦闪烁时允许 530ms 定时器；滚动条动画用合成器时钟按刷新率驱动；
 - 垂直滚动条：hover、thumb 拖拽、轨道点击、滚轮、键盘滚动；
 - 线性文本选择、Shift 扩展、双击选词、三击选行、边缘自动滚动；
-- 纯文本剪贴板、右键粘贴、VT SGR mouse；剪贴板 read/write 默认 deny，需显式 allow；
+- 纯文本剪贴板、右键粘贴、VT SGR mouse；剪贴板 read/write 默认 allow；
 - TSF composition 自绘、candidate 定位（`ITextStoreACP` 已决定不实现；不需要独立 message pump）；
 - Sixel 解码、HSB/RGB 调色板、RGBA 渲染；屏幕内图像纹理缓存，内容不变不重传；
 - hyperlink hover/Ctrl+click、visual bell；OSC8 无 id 的 parser 越界访问已修复；
@@ -36,7 +36,7 @@
 - `screen::text_measurement` 统一在 libconfig，console 直接使用；
 - 工作目录短路径不加 `\\\\?\\` 前缀，修复 cmd.exe UNC 警告；
 - clipboard I/O 使用 RAII 对象；
-- 配置决定/接入：scrollback 默认 3000、启动 120x30（console_config）、最小 36x2、candidate_offset_cells 默认 2、hyperlink modifier、字号/fallback/可变字体轴（完整 font_config，DirectWrite typographic collection）、光标闪烁、选择自动滚动、鼠标滚轮、右击、复制换行、光标样式覆盖、dark/light 调色板、窗口 shadow/opacity/topmost/launch（含 fullscreen）、title.force_corehost、reduce_motion、color emoji、ligatures、滚动条显示模式、UIA/TSF 开关（完整 accessibility/ime 分组）和剪贴板 deny/allow 策略已接入；bell 归 `corehost_config.bell`（visual/auditory 已接入）；Sixel 不设尺寸上限且只缓存屏幕内图像；
+- 配置决定/接入：scrollback 默认 3000、启动 120x30（console_config）、最小 36x2、candidate_offset_cells 默认 2、hyperlink modifier、字号/fallback/可变字体轴（完整 font_config，DirectWrite typographic collection）、光标闪烁、选择自动滚动、鼠标滚轮、右击、复制换行、光标样式覆盖、dark/light 调色板、窗口 shadow/opacity/topmost/launch（含 fullscreen）、title.force_corehost、reduce_motion、color emoji、ligatures、滚动条显示模式、UIA/TSF 开关（完整 accessibility/ime 分组）和剪贴板默认 allow；bell 归 `corehost_config.bell`（visual/auditory 已接入）；Sixel 不设尺寸上限且只缓存屏幕内图像；
 - Mica/Acrylic、layered opacity（实现完成，待用户手动验收）；
 - UI Automation：Document/TextPattern/TextRange/ScrollPattern，文本变化和选择变化事件；自动化测试 `Window.UIA`（Document/TextPattern/ScrollPattern）；
 - `ambiguous_is_wide` 默认 narrow；不提供 wide 反馈二进制；
