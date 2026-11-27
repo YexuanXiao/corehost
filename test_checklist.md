@@ -155,6 +155,9 @@ review 目标：修复根因，不降低性能。
   - 禁止 CONIN$；证据 `C:\1
 ative_corehost_paste3.png`。
 - [x] C9 鼠标点击/拖动/滚轮
+  - 修复：selection update/滚轮/滚动条修改 offset 后未 request_redraw，拖拽只能等光标闪烁超时；
+  - 真实鼠标拖拽选中 9 行，滚轮滚动 viewport 正常；
+  - 证据：`C:\\1\\wt_drag_real.png`、`C:\\1\\wt_scroll_fixed.png`。
 - [x] C9a 鼠标左键/右键/中键
 - [x] C9b 鼠标滚轮
   - alternate screen 中 WM_MOUSEWHEEL 收到 flags=0x4。
