@@ -19,16 +19,14 @@ HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
 
 ## 当前结论
 
-原生测试客户端：
+最终验证使用 `native_echo.exe`：
 
 - 子系统：Windows CUI；
-- `GetStdHandle(STD_INPUT_HANDLE)` 返回有效句柄；
-- `GetFileType` 返回 `FILE_TYPE_CHAR`；
-- `GetConsoleMode` 成功，mode 为 `0x1f7`；
-- `ReadConsoleW` 失败，`GetLastError() == 233`（`ERROR_PIPE_NOT_CONNECTED`）；
-- `ReadConsoleInputW` 同样失败，233。
+- 只用 `GetStdHandle(STD_INPUT_HANDLE)` / `ReadConsoleW`；
+- 通过正常 `WM_CHAR` 和 Ctrl+Shift+V 输入；
+- OpenConsole 和 corehostw 都能得到相同 `NATIVE-LINE` 输出。
 
-PowerShell、cmd.exe、vim 在同一 corehostw 窗口中可以正常工作。因此当前不能把原生客户端失败归因于测试环境，也不能用 `CONIN$` 绕过。
+早期 `native_diag` 的 `ERROR_PIPE_NOT_CONNECTED` 是测试终止/输入注入方式导致的诊断噪音，不能作为 corehost 缺陷证据；禁止用 `CONIN$` 绕过。
 
 ## 复现
 
