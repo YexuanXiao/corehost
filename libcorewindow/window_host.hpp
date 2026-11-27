@@ -44,7 +44,7 @@ class window_host final
           console_config_{config.console}, window_config_{config.window}, clipboard_config_{config.clipboard},
           background_config_{config.background}, color_config_{config.color}, window_behavior_config_{config.window_behavior},
           bell_config_{config.bell}, font_config_{config.font}, accessibility_config_{config.accessibility},
-          hyperlink_config_{config.hyperlink},
+          hyperlink_config_{config.hyperlink}, mouse_config_{config.mouse},
           title_config_{config.title}, damage_event_{damage_event},
           worker_{console, console_mutex, window_config_, config.color, config.font, config.bell, config.title, config.accessibility,
                  damage_event_},
@@ -1490,6 +1490,7 @@ class window_host final
     const font_config &font_config_;
     const accessibility_config &accessibility_config_;
     const hyperlink_config &hyperlink_config_;
+    const mouse_config &mouse_config_;
     const window_behavior_config &window_behavior_config_;
     const title_config &title_config_;
     winrt::com_ptr<IRawElementProviderSimple> uia_provider_;
