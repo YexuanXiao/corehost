@@ -58,6 +58,15 @@ class color_cell_atlas final
         }
 
         engine_.rasterize_color(text, scratch_);
+        bool has_color = false;
+        for (const auto &layer : scratch_)
+        {
+            has_color = has_color || layer.kind == glyph_color_kind::color;
+        }
+        if (!has_color)
+        {
+            return {};
+        }
         auto &regions = regions_;
         for (const auto &layer : scratch_)
         {

@@ -629,12 +629,7 @@ class render_worker final
                 if (config_.font.color_emoji && cell.has_cluster())
                 {
                     const auto color_regions = color_atlas_.find_or_add(text);
-                    bool has_color = false;
-                    for (const auto &region : color_regions)
-                    {
-                        has_color = has_color || region.kind == uitext::glyph_color_kind::color;
-                    }
-                    if (has_color)
+                    if (!color_regions.empty())
                     {
                         const auto color_scale = 1.0f / static_cast<float>(color_atlas_.size());
                         for (const auto &region : color_regions)

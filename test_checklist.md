@@ -89,7 +89,7 @@ review 目标：修复根因，不降低性能。
 - [ ] B8 combining mark / grapheme cluster
   - `e` + U+0301 通过 Direct `WriteConsoleW` 复现并修复。
   - 根因：所有 cluster 都走 color atlas；monochrome cluster 被 color atlas 错位。
-  - 修复：只有包含 color glyph 的 cluster 使用 color atlas；其余走普通 glyph atlas。
+  - 修复：color atlas 只保留包含 color glyph 的文本；monochrome cluster 不再分配/绘制 color atlas，回退普通 glyph atlas。
   - 证据：`C:\1\wt_combining_fixed.png`。
 - [-] B9 宽字符覆盖与尾部清理
 - [ ] B10 DEC line drawing / charset
@@ -110,6 +110,8 @@ review 目标：修复根因，不降低性能。
 - [-] B20 focus in/out 报告：`?1004` 已转发；原版 conhost 对照未观察到 FOCUS 事件，非 corehost 回归。
 - [-] B21 mouse tracking 模式
 - [ ] B22 窗口 resize 后重绘
+  - 同一窗口 80 行输出后放大窗口，UIA 文本长度和 RESIZE-READY 保持；
+  - 未保留截图，仅记录 UIA 前后长度一致。
 
 ## C. Win32 控制台输入
 
@@ -122,6 +124,9 @@ review 目标：修复根因，不降低性能。
 - [ ] C7 Ctrl+Z（报告为 KEY=Z CHAR=26 MOD=Control）
 - [-] C8 多行粘贴
 - [ ] C9 鼠标点击/拖动/滚轮
+  - `ReadConsoleInputW` 收到左键 down/up、右键、中键；
+  - 滚轮在普通屏幕未转发（代码要求 alternate + VT tracking），未判定；
+  - 证据：`C:\1\wt_mouse_result.txt`。
 - [-] C10 滚轮回滚/回到底部：原版 conhost 对照同样无 scrollback，非 corehost 回归
 - [ ] C11 控制台窗口大小变化事件
 - [ ] C12 ReadConsole 行编辑
@@ -188,3 +193,4 @@ Windows PowerShell 的 console 输入/输出实现不保证代理对（surrogate
 - `wt_combining_direct.png`：修复前 combining 错位。
 - `wt_combining_fixed.png`：修复后 `e` + U+0301 同一行。
 - `wt_alt.png`：alternate screen 退出后主屏恢复。
+- `wt_mouse_result.txt`：鼠标按键事件。
