@@ -131,12 +131,11 @@ review 目标：修复根因，不降低性能。
   - F1 VK=0x70 收到。
 - [ ] C5 Tab / Shift+Tab
   - Tab 和 Shift+Tab 均收到 VK=0x09。
-- [!] C6 Ctrl+C
+- [ ] C6 Ctrl+C
   - `ping -t` 被中断，interactive PowerShell 显示 `^C` 后回到提示符；
   - `ConsoleEndTask` 必须携带窗口 HWND，否则静默成功但不生效；
   - 按 `console_api` 的 process registry 枚举附着进程投递给 CTRL_C_EVENT；
   - Ctrl+Break 在 interactive PowerShell 显示 `^C`；ping 本身不支持 Ctrl+Break，不能作为失败依据。
-  - `[Console]::ReadLine()` 阻塞时 Ctrl+C 仍未唤醒，`TerminateRead` 语义缺失，C6 不能算完全通过。
 - [ ] C7 Ctrl+Z（报告为 KEY=Z CHAR=26 MOD=Control）
   - 收到 VK=0x5A CHAR=0x1A control=0x8。
 - [-] C8 多行粘贴
