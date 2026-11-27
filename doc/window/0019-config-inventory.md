@@ -182,7 +182,7 @@ inline constexpr bool default_alpha_correction = true;
 | `clipboard.write_policy` | `corehost_config.clipboard` | deny | 复制写入策略，已接入 |
 | `clipboard.selection_policy` | `corehost_config.clipboard` | deny | PRIMARY selection，占位 |
 | `clipboard.paste_max_size` | `corehost_config.clipboard` | 0 | 0=屏幕格子容量；超限拒绝并记录日志 |
-| `bell` | `corehost_config.bell` | visual | visual 用 `FlashWindowEx`；auditory 暂不发声 |
+| `bell` | `corehost_config.bell` | visual | visual/window/taskbar 用 `FlashWindowEx`；auditory 用 `MessageBeep` |
 | `palette` | `window_config` | Campbell | 当前默认调色板 |
 | `backdrop/opacity/dark_mode` | `window_config` | none/255/true | DWM 外观 |
 | `exit_policy` | `window_config` | always_exit | client 退出行为 |

@@ -1098,6 +1098,18 @@ class window_host final
         }
         case WM_APP + 0x102:
         {
+            switch (self->config_.bell.mode)
+            {
+            case bell_mode_full::none:
+                return 0;
+            case bell_mode_full::auditory:
+                (void)::MessageBeep(MB_OK);
+                return 0;
+            case bell_mode_full::visual:
+            case bell_mode_full::window:
+            case bell_mode_full::taskbar:
+                break;
+            }
             LOG2("bell flash");
             FLASHWINFO flash{sizeof(FLASHWINFO), hwnd, FLASHW_TRAY | FLASHW_TIMERNOFG, 1, 0};
             (void)::FlashWindowEx(&flash);
