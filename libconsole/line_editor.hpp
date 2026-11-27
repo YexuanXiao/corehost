@@ -66,17 +66,15 @@ class line_editor final
             return at_end ? change::append : change::redraw;
         }
 
-        const auto value_size = value.size();
-        for (std::size_t i = 0; i < value_size;)
+        auto offset = std::size_t{0};
+        while (offset < value.size())
         {
-            std::size_t length = 1;
-            if (is_high(value[i]) && i + 1 < value_size && is_low(value[i + 1]))
-                length = 2;
+            const auto decoded = screen::next_codepoint(value, offset);
             if (cursor_ < text_.size())
                 erase_next();
-            text_.insert(cursor_, value.substr(i, length));
-            cursor_ += length;
-            i += length;
+            text_.append(value.data() + offset, decoded.units);
+            cursor_ += decoded.units;
+            offset += decoded.units;
         }
         return change::redraw;
     }
@@ -160,16 +158,6 @@ class line_editor final
     }
 
   private:
-    [[nodiscard]] static bool is_high(char16_t value) noexcept
-    {
-        return value >= 0xD800 && value <= 0xDBFF;
-    }
-
-    [[nodiscard]] static bool is_low(char16_t value) noexcept
-    {
-        return value >= 0xDC00 && value <= 0xDFFF;
-    }
-
     [[nodiscard]] std::size_t previous(std::size_t at) const noexcept
     {
         if (at == 0)

@@ -27,15 +27,11 @@ void window_entry(win32::wcstring_view title, std::wstring client_command_line,
     console shared_console{initial_columns, initial_rows, window_config.scrollback_lines};
     shared_console.set_copy_crlf(window_config.copy_ending == copy_line_ending::crlf);
     shared_console.set_trim_block(config.mouse.selection_trim_block);
-    window_console_session console{server.view(), shared_console, console_mutex};
+    window_console_session console{server.view(), shared_console, console_mutex, config};
     console.start();
 
     window_client_process client{server.view(), title, client_command_line, config};
-    auto effective_config = config;
-    effective_config.window.initial_columns = initial_columns;
-    effective_config.window.initial_rows = initial_rows;
-    window_ui ui{shared_console, console_mutex, client.process(), title, effective_config,
-                 console.output_event().view()};
+    window_ui ui{shared_console, console_mutex, client.process(), title, config, console.output_event().view()};
     ui.start();
     ui.wait();
 

@@ -12,7 +12,8 @@ namespace corehost::window
 {
 
 window_console_session::window_console_session(win32::handle_view server, console &console,
-                                                     win32::srwlock &console_mutex)
+                                                     win32::srwlock &console_mutex,
+                                                     const corehost_config &config)
     : server_{server}, console_{console}, console_mutex_{console_mutex}, processes_{}, io_state_{server, {}, {}, processes_},
       payload_{server}, api_{console_.buffer(), console_.state(), &console_.input(), 0, &processes_,
                         &payload_},
@@ -20,12 +21,24 @@ window_console_session::window_console_session(win32::handle_view server, consol
 {
     auto &state = console_.state();
     state.output_mode = 0x0001 | 0x0002 | 0x0004;
-    state.measurement = screen::text_measurement::graphemes;
+    switch (config.console.text_measurement)
+    {
+    case text_measurement_mode::console:
+        state.measurement = screen::text_measurement::console;
+        break;
+    case text_measurement_mode::wcswidth:
+        state.measurement = screen::text_measurement::wcswidth;
+        break;
+    case text_measurement_mode::graphemes:
+    default:
+        state.measurement = screen::text_measurement::graphemes;
+        break;
+    }
     // Keep the default narrow: edit.exe's box-drawing layout assumes Box
     // Drawing / Block Elements stay one column wide. With ambiguous wide,
     // table borders are expanded and the menu frame breaks.
     // Tracked upstream at https://github.com/microsoft/terminal/issues/20980.
-    state.ambiguous_is_wide = false;
+    state.ambiguous_is_wide = config.console.ambiguous_is_wide;
     vt_applier_ = vtstate::state_applier{state.measurement, state.ambiguous_is_wide};
 }
 

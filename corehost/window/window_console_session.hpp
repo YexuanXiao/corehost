@@ -1,5 +1,6 @@
 #pragma once
 
+#include "config.hpp"
 #include "console_api.hpp"
 #include "console.hpp"
 #include "console_state.hpp"
@@ -32,7 +33,8 @@ namespace corehost::window
 class window_console_session final
 {
   public:
-    window_console_session(win32::handle_view server, console &console, win32::srwlock &console_mutex);
+    window_console_session(win32::handle_view server, console &console, win32::srwlock &console_mutex,
+                           const corehost_config &config);
     ~window_console_session();
 
     window_console_session(const window_console_session &) = delete;

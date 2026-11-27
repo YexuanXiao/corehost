@@ -87,6 +87,10 @@ review 目标：修复根因，不会降低性能
 - [ ] F5 深层嵌套 shell + 退出
 - [ ] F6 关闭窗口时无崩溃/无残留进程
 
+## PowerShell 测试限制
+
+Windows PowerShell 的 console 输入/输出实现不保证代理对（surrogate pair）完整传递。所有涉及非 BMP/emoji 的 Unicode 测试不得使用 PowerShell 作为客户端；使用 PowerShell 的测试只验证 BMP 字符。需要测试非 BMP 时使用专门的原生测试客户端或其他 shell。
+
 ## 证据
 
 截图目录：`C:\1\wt_shots\`，包含启动、SGR、Unicode、光标/保存恢复、erase、scroll region、alt screen、标题、hyperlink、keytest、resize、长行、edit、vim、sshd 等截图。

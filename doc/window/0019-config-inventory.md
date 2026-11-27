@@ -33,7 +33,7 @@
 
 ## 传递规则
 
-运行时始终传递完整 `corehost_config`；`window_entry`、`window_ui`、`window_host`、`render_worker` 不再接收拆分后的子配置对象。子配置只在访问时通过 `config.window` / `config.font` 等读取。
+运行时始终传递完整 `corehost_config`；`window_entry`、`window_ui`、`window_host`、`render_worker` 不再接收拆分后的子配置对象。子配置只在访问时通过 `config.window` / `config.font` 等读取。`config.hpp` 只依赖 libconfig 头文件和标准库；DWrite 类型在配置边界外通过 ABI 兼容枚举 + `std::bit_cast` 使用。
 
 ## 已接入的默认值
 
@@ -136,8 +136,8 @@ inline constexpr bool default_alpha_correction = true;
 
 | 配置 | 归属 | 默认 | 说明 |
 |---|---|---:|---|
-| `scrollback_lines` | `window_config` | 3000 | window 模式传入 console 构造 |
-| `initial_cols/rows` | `console_config` | 120x30 | 启动 console 和初始窗口共用；window 兼容字段同步 |
+| `scrollback_lines` | `window_config` | 3000 | window 模式传入 console 构造 |\n| `text_measurement_mode` | `console_config` | graphemes | console/graphemes/wcswidth |
+| `initial_cols/rows` | `console_config` | 120x30 | 启动 console 和初始窗口共用；窗口直接读取，不再复制 |
 | `min_columns/min_rows` | `window_config` | 36x2 | 按字体 cell 度量和窗口边框计算像素 |
 | `candidate_offset_cells` | `corehost_config.ime` | 2 | TSF `GetTextExt` 按 cell 计算 |
 | `hyperlink` | `corehost_config.hyperlink` | control | Ctrl/Alt/Shift/none 可配置 |

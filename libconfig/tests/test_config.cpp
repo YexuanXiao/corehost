@@ -19,7 +19,7 @@ int main()
 
     const corehost_config config{};
 
-    if (config.console.initial_cols != 120 ||
+    if (config.console.initial_cols != 120 || config.console.text_measurement != text_measurement_mode::graphemes ||
         config.console.initial_rows != 30 || config.console.ambiguous_is_wide)
     {
         std::fprintf(stderr, "console defaults mismatch\n");
@@ -42,8 +42,7 @@ int main()
     }
 
     if (config.window.uia_enabled != default_uia_enabled || config.window.tsf_enabled != default_tsf_enabled ||
-        config.accessibility.uia_enable != default_uia_enabled || !config.accessibility.uia_text_changed_events ||
-        !config.accessibility.uia_selection_events || config.ime.tsf_enabled != default_tsf_enabled)
+        config.accessibility.uia_enable != default_uia_enabled || config.ime.tsf_enabled != default_tsf_enabled)
     {
         std::fprintf(stderr, "accessibility/IME defaults mismatch\n");
         return EXIT_FAILURE;
@@ -93,7 +92,7 @@ int main()
         config.font.variation_bold[0].value != 700.0f || config.font.variation_italic[2].value != 1.0f ||
         config.font.turning != font_turning::gamma_contrast ||
         config.font.anti_alias != corehost::uitext::font_anti_alias::grayscale ||
-        config.font.rendering_mode != DWRITE_RENDERING_MODE_DEFAULT || config.mouse.selection_mode != mouse_selection_mode::line ||
+        config.font.rendering_mode != corehost::uitext::font_rendering_mode::default_mode || config.mouse.selection_mode != mouse_selection_mode::line ||
         config.mouse.right_click != right_click_action::automatic || config.cursor.style != cursor_style::automatic ||
         !config.mouse.selection_double_click || !config.mouse.selection_triple_click ||
         config.mouse.shift_capture != mouse_shift_capture::shift ||

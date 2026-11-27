@@ -2,6 +2,7 @@ add_library(libuitext INTERFACE)
 
 target_include_directories(libuitext INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/libconfig
     ${CMAKE_SOURCE_DIR}/third_parties/deque
 )
 

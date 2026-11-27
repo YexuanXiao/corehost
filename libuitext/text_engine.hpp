@@ -100,12 +100,13 @@ class text_engine final
                          const std::array<font_axis, 5> &variation_italic = default_font_variation_italic(),
                          const std::array<font_axis, 5> &variation_bold_italic = default_font_variation_bold_italic(),
                          font_anti_alias anti_alias = font_anti_alias::grayscale,
-                         DWRITE_RENDERING_MODE rendering_mode = DWRITE_RENDERING_MODE_DEFAULT)
+                         font_rendering_mode rendering_mode = default_rendering_mode)
         : size_{size}, families_{families}, ligatures_{ligatures}, variation_{variation},
           variation_bold_{variation_bold}, variation_italic_{variation_italic},
           variation_bold_italic_{variation_bold_italic}, anti_alias_{anti_alias},
-          rendering_mode_{rendering_mode == DWRITE_RENDERING_MODE_DEFAULT ? DWRITE_RENDERING_MODE_NATURAL
-                                                                         : rendering_mode}
+          rendering_mode_{rendering_mode == font_rendering_mode::default_mode
+                              ? DWRITE_RENDERING_MODE_NATURAL
+                              : std::bit_cast<DWRITE_RENDERING_MODE>(rendering_mode)}
     {
         assert(!families_.empty());
         assert(size_ > 0.0f);

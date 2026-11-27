@@ -1,7 +1,7 @@
 #pragma once
 
-#include "console_theme.hpp"
-#include "text_options.hpp"
+#include "color_types.hpp"
+#include "font_types.hpp"
 
 #include <array>
 #include <cstddef>
@@ -99,15 +99,13 @@ namespace corehost::window
     inline constexpr float default_font_size_dip = 16.0f;
     inline constexpr cursor_style default_cursor_style = cursor_style::automatic;
     inline constexpr scrollbar_visibility default_scrollbar_visibility = scrollbar_visibility::auto_hide;
-    inline constexpr std::size_t default_mouse_wheel_lines = 3;
+    inline constexpr std::int32_t default_mouse_wheel_lines = 3;
     inline constexpr right_click_action default_right_click_action = right_click_action::automatic;
     inline constexpr bool default_uia_enabled = true;
     inline constexpr bool default_tsf_enabled = true;
     inline constexpr std::uint32_t default_cursor_blink_ms = 530;
     inline constexpr std::uint32_t default_selection_auto_scroll_interval_ms = 40;
     inline constexpr std::size_t default_selection_auto_scroll_edge_rows = 1;
-    inline constexpr bool default_uia_text_changed_events = true;
-    inline constexpr bool default_uia_selection_events = true;
     inline constexpr std::size_t default_min_columns = 36;
     inline constexpr std::size_t default_min_rows = 2;
     inline constexpr std::int32_t default_candidate_offset_cells = 2;
@@ -134,15 +132,13 @@ namespace corehost::window
         scrollbar_visibility scrollbar{default_scrollbar_visibility};
         std::size_t scrollback_lines{default_scrollback_lines};
         copy_line_ending copy_ending{default_copy_line_ending};
-        std::size_t mouse_wheel_lines{default_mouse_wheel_lines};
+        std::int32_t mouse_wheel_lines{default_mouse_wheel_lines};
         right_click_action right_click{default_right_click_action};
         bool uia_enabled{default_uia_enabled};
         bool tsf_enabled{default_tsf_enabled};
         std::uint32_t cursor_blink_ms{default_cursor_blink_ms};
         std::uint32_t selection_auto_scroll_interval_ms{default_selection_auto_scroll_interval_ms};
         std::size_t selection_auto_scroll_edge_rows{default_selection_auto_scroll_edge_rows};
-        bool uia_text_changed_events{default_uia_text_changed_events};
-        bool uia_selection_events{default_uia_selection_events};
         font_fallback_list font_fallbacks{default_font_fallbacks()};
         backdrop_mode backdrop{default_backdrop_mode};
         std::uint8_t opacity{default_opacity};

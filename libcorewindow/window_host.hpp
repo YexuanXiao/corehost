@@ -1,5 +1,6 @@
 #pragma once
 
+#include "clipboard.hpp"
 #include "console.hpp"
 #include "uia_provider.hpp"
 #include "control.hpp"
@@ -91,7 +92,7 @@ class window_host final
 
     void notify_uia_selection() noexcept
     {
-        if (config_.accessibility.uia_selection_events && uia_events_)
+        if (uia_events_)
         {
             (void)uia_events_->NotifySelectionChanged();
         }
@@ -567,8 +568,7 @@ class window_host final
 
     [[nodiscard]] screen::selection_mode selection_mode() const noexcept
     {
-        return config_.mouse.selection_mode == mouse_selection_mode::block ? screen::selection_mode::block
-                                                                            : screen::selection_mode::text;
+        return config_.mouse.selection_mode == mouse_selection_mode::block ? screen::selection_mode::block : screen::selection_mode::text;
     }
 
     void begin_selection(HWND hwnd, LPARAM lparam)
@@ -836,30 +836,15 @@ class window_host final
         }
         auto &text = copy_buffer_;
         console_.selected_text_into(text);
-        if (text.empty() || ::OpenClipboard(hwnd) == FALSE)
+        if (text.empty())
         {
             return;
         }
-        ::EmptyClipboard();
-        const auto bytes = (text.size() + 1) * sizeof(char16_t);
-        if (auto *memory = ::GlobalAlloc(GMEM_MOVEABLE, bytes); memory != nullptr)
+        clipboard board{hwnd};
+        if (!board.write_text(text))
         {
-            if (auto *destination = static_cast<char16_t *>(::GlobalLock(memory)); destination != nullptr)
-            {
-                std::copy(text.begin(), text.end(), destination);
-                destination[text.size()] = 0;
-                ::GlobalUnlock(memory);
-                if (::SetClipboardData(CF_UNICODETEXT, memory) == nullptr)
-                {
-                    ::GlobalFree(memory);
-                }
-            }
-            else
-            {
-                ::GlobalFree(memory);
-            }
+            LOG2("clipboard write failed");
         }
-        ::CloseClipboard();
     }
 
     void paste_clipboard(HWND hwnd)
@@ -869,55 +854,40 @@ class window_host final
             return;
         }
         console_.clear_selection();
-        if (::OpenClipboard(hwnd) == FALSE)
+        clipboard board{hwnd};
+        auto data = board.read_text();
+        if (!data || !data->valid())
         {
             return;
         }
-        if (auto *data = ::GetClipboardData(CF_UNICODETEXT); data != nullptr)
+        const auto view = data->view();
+        const auto cells = console_.buffer().width() * console_.buffer().height();
+        if (!clipboard_paste_fits(config_.clipboard, view.size() * sizeof(char16_t), cells))
         {
-            if (auto *text = static_cast<const char16_t *>(::GlobalLock(data)); text != nullptr)
-            {
-                std::size_t text_length = 0;
-                while (text[text_length] != 0)
-                {
-                    ++text_length;
-                }
-                const auto default_limit = console_.buffer().width() * console_.buffer().height() * sizeof(char16_t);
-                const auto limit = config_.clipboard.paste_max_size == 0 ? default_limit
-                                                                          : config_.clipboard.paste_max_size;
-                if (text_length * sizeof(char16_t) > limit)
-                {
-                    LOG2("paste rejected length=%zu limit=%zu", text_length, limit);
-                    ::GlobalUnlock(data);
-                    ::CloseClipboard();
-                    return;
-                }
-                bool previous_was_cr = false;
-                for (const auto *cursor = text; *cursor != 0; ++cursor)
-                {
-                    auto character = *cursor;
-                    if (character == u'\n')
-                    {
-                        if (previous_was_cr)
-                        {
-                            previous_was_cr = false;
-                            continue;
-                        }
-                        character = u'\r';
-                    }
-                    previous_was_cr = character == u'\r';
-                    console_.push_input(consoleinput::input_event{
-                        .type = consoleinput::input_event_type::key,
-                        .key = consoleinput::key_from_text_character(character),
-                    });
-                }
-                LOG2("paste clipboard pushed");
-                ::GlobalUnlock(data);
-            }
+            LOG2("paste rejected length=%zu cells=%zu", view.size(), cells);
+            return;
         }
-        ::CloseClipboard();
+        bool previous_was_cr = false;
+        for (const auto character_value : view)
+        {
+            auto character = character_value;
+            if (character == u'\n')
+            {
+                if (previous_was_cr)
+                {
+                    previous_was_cr = false;
+                    continue;
+                }
+                character = u'\r';
+            }
+            previous_was_cr = character == u'\r';
+            console_.push_input(consoleinput::input_event{
+                .type = consoleinput::input_event_type::key,
+                .key = consoleinput::key_from_text_character(character),
+            });
+        }
+        LOG2("paste clipboard pushed");
     }
-
     [[nodiscard]] scrollbar::geometry scrollbar_geometry(HWND hwnd) const noexcept
     {
         RECT client{};
@@ -1119,7 +1089,7 @@ class window_host final
             return 0;
         }
         case WM_APP + 0x101:
-            if (self->config_.accessibility.uia_text_changed_events && self->uia_events_)
+            if (self->uia_events_)
             {
                 (void)self->uia_events_->NotifyTextChanged();
             }
@@ -1310,13 +1280,10 @@ class window_host final
         {
             if (self->selection_dragging_)
             {
-                if (self->config_.mouse.selection_copy_on_select)
+                std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                if (self->config_.mouse.selection_copy_on_select && self->console_.has_selection())
                 {
-                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
-                    if (self->console_.has_selection())
-                    {
-                        self->copy_selection(hwnd);
-                    }
+                    self->copy_selection(hwnd);
                 }
                 self->selection_dragging_ = false;
                 ::KillTimer(hwnd, selection_scroll_timer);

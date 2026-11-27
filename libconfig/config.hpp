@@ -1,13 +1,12 @@
 #pragma once
 
 #include "console_config.hpp"
-#include "console_theme.hpp"
-#include "text_options.hpp"
+#include "color_types.hpp"
+#include "font_types.hpp"
 #include "window_config.hpp"
 
 #include <array>
 #include <cstddef>
-#include <dwrite.h>
 #include <cstdint>
 #include <string>
 
@@ -22,6 +21,11 @@ enum class theme_mode : unsigned char
     dark,
     auto_mode,
 };
+
+[[nodiscard]] constexpr bool theme_is_dark(theme_mode mode, bool fallback_dark) noexcept
+{
+    return mode == theme_mode::dark || (mode == theme_mode::auto_mode && fallback_dark);
+}
 
 enum class selection_foreground : unsigned char
 {
@@ -151,6 +155,7 @@ struct color_scheme final
     console_color scrollbar{};
     console_color scrollbar_background{};
     std::array<console_color, 16> ansi{};
+    console_palette palette{};
     float faint_opacity{0.5f};
 };
 
@@ -186,7 +191,7 @@ struct font_config final
     std::array<uitext::font_axis, 5> variation_bold_italic{uitext::default_font_variation_bold_italic()};
     font_turning turning{font_turning::gamma_contrast};
     uitext::font_anti_alias anti_alias{uitext::font_anti_alias::grayscale};
-    DWRITE_RENDERING_MODE rendering_mode{DWRITE_RENDERING_MODE_DEFAULT};
+    uitext::font_rendering_mode rendering_mode{uitext::default_rendering_mode};
     bool color_emoji{true};
 };
 
@@ -214,7 +219,7 @@ struct mouse_config final
 {
     bool hide_while_typing{};
     mouse_shift_capture shift_capture{mouse_shift_capture::shift};
-    int scroll_multiplier{static_cast<int>(default_mouse_wheel_lines)};
+    int scroll_multiplier{default_mouse_wheel_lines};
     mouse_selection_mode selection_mode{mouse_selection_mode::line};
     bool selection_copy_on_select{};
     bool selection_double_click{true};
@@ -330,8 +335,6 @@ struct ime_config final
 struct accessibility_config final
 {
     bool uia_enable{true};
-    bool uia_text_changed_events{true};
-    bool uia_selection_events{true};
     int high_contrast{};
     bool reduce_motion{};
 };
@@ -341,6 +344,7 @@ inline color_scheme campbell_scheme()
     color_scheme result;
     const auto palette = console_palette::campbell();
     result.ansi = palette.indexed;
+    result.palette = palette;
     result.foreground = palette.default_foreground;
     result.background = palette.default_background;
     result.selection_background = console_color{0x26, 0x4F, 0x78};
@@ -373,6 +377,9 @@ inline color_scheme one_half_light_scheme()
         console_color{0x61, 0xAF, 0xEF}, console_color{0xC6, 0x78, 0xDD},
         console_color{0x56, 0xB6, 0xC2}, console_color{0xDB, 0xDB, 0xDB},
     };
+    result.palette.indexed = result.ansi;
+    result.palette.default_foreground = result.foreground;
+    result.palette.default_background = result.background;
     return result;
 }
 

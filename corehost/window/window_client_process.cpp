@@ -4,6 +4,7 @@
 #include "win32/error.hpp"
 
 #include <Windows.h>
+#include <ShlObj.h>
 
 #include <array>
 #include <cassert>
@@ -12,6 +13,50 @@
 
 namespace corehost::window
 {
+namespace
+{
+[[nodiscard]] std::wstring current_directory()
+{
+    const auto required = ::GetCurrentDirectoryW(0, nullptr);
+    if (required == 0)
+    {
+        return {};
+    }
+    std::wstring result(required, L'\0');
+    const auto length = ::GetCurrentDirectoryW(required, result.data());
+    if (length == 0 || length >= required)
+    {
+        return {};
+    }
+    result.resize(length);
+    return result;
+}
+
+[[nodiscard]] std::wstring profile_directory()
+{
+    PWSTR raw = nullptr;
+    if (FAILED(::SHGetKnownFolderPath(FOLDERID_Profile, KF_FLAG_DEFAULT, nullptr, &raw)))
+    {
+        return current_directory();
+    }
+    std::wstring result{raw};
+    ::CoTaskMemFree(raw);
+    return result;
+}
+
+[[nodiscard]] std::wstring extended_length_path(std::wstring path)
+{
+    if (path.starts_with(L"\\\\?\\") || path.starts_with(L"\\\\.\\"))
+    {
+        return path;
+    }
+    if (path.starts_with(L"\\\\"))
+    {
+        return L"\\\\?\\UNC\\" + path.substr(2);
+    }
+    return L"\\\\?\\" + path;
+}
+} // namespace
 
 window_client_process::window_client_process(win32::handle_view server, win32::wcstring_view title,
                                              win32::wcstring_view command_line, const corehost_config &config)
@@ -30,16 +75,8 @@ window_client_process::window_client_process(win32::handle_view server, win32::w
     }
 
     auto mutable_command_line = std::wstring{command_line.c_str(), command_line.size()};
-    std::wstring working_directory;
-    if (!config.window_behavior.inherit_working_directory)
-    {
-        wchar_t profile[MAX_PATH]{};
-        const auto length = ::GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH);
-        if (length != 0 && length < MAX_PATH)
-        {
-            working_directory.assign(profile, length);
-        }
-    }
+    const auto working_directory = extended_length_path(
+        config.window_behavior.inherit_working_directory ? current_directory() : profile_directory());
 
     STARTUPINFOEXW startup{};
     startup.StartupInfo.cb = sizeof(startup);
@@ -79,7 +116,7 @@ window_client_process::window_client_process(win32::handle_view server, win32::w
 
     const auto created = ::CreateProcessW(nullptr, mutable_command_line.data(), nullptr, nullptr, TRUE,
                                           EXTENDED_STARTUPINFO_PRESENT, nullptr,
-                                          working_directory.empty() ? nullptr : working_directory.c_str(), &startup.StartupInfo,
+                                          working_directory.c_str(), &startup.StartupInfo,
                                           reinterpret_cast<PPROCESS_INFORMATION>(&process_));
     ::DeleteProcThreadAttributeList(startup.lpAttributeList);
     if (created == FALSE)
