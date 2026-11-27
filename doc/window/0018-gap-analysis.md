@@ -73,7 +73,7 @@ Sixel 验证：屏幕内图像仅首次上传纹理，后续光标闪烁/文字�
 - Document/TextPattern；
 - ScrollPattern；
 - TextChanged / TextSelectionChanged 事件投递；
-- 自动化 `Window.UIA` 验证 Document/TextPattern。
+- 自动化 `Window.UIA` 验证 Document/TextPattern/ScrollPattern。
 
 仍缺：
 

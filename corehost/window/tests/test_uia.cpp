@@ -94,6 +94,7 @@ int main(int argc, char **argv)
     IUIAutomation *automation = nullptr;
     IUIAutomationElement *root = nullptr;
     IUIAutomationTextPattern *text_pattern = nullptr;
+    IUIAutomationScrollPattern *scroll_pattern = nullptr;
     IUIAutomationTextRange *range = nullptr;
     BSTR text = nullptr;
 
@@ -124,7 +125,8 @@ int main(int argc, char **argv)
                 ::Sleep(100);
             }
         }
-        if (found)
+        if (found && SUCCEEDED(root->GetCurrentPatternAs(UIA_ScrollPatternId, IID_PPV_ARGS(&scroll_pattern))) &&
+            scroll_pattern != nullptr)
         {
             result = EXIT_SUCCESS;
         }
@@ -144,6 +146,7 @@ int main(int argc, char **argv)
     }
     release(range);
     release(text_pattern);
+    release(scroll_pattern);
     release(root);
     release(automation);
     ::CoUninitialize();
