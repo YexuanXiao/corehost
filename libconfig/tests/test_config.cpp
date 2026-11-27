@@ -63,6 +63,26 @@ int main()
         return EXIT_FAILURE;
     }
 
+    if (clipboard_read_allowed(config.clipboard) || clipboard_write_allowed(config.clipboard) ||
+        !clipboard_paste_fits(config.clipboard, 20, 10) ||
+        clipboard_paste_fits(config.clipboard, 21, 10))
+    {
+        std::fprintf(stderr, "clipboard policy helpers mismatch\n");
+        return EXIT_FAILURE;
+    }
+
+    auto allowed_clipboard = config.clipboard;
+    allowed_clipboard.read_policy = clipboard_policy::allow;
+    allowed_clipboard.write_policy = clipboard_policy::allow;
+    allowed_clipboard.paste_max_size = 4;
+    if (!clipboard_read_allowed(allowed_clipboard) || !clipboard_write_allowed(allowed_clipboard) ||
+        !clipboard_paste_fits(allowed_clipboard, 4, 0) ||
+        clipboard_paste_fits(allowed_clipboard, 5, 0))
+    {
+        std::fprintf(stderr, "clipboard allow helpers mismatch\n");
+        return EXIT_FAILURE;
+    }
+
     if (config.font.family_fallback_list.count != 1 ||
         config.font.family_fallback_list.entries[0].family != L"Cascadia Mono" ||
         config.font.size != 16.0f || !config.font.color_emoji || config.font.ligatures || config.mouse.selection_mode != mouse_selection_mode::line ||

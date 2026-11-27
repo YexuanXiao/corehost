@@ -222,6 +222,22 @@ struct clipboard_config final
     bool bracketed_paste{true};
 };
 
+inline bool clipboard_read_allowed(const clipboard_config &config) noexcept
+{
+    return config.read_policy == clipboard_policy::allow;
+}
+
+inline bool clipboard_write_allowed(const clipboard_config &config) noexcept
+{
+    return config.write_policy == clipboard_policy::allow;
+}
+
+inline bool clipboard_paste_fits(const clipboard_config &config, std::size_t bytes, std::size_t cells) noexcept
+{
+    const auto limit = config.paste_max_size == 0 ? cells * sizeof(char16_t) : config.paste_max_size;
+    return bytes <= limit;
+}
+
 struct hyperlink_config final
 {
     bool enable{true};

@@ -796,7 +796,7 @@ class window_host final
 
     void copy_selection(HWND hwnd)
     {
-        if (clipboard_config_.write_policy != clipboard_policy::allow)
+        if (!clipboard_write_allowed(clipboard_config_))
         {
             return;
         }
@@ -830,7 +830,7 @@ class window_host final
 
     void paste_clipboard(HWND hwnd)
     {
-        if (clipboard_config_.read_policy != clipboard_policy::allow)
+        if (!clipboard_read_allowed(clipboard_config_))
         {
             return;
         }
