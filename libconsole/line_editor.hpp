@@ -1,6 +1,7 @@
 #pragma once
 
 #include "raw_buffer.hpp"
+#include "text_writer.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -100,13 +101,6 @@ class line_editor final
         if (cursor_ == 0)
             return change::none;
         auto begin = previous(cursor_);
-        // A broken high surrogate may already have been normalized to U+FFFD
-        // by the client. Remove that replacement together with its low half so
-        // backspace does not need an extra key press.
-        if (cursor_ >= 2 && is_low(text_[cursor_ - 1]) && text_[cursor_ - 2] == u'\uFFFD')
-        {
-            begin = cursor_ - 2;
-        }
         text_.erase(begin, cursor_ - begin);
         cursor_ = begin;
         return change::redraw;
@@ -180,20 +174,23 @@ class line_editor final
     {
         if (at == 0)
             return 0;
-        --at;
-        if (at != 0 && is_low(text_[at]) && is_high(text_[at - 1]))
-            --at;
-        return at;
+        auto offset = std::size_t{0};
+        auto last = std::size_t{0};
+        while (offset < at)
+        {
+            last = offset;
+            const auto decoded = screen::next_codepoint(text_, offset);
+            offset += decoded.units;
+        }
+        return last;
     }
 
     [[nodiscard]] std::size_t next(std::size_t at) const noexcept
     {
         if (at >= text_.size())
             return text_.size();
-        ++at;
-        if (at < text_.size() && is_low(text_[at]) && is_high(text_[at - 1]))
-            ++at;
-        return at;
+        const auto decoded = screen::next_codepoint(text_, at);
+        return at + decoded.units;
     }
 
     void erase_next() noexcept
