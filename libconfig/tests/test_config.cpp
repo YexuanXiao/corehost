@@ -57,7 +57,7 @@ int main()
 
     if (config.clipboard.read_policy != clipboard_policy::deny ||
         config.clipboard.write_policy != clipboard_policy::deny ||
-        config.clipboard.selection_policy != clipboard_policy::deny)
+        config.clipboard.selection_policy != clipboard_policy::deny || config.clipboard.paste_max_size != 0)
     {
         std::fprintf(stderr, "clipboard defaults mismatch\\n");
         return EXIT_FAILURE;

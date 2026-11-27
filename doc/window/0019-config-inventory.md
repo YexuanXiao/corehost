@@ -150,7 +150,7 @@ inline constexpr bool default_alpha_correction = true;
 | `accessibility.reduce_motion` | `corehost_config.accessibility` | false | 禁用光标/滚动条动画 |
 | `clipboard.read_policy` | `corehost_config.clipboard` | deny | 粘贴读取策略，已接入 |
 | `clipboard.write_policy` | `corehost_config.clipboard` | deny | 复制写入策略，已接入 |
-| `clipboard.selection_policy` | `corehost_config.clipboard` | deny | PRIMARY selection，占位 |
+| `clipboard.selection_policy` | `corehost_config.clipboard` | deny | PRIMARY selection，占位 |\n| `clipboard.paste_max_size` | `corehost_config.clipboard` | 0 | 0=屏幕格子容量；超限拒绝并记录日志 |
 | `bell` | `window_config` | visual | `off` 不闪；`visual` 用 `FlashWindowEx`，已实际接入 |
 | `palette` | `window_config` | Campbell | 当前默认调色板 |
 | `backdrop/opacity/dark_mode` | `window_config` | none/255/true | DWM 外观 |

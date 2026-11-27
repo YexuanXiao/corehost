@@ -792,6 +792,10 @@ class window_host final
 
     void copy_selection(HWND hwnd)
     {
+        if (clipboard_config_.write_policy != clipboard_policy::allow)
+        {
+            return;
+        }
         auto &text = copy_buffer_;
         console_.selected_text_into(text);
         if (text.empty() || ::OpenClipboard(hwnd) == FALSE)
@@ -822,6 +826,10 @@ class window_host final
 
     void paste_clipboard(HWND hwnd)
     {
+        if (clipboard_config_.read_policy != clipboard_policy::allow)
+        {
+            return;
+        }
         console_.clear_selection();
         if (::OpenClipboard(hwnd) == FALSE)
         {
@@ -831,6 +839,21 @@ class window_host final
         {
             if (auto *text = static_cast<const char16_t *>(::GlobalLock(data)); text != nullptr)
             {
+                std::size_t text_length = 0;
+                while (text[text_length] != 0)
+                {
+                    ++text_length;
+                }
+                const auto default_limit = console_.buffer().width() * console_.buffer().height() * sizeof(char16_t);
+                const auto limit = clipboard_config_.paste_max_size == 0 ? default_limit
+                                                                          : clipboard_config_.paste_max_size;
+                if (text_length * sizeof(char16_t) > limit)
+                {
+                    LOG2("paste rejected length=%zu limit=%zu", text_length, limit);
+                    ::GlobalUnlock(data);
+                    ::CloseClipboard();
+                    return;
+                }
                 bool previous_was_cr = false;
                 for (const auto *cursor = text; *cursor != 0; ++cursor)
                 {
