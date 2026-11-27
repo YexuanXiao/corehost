@@ -1,0 +1,67 @@
+#include "config.hpp"
+
+#include <cstdio>
+#include <cstdlib>
+
+int main()
+{
+    using namespace corehost::window;
+
+    static_assert(default_scrollback_lines == 3000);
+    static_assert(default_initial_columns == 120);
+    static_assert(default_initial_rows == 30);
+    static_assert(default_min_columns == 36);
+    static_assert(default_min_rows == 2);
+    static_assert(default_cursor_blink_ms == 530);
+    static_assert(default_mouse_wheel_lines == 3);
+    static_assert(default_uia_enabled);
+    static_assert(default_tsf_enabled);
+
+    const corehost_config config{};
+
+    if (config.console.scrollback_lines != default_scrollback_lines ||
+        config.console.copy_ending != copy_line_ending::crlf || config.console.initial_cols != 120 ||
+        config.console.initial_rows != 30 || config.console.ambiguous_is_wide)
+    {
+        std::fprintf(stderr, "console defaults mismatch\n");
+        return EXIT_FAILURE;
+    }
+
+    if (config.window.initial_columns != 120 || config.window.initial_rows != 30 ||
+        config.window.min_columns != 36 || config.window.min_rows != 2 ||
+        config.window.scrollbar != scrollbar_visibility::auto_hide ||
+        config.window.font_fallbacks.count != 1 ||
+        config.window.font_fallbacks.entries[0].family != L"Cascadia Mono" ||
+        config.window.mouse_wheel_lines != 3 || config.window.right_click != right_click_action::automatic)
+    {
+        std::fprintf(stderr, "window defaults mismatch\n");
+        return EXIT_FAILURE;
+    }
+
+    if (config.window.uia_enabled != default_uia_enabled || config.window.tsf_enabled != default_tsf_enabled ||
+        config.accessibility.uia_enable != default_uia_enabled || config.ime.tsf_enabled != default_tsf_enabled)
+    {
+        std::fprintf(stderr, "accessibility/IME defaults mismatch\n");
+        return EXIT_FAILURE;
+    }
+
+    if (config.color.mode != theme_mode::auto_mode ||
+        config.color.light.ansi[7].r != 0xB3 || config.color.light.ansi[7].g != 0xB3 ||
+        config.color.light.ansi[7].b != 0xB3 || config.color.light.ansi[15].r != 0xDB ||
+        config.color.light.ansi[15].g != 0xDB || config.color.light.ansi[15].b != 0xDB)
+    {
+        std::fprintf(stderr, "color defaults mismatch\n");
+        return EXIT_FAILURE;
+    }
+
+    if (config.font.family_fallback_list.count != 1 ||
+        config.font.family_fallback_list.entries[0].family != L"Cascadia Mono" ||
+        config.font.size != 16.0f || config.mouse.selection_mode != mouse_selection_mode::line ||
+        config.mouse.right_click != right_click_action::automatic)
+    {
+        std::fprintf(stderr, "font/mouse defaults mismatch\n");
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+}
