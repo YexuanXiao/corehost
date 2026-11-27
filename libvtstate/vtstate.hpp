@@ -807,7 +807,9 @@ class state_applier final
         id_.clear();
         uri_.assign(message.payload.hyperlink.uri);
         id_.assign(message.payload.hyperlink.id);
+        LOG2("apply_hyperlink intern uri=%zu id=%zu", uri_.size(), id_.size());
         state.default_hyperlink = buffer.hyperlinks().intern(uri_, id_);
+        LOG2("apply_hyperlink done");
     }
 
     void apply_line_feed(screen::screen_buffer &buffer, screen::console_state &state)

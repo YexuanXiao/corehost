@@ -29,7 +29,7 @@
 - 纯文本剪贴板、右键粘贴、VT SGR mouse；剪贴板 read/write 默认 deny，需显式 allow；
 - TSF composition 自绘、candidate 定位（`ITextStoreACP` 已决定不实现；不需要独立 message pump）；
 - Sixel 解码、HSB/RGB 调色板、RGBA 渲染；屏幕内图像纹理缓存，内容不变不重传；
-- hyperlink hover/Ctrl+click、visual bell；
+- hyperlink hover/Ctrl+click、visual bell；OSC8 无 id 的 parser 越界访问已修复；
 - `window_config`（C++ 构造）：palette、字体、backdrop、opacity、dark mode、exit policy；
 - 完整配置 schema `corehost_config` 已建立并由 `window_entry` 接收；窗口/渲染层始终传递完整 config 对象，未实现项仅存储；
 - `config.hpp` 只依赖 libconfig 和标准库；颜色/字体类型已移入 libconfig；

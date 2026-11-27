@@ -1317,6 +1317,7 @@ class vt_parser
 
             m.payload.hyperlink.params = payload.substr(0, separator);
             m.payload.hyperlink.uri = payload.substr(separator + 1);
+            m.payload.hyperlink.id = {};
 
             const auto id_start = m.payload.hyperlink.params.find(u"id=");
             if (id_start != std::u16string_view::npos)

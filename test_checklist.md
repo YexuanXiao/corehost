@@ -106,7 +106,9 @@ review 目标：修复根因，不降低性能。
   - MAIN-BEFORE/MAIN-AFTER 恢复，ALT 内容未残留。
 - [ ] B17 OSC 0/2 窗口标题
   - `TITLE-OSC` 通过；`[Console]::Write` 不触发，PowerShell 使用 `Write-Host` 时触发。
-- [-] B18 OSC 8 hyperlink
+- [ ] B18 OSC 8 hyperlink
+  - 无 `id=` 的 OSC8 曾导致访问冲突：parser 未清空旧 `id` view；已修复并加 parser 测试。
+  - 当前可打开/关闭 hyperlink，未验证点击行为。
 - [-] B20 focus in/out 报告：`?1004` 已转发；原版 conhost 对照未观察到 FOCUS 事件，非 corehost 回归。
 - [-] B21 mouse tracking 模式
 - [ ] B22 窗口 resize 后重绘
