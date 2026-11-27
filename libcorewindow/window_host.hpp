@@ -640,6 +640,7 @@ class window_host final
             copy_selection(hwnd);
         }
         notify_uia_selection();
+        worker_.request_redraw();
     }
 
     void update_selection(HWND hwnd, LPARAM lparam)
@@ -653,6 +654,7 @@ class window_host final
         x = console_.snap_selection_column(x, y);
         console_.set_selection(selection_anchor_x_, selection_anchor_y_, x, y, selection_mode());
         notify_uia_selection();
+        worker_.request_redraw();
     }
 
     void update_hyperlink_hover(HWND hwnd, LPARAM lparam)
@@ -965,8 +967,13 @@ class window_host final
         const auto y = static_cast<float>(GET_Y_LPARAM(lparam));
         std::unique_lock<win32::srwlock> lock{console_mutex_};
         const auto geometry = scrollbar_geometry(hwnd);
-        console_.set_scrollbar_hovered(scrollbar_dragging_ ||
-                                       scrollbar::hit_test(geometry, x, y) != scrollbar::hit_target::none);
+        const bool hovered = scrollbar_dragging_ ||
+                             scrollbar::hit_test(geometry, x, y) != scrollbar::hit_target::none;
+        if (hovered != console_.scrollbar_hovered())
+        {
+            console_.set_scrollbar_hovered(hovered);
+            worker_.request_redraw();
+        }
         if (!tracking_mouse_leave_)
         {
             TRACKMOUSEEVENT track{.cbSize = sizeof(TRACKMOUSEEVENT),
@@ -1024,6 +1031,7 @@ class window_host final
                 console_.scroll_by(-static_cast<std::ptrdiff_t>(rows));
             }
         }
+        worker_.request_redraw();
     }
 
     void handle_scrollbar_mouse_move(HWND hwnd, LPARAM lparam)
@@ -1044,6 +1052,7 @@ class window_host final
         const auto desired = static_cast<double>(history) - top;
         const auto row_height = static_cast<double>(console_.scroll_row_height());
         console_.scroll_by_pixels(desired * row_height - console_.scroll_pixels());
+        worker_.request_redraw();
     }
 
     static LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam)
@@ -1189,6 +1198,8 @@ class window_host final
             self->console_.scroll_by(static_cast<double>(delta) *
                                      static_cast<double>(self->config_.mouse.scroll_multiplier) /
                                      static_cast<double>(WHEEL_DELTA));
+            LOG2("wheel delta=%d scroll=%.1f", static_cast<int>(delta), self->console_.scroll_pixels());
+            self->worker_.request_redraw();
             return 0;
         }
         case WM_MOUSEMOVE:
@@ -1386,6 +1397,7 @@ class window_host final
             {
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};
                 self->console_.toggle_scroll_lock();
+                self->worker_.request_redraw();
                 return 0;
             }
 
@@ -1421,6 +1433,7 @@ class window_host final
                 if (lines != 0 && (offset != 0 || shift))
                 {
                     self->console_.scroll_by(lines);
+                    self->worker_.request_redraw();
                     return 0;
                 }
             }
