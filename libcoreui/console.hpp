@@ -281,6 +281,11 @@ class console final
         return (state_.input_mode & 0x0200) != 0;
     }
 
+    [[nodiscard]] bool bracketed_paste() const noexcept
+    {
+        return state_.private_modes.test(2004);
+    }
+
     [[nodiscard]] bool mouse_sgr_encoding() const noexcept
     {
         return state_.private_modes.test(1006);
@@ -366,6 +371,12 @@ class console final
                 continue;
             }
             const auto cluster = cluster_at_virtual(y, cell);
+            if (cluster.empty())
+            {
+                text.push_back(static_cast<char32_t>(cell.primary()));
+                cells.push_back(column);
+                continue;
+            }
             const auto converted = unicode::convert_to<char32_t>(
                 std::u16string_view{cluster.data(), cluster.size()});
             for (const auto codepoint : converted)

@@ -17,18 +17,18 @@ review 目标：修复根因，不降低性能。
 | 配置 | 验收区域 | 状态 |
 |---|---|---|
 | `console.text_measurement` console/graphemes/wcswidth | B6/B8 | `[x]` 默认 graphemes 已验证 |
-| `console.initial_cols/rows` | A1/A7 | `[-]` |
+| `console.initial_cols/rows` | A1/A7 | `[x]` 默认 120x30，Config.Defaults 覆盖 |
 | `window.scrollback_lines` | D1 | `[-]` 环境限制 |
 | `window.copy_ending` | C1/C8 | `[-]` |
 | `font.family_fallback_list` + system fallback | A2/B6/B7 | `[x]` 默认 Cascadia Mono + 系统 fallback 已使用 |
-| `font.size` | A2/B22 | `[-]` |
+| `font.size` | A2/B22 | `[x]` 默认 16，DPI 缩放改用 config.font.size |
 | `font.variation*` normal/bold/italic/bold-italic | B4 | `[-]` 默认轴，未切换轴值 |
 | `font.ligatures` | B4 | `[-]` 默认关闭 |
 | `font.color_emoji` | B7 | `[-]` 默认开启，非 BMP 未测 |
 | `font.antialias` / `turning` / `rendering_mode` | B1-B5 | `[-]` 默认 grayscale |
-| `color.mode` dark/light/auto | B1-B5 | `[-]` 默认 dark |
+| `color.mode` dark/light/auto | B1-B5 | `[x]` 默认 dark，Config.Defaults 覆盖 |
 | `color.*` foreground/background/selection/cursor/hyperlink/scrollbar | B1-B5/C9 | `[-]` |
-| `cursor.shape` | A4/C2 | `[-]` 默认 automatic |
+| `cursor.shape` | A4/C2 | `[x]` 默认 automatic，Config.Defaults 覆盖 |
 | `cursor.blink/blink_rate` | A4 | `[-]` 测试时关闭闪烁 |
 | `scrollbar.visibility` auto_hide/always | B22/C10 | `[-]` |
 | `window.shadow/opacity/blur` | A3 | `[-]` 手动验收 |
@@ -46,14 +46,14 @@ review 目标：修复根因，不降低性能。
 | `mouse.selection_double_click/triple_click` | C9 | `[-]` |
 | `clipboard.read/write_policy` | C1/C8 | `[x]` 默认 allow，复制/粘贴已验证 |
 | `clipboard.paste_max_size` | C8 | `[-]` |
-| `clipboard.bracketed_paste` | C8 | `[-]` 未接入 |
+| `clipboard.bracketed_paste` | C8 | `[x]` VT input + 2004 时发送 `ESC[200~`/`201~` |
 | `uia_enable` / UIA events | G1 | `[x]` `Window.UIA` |
-| `ime.tsf_enabled` / `candidate_offset_cells` | G2 | `[-]` |
+| `ime.tsf_enabled` / `candidate_offset_cells` | G2 | `[x]` 默认 offset=2，已传入 tsf；候选窗位置未人工确认 |
 | `bell.mode` visual/auditory/window/taskbar | G3 | `[-]` |
 | `graphics.sixel` | G4 | `[x]` 默认开启，已做 smoke |
 | `accessibility.reduce_motion` | A4/C10 | `[-]` 默认关闭 |
 | `accessibility.high_contrast` | B1-B5 | `[-]` schema-only |
-| `window.dpi` / resize | B22 | `[-]` |
+| `window.dpi` / resize | B22 | `[-]` （尝试 NtUserForceWindowtoDpiForTest；当前 win32u 无该导出） |
 
 ## A. 启动与会话
 
@@ -126,9 +126,10 @@ review 目标：修复根因，不降低性能。
 
 ## C. Win32 控制台输入
 
-- [x] C1 可打印字符、Unicode 粘贴
+- [x] C1 可打印字符、Unicode 粘贴、Ctrl+C 复制
   - 复制选中 `COPY-TARGET-中文-END` 成功写入剪贴板；
   - cmd 的 `set /p` 可粘贴 `PASTE-中文-LINE`；
+  - 选中后 Ctrl+C 写入剪贴板；Ctrl+Shift+C 仍可用；
   - 默认 clipboard read/write 已改为 allow。
 - [x] C2 方向键/Home/End/Insert/Delete/PgUp/PgDn
   - 通过 `ReadConsoleInputW` 收到 VK 0x25-0x28、0x24、0x23、0x2D、0x2E、0x21、0x22。
@@ -157,6 +158,7 @@ review 目标：修复根因，不降低性能。
   - 禁止 CONIN$；证据 `C:\1
 ative_corehost_paste3.png`。
 - [x] C9 鼠标点击/拖动/滚轮
+  - 双击选中单词（`SCROLL`），三击选中整行（`SCROLL-LINE-078`）；
   - 修复：selection update/滚轮/滚动条修改 offset 后未 request_redraw，拖拽只能等光标闪烁超时；
   - 真实鼠标拖拽选中 9 行，滚轮滚动 viewport 正常；
   - 证据：`C:\\1\\wt_drag_real.png`、`C:\\1\\wt_scroll_fixed.png`。
@@ -255,5 +257,6 @@ Windows PowerShell 的 console 输入/输出实现不保证代理对（surrogate
 - `wt_combining_fixed.png`：修复后 `e` + U+0301 同一行。
 - `wt_alt.png`：alternate screen 退出后主屏恢复。
 - `wt_mouse_result.txt`：鼠标按键事件。
+- `wt_bracket_result.txt`：bracketed paste 输入序列。
 - `wt_keys_result.txt`：键盘事件。
 - `wt_b9_b15.png`：B9/B15/B18。

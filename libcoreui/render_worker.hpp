@@ -1032,7 +1032,7 @@ class render_worker final
             if (dpi_changed)
             {
                 dpi_ = dpi;
-                text_.set_size(16.0f * static_cast<float>(dpi_) / 96.0f);
+                text_.set_size(config_.font.size * static_cast<float>(dpi_) / 96.0f);
                 atlas_.reset();
                 cursor_dirty = true;
             }

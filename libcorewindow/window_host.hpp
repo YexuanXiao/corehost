@@ -920,10 +920,30 @@ class window_host final
             LOG2("paste rejected length=%zu cells=%zu", view.size(), cells);
             return;
         }
+        const bool bracketed =
+            config_.clipboard.bracketed_paste && console_.bracketed_paste() && console_.virtual_terminal_input();
+        const auto push_character = [&](char16_t character) {
+            console_.push_input(consoleinput::input_event{
+                .type = consoleinput::input_event_type::key,
+                .key = consoleinput::key_from_text_character(character),
+            });
+        };
+        if (bracketed)
+        {
+            for (const auto character : std::u16string_view{u"\x1b[200~"})
+            {
+                push_character(character);
+            }
+        }
+
         bool previous_was_cr = false;
         for (const auto character_value : view)
         {
             auto character = character_value;
+            if (bracketed && character == u'\x1b')
+            {
+                continue;
+            }
             if (character == u'\n')
             {
                 if (previous_was_cr)
@@ -934,12 +954,16 @@ class window_host final
                 character = u'\r';
             }
             previous_was_cr = character == u'\r';
-            console_.push_input(consoleinput::input_event{
-                .type = consoleinput::input_event_type::key,
-                .key = consoleinput::key_from_text_character(character),
-            });
+            push_character(character);
         }
-        LOG2("paste clipboard pushed");
+        if (bracketed)
+        {
+            for (const auto character : std::u16string_view{u"\x1b[201~"})
+            {
+                push_character(character);
+            }
+        }
+        LOG2("paste clipboard pushed bracketed=%d", bracketed ? 1 : 0);
     }
     [[nodiscard]] scrollbar::geometry scrollbar_geometry(HWND hwnd) const noexcept
     {
@@ -1372,6 +1396,16 @@ class window_host final
             const bool alt = (::GetKeyState(VK_MENU) & 0x8000) != 0;
             if (control && !alt && !shift && wparam == 'C' && (self->console_.state().input_mode & 0x0001) != 0)
             {
+                {
+                    std::unique_lock<win32::srwlock> lock{self->console_mutex_};
+                    if (self->console_.has_selection())
+                    {
+                        self->copy_selection(hwnd);
+                        self->console_.clear_selection();
+                        self->worker_.request_redraw();
+                        return 0;
+                    }
+                }
                 self->deliver_ctrl_c(hwnd);
                 return 0;
             }
