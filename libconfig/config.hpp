@@ -330,6 +330,8 @@ struct ime_config final
 struct accessibility_config final
 {
     bool uia_enable{true};
+    bool uia_text_changed_events{true};
+    bool uia_selection_events{true};
     int high_contrast{};
     bool reduce_motion{};
 };

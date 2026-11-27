@@ -91,7 +91,7 @@ class window_host final
 
     void notify_uia_selection() noexcept
     {
-        if (config_.window.uia_selection_events && uia_events_)
+        if (config_.accessibility.uia_selection_events && uia_events_)
         {
             (void)uia_events_->NotifySelectionChanged();
         }
@@ -1104,7 +1104,7 @@ class window_host final
             return 0;
         }
         case WM_APP + 0x101:
-            if (self->config_.window.uia_text_changed_events && self->uia_events_)
+            if (self->config_.accessibility.uia_text_changed_events && self->uia_events_)
             {
                 (void)self->uia_events_->NotifyTextChanged();
             }

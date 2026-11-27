@@ -152,8 +152,8 @@ inline constexpr bool default_alpha_correction = true;
 | `cursor.blink/blink_rate` | `corehost_config.cursor` | true/530 | blink=false 或 rate=0 不闪 |
 | `selection_auto_scroll_interval_ms` | `window_config` | 40 | 边缘自动滚动 |
 | `selection_auto_scroll_edge_rows` | `window_config` | 1 | 边缘行数 |
-| `uia_text_changed_events` | `window_config` | true | 文本变化事件开关 |
-| `uia_selection_events` | `window_config` | true | 选择变化事件开关 |
+| `uia_text_changed_events` | `corehost_config.accessibility` | true | 文本变化事件开关 |
+| `uia_selection_events` | `corehost_config.accessibility` | true | 选择变化事件开关 |
 | `uia_enable` | `corehost_config.accessibility` | true | UIA provider 总开关 |
 | `tsf_enabled` | `corehost_config.ime` | true | TSF 总开关 |
 | `mouse.scroll_multiplier` | `corehost_config.mouse` | 3 | 滚轮行数 |

@@ -42,7 +42,8 @@ int main()
     }
 
     if (config.window.uia_enabled != default_uia_enabled || config.window.tsf_enabled != default_tsf_enabled ||
-        config.accessibility.uia_enable != default_uia_enabled || config.ime.tsf_enabled != default_tsf_enabled)
+        config.accessibility.uia_enable != default_uia_enabled || !config.accessibility.uia_text_changed_events ||
+        !config.accessibility.uia_selection_events || config.ime.tsf_enabled != default_tsf_enabled)
     {
         std::fprintf(stderr, "accessibility/IME defaults mismatch\n");
         return EXIT_FAILURE;
