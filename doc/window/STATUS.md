@@ -19,6 +19,7 @@
 
 - Win32 top-level 窗口、DPI、resize/reflow、焦点；
 - D3D12 + DXGI composition swapchain + DirectComposition，Present1 使用 dirty rect；
+- combining cluster 不再走 color atlas，修复错位；
 - DirectWrite fallback、glyph atlas、颜色 emoji、SGR 16/256/RGB、粗斜体/下划线/反显/删除线；
 - 光标形状/闪烁；
 - D3D12 device lost：检测、resource/swapchain 重建、0/500ms/2s/8s 重试，失败关闭窗口；
