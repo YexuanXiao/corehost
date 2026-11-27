@@ -379,6 +379,11 @@ class console final
         copy_crlf_ = enabled;
     }
 
+    void set_trim_block(bool enabled) noexcept
+    {
+        trim_block_ = enabled;
+    }
+
     // Appends the selected text into a caller-owned buffer. The buffer keeps
     // its capacity across copies/pastes, so changing selections does not
     // allocate a fresh string every time.
@@ -467,9 +472,12 @@ class console final
                     line.append(cluster.data(), cluster.size());
                 }
             }
-            while (!line.empty() && line.back() == u' ')
+            if (view_selection_.mode != screen::selection_mode::block || trim_block_)
             {
-                line.pop_back();
+                while (!line.empty() && line.back() == u' ')
+                {
+                    line.pop_back();
+                }
             }
             result.append(line);
         }
@@ -633,6 +641,7 @@ class console final
     bool input_read_{};
     bool focused_{true};
     bool copy_crlf_{true};
+    bool trim_block_{false};
     bool scrollbar_hovered_{};
     double scroll_pixels_{};
     float scroll_row_height_{1.0f};
