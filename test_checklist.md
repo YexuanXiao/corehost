@@ -131,7 +131,9 @@ review 目标：修复根因，不降低性能。
   - 滚轮在普通屏幕未转发（代码要求 alternate + VT tracking），未判定；
   - 证据：`C:\1\wt_mouse_result.txt`。
 - [-] C10 滚轮回滚/回到底部：原版 conhost 对照同样无 scrollback，非 corehost 回归
-- [ ] C11 控制台窗口大小变化事件
+- [-] C11 控制台窗口大小变化事件
+  - 窗口 resize 后 console log 显示 120x30 -> 132x34；
+  - PowerShell ReadConsoleInput 未观察到 WINDOW_BUFFER_SIZE_EVENT，测试客户端限制，暂不判定。
 - [ ] C12 ReadConsole 行编辑
 
 ## D. 控制台行为
