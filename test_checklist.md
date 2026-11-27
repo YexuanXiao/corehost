@@ -123,11 +123,16 @@ review 目标：修复根因，不降低性能。
   - cmd 的 `set /p` 可粘贴 `PASTE-中文-LINE`；
   - 默认 clipboard read/write 已改为 allow。
 - [ ] C2 方向键/Home/End/Insert/Delete/PgUp/PgDn
+  - 通过 `ReadConsoleInputW` 收到 VK 0x25-0x28、0x24、0x23、0x2D、0x2E、0x21、0x22。
 - [ ] C3 Ctrl/Alt/Shift 组合
+  - Shift+Tab control state=0x10；Ctrl+Z control=0x8。
 - [ ] C4 F1–F12（测试 F1）
+  - F1 VK=0x70 收到。
 - [ ] C5 Tab / Shift+Tab
+  - Tab 和 Shift+Tab 均收到 VK=0x09。
 - [ ] C6 Ctrl+C
 - [ ] C7 Ctrl+Z（报告为 KEY=Z CHAR=26 MOD=Control）
+  - 收到 VK=0x5A CHAR=0x1A control=0x8。
 - [-] C8 多行粘贴
 - [ ] C9 鼠标点击/拖动/滚轮
   - `ReadConsoleInputW` 收到左键 down/up、右键、中键；
@@ -208,4 +213,5 @@ Windows PowerShell 的 console 输入/输出实现不保证代理对（surrogate
 - `wt_combining_fixed.png`：修复后 `e` + U+0301 同一行。
 - `wt_alt.png`：alternate screen 退出后主屏恢复。
 - `wt_mouse_result.txt`：鼠标按键事件。
+- `wt_keys_result.txt`：键盘事件。
 - `wt_b9_b15.png`：B9/B15/B18。
