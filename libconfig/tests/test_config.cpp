@@ -54,6 +54,14 @@ int main()
         return EXIT_FAILURE;
     }
 
+    if (config.clipboard.read_policy != clipboard_policy::deny ||
+        config.clipboard.write_policy != clipboard_policy::deny ||
+        config.clipboard.selection_policy != clipboard_policy::deny)
+    {
+        std::fprintf(stderr, "clipboard defaults mismatch\\n");
+        return EXIT_FAILURE;
+    }
+
     if (config.font.family_fallback_list.count != 1 ||
         config.font.family_fallback_list.entries[0].family != L"Cascadia Mono" ||
         config.font.size != 16.0f || config.mouse.selection_mode != mouse_selection_mode::line ||

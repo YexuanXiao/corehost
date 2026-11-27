@@ -23,8 +23,8 @@
 
 ## Clipboard
 
-- 复制：`Ctrl+Shift+C`；
-- 粘贴：`Ctrl+Shift+V`；
+- 复制：`Ctrl+Shift+C`；默认 `clipboard.write_policy=deny`，需显式改为 allow；
+- 粘贴：`Ctrl+Shift+V`；默认 `clipboard.read_policy=deny`，需显式改为 allow；
 - 纯文本 `CF_UNICODETEXT`；
 - 粘贴时 `LF`/`CRLF` 统一为 `CR`；
 - 输入后清空选择。

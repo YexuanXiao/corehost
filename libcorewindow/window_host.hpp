@@ -39,10 +39,10 @@ class window_host final
   public:
 
     window_host(win32::wcstring_view title, console &console, win32::srwlock &console_mutex,
-                win32::handle_view client_process, const console_config &console_config, const window_config &window_config,
-                win32::handle_view damage_event)
+                win32::handle_view client_process, const corehost_config &config, win32::handle_view damage_event)
         : title_{title}, console_{console}, console_mutex_{console_mutex}, client_process_{client_process},
-          console_config_{console_config}, window_config_{window_config}, damage_event_{damage_event},
+          console_config_{config.console}, window_config_{config.window}, clipboard_config_{config.clipboard},
+          damage_event_{damage_event},
           worker_{console, console_mutex, window_config_, damage_event_},
           window_{create_window()},
           tsf_{window_, tsf_host::callbacks{
@@ -50,8 +50,8 @@ class window_host final
                             .commit = &window_host::tsf_commit_callback,
                             .composition = &window_host::tsf_composition_callback,
                             .caret = &window_host::tsf_caret_callback,
-                            .candidate_offset_cells = window_config.candidate_offset_cells,
-                            .enabled = window_config.tsf_enabled,
+                            .candidate_offset_cells = config.window.candidate_offset_cells,
+                            .enabled = config.window.tsf_enabled,
                         }}
     {
         assert(!title_.empty());
@@ -1419,6 +1419,7 @@ class window_host final
     win32::wcstring_view title_;
     console &console_;
     win32::srwlock &console_mutex_;
+    const clipboard_config &clipboard_config_;
     winrt::com_ptr<IRawElementProviderSimple> uia_provider_;
     winrt::com_ptr<IUiaEvents> uia_events_;
     win32::handle_view client_process_;

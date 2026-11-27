@@ -30,8 +30,7 @@ void window_entry(win32::wcstring_view title, std::wstring client_command_line,
     console.start();
 
     window_client_process client{server.view(), title, client_command_line};
-    window_ui ui{shared_console, console_mutex, client.process(), title, console_config, window_config,
-                 console.output_event().view()};
+    window_ui ui{shared_console, console_mutex, client.process(), title, config, console.output_event().view()};
     ui.start();
     ui.wait();
 

@@ -142,6 +142,9 @@ inline constexpr bool default_alpha_correction = true;
 | `right_click` | `window_config` | automatic | automatic/copy/paste/menu/none |
 | `scrollbar` | `window_config` | auto_hide | always/auto_hide |
 | `copy_ending` | `console_config` | CRLF | 复制行尾 CRLF/LF |
+| `clipboard.read_policy` | `corehost_config.clipboard` | deny | 粘贴读取策略，已接入 |
+| `clipboard.write_policy` | `corehost_config.clipboard` | deny | 复制写入策略，已接入 |
+| `clipboard.selection_policy` | `corehost_config.clipboard` | deny | PRIMARY selection，占位 |
 | `bell` | `window_config` | visual | `off` 不闪；`visual` 用 `FlashWindowEx`，已实际接入 |
 | `palette` | `window_config` | Campbell | 当前默认调色板 |
 | `backdrop/opacity/dark_mode` | `window_config` | none/255/true | DWM 外观 |

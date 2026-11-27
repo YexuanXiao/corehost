@@ -1,7 +1,6 @@
 #pragma once
 
-#include "console_config.hpp"
-#include "window_config.hpp"
+#include "config.hpp"
 #include "win32/handle.hpp"
 #include "window_host.hpp"
 
@@ -24,10 +23,9 @@ class window_ui final
 {
   public:
     window_ui(console &console, win32::srwlock &console_mutex, win32::handle_view client_process,
-              win32::wcstring_view title, const console_config &console_config, const window_config &window_config,
-              win32::handle_view damage_event)
+              win32::wcstring_view title, const corehost_config &config, win32::handle_view damage_event)
         : console_{console}, console_mutex_{console_mutex}, client_process_{client_process}, title_{title},
-          console_config_{console_config}, window_config_{window_config}, damage_event_{damage_event}
+          config_{config}, damage_event_{damage_event}
     {
         assert(!title_.empty());
         assert(client_process_.valid());
@@ -89,8 +87,7 @@ class window_ui final
         try
         {
             win32::com_apartment apartment{COINIT_APARTMENTTHREADED};
-            window_host host{title_, console_, console_mutex_, client_process_, console_config_, window_config_,
-                             damage_event_};
+            window_host host{title_, console_, console_mutex_, client_process_, config_, damage_event_};
             hwnd_ = host.window();
             ready_.set();
             host.run();
@@ -107,8 +104,7 @@ class window_ui final
     win32::srwlock &console_mutex_;
     win32::handle_view client_process_;
     win32::wcstring_view title_;
-    const console_config &console_config_;
-    const window_config &window_config_;
+    const corehost_config &config_;
     win32::handle_view damage_event_{};
 
     win32::event ready_{win32::create_tag, true, false};
