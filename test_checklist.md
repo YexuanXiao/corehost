@@ -185,8 +185,10 @@ review 目标：修复根因，不降低性能。
 - [ ] F1 大量文本快速输出
   - 200 行连续输出后 F1-READY 正常。
 - [ ] F2 连续快速 resize
+  - 20 次放大/缩小后进程存活，F2-READY 保持。
 - [ ] F3 超长行/宽字符混合
 - [ ] F4 alternate-screen 应用反复进出
+  - 20 次进入/退出 alternate screen，主屏 F4-MAIN-READY 恢复。
 - [ ] F5 深层嵌套 shell + 退出
 - [ ] F6 关闭窗口时无崩溃/无残留进程
   - WM_CLOSE 后无 corehostw 残留。
