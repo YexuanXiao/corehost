@@ -99,10 +99,7 @@ void window_console_session::run_input()
         complete_pending();
 
         std::unique_lock<win32::srwlock> lock{console_mutex_};
-        if (console_.input().empty())
-        {
-            console_.input_event().reset();
-        }
+        console_.input_event().reset();
     }
 }
 

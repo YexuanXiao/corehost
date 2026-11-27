@@ -17,7 +17,6 @@
 #include "win32/string.hpp"
 
 #include <Windows.h>
-#include <TlHelp32.h>
 #include <vector>
 #include <dwmapi.h>
 #include <shellapi.h>
