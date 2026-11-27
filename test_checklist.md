@@ -66,6 +66,7 @@ review 目标：修复根因，不降低性能。
 - [ ] A4 光标形态/闪烁关闭状态
   - 测试使用不闪烁状态；cursor shape 默认 automatic 未切换。
 - [ ] A5 关闭窗口
+  - WM_CLOSE 后 corehostw 退出，无残留进程。
 - [ ] A6 进程退出、退出码
 - [ ] A7 启动目录/命令行参数
 - [ ] A8 topmost / maximized / fullscreen / allow move
@@ -137,6 +138,7 @@ review 目标：修复根因，不降低性能。
 
 - [-] D1 滚上/滚下与 scrollback：原版 conhost 对照同样无历史，非 corehost 回归
 - [ ] D2 cls/clear 后内容与光标
+  - `Clear-Host` 后旧内容不在 UIA 文本，CLEAR-READY/F1 输出正常。
 - [ ] D3 resize 保留内容、重新换行
 - [ ] D4 自动换行与行尾标志
   - 200 字符长行已截图折行，未验证行尾标志。
@@ -144,12 +146,15 @@ review 目标：修复根因，不降低性能。
   - 见 B16。
 - [-] D6 多标签同时输出：单窗口模式不适用
 - [ ] D7 shell 嵌套 shell
+  - PowerShell 内启动 cmd.exe，NESTED-CMD-OUTPUT 和 NESTED-AFTER 正常。
+  - 曾因 `\\\\?\\` 前缀导致 cmd.exe UNC 警告；短路径不再加前缀，已修复。
 - [ ] D8 进程退出、关闭标签页、退出码
 - [ ] D9 ReadConsoleOutput / ReadConsoleOutputCharacter 往返
 
 ## E. 第三方程序
 
 - [ ] E1 cmd.exe
+  - 见 D7 嵌套 cmd 测试。
 - [ ] E2 pwsh.exe
 - [ ] E3 edit.exe
 - [ ] E4 vim.exe
@@ -160,11 +165,13 @@ review 目标：修复根因，不降低性能。
 ## F. 压力与回归
 
 - [ ] F1 大量文本快速输出
+  - 200 行连续输出后 F1-READY 正常。
 - [ ] F2 连续快速 resize
 - [ ] F3 超长行/宽字符混合
 - [ ] F4 alternate-screen 应用反复进出
 - [ ] F5 深层嵌套 shell + 退出
 - [ ] F6 关闭窗口时无崩溃/无残留进程
+  - WM_CLOSE 后无 corehostw 残留。
 
 ## G. 配置功能与自动化
 
@@ -196,3 +203,4 @@ Windows PowerShell 的 console 输入/输出实现不保证代理对（surrogate
 - `wt_combining_fixed.png`：修复后 `e` + U+0301 同一行。
 - `wt_alt.png`：alternate screen 退出后主屏恢复。
 - `wt_mouse_result.txt`：鼠标按键事件。
+- `wt_b9_b15.png`：B9/B15/B18。

@@ -46,6 +46,10 @@ namespace
 
 [[nodiscard]] std::wstring extended_length_path(std::wstring path)
 {
+    if (path.size() < MAX_PATH)
+    {
+        return path;
+    }
     if (path.starts_with(L"\\\\?\\") || path.starts_with(L"\\\\.\\"))
     {
         return path;
