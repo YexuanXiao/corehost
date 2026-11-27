@@ -453,6 +453,17 @@ class console_api final
         return std::exchange(pending_read_kind_, pending_read_kind::none);
     }
 
+    [[nodiscard]] bool cancel_cooked_read(coreio::io_msg &message) noexcept
+    {
+        auto *request = reinterpret_cast<CONSOLE_READCONSOLE_MSG *>(message.body + sizeof(CONSOLE_MSG_HEADER));
+        request->NumBytes = 0;
+        request->ControlKeyState = 0;
+        coreio::prepare_completion(message, coreio::error::status_alerted, 0,
+                                   message.body + sizeof(CONSOLE_MSG_HEADER), sizeof(CONSOLE_READCONSOLE_MSG));
+        pending_read_kind_ = pending_read_kind::none;
+        return true;
+    }
+
     [[nodiscard]] bool read_console_input(coreio::io_msg &message, bool pending_allowed = true) noexcept
     {
         input_read_ = true;

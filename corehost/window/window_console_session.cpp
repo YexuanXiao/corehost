@@ -95,6 +95,7 @@ void window_console_session::run_input()
             win32::throw_last_error();
         }
 
+        handle_read_termination();
         complete_pending();
 
         std::unique_lock<win32::srwlock> lock{console_mutex_};
@@ -242,6 +243,8 @@ bool window_console_session::handle(coreio::io_msg &message)
     }
     case CONSOLE_IO_RAW_READ:
         LOG2("raw read pending");
+        pending_raw_message_ = message;
+        pending_raw_active_ = true;
         return false;
     case CONSOLE_IO_USER_DEFINED: {
         const auto *header = reinterpret_cast<const CONSOLE_MSG_HEADER *>(message.body);
@@ -270,7 +273,6 @@ bool window_console_session::handle(coreio::io_msg &message)
                 pending_message_ = message;
                 pending_kind_ = kind;
                 pending_active_ = true;
-                console_.set_cooked_read_pending(kind == consoleapi::console_api::pending_read_kind::console_read);
             }
         }
         return false;
@@ -305,7 +307,36 @@ void window_console_session::complete_pending()
         coreio::complete_io(server_, pending_message_.complete);
         pending_active_ = false;
         pending_kind_ = consoleapi::console_api::pending_read_kind::none;
-        console_.set_cooked_read_pending(false);
+    }
+}
+
+void window_console_session::handle_read_termination()
+{
+    LOG2("read termination wake");
+    std::unique_lock<win32::srwlock> lock{console_mutex_};
+    const auto reason = console_.take_read_termination();
+    if (reason == read_termination::none)
+    {
+        return;
+    }
+
+    if (pending_active_ && pending_kind_ == consoleapi::console_api::pending_read_kind::console_read)
+    {
+        if (api_.cancel_cooked_read(pending_message_))
+        {
+            coreio::complete_io(server_, pending_message_.complete);
+            pending_active_ = false;
+            pending_kind_ = consoleapi::console_api::pending_read_kind::none;
+            LOG2("cooked read terminated reason=%d", static_cast<int>(reason));
+        }
+    }
+
+    if (pending_raw_active_ && reason == read_termination::ctrl_break)
+    {
+        coreio::prepare_completion(pending_raw_message_, coreio::error::status_alerted, 0);
+        coreio::complete_io(server_, pending_raw_message_.complete);
+        pending_raw_active_ = false;
+        LOG2("raw read terminated by ctrl-break");
     }
 }
 

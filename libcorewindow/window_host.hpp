@@ -842,13 +842,9 @@ class window_host final
             {
                 console_.input().clear();
             }
-            if (console_.cooked_read_pending())
-            {
-                console_.push_input(consoleinput::input_event{
-                    .type = consoleinput::input_event_type::key,
-                    .key = consoleinput::key_from_text_character(3),
-                });
-            }
+            LOG2("notify read termination event=%lu", event);
+            console_.notify_read_termination(event == CTRL_BREAK_EVENT ? read_termination::ctrl_break
+                                                                       : read_termination::ctrl_c);
             process_ids.reserve(processes_.size());
             for (const auto process : processes_.processes())
             {
@@ -1522,6 +1518,11 @@ class window_host final
         case WM_SYSCHAR:
         {
             const auto character = static_cast<char16_t>(wparam);
+            if (character == 0x03 && (::GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                (::GetKeyState(VK_SHIFT) & 0x8000) == 0)
+            {
+                return 0;
+            }
             if ((character == 0x03 || character == 0x16 || character == 0x13) &&
                 (::GetKeyState(VK_CONTROL) & 0x8000) != 0 &&
                 (::GetKeyState(VK_SHIFT) & 0x8000) != 0)

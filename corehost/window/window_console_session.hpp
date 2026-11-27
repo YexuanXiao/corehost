@@ -78,13 +78,16 @@ class window_console_session final
     bool handle_write_console(coreio::io_msg &message);
     void apply_vt(std::u16string_view text);
     void complete_pending();
+    void handle_read_termination();
 
     win32::handle_view server_;
     console &console_;
     win32::srwlock &console_mutex_;
     coreio::io_msg pending_message_{};
+    coreio::io_msg pending_raw_message_{};
     consoleapi::console_api::pending_read_kind pending_kind_{};
     bool pending_active_{};
+    bool pending_raw_active_{};
     coreio::process_registry &processes_;
     coreio::io_state io_state_;
     coreio::input_payload_reader payload_;

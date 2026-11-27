@@ -23,6 +23,13 @@ namespace corehost::window
 // Whole-console shared state. One SRW lock covers screen, console state and
 // input queue. The console IO thread owns screen writes; the render thread
 // takes the same console lock only to copy damage before rendering.
+enum class read_termination : std::uint8_t
+{
+    none,
+    ctrl_c,
+    ctrl_break,
+};
+
 class console final
 {
   public:
@@ -54,14 +61,17 @@ class console final
         return input_event_;
     }
 
-    void set_cooked_read_pending(bool pending) noexcept
+    void notify_read_termination(read_termination reason) noexcept
     {
-        cooked_read_pending_ = pending;
+        read_termination_ = reason;
+        input_event_.set();
     }
 
-    [[nodiscard]] bool cooked_read_pending() const noexcept
+    [[nodiscard]] read_termination take_read_termination() noexcept
     {
-        return cooked_read_pending_;
+        const auto reason = read_termination_;
+        read_termination_ = read_termination::none;
+        return reason;
     }
 
     void set_focused(bool focused) noexcept
@@ -658,7 +668,7 @@ class console final
     float cell_width_{1.0f};
     float cell_height_{1.0f};
     win32::event input_event_{win32::create_tag, true, false};
-    bool cooked_read_pending_{};
+    read_termination read_termination_{read_termination::none};
 };
 
 } // namespace corehost::window
