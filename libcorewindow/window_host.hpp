@@ -833,11 +833,15 @@ class window_host final
         worker_.request_redraw();
     }
 
-    void deliver_ctrl_c(HWND hwnd) const noexcept
+    void deliver_ctrl_event(DWORD event, HWND hwnd, bool flush_input) const noexcept
     {
         std::vector<DWORD> process_ids;
         {
             std::unique_lock<win32::srwlock> lock{console_mutex_};
+            if (flush_input)
+            {
+                console_.input().clear();
+            }
             process_ids.reserve(processes_.size());
             for (const auto process : processes_.processes())
             {
@@ -858,9 +862,14 @@ class window_host final
         coreio::ctrl_delivery delivery;
         for (const auto process : process_ids)
         {
-            delivery.deliver(process, CTRL_C_EVENT, hwnd);
+            delivery.deliver(process, event, hwnd);
         }
-        LOG2("ctrl-c delivered processes=%zu", process_ids.size());
+        LOG2("ctrl event=%lu delivered processes=%zu", event, process_ids.size());
+    }
+
+    void deliver_ctrl_c(HWND hwnd) const noexcept
+    {
+        deliver_ctrl_event(CTRL_C_EVENT, hwnd, false);
     }
 
     void copy_selection(HWND hwnd)
@@ -1346,6 +1355,11 @@ class window_host final
             if (control && !alt && !shift && wparam == 'C' && (self->console_.state().input_mode & 0x0001) != 0)
             {
                 self->deliver_ctrl_c(hwnd);
+                return 0;
+            }
+            if (control && !alt && wparam == VK_CANCEL)
+            {
+                self->deliver_ctrl_event(CTRL_BREAK_EVENT, hwnd, true);
                 return 0;
             }
             if (control && shift && (wparam == 'C' || wparam == 'V'))
