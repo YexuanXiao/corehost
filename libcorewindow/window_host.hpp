@@ -2,6 +2,7 @@
 
 #include "clipboard.hpp"
 #include "console.hpp"
+#include "console_ctrl.hpp"
 #include "uia_provider.hpp"
 #include "control.hpp"
 #include "console_config.hpp"
@@ -15,6 +16,8 @@
 #include "win32/string.hpp"
 
 #include <Windows.h>
+#include <TlHelp32.h>
+#include <vector>
 #include <dwmapi.h>
 #include <shellapi.h>
 #include <imm.h>
@@ -828,6 +831,57 @@ class window_host final
         worker_.request_redraw();
     }
 
+    void deliver_ctrl_c(HWND hwnd) const noexcept
+    {
+        const auto client_id = ::GetProcessId(client_process_.get());
+        if (client_id == 0)
+        {
+            return;
+        }
+
+        std::vector<DWORD> process_ids{client_id};
+        std::vector<std::pair<DWORD, DWORD>> parents;
+        const auto snapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snapshot != INVALID_HANDLE_VALUE)
+        {
+            PROCESSENTRY32W entry{};
+            entry.dwSize = sizeof(entry);
+            if (::Process32FirstW(snapshot, &entry) != FALSE)
+            {
+                do
+                {
+                    parents.emplace_back(entry.th32ProcessID, entry.th32ParentProcessID);
+                } while (::Process32NextW(snapshot, &entry) != FALSE);
+            }
+            ::CloseHandle(snapshot);
+        }
+
+        bool added = true;
+        while (added)
+        {
+            added = false;
+            for (const auto &[process, parent] : parents)
+            {
+                if (std::ranges::find(process_ids, process) != process_ids.end())
+                {
+                    continue;
+                }
+                if (std::ranges::find(process_ids, parent) != process_ids.end())
+                {
+                    process_ids.push_back(process);
+                    added = true;
+                }
+            }
+        }
+
+        coreio::ctrl_delivery delivery;
+        for (const auto process : process_ids)
+        {
+            delivery.deliver(process, CTRL_C_EVENT, hwnd);
+        }
+        LOG2("ctrl-c delivered processes=%zu", process_ids.size());
+    }
+
     void copy_selection(HWND hwnd)
     {
         if (!clipboard_write_allowed(config_.clipboard))
@@ -1307,6 +1361,11 @@ class window_host final
         {
             const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
             const bool control = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            if (control && !shift && wparam == 'C')
+            {
+                self->deliver_ctrl_c(hwnd);
+                return 0;
+            }
             if (control && shift && (wparam == 'C' || wparam == 'V'))
             {
                 std::unique_lock<win32::srwlock> lock{self->console_mutex_};

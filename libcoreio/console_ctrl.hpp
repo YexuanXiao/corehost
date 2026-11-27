@@ -39,11 +39,11 @@ class ctrl_delivery final
         assert(control_ != nullptr);
     }
 
-    void deliver(DWORD pid, DWORD event) const noexcept
+    void deliver(DWORD pid, DWORD event, HWND hwnd = nullptr) const noexcept
     {
         CONSOLEENDTASK task{};
         task.ProcessId = ULongToHandle(pid);
-        task.hwnd = nullptr;
+        task.hwnd = hwnd;
         task.ConsoleEventCode = event;
         task.ConsoleFlags = console_ctrl_flags(event);
         (void)control_(ConsoleEndTask, &task, sizeof(task));
