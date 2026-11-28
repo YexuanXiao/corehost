@@ -54,10 +54,7 @@ class window_ui final
     {
         assert(thread_.valid());
         // The UI thread handle is the only wait object that is guaranteed to
-        // remain valid for the whole lifetime of the thread. The close/fatal
-        // events are diagnostics only; waiting on them makes teardown
-        // dependent on event-handle lifetime and can fail with
-        // ERROR_INVALID_HANDLE after an early UI-thread failure.
+        // remain valid for the whole lifetime of the thread.
         thread_.join();
         thread_ = {};
     }
@@ -92,11 +89,9 @@ class window_ui final
             hwnd_ = host.window();
             ready_.set();
             host.run();
-            close_requested_.set();
         }
         catch (...)
         {
-            fatal_.set();
             ready_.set();
         }
     }
@@ -110,8 +105,6 @@ class window_ui final
     coreio::process_registry &processes_;
 
     win32::event ready_{win32::create_tag, true, false};
-    win32::event close_requested_{win32::create_tag, true, false};
-    win32::event fatal_{win32::create_tag, true, false};
     HWND hwnd_{};
     win32::basic_thread thread_;
 };
