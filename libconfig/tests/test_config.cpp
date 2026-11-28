@@ -100,11 +100,13 @@ int main()
         config.mouse.selection_copy_on_select || config.mouse.selection_trim_block || config.mouse.middle_click_paste ||
         config.title.force_corehost || config.accessibility.reduce_motion ||
         config.window_behavior.launch != launch_mode::automatic ||
-        config.window.backdrop != backdrop_mode::none || config.window_behavior.inherit_working_directory || !config.graphics.sixel || config.text.bold_is_bright || config.text.blink_enable || config.text.underline != text_underline_style::single ||
+        config.window.backdrop != backdrop_mode::acrylic || config.window_behavior.inherit_working_directory || !config.graphics.sixel || config.text.bold_is_bright || config.text.blink_enable || config.text.underline != text_underline_style::single ||
         config.text.strikethrough != text_strikethrough_style::single ||
         config.bell.mode != bell_mode_full::visual)
     {
-        std::fprintf(stderr, "font/mouse defaults mismatch\n");
+        std::fprintf(stderr, "font/mouse defaults mismatch: backdrop=%d candidate=%d cursor=%d\n",
+                     static_cast<int>(config.window.backdrop), config.ime.candidate_offset_cells,
+                     static_cast<int>(config.cursor.style));
         return EXIT_FAILURE;
     }
 

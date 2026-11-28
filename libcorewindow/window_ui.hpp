@@ -53,12 +53,11 @@ class window_ui final
     void wait()
     {
         assert(thread_.valid());
-        HANDLE events[] = {close_requested_.get(), fatal_.get()};
-        const auto result = ::WaitForMultipleObjects(2, events, FALSE, INFINITE);
-        if (result == WAIT_FAILED)
-        {
-            win32::throw_last_error();
-        }
+        // The UI thread handle is the only wait object that is guaranteed to
+        // remain valid for the whole lifetime of the thread. The close/fatal
+        // events are diagnostics only; waiting on them makes teardown
+        // dependent on event-handle lifetime and can fail with
+        // ERROR_INVALID_HANDLE after an early UI-thread failure.
         thread_.join();
         thread_ = {};
     }

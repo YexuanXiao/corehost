@@ -118,7 +118,7 @@ namespace corehost::window
         acrylic,
     };
 
-    inline constexpr backdrop_mode default_backdrop_mode = backdrop_mode::none;
+    inline constexpr backdrop_mode default_backdrop_mode = backdrop_mode::acrylic;
     inline constexpr console_palette default_palette = console_palette::campbell();
 
     // Window/display behavior. File loading is intentionally not implemented.
