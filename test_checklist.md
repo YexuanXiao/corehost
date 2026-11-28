@@ -159,6 +159,8 @@ review 目标：修复根因，不降低性能。
 ative_corehost_paste3.png`。
 - [x] C9 鼠标点击/拖动/滚轮
   - 双击选中单词（`SCROLL`），三击选中整行（`SCROLL-LINE-078`）；
+  - 双击/三击后不再遗留鼠标 capture，标题栏按钮无需先点一次获取焦点；
+  - 证据：GetGUIThreadInfo `hwndCapture=0`。
   - 修复：selection update/滚轮/滚动条修改 offset 后未 request_redraw，拖拽只能等光标闪烁超时；
   - 真实鼠标拖拽选中 9 行，滚轮滚动 viewport 正常；
   - 证据：`C:\\1\\wt_drag_real.png`、`C:\\1\\wt_scroll_fixed.png`。
